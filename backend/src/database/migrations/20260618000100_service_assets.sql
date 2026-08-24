@@ -5,8 +5,6 @@ create table if not exists pg_service_assets (
   address_type varchar(16) not null,
   port integer not null,
   protocol varchar(16) not null,
-  platform varchar(16),
-  agent_id text,
   sni_name varchar(255),
   display_name varchar(255),
   service_instance_id text references pg_service_instances(id),
@@ -30,7 +28,6 @@ create unique index if not exists uq_pg_service_assets_active_identity
 create index if not exists idx_pg_service_assets_service_instance on pg_service_assets (tenant_id, service_instance_id);
 create index if not exists idx_pg_service_assets_service_endpoint on pg_service_assets (tenant_id, service_endpoint_id);
 create index if not exists idx_pg_service_assets_host on pg_service_assets (tenant_id, host_id);
-create index if not exists idx_pg_service_assets_agent on pg_service_assets (tenant_id, agent_id);
 create index if not exists idx_pg_service_assets_status on pg_service_assets (tenant_id, status);
 
 alter table pg_certificate_bindings add column if not exists service_asset_id text references pg_service_assets(id);
