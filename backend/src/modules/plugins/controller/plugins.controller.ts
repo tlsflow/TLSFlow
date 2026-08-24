@@ -28,6 +28,8 @@ export class PluginsController {
   register(router: Router): void {
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
+    router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
+    router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
     router.post('/api/v1/plugin-packages/import', '导入统一插件版本', tags, (request) => this.importUnifiedPluginVersion(request));
     router.post('/api/v1/plugin-versions/approve-permissions', '审批统一插件权限', tags, (request) => this.approveUnifiedPluginPermissions(request));
     router.post('/api/v1/plugin-versions/enable', '启用统一插件版本', tags, (request) => this.enableUnifiedPluginVersion(request));
@@ -61,6 +63,16 @@ export class PluginsController {
   private async listUnifiedPluginVersions(request: HttpRequest) {
     const items = await this.unifiedPlugins.listVersions(tenantId(request));
     return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private listPluginVersionGroups(request: HttpRequest) {
+    return this.unifiedPlugins.listVersionGroups(tenantId(request));
+  }
+
+  private getPluginVersionManagementDetail(request: HttpRequest) {
+    const pluginVersionId = request.path.match(/^\/api\/v1\/plugin-version-management\/([^/]+)$/)?.[1];
+    if (!pluginVersionId) throw new Error('插件版本管理详情路径无效');
+    return this.unifiedPlugins.getVersionManagementDetail(tenantId(request), decodeURIComponent(pluginVersionId));
   }
 
   private async importUnifiedPluginVersion(request: HttpRequest) {
@@ -248,6 +260,8 @@ export function getPluginsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageResponseSchema },
     { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageResponseSchema },
+    { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: { type: 'object', additionalProperties: true } } },
+    { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-packages/import', operationId: 'importUnifiedPluginVersion', summary: '导入统一插件版本', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-versions/approve-permissions', operationId: 'approveUnifiedPluginPermissions', summary: '审批统一插件权限', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-versions/enable', operationId: 'enableUnifiedPluginVersion', summary: '启用统一插件版本', tags, responseSchema: objectSchema() },

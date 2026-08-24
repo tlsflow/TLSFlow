@@ -138,7 +138,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
   });
   const executionDetailStream = new ExecutionDetailStreamService();
-  const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
+  const unifiedPluginsService = new UnifiedPluginsApplicationService(
+    new PgUnifiedPluginsRepository(appDb),
+    undefined,
+    undefined,
+    new PluginWorkflowBindingsRepository(appDb),
+  );
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector, unifiedPluginsService);
   const executionResultSync = new ExecutionResultSyncService(

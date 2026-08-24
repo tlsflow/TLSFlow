@@ -4,12 +4,18 @@ import { newId } from '../../../shared/id.js';
 import type {
   ImportUnifiedPluginVersionInput,
   UnifiedPluginCatalogItem,
+  UnifiedPluginReferenceCounts,
   UnifiedPluginSource,
   UnifiedPluginUpgradeDiff,
   UnifiedPluginValidationReport,
+  UnifiedPluginVersionGroup,
+  UnifiedPluginVersionManagementDetail,
+  UnifiedPluginVersionSummary,
+  UnifiedPluginWorkflowVersionSummary,
   UnifiedPluginVersionRecord,
 } from '../dto/unified-plugins.dto.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
+import type { PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
 import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
@@ -20,6 +26,7 @@ export class UnifiedPluginsApplicationService {
     private readonly repository: UnifiedPluginsRepository = new PgUnifiedPluginsRepository(),
     private readonly packageResources = new PluginPackageResourcesService(),
     private readonly capabilityRegistry = new PluginCapabilityRegistry(),
+    private readonly workflowBindings?: PluginWorkflowBindingsRepositoryPort,
   ) {}
 
   async importVersion(
@@ -96,6 +103,43 @@ export class UnifiedPluginsApplicationService {
 
   async listBuiltinVersions(): Promise<UnifiedPluginVersionRecord[]> {
     return this.repository.listVersionsBySource?.('BUILTIN') ?? [];
+  }
+
+  async listVersionGroups(tenantId: string): Promise<UnifiedPluginVersionGroup[]> {
+    const versions = await this.listAccessibleVersions(tenantId);
+    const summaries = await Promise.all(versions.map((version) => this.toVersionSummary(tenantId, version)));
+    const grouped = new Map<string, UnifiedPluginVersionSummary[]>();
+    for (const summary of summaries) grouped.set(summary.pluginId, [...(grouped.get(summary.pluginId) ?? []), summary]);
+    return [...grouped.entries()].map(([pluginId, items]) => {
+      const ordered = items.sort((left, right) => compareSemanticVersions(right.version, left.version) || right.id.localeCompare(left.id));
+      const sources = new Set(ordered.map((item) => item.source));
+      const source: UnifiedPluginVersionGroup['source'] = sources.size === 1
+        ? (sources.has('BUILTIN') ? 'BUILTIN' : 'USER')
+        : 'MIXED';
+      const active = ordered
+        .filter((item) => item.status === 'ENABLED' && item.references.total > 0)
+        .sort((left, right) => right.references.total - left.references.total || compareSemanticVersions(right.version, left.version))[0];
+      return {
+        pluginId,
+        source,
+        ...(active ? { activeVersionId: active.id } : {}),
+        versions: ordered,
+      };
+    }).sort((left, right) => left.pluginId.localeCompare(right.pluginId));
+  }
+
+  async getVersionManagementDetail(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginVersionManagementDetail> {
+    const version = await this.getAccessibleVersion(tenantId, pluginVersionId);
+    const summary = await this.toVersionSummary(tenantId, version);
+    return {
+      ...summary,
+      tenantId: version.tenantId,
+      trust: version.trust,
+      support: version.support,
+      manifest: version.manifest,
+      validationReport: version.validationReport,
+      visibleToTenant: true,
+    };
   }
 
   async getVersion(id: string): Promise<UnifiedPluginVersionRecord> {
@@ -233,6 +277,73 @@ export class UnifiedPluginsApplicationService {
       };
     });
   }
+
+  private async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
+    const versions = this.repository.listAccessibleVersions
+      ? await this.repository.listAccessibleVersions(tenantId)
+      : [...await this.repository.listVersions(tenantId), ...await this.listBuiltinVersions()];
+    const byIdentity = new Map<string, UnifiedPluginVersionRecord>();
+    for (const version of versions) {
+      const key = `${version.pluginId}@${version.version}`;
+      const current = byIdentity.get(key);
+      if (!current || (version.source === 'BUILTIN' && current.source !== 'BUILTIN') || version.updatedAt > current.updatedAt) {
+        byIdentity.set(key, version);
+      }
+    }
+    return [...byIdentity.values()];
+  }
+
+  private async getAccessibleVersion(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginVersionRecord> {
+    const version = await this.getVersion(pluginVersionId);
+    if (version.tenantId !== tenantId && version.source !== 'BUILTIN') {
+      throw new AppError('RESOURCE_NOT_FOUND', '统一插件版本不存在或当前租户不可见', { pluginVersionId });
+    }
+    return version;
+  }
+
+  private async toVersionSummary(tenantId: string, version: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionSummary> {
+    const workflowVersions = this.workflowBindings
+      ? (await this.workflowBindings.list(version.id)).map(toWorkflowVersionSummary)
+      : [];
+    const references = this.repository.countReferences
+      ? await this.repository.countReferences(tenantId, version.id)
+      : emptyReferenceCounts();
+    return {
+      id: version.id,
+      pluginId: version.pluginId,
+      version: version.version,
+      source: version.source,
+      runtime: version.runtime,
+      scope: version.scope,
+      status: version.status,
+      packageSha256: version.packageSha256,
+      manifestSha256: version.manifestSha256,
+      resourceSha256: version.resourceSha256,
+      workflowVersions,
+      references,
+      switchable: version.status === 'ENABLED',
+    };
+  }
+}
+
+function toWorkflowVersionSummary(binding: {
+  capabilityKey: string;
+  workflowResourcePath: string;
+  workflowTemplateId: string;
+  workflowVersionId: string;
+  workflowContentSha256: string;
+}): UnifiedPluginWorkflowVersionSummary {
+  return {
+    capabilityKey: binding.capabilityKey,
+    workflowResourcePath: binding.workflowResourcePath,
+    workflowTemplateId: binding.workflowTemplateId,
+    workflowVersionId: binding.workflowVersionId,
+    workflowContentSha256: binding.workflowContentSha256,
+  };
+}
+
+function emptyReferenceCounts(): UnifiedPluginReferenceCounts {
+  return { bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 };
 }
 
 function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {

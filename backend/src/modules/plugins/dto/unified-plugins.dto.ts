@@ -148,3 +148,54 @@ export interface UnifiedPluginCatalogItem {
   compatibility: UnifiedPluginManifestV1['compatibility'];
   detailRef: { pluginVersionId: string };
 }
+
+export interface UnifiedPluginReferenceCounts {
+  bindings: number;
+  assignments: number;
+  hosts: number;
+  serviceAssets: number;
+  deviceAssets: number;
+  total: number;
+}
+
+export interface UnifiedPluginWorkflowVersionSummary {
+  capabilityKey: string;
+  workflowResourcePath: string;
+  workflowTemplateId: string;
+  workflowVersionId: string;
+  workflowContentSha256: string;
+}
+
+export interface UnifiedPluginVersionSummary {
+  id: string;
+  pluginId: string;
+  version: string;
+  source: UnifiedPluginSource;
+  runtime: UnifiedPluginRuntime;
+  scope: UnifiedPluginScope;
+  status: UnifiedPluginVersionStatus;
+  packageSha256: string;
+  manifestSha256: string;
+  resourceSha256: Record<string, string>;
+  workflowVersions: UnifiedPluginWorkflowVersionSummary[];
+  references: UnifiedPluginReferenceCounts;
+  switchable: boolean;
+}
+
+export interface UnifiedPluginVersionGroup {
+  pluginId: string;
+  source: 'BUILTIN' | 'USER' | 'MIXED';
+  activeVersionId?: string;
+  versions: UnifiedPluginVersionSummary[];
+}
+
+export interface UnifiedPluginVersionManagementDetail extends UnifiedPluginVersionSummary {
+  tenantId: string;
+  ownerType?: 'SYSTEM' | 'TENANT';
+  ownerId?: string;
+  trust: UnifiedPluginTrust;
+  support: UnifiedPluginSupport;
+  manifest: UnifiedPluginManifestV1;
+  validationReport: UnifiedPluginValidationReport;
+  visibleToTenant: boolean;
+}

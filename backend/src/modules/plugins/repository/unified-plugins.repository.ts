@@ -1,6 +1,6 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
-import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
+import type { UnifiedPluginReferenceCounts, UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 
 export interface UnifiedPluginsRepository {
   saveVersion(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord>;
@@ -8,6 +8,8 @@ export interface UnifiedPluginsRepository {
   findByIdentity(tenantId: string, pluginId: string, version: string): Promise<UnifiedPluginVersionRecord | undefined>;
   listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
   listVersionsBySource?(source: UnifiedPluginVersionRecord['source']): Promise<UnifiedPluginVersionRecord[]>;
+  listAccessibleVersions?(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
+  countReferences?(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginReferenceCounts>;
 }
 
 export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
@@ -74,6 +76,52 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
     return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
   }
 
+  async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
+    const result = await this.db.query<UnifiedPluginVersionRow>(
+      `select * from unified_plugin_versions
+        where tenant_id = $1 or source = 'BUILTIN'
+        order by plugin_id, created_at desc`,
+      [tenantId],
+    );
+    return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
+  }
+
+  async countReferences(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginReferenceCounts> {
+    const row = (await this.db.query<{
+      bindings: number | string;
+      assignments: number | string;
+      hosts: number | string;
+      service_assets: number | string;
+      device_assets: number | string;
+    }>(`
+      select
+        (select count(*) from unified_plugin_bindings
+          where tenant_id=$1 and plugin_version_id=$2 and status='ACTIVE') as bindings,
+        (select count(*) from plugin_capability_assignments
+          where tenant_id=$1 and plugin_version_id=$2 and status='ACTIVE') as assignments,
+        (select count(*) from pg_hosts host
+          where host.tenant_id=$1
+            and exists (
+              select 1 from jsonb_array_elements(host.management_channels) channel
+              where channel->>'type'='PLUGIN'
+                and channel->'metadata'->>'pluginVersionId'=$2
+            )) as hosts,
+        (select count(*) from pg_service_assets asset
+          where asset.tenant_id=$1 and asset.deleted_at is null
+            and asset.metadata->>'pluginVersionId'=$2) as service_assets,
+        (select count(*) from pg_device_assets asset
+          where asset.tenant_id=$1 and asset.plugin_version_id=$2) as device_assets
+    `, [tenantId, pluginVersionId])).rows[0];
+    const counts = {
+      bindings: toCount(row?.bindings),
+      assignments: toCount(row?.assignments),
+      hosts: toCount(row?.hosts),
+      serviceAssets: toCount(row?.service_assets),
+      deviceAssets: toCount(row?.device_assets),
+    };
+    return { ...counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };
+  }
+
   private async withResources(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord> {
     const rows = (await this.db.query<{ resource_path: string; resource_content: string }>(
       'select resource_path, resource_content from unified_plugin_resources where plugin_version_id = $1 order by resource_path',
@@ -81,6 +129,10 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
     )).rows;
     return { ...record, resources: Object.fromEntries(rows.map((row) => [row.resource_path, row.resource_content])) };
   }
+}
+
+function toCount(value: number | string | undefined): number {
+  return typeof value === 'number' ? value : Number(value ?? 0);
 }
 
 interface UnifiedPluginVersionRow extends Record<string, unknown> {
