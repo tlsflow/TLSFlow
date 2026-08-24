@@ -1,4 +1,4 @@
-const DATE_TIME_KEY_PATTERN = /(?:^|\.)(?:createdAt|updatedAt|startedAt|finishedAt|scheduledAt|checkedAt|detectedAt|lastCheckedAt|lastSeenAt|heartbeatAt|lastHeartbeatAt|lastRecoveryAt|lastTaskPollAt|lastTaskResultAt|lastSelfCheckAt|reportedAt|receivedAt|emittedAt|expiresAt|capturedAt|notBefore|notAfter|timestamp|time)$/i
+const DATE_TIME_KEY_PATTERN = /(?:^|\.)(?:createdAt|updatedAt|startedAt|finishedAt|scheduledAt|checkedAt|detectedAt|lastCheckedAt|lastSeenAt|lastContactAt|heartbeatAt|lastHeartbeatAt|lastRecoveryAt|lastTaskPollAt|lastTaskResultAt|lastSelfCheckAt|reportedAt|receivedAt|emittedAt|expiresAt|capturedAt|notBefore|notAfter|timestamp|time)$/i
 const ISO_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 

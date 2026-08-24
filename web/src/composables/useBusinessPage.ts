@@ -81,12 +81,14 @@ function normalizeRisk(value: string, fallback: ViewRow['risk']): ViewRow['risk'
   return KNOWN_RISKS.has(risk) ? (risk as ViewRow['risk']) : fallback
 }
 
-function toRows(page: ApiPage | undefined, config: BusinessPageConfig): ViewRow[] {
+export function buildBusinessPageRows(page: ApiPage | undefined, config: BusinessPageConfig): ViewRow[] {
   const items = page?.items ?? []
   return items.map((record, index) => {
     const id = readString(record, ['id', 'resourceId', 'certificateId', 'planId', 'runId', 'eventId'], `${config.moduleName}-${index + 1}`)
     const name = readString(record, ['name', 'displayName', 'primaryDomain', 'domainName', 'hostname', 'title', 'resourceName'], id)
-    const status = readString(record, ['status', 'state', 'result', 'health.status'], config.defaultStatus)
+    const statusCandidates = config.columns.find((column) => column.key === 'status')?.candidates
+      ?? ['status', 'state', 'result', 'health.status']
+    const status = readString(record, statusCandidates, config.defaultStatus)
     const risk = normalizeRisk(readString(record, ['risk', 'riskLevel', 'severity'], config.defaultRisk), config.defaultRisk)
     const row: Record<string, unknown> = { id, name, status, risk, raw: record }
     config.columns.forEach((column) => {
@@ -105,7 +107,7 @@ export function useBusinessPage(config: BusinessPageConfig, options: UseBusiness
   const error = ref<PageErrorState | null>(null)
   const lastRequestId = ref(translateBusinessPage(options, 'businessPage.request.notRequested'))
 
-  const rows = computed(() => toRows(page.value ?? undefined, config))
+  const rows = computed(() => buildBusinessPageRows(page.value ?? undefined, config))
   const total = computed(() => page.value?.total ?? rows.value.length)
 
   async function load() {

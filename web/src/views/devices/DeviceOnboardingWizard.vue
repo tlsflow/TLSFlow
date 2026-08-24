@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
-import { buildDeviceOnboardingPayload, validateDeviceOnboarding, type DeviceOnboardingPlatform } from './device-onboarding.model'
+import { buildDeviceOnboardingPayload, normalizeDeviceOnboardingResult, validateDeviceOnboarding, type DeviceOnboardingPlatform, type DeviceOnboardingResultView } from './device-onboarding.model'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; completed: [] }>()
@@ -13,48 +13,113 @@ const selectedKey = ref('')
 const values = ref<Record<string, string | number | boolean>>({ tlsVerify: true })
 const pending = ref(false)
 const error = ref('')
-const result = ref<Record<string, unknown> | null>(null)
+const result = ref<DeviceOnboardingResultView | null>(null)
+const commandCopied = ref(false)
+const step = ref<1 | 2 | 3>(1)
 
 const selected = computed(() => platforms.value.find((item) => item.key === selectedKey.value))
 const missingFields = computed(() => selected.value ? validateDeviceOnboarding(selected.value, values.value) : [])
 const canSubmit = computed(() => Boolean(selected.value) && missingFields.value.length === 0 && !pending.value)
+const isAgentInstall = computed(() => selected.value?.onboardingKind === 'AGENT_INSTALL')
 
 watch(() => props.open, async (open) => {
-  if (!open || platforms.value.length > 0) return
+  if (!open) return
+  step.value = 1
+  selectedKey.value = ''
+  values.value = { tlsVerify: true }
+  result.value = null
+  commandCopied.value = false
+  if (platforms.value.length > 0) return
   error.value = ''
   try {
     const response = await listDeviceOnboardingPlatforms()
     platforms.value = [...(response.data ?? [])] as unknown as DeviceOnboardingPlatform[]
-    selectedKey.value = platforms.value[0]?.key ?? ''
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
   }
 }, { immediate: true })
 
-watch(selectedKey, () => {
-  values.value = { tlsVerify: true }
-  result.value = null
-  error.value = ''
-})
-
 function fieldLabel(key: string): string {
   return t(`devices.onboarding.fields.${key}`)
 }
 
-async function submit() {
-  if (!selected.value || !canSubmit.value) return
+async function submit(platform = selected.value) {
+  if (!platform || pending.value) return
+  if (validateDeviceOnboarding(platform, values.value).length > 0) return
   pending.value = true
   error.value = ''
   try {
-    const payload = buildDeviceOnboardingPayload(selected.value, values.value, window.location.origin)
+    const payload = buildDeviceOnboardingPayload(platform, values.value, window.location.origin)
     const response = await onboardManagedDevice(payload)
-    result.value = response.data ?? {}
+    result.value = normalizeDeviceOnboardingResult(platform, response.data ?? {})
+    commandCopied.value = false
+    step.value = 3
     emit('completed')
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('devices.errors.onboardingFailed')
   } finally {
     pending.value = false
   }
+}
+
+async function selectPlatform(platformKey: string) {
+  const platform = platforms.value.find((item) => item.key === platformKey)
+  selectedKey.value = platformKey
+  values.value = { tlsVerify: true }
+  result.value = null
+  commandCopied.value = false
+  error.value = ''
+  if (!platform) return
+  if (platform.onboardingKind === 'AGENT_INSTALL' && platform.supportStatus === 'SUPPORTED') {
+    step.value = 3
+    await submit(platform)
+    return
+  }
+  step.value = 2
+}
+
+function previousStep() {
+  if (step.value === 3) {
+    result.value = null
+    commandCopied.value = false
+    if (isAgentInstall.value) {
+      selectedKey.value = ''
+      step.value = 1
+      return
+    }
+    step.value = 2
+    return
+  }
+  selectedKey.value = ''
+  step.value = 1
+}
+
+async function copyInstallCommand() {
+  const command = result.value?.installCommand
+  if (!command) return
+  commandCopied.value = await copyToClipboard(command)
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 回退到旧浏览器兼容方案。
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  return copied
 }
 </script>
 
@@ -67,14 +132,40 @@ async function submit() {
     @update:open="emit('update:open', $event)"
   >
     <div class="device-wizard">
-      <div class="device-wizard__platforms" :aria-label="t('devices.onboarding.platformAria')">
+      <ol class="device-wizard__steps" :class="{ 'device-wizard__steps--agent': isAgentInstall }" :aria-label="t('devices.onboarding.stepsAria')">
+        <li :class="{ active: step === 1, done: step > 1 }" :aria-current="step === 1 ? 'step' : undefined">
+          <span class="device-wizard__step-marker" aria-hidden="true">
+            <svg v-if="step > 1" viewBox="0 0 24 24" fill="none">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            <span v-else>1</span>
+          </span>
+          <span>{{ t('devices.onboarding.steps.platform') }}</span>
+        </li>
+        <li v-if="!isAgentInstall" :class="{ active: step === 2, done: step > 2 }" :aria-current="step === 2 ? 'step' : undefined">
+          <span class="device-wizard__step-marker" aria-hidden="true">
+            <svg v-if="step > 2" viewBox="0 0 24 24" fill="none">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            <span v-else>2</span>
+          </span>
+          <span>{{ t('devices.onboarding.steps.configure') }}</span>
+        </li>
+        <li :class="{ active: step === 3 }" :aria-current="step === 3 ? 'step' : undefined">
+          <span class="device-wizard__step-marker" aria-hidden="true">{{ isAgentInstall ? 2 : 3 }}</span>
+          <span>{{ isAgentInstall ? t('devices.onboarding.steps.install') : t('devices.onboarding.steps.confirm') }}</span>
+        </li>
+      </ol>
+
+      <div v-if="step === 1" class="device-wizard__platforms" :aria-label="t('devices.onboarding.platformAria')">
         <button
           v-for="platform in platforms"
           :key="platform.key"
           type="button"
           class="device-wizard__platform"
           :class="{ 'device-wizard__platform--active': selectedKey === platform.key }"
-          @click="selectedKey = platform.key"
+          :disabled="pending"
+          @click="selectPlatform(platform.key)"
         >
           <strong>{{ t(platform.displayNameKey) }}</strong>
           <span>{{ platform.productFamily }}</span>
@@ -83,7 +174,8 @@ async function submit() {
       </div>
 
       <p v-if="error" class="device-wizard__error">{{ error }}</p>
-      <section v-if="selected" class="device-wizard__form">
+      <p v-if="pending && isAgentInstall" class="device-wizard__notice">{{ t('common.loading') }}</p>
+      <section v-if="step === 2 && selected" class="device-wizard__form">
         <p v-if="selected.supportStatus !== 'SUPPORTED'" class="device-wizard__notice">
           {{ t('devices.onboarding.unsupported') }}
         </p>
@@ -97,24 +189,64 @@ async function submit() {
           >
           <input v-else v-model="values[field.key]" type="checkbox">
         </label>
+        <label v-if="selected.onboardingKind === 'API_CONNECTION' && values.tlsVerify === false">
+          <span>{{ t('devices.onboarding.fields.insecureTlsAcknowledged') }}</span>
+          <input v-model="values.insecureTlsAcknowledged" type="checkbox">
+        </label>
+      </section>
 
-        <div v-if="result" class="device-wizard__result">
-          <strong>{{ t('devices.onboarding.completed') }}</strong>
-          <code v-if="selected.onboardingKind === 'AGENT_INSTALL'">{{ result.installCommand }}</code>
+      <section v-if="step === 3 && selected && result" class="device-wizard__result">
+        <strong>{{ isAgentInstall ? t('devices.onboarding.installReady') : t('devices.onboarding.completed') }}</strong>
+        <p v-if="isAgentInstall">{{ t('devices.onboarding.installDescription') }}</p>
+        <div v-if="isAgentInstall" class="device-wizard__command">
+          <pre><code>{{ result.installCommand }}</code></pre>
+          <button
+            class="device-wizard__copy-button"
+            :class="{ 'device-wizard__copy-button--copied': commandCopied }"
+            type="button"
+            :disabled="!result.installCommand"
+            :aria-label="commandCopied ? t('devices.actions.copied') : t('devices.actions.copyCommand')"
+            :title="commandCopied ? t('devices.actions.copied') : t('devices.actions.copyCommand')"
+            @click="copyInstallCommand"
+          >
+            <svg v-if="commandCopied" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="8" y="8" width="11" height="11" rx="2" />
+              <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+            </svg>
+            <span class="device-wizard__sr-only" aria-live="polite">{{ commandCopied ? t('devices.actions.copied') : '' }}</span>
+          </button>
         </div>
+        <dl v-else>
+          <div><dt>{{ t('devices.onboarding.connectionStatus') }}</dt><dd>{{ result.connectionSucceeded ? t('devices.onboarding.connectionTested') : t('devices.onboarding.connectionTestFailed') }}</dd></div>
+          <div v-if="result.connectionErrorCode"><dt>{{ t('devices.onboarding.connectionErrorCode') }}</dt><dd>{{ result.connectionErrorCode }}</dd></div>
+        </dl>
       </section>
     </div>
     <template #actions>
       <button class="gc-button" type="button" @click="emit('update:open', false)">{{ t('devices.actions.cancel') }}</button>
-      <button class="gc-button gc-button--primary" type="button" :disabled="!canSubmit" @click="submit">
-        {{ pending ? t('common.loading') : t('devices.actions.add') }}
+      <button v-if="step > 1" class="gc-button" type="button" @click="previousStep">{{ t('devices.actions.previous') }}</button>
+      <button v-if="step === 2" class="gc-button gc-button--primary" type="button" :disabled="!canSubmit" @click="submit()">
+        {{ pending ? t('common.loading') : isAgentInstall ? t('devices.actions.generateCommand') : t('devices.actions.add') }}
       </button>
+      <button v-if="step === 3" class="gc-button gc-button--primary" type="button" @click="emit('update:open', false)">{{ t('devices.actions.finish') }}</button>
     </template>
   </GcModal>
 </template>
 
 <style scoped>
 .device-wizard { display: grid; gap: var(--gc-space-4); }
+.device-wizard__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); padding: 0; margin: 0; list-style: none; }
+.device-wizard__steps--agent { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.device-wizard__steps li { display: flex; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); color: var(--gc-color-text-muted); background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid transparent; border-radius: var(--gc-radius-sm); }
+.device-wizard__steps li.active { color: var(--gc-color-text-inverse); background: var(--gc-gradient-primary); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-primary); }
+.device-wizard__steps li.done { color: var(--gc-color-success); background: var(--gc-color-surface); border-color: var(--gc-color-success-border); }
+.device-wizard__step-marker { display: grid; flex: 0 0 auto; place-items: center; inline-size: var(--gc-space-6); block-size: var(--gc-space-6); color: inherit; background: var(--gc-color-surface); border-radius: var(--gc-radius-xl); }
+.device-wizard__steps li.active .device-wizard__step-marker { color: var(--gc-color-primary); }
+.device-wizard__steps li.done .device-wizard__step-marker { color: var(--gc-color-text-inverse); background: var(--gc-color-success); }
+.device-wizard__step-marker svg { inline-size: var(--gc-space-4); block-size: var(--gc-space-4); stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .device-wizard__platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .device-wizard__platform { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); text-align: left; color: var(--gc-color-text); background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
 .device-wizard__platform--active { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }
@@ -125,5 +257,15 @@ async function submit() {
 .device-wizard__notice { color: var(--gc-color-warning); background: var(--gc-color-warning-soft); border: var(--gc-space-hairline) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-sm); padding: var(--gc-space-3); }
 .device-wizard__error { color: var(--gc-color-danger); }
 .device-wizard__result { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); background: var(--gc-color-success-soft); border: var(--gc-space-hairline) solid var(--gc-color-success-border); border-radius: var(--gc-radius-sm); }
+.device-wizard__command { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gc-space-3); }
+.device-wizard__result pre { overflow: auto; margin: 0; padding: var(--gc-space-3); color: var(--gc-color-text-inverse); background: var(--gc-color-code-bg); border-radius: var(--gc-radius-sm); white-space: pre-wrap; }
 .device-wizard__result code { overflow-wrap: anywhere; }
+.device-wizard__result dl, .device-wizard__result p { margin: 0; }
+.device-wizard__copy-button { display: grid; place-items: center; padding: var(--gc-space-3); color: var(--gc-color-text-inverse); cursor: pointer; background: var(--gc-gradient-primary); border: var(--gc-space-hairline) solid var(--gc-color-primary-border-strong); border-radius: var(--gc-radius-md); box-shadow: var(--gc-shadow-primary); }
+.device-wizard__copy-button:hover { background: var(--gc-color-primary-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
+.device-wizard__copy-button:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
+.device-wizard__copy-button:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); transform: none; }
+.device-wizard__copy-button--copied { color: var(--gc-color-text-inverse); background: var(--gc-color-success); border-color: var(--gc-color-success-border); box-shadow: var(--gc-shadow-sm); }
+.device-wizard__copy-button svg { inline-size: var(--gc-space-5); block-size: var(--gc-space-5); stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.device-wizard__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

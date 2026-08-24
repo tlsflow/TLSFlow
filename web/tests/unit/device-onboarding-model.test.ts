@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDeviceOnboardingPayload, validateDeviceOnboarding, type DeviceOnboardingPlatform } from '@/views/devices/device-onboarding.model'
+import { buildDeviceOnboardingPayload, normalizeDeviceOnboardingResult, validateDeviceOnboarding, type DeviceOnboardingPlatform } from '@/views/devices/device-onboarding.model'
 
 const citrix: DeviceOnboardingPlatform = {
   key: 'citrix-adc', displayNameKey: 'devices.platforms.citrixAdc', productFamily: 'Citrix ADC', managementMethod: 'NITRO_API',
@@ -7,6 +7,7 @@ const citrix: DeviceOnboardingPlatform = {
     { key: 'managementAddress', type: 'TEXT', required: true },
     { key: 'username', type: 'TEXT', required: true },
     { key: 'password', type: 'SECRET_INPUT', required: true },
+    { key: 'tlsVerify', type: 'BOOLEAN', required: false },
   ],
 }
 
@@ -22,5 +23,34 @@ describe('设备添加向导模型', () => {
   it('未支持平台和缺少必填字段不能提交', () => {
     expect(validateDeviceOnboarding({ ...citrix, supportStatus: 'UNSUPPORTED' }, {})).toEqual(['UNSUPPORTED_PLATFORM'])
     expect(validateDeviceOnboarding(citrix, { managementAddress: '10.255.0.49' })).toEqual(['username', 'password'])
+  })
+
+  it('关闭 TLS 校验时要求显式风险确认', () => {
+    expect(validateDeviceOnboarding(citrix, {
+      managementAddress: '10.255.0.49', username: 'nsroot', password: 'secret', tlsVerify: false,
+    })).toContain('insecureTlsAcknowledged')
+    expect(buildDeviceOnboardingPayload(citrix, {
+      managementAddress: '10.255.0.49', username: 'nsroot', password: 'secret', tlsVerify: false, insecureTlsAcknowledged: true,
+    }, 'https://gcac.example.com')).toMatchObject({ tlsVerify: false, insecureTlsAcknowledged: true })
+  })
+
+  it('Agent 安装分支保留控制面地址用于生成安装命令', () => {
+    const windows: DeviceOnboardingPlatform = {
+      key: 'windows', displayNameKey: 'devices.platforms.windows', productFamily: 'Windows Server', managementMethod: 'AGENT',
+      onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }
+    expect(buildDeviceOnboardingPayload(windows, {}, 'https://gcac.example.com')).toEqual({
+      platformKey: 'windows', baseUrl: 'https://gcac.example.com',
+    })
+    expect(validateDeviceOnboarding(windows, {})).toEqual([])
+  })
+
+  it('兼容统一 onboarding 的嵌套安装会话和旧顶层命令响应', () => {
+    const windows: DeviceOnboardingPlatform = {
+      key: 'windows', displayNameKey: 'devices.platforms.windows', productFamily: 'Windows Server', managementMethod: 'AGENT',
+      onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }
+    expect(normalizeDeviceOnboardingResult(windows, { installSession: { installCommand: 'irm install.ps1 | iex' } }).installCommand).toBe('irm install.ps1 | iex')
+    expect(normalizeDeviceOnboardingResult(windows, { installCommand: 'legacy-command' }).installCommand).toBe('legacy-command')
   })
 })

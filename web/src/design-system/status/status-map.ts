@@ -35,6 +35,9 @@ export const statusDictionary = {
   UPGRADING: { labelKey: 'designSystem.status.UPGRADING', tone: 'info' },
   UPDATE_REQUIRED: { labelKey: 'designSystem.status.UPDATE_REQUIRED', tone: 'warning' },
   UP_TO_DATE: { labelKey: 'designSystem.status.UP_TO_DATE', tone: 'success' },
+  HEALTHY: { labelKey: 'devices.health.healthy', tone: 'success' },
+  DEGRADED: { labelKey: 'devices.health.degraded', tone: 'warning' },
+  UNREACHABLE: { labelKey: 'devices.health.unreachable', tone: 'danger' },
   UNKNOWN: { labelKey: 'designSystem.status.UNKNOWN', tone: 'muted' },
 } satisfies Record<string, StatusDefinition>
 

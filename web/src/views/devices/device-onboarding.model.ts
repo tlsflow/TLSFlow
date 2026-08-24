@@ -14,6 +14,32 @@ export interface DeviceOnboardingPlatform {
   readonly formSchema: readonly DeviceOnboardingField[]
 }
 
+export interface DeviceOnboardingResultView {
+  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
+  readonly installCommand: string
+  readonly connectionSucceeded: boolean
+  readonly connectionErrorCode: string
+}
+
+export function normalizeDeviceOnboardingResult(
+  platform: DeviceOnboardingPlatform,
+  response: Readonly<Record<string, unknown>>,
+): DeviceOnboardingResultView {
+  const installSession = asRecord(response.installSession)
+  const connection = asRecord(response.connection)
+  const installCommand = text(installSession.installCommand ?? response.installCommand)
+  const connectionSucceeded = connection.reachable === true
+    && connection.authenticated === true
+    && connection.productMatched === true
+
+  return {
+    onboardingKind: platform.onboardingKind,
+    installCommand,
+    connectionSucceeded,
+    connectionErrorCode: text(connection.errorCode),
+  }
+}
+
 export function buildDeviceOnboardingPayload(
   platform: DeviceOnboardingPlatform,
   values: Readonly<Record<string, string | number | boolean>>,
@@ -26,6 +52,9 @@ export function buildDeviceOnboardingPayload(
     payload[field.key] = value
   }
   if (platform.onboardingKind === 'AGENT_INSTALL') payload.baseUrl = baseUrl
+  if (platform.onboardingKind === 'API_CONNECTION' && values.tlsVerify === false) {
+    payload.insecureTlsAcknowledged = values.insecureTlsAcknowledged === true
+  }
   return payload
 }
 
@@ -34,7 +63,19 @@ export function validateDeviceOnboarding(
   values: Readonly<Record<string, string | number | boolean>>,
 ): string[] {
   if (platform.supportStatus !== 'SUPPORTED') return ['UNSUPPORTED_PLATFORM']
-  return platform.formSchema
+  const missing = platform.formSchema
     .filter((field) => field.required && (values[field.key] === undefined || String(values[field.key]).trim() === ''))
     .map((field) => field.key)
+  if (platform.onboardingKind === 'API_CONNECTION' && values.tlsVerify === false && values.insecureTlsAcknowledged !== true) {
+    missing.push('insecureTlsAcknowledged')
+  }
+  return missing
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

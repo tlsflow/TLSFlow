@@ -21,3 +21,9 @@ export function onboardManagedDevice(payload: ApiBody): Promise<ApiRecordResult>
     idempotencyKey: createIdempotencyKey('device_onboarding'),
   })
 }
+
+export function deleteManagedDeviceAsset(deviceAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath('/api/v1/device-assets/delete'), { deviceAssetId }, {
+    idempotencyKey: createIdempotencyKey('device_asset_delete'),
+  })
+}

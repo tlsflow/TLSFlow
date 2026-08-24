@@ -21,6 +21,13 @@ import {
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 
+const props = withDefaults(defineProps<{
+  /** 仅渲染成熟的 Agent 详情模态框，供统一设备页复用。 */
+  detailOnly?: boolean
+}>(), {
+  detailOnly: false,
+})
+
 type InstallPlatform = 'linux_go_systemd' | 'windows_powershell_service' | 'windows_compatibility_service'
 
 interface InstallPlatformOption {
@@ -603,26 +610,19 @@ function formatBooleanText(value: unknown): string {
   return EMPTY_TEXT
 }
 
-function buildHealthSummary(data: ApiRecord): string {
-  const offline = readPath(data, 'health.offline') === true
-  const degradedReasons = normalizeText(readPath(data, 'health.degradedReasons'), '')
-  const lastError = normalizeText(readPath(data, 'health.lastError'), '')
-  const offlineEvidence = normalizeText(readPath(data, 'health.offlineEvidence'), '')
-
-  if (offline && offlineEvidence) return offlineEvidence
-  if (degradedReasons) return degradedReasons
-  if (lastError) return lastError
-  return EMPTY_TEXT
+function resolveHealthStatus(data: ApiRecord): string {
+  const agentStatus = readValue(data, ['agent.status', 'agent.state', 'status'], '').toUpperCase()
+  if (agentStatus === 'OFFLINE' || readPath(data, 'health.offline') === true) {
+    return t('common.status.OFFLINE')
+  }
+  return formatHealthStatus(readPath(data, 'health.status'))
 }
 
 function buildHealthFields(data: ApiRecord): DetailField[] {
   return [
-    { label: t('agents.fields.healthStatus'), value: formatHealthStatus(readPath(data, 'health.status')), emphasis: true },
-    { label: t('agents.fields.offlineDetected'), value: formatBooleanText(readPath(data, 'health.offline')), emphasis: true },
+    { label: t('agents.fields.healthStatus'), value: resolveHealthStatus(data), emphasis: true },
     { label: t('agents.fields.lastHeartbeat'), value: normalizeDateTime(readPath(data, 'health.lastHeartbeatAt') ?? readPath(data, 'latestHeartbeat.receivedAt')) },
-    { label: t('agents.fields.lastRecoveryAt'), value: normalizeDateTime(readPath(data, 'health.lastRecoveryAt')) },
     { label: t('agents.fields.lastReportAt'), value: normalizeDateTime(readPath(data, 'health.lastTaskResultAt')), emphasis: true },
-    { label: t('agents.fields.healthSummary'), value: buildHealthSummary(data) },
   ]
 }
 
@@ -1356,6 +1356,10 @@ function selectInstallPlatform(platform: InstallPlatform) {
 }
 
 async function openDetailModal(row: ViewRow) {
+  await openAgentDetailById(row.id, row.raw)
+}
+
+async function openAgentDetailById(agentId: string, fallbackRecord: ApiRecord = {}) {
   detailModalOpen.value = true
   detailLoading.value = true
   detailActionPending.value = false
@@ -1363,20 +1367,22 @@ async function openDetailModal(row: ViewRow) {
   detailError.value = ''
   expandedRuntimeLogIds.value = []
   activeDetailTab.value = 'overview'
-  detailData.value = buildAgentDetail(row.raw, row)
+  detailData.value = Object.keys(fallbackRecord).length > 0 ? buildAgentDetail(fallbackRecord) : null
 
   try {
-    const result = await getAgentDetail(row.id)
+    const result = await getAgentDetail(agentId)
     if (!result.data) {
       throw new Error(t('agents.errors.detailDataMissing'))
     }
-    detailData.value = buildAgentDetail(result.data, row)
+    detailData.value = buildAgentDetail(result.data, undefined)
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : t('agents.errors.loadDetailFailed')
   } finally {
     detailLoading.value = false
   }
 }
+
+defineExpose({ openAgentDetailById })
 
 async function triggerManualRescan() {
   if (!detailData.value || detailActionPending.value || !detailData.value.canManualRescan) return
@@ -1461,7 +1467,7 @@ const config = computed<BusinessPageConfig>(() => ({
 
 <template>
   <section class="agent-page">
-    <BusinessResourcePage :config="config" />
+    <BusinessResourcePage v-if="!props.detailOnly" :config="config" />
 
     <GcModal
       v-model:open="detailModalOpen"
