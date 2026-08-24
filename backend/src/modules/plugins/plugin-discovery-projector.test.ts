@@ -29,14 +29,14 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   await db.query(`insert into pg_device_assets (service_asset_id, tenant_id, device_family, credential_id, host_id)
     values ('device-1','tenant-1','MOCK_DEVICE','secret://credential/mock','host-1')`);
   await db.query(`insert into pg_certificate_assets (
-      id, name, primary_domain, source_type, status, created_by
-    ) values ('certificate-asset-1','example.test','example.test','imported','active','test')`);
+      id, tenant_id, name, primary_domain, source_type, status, created_by
+    ) values ('certificate-asset-1','tenant-1','example.test','example.test','imported','active','test')`);
   await db.query(`insert into pg_certificate_versions (
-      id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      id, tenant_id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
       not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
       leaf_storage_ref, chain_status, source_type, status, created_by
     ) values (
-      'certificate-version-1','certificate-asset-1',1,'example.test','{}'::jsonb,'{}'::jsonb,'01',
+      'certificate-version-1','tenant-1','certificate-asset-1',1,'example.test','{}'::jsonb,'{}'::jsonb,'01',
       '2026-01-01T00:00:00Z','2027-01-01T00:00:00Z',$1,'RSA','SHA256-RSA',
       'secret://certificate/test','complete','imported','active','test'
     )`, ['a'.repeat(64)]);
@@ -86,6 +86,93 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.equal((await db.query<{ status: string }>('select status from pg_managed_targets limit 1')).rows[0]?.status, 'STALE');
   assert.equal((await db.query<{ discovery_status: string }>("select metadata->>'discoveryStatus' as discovery_status from pg_certificate_bindings limit 1")).rows[0]?.discovery_status, 'STALE');
 });
+
+test('设备证书没有指纹时按唯一公开元数据关联项目证书版本', async () => {
+  const { db, context, discovery } = await createCertificateIdentityFixture(false);
+  await new StandardDeviceDiscoveryProjector(db).project(context, discovery);
+
+  const detail = await new PgDevicesRepository(db).get(context.tenantId, context.hostId);
+  assert.equal(detail?.certificates[0]?.certificateVersionId, 'certificate-version-dsm');
+  assert.equal(detail?.sites[0]?.bindings[0]?.certificate?.certificateVersionId, 'certificate-version-dsm');
+  assert.equal((await db.query<{ current_certificate_version_id: string | null; drift_state: string }>(
+    'select current_certificate_version_id, drift_state from plugin_discovered_certificate_bindings limit 1',
+  )).rows[0]?.current_certificate_version_id, 'certificate-version-dsm');
+  assert.equal((await db.query<{ drift_state: string }>(
+    'select drift_state from plugin_discovered_certificate_bindings limit 1',
+  )).rows[0]?.drift_state, 'UNKNOWN', '没有设备返回指纹时不能伪造 SYNCED');
+});
+
+test('设备证书元数据命中多个项目版本时拒绝关联', async () => {
+  const { db, context, discovery } = await createCertificateIdentityFixture(true);
+  await new StandardDeviceDiscoveryProjector(db).project(context, discovery);
+
+  const discovered = (await db.query<{ certificate_version_id: string | null }>(
+    'select certificate_version_id from plugin_discovered_certificates limit 1',
+  )).rows[0];
+  const formal = (await db.query<{ certificate_version_id: string | null }>(
+    'select certificate_version_id from pg_certificate_bindings limit 1',
+  )).rows[0];
+  assert.equal(discovered?.certificate_version_id, null);
+  assert.equal(formal?.certificate_version_id, null);
+});
+
+async function createCertificateIdentityFixture(duplicate: boolean) {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const tenantId = 'tenant-dsm-identity';
+  const hostId = 'host-dsm-identity';
+  const deviceAssetId = 'device-dsm-identity';
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ($1,$2,'dsm.example','NETWORK_DEVICE','MANUAL','L1','AGENTLESS','ACTIVE')`, [hostId, tenantId]);
+  await db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, host_id, discovery_source, status, asset_kind)
+    values ($1,$2,'10.255.0.77','IPV4',5000,'HTTP','DSM','${hostId}','MANUAL','ACTIVE','DEVICE')`, [deviceAssetId, tenantId]);
+  await db.query(`insert into pg_device_assets (service_asset_id, tenant_id, device_family, credential_id, host_id)
+    values ($1,$2,'NETWORK_APPLIANCE','secret://dsm','${hostId}')`, [deviceAssetId, tenantId]);
+  await db.query(`insert into pg_certificate_assets (id, tenant_id, name, primary_domain, source_type, status, created_by)
+    values ('certificate-asset-dsm-1',$1,'DSM certificate','*.jacksonz.cn','IMPORTED','ACTIVE','test'),
+           ('certificate-asset-dsm-2',$1,'DSM duplicate','duplicate.jacksonz.cn','IMPORTED','ACTIVE','test')`, [tenantId]);
+  await db.query(`insert into pg_certificate_versions (
+      id, tenant_id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+      leaf_storage_ref, chain_status, source_type, status, created_by
+    ) values (
+      'certificate-version-dsm','${tenantId}','certificate-asset-dsm-1',1,'*.jacksonz.cn',
+      '{"commonName":"YR1"}'::jsonb,'{"commonName":"*.jacksonz.cn"}'::jsonb,'01',
+      '2025-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',$1,'RSA','SHA256-RSA',
+      'secret://certificate/dsm','COMPLETE','IMPORTED','ACTIVE','test'
+    )`, ['a'.repeat(64)]);
+  if (duplicate) await db.query(`insert into pg_certificate_versions (
+      id, tenant_id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+      leaf_storage_ref, chain_status, source_type, status, created_by
+    ) values (
+      'certificate-version-dsm-duplicate','${tenantId}','certificate-asset-dsm-2',1,'*.jacksonz.cn',
+      '{"commonName":"YR1"}'::jsonb,'{"commonName":"*.jacksonz.cn"}'::jsonb,'02',
+      '2025-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',$1,'RSA','SHA256-RSA',
+      'secret://certificate/dsm-duplicate','COMPLETE','IMPORTED','ACTIVE','test'
+    )`, ['b'.repeat(64)]);
+  return {
+    db,
+    context: {
+      tenantId,
+      deviceAssetId,
+      hostId,
+      discoveryProviderKey: 'agent:dsm-identity',
+      discoverySource: 'AGENT' as const,
+    },
+    discovery: {
+      apiVersion: 'gcac.device-discovery/v2' as const,
+      device: { stableKey: 'synology-dsm:10.255.0.77', displayName: 'DSM', productFamily: 'device.synology-dsm', managementAddress: '10.255.0.77' },
+      capabilities: [],
+      frameworks: [{ stableKey: 'framework:synology-dsm', frameworkType: 'synology.dsm-web', displayName: 'Synology' }],
+      sites: [{ stableKey: 'DSM:Default', frameworkStableKey: 'framework:synology-dsm', siteType: 'device.service', displayName: 'Default', addresses: ['10.255.0.77'], protocol: 'HTTP', metadata: { serviceKey: 'default' } }],
+      managedTargets: [{ stableKey: 'TARGET:DSM:Default', frameworkStableKey: 'framework:synology-dsm', siteStableKey: 'DSM:Default', targetType: 'tls.binding', targetKey: 'Default', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'] }],
+      certificates: [{ stableKey: 'CERT:502aVL', subject: 'CN=*.jacksonz.cn', issuer: 'CN=YR1', notBefore: '2025-01-01T00:00:00.000Z', notAfter: '2026-01-01T00:00:00.000Z' }],
+      certificateBindings: [{ stableKey: 'BINDING:DSM:Default:502aVL', managedTargetStableKey: 'TARGET:DSM:Default', certificateStableKey: 'CERT:502aVL', bindingName: 'DSM Desktop Service' }],
+      warnings: [],
+    },
+  };
+}
 
 test('标准发现重建稳定键后会释放旧的非托管证书绑定唯一键', async () => {
   const db = new PgliteDatabase();
@@ -221,14 +308,14 @@ test('Agent 发现使用相同标准快照和投影幂等链', async () => {
   await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status, agent_id)
     values ('host-agent','tenant-agent','agent.example','LINUX','AGENT','L1','AGENT','ACTIVE','agent-1')`);
   await db.query(`insert into pg_certificate_assets (
-      id, name, primary_domain, source_type, status, created_by
-    ) values ('certificate-asset-agent','agent.example','agent.example','imported','active','test')`);
+      id, tenant_id, name, primary_domain, source_type, status, created_by
+    ) values ('certificate-asset-agent','tenant-agent','agent.example','agent.example','imported','active','test')`);
   await db.query(`insert into pg_certificate_versions (
-      id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      id, tenant_id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
       not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
       leaf_storage_ref, chain_status, source_type, status, created_by
     ) values (
-      'certificate-version-agent','certificate-asset-agent',1,'agent.example','{}'::jsonb,'{}'::jsonb,'02',
+      'certificate-version-agent','tenant-agent','certificate-asset-agent',1,'agent.example','{}'::jsonb,'{}'::jsonb,'02',
       '2026-01-01T00:00:00Z','2027-01-01T00:00:00Z',$1,'RSA','SHA256-RSA',
       'secret://certificate/agent','complete','imported','active','test'
     )`, ['b'.repeat(64)]);

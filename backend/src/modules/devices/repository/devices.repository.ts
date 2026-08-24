@@ -779,28 +779,93 @@ function distinguishedName(value: unknown): string | undefined {
 }
 
 function collectSiteCertificates(sites: ManagedDeviceSiteDto[]) {
-  const certificates = new Map<string, NonNullable<ManagedDeviceSiteDto['bindings'][number]['certificate']> & { id: string }>();
+  const certificates: Array<NonNullable<ManagedDeviceSiteDto['bindings'][number]['certificate']> & { id: string }> = [];
   for (const site of sites) {
     for (const binding of site.bindings) {
       const certificate = binding.certificate;
       if (!certificate) continue;
-      const id = certificate.certificateVersionId ?? certificate.fingerprintSha256 ?? certificate.name ?? binding.id;
-      certificates.set(id, { id, ...certificate });
+      // 没有版本 ID 或指纹时，绑定 ID 只作为临时资源 ID；真正的身份由 mergeCertificates 决定。
+      const id = certificate.certificateVersionId ?? normalizeCertificateFingerprint(certificate.fingerprintSha256) ?? binding.id;
+      certificates.push({ id, ...certificate });
     }
   }
-  return [...certificates.values()];
+  return certificates;
 }
 
 function mergeCertificates(
   primary: ManagedDeviceCertificateDto[],
   secondary: ManagedDeviceCertificateDto[],
 ): ManagedDeviceCertificateDto[] {
-  const identity = (certificate: ManagedDeviceCertificateDto) => (
-    certificate.certificateVersionId ?? certificate.fingerprintSha256 ?? certificate.id
-  );
-  const certificates = new Map(primary.map((certificate) => [identity(certificate), certificate]));
-  for (const certificate of secondary) if (!certificates.has(identity(certificate))) certificates.set(identity(certificate), certificate);
-  return [...certificates.values()];
+  const certificates: ManagedDeviceCertificateDto[] = [];
+  for (const certificate of [...primary, ...secondary]) {
+    const index = certificates.findIndex((existing) => certificatesMatch(existing, certificate));
+    if (index < 0) {
+      certificates.push(certificate);
+      continue;
+    }
+    // 发现资源是主记录，站点绑定只负责补齐主记录没有的属性。
+    certificates[index] = mergeCertificateFields(certificates[index], certificate);
+  }
+  return certificates;
+}
+
+function certificatesMatch(left: ManagedDeviceCertificateDto, right: ManagedDeviceCertificateDto): boolean {
+  const leftFingerprint = normalizeCertificateFingerprint(left.fingerprintSha256);
+  const rightFingerprint = normalizeCertificateFingerprint(right.fingerprintSha256);
+  if (leftFingerprint && rightFingerprint) return leftFingerprint === rightFingerprint;
+
+  // 只有双方都没有可比较指纹时，先尝试稳定的版本 ID；不同版本仍继续走属性回退。
+  if (!leftFingerprint && !rightFingerprint && left.certificateVersionId && right.certificateVersionId
+    && left.certificateVersionId === right.certificateVersionId) {
+    return true;
+  }
+
+  return certificateAttributesMatch(left, right);
+}
+
+function certificateAttributesMatch(left: ManagedDeviceCertificateDto, right: ManagedDeviceCertificateDto): boolean {
+  const attributes = (['subject', 'issuer', 'notBefore', 'notAfter'] as const)
+    .map((key) => [normalizeCertificateAttribute(left[key], key), normalizeCertificateAttribute(right[key], key)] as const);
+  const leftOnly = attributes.some(([leftValue, rightValue]) => leftValue !== undefined && rightValue === undefined);
+  const rightOnly = attributes.some(([leftValue, rightValue]) => leftValue === undefined && rightValue !== undefined);
+  if (leftOnly || rightOnly) return false;
+  const comparable = attributes.filter(([leftValue, rightValue]) => leftValue !== undefined && rightValue !== undefined);
+
+  // 至少需要两个共同属性，避免仅凭一个通用名称把不同证书合并；NPM 的 subject + notAfter 可走此回退。
+  return comparable.length >= 2 && comparable.every(([leftValue, rightValue]) => leftValue === rightValue);
+}
+
+function normalizeCertificateAttribute(value: string | undefined, key: 'subject' | 'issuer' | 'notBefore' | 'notAfter'): string | undefined {
+  if (!value?.trim()) return undefined;
+  const trimmed = value.trim();
+  if (key === 'notBefore' || key === 'notAfter') {
+    const timestamp = Date.parse(trimmed);
+    if (!Number.isNaN(timestamp)) return new Date(timestamp).toISOString();
+  }
+  return trimmed.replace(/\s+/g, ' ').toLowerCase();
+}
+
+function normalizeCertificateFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^a-f0-9]/giu, '').toUpperCase();
+  return normalized || undefined;
+}
+
+function mergeCertificateFields(
+  primary: ManagedDeviceCertificateDto,
+  secondary: ManagedDeviceCertificateDto,
+): ManagedDeviceCertificateDto {
+  return {
+    ...primary,
+    certificateAssetId: primary.certificateAssetId ?? secondary.certificateAssetId,
+    certificateVersionId: primary.certificateVersionId ?? secondary.certificateVersionId,
+    name: primary.name ?? secondary.name,
+    subject: primary.subject ?? secondary.subject,
+    issuer: primary.issuer ?? secondary.issuer,
+    notBefore: primary.notBefore ?? secondary.notBefore,
+    notAfter: primary.notAfter ?? secondary.notAfter,
+    fingerprintSha256: primary.fingerprintSha256 ?? secondary.fingerprintSha256,
+    status: primary.status ?? secondary.status,
+  };
 }
 
 function buildInformationSections(

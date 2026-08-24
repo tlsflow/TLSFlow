@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
+import { normalizeFingerprint, resolveCertificateVersionId } from '../discovery/certificate-version-matcher.js';
 
 export interface PluginCertificateDeploymentResultV1 {
   apiVersion: 'gcac.certificate-deploy-result/v1';
@@ -18,25 +19,33 @@ export class PluginCertificateResultService {
   constructor(private readonly db: DatabasePort) {}
 
   async reconcileDiscovery(tenantId: string, deviceAssetId: string): Promise<{ linked: number; incomplete: number; drifted: number }> {
-    const certificates = await this.db.query<{ id: string; fingerprint_sha256: string | null }>(
-      'select id, fingerprint_sha256 from plugin_discovered_certificates where tenant_id=$1 and device_asset_id=$2 and status=$3',
+    const certificates = await this.db.query<{
+      id: string;
+      fingerprint_sha256: string | null;
+      subject: string | null;
+      issuer: string | null;
+      not_before: string | null;
+      not_after: string | null;
+    }>(
+      `select id, fingerprint_sha256, subject, issuer, not_before, not_after
+         from plugin_discovered_certificates
+        where tenant_id=$1 and device_asset_id=$2 and status=$3`,
       [tenantId, deviceAssetId, 'ACTIVE'],
     );
     let linked = 0;
     let incomplete = 0;
     for (const certificate of certificates.rows) {
       const fingerprint = normalizeFingerprint(certificate.fingerprint_sha256);
-      if (!fingerprint) {
-        incomplete += 1;
-        await this.db.query('update plugin_discovered_certificates set certificate_version_id=null where id=$1', [certificate.id]);
-        continue;
-      }
-      const version = (await this.db.query<{ id: string }>(
-        'select id from pg_certificate_versions where upper(fingerprint_sha256)=$1 limit 1',
-        [fingerprint],
-      )).rows[0];
-      await this.db.query('update plugin_discovered_certificates set certificate_version_id=$1 where id=$2', [version?.id ?? null, certificate.id]);
-      if (version) linked += 1;
+      const versionId = await resolveCertificateVersionId(this.db, tenantId, {
+        fingerprintSha256: certificate.fingerprint_sha256,
+        subject: certificate.subject,
+        issuer: certificate.issuer,
+        notBefore: certificate.not_before,
+        notAfter: certificate.not_after,
+      });
+      if (!versionId && !fingerprint) incomplete += 1;
+      await this.db.query('update plugin_discovered_certificates set certificate_version_id=$1 where id=$2', [versionId ?? null, certificate.id]);
+      if (versionId) linked += 1;
     }
     await this.db.query(
       `update plugin_discovered_certificate_bindings binding
@@ -44,9 +53,10 @@ export class PluginCertificateResultService {
            observed_fingerprint_sha256=certificate.fingerprint_sha256,
            desired_fingerprint_sha256=(select desired.fingerprint_sha256 from pg_certificate_versions desired where desired.id=binding.desired_certificate_version_id),
            drift_state=case
-             when certificate.fingerprint_sha256 is null then 'INCOMPLETE'
+             when certificate.fingerprint_sha256 is null and certificate.certificate_version_id is null then 'INCOMPLETE'
              when certificate.certificate_version_id is null then 'UNMANAGED'
              when binding.desired_certificate_version_id is null then 'UNKNOWN'
+             when certificate.fingerprint_sha256 is null then 'UNKNOWN'
              when upper(certificate.fingerprint_sha256)=upper((select desired.fingerprint_sha256 from pg_certificate_versions desired where desired.id=binding.desired_certificate_version_id)) then 'SYNCED'
              else 'DRIFTED'
            end,
@@ -101,9 +111,4 @@ export class PluginCertificateResultService {
     );
     if (updated.rows.length === 0) throw new AppError('RESOURCE_NOT_FOUND', '插件证书绑定不存在', { bindingStableKey: result.bindingStableKey });
   }
-}
-
-function normalizeFingerprint(value: string | null | undefined) {
-  const normalized = value?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
-  return normalized?.length === 64 ? normalized : undefined;
 }

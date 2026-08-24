@@ -4,6 +4,7 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
 import type { StandardDeviceDiscoveryV2 } from './device-discovery.dto.js';
 import { DeviceDiscoverySchemaService } from './device-discovery-schema.service.js';
+import { resolveCertificateVersionId } from './certificate-version-matcher.js';
 
 export interface StandardDiscoveryProjectionContext {
   tenantId: string;
@@ -162,28 +163,35 @@ export class StandardDeviceDiscoveryProjector {
 
         const certificateIds = new Map<string, string>();
         const certificateFingerprints = new Map<string, string | null>();
+        const certificateVersionIds = new Map<string, string | undefined>();
         for (const certificate of discovery.certificates) {
           const certificateId = stableId('pdc', projectionRootId, certificate.stableKey);
           certificateIds.set(certificate.stableKey, certificateId);
           certificateFingerprints.set(certificate.stableKey, normalizeFingerprint(certificate.sha256Fingerprint));
+          certificateVersionIds.set(certificate.stableKey, await resolveCertificateVersionId(tx, context.tenantId, {
+            fingerprintSha256: certificate.sha256Fingerprint,
+            subject: certificate.subject,
+            issuer: certificate.issuer,
+            notBefore: certificate.notBefore,
+            notAfter: certificate.notAfter,
+          }));
           if (!context.deviceAssetId) continue;
            await tx.query(
              `insert into plugin_discovered_certificates (
                id, tenant_id, device_asset_id, stable_key, fingerprint_sha256, certificate_version_id,
                subject, issuer, not_before, not_after,
                 metadata, status, last_discovered_at, created_at, updated_at
-             ) values ($1,$2,$3,$4,$5::text,
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($5::text) limit 1),
-               $6,$7,$8,$9,$10::jsonb,'ACTIVE',$11,$11,$11)
+             ) values ($1,$2,$3,$4,$5::text,$6,
+               $7,$8,$9,$10,$11::jsonb,'ACTIVE',$12,$12,$12)
               on conflict (tenant_id, device_asset_id, stable_key) do update set fingerprint_sha256=excluded.fingerprint_sha256,
                certificate_version_id=excluded.certificate_version_id, subject=excluded.subject,
                issuer=excluded.issuer, not_before=excluded.not_before,
                not_after=excluded.not_after, metadata=excluded.metadata,
                status='ACTIVE', last_discovered_at=excluded.last_discovered_at, updated_at=excluded.updated_at`,
             [certificateId, context.tenantId, context.deviceAssetId, certificate.stableKey,
-              normalizeFingerprint(certificate.sha256Fingerprint), certificate.subject ?? null, certificate.issuer ?? null,
-              certificate.notBefore ?? null, certificate.notAfter ?? null,
-              JSON.stringify(certificate.metadata ?? {}), discoveredAt],
+              normalizeFingerprint(certificate.sha256Fingerprint), certificateVersionIds.get(certificate.stableKey) ?? null,
+              certificate.subject ?? null, certificate.issuer ?? null, certificate.notBefore ?? null,
+              certificate.notAfter ?? null, JSON.stringify(certificate.metadata ?? {}), discoveredAt],
           );
         }
         for (const binding of discovery.certificateBindings) {
@@ -205,6 +213,7 @@ export class StandardDeviceDiscoveryProjector {
           const bindingId = stableId('pcb', projectionRootId, binding.stableKey);
           const formalBindingId = stableId('bnd', projectionRootId, binding.stableKey);
           const configuredFingerprint = certificateFingerprints.get(configuredCertificateKey) ?? null;
+          const configuredVersionId = certificateVersionIds.get(configuredCertificateKey) ?? null;
           const observedFingerprint = observedCertificate
             ? certificateFingerprints.get(observedCertificate.stableKey) ?? normalizeFingerprint(observedCertificate.sha256Fingerprint)
             : null;
@@ -244,11 +253,10 @@ export class StandardDeviceDiscoveryProjector {
                 id, tenant_id, device_asset_id, stable_key, site_asset_id, managed_target_id, discovered_certificate_id,
                binding_name, metadata, current_certificate_version_id, observed_fingerprint_sha256,
                drift_state, status, last_discovered_at, created_at, updated_at
-             ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($10::text) limit 1),
+             ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::text,
                $11::text, case
-                 when $10 is null or $11 is null then 'UNKNOWN'
-                 when upper($10::text)=upper($11::text) then 'SYNCED'
+                 when $13::text is null or $14::text is null then 'UNKNOWN'
+                 when upper($13::text)=upper($14::text) then 'SYNCED'
                  else 'DRIFTED'
                end,'ACTIVE',$12,$12,$12)
               on conflict (tenant_id, device_asset_id, stable_key) do update set site_asset_id=excluded.site_asset_id,
@@ -258,7 +266,8 @@ export class StandardDeviceDiscoveryProjector {
                status='ACTIVE', last_discovered_at=excluded.last_discovered_at,
                 updated_at=excluded.updated_at`,
             [bindingId, context.tenantId, context.deviceAssetId, binding.stableKey, siteId ?? null, managedTargetId, certificateId,
-               binding.bindingName ?? null, JSON.stringify(bindingMetadata), configuredFingerprint, observedFingerprint, discoveredAt],
+              binding.bindingName ?? null, JSON.stringify(bindingMetadata), configuredVersionId, observedFingerprint,
+              discoveredAt, configuredFingerprint, observedFingerprint],
           );
           const domain = bindingDomain(site, target, binding);
           await tx.query(
@@ -273,10 +282,10 @@ export class StandardDeviceDiscoveryProjector {
                created_at, updated_at, version
              ) values (
                $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($12::text) limit 1),
+               $12::text,
                null,
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($12::text) limit 1),
-               $13,null,null,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+               $12::text,
+               cast($13 as text),null,null,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
                $24,$25,$26,$27,$28,$29,$30::jsonb,$27,$27,1
              )
              on conflict (id) do update set service_instance_id=excluded.service_instance_id,
@@ -297,7 +306,7 @@ export class StandardDeviceDiscoveryProjector {
                deleted_at=null, updated_at=excluded.updated_at, version=pg_certificate_bindings.version+1`,
             [formalBindingId, context.tenantId, serviceInstanceId, siteId ?? null, managedTargetId, context.hostId,
               domain, bindingPort(binding, site), bindingProtocol(binding, site), binding.stableKey,
-              bindingType, configuredFingerprint, observedFingerprint,
+              bindingType, configuredVersionId, observedFingerprint,
               deploymentTarget?.certificatePath ?? null, deploymentTarget?.privateKeyPath ?? null,
               deploymentTarget?.chainPath ?? null, deploymentTarget?.keystorePath ?? null,
               deploymentTarget?.keystoreType ?? null, deploymentTarget?.storeLocation ?? null,

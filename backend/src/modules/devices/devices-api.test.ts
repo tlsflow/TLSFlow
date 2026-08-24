@@ -577,9 +577,13 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
       },
     ],
     certificates: [{
-      stableKey: 'CERT:cert-detail', fingerprintSha256: 'a'.repeat(64), name: 'cert-detail',
+      stableKey: 'CERT:cert-detail', sha256Fingerprint: 'a'.repeat(64), name: 'cert-detail',
       subject: 'CN=detail.example', issuer: 'CN=issuer', notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z',
       metadata: { certkey: 'cert-detail' },
+    }, {
+      stableKey: 'CERT:cert-detail-b', sha256Fingerprint: 'b'.repeat(64), name: 'cert-detail-b',
+      subject: 'CN=detail.example', issuer: 'CN=issuer', notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z',
+      metadata: { certkey: 'cert-detail-b' },
     }],
     certificateBindings: [
       {
@@ -588,7 +592,7 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
       },
       {
         stableKey: 'BINDING:VPN:vpn-detail:cert-detail', managedTargetStableKey: 'TARGET:VPN:vpn-detail',
-        certificateStableKey: 'CERT:cert-detail', bindingName: 'vpn-detail',
+        certificateStableKey: 'CERT:cert-detail-b', bindingName: 'vpn-detail',
       },
     ],
     warnings: [],
@@ -613,13 +617,13 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
   assert.deepEqual(overview?.sites, []);
   assert.deepEqual(overview?.certificates, []);
   assert.deepEqual(overview?.logs, []);
-  assert.deepEqual(overview?.resourceCounts, { frameworks: 2, sites: 2, certificates: 1, logs: 1 });
+  assert.deepEqual(overview?.resourceCounts, { frameworks: 2, sites: 2, certificates: 2, logs: 1 });
 
   const certificates = await new PgDevicesRepository(database).get(tenantId, device.hostId, { includes: new Set(['certificates', 'sites']) });
   assert.deepEqual(certificates?.frameworks, []);
   assert.deepEqual(certificates?.logs, []);
   assert.equal(certificates?.sites.length, 2);
-  assert.equal(certificates?.certificates.length, 3);
+  assert.equal(certificates?.certificates.length, 2);
 
   const scopedSites = await new PgDevicesRepository(database).get(tenantId, device.hostId, {
     includes: new Set(['sites']),
@@ -637,6 +641,9 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
   assert.deepEqual(detail?.frameworks.map((framework) => framework.displayName), ['LBServer', 'VPNServer']);
   assert.deepEqual(detail?.sites.map((site) => site.frameworkType), ['citrix.lb-server', 'citrix.vpn-server']);
   assert.equal(detail?.overview.deviceType, 'NETSCALER_ADC');
+  assert.equal(detail?.certificates.length, 2);
+  assert.equal(detail?.certificates[0]?.fingerprintSha256, 'A'.repeat(64));
+  assert.equal(detail?.certificates[1]?.fingerprintSha256, 'B'.repeat(64));
   assert.equal(detail?.certificates[0]?.issuer, 'CN=issuer');
   assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings.length, 1);
   assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings.length, 1);

@@ -138,18 +138,18 @@ async function fixtureDatabase() {
       'site-1','tenant-1','service-1','host-1','plugin-version:test','device.site','Main','site:main',
       'PROVIDER','ACTIVE',now(),now()
     )`);
-  await db.query(`insert into pg_certificate_assets (id,name,primary_domain,sans,source_type,status,created_by)
-    values ('cert-a1','Old','old.example','[]'::jsonb,'MANUAL','ACTIVE','test'),
-           ('cert-a2','New','new.example','[]'::jsonb,'MANUAL','ACTIVE','test')`);
+  await db.query(`insert into pg_certificate_assets (id,tenant_id,name,primary_domain,sans,source_type,status,created_by)
+    values ('cert-a1','tenant-1','Old','old.example','[]'::jsonb,'MANUAL','ACTIVE','test'),
+           ('cert-a2','tenant-1','New','new.example','[]'::jsonb,'MANUAL','ACTIVE','test')`);
   await db.query(`insert into pg_certificate_versions (
-      id,certificate_asset_id,version_no,common_name,sans,issuer,subject,serial_number,not_before,not_after,
+      id,tenant_id,certificate_asset_id,version_no,common_name,sans,issuer,subject,serial_number,not_before,not_after,
       fingerprint_sha256,public_key_algorithm,signature_algorithm,leaf_storage_ref,chain_certificate_refs,
       chain_order,chain_diagnostics,chain_status,deployable,source_type,status,created_by
     ) values (
-      'cert-v1','cert-a1',1,'old.example','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'01',now(),now()+interval '1 year',
+      'cert-v1','tenant-1','cert-a1',1,'old.example','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'01',now(),now()+interval '1 year',
       $1,'RSA','SHA256-RSA','artifact://old','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'COMPLETE',true,'MANUAL','VALID','test'
     ),(
-      'cert-v2','cert-a2',1,'new.example','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'02',now(),now()+interval '1 year',
+      'cert-v2','tenant-1','cert-a2',1,'new.example','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'02',now(),now()+interval '1 year',
       $2,'RSA','SHA256-RSA','artifact://new','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'COMPLETE',true,'MANUAL','VALID','test'
     )`, ['AA'.repeat(32), 'BB'.repeat(32)]);
   await db.query(`insert into plugin_discovered_certificates (id,tenant_id,device_asset_id,stable_key,fingerprint_sha256,status,last_discovered_at,created_at,updated_at)
