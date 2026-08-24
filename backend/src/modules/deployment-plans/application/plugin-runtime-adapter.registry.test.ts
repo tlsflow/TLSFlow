@@ -6,6 +6,7 @@ import type { ResolvedDeploymentCapability } from '../../plugins/application/dep
 import {
   AgentAtomicRuntimeAdapter,
   PluginRuntimeAdapterRegistry,
+  TrustedJsRuntimeAdapter,
   WorkflowDslRuntimeAdapter,
   createDefaultPluginRuntimeAdapterRegistry,
 } from './plugin-runtime-adapter.registry.js';
@@ -90,6 +91,17 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
     resolvedInput: resolvedInput(),
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1' },
   }), /没有可用/);
+  const trustedJsResult = await new PluginRuntimeAdapterRegistry().register(new TrustedJsRuntimeAdapter()).compile({
+    capability: capability('TRUSTED_JS', 'CONTROL_PLANE'),
+    context: context('CONTROL_PLANE'),
+    applicationAsset: applicationAsset(),
+    resolvedInput: resolvedInput(),
+  });
+  assert.equal(trustedJsResult.executorType, 'TRUSTED_JS');
+  assert.equal((trustedJsResult.payload.trustedJsRequest as { cloudAccountAssetId: string }).cloudAccountAssetId, 'cloud-account-1');
+  assert.equal((trustedJsResult.payload.trustedJsRequest as { frameworkType: string }).frameworkType, 'cloud.aliyun.cdn');
+  assert.equal((trustedJsResult.payload.trustedJsRequest as { providerKey: string }).providerKey, 'cloud.aliyun');
+  assert.equal((trustedJsResult.payload.trustedJsRequest as { target: { resourceId: string } }).target.resourceId, 'target-1');
 });
 
 function applicationAsset() {
@@ -142,7 +154,25 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
     },
     plugin: {
       id: 'plugin-version-1', tenantId: 'tenant-1', pluginId: 'fixture', version: '1.0.0', source: 'USER', runtime, scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED',
-      manifest: { apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'fixture', version: '1.0.0', displayNameKey: 'fixture', publisher: 'test', runtime, source: 'USER', scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED', capabilities: [], permissions: [], resources: {} },
+      manifest: {
+        apiVersion: 'gcac.plugin-manifest/v1',
+        kind: 'GcacPlugin',
+        pluginId: 'fixture',
+        version: '1.0.0',
+        providerKey: runtime === 'TRUSTED_JS' ? 'cloud.aliyun' : undefined,
+        supportedProducts: runtime === 'TRUSTED_JS' ? ['cloud.aliyun.cdn'] : undefined,
+        supportedOperations: runtime === 'TRUSTED_JS' ? ['certificate.deploy', 'certificate.rollback', 'certificate.discover'] : undefined,
+        displayNameKey: 'fixture',
+        publisher: 'test',
+        runtime,
+        source: 'USER',
+        scope: 'MANAGED',
+        trust: 'UNSIGNED',
+        support: 'SELF_MANAGED',
+        capabilities: [],
+        permissions: [],
+        resources: {},
+      },
       packageSha256: '', manifestSha256: '', resourceSha256: {}, resources: {}, status: 'ENABLED', permissionApprovalStatus: 'NOT_REQUIRED', approvedPermissions: [],
       validationReport: { valid: true, errors: [], warnings: [], manifestSha256: '', resourceSha256: {} }, createdAt: '', updatedAt: '',
     },
@@ -157,7 +187,8 @@ function context(executionLocation: ExecutionLocation, options: { hostIp?: strin
   return {
     managedTarget: {
       id: 'target-1', tenantId: 'tenant-1', deviceId: 'host-1', discoveryProviderKey: 'fixture', targetType: 'tls.binding', targetKey: 'target-1',
-      supportedCapabilities: ['certificate.deploy'], executionLocations: [executionLocation], status: 'ACTIVE', metadata: {}, createdAt: '', updatedAt: '', version: 1,
+      assetId: 'cloud-account-1',
+      supportedCapabilities: ['certificate.deploy'], executionLocations: [executionLocation], status: 'ACTIVE', metadata: { listenerId: 'listener-1', frameworkType: 'cloud.aliyun.cdn' }, createdAt: '', updatedAt: '', version: 1,
     },
     host: {
       id: 'host-1', tenantId: 'tenant-1', primaryIp: options.hostIp ?? '10.255.0.127', ipAddresses: [options.hostIp ?? '10.255.0.127'], osType: 'LINUX', managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1',
@@ -169,7 +200,7 @@ function context(executionLocation: ExecutionLocation, options: { hostIp?: strin
       hostHeader: 'test02.jacksonz.cn', port: 443, protocol: 'HTTPS', metadata: {}, discoverySource: 'AGENT', status: 'ACTIVE', createdAt: '', updatedAt: '', version: 1,
     } as never,
     discoveryProviderKey: 'fixture',
-    frameworkType: 'web.nginx',
+    frameworkType: executionLocation === 'CONTROL_PLANE' ? 'cloud.aliyun.cdn' : 'web.nginx',
     availableExecutionLocations: [executionLocation],
   };
 }

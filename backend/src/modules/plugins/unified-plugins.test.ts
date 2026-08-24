@@ -36,7 +36,7 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
       ...workflowPluginInput(),
       resources: { 'workflows/deploy.json': '{}', 'scripts/run.js': 'console.log(1)' },
     }),
-    /不得携带可执行代码/,
+    /普通插件不得携带可执行代码/,
   );
   await assert.rejects(
     () => service.importVersion('tenant-1', {
@@ -66,6 +66,66 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
     }),
     /不能包含 \.\./,
   );
+});
+
+test('TRUSTED_JS 插件必须声明受控入口并额外审批未知代码执行权限', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...trustedJsPluginInput(),
+      manifest: {
+        ...(trustedJsPluginInput().manifest as Record<string, unknown>),
+        permissions: ['certificate.deploy'],
+      },
+    }),
+    /runtime\.execute_unknown_code/,
+  );
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...trustedJsPluginInput(),
+      manifest: {
+        ...(trustedJsPluginInput().manifest as Record<string, unknown>),
+        trust: 'UNSIGNED',
+      },
+    }),
+    /OFFICIAL_SIGNED/,
+  );
+  const imported = await service.importVersion('tenant-1', trustedJsPluginInput(), 'BUILTIN');
+  assert.equal(imported.runtime, 'TRUSTED_JS');
+  assert.equal(imported.permissionApprovalStatus, 'PENDING');
+  assert.equal(imported.status, 'PENDING_APPROVAL');
+  await assert.rejects(() => service.enableVersion(imported.id), /权限尚未完成审批/);
+  const approved = await service.approvePermissions(imported.id, ['certificate.deploy', 'runtime.execute_unknown_code']);
+  assert.equal(approved.permissionApprovalStatus, 'APPROVED');
+  assert.equal((await service.enableVersion(imported.id)).status, 'ENABLED');
+});
+
+test('普通插件不得声明 Provider 元数据，TRUSTED_JS Provider 插件目录应返回产品与操作信息', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      manifest: {
+        ...(workflowPluginInput().manifest as Record<string, unknown>),
+        providerKey: 'cloud.aliyun',
+        supportedProducts: ['cloud.aliyun.cdn'],
+        supportedOperations: ['certificate.deploy'],
+      },
+    }),
+    /只有 TRUSTED_JS 插件可以声明 Provider 元数据/,
+  );
+
+  const imported = await service.importVersion('tenant-1', trustedJsProviderPluginInput(), 'BUILTIN');
+  await service.approvePermissions(imported.id, ['certificate.deploy', 'certificate.rollback', 'certificate.discover', 'runtime.execute_unknown_code']);
+  await service.enableVersion(imported.id);
+
+  const catalog = await service.listCatalog('tenant-1', 'zh-CN', { runtime: 'TRUSTED_JS', providerKey: 'cloud.aliyun' });
+
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0]?.providerKey, 'cloud.aliyun');
+  assert.deepEqual(catalog[0]?.supportedProducts, ['cloud.aliyun.cdn']);
+  assert.deepEqual(catalog[0]?.supportedOperations, ['certificate.discover', 'certificate.deploy', 'certificate.rollback']);
 });
 
 test('统一插件目录保留正交分类和能力声明', async () => {
@@ -282,6 +342,83 @@ function workflowPluginInput() {
     },
     resources: { 'workflows/deploy.json': '{}' },
     packageContent: 'package',
+  };
+}
+
+function trustedJsPluginInput() {
+  return {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'builtin.cloud.aliyun.cdn',
+      version: '1.0.0',
+      displayNameKey: 'plugin.builtin.aliyun.cdn.name',
+      publisher: 'GCAC',
+      runtime: 'TRUSTED_JS',
+      source: 'BUILTIN',
+      scope: 'MANAGED',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      capabilities: [{
+        key: 'certificate.deploy',
+        contractVersion: 'v1',
+        actionContractId: 'certificate.deploy.v1',
+        riskLevel: 'HIGH',
+        executionLocations: ['CONTROL_PLANE'],
+      }],
+      permissions: ['certificate.deploy', 'runtime.execute_unknown_code'],
+      resources: { runtimeEntrypoint: 'runtime/index.js' },
+    },
+    resources: { 'runtime/index.js': 'export default async function main() { return { ok: true }; }\n' },
+    packageContent: 'trusted-js-package',
+  };
+}
+
+function trustedJsProviderPluginInput() {
+  return {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'builtin.cloud.aliyun.cdn',
+      version: '1.0.0',
+      providerKey: 'cloud.aliyun',
+      displayNameKey: 'plugin.builtin.aliyun.cdn.name',
+      publisher: 'GCAC',
+      runtime: 'TRUSTED_JS',
+      source: 'BUILTIN',
+      scope: 'MANAGED',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      capabilities: [
+        {
+          key: 'certificate.discover',
+          contractVersion: 'v1',
+          actionContractId: 'certificate.discover.v1',
+          riskLevel: 'LOW',
+          executionLocations: ['CONTROL_PLANE'],
+        },
+        {
+          key: 'certificate.deploy',
+          contractVersion: 'v1',
+          actionContractId: 'certificate.deploy.v1',
+          riskLevel: 'HIGH',
+          executionLocations: ['CONTROL_PLANE'],
+        },
+        {
+          key: 'certificate.rollback',
+          contractVersion: 'v1',
+          actionContractId: 'certificate.rollback.v1',
+          riskLevel: 'HIGH',
+          executionLocations: ['CONTROL_PLANE'],
+        },
+      ],
+      supportedProducts: ['cloud.aliyun.cdn'],
+      supportedOperations: ['certificate.discover', 'certificate.deploy', 'certificate.rollback'],
+      permissions: ['certificate.discover', 'certificate.deploy', 'certificate.rollback', 'runtime.execute_unknown_code'],
+      resources: { runtimeEntrypoint: 'runtime/index.js' },
+    },
+    resources: { 'runtime/index.js': 'export default async function main() { return { ok: true }; }\n' },
+    packageContent: 'trusted-js-provider-package',
   };
 }
 

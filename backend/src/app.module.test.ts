@@ -3,6 +3,7 @@ import test from 'node:test';
 import { StructuredLogger, type LogEvent } from './common/logging/structured-logger.js';
 import { AppError } from './common/errors/app-error.js';
 import { initializeBuiltinPlugins } from './app.module.js';
+import { createAppAsync } from './app.module.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
@@ -37,6 +38,26 @@ test('公开 HTTP-01 路由返回共享存储中的 key authorization', async ()
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body, 'route-test-token.thumbprint');
+});
+
+test('应用启动初始化后，插件目录会包含四个内置云 Provider 插件', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const app = await createAppAsync({ db, corePersistence: { mode: 'memory' } });
+  const plugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
+  assert.ok(plugins);
+  const catalog = await plugins.listCatalog('tenant-cloud-test', 'zh-CN');
+  const cloudPluginIds = catalog
+    .filter((item) => item.runtime === 'TRUSTED_JS' && item.providerKey?.startsWith('cloud.'))
+    .map((item) => item.pluginId)
+    .sort();
+
+  assert.deepEqual(cloudPluginIds, [
+    'builtin.cloud.aliyun.provider',
+    'builtin.cloud.huawei.provider',
+    'builtin.cloud.tencent.provider',
+    'builtin.cloud.volcengine.provider',
+  ]);
 });
 
 test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继续', async () => {
