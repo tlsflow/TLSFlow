@@ -8,6 +8,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
+import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import { AgentDirectClient } from './agent-direct-client.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateGatewayEnableSessionInput, CreateLinuxGoInstallSessionInput, CreateWindowsCompatibilityInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, GatewayEnableSessionProjection, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
@@ -1114,7 +1115,8 @@ export class AgentsApplicationService {
     const runtimeHealth = latestHeartbeat?.runtimeHealth;
     const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt ?? agent.updatedAt;
     const heartbeatAgeSeconds = safeAgeSeconds(lastHeartbeatAt);
-    const offline = agent.status === 'OFFLINE';
+    const offline = agent.status === 'OFFLINE'
+      || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds);
     const degradedReasons = dedupeStrings(runtimeHealth?.degradedReasons ?? []);
     const failureCounts = {
       heartbeat: runtimeHealth?.failureCounts?.heartbeat ?? 0,
@@ -1150,8 +1152,7 @@ export class AgentsApplicationService {
   }
 
   private getOfflineTimeoutSeconds(): number {
-    const value = Number(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS ?? '180');
-    return Number.isFinite(value) && value > 0 ? value : 180;
+    return readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 180);
   }
 
   private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
