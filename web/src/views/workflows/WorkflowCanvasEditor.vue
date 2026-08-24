@@ -1395,6 +1395,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   grid-template-columns: 220px minmax(420px, 1fr) 280px;
   min-height: 430px;
+  min-block-size: 0;
   overflow: hidden;
 }
 
@@ -1403,6 +1404,9 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   align-content: start;
   gap: 8px;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   background: var(--gc-color-surface-hover);
 }
@@ -2110,6 +2114,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   .workflow-canvas-editor__properties {
     border: 0;
     border-bottom: 1px solid var(--gc-color-border-muted);
+    overflow-y: visible;
   }
 }
 </style>
