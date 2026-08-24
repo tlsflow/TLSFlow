@@ -30,6 +30,8 @@ import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
+import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
+import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -75,6 +77,8 @@ export interface DeploymentPlansApplicationDependencies {
   certificates?: CertificatesRepository;
   certificatesApp?: CertificatesApplicationService;
   deploymentStrategyResolver?: DeploymentStrategyResolver;
+  deviceAssets?: DeviceAssetsRepository;
+  managedTargetContextResolver?: ManagedTargetContextResolver;
   workflows?: WorkflowTemplatesApplicationService;
 }
 
@@ -92,6 +96,7 @@ export class DeploymentPlansApplicationService {
   private readonly certificatesApp: CertificatesApplicationService;
   private readonly artifacts: DeployableArtifactResolver;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
+  private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
   private readonly workflows?: WorkflowTemplatesApplicationService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
@@ -111,6 +116,8 @@ export class DeploymentPlansApplicationService {
     });
     this.artifacts = new DeployableArtifactResolver(this.certificates);
     this.deploymentStrategyResolver = dependencies.deploymentStrategyResolver ?? new DeploymentStrategyResolver();
+    this.managedTargetContextResolver = dependencies.managedTargetContextResolver
+      ?? (dependencies.deviceAssets ? new ManagedTargetContextResolver(this.assets, this.agents, dependencies.deviceAssets) : undefined);
     this.workflows = dependencies.workflows;
   }
 
@@ -422,10 +429,10 @@ export class DeploymentPlansApplicationService {
     if (applicationAsset.deploymentStrategy?.type === 'WORKFLOW') {
       return this.buildWorkflowCreateInputFromApplicationAsset(input, applicationAsset);
     }
-    return this.buildAgentCreateInputFromApplicationAsset(input);
+    return this.buildManagedCreateInputFromApplicationAsset(input);
   }
 
-  private async buildAgentCreateInputFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput): Promise<CreateDeploymentPlanInput> {
+  private async buildManagedCreateInputFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput): Promise<CreateDeploymentPlanInput> {
     if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
     const applicationAsset = await this.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
     if (!applicationAsset) {
@@ -497,20 +504,29 @@ export class DeploymentPlansApplicationService {
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
     const strategyAsset = applicationAssetDetail ?? applicationAsset;
-    const agentCertificateFormatId = strategyAsset.deploymentStrategy?.type === 'AGENT'
+    const strategyCertificateFormatId = strategyAsset.deploymentStrategy?.type === 'AGENT'
       ? strategyAsset.deploymentStrategy.agent?.certificateFormatId
-      : undefined;
-    const certificateFormatId = input.certificateFormatId ?? agentCertificateFormatId;
+      : strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+        ? strategyAsset.deploymentStrategy.managedTarget?.certificateFormatId
+        : undefined;
+    const certificateFormatId = input.certificateFormatId ?? strategyCertificateFormatId;
     if (!certificateFormatId) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 应用资产缺少证书产物配置', {
+      throw new AppError('VALIDATION_FAILED', '受管应用资产缺少证书产物配置', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: applicationAsset.id,
       });
     }
+    const managedTargetId = strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+      ? strategyAsset.deploymentStrategy.managedTarget?.managedTargetId
+      : bindingTarget.managedTargetId;
+    const managedTargetContext = strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+      ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
+      : undefined;
     const resolvedStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
       bindingTarget,
       certificateBinding: readyBinding,
+      managedTargetContext,
     });
 
     return {
@@ -538,6 +554,21 @@ export class DeploymentPlansApplicationService {
       actorId: input.actorId,
       tenantId: input.tenantId,
     };
+  }
+
+  private async resolveManagedTargetContext(tenantId: string, managedTargetId?: string) {
+    if (!managedTargetId) {
+      throw new AppError('VALIDATION_FAILED', 'MANAGED_TARGET 策略缺少 managedTargetId', {
+        code: 'MANAGED_TARGET_ID_REQUIRED',
+      });
+    }
+    if (!this.managedTargetContextResolver) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '受管目标上下文解析器未接入', {
+        code: 'MANAGED_TARGET_CONTEXT_RESOLVER_MISSING',
+        managedTargetId,
+      });
+    }
+    return this.managedTargetContextResolver.resolve(tenantId, managedTargetId);
   }
 
   private async buildWorkflowCreateInputFromApplicationAsset(

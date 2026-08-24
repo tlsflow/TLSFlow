@@ -5,6 +5,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { ServiceAssetDto, ApplicationAssetTargetSummaryDto } from '../assets/dto/assets.dto.js';
 import type { CertificateBindingDto } from '../bindings/dto/bindings.dto.js';
 import { DeploymentStrategyResolver } from './application/deployment-strategy-resolver.js';
+import type { ResolvedManagedTargetContext } from '../assets/application/managed-target-context.resolver.js';
 
 describe('DeploymentStrategyResolver', () => {
   it('旧 Agent 绑定没有显式策略时会推导为 AGENT 策略', () => {
@@ -21,6 +22,107 @@ describe('DeploymentStrategyResolver', () => {
     assert.deepEqual(resolved.requiredCapabilities, ['cert.install', 'cert.verify']);
     assert.equal(resolved.payload.agentId, 'agent_1');
     assert.equal(resolved.payload.certificateBindingId, 'binding_1');
+  });
+
+  it('Agent 受管目标会解析为 AGENT_NATIVE 驱动', () => {
+    const resolver = new DeploymentStrategyResolver();
+    const resolved = resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: {
+          type: 'MANAGED_TARGET',
+          managedTarget: { managedTargetId: 'target_1', certificateFormatId: 'format_1' },
+        },
+      }),
+      bindingTarget: bindingTarget(),
+      certificateBinding: certificateBinding(),
+      managedTargetContext: managedTargetContext(),
+    });
+
+    assert.equal(resolved.strategyType, 'MANAGED_TARGET');
+    assert.equal(resolved.executorType, 'AGENT');
+    assert.equal(resolved.executionTargetId, 'target_1');
+    assert.equal(resolved.payload.driverKind, 'AGENT_NATIVE');
+    assert.equal(resolved.payload.executionLocation, 'AGENT');
+  });
+
+  it('NetScaler 受管目标快照包含备份、部署、验证、回滚和秘密引用', () => {
+    const resolver = new DeploymentStrategyResolver();
+    const resolved = resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: {
+          type: 'MANAGED_TARGET',
+          managedTarget: { managedTargetId: 'target_1', certificateFormatId: 'format_1' },
+        },
+      }),
+      bindingTarget: bindingTarget({ providerType: 'DEVICE_TEMPLATE', frameworkType: 'DEVICE_TEMPLATE' }),
+      certificateBinding: certificateBinding(),
+      managedTargetContext: managedTargetContext({
+        providerType: 'DEVICE_TEMPLATE',
+        driverKind: 'DEVICE_PROVIDER',
+        executionLocation: 'CONTROL_PLANE',
+        agent: undefined,
+        deviceAsset: {
+          id: 'device_1',
+          tenantId: 'tenant_1',
+          hostId: 'host_1',
+          displayName: 'ADC 13.1',
+          managementAddress: '10.255.0.49',
+          managementPort: 80,
+          deviceFamily: 'NETSCALER_ADC',
+          credentialId: 'secret_nitro',
+          authMode: 'SESSION',
+          tlsVerify: false,
+          supportTier: 'SUPPORTED',
+          capabilityProfile: {},
+          createdAt: '2026-07-03T00:00:00.000Z',
+          updatedAt: '2026-07-03T00:00:00.000Z',
+          version: 1,
+        },
+      }),
+    });
+
+    assert.equal(resolved.executorType, 'CURL');
+    assert.deepEqual(
+      (resolved.payload.deploymentSteps as Array<{ stage: string; operation: string }>).map((step) => [step.stage, step.operation]),
+      [
+        ['BACKUP', 'netscaler.binding.backup'],
+        ['DEPLOY', 'netscaler.certificate.deploy'],
+        ['VERIFY', 'netscaler.binding.verify'],
+      ],
+    );
+    assert.equal((resolved.payload.rollbackSteps as Array<{ operation: string }>)[0]?.operation, 'netscaler.binding.restore');
+    assert.deepEqual(resolved.payload.requiredSecrets, [{
+      purpose: 'netscaler.nitro.authenticate',
+      secretRef: 'secret_nitro',
+      visibleAt: 'CONTROL_PLANE',
+    }]);
+  });
+
+  it('MANAGED_TARGET 缺少可信上下文时失败关闭', () => {
+    const resolver = new DeploymentStrategyResolver();
+    assert.throws(() => resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target_1' } },
+      }),
+    }), (error) => {
+      assert.ok(error instanceof AppError);
+      assert.equal((error.details as { code?: string }).code, 'MANAGED_TARGET_CONTEXT_REQUIRED');
+      return true;
+    });
+  });
+
+  it('MANAGED_TARGET 上下文目标不一致时失败关闭', () => {
+    const resolver = new DeploymentStrategyResolver();
+    assert.throws(() => resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target_other' } },
+      }),
+      managedTargetContext: managedTargetContext(),
+    }), (error) => {
+      assert.ok(error instanceof AppError);
+      assert.equal((error.details as { code?: string }).code, 'MANAGED_TARGET_CONTEXT_REQUIRED');
+      return true;
+    });
   });
 
   it('缺少显式策略且不能从绑定推导 Agent 时失败关闭', () => {
@@ -171,4 +273,24 @@ function certificateBinding(patch: Partial<CertificateBindingDto> = {}): Certifi
     version: 1,
     ...patch,
   } as CertificateBindingDto;
+}
+
+function managedTargetContext(patch: Partial<ResolvedManagedTargetContext> = {}): ResolvedManagedTargetContext {
+  return {
+    managedTarget: {
+      id: 'target_1', tenantId: 'tenant_1', hostId: 'host_1', agentId: 'agent_1', serviceAssetId: 'asset_1', siteAssetId: 'site_1',
+      providerType: 'IIS', targetType: 'SITE_BINDING', targetKey: 'target_1', status: 'ACTIVE', metadata: {},
+      createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z', version: 1,
+    },
+    host: {
+      id: 'host_1', tenantId: 'tenant_1', hostname: 'server-1', osType: 'WINDOWS', managementChannels: [],
+      discoverySource: 'agent', agentId: 'agent_1', compatibilityLevel: 'L1', managementMode: 'AGENT', status: 'ACTIVE', tags: [],
+      createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z', version: 1,
+    },
+    agent: { id: 'agent_1', tenantId: 'tenant_1', name: 'agent-1', status: 'online' } as unknown as ResolvedManagedTargetContext['agent'],
+    providerType: 'IIS',
+    driverKind: 'AGENT_NATIVE',
+    executionLocation: 'AGENT',
+    ...patch,
+  } as ResolvedManagedTargetContext;
 }

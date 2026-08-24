@@ -104,8 +104,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
   const deviceAssetsService = new DeviceAssetsApplicationService(
-    new PgDeviceAssetsRepository(appDb),
+    deviceAssetsRepository,
     new NetscalerDeviceConnectionTester(appDb, security.secrets),
   );
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
@@ -195,6 +196,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assets: assetsService.getRepository(),
     bindings: bindingsService.getRepository(),
     agents: agentsService.getRepository(),
+    deviceAssets: deviceAssetsRepository,
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
     workflows: workflowTemplatesService,

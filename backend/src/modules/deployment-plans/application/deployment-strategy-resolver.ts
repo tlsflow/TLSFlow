@@ -3,11 +3,14 @@ import type { ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { DeploymentGatewayRouteDto } from '../dto/deployment-plans.dto.js';
 import type { DeploymentStrategyDto, ServiceAssetDto, ApplicationAssetTargetSummaryDto } from '../../assets/dto/assets.dto.js';
+import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
+import { createBuiltinDeploymentDriverRegistry, type DeploymentDriverRegistry } from './deployment-driver.registry.js';
 
 export interface DeploymentStrategyResolutionInput {
   applicationAsset: ServiceAssetDto;
   bindingTarget?: ApplicationAssetTargetSummaryDto;
   certificateBinding?: CertificateBindingDto;
+  managedTargetContext?: ResolvedManagedTargetContext;
 }
 
 export interface ResolvedDeploymentStrategySnapshot {
@@ -20,6 +23,8 @@ export interface ResolvedDeploymentStrategySnapshot {
 }
 
 export class DeploymentStrategyResolver {
+  constructor(private readonly drivers: DeploymentDriverRegistry = createBuiltinDeploymentDriverRegistry()) {}
+
   resolve(input: DeploymentStrategyResolutionInput): ResolvedDeploymentStrategySnapshot {
     const strategy = input.applicationAsset.deploymentStrategy ?? this.inferAgentStrategy(input);
     if (!strategy) {
@@ -29,8 +34,52 @@ export class DeploymentStrategyResolver {
       });
     }
     if (strategy.type === 'AGENT') return this.resolveAgent(input, strategy);
+    if (strategy.type === 'MANAGED_TARGET') return this.resolveManagedTarget(input, strategy);
     if (strategy.type === 'WORKFLOW') return this.resolveWorkflow(input, strategy);
     throw new AppError('VALIDATION_FAILED', '应用资产部署策略类型不支持', { code: 'DEPLOYMENT_STRATEGY_INVALID', strategyType: (strategy as { type?: unknown }).type });
+  }
+
+  private resolveManagedTarget(input: DeploymentStrategyResolutionInput, strategy: DeploymentStrategyDto): ResolvedDeploymentStrategySnapshot {
+    const managedTargetId = strategy.managedTarget?.managedTargetId;
+    if (!managedTargetId || !input.managedTargetContext || input.managedTargetContext.managedTarget.id !== managedTargetId) {
+      throw new AppError('VALIDATION_FAILED', 'MANAGED_TARGET 策略缺少可信目标上下文', {
+        code: 'MANAGED_TARGET_CONTEXT_REQUIRED', applicationAssetId: input.applicationAsset.id, managedTargetId,
+      });
+    }
+    const context = input.managedTargetContext;
+    const driver = this.drivers.resolve(context);
+    const executorType = context.executionLocation === 'AGENT' ? 'AGENT' : 'CURL';
+    const gatewayRoute = context.executionLocation === 'GATEWAY'
+      ? { gatewayId: context.deviceAsset?.gatewayId, adapter: 'curl' as const, delegatedTargetId: managedTargetId }
+      : undefined;
+    return {
+      strategyType: 'MANAGED_TARGET',
+      executorType,
+      executionTargetId: managedTargetId,
+      requiredCapabilities: [`deployment.driver.${driver.kind.toLowerCase()}`],
+      gatewayRoute,
+      payload: {
+        deploymentStrategy: strategy,
+        managedTargetId,
+        applicationAssetId: input.applicationAsset.id,
+        certificateBindingId: input.certificateBinding?.id,
+        driverKind: driver.kind,
+        executionLocation: driver.executionLocation,
+        precheckSteps: driver.precheck(context),
+        deploymentSteps: driver.buildDeployment(context),
+        rollbackSteps: driver.buildRollback(context),
+        requiredSecrets: driver.requiredSecrets(context),
+        targetSnapshot: {
+          managedTarget: context.managedTarget,
+          host: context.host,
+          siteAsset: context.siteAsset,
+          serviceAsset: context.serviceAsset,
+          serviceInstance: context.serviceInstance,
+          deviceAssetId: context.deviceAsset?.id,
+          agentId: context.agent?.id,
+        },
+      },
+    };
   }
 
   private inferAgentStrategy(input: DeploymentStrategyResolutionInput): DeploymentStrategyDto | undefined {
