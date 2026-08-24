@@ -644,12 +644,16 @@ onMounted(loadStatus)
 .licensing-upgrade-modal__price {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin: 0;
-  padding-top: var(--gc-space-2);
+  min-height: var(--gc-control-height-md);
+  padding: var(--gc-space-2) 0;
   border-top: 1px solid var(--gc-color-border-muted);
   color: var(--gc-color-info);
   font-size: var(--gc-font-size-sm);
-  font-weight: 700;
+  font-weight: 800;
   text-align: center;
 }
 
