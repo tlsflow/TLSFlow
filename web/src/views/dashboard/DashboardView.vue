@@ -1,13 +1,53 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { getDashboardOverview, type DashboardCertificateState, type DashboardOverview, type DashboardStatusBlock } from '@/api/modules/dashboard.api'
+import {
+  getDashboardOverview,
+  type DashboardCertificateState,
+  type DashboardMetric,
+  type DashboardOverview,
+  type DashboardQuickAction,
+  type DashboardStatusBlock,
+  type DashboardStatusGroup,
+} from '@/api/modules/dashboard.api'
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
 import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel } from '@/utils/audit-format'
 
 const permissionStore = usePermissionStore()
+const { t, te } = useI18n()
+const legacyCertificateDetailPattern = /^(.+)\uff0c\u5269\u4f59 (.+) \u5929$/
+const legacyUnknownText = '\u672a\u77e5'
+const legacyDashboardStatusMap = new Map<string, string>([
+  ['\u6b63\u5e38', 'valid'],
+  ['\u5373\u5c06\u5230\u671f', 'expiring'],
+  ['\u4e34\u8fd1\u5230\u671f', 'critical'],
+  ['\u5df2\u8fc7\u671f', 'expired'],
+  [legacyUnknownText, 'unknown'],
+  ['ACTIVE', 'active'],
+  ['DELETED', 'deleted'],
+  ['DISABLED', 'disabled'],
+  ['INACTIVE', 'inactive'],
+  ['OFFLINE', 'offline'],
+  ['ONLINE', 'online'],
+  ['RETIRED', 'retired'],
+  ['STALE', 'stale'],
+  ['UNREACHABLE', 'unreachable'],
+  ['UPGRADING', 'upgrading'],
+  ['active', 'active'],
+  ['deleted', 'deleted'],
+  ['disabled', 'disabled'],
+  ['inactive', 'inactive'],
+  ['offline', 'offline'],
+  ['online', 'online'],
+  ['retired', 'retired'],
+  ['revoked', 'revoked'],
+  ['stale', 'stale'],
+  ['unreachable', 'unreachable'],
+  ['upgrading', 'upgrading'],
+])
 const overview = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -21,11 +61,11 @@ async function loadOverview() {
   loading.value = true
   try {
     const result = await getDashboardOverview()
-    if (!result.data) throw new Error('总览接口没有返回数据')
+    if (!result.data) throw new Error(t('dashboard.errors.missingOverviewData'))
     overview.value = result.data
     error.value = ''
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '总览数据加载失败'
+    error.value = cause instanceof Error ? cause.message : t('dashboard.errors.loadFailed')
   } finally {
     loading.value = false
   }
@@ -43,24 +83,75 @@ onBeforeUnmount(() => {
 
 function stateLabel(state: DashboardCertificateState): string {
   const labels: Record<DashboardCertificateState, string> = {
-    valid: '正常',
-    expiring: '即将到期',
-    critical: '临近到期',
-    expired: '已过期',
-    unknown: '未知',
+    valid: t('dashboard.certificateState.valid'),
+    expiring: t('dashboard.certificateState.expiring'),
+    critical: t('dashboard.certificateState.critical'),
+    expired: t('dashboard.certificateState.expired'),
+    unknown: t('dashboard.certificateState.unknown'),
   }
   return labels[state]
 }
 
 function daysText(value: number | undefined): string {
-  if (value === undefined) return '未记录'
-  if (value < 0) return `已过期 ${Math.abs(value)} 天`
-  if (value === 0) return '今天到期'
-  return `${value} 天`
+  if (value === undefined) return t('dashboard.days.notRecorded')
+  if (value < 0) return t('dashboard.days.expired', { days: Math.abs(value) })
+  if (value === 0) return t('dashboard.days.expiresToday')
+  return t('dashboard.days.remaining', { days: value })
 }
 
-function blockTitle(block: DashboardStatusBlock): string {
-  const parts = [block.label, block.status, block.detail, block.updatedAt ? formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) : '']
+function dashboardText(key: string, fallback: string, params?: Record<string, unknown>): string {
+  return te(key) ? t(key, params ?? {}) : fallback
+}
+
+function metricTitle(metric: DashboardMetric): string {
+  return dashboardText(`dashboard.metrics.${metric.key}.title`, metric.title)
+}
+
+function metricDescription(metric: DashboardMetric): string {
+  return dashboardText(`dashboard.metrics.${metric.key}.description`, metric.description)
+}
+
+function quickActionTitle(action: DashboardQuickAction): string {
+  return dashboardText(`dashboard.quickActions.${action.key}.title`, action.title)
+}
+
+function quickActionDescription(action: DashboardQuickAction): string {
+  return dashboardText(`dashboard.quickActions.${action.key}.description`, action.description)
+}
+
+function statusGroupTitle(group: DashboardStatusGroup): string {
+  return dashboardText(`dashboard.statusGroups.${group.key}.title`, group.title)
+}
+
+function statusGroupSummary(group: DashboardStatusGroup): string {
+  const abnormalCount = group.blocks.filter((block) => block.tone === 'warning' || block.tone === 'error' || block.tone === 'unknown').length
+  return abnormalCount > 0
+    ? t('dashboard.statusGroups.summary.needsAttention', { count: abnormalCount })
+    : t('dashboard.statusGroups.summary.allNormal')
+}
+
+function statusBlockStatus(block: DashboardStatusBlock): string {
+  const normalized = normalizeDashboardStatus(block.status)
+  return normalized
+    ? dashboardText(`dashboard.statusBlock.status.${normalized}`, block.status)
+    : block.status
+}
+
+function statusBlockDetail(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
+  if (!block.detail) return ''
+  if (group.key !== 'certificates') return block.detail
+  const match = block.detail.match(legacyCertificateDetailPattern)
+  if (!match) return block.detail
+  const days = match[2] === legacyUnknownText ? t('dashboard.days.notRecorded') : t('dashboard.days.remaining', { days: match[2] })
+  return t('dashboard.statusBlock.detail.certificateRemaining', { name: match[1], days })
+}
+
+function normalizeDashboardStatus(value: string): string {
+  return legacyDashboardStatusMap.get(value) ?? ''
+}
+
+function blockTitle(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
+  const parts = [block.label, statusBlockStatus(block), statusBlockDetail(group, block), block.updatedAt ? formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) : '']
   return parts.filter(Boolean).join(' / ')
 }
 
@@ -77,27 +168,27 @@ function hideTooltip() {
   <section class="gc-page dashboard-page">
     <p v-if="error" class="dashboard-page__error">{{ error }}</p>
 
-    <section class="dashboard-page__metrics" aria-label="核心指标">
+    <section class="dashboard-page__metrics" :aria-label="t('dashboard.aria.metrics')">
       <article
         v-for="metric in overview?.metrics ?? []"
         :key="metric.key"
         class="dashboard-metric"
         :data-trend="metric.trend"
       >
-        <span>{{ metric.title }}</span>
+        <span>{{ metricTitle(metric) }}</span>
         <strong>{{ metric.value }}</strong>
-        <p>{{ metric.description }}</p>
+        <p>{{ metricDescription(metric) }}</p>
       </article>
       <template v-if="!overview && loading">
         <article v-for="index in 6" :key="index" class="dashboard-metric dashboard-metric--loading">
-          <span>加载中</span>
+          <span>{{ t('dashboard.loading.title') }}</span>
           <strong>--</strong>
-          <p>正在读取总览数据。</p>
+          <p>{{ t('dashboard.loading.description') }}</p>
         </article>
       </template>
     </section>
 
-    <nav v-if="visibleQuickActions.length" class="dashboard-actions" aria-label="主要功能入口">
+    <nav v-if="visibleQuickActions.length" class="dashboard-actions" :aria-label="t('dashboard.aria.quickActions')">
       <RouterLink
         v-for="action in visibleQuickActions"
         :key="action.key"
@@ -106,23 +197,23 @@ function hideTooltip() {
       >
         <span class="dashboard-action__icon" aria-hidden="true">›</span>
         <span>
-          <strong>{{ action.title }}</strong>
-          <small>{{ action.description }}</small>
+          <strong>{{ quickActionTitle(action) }}</strong>
+          <small>{{ quickActionDescription(action) }}</small>
         </span>
       </RouterLink>
     </nav>
 
     <section class="dashboard-grid">
-      <section class="gc-card dashboard-panel dashboard-panel--certificates" aria-label="应用资产状态热力图">
+      <section class="gc-card dashboard-panel dashboard-panel--certificates" :aria-label="t('dashboard.aria.assetHeatmap')">
         <header class="dashboard-panel__header">
           <div>
-            <h2>应用资产状态</h2>
-            <p v-if="overview?.generatedAt">更新于 {{ formatBrowserLocalTime(overview.generatedAt) }}</p>
+            <h2>{{ t('dashboard.assets.title') }}</h2>
+            <p v-if="overview?.generatedAt">{{ t('dashboard.assets.updatedAt', { time: formatBrowserLocalTime(overview.generatedAt) }) }}</p>
           </div>
-          <RouterLink class="gc-button" to="/assets">应用资产</RouterLink>
+          <RouterLink class="gc-button" to="/assets">{{ t('nav.assets') }}</RouterLink>
         </header>
 
-        <div class="dashboard-heatmap" aria-label="证书、Agent、网关和应用资产状态">
+        <div class="dashboard-heatmap" :aria-label="t('dashboard.aria.statusHeatmap')">
           <section
             v-for="group in overview?.statusGroups ?? []"
             :key="group.key"
@@ -130,8 +221,8 @@ function hideTooltip() {
           >
             <header>
               <div>
-                <strong>{{ group.title }}</strong>
-                <span>{{ group.summary }} · {{ group.total }} 个</span>
+                <strong>{{ statusGroupTitle(group) }}</strong>
+                <span>{{ t('dashboard.assets.groupCount', { summary: statusGroupSummary(group), total: group.total }) }}</span>
               </div>
             </header>
             <div v-if="group.blocks.length" class="dashboard-heatmap__blocks">
@@ -149,34 +240,34 @@ function hideTooltip() {
                   class="dashboard-heatmap__block"
                   :class="`dashboard-heatmap__block--${block.tone}`"
                   :to="block.targetPath"
-                  :aria-label="blockTitle(block)"
+                  :aria-label="blockTitle(group, block)"
                 />
                 <span v-if="activeTooltip?.id === block.id" class="dashboard-heatmap__tooltip" role="tooltip">
                   <strong>{{ block.label }}</strong>
-                  <span>{{ block.status }}</span>
-                  <small v-if="block.detail">{{ block.detail }}</small>
+                  <span>{{ statusBlockStatus(block) }}</span>
+                  <small v-if="statusBlockDetail(group, block)">{{ statusBlockDetail(group, block) }}</small>
                   <time v-if="block.updatedAt">{{ formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) }}</time>
                 </span>
               </span>
             </div>
-            <div v-else class="dashboard-heatmap__empty">暂无对象</div>
+            <div v-else class="dashboard-heatmap__empty">{{ t('dashboard.empty.noObjects') }}</div>
           </section>
-          <footer class="dashboard-heatmap__legend" aria-label="状态图例">
-            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--ok"></i>正常</span>
-            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--warning"></i>关注</span>
-            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--error"></i>异常</span>
-            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--unknown"></i>未知</span>
-            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--disabled"></i>禁用</span>
+          <footer class="dashboard-heatmap__legend" :aria-label="t('dashboard.aria.statusLegend')">
+            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--ok"></i>{{ t('dashboard.legend.ok') }}</span>
+            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--warning"></i>{{ t('dashboard.legend.warning') }}</span>
+            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--error"></i>{{ t('dashboard.legend.error') }}</span>
+            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--unknown"></i>{{ t('dashboard.legend.unknown') }}</span>
+            <span><i class="dashboard-heatmap__dot dashboard-heatmap__dot--disabled"></i>{{ t('dashboard.legend.disabled') }}</span>
           </footer>
         </div>
 
-        <div class="dashboard-table" role="table" aria-label="证书状态列表">
+        <div class="dashboard-table" role="table" :aria-label="t('dashboard.aria.certificateStatusList')">
           <div class="dashboard-table__row dashboard-table__row--head" role="row">
-            <span role="columnheader">证书</span>
-            <span role="columnheader">域名</span>
-            <span role="columnheader">状态</span>
-            <span role="columnheader">剩余时间</span>
-            <span role="columnheader">绑定</span>
+            <span role="columnheader">{{ t('dashboard.table.certificate') }}</span>
+            <span role="columnheader">{{ t('dashboard.table.domain') }}</span>
+            <span role="columnheader">{{ t('dashboard.table.status') }}</span>
+            <span role="columnheader">{{ t('dashboard.table.remainingTime') }}</span>
+            <span role="columnheader">{{ t('dashboard.table.bindings') }}</span>
           </div>
           <div
             v-for="item in overview?.certificateStatuses ?? []"
@@ -186,7 +277,7 @@ function hideTooltip() {
           >
             <span role="cell">
               <strong>{{ item.name }}</strong>
-              <small>{{ item.notAfter ? formatBrowserLocalTime(item.notAfter, { includeSeconds: false }) : '未记录到期时间' }}</small>
+              <small>{{ item.notAfter ? formatBrowserLocalTime(item.notAfter, { includeSeconds: false }) : t('dashboard.table.notAfterMissing') }}</small>
             </span>
             <span role="cell">{{ item.primaryDomain }}</span>
             <span role="cell">
@@ -198,37 +289,37 @@ function hideTooltip() {
         </div>
 
         <div v-if="overview && overview.certificateStatuses.length === 0" class="dashboard-empty">
-          暂无证书状态数据
+          {{ t('dashboard.empty.noCertificateStatus') }}
         </div>
       </section>
 
-      <section class="gc-card dashboard-panel dashboard-panel--audits" aria-label="最近审计日志">
+      <section class="gc-card dashboard-panel dashboard-panel--audits" :aria-label="t('dashboard.audit.title')">
         <header class="dashboard-panel__header">
           <div>
-            <h2>最近审计日志</h2>
-            <p>优先展示失败、拒绝、高风险和关键业务变更。</p>
+            <h2>{{ t('dashboard.audit.title') }}</h2>
+            <p>{{ t('dashboard.audit.description') }}</p>
           </div>
-          <RouterLink class="gc-button" to="/audits">审计</RouterLink>
+          <RouterLink class="gc-button" to="/audits">{{ t('nav.audits') }}</RouterLink>
         </header>
 
         <ol class="dashboard-audits">
           <li v-for="item in overview?.recentAudits ?? []" :key="item.id" :data-result="item.result">
             <span class="dashboard-audits__result" :data-result="item.result">
-              {{ auditResultLabel(item.result) }}
+              {{ auditResultLabel(item.result, t) }}
             </span>
             <div class="dashboard-audits__body">
               <div class="dashboard-audits__title-row">
-                <strong>{{ auditReadableTitle(item) }}</strong>
-                <span class="dashboard-audits__type">{{ auditTypeLabel(item) }}</span>
+                <strong>{{ auditReadableTitle(item, t) }}</strong>
+                <span class="dashboard-audits__type">{{ auditTypeLabel(item, t) }}</span>
               </div>
-              <p>{{ auditSummary(item) }}</p>
+              <p>{{ auditSummary(item, t) }}</p>
             </div>
             <time>{{ formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) }}</time>
           </li>
         </ol>
 
         <div v-if="overview && overview.recentAudits.length === 0" class="dashboard-empty">
-          暂无审计日志
+          {{ t('dashboard.empty.noAuditLogs') }}
         </div>
       </section>
     </section>

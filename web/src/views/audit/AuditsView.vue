@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { GcEmptyState, GcPageHeader, GcPermissionButton } from '@/design-system/components'
 import { exportAuditEvidence, listAudits } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -18,6 +19,7 @@ const loading = ref(false)
 const exporting = ref(false)
 const error = ref('')
 const exportError = ref('')
+const { t } = useI18n()
 
 const failedCount = computed(() => rows.value.filter((row) => row.result === 'failure' || row.result === 'denied').length)
 const userActionCount = computed(() => rows.value.filter((row) => row.actorType === 'user').length)
@@ -35,7 +37,7 @@ async function loadAudits() {
     rows.value = page.items.map(toAuditRow).sort(compareAuditRowsDesc)
     total.value = page.total ?? rows.value.length
   } catch (cause) {
-    error.value = cause instanceof ApiClientError ? `${cause.message}（${cause.requestId}）` : cause instanceof Error ? cause.message : '审计日志加载失败'
+    error.value = cause instanceof ApiClientError ? t('audit.errors.withRequestId', { message: cause.message, requestId: cause.requestId }) : cause instanceof Error ? cause.message : t('audit.errors.loadFailed')
     rows.value = []
     total.value = 0
   } finally {
@@ -49,7 +51,7 @@ async function exportEvidence() {
   try {
     await exportAuditEvidence({ scope: 'current-filter', dryRun: true })
   } catch (cause) {
-    exportError.value = cause instanceof Error ? cause.message : '导出审计证据失败'
+    exportError.value = cause instanceof Error ? cause.message : t('audit.errors.exportFailed')
   } finally {
     exporting.value = false
   }
@@ -60,7 +62,7 @@ function toAuditRow(record: ApiRecord): AuditRow {
     id: readString(record, ['id', 'eventId'], 'aud_unknown'),
     eventType: readString(record, ['eventType'], 'audit.event'),
     actorType: readString(record, ['actorType'], 'user'),
-    actorId: readString(record, ['actorId'], '未知'),
+    actorId: readString(record, ['actorId'], t('auditFormat.fallbacks.unknown')),
     action: readString(record, ['action'], 'audit.record'),
     resourceType: readString(record, ['resourceType'], 'auditLog'),
     resourceId: readOptionalString(record, ['resourceId']),
@@ -108,64 +110,64 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 <template>
   <section class="gc-page audit-page">
-    <GcPageHeader title="审计日志" description="按用户操作、失败/拒绝和关键业务变更组织日志，保留可读摘要。">
+    <GcPageHeader :title="t('audit.page.title')" :description="t('audit.page.description')">
       <template #actions>
         <GcPermissionButton permission="audit.export" :disabled="exporting" @click="exportEvidence">
-          {{ exporting ? '导出中…' : '导出审计证据' }}
+          {{ exporting ? t('audit.actions.exporting') : t('audit.actions.exportEvidence') }}
         </GcPermissionButton>
       </template>
     </GcPageHeader>
 
     <p v-if="exportError" class="audit-page__error">{{ exportError }}</p>
 
-    <section class="audit-page__metrics" aria-label="审计概览">
+    <section class="audit-page__metrics" :aria-label="t('audit.metrics.ariaLabel')">
       <article class="gc-card audit-page__metric">
-        <span>审计总数</span>
+        <span>{{ t('audit.metrics.total.title') }}</span>
         <strong>{{ total }}</strong>
-        <p>当前筛选范围内可追踪的操作记录。</p>
+        <p>{{ t('audit.metrics.total.description') }}</p>
       </article>
       <article class="gc-card audit-page__metric">
-        <span>失败 / 拒绝</span>
+        <span>{{ t('audit.metrics.failed.title') }}</span>
         <strong>{{ failedCount }}</strong>
-        <p>需要优先复核的失败执行和拒绝访问。</p>
+        <p>{{ t('audit.metrics.failed.description') }}</p>
       </article>
       <article class="gc-card audit-page__metric">
-        <span>用户操作</span>
+        <span>{{ t('audit.metrics.userActions.title') }}</span>
         <strong>{{ userActionCount }}</strong>
-        <p>由用户直接发起的业务变更和访问动作。</p>
+        <p>{{ t('audit.metrics.userActions.description') }}</p>
       </article>
     </section>
 
-    <GcEmptyState v-if="error" title="审计日志加载失败" :description="error">
-      <button class="gc-button" type="button" @click="loadAudits">重试</button>
+    <GcEmptyState v-if="error" :title="t('audit.errors.loadFailed')" :description="error">
+      <button class="gc-button" type="button" @click="loadAudits">{{ t('businessPage.retry') }}</button>
     </GcEmptyState>
 
-    <section v-else class="gc-card audit-list" aria-label="审计日志列表">
+    <section v-else class="gc-card audit-list" :aria-label="t('audit.list.ariaLabel')">
       <header class="audit-list__header">
         <div>
-          <h2>日志列表</h2>
-          <p>共 {{ total }} 条，默认按最新时间排序。</p>
+          <h2>{{ t('audit.list.title') }}</h2>
+          <p>{{ t('audit.list.summary', { total }) }}</p>
         </div>
         <button class="gc-button" type="button" :disabled="loading" @click="loadAudits">
-          {{ loading ? '刷新中…' : '刷新' }}
+          {{ loading ? t('audit.actions.refreshing') : t('common.refresh') }}
         </button>
       </header>
 
-      <div v-if="loading" class="audit-list__state">加载中...</div>
+      <div v-if="loading" class="audit-list__state">{{ t('designSystem.dataTable.loading') }}</div>
       <ol v-else-if="rows.length" class="audit-list__items">
         <li v-for="item in rows" :key="item.id" :data-result="item.result">
-          <span class="audit-list__result" :data-result="item.result">{{ auditResultLabel(item.result) }}</span>
+          <span class="audit-list__result" :data-result="item.result">{{ auditResultLabel(item.result, t) }}</span>
           <div class="audit-list__body">
             <div class="audit-list__title-row">
-              <strong>{{ auditReadableTitle(item) }}</strong>
-              <span class="audit-list__type">{{ auditTypeLabel(item) }}</span>
+              <strong>{{ auditReadableTitle(item, t) }}</strong>
+              <span class="audit-list__type">{{ auditTypeLabel(item, t) }}</span>
             </div>
-            <p>{{ auditSummary(item) }}</p>
+            <p>{{ auditSummary(item, t) }}</p>
           </div>
-          <time>{{ item.createdAt ? formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) : '未记录时间' }}</time>
+          <time>{{ item.createdAt ? formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) : t('audit.list.timeNotRecorded') }}</time>
         </li>
       </ol>
-      <GcEmptyState v-else title="暂无审计事件" description="关键操作应能回溯到对应的操作记录和任务记录。" />
+      <GcEmptyState v-else :title="t('audit.empty.title')" :description="t('audit.empty.description')" />
     </section>
   </section>
 </template>

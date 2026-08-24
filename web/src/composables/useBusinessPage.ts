@@ -1,6 +1,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ApiClientError } from '@/api/client'
 import type { ApiPage, ApiPageResult, ApiRecord } from '@/api/modules/common'
+import { i18n } from '@/i18n'
 import { formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 
@@ -18,7 +19,35 @@ export interface PageErrorState {
   readonly requestId: string
 }
 
+export type I18nParams = Record<string, string | number>
+export type I18nTranslate = (key: string, params?: I18nParams) => string
+
+export interface UseBusinessPageOptions {
+  readonly t?: I18nTranslate
+}
+
 const KNOWN_RISKS = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+const BUSINESS_PAGE_I18N_KEYS = [
+  'businessPage.request.notRequested',
+  'businessPage.error.unknown',
+] as const
+
+type BusinessPageI18nKey = typeof BUSINESS_PAGE_I18N_KEYS[number]
+
+export function formatI18nFallback(template: string, params: I18nParams = {}): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => String(params[key] ?? match))
+}
+
+export function translateWithFallback(t: I18nTranslate | undefined, key: string, fallback: string, params?: I18nParams): string {
+  const translate = t ?? ((messageKey: string, messageParams?: I18nParams) => i18n.global.t(messageKey, messageParams ?? {}))
+  const translated = translate(key, params)
+  if (translated && translated !== key) return translated
+  return formatI18nFallback(fallback, params)
+}
+
+function translateBusinessPage(options: UseBusinessPageOptions | undefined, key: BusinessPageI18nKey, params?: I18nParams): string {
+  return translateWithFallback(options?.t, key, key, params)
+}
 
 export function readString(record: ApiRecord, candidates: readonly string[], fallback = '—'): string {
   for (const key of candidates) {
@@ -70,11 +99,11 @@ function toRows(page: ApiPage | undefined, config: BusinessPageConfig): ViewRow[
   })
 }
 
-export function useBusinessPage(config: BusinessPageConfig) {
+export function useBusinessPage(config: BusinessPageConfig, options: UseBusinessPageOptions = {}) {
   const loading = ref(false)
   const page = ref<ApiPage | null>(null)
   const error = ref<PageErrorState | null>(null)
-  const lastRequestId = ref('尚未请求')
+  const lastRequestId = ref(translateBusinessPage(options, 'businessPage.request.notRequested'))
 
   const rows = computed(() => toRows(page.value ?? undefined, config))
   const total = computed(() => page.value?.total ?? rows.value.length)
@@ -95,7 +124,7 @@ export function useBusinessPage(config: BusinessPageConfig) {
         }
       } else {
         error.value = {
-          message: cause instanceof Error ? cause.message : '未知错误',
+          message: cause instanceof Error ? cause.message : translateBusinessPage(options, 'businessPage.error.unknown'),
           errorCode: 'NETWORK_OR_RUNTIME_ERROR',
           requestId: ''
         }

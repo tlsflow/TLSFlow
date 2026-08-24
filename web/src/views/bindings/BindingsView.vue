@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { createSecret } from '@/api/modules/security.api'
 import {
@@ -59,7 +60,7 @@ interface FormatRow extends Record<string, unknown> {
 }
 
 interface TemplatePreset {
-  readonly configName: string
+  readonly configNameKey: string
   readonly alias: string
   readonly presetFormat: PresetFormat
   readonly publicEncoding: PublicEncoding
@@ -70,13 +71,15 @@ interface TemplatePreset {
   readonly generateChainFile: boolean
   readonly generatePrivateKeyFile: boolean
   readonly passwordSecretRef: string
-  readonly description: string
+  readonly descriptionKey: string
 }
+
+const { t } = useI18n()
 
 const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<RuntimePlatform, ''>, TemplatePreset>> = {
   windows: {
     iis: {
-      configName: 'Windows-IIS-PKCS12-标准模板',
+      configNameKey: 'bindings.templates.windowsIis.configName',
       alias: '',
       presetFormat: 'pfx',
       publicEncoding: 'pem',
@@ -87,10 +90,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: false,
       passwordSecretRef: '',
-      description: 'IIS 使用 PKCS#12/PFX 容器最常见，主产物内直接携带服务器证书、证书链和私钥。',
+      descriptionKey: 'bindings.templates.windowsIis.description',
     },
     nginx: {
-      configName: 'Windows-NGINX-PEM-标准模板',
+      configNameKey: 'bindings.templates.windowsNginx.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -101,10 +104,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: true,
       passwordSecretRef: '',
-      description: 'NGINX 主流使用 PEM 单文件承载服务器证书与链，再配独立私钥文件。',
+      descriptionKey: 'bindings.templates.windowsNginx.description',
     },
     apache: {
-      configName: 'Windows-Apache-PEM-标准模板',
+      configNameKey: 'bindings.templates.windowsApache.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -115,10 +118,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: true,
       generatePrivateKeyFile: true,
       passwordSecretRef: '',
-      description: 'Apache 通常以 PEM 证书文件和独立私钥交付，链文件额外导出便于兼容不同运维习惯。',
+      descriptionKey: 'bindings.templates.windowsApache.description',
     },
     tomcat: {
-      configName: 'Windows-Tomcat-PKCS12-标准模板',
+      configNameKey: 'bindings.templates.windowsTomcat.configName',
       alias: 'tomcat',
       presetFormat: 'pfx',
       publicEncoding: 'pem',
@@ -129,10 +132,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: false,
       passwordSecretRef: '',
-      description: 'Tomcat 以 JKS/PKCS#12 keystore 为主，这里默认使用更通用的 PKCS#12。',
+      descriptionKey: 'bindings.templates.windowsTomcat.description',
     },
     other: {
-      configName: 'Windows-设备兼容单文件PEM模板',
+      configNameKey: 'bindings.templates.windowsOther.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -143,12 +146,12 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: false,
       passwordSecretRef: '',
-      description: '兼容部分设备要求：单文件中同时包含公钥证书、证书链与私钥，扩展名可再改成 .crt/.cer。',
+      descriptionKey: 'bindings.templates.windowsOther.description',
     },
   },
   linux: {
     iis: {
-      configName: 'Linux-IIS-兼容模板',
+      configNameKey: 'bindings.templates.linuxIis.configName',
       alias: '',
       presetFormat: 'pfx',
       publicEncoding: 'pem',
@@ -159,10 +162,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: false,
       passwordSecretRef: '',
-      description: '如果最终目标仍是 IIS，最合理的交付物仍然是 PKCS#12/PFX 容器。',
+      descriptionKey: 'bindings.templates.linuxIis.description',
     },
     nginx: {
-      configName: 'Linux-NGINX-PEM-标准模板',
+      configNameKey: 'bindings.templates.linuxNginx.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -173,10 +176,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: true,
       passwordSecretRef: '',
-      description: 'NGINX 官方配置围绕 PEM 单文件证书链与独立私钥展开。',
+      descriptionKey: 'bindings.templates.linuxNginx.description',
     },
     apache: {
-      configName: 'Linux-Apache-PEM-标准模板',
+      configNameKey: 'bindings.templates.linuxApache.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -187,10 +190,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: true,
       generatePrivateKeyFile: true,
       passwordSecretRef: '',
-      description: 'Apache 常见做法是 PEM 证书文件配独立私钥，链文件额外导出便于拆分部署。',
+      descriptionKey: 'bindings.templates.linuxApache.description',
     },
     tomcat: {
-      configName: 'Linux-Tomcat-PKCS12-标准模板',
+      configNameKey: 'bindings.templates.linuxTomcat.configName',
       alias: 'tomcat',
       presetFormat: 'pfx',
       publicEncoding: 'pem',
@@ -201,10 +204,10 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: false,
       passwordSecretRef: '',
-      description: 'Tomcat 默认建议交付 keystore 容器，这里使用更通用的 PKCS#12。',
+      descriptionKey: 'bindings.templates.linuxTomcat.description',
     },
     other: {
-      configName: 'Linux-设备兼容单文件PEM模板',
+      configNameKey: 'bindings.templates.linuxOther.configName',
       alias: '',
       presetFormat: 'pem_bundle',
       publicEncoding: 'pem',
@@ -215,7 +218,7 @@ const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<Runti
       generateChainFile: false,
       generatePrivateKeyFile: true,
       passwordSecretRef: '',
-      description: 'Linux 通用设备若接受单文件 PEM，可先用 bundle 形式，再按目标设备调整扩展名与包含内容。',
+      descriptionKey: 'bindings.templates.linuxOther.description',
     },
   },
 }
@@ -242,16 +245,16 @@ const RUNTIME_PLATFORM_OPTIONS: Record<Exclude<SystemPlatform, ''>, Array<{ valu
   ],
 }
 
-const FORMAT_OPTIONS: Array<{ value: PresetFormat; label: string }> = [
-  { value: 'pfx', label: 'PKCS#12 / PFX 容器' },
-  { value: 'jks', label: 'JKS 容器' },
-  { value: 'pem_bundle', label: 'PEM 单文件 Bundle' },
-  { value: 'pem_cert', label: 'PEM 证书文件' },
-  { value: 'pem_key', label: '私钥文件' },
-  { value: 'cer', label: '证书文件（.cer）' },
-  { value: 'crt', label: '证书文件（.crt）' },
-  { value: 'p7b', label: 'PKCS#7 / P7B 证书链' },
-  { value: 'custom', label: '自定义' },
+const FORMAT_OPTION_DEFINITIONS: Array<{ value: PresetFormat; labelKey: string }> = [
+  { value: 'pfx', labelKey: 'bindings.formats.pfx' },
+  { value: 'jks', labelKey: 'bindings.formats.jks' },
+  { value: 'pem_bundle', labelKey: 'bindings.formats.pemBundle' },
+  { value: 'pem_cert', labelKey: 'bindings.formats.pemCert' },
+  { value: 'pem_key', labelKey: 'bindings.formats.pemKey' },
+  { value: 'cer', labelKey: 'bindings.formats.cer' },
+  { value: 'crt', labelKey: 'bindings.formats.crt' },
+  { value: 'p7b', labelKey: 'bindings.formats.p7b' },
+  { value: 'custom', labelKey: 'bindings.formats.custom' },
 ]
 
 const loading = ref(false)
@@ -261,7 +264,7 @@ const dialogOpen = ref(false)
 const error = ref('')
 const actionError = ref('')
 const requestId = ref('')
-const templateMessage = ref('')
+const templateMessageKey = ref('')
 const editMode = ref<'create' | 'edit'>('create')
 const formatItems = ref<ApiRecord[]>([])
 const filters = reactive({
@@ -281,6 +284,7 @@ const showsPublicEncoding = computed(() => !isContainerFormat.value && !isPrivat
 const showsPrivateEncoding = computed(() => !isContainerFormat.value && (isPemBundleFormat.value || isPrivateKeyOnlyFormat.value || draft.presetFormat === 'custom'))
 const showsContentSelection = computed(() => !isContainerFormat.value)
 const showsPasswordSecret = computed(() => isContainerFormat.value)
+const formatOptions = computed(() => FORMAT_OPTION_DEFINITIONS.map((item) => ({ ...item, label: t(item.labelKey) })))
 const runtimeOptions = computed(() => {
   if (!draft.systemPlatform) return []
   return RUNTIME_PLATFORM_OPTIONS[draft.systemPlatform]
@@ -288,6 +292,10 @@ const runtimeOptions = computed(() => {
 const selectedTemplate = computed(() => {
   if (!draft.systemPlatform || !draft.runtimePlatform) return null
   return TEMPLATE_PRESETS[draft.systemPlatform][draft.runtimePlatform]
+})
+const templateMessage = computed(() => {
+  if (templateMessageKey.value) return t(templateMessageKey.value)
+  return selectedTemplate.value ? t(selectedTemplate.value.descriptionKey) : ''
 })
 
 const rows = computed<FormatRow[]>(() => {
@@ -297,7 +305,7 @@ const rows = computed<FormatRow[]>(() => {
     .map((item, index) => {
       const parameters = readRecord(item.parameters)
       const presetFormat = normalizePresetFormat(String(parameters.outputPreset ?? item.format ?? 'pem_bundle'))
-      const configName = String(parameters.configName ?? parameters.alias ?? `未命名配置-${index + 1}`)
+      const configName = String(parameters.configName ?? parameters.alias ?? t('bindings.fallbacks.unnamedConfig', { index: index + 1 }))
       const alias = String(parameters.alias ?? '-')
       const targetSummary = renderTargetSummary(parameters)
       const displayFormat = renderFormatLabel(presetFormat)
@@ -331,15 +339,15 @@ const rows = computed<FormatRow[]>(() => {
     })
 })
 
-const columns: DataTableColumn<FormatRow>[] = [
-  { key: 'configName', title: '配置文件名称', width: '22%' },
-  { key: 'targetSummary', title: '目标环境', width: '16%' },
-  { key: 'displayFormat', title: '内容格式', width: '14%' },
-  { key: 'extension', title: '扩展名', width: '10%' },
-  { key: 'encodingSummary', title: '编码', width: '14%' },
-  { key: 'exportSummary', title: '包含内容 / 导出选项', width: '22%' },
-  { key: 'actions', title: '操作', width: '12%' },
-]
+const columns = computed<DataTableColumn<FormatRow>[]>(() => [
+  { key: 'configName', title: t('bindings.columns.configName'), width: '22%' },
+  { key: 'targetSummary', title: t('bindings.columns.targetSummary'), width: '16%' },
+  { key: 'displayFormat', title: t('bindings.columns.displayFormat'), width: '14%' },
+  { key: 'extension', title: t('bindings.columns.extension'), width: '10%' },
+  { key: 'encodingSummary', title: t('bindings.columns.encodingSummary'), width: '14%' },
+  { key: 'exportSummary', title: t('bindings.columns.exportSummary'), width: '22%' },
+  { key: 'actions', title: t('bindings.columns.actions'), width: '12%' },
+])
 
 onMounted(loadFormats)
 
@@ -350,7 +358,7 @@ async function loadFormats() {
     const result = await listCertificateFormats({ page: 1, pageSize: 200, sort: 'createdAt:desc' })
     formatItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
-    error.value = toErrorMessage(cause, '加载证书格式配置失败')
+    error.value = toErrorMessage(cause, t('bindings.errors.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -385,7 +393,7 @@ function openCreateDialog() {
   editMode.value = 'create'
   actionError.value = ''
   requestId.value = ''
-  templateMessage.value = ''
+  templateMessageKey.value = ''
   dialogOpen.value = true
 }
 
@@ -416,7 +424,7 @@ function openEditDialog(row: FormatRow) {
   editMode.value = 'edit'
   actionError.value = ''
   requestId.value = ''
-  templateMessage.value = selectedTemplate.value?.description ?? ''
+  templateMessageKey.value = selectedTemplate.value?.descriptionKey ?? ''
   dialogOpen.value = true
 }
 
@@ -428,18 +436,18 @@ function closeDialog() {
 
 function handleSystemPlatformChange() {
   draft.runtimePlatform = ''
-  templateMessage.value = ''
+  templateMessageKey.value = ''
 }
 
 function applyTemplate() {
   if (!draft.systemPlatform || !draft.runtimePlatform) {
-    templateMessage.value = '请先选择系统平台和目标平台。'
+    templateMessageKey.value = 'bindings.validation.selectPlatformsFirst'
     return
   }
 
   const preset = TEMPLATE_PRESETS[draft.systemPlatform][draft.runtimePlatform]
   Object.assign(draft, {
-    configName: preset.configName,
+    configName: t(preset.configNameKey),
     alias: preset.alias,
     presetFormat: preset.presetFormat,
     customBackendFormat: 'pem',
@@ -455,17 +463,17 @@ function applyTemplate() {
     hasSavedPassword: false,
     passwordSecretRef: preset.passwordSecretRef,
   } satisfies Partial<ArtifactDraft>)
-  templateMessage.value = preset.description
+  templateMessageKey.value = preset.descriptionKey
 }
 
 async function submitDraft() {
   if (!draft.configName.trim()) {
-    actionError.value = '必须填写配置文件名称'
+    actionError.value = t('bindings.validation.configNameRequired')
     return
   }
 
   if (showsPasswordSecret.value && !draft.passwordValue.trim() && !draft.hasSavedPassword) {
-    actionError.value = 'PFX/JKS 配置必须填写导出密码'
+    actionError.value = t('bindings.validation.passwordRequired')
     return
   }
 
@@ -484,10 +492,10 @@ async function submitDraft() {
     await loadFormats()
   } catch (cause) {
     if (cause instanceof ApiClientError) {
-      actionError.value = `${cause.message}（${cause.errorCode}）`
+      actionError.value = t('bindings.errors.withCode', { message: cause.message, code: cause.errorCode })
       requestId.value = cause.requestId
     } else {
-      actionError.value = toErrorMessage(cause, '保存证书格式配置失败')
+      actionError.value = toErrorMessage(cause, t('bindings.errors.saveFailed'))
     }
   } finally {
     submitLoading.value = false
@@ -501,7 +509,7 @@ async function removeRow(row: FormatRow) {
     await deleteCertificateFormat(row.id)
     await loadFormats()
   } catch (cause) {
-    error.value = toErrorMessage(cause, '删除证书格式配置失败')
+    error.value = toErrorMessage(cause, t('bindings.errors.deleteFailed'))
   } finally {
     deleteLoadingId.value = ''
   }
@@ -513,14 +521,14 @@ async function resolvePasswordSecretRef(): Promise<string> {
   }
   if (draft.passwordValue.trim()) {
     const secret = await createSecret({
-      name: `${draft.configName.trim() || '证书格式配置'} 导出密码`,
+      name: t('bindings.secret.exportPasswordName', { name: draft.configName.trim() || t('bindings.secret.defaultConfigName') }),
       type: 'pfx_password',
       scopeType: 'global',
       plainText: draft.passwordValue.trim(),
     })
     const secretRef = String(secret.data?.secretRef ?? '')
     if (!secretRef) {
-      throw new Error('创建导出密码 Secret 失败')
+      throw new Error(t('bindings.errors.createExportSecretFailed'))
     }
     draft.passwordSecretRef = secretRef
     draft.passwordValue = ''
@@ -609,41 +617,41 @@ function resolveExtension(input: ArtifactDraft) {
 function renderTargetSummary(parameters: Record<string, unknown>) {
   const systemPlatform = renderSystemPlatform(String(parameters.systemPlatform ?? ''))
   const runtimePlatform = renderRuntimePlatform(String(parameters.runtimePlatform ?? ''))
-  if (!systemPlatform && !runtimePlatform) return '未指定'
+  if (!systemPlatform && !runtimePlatform) return t('bindings.fallbacks.unspecified')
   return [systemPlatform, runtimePlatform].filter(Boolean).join(' / ')
 }
 
 function renderFormatLabel(value: PresetFormat) {
-  return FORMAT_OPTIONS.find((item) => item.value === value)?.label ?? value
+  return formatOptions.value.find((item) => item.value === value)?.label ?? value
 }
 
 function renderEncodingSummary(item: ApiRecord, parameters: Record<string, unknown>) {
   const format = normalizePresetFormat(String(parameters.outputPreset ?? item.format ?? 'pem_bundle'))
   switch (format) {
     case 'pfx':
-      return 'PKCS#12 容器'
+      return t('bindings.encoding.pkcs12Container')
     case 'jks':
-      return 'JKS 容器'
+      return t('bindings.encoding.jksContainer')
     case 'pem_key':
-      return `私钥 ${String(parameters.privateEncoding ?? 'pem').toUpperCase()}`
+      return t('bindings.encoding.privateKeyWithEncoding', { encoding: String(parameters.privateEncoding ?? 'pem').toUpperCase() })
     case 'p7b':
-      return 'PKCS#7 证书链'
+      return t('bindings.encoding.pkcs7Chain')
     default:
       return [
-        parameters.publicEncoding ? `证书 ${String(parameters.publicEncoding).toUpperCase()}` : '',
-        parameters.privateEncoding ? `私钥 ${String(parameters.privateEncoding).toUpperCase()}` : '',
-      ].filter(Boolean).join(' / ') || '默认'
+        parameters.publicEncoding ? t('bindings.encoding.certificateWithEncoding', { encoding: String(parameters.publicEncoding).toUpperCase() }) : '',
+        parameters.privateEncoding ? t('bindings.encoding.privateKeyWithEncoding', { encoding: String(parameters.privateEncoding).toUpperCase() }) : '',
+      ].filter(Boolean).join(' / ') || t('bindings.encoding.default')
   }
 }
 
 function renderExportSummary(item: ApiRecord, parameters: Record<string, unknown>) {
   const segments: string[] = []
-  if (parameters.includeLeafCertificate !== false) segments.push('公钥')
-  if (parameters.includeCertificateChain) segments.push('证书链')
-  if (item.containsPrivateKey || parameters.includePrivateKey) segments.push('私钥')
-  if (parameters.generateChainFile) segments.push('额外链文件')
-  if (parameters.generatePrivateKeyFile) segments.push('额外私钥文件')
-  return segments.length > 0 ? segments.join(' · ') : '未指定'
+  if (parameters.includeLeafCertificate !== false) segments.push(t('bindings.export.leafCertificate'))
+  if (parameters.includeCertificateChain) segments.push(t('bindings.export.certificateChain'))
+  if (item.containsPrivateKey || parameters.includePrivateKey) segments.push(t('bindings.export.privateKey'))
+  if (parameters.generateChainFile) segments.push(t('bindings.export.extraChainFile'))
+  if (parameters.generatePrivateKeyFile) segments.push(t('bindings.export.extraPrivateKeyFile'))
+  return segments.length > 0 ? segments.join(t('bindings.separators.export')) : t('bindings.fallbacks.unspecified')
 }
 
 function renderSystemPlatform(value: string) {
@@ -756,30 +764,30 @@ function toErrorMessage(cause: unknown, fallback: string) {
     <section class="artifact-page__toolbar">
       <section class="gc-card artifact-page__filters">
         <label class="artifact-page__filter">
-          <span class="artifact-page__filter-label">关键字</span>
-          <input v-model="filters.keyword" placeholder="配置名称 / 目标环境 / Alias / 内容格式" />
+          <span class="artifact-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
+          <input v-model="filters.keyword" :placeholder="t('bindings.filters.keywordPlaceholder')" />
         </label>
         <label class="artifact-page__filter">
-          <span class="artifact-page__filter-label">内容格式</span>
+          <span class="artifact-page__filter-label">{{ t('bindings.fields.contentFormat') }}</span>
           <select v-model="filters.format">
-            <option value="">全部</option>
-            <option v-for="item in FORMAT_OPTIONS" :key="item.value" :value="item.label.toUpperCase()">{{ item.label }}</option>
+            <option value="">{{ t('businessPage.all') }}</option>
+            <option v-for="item in formatOptions" :key="item.value" :value="item.label.toUpperCase()">{{ item.label }}</option>
           </select>
         </label>
         <div class="artifact-page__filter-actions">
-          <button class="gc-button" type="button" @click="loadFormats">刷新</button>
+          <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
         </div>
       </section>
 
       <div class="artifact-page__toolbar-actions">
         <GcPermissionButton class="artifact-page__create-button" permission="certificate.format.create" @click="openCreateDialog">
-          新建配置文件
+          {{ t('bindings.actions.create') }}
         </GcPermissionButton>
       </div>
     </section>
 
-    <GcEmptyState v-if="error" title="证书格式配置加载失败" :description="error">
-      <button class="gc-button" type="button" @click="loadFormats">重试</button>
+    <GcEmptyState v-if="error" :title="t('bindings.errors.loadFailed')" :description="error">
+      <button class="gc-button" type="button" @click="loadFormats">{{ t('businessPage.retry') }}</button>
     </GcEmptyState>
 
     <GcDataTable
@@ -788,13 +796,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
       :columns="columns"
       :rows="rows"
       :loading="loading"
-      empty-text="暂无证书格式配置"
+      :empty-text="t('bindings.empty.text')"
     >
       <template #toolbar>
         <div class="artifact-page__table-toolbar">
           <div class="artifact-page__table-heading">
-            <strong>证书格式配置列表</strong>
-            <span>这里保存的是可复用的证书格式模板。当前 {{ rows.length }} 条</span>
+            <strong>{{ t('bindings.list.title') }}</strong>
+            <span>{{ t('bindings.list.descriptionWithCount', { count: rows.length }) }}</span>
           </div>
         </div>
       </template>
@@ -802,14 +810,14 @@ function toErrorMessage(cause: unknown, fallback: string) {
       <template #cell-configName="{ row }">
         <div class="artifact-page__cell-stack">
           <strong>{{ row.configName }}</strong>
-          <span>{{ row.alias === '-' ? '未设置 Alias' : `Alias：${row.alias}` }}</span>
+          <span>{{ row.alias === '-' ? t('bindings.fallbacks.aliasUnset') : t('bindings.labels.aliasWithValue', { alias: row.alias }) }}</span>
         </div>
       </template>
 
       <template #cell-actions="{ row }">
         <div class="artifact-page__actions-cell">
           <GcPermissionButton permission="certificate.format.create" @click="openEditDialog(row as FormatRow)">
-            编辑
+            {{ t('bindings.actions.edit') }}
           </GcPermissionButton>
           <GcPermissionButton
             permission="certificate.format.create"
@@ -817,7 +825,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
             :disabled="deleteLoadingId === String(row.id)"
             @click="removeRow(row as FormatRow)"
           >
-            {{ deleteLoadingId === String(row.id) ? '删除中...' : '删除' }}
+            {{ deleteLoadingId === String(row.id) ? t('bindings.actions.deleting') : t('bindings.actions.delete') }}
           </GcPermissionButton>
         </div>
       </template>
@@ -825,67 +833,66 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
     <GcModal
       v-model:open="dialogOpen"
-      :title="editMode === 'create' ? '新建证书格式配置' : '编辑证书格式配置'"
-      description="这里先选择系统平台与目标平台，再套用内置模板，最后仍可逐项调整，并明确单文件中包含哪些内容。"
+      :title="editMode === 'create' ? t('bindings.dialog.createTitle') : t('bindings.dialog.editTitle')"
+      :description="t('bindings.dialog.description')"
       size="xl"
     >
       <section class="artifact-form">
         <section class="artifact-form__section artifact-form__section--template">
           <header class="artifact-form__section-header">
             <div>
-              <h3>内置模板</h3>
-              <p>模板基于各平台常见 TLS 落地方式预填内容格式、包含内容和导出规则，套用后仍可继续修改。</p>
+              <h3>{{ t('bindings.sections.templates.title') }}</h3>
+              <p>{{ t('bindings.sections.templates.description') }}</p>
             </div>
           </header>
           <div class="artifact-form__grid">
             <label class="artifact-form__field">
-              <span>系统平台</span>
+              <span>{{ t('bindings.fields.systemPlatform') }}</span>
               <select v-model="draft.systemPlatform" @change="handleSystemPlatformChange">
-                <option value="">请选择</option>
+                <option value="">{{ t('bindings.select.placeholder') }}</option>
                 <option v-for="item in SYSTEM_PLATFORM_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
             <label class="artifact-form__field">
-              <span>目标平台</span>
+              <span>{{ t('bindings.fields.runtimePlatform') }}</span>
               <select v-model="draft.runtimePlatform" :disabled="!draft.systemPlatform">
-                <option value="">请选择</option>
+                <option value="">{{ t('bindings.select.placeholder') }}</option>
                 <option v-for="item in runtimeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
           </div>
           <div class="artifact-form__template-actions">
             <button class="gc-button" type="button" :disabled="!draft.systemPlatform || !draft.runtimePlatform" @click="applyTemplate">
-              套用内置模板
+              {{ t('bindings.actions.applyTemplate') }}
             </button>
             <p v-if="templateMessage" class="artifact-form__template-message">{{ templateMessage }}</p>
-            <p v-else-if="selectedTemplate" class="artifact-form__template-message">{{ selectedTemplate.description }}</p>
           </div>
         </section>
 
         <section class="artifact-form__section">
           <header class="artifact-form__section-header">
             <div>
-              <h3>基础信息</h3>
-              <p>先定义配置文件身份、真实内容格式，以及最终扩展名。</p>
+              <h3>{{ t('bindings.sections.basic.title') }}</h3>
+              <p>{{ t('bindings.sections.basic.description') }}</p>
             </div>
           </header>
           <div class="artifact-form__grid">
             <label class="artifact-form__field">
-              <span>配置文件名称</span>
-              <input v-model="draft.configName" placeholder="例如：设备兼容单文件PEM" />
+              <span>{{ t('bindings.fields.configName') }}</span>
+              <input v-model="draft.configName" :placeholder="t('bindings.placeholders.configName')" />
             </label>
             <label class="artifact-form__field">
-              <span>Alias（可选）</span>
-              <input v-model="draft.alias" placeholder="例如 gcac-cert" />
+              <span>{{ t('certificates.formats.fields.alias') }}</span>
+              <input v-model="draft.alias" :placeholder="t('certificates.formats.placeholders.alias')" />
             </label>
             <label class="artifact-form__field">
-              <span>内容格式</span>
+              <span>{{ t('bindings.fields.contentFormat') }}</span>
               <select v-model="draft.presetFormat">
-                <option v-for="item in FORMAT_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option>
+                <option v-for="item in formatOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
             <label v-if="draft.presetFormat === 'custom'" class="artifact-form__field">
-              <span>底层格式</span>
+              <span>{{ t('bindings.fields.backendFormat') }}</span>
               <select v-model="draft.customBackendFormat">
                 <option value="pem">PEM</option>
                 <option value="der">DER</option>
@@ -895,11 +902,11 @@ function toErrorMessage(cause: unknown, fallback: string) {
               </select>
             </label>
             <label class="artifact-form__field">
-              <span>输出扩展名</span>
+              <span>{{ t('bindings.fields.outputExtension') }}</span>
               <input v-model="draft.customExtension" :placeholder="resolvedExtension" />
             </label>
             <label class="artifact-form__field">
-              <span>配置失效时间（可选）</span>
+              <span>{{ t('bindings.fields.expiresAt') }}</span>
               <input v-model="draft.expiresAt" placeholder="2026-12-31T23:59:59Z" />
             </label>
           </div>
@@ -908,13 +915,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
         <section v-if="showsPublicEncoding || showsPrivateEncoding" class="artifact-form__section">
           <header class="artifact-form__section-header">
             <div>
-              <h3>编码选择</h3>
-              <p>只显示对当前内容格式真正成立的编码项。</p>
+              <h3>{{ t('bindings.sections.encoding.title') }}</h3>
+              <p>{{ t('bindings.sections.encoding.description') }}</p>
             </div>
           </header>
           <div class="artifact-form__grid">
             <label v-if="showsPublicEncoding" class="artifact-form__field">
-              <span>{{ isCertificateOnlyFormat ? '证书编码' : '证书内容编码' }}</span>
+              <span>{{ isCertificateOnlyFormat ? t('bindings.fields.certificateEncoding') : t('bindings.fields.certificateContentEncoding') }}</span>
               <select v-model="draft.publicEncoding">
                 <option value="pem">PEM</option>
                 <option value="der">DER</option>
@@ -922,7 +929,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
               </select>
             </label>
             <label v-if="showsPrivateEncoding" class="artifact-form__field">
-              <span>私钥编码</span>
+              <span>{{ t('bindings.fields.privateKeyEncoding') }}</span>
               <select v-model="draft.privateEncoding">
                 <option value="pem">PEM</option>
                 <option value="pkcs8">PKCS#8</option>
@@ -935,22 +942,22 @@ function toErrorMessage(cause: unknown, fallback: string) {
         <section class="artifact-form__section">
           <header class="artifact-form__section-header">
             <div>
-              <h3>包含内容</h3>
-              <p>这里定义主产物文件中实际包含哪些内容：公钥、证书链、私钥。</p>
+              <h3>{{ t('bindings.sections.content.title') }}</h3>
+              <p>{{ t('bindings.sections.content.description') }}</p>
             </div>
           </header>
           <div class="artifact-form__grid">
             <label v-if="showsContentSelection" class="artifact-form__check">
               <input v-model="draft.includeLeafCertificate" type="checkbox" />
-              <span>包含公钥证书</span>
+              <span>{{ t('bindings.fields.includeLeafCertificate') }}</span>
             </label>
             <label v-if="showsContentSelection" class="artifact-form__check">
               <input v-model="draft.includeCertificateChain" type="checkbox" />
-              <span>包含证书链</span>
+              <span>{{ t('bindings.fields.includeCertificateChain') }}</span>
             </label>
             <label v-if="showsContentSelection || isContainerFormat" class="artifact-form__check">
               <input v-model="draft.includePrivateKey" type="checkbox" />
-              <span>包含私钥</span>
+              <span>{{ t('bindings.fields.includePrivateKey') }}</span>
             </label>
           </div>
         </section>
@@ -958,35 +965,35 @@ function toErrorMessage(cause: unknown, fallback: string) {
         <section class="artifact-form__section">
           <header class="artifact-form__section-header">
             <div>
-              <h3>导出选项</h3>
-              <p>定义是否额外生成链文件、私钥文件，以及容器专属密码选项。</p>
+              <h3>{{ t('bindings.sections.export.title') }}</h3>
+              <p>{{ t('bindings.sections.export.description') }}</p>
             </div>
           </header>
           <div class="artifact-form__grid">
             <label class="artifact-form__check">
               <input v-model="draft.generateChainFile" type="checkbox" />
-              <span>{{ isContainerFormat ? '主产物包含证书链' : '额外生成证书链文件' }}</span>
+              <span>{{ isContainerFormat ? t('bindings.fields.mainArtifactIncludesChain') : t('bindings.fields.generateChainFile') }}</span>
             </label>
             <label class="artifact-form__check">
               <input v-model="draft.generatePrivateKeyFile" type="checkbox" />
-              <span>额外生成私钥文件</span>
+              <span>{{ t('bindings.fields.generatePrivateKeyFile') }}</span>
             </label>
             <label v-if="showsPasswordSecret" class="artifact-form__field">
-              <span>导出密码</span>
-              <input v-model="draft.passwordValue" type="password" placeholder="请输入 PFX/JKS 导出密码" />
+              <span>{{ t('bindings.fields.exportPassword') }}</span>
+              <input v-model="draft.passwordValue" type="password" :placeholder="t('bindings.placeholders.exportPassword')" />
             </label>
           </div>
-          <p v-if="showsPasswordSecret && draft.hasSavedPassword" class="artifact-form__template-message">已配置导出密码；如需更换，请直接输入新密码覆盖。</p>
+          <p v-if="showsPasswordSecret && draft.hasSavedPassword" class="artifact-form__template-message">{{ t('bindings.hints.savedPassword') }}</p>
         </section>
 
         <p v-if="actionError" class="artifact-form__error">{{ actionError }}</p>
-        <p v-else-if="requestId" class="artifact-form__request">请求 ID：{{ requestId }}</p>
+        <p v-else-if="requestId" class="artifact-form__request">{{ t('bindings.labels.requestId', { requestId }) }}</p>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="submitLoading" @click="closeDialog">取消</button>
+        <button class="gc-button" type="button" :disabled="submitLoading" @click="closeDialog">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--danger" type="button" :disabled="submitLoading" @click="submitDraft">
-          {{ submitLoading ? '保存中...' : '确认保存' }}
+          {{ submitLoading ? t('bindings.actions.saving') : t('bindings.actions.confirmSave') }}
         </button>
       </template>
     </GcModal>

@@ -13,6 +13,7 @@ export interface BusinessMetricCard {
   readonly description: string
   readonly status: string
   readonly risk: RiskCode
+  readonly kind?: 'total' | 'filtered'
 }
 
 export interface BusinessAction {

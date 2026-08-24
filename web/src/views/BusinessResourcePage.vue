@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import {
   GcConfirmAction,
@@ -14,12 +15,13 @@ import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue
 import { usePermissionStore } from '@/stores/permission.store'
 import { readNumber, readPath, readString, useBusinessPage, type ViewRow } from '@/composables/useBusinessPage'
 import { formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
-import type { BusinessAction, BusinessPageConfig } from './business-page.types'
+import type { BusinessAction, BusinessMetricCard, BusinessPageConfig } from './business-page.types'
 
 const props = defineProps<{ config: BusinessPageConfig }>()
 
+const { t } = useI18n()
 const permissionStore = usePermissionStore()
-const state = useBusinessPage(props.config)
+const state = useBusinessPage(props.config, { t })
 const selectedId = ref<string | null>(null)
 const primaryActionError = ref('')
 const primaryActionPending = ref(false)
@@ -72,11 +74,11 @@ watch(
   { immediate: true },
 )
 
-function metricCount(metricTitle: string): number {
+function metricCount(metric: BusinessMetricCard): number {
   const matched = state.rows.value.filter(
     (row) => row.risk === 'HIGH' || row.risk === 'CRITICAL' || row.status === 'FAILED' || row.status === 'DRIFTED',
   )
-  if (metricTitle.includes('总数') || metricTitle.includes('全部')) return state.total.value
+  if (metric.kind === 'total') return state.total.value
   return matched.length
 }
 
@@ -106,7 +108,7 @@ async function runPrimaryAction() {
   try {
     await props.config.primaryAction()
   } catch (cause) {
-    primaryActionError.value = cause instanceof Error ? cause.message : '主操作执行失败'
+    primaryActionError.value = cause instanceof Error ? cause.message : t('businessPage.primaryActionFailed')
   } finally {
     primaryActionPending.value = false
   }
@@ -165,7 +167,7 @@ defineExpose({
     <GcPageHeader v-if="showHeader" :title="config.title" :description="config.description">
       <template #actions>
         <GcPermissionButton :permission="config.primaryPermission" :disabled="primaryActionPending" @click="runPrimaryAction">
-          {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
+          {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
         </GcPermissionButton>
       </template>
     </GcPageHeader>
@@ -173,10 +175,10 @@ defineExpose({
     <p v-if="primaryActionError" class="business-page__primary-error">{{ primaryActionError }}</p>
     <slot name="after-header" />
 
-    <section v-if="showMetrics" class="business-page__metrics" aria-label="业务指标">
+    <section v-if="showMetrics" class="business-page__metrics" :aria-label="t('businessPage.metricsAria')">
       <article v-for="metric in config.metrics" :key="metric.title" class="gc-card business-page__metric">
         <strong>{{ metric.title }}</strong>
-        <span class="business-page__metric-count">{{ metricCount(metric.title) }}</span>
+        <span class="business-page__metric-count">{{ metricCount(metric) }}</span>
         <p>{{ metric.description }}</p>
         <footer>
           <GcStatusTag :status="metric.status" />
@@ -185,10 +187,10 @@ defineExpose({
       </article>
     </section>
 
-    <GcEmptyState v-if="state.error.value" title="接口调用失败" :description="state.error.value.message">
-      <p>错误码：{{ state.error.value.errorCode }}</p>
+    <GcEmptyState v-if="state.error.value" :title="t('businessPage.apiFailed')" :description="state.error.value.message">
+      <p>{{ t('businessPage.errorCode', { code: state.error.value.errorCode }) }}</p>
       <p v-if="state.error.value.requestId">requestId：{{ state.error.value.requestId }}</p>
-      <button class="gc-button" type="button" @click="state.reload">重试</button>
+      <button class="gc-button" type="button" @click="state.reload">{{ t('businessPage.retry') }}</button>
     </GcEmptyState>
 
     <GcDataTable
@@ -202,8 +204,8 @@ defineExpose({
       <template #toolbar>
         <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
-            <strong>{{ config.resourceName }}列表</strong>
-            <span>总数 {{ state.total.value }}</span>
+            <strong>{{ t('businessPage.resourceList', { resource: config.resourceName }) }}</strong>
+            <span>{{ t('businessPage.total', { count: state.total.value }) }}</span>
           </div>
           <div class="business-page__toolbar-actions">
             <slot name="toolbar-actions-before-refresh" />
@@ -214,15 +216,15 @@ defineExpose({
               :disabled="primaryActionPending"
               @click="runPrimaryAction"
             >
-              {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
+              {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
             </GcPermissionButton>
             <span
               v-if="showToolbarDangerHint && (hasDangerAction || hasRowDangerAction)"
               class="business-page__pill business-page__pill--danger"
             >
-              高危操作需确认
+              {{ t('businessPage.dangerConfirmRequired') }}
             </span>
-            <button class="gc-button" type="button" @click="state.reload">刷新</button>
+            <button class="gc-button" type="button" @click="state.reload">{{ t('common.refresh') }}</button>
           </div>
         </div>
         <form v-if="config.filters?.length" class="business-page__filters" @submit.prevent="state.reload">
@@ -233,7 +235,7 @@ defineExpose({
               :value="filterValues[filter.key] ?? ''"
               @change="updateFilter(filter.key, ($event.target as HTMLSelectElement).value)"
             >
-              <option value="">全部</option>
+              <option value="">{{ t('businessPage.all') }}</option>
               <option v-for="option in filter.options ?? []" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
             <input
@@ -243,7 +245,7 @@ defineExpose({
               @change="updateFilter(filter.key, ($event.target as HTMLInputElement).value)"
             />
           </label>
-          <button class="gc-button" type="button" @click="clearFilters">清空筛选</button>
+          <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
         </form>
       </template>
 
@@ -305,7 +307,7 @@ defineExpose({
       </template>
 
       <template #pagination>
-        第 {{ state.page.value?.page ?? 1 }} 页 / 每页 {{ state.page.value?.pageSize ?? 20 }} 条
+        {{ t('businessPage.pagination', { page: state.page.value?.page ?? 1, pageSize: state.page.value?.pageSize ?? 20 }) }}
       </template>
     </GcDataTable>
 
@@ -315,10 +317,10 @@ defineExpose({
       :description="config.emptyDescription"
     />
 
-    <aside v-if="showDetailPanel && selectedRow" class="gc-card business-page__detail" aria-label="资源详情">
+    <aside v-if="showDetailPanel && selectedRow" class="gc-card business-page__detail" :aria-label="t('businessPage.resourceDetailAria')">
       <header>
         <div>
-          <p>{{ config.resourceName }}详情</p>
+          <p>{{ t('businessPage.resourceDetailTitle', { resource: config.resourceName }) }}</p>
           <h2>{{ selectedRow.name }}</h2>
         </div>
         <GcStatusTag :status="selectedRow.status" />
@@ -329,7 +331,7 @@ defineExpose({
           <dd>{{ detailValue(selectedRow, field.candidates) }}</dd>
         </template>
       </dl>
-      <nav v-if="config.contextLinks?.length" class="business-page__context" aria-label="上下文入口">
+      <nav v-if="config.contextLinks?.length" class="business-page__context" :aria-label="t('businessPage.contextAria')">
         <template v-for="link in config.contextLinks" :key="link.label">
           <RouterLink
             v-if="linkTarget(selectedRow, link)"
@@ -342,11 +344,11 @@ defineExpose({
       </nav>
     </aside>
 
-    <section v-if="showActionPanel && visibleActions.length" class="gc-card business-page__actions" aria-label="资源操作">
+    <section v-if="showActionPanel && visibleActions.length" class="gc-card business-page__actions" :aria-label="t('businessPage.resourceActionsAria')">
       <div class="business-page__actions-copy">
-        <p>资源操作</p>
+        <p>{{ t('businessPage.resourceActionsTitle') }}</p>
         <h2>{{ selectedRow?.name ?? config.resourceName }}</h2>
-        <span>高危动作必须二次确认，授权仍以后端校验为准。</span>
+        <span>{{ t('businessPage.resourceActionsHint') }}</span>
       </div>
       <div class="business-page__actions-list">
         <template v-for="action in visibleActions" :key="action.label">

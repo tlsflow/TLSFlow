@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, updateServiceAsset } from '@/api/modules/assets.api'
@@ -61,6 +62,12 @@ interface WorkflowVariableRow {
   fromDefinition: boolean
 }
 
+interface WorkflowVariablePreset {
+  readonly name: string
+  readonly type: WorkflowVariableType
+  readonly descriptionKey: string
+}
+
 interface WorkflowCertificateArtifactBinding {
   certificateFormatId: string
   outputBindings: Record<string, string>
@@ -102,13 +109,14 @@ interface AgentManagedTargetCandidate {
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
+const { t } = useI18n()
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
-const detailTabs = [
-  { value: 'overview', label: '基础信息' },
-  { value: 'snapshots', label: '快照' },
-]
+const detailTabs = computed(() => [
+  { value: 'overview', label: t('assets.detail.tabs.overview') },
+  { value: 'snapshots', label: t('assets.detail.tabs.snapshots') },
+])
 const createDialogOpen = ref(false)
 const createLoading = ref(false)
 const createError = ref('')
@@ -155,22 +163,22 @@ const certificateFormatError = ref('')
 const workflowCertificateArtifactBindings = ref<Record<string, WorkflowCertificateArtifactBinding>>({})
 let workflowVariableRowSeed = 1
 
-const workflowVariablePresets: readonly { name: string; type: WorkflowVariableType; description: string }[] = [
-  { name: 'deviceHost', type: 'string', description: '目标主机或设备地址' },
-  { name: 'sshUsername', type: 'string', description: 'SSH 用户名' },
-  { name: 'credential', type: 'credential', description: '工作流凭据' },
-  { name: 'certificate', type: 'certificate', description: '证书产物' },
-  { name: 'targetPlatform', type: 'enum', description: '目标平台' },
-  { name: 'verifyHost', type: 'string', description: '验证主机' },
-  { name: 'verifyPort', type: 'number', description: '验证端口' },
-  { name: 'verifyPath', type: 'string', description: '验证路径' },
-  { name: 'apacheServiceName', type: 'string', description: 'Apache systemd 服务名' },
-  { name: 'apacheSiteConfigPath', type: 'string', description: 'Apache 站点配置路径' },
-  { name: 'certificateFilePath', type: 'string', description: '证书目的路径' },
-  { name: 'certificateKeyFilePath', type: 'string', description: '私钥目的路径' },
-  { name: 'backupRoot', type: 'string', description: '证书备份根目录' },
-  { name: 'expectedResponseContains', type: 'string', description: '验证响应包含文本' },
-  { name: 'virtualHostServerName', type: 'string', description: '虚拟主机 ServerName' },
+const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
+  { name: 'deviceHost', type: 'string', descriptionKey: 'assets.workflowVariables.presets.deviceHost' },
+  { name: 'sshUsername', type: 'string', descriptionKey: 'assets.workflowVariables.presets.sshUsername' },
+  { name: 'credential', type: 'credential', descriptionKey: 'assets.workflowVariables.presets.credential' },
+  { name: 'certificate', type: 'certificate', descriptionKey: 'assets.workflowVariables.presets.certificate' },
+  { name: 'targetPlatform', type: 'enum', descriptionKey: 'assets.workflowVariables.presets.targetPlatform' },
+  { name: 'verifyHost', type: 'string', descriptionKey: 'assets.workflowVariables.presets.verifyHost' },
+  { name: 'verifyPort', type: 'number', descriptionKey: 'assets.workflowVariables.presets.verifyPort' },
+  { name: 'verifyPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.verifyPath' },
+  { name: 'apacheServiceName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheServiceName' },
+  { name: 'apacheSiteConfigPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheSiteConfigPath' },
+  { name: 'certificateFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateFilePath' },
+  { name: 'certificateKeyFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateKeyFilePath' },
+  { name: 'backupRoot', type: 'string', descriptionKey: 'assets.workflowVariables.presets.backupRoot' },
+  { name: 'expectedResponseContains', type: 'string', descriptionKey: 'assets.workflowVariables.presets.expectedResponseContains' },
+  { name: 'virtualHostServerName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.virtualHostServerName' },
 ]
 
 const assetDraft = reactive<AssetDraft>({
@@ -194,79 +202,79 @@ const assetDraft = reactive<AssetDraft>({
   workflowGatewayId: '',
 })
 
-const config: BusinessPageConfig = {
-  title: '应用资产',
-  description: '以域名或 IP 为主对象管理应用入口，聚焦地址、端口、协议、站点与执行定位。',
+const config = computed<BusinessPageConfig>(() => ({
+  title: t('assets.title'),
+  description: t('assets.description'),
   showHeader: false,
   showMetrics: false,
   showEmptyState: false,
   readPermission: 'service_asset.read',
   primaryPermission: 'service_asset.manage',
-  primaryActionLabel: '添加资产',
+  primaryActionLabel: t('assets.actions.add'),
   primaryAction: openCreateDialog,
   moduleName: 'assets',
-  resourceName: '应用资产',
+  resourceName: t('assets.resourceName'),
   defaultStatus: 'ACTIVE',
   defaultRisk: 'MEDIUM',
   showDetailPanel: false,
   showActionPanel: false,
   columns: [
-    { key: 'name', title: '访问域名', candidates: ['address', 'displayName', 'domainName'] },
-    { key: 'port', title: '端口', candidates: ['port'] },
-    { key: 'protocol', title: '协议', candidates: ['protocol'] },
-    { key: 'platform', title: '平台', candidates: ['platform'] },
-    { key: 'frameworkType', title: '框架', candidates: ['targetBinding.frameworkType'] },
-    { key: 'siteName', title: '站点', candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'targetBinding.siteAssetId'] },
+    { key: 'name', title: t('assets.columns.domain'), candidates: ['address', 'displayName', 'domainName'] },
+    { key: 'port', title: t('assets.columns.port'), candidates: ['port'] },
+    { key: 'protocol', title: t('assets.columns.protocol'), candidates: ['protocol'] },
+    { key: 'platform', title: t('assets.columns.platform'), candidates: ['platform'] },
+    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkType'] },
+    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'targetBinding.siteAssetId'] },
     { key: 'agentId', title: 'Agent', candidates: ['agentDisplayName', 'agentName', 'targetBinding.agentDisplayName', 'agentId'] },
-    { key: 'status', title: '状态', candidates: ['status'] },
-    { key: 'actions', title: '操作', candidates: [] },
+    { key: 'status', title: t('assets.columns.status'), candidates: ['status'] },
+    { key: 'actions', title: t('assets.columns.actions'), candidates: [] },
   ],
   metrics: [],
   detailFields: [
-    { label: '应用资产 ID', candidates: ['id'] },
-    { label: '访问域名', candidates: ['address', 'displayName'] },
-    { label: '地址类型', candidates: ['addressType'] },
-    { label: '端口', candidates: ['port'] },
-    { label: '协议', candidates: ['protocol'] },
-    { label: '验证 URL', candidates: ['verifyUrl', 'metadata.verifyUrl'] },
-    { label: '平台', candidates: ['platform'] },
-    { label: '框架类型', candidates: ['targetBinding.frameworkType'] },
+    { label: t('assets.fields.assetId'), candidates: ['id'] },
+    { label: t('assets.fields.domain'), candidates: ['address', 'displayName'] },
+    { label: t('assets.fields.addressType'), candidates: ['addressType'] },
+    { label: t('assets.fields.port'), candidates: ['port'] },
+    { label: t('assets.fields.protocol'), candidates: ['protocol'] },
+    { label: t('assets.fields.verifyUrl'), candidates: ['verifyUrl', 'metadata.verifyUrl'] },
+    { label: t('assets.fields.platform'), candidates: ['platform'] },
+    { label: t('assets.fields.frameworkType'), candidates: ['targetBinding.frameworkType'] },
     { label: 'Agent ID', candidates: ['agentId'] },
     { label: 'SNI', candidates: ['sniName'] },
-    { label: '服务实例 ID', candidates: ['serviceInstanceId'] },
-    { label: '站点 ID', candidates: ['targetBinding.siteAssetId'] },
-    { label: '受管目标 ID', candidates: ['targetBinding.managedTargetId'] },
-    { label: '绑定键', candidates: ['targetBinding.bindingKey'] },
-    { label: '宿主机 ID', candidates: ['hostId'] },
-    { label: '环境', candidates: ['environment'] },
-    { label: '发现来源', candidates: ['discoverySource'] },
-    { label: '最后发现时间', candidates: ['lastDiscoveredAt', 'updatedAt'] },
-    { label: '标签', candidates: ['tags'] },
+    { label: t('assets.fields.serviceInstanceId'), candidates: ['serviceInstanceId'] },
+    { label: t('assets.fields.siteId'), candidates: ['targetBinding.siteAssetId'] },
+    { label: t('assets.fields.managedTargetId'), candidates: ['targetBinding.managedTargetId'] },
+    { label: t('assets.fields.bindingKey'), candidates: ['targetBinding.bindingKey'] },
+    { label: t('assets.fields.hostId'), candidates: ['hostId'] },
+    { label: t('assets.fields.environment'), candidates: ['environment'] },
+    { label: t('assets.fields.discoverySource'), candidates: ['discoverySource'] },
+    { label: t('assets.fields.lastDiscoveredAt'), candidates: ['lastDiscoveredAt', 'updatedAt'] },
+    { label: t('assets.fields.tags'), candidates: ['tags'] },
   ],
   contextLinks: [
-    { label: '查看证书绑定', to: '/bindings', queryKey: 'serviceAssetId', candidates: ['id'] },
-    { label: '查看执行记录', to: '/executions', queryKey: 'serviceAssetId', candidates: ['id'] },
+    { label: t('assets.links.certificateBindings'), to: '/bindings', queryKey: 'serviceAssetId', candidates: ['id'] },
+    { label: t('assets.links.executions'), to: '/executions', queryKey: 'serviceAssetId', candidates: ['id'] },
   ],
-  emptyTitle: '暂无应用资产',
-  emptyDescription: '等待发现链路写入 ServiceAsset，或通过后端接口补录应用入口。',
+  emptyTitle: t('assets.empty.title'),
+  emptyDescription: t('assets.empty.description'),
   load: loadAssetsWithDisplayNames,
   actions: [],
   rowActions: [
     {
-      label: '编辑',
+      label: t('assets.actions.edit'),
       permission: 'service_asset.manage',
       reloadAfterRun: false,
       run: openEditDialog,
     },
     {
-      label: '详情',
+      label: t('assets.actions.detail'),
       permission: 'service_asset.read',
       reloadAfterRun: false,
       run: openDetailModal,
     },
   ],
   onSelectionChange: handleServiceAssetSelection,
-}
+}))
 
 const latestSnapshot = computed<ApiRecord | null>(() => snapshotItems.value[0] ?? null)
 
@@ -399,7 +407,7 @@ const agentCertificateFormatOptions = computed(() => {
   const base = matched.length > 0 ? matched : certificateFormatItems.value
   const selectedId = assetDraft.agentCertificateFormatId.trim()
   if (!selectedId || base.some((item) => String(item.id ?? '') === selectedId)) return base
-  return [{ id: selectedId, format: 'unknown', parameters: { configName: `${selectedId}（已保存配置，当前列表未返回）` } }, ...base]
+  return [{ id: selectedId, format: 'unknown', parameters: { configName: t('assets.certificateFormats.savedConfigMissingWithId', { id: selectedId }) } }, ...base]
 })
 
 const selectedWorkflowVariableDefinitions = computed(() =>
@@ -425,7 +433,12 @@ const availableWorkflowVariablePresets = computed(() => {
     description: String(readNested(definition, ['description']) ?? ''),
   }))
   const merged = new Map<string, { name: string; type: WorkflowVariableType; description: string }>()
-  for (const item of [...declared, ...workflowVariablePresets]) {
+  const presetItems = workflowVariablePresets.map((item) => ({
+    name: item.name,
+    type: item.type,
+    description: t(item.descriptionKey),
+  }))
+  for (const item of [...declared, ...presetItems]) {
     if (!workflowVariableNames.value.has(item.name)) merged.set(item.name, item)
   }
   return [...merged.values()]
@@ -604,7 +617,7 @@ async function loadWorkflowTemplates() {
     workflowItems.value = []
     workflowListError.value = cause instanceof ApiClientError
       ? cause.message
-      : cause instanceof Error ? cause.message : '加载工作流列表失败'
+      : cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowListFailed')
   } finally {
     workflowListLoading.value = false
   }
@@ -631,7 +644,7 @@ async function loadWorkflowVersions(workflowId: string) {
   } catch (cause) {
     workflowVersionListError.value = cause instanceof ApiClientError
       ? cause.message
-      : cause instanceof Error ? cause.message : '加载工作流版本失败'
+      : cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowVersionsFailed')
   } finally {
     workflowVersionListLoading.value = false
   }
@@ -647,7 +660,7 @@ async function loadGateways() {
     gatewayItems.value = []
     gatewayListError.value = cause instanceof ApiClientError
       ? cause.message
-      : cause instanceof Error ? cause.message : '加载网关列表失败'
+      : cause instanceof Error ? cause.message : t('assets.errors.loadGatewayListFailed')
   } finally {
     gatewayListLoading.value = false
   }
@@ -664,7 +677,7 @@ async function loadCertificateFormatsForWorkflow() {
     certificateFormatItems.value = []
     certificateFormatError.value = cause instanceof ApiClientError
       ? cause.message
-      : cause instanceof Error ? cause.message : '加载证书格式配置失败'
+      : cause instanceof Error ? cause.message : t('assets.errors.loadCertificateFormatsFailed')
   } finally {
     certificateFormatLoading.value = false
   }
@@ -697,7 +710,7 @@ async function refreshAssetDetail(serviceAssetId: string) {
       snapshotError.value = cause.message
       return
     }
-    const message = cause instanceof Error ? cause.message : '鍔犺浇搴旂敤璧勪骇璇︽儏澶辫触'
+    const message = cause instanceof Error ? cause.message : t('assets.errors.loadAssetDetailFailed')
     detailError.value = message
     snapshotError.value = message
   } finally {
@@ -722,7 +735,7 @@ async function rollbackFromLatestSnapshot() {
       rollbackError.value = cause.message
       return
     }
-    rollbackError.value = cause instanceof Error ? cause.message : '鍙戣捣鍥為€€澶辫触'
+    rollbackError.value = cause instanceof Error ? cause.message : t('assets.errors.rollbackFailed')
   } finally {
     rollbackSubmitting.value = false
   }
@@ -777,7 +790,7 @@ async function refreshAssetTargets() {
       siteListError.value = cause.message
       managedTargetListError.value = cause.message
     } else {
-      const message = cause instanceof Error ? cause.message : '加载站点和受管目标失败'
+      const message = cause instanceof Error ? cause.message : t('assets.errors.loadTargetsFailed')
       siteListError.value = message
       managedTargetListError.value = message
     }
@@ -856,7 +869,7 @@ async function submitCreate() {
       createError.value = cause.message
       return
     }
-    createError.value = cause instanceof Error ? cause.message : '创建应用资产失败'
+    createError.value = cause instanceof Error ? cause.message : t('assets.errors.createAssetFailed')
   } finally {
     createLoading.value = false
   }
@@ -928,9 +941,9 @@ function assetWizardStepState(step: AssetWizardStep): 'done' | 'active' | 'pendi
 
 function assetWizardStepStateLabel(step: AssetWizardStep): string {
   const state = assetWizardStepState(step)
-  if (state === 'done') return '已完成'
-  if (state === 'active') return '进行中'
-  return '待开始'
+  if (state === 'done') return t('assets.wizard.stepState.done')
+  if (state === 'active') return t('assets.wizard.stepState.active')
+  return t('assets.wizard.stepState.pending')
 }
 
 function buildDeploymentStrategyPayload(): Record<string, unknown> {
@@ -994,7 +1007,9 @@ function syncWorkflowVariableRowsFromVersion() {
 
 function addWorkflowVariableRow() {
   const preset = availableWorkflowVariablePresets.value.find((item) => item.name === workflowVariablePresetName.value)
-    ?? workflowVariablePresets.find((item) => !workflowVariableNames.value.has(item.name))
+    ?? workflowVariablePresets
+      .map((item) => ({ name: item.name, type: item.type, description: t(item.descriptionKey) }))
+      .find((item) => !workflowVariableNames.value.has(item.name))
   workflowVariableRows.value.push({
     id: nextWorkflowVariableRowId(),
     name: preset?.name ?? '',
@@ -1077,23 +1092,23 @@ function validateWorkflowVariableRows(): string {
   const names = new Set<string>()
   for (const row of workflowVariableRows.value) {
     const name = row.name.trim()
-    if (!name) return '变量名称不能为空'
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) return `变量 ${name} 名称不合法`
-    if (names.has(name)) return `变量 ${name} 重复`
+    if (!name) return t('assets.validation.variableNameRequired')
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) return t('assets.validation.variableNameInvalid', { name })
+    if (names.has(name)) return t('assets.validation.variableDuplicated', { name })
     names.add(name)
     if (row.type === 'certificate') continue
-    if (row.required && !rowValueHasContent(row)) return `变量 ${name} 必填`
-    if (row.type === 'number' && rowValueHasContent(row) && !Number.isFinite(Number(row.value))) return `变量 ${name} 必须是数字`
+    if (row.required && !rowValueHasContent(row)) return t('assets.validation.variableRequired', { name })
+    if (row.type === 'number' && rowValueHasContent(row) && !Number.isFinite(Number(row.value))) return t('assets.validation.variableMustBeNumber', { name })
     if (row.type === 'object' && rowValueHasContent(row)) {
       try {
         const parsed = JSON.parse(row.value)
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return `变量 ${name} 必须是 JSON 对象`
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return t('assets.validation.variableMustBeJsonObject', { name })
       } catch {
-        return `变量 ${name} 不是合法 JSON`
+        return t('assets.validation.variableInvalidJson', { name })
       }
     }
     if (row.type === 'credential' && rowValueHasContent(row) && !workflowCredentialItems.value.some((item) => item.id === row.value.trim())) {
-      return `变量 ${name} 必须选择有效凭据`
+      return t('assets.validation.variableCredentialInvalid', { name })
     }
   }
   return ''
@@ -1104,12 +1119,12 @@ function validateWorkflowCertificateArtifactBindings(): string {
   for (const item of selectedWorkflowCertificateVariables.value) {
     if (item.outputs.length === 0) continue
     const current = workflowCertificateArtifactBindings.value[item.name]
-    if (!current?.certificateFormatId) return `证书变量 ${item.name} 必须选择证书格式配置`
+    if (!current?.certificateFormatId) return t('assets.validation.certificateFormatRequired', { name: item.name })
     const available = workflowCertificateOutputOptions(current.certificateFormatId)
     for (const slot of item.outputs) {
       const outputKey = current.outputBindings?.[slot.name]
-      if (slot.required !== false && !outputKey) return `证书变量 ${item.name}.${slot.name} 必须选择输出项`
-      if (outputKey && available.length > 0 && !available.some((option) => option.key === outputKey)) return `证书变量 ${item.name}.${slot.name} 选择的输出项不存在`
+      if (slot.required !== false && !outputKey) return t('assets.validation.certificateOutputRequired', { name: item.name, slot: slot.name })
+      if (outputKey && available.length > 0 && !available.some((option) => option.key === outputKey)) return t('assets.validation.certificateOutputMissing', { name: item.name, slot: slot.name })
     }
   }
   return ''
@@ -1150,16 +1165,16 @@ function workflowCertificateOutputOptions(certificateFormatId: string): Array<{ 
   const options: Array<{ key: string; label: string; role: string }> = []
   if (formatName === 'pem') {
     if (parameters.includeLeafCertificate !== false && (parameters.includeCertificateChain || parameters.generateChainFile)) {
-      options.push({ key: 'fullchain', label: 'fullchain / 公钥证书+证书链', role: 'public_certificate' })
+      options.push({ key: 'fullchain', label: `fullchain / ${t('assets.certificateOutputs.publicCertificateWithChain')}`, role: 'public_certificate' })
     }
-    if (parameters.includeLeafCertificate !== false) options.push({ key: 'public', label: 'public / 公钥证书', role: 'public_certificate' })
-    if (parameters.includeCertificateChain || parameters.generateChainFile) options.push({ key: 'chain', label: 'chain / 证书链', role: 'certificate_chain' })
-    if (containsPrivateKey || parameters.generatePrivateKeyFile) options.push({ key: 'private', label: 'private / 私钥', role: 'private_key' })
-    options.push({ key: 'bundle', label: 'bundle / PEM 合并产物', role: 'bundle' })
+    if (parameters.includeLeafCertificate !== false) options.push({ key: 'public', label: `public / ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' })
+    if (parameters.includeCertificateChain || parameters.generateChainFile) options.push({ key: 'chain', label: `chain / ${t('assets.certificateOutputs.certificateChain')}`, role: 'certificate_chain' })
+    if (containsPrivateKey || parameters.generatePrivateKeyFile) options.push({ key: 'private', label: `private / ${t('assets.certificateOutputs.privateKey')}`, role: 'private_key' })
+    options.push({ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.pemBundle')}`, role: 'bundle' })
     return dedupeOutputOptions(options)
   }
-  if (formatName === 'der') return [{ key: 'public', label: 'public / DER 公钥证书', role: 'public_certificate' }]
-  return [{ key: 'bundle', label: `bundle / ${formatName.toUpperCase()} 容器`, role: 'bundle' }]
+  if (formatName === 'der') return [{ key: 'public', label: `public / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' }]
+  return [{ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.container', { format: formatName.toUpperCase() })}`, role: 'bundle' }]
 }
 
 function workflowCertificateFormatOptions(variableName: string): ApiRecord[] {
@@ -1171,7 +1186,7 @@ function workflowCertificateFormatOptions(variableName: string): ApiRecord[] {
     {
       id: selectedId,
       format: 'unknown',
-      parameters: { configName: `${selectedId}（已保存配置，当前列表未返回）` },
+      parameters: { configName: t('assets.certificateFormats.savedConfigMissingWithId', { id: selectedId }) },
     },
     ...certificateFormatItems.value,
   ]
@@ -1190,7 +1205,9 @@ function workflowCertificateFormatLabel(item: ApiRecord): string {
   const format = String(item.format ?? 'unknown').toUpperCase()
   const parameters = readRecord(item.parameters) ?? {}
   const preset = String(parameters.outputPreset ?? '')
-  const privateKey = item.containsPrivateKey || parameters.includePrivateKey || parameters.generatePrivateKeyFile ? '含私钥' : '无私钥'
+  const privateKey = item.containsPrivateKey || parameters.includePrivateKey || parameters.generatePrivateKeyFile
+    ? t('assets.certificateFormats.withPrivateKey')
+    : t('assets.certificateFormats.withoutPrivateKey')
   const parts = [
     String(item.name ?? item.displayName ?? item.id ?? ''),
     format,
@@ -1202,14 +1219,14 @@ function workflowCertificateFormatLabel(item: ApiRecord): string {
 
 function workflowCertificateOutputSlotLabel(slot: { name: string; role: string; required: boolean; description: string }): string {
   const roleLabel = certificateArtifactRoleLabel(slot.role)
-  return [slot.name, roleLabel, slot.required ? '必填' : '可选'].filter(Boolean).join(' / ')
+  return [slot.name, roleLabel, slot.required ? t('assets.common.required') : t('assets.common.optional')].filter(Boolean).join(' / ')
 }
 
 function certificateArtifactRoleLabel(role: string): string {
-  if (role === 'public_certificate') return '公钥证书'
-  if (role === 'private_key') return '私钥'
-  if (role === 'certificate_chain') return '证书链'
-  if (role === 'bundle') return '容器'
+  if (role === 'public_certificate') return t('assets.certificateOutputs.publicCertificate')
+  if (role === 'private_key') return t('assets.certificateOutputs.privateKey')
+  if (role === 'certificate_chain') return t('assets.certificateOutputs.certificateChain')
+  if (role === 'bundle') return t('assets.certificateOutputs.bundle')
   return role
 }
 
@@ -1372,7 +1389,7 @@ async function loadCredentialsForWorkflowVariables() {
     workflowCredentialItems.value = await loadWorkflowCredentials()
   } catch (cause) {
     workflowCredentialItems.value = []
-    workflowCredentialError.value = cause instanceof Error ? cause.message : '加载工作流凭据失败'
+    workflowCredentialError.value = cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowCredentialsFailed')
   } finally {
     workflowCredentialLoading.value = false
   }
@@ -1401,10 +1418,10 @@ function workflowVersionStatus(item: ApiRecord | null | undefined): string {
 }
 
 function workflowVersionStatusLabel(status: string): string {
-  if (status === 'published') return '已发布'
-  if (status === 'draft') return '草稿'
-  if (status === 'archived') return '已归档'
-  return status || '未知状态'
+  if (status === 'published') return t('designSystem.status.PUBLISHED')
+  if (status === 'draft') return t('designSystem.status.DRAFT')
+  if (status === 'archived') return t('assets.status.archived')
+  return status || t('assets.status.unknownStatus')
 }
 
 function gatewayLabel(item: ApiRecord): string {
@@ -1502,7 +1519,7 @@ function siteLabel(site: ApiRecord): string {
   const siteName = String(site.siteName ?? site.id ?? '')
   const hostHeader = String(site.hostHeader ?? '')
   const bindingInformation = String(site.bindingInformation ?? '')
-  return hostHeader ? `${siteName} (${hostHeader})` : `${siteName} (${bindingInformation || '未提供绑定信息'})`
+  return hostHeader ? `${siteName} (${hostHeader})` : `${siteName} (${bindingInformation || t('assets.empty.noBindingInformation')})`
 }
 
 async function loadAgentSiteCandidates(agentId: string, frameworkType: FrameworkType): Promise<AgentSiteCandidate[]> {
@@ -1695,7 +1712,7 @@ async function ensureTargetBindingResources(): Promise<{
 
   const fallbackSite = fallbackSiteItems.value.find((item) => item.id === assetDraft.siteAssetId.trim())
   if (!fallbackSite) {
-    throw new Error('未找到可用的站点实例，请先确认 Agent 详情中的框架站点已成功上报。')
+    throw new Error(t('assets.errors.noAvailableSiteInstance'))
   }
 
   const agentId = assetDraft.agentId.trim()
@@ -1785,18 +1802,18 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 function certificateVersionLabel(versionId: string): string {
-  if (!versionId) return '未设置'
+  if (!versionId) return t('assets.empty.notSet')
   return versionId
 }
 
 function snapshotTypeLabel(value: unknown): string {
   const normalized = String(value ?? '')
-  if (normalized === 'PRE_DEPLOY') return '部署前'
-  if (normalized === 'POST_DEPLOY') return '部署后'
-  if (normalized === 'POST_ROLLBACK') return '回退后'
-  if (normalized === 'ERROR_STATE') return '错误态'
-  if (normalized === 'ROLLBACK_POINT') return '回退点'
-  return normalized || '未知'
+  if (normalized === 'PRE_DEPLOY') return t('assets.snapshotTypes.preDeploy')
+  if (normalized === 'POST_DEPLOY') return t('assets.snapshotTypes.postDeploy')
+  if (normalized === 'POST_ROLLBACK') return t('assets.snapshotTypes.postRollback')
+  if (normalized === 'ERROR_STATE') return t('assets.snapshotTypes.errorState')
+  if (normalized === 'ROLLBACK_POINT') return t('assets.snapshotTypes.rollbackPoint')
+  return normalized || t('designSystem.status.UNKNOWN')
 }
 
 watch(
@@ -1922,15 +1939,15 @@ watch(
 
     <GcModal
       v-model:open="detailModalOpen"
-      title="应用详情"
-      description="把资产详情、绑定关系、部署入口和快照都收在一个模态框里，避免页面被常驻详情拖长。"
+      :title="t('assets.detail.title')"
+      :description="t('assets.detail.description')"
       size="xxl"
       width="72vw"
     >
       <section v-if="selectedServiceAsset" class="asset-detail-modal">
         <header class="asset-detail-modal__hero">
           <div class="asset-detail-modal__hero-copy">
-            <p class="asset-detail-modal__eyebrow">应用资产</p>
+            <p class="asset-detail-modal__eyebrow">{{ t('assets.resourceName') }}</p>
             <h2>{{ selectedServiceAsset.name }}</h2>
             <span>
               {{ renderValue(selectedServiceAsset.raw.address ?? selectedServiceAsset.raw.displayName) }}
@@ -1941,19 +1958,19 @@ watch(
           <div class="asset-detail-modal__hero-side">
             <GcStatusTag :status="String(selectedServiceAsset.status)" />
             <div class="asset-detail-modal__spotlight">
-              <small>框架</small>
+              <small>{{ t('assets.columns.framework') }}</small>
               <strong>{{ renderValue(readNested(selectedAssetDetail ?? selectedServiceAsset.raw, ['targetBinding', 'frameworkType'])) }}</strong>
             </div>
           </div>
         </header>
 
-        <GcTabs v-model="activeDetailTab" :tabs="detailTabs" aria-label="应用详情标签页" />
+        <GcTabs v-model="activeDetailTab" :tabs="detailTabs" :aria-label="t('assets.detail.tabsAriaLabel')" />
 
         <section v-if="activeDetailTab === 'overview'" class="asset-detail-modal__sections">
           <article class="asset-detail-modal__section">
             <div class="asset-detail-modal__section-head">
-              <h3>基础信息</h3>
-              <p>应用资产是主对象，宿主机和站点只作为执行定位信息出现。</p>
+              <h3>{{ t('assets.detail.sections.overview.title') }}</h3>
+              <p>{{ t('assets.detail.sections.overview.description') }}</p>
             </div>
             <dl class="asset-detail-modal__grid">
               <div class="asset-detail-modal__item" v-for="field in config.detailFields" :key="field.label">
@@ -1975,26 +1992,26 @@ watch(
 
           <article class="asset-detail-modal__section">
             <div class="asset-detail-modal__section-head">
-              <h3>目标绑定</h3>
-              <p>绑定必须明确落到站点和受管目标，而不是继续靠域名猜。</p>
+              <h3>{{ t('assets.detail.sections.targetBinding.title') }}</h3>
+              <p>{{ t('assets.detail.sections.targetBinding.description') }}</p>
             </div>
-            <p v-if="detailLoading" class="asset-summary__loading">正在加载目标绑定详情...</p>
+            <p v-if="detailLoading" class="asset-summary__loading">{{ t('assets.detail.loadingTargetBinding') }}</p>
             <p v-else-if="detailError" class="asset-summary__error">{{ detailError }}</p>
             <dl v-else-if="selectedAssetDetail" class="asset-binding__detail">
               <div>
-                <dt>框架类型</dt>
+                <dt>{{ t('assets.fields.frameworkType') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBinding', 'frameworkType'])) }}</dd>
               </div>
               <div>
-                <dt>站点</dt>
+                <dt>{{ t('assets.columns.site') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'siteName'])) }}</dd>
               </div>
               <div>
-                <dt>受管目标</dt>
+                <dt>{{ t('assets.fields.managedTarget') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'managedTarget', 'targetType'])) }}</dd>
               </div>
               <div>
-                <dt>绑定信息</dt>
+                <dt>{{ t('assets.fields.bindingInformation') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'bindingInformation'])) }}</dd>
               </div>
               <div>
@@ -2002,7 +2019,7 @@ watch(
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'hostHeader'])) }}</dd>
               </div>
               <div>
-                <dt>端口</dt>
+                <dt>{{ t('assets.fields.port') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'port'])) }}</dd>
               </div>
             </dl>
@@ -2010,10 +2027,10 @@ watch(
 
           <article class="asset-detail-modal__section">
             <div class="asset-detail-modal__section-head">
-              <h3>证书绑定关系</h3>
-              <p>把证书关系明确到 binding 上，而不是只看域名。</p>
+              <h3>{{ t('assets.detail.sections.certificateBindings.title') }}</h3>
+              <p>{{ t('assets.detail.sections.certificateBindings.description') }}</p>
             </div>
-            <p v-if="!bindingRelations.length" class="asset-summary__loading">暂无证书绑定关系。</p>
+            <p v-if="!bindingRelations.length" class="asset-summary__loading">{{ t('assets.detail.emptyCertificateBindings') }}</p>
             <ul v-else class="asset-binding-relations">
               <li v-for="binding in bindingRelations" :key="String(binding.id ?? '')" class="asset-binding-relations__item">
                 <div class="asset-binding-relations__grid">
@@ -2022,23 +2039,23 @@ watch(
                     <strong>{{ renderValue(binding.bindingKey) }}</strong>
                   </div>
                   <div>
-                    <span>域名</span>
+                    <span>{{ t('assets.fields.domain') }}</span>
                     <strong>{{ renderValue(binding.domainName ?? binding.domain) }}</strong>
                   </div>
                   <div>
-                    <span>当前证书</span>
+                    <span>{{ t('assets.fields.currentCertificate') }}</span>
                     <strong>{{ certificateVersionLabel(String(binding.certificateVersionId ?? binding.localCertificateVersionId ?? '')) }}</strong>
                   </div>
                   <div>
-                    <span>目标证书</span>
+                    <span>{{ t('assets.fields.targetCertificate') }}</span>
                     <strong>{{ certificateVersionLabel(String(binding.targetCertificateVersionId ?? binding.certificateVersionId ?? '')) }}</strong>
                   </div>
                   <div>
-                    <span>期望指纹</span>
+                    <span>{{ t('assets.fields.expectedFingerprint') }}</span>
                     <strong>{{ renderValue(binding.desiredFingerprintSha256 ?? binding.targetFingerprintSha256) }}</strong>
                   </div>
                   <div>
-                    <span>证书存储</span>
+                    <span>{{ t('assets.fields.certificateStore') }}</span>
                     <strong>{{ renderValue(binding.storeThumbprint) }}</strong>
                   </div>
                 </div>
@@ -2050,24 +2067,24 @@ watch(
         <section v-else class="asset-detail-modal__sections">
           <article class="asset-detail-modal__section">
             <div class="asset-detail-modal__section-head">
-              <h3>快照</h3>
-              <p>部署前后与回退后的现场状态必须能直接看到，不能只剩任务记录。</p>
+              <h3>{{ t('assets.detail.sections.snapshots.title') }}</h3>
+              <p>{{ t('assets.detail.sections.snapshots.description') }}</p>
             </div>
-            <p v-if="snapshotLoading" class="asset-summary__loading">正在加载快照...</p>
+            <p v-if="snapshotLoading" class="asset-summary__loading">{{ t('assets.detail.loadingSnapshots') }}</p>
             <p v-else-if="snapshotError" class="asset-summary__error">{{ snapshotError }}</p>
             <ul v-else-if="snapshotItems.length" class="asset-binding-relations">
               <li v-for="snapshot in snapshotItems" :key="String(snapshot.id ?? '')" class="asset-binding-relations__item">
                 <div class="asset-binding-relations__grid">
                   <div>
-                    <span>快照类型</span>
+                    <span>{{ t('assets.fields.snapshotType') }}</span>
                     <strong>{{ snapshotTypeLabel(snapshot.snapshotType) }}</strong>
                   </div>
                   <div>
-                    <span>状态</span>
+                    <span>{{ t('assets.columns.status') }}</span>
                     <strong>{{ renderValue(snapshot.status) }}</strong>
                   </div>
                   <div>
-                    <span>时间</span>
+                    <span>{{ t('assets.fields.time') }}</span>
                     <strong>{{ renderValue(snapshot.capturedAt ?? snapshot.createdAt) }}</strong>
                   </div>
                   <div>
@@ -2075,22 +2092,22 @@ watch(
                     <strong>{{ renderValue(snapshot.storeThumbprint) }}</strong>
                   </div>
                   <div>
-                    <span>绑定信息</span>
+                    <span>{{ t('assets.fields.bindingInformation') }}</span>
                     <strong>{{ renderValue(snapshot.bindingInformation) }}</strong>
                   </div>
                   <div>
-                    <span>执行运行</span>
+                    <span>{{ t('assets.fields.executionRun') }}</span>
                     <strong>{{ renderValue(snapshot.executionRunId) }}</strong>
                   </div>
                 </div>
               </li>
             </ul>
-            <p v-else class="asset-summary__loading">暂无快照。</p>
+            <p v-else class="asset-summary__loading">{{ t('assets.detail.emptySnapshots') }}</p>
             <div class="asset-deployment__actions">
               <p v-if="rollbackError" class="asset-summary__error">{{ rollbackError }}</p>
-              <p v-else-if="rollbackRequestId" class="asset-form__request">已提交回退请求，请到“执行记录”查看回退运行。</p>
+              <p v-else-if="rollbackRequestId" class="asset-form__request">{{ t('assets.detail.rollbackSubmitted') }}</p>
               <button class="gc-button" type="button" :disabled="!canRollbackFromSnapshot" @click="rollbackFromLatestSnapshot">
-                {{ rollbackSubmitting ? '回退中...' : '从最新快照发起回退' }}
+                {{ rollbackSubmitting ? t('assets.actions.rollingBack') : t('assets.actions.rollbackFromLatestSnapshot') }}
               </button>
             </div>
           </article>
@@ -2100,8 +2117,8 @@ watch(
 
     <GcModal
       v-model:open="createDialogOpen"
-      :title="isEditMode ? '编辑应用资产' : '手动添加应用资产'"
-      :description="isEditMode ? '编辑应用入口自身信息，并选择 Agent 或工作流作为证书部署方式。' : '先录入访问入口，再按 Agent 模式或工作流模式完成配置。'"
+      :title="isEditMode ? t('assets.form.editTitle') : t('assets.form.createTitle')"
+      :description="isEditMode ? t('assets.form.editDescription') : t('assets.form.createDescription')"
       size="xxl"
       width="980px"
     >
@@ -2110,12 +2127,12 @@ watch(
           <div class="asset-wizard__progress-bar">
             <span class="asset-wizard__progress-fill" :style="{ width: assetWizardProgress }"></span>
           </div>
-          <ol class="asset-wizard__steps" aria-label="应用资产配置步骤">
+          <ol class="asset-wizard__steps" :aria-label="t('assets.wizard.ariaLabel')">
             <li class="asset-wizard__step" :class="`is-${assetWizardStepState(1)}`">
               <button type="button" class="asset-wizard__step-button" @click="goToAssetStep(1)">
                 <span class="asset-wizard__step-index">1</span>
                 <span>
-                  <strong>基础入口</strong>
+                  <strong>{{ t('assets.wizard.steps.basicEntry') }}</strong>
                   <small>{{ assetWizardStepStateLabel(1) }}</small>
                 </span>
               </button>
@@ -2124,7 +2141,7 @@ watch(
               <button type="button" class="asset-wizard__step-button" :disabled="currentAvailableStep < 2" @click="goToAssetStep(2)">
                 <span class="asset-wizard__step-index">2</span>
                 <span>
-                  <strong>部署方式</strong>
+                  <strong>{{ t('assets.wizard.steps.deploymentMode') }}</strong>
                   <small>{{ assetWizardStepStateLabel(2) }}</small>
                 </span>
               </button>
@@ -2133,7 +2150,7 @@ watch(
               <button type="button" class="asset-wizard__step-button" :disabled="currentAvailableStep < 3" @click="goToAssetStep(3)">
                 <span class="asset-wizard__step-index">3</span>
                 <span>
-                  <strong>确认保存</strong>
+                  <strong>{{ t('assets.wizard.steps.confirmSave') }}</strong>
                   <small>{{ assetWizardStepStateLabel(3) }}</small>
                 </span>
               </button>
@@ -2144,11 +2161,11 @@ watch(
         <section v-if="assetWizardStep === 1" class="asset-wizard__panel">
           <header class="asset-wizard__panel-header">
             <div>
-              <h3>1. 基础入口</h3>
-              <p>应用资产只表达访问入口；后续步骤再决定由 Agent 还是工作流接管部署。</p>
+              <h3>{{ t('assets.wizard.panels.basicEntryTitle') }}</h3>
+              <p>{{ t('assets.wizard.panels.basicEntryDescription') }}</p>
             </div>
             <span class="asset-wizard__panel-state" :class="commonStepReady ? 'is-done' : 'is-active'">
-              {{ commonStepReady ? '可进入下一步' : '待完成' }}
+              {{ commonStepReady ? t('assets.wizard.stepState.readyNext') : t('assets.wizard.stepState.incomplete') }}
             </span>
           </header>
 
@@ -2159,8 +2176,8 @@ watch(
               :class="{ 'is-selected': assetDraft.managementMode === 'AGENT' }"
               @click="assetDraft.managementMode = 'AGENT'"
             >
-              <span>Agent 模式</span>
-              <strong>绑定 Agent、站点实例和受管目标</strong>
+              <span>{{ t('assets.managementModes.agent') }}</span>
+              <strong>{{ t('assets.managementModes.agentDescription') }}</strong>
             </button>
             <button
               type="button"
@@ -2168,26 +2185,26 @@ watch(
               :class="{ 'is-selected': assetDraft.managementMode === 'WORKFLOW' }"
               @click="assetDraft.managementMode = 'WORKFLOW'"
             >
-              <span>工作流模式</span>
-              <strong>选择工作流版本和运行变量</strong>
+              <span>{{ t('assets.managementModes.workflow') }}</span>
+              <strong>{{ t('assets.managementModes.workflowDescription') }}</strong>
             </button>
           </div>
 
           <div class="asset-form__grid">
             <label class="asset-form__field">
-              <span>访问域名 <strong>*</strong></span>
+              <span>{{ t('assets.fields.domain') }} <strong>*</strong></span>
               <input v-model="assetDraft.address" placeholder="app.example.com" autocomplete="off" />
             </label>
             <label class="asset-form__field">
-              <span>显示名称</span>
-              <input v-model="assetDraft.displayName" placeholder="留空则默认等于访问域名" autocomplete="off" />
+              <span>{{ t('assets.fields.displayName') }}</span>
+              <input v-model="assetDraft.displayName" :placeholder="t('assets.form.placeholders.displayName')" autocomplete="off" />
             </label>
             <label class="asset-form__field">
-              <span>端口 <strong>*</strong></span>
+              <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
               <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
             </label>
             <label class="asset-form__field">
-              <span>协议 <strong>*</strong></span>
+              <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
               <select v-model="assetDraft.protocol">
                 <option value="HTTPS">HTTPS</option>
                 <option value="HTTP">HTTP</option>
@@ -2196,28 +2213,28 @@ watch(
               </select>
             </label>
             <label class="asset-form__field">
-              <span>验证 URL</span>
+              <span>{{ t('assets.fields.verifyUrl') }}</span>
               <input
                 v-model="assetDraft.verifyUrl"
-                placeholder="留空则默认使用 https://访问域名:端口"
+                :placeholder="t('assets.form.placeholders.verifyUrl')"
                 autocomplete="off"
               />
             </label>
             <label class="asset-form__field">
-              <span>平台 <strong>*</strong></span>
+              <span>{{ t('assets.fields.platform') }} <strong>*</strong></span>
               <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.platform || '—' }}</div>
               <select v-else v-model="assetDraft.platform">
                 <option value="LINUX">Linux</option>
                 <option value="WINDOWS">Windows</option>
-                <option value="APPLIANCE">专用设备</option>
+                <option value="APPLIANCE">{{ t('assets.platforms.appliance') }}</option>
               </select>
             </label>
             <label class="asset-form__field">
-              <span>环境</span>
+              <span>{{ t('assets.fields.environment') }}</span>
               <input v-model="assetDraft.environment" placeholder="prod / staging" autocomplete="off" />
             </label>
             <label class="asset-form__field">
-              <span>标签</span>
+              <span>{{ t('assets.fields.tags') }}</span>
               <input v-model="assetDraft.tagsText" placeholder="core, public, ssl" autocomplete="off" />
             </label>
           </div>
@@ -2226,18 +2243,18 @@ watch(
         <section v-else-if="assetWizardStep === 2" class="asset-wizard__panel">
           <header class="asset-wizard__panel-header">
             <div>
-              <h3>2. {{ assetDraft.managementMode === 'WORKFLOW' ? '工作流配置' : 'Agent 绑定' }}</h3>
-              <p>{{ assetDraft.managementMode === 'WORKFLOW' ? '选择已发布的工作流版本，并提供运行时变量。' : '明确落到 Agent、站点实例和受管目标，避免只靠域名猜测部署位置。' }}</p>
+              <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('assets.wizard.panels.agentTitle') }}</h3>
+              <p>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowDescription') : t('assets.wizard.panels.agentDescription') }}</p>
             </div>
             <span class="asset-wizard__panel-state" :class="modeStepReady ? 'is-done' : 'is-active'">
-              {{ modeStepReady ? '可进入下一步' : '待完成' }}
+              {{ modeStepReady ? t('assets.wizard.stepState.readyNext') : t('assets.wizard.stepState.incomplete') }}
             </span>
           </header>
 
           <template v-if="assetDraft.managementMode === 'AGENT'">
             <div class="asset-form__grid">
               <label class="asset-form__field">
-                <span>框架类型 <strong>*</strong></span>
+                <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.frameworkType || '—' }}</div>
                 <select v-else v-model="assetDraft.frameworkType">
                   <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
@@ -2249,46 +2266,46 @@ watch(
                 <span>Agent <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ editAgentLabel }}</div>
                 <select v-else v-model="assetDraft.agentId" :disabled="agentListLoading">
-                  <option value="">{{ agentListLoading ? '加载 Agent 中...' : '请选择 Agent' }}</option>
+                  <option value="">{{ agentListLoading ? t('assets.loading.agents') : t('assets.select.agent') }}</option>
                   <option v-for="agent in filteredAgentItems" :key="String(agent.id)" :value="String(agent.id)">
                     {{ agentLabel(agent) }}
                   </option>
                 </select>
               </label>
               <label class="asset-form__field">
-                <span>站点实例 <strong>*</strong></span>
+                <span>{{ t('assets.fields.siteInstance') }} <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ editSiteLabel }}</div>
                 <select v-else v-model="assetDraft.siteAssetId" :disabled="siteListLoading || !assetDraft.agentId">
-                  <option value="">{{ siteListLoading ? '加载站点中...' : '请选择站点实例' }}</option>
+                  <option value="">{{ siteListLoading ? t('assets.loading.sites') : t('assets.select.siteInstance') }}</option>
                   <option v-for="site in filteredSiteItems" :key="String(site.id)" :value="String(site.id)">
                     {{ siteLabel(site) }}
                   </option>
                 </select>
               </label>
               <label class="asset-form__field">
-                <span>受管目标 <strong>*</strong></span>
+                <span>{{ t('assets.fields.managedTarget') }} <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ editManagedTargetLabel }}</div>
                 <select v-else v-model="assetDraft.managedTargetId" :disabled="managedTargetListLoading || !assetDraft.siteAssetId">
-                  <option value="">{{ managedTargetListLoading ? '加载目标中...' : '请选择受管目标' }}</option>
+                  <option value="">{{ managedTargetListLoading ? t('assets.loading.managedTargets') : t('assets.select.managedTarget') }}</option>
                   <option v-for="target in filteredManagedTargetItems" :key="String(target.id)" :value="String(target.id)">
                     {{ managedTargetLabel(target) }}
                   </option>
                 </select>
               </label>
               <label class="asset-form__field">
-                <span>证书产物配置 <strong>*</strong></span>
+                <span>{{ t('assets.fields.certificateFormat') }} <strong>*</strong></span>
                 <select v-model="assetDraft.agentCertificateFormatId" :disabled="certificateFormatLoading">
-                  <option value="">{{ certificateFormatLoading ? '加载格式配置中...' : '请选择证书产物配置' }}</option>
+                  <option value="">{{ certificateFormatLoading ? t('assets.loading.certificateFormats') : t('assets.select.certificateFormat') }}</option>
                   <option v-for="format in agentCertificateFormatOptions" :key="String(format.id)" :value="String(format.id)">
                     {{ workflowCertificateFormatLabel(format) }}
                   </option>
                 </select>
-                <small>Agent 模式的部署计划会直接使用这里保存的产物配置。</small>
+                <small>{{ t('assets.form.agentCertificateFormatHint') }}</small>
               </label>
             </div>
             <div class="asset-form__binding-summary">
               <div>
-                <span>绑定信息</span>
+                <span>{{ t('assets.fields.bindingInformation') }}</span>
                 <strong>{{ renderValue(currentBindingSummary.bindingInformation) }}</strong>
               </div>
               <div>
@@ -2296,7 +2313,7 @@ watch(
                 <strong>{{ renderValue(currentBindingSummary.hostHeader) }}</strong>
               </div>
               <div>
-                <span>端口</span>
+                <span>{{ t('assets.fields.port') }}</span>
                 <strong>{{ renderValue(currentBindingSummary.port) }}</strong>
               </div>
             </div>
@@ -2305,18 +2322,18 @@ watch(
           <template v-else>
             <div class="asset-form__grid">
               <label class="asset-form__field">
-                <span>工作流 <strong>*</strong></span>
+                <span>{{ t('assets.fields.workflow') }} <strong>*</strong></span>
                 <select v-model="assetDraft.workflowId" :disabled="workflowListLoading">
-                  <option value="">{{ workflowListLoading ? '加载工作流中...' : '请选择工作流' }}</option>
+                  <option value="">{{ workflowListLoading ? t('assets.loading.workflows') : t('assets.select.workflow') }}</option>
                   <option v-for="workflow in workflowItems" :key="String(workflow.id)" :value="String(workflow.id)">
                     {{ workflowTemplateLabel(workflow) }}
                   </option>
                 </select>
               </label>
               <label class="asset-form__field">
-                <span>已发布版本 <strong>*</strong></span>
+                <span>{{ t('assets.fields.publishedVersion') }} <strong>*</strong></span>
                 <select v-model="assetDraft.workflowVersionId" :disabled="workflowVersionListLoading || !assetDraft.workflowId">
-                  <option value="">{{ workflowVersionListLoading ? '加载版本中...' : '请选择已发布版本' }}</option>
+                  <option value="">{{ workflowVersionListLoading ? t('assets.loading.versions') : t('assets.select.publishedVersion') }}</option>
                   <option
                     v-for="version in workflowVersionItems"
                     :key="String(version.id)"
@@ -2328,69 +2345,69 @@ watch(
                 </select>
               </label>
               <label class="asset-form__field">
-                <span>运行位置 <strong>*</strong></span>
+                <span>{{ t('assets.fields.runner') }} <strong>*</strong></span>
                 <select v-model="assetDraft.workflowRunner">
-                  <option value="CONTROL_PLANE">控制平面</option>
+                  <option value="CONTROL_PLANE">{{ t('assets.runners.controlPlane') }}</option>
                   <option value="GATEWAY">Gateway</option>
                 </select>
               </label>
               <label v-if="assetDraft.workflowRunner === 'GATEWAY'" class="asset-form__field">
                 <span>Gateway <strong>*</strong></span>
                 <select v-model="assetDraft.workflowGatewayId" :disabled="gatewayListLoading">
-                  <option value="">{{ gatewayListLoading ? '加载 Gateway 中...' : '请选择 Gateway' }}</option>
+                  <option value="">{{ gatewayListLoading ? t('assets.loading.gateways') : t('assets.select.gateway') }}</option>
                   <option v-for="gateway in gatewayItems" :key="String(gateway.id)" :value="String(gateway.id)">
                     {{ gatewayLabel(gateway) }}
                   </option>
                 </select>
               </label>
-              <section class="asset-form__field asset-form__field--wide workflow-variable-form" aria-label="运行变量">
+              <section class="asset-form__field asset-form__field--wide workflow-variable-form" :aria-label="t('assets.workflowVariables.title')">
                 <div class="workflow-variable-form__head">
                   <div>
-                    <span>运行变量</span>
-                    <strong>{{ workflowVariableConfiguredCount }} / {{ workflowVariableRows.length }} 已填写</strong>
+                    <span>{{ t('assets.workflowVariables.title') }}</span>
+                    <strong>{{ t('assets.workflowVariables.configuredCount', { configured: workflowVariableConfiguredCount, total: workflowVariableRows.length }) }}</strong>
                   </div>
                   <div class="workflow-variable-form__add">
                     <select v-model="workflowVariablePresetName" :disabled="availableWorkflowVariablePresets.length === 0">
-                      <option value="">{{ availableWorkflowVariablePresets.length ? '选择预设变量' : '暂无可添加变量' }}</option>
+                      <option value="">{{ availableWorkflowVariablePresets.length ? t('assets.select.variablePreset') : t('assets.empty.noVariablePreset') }}</option>
                       <option v-for="preset in availableWorkflowVariablePresets" :key="preset.name" :value="preset.name">
                         {{ preset.name }} / {{ preset.type }}
                       </option>
                     </select>
-                    <button class="gc-button" type="button" @click="addWorkflowVariableRow">添加变量</button>
+                    <button class="gc-button" type="button" @click="addWorkflowVariableRow">{{ t('assets.actions.addVariable') }}</button>
                   </div>
                 </div>
 
                 <div class="workflow-variable-form__verify">
-                  <span>验证 URL</span>
-                  <strong>{{ effectiveVerifyUrl || '基础入口未完成' }}</strong>
+                  <span>{{ t('assets.fields.verifyUrl') }}</span>
+                  <strong>{{ effectiveVerifyUrl || t('assets.empty.basicEntryIncomplete') }}</strong>
                 </div>
 
                 <ul v-if="workflowVariableRows.length" class="workflow-variable-form__rows">
                   <li v-for="row in workflowVariableRows" :key="row.id" class="workflow-variable-form__row">
                     <label>
-                      <span>变量名</span>
+                      <span>{{ t('assets.workflowVariables.name') }}</span>
                       <input v-model="row.name" :readonly="row.fromDefinition" placeholder="deviceHost" autocomplete="off" />
                     </label>
                     <label>
-                      <span>类型</span>
+                      <span>{{ t('assets.workflowVariables.type') }}</span>
                       <select v-model="row.type" :disabled="row.fromDefinition">
-                        <option value="string">字符串</option>
-                        <option value="number">数字</option>
-                        <option value="boolean">布尔</option>
-                        <option value="enum">枚举</option>
-                        <option value="object">对象</option>
-                        <option value="file">文件</option>
-                        <option value="credential">凭据</option>
-                        <option value="certificate">证书</option>
+                        <option value="string">{{ t('assets.workflowVariableTypes.string') }}</option>
+                        <option value="number">{{ t('assets.workflowVariableTypes.number') }}</option>
+                        <option value="boolean">{{ t('assets.workflowVariableTypes.boolean') }}</option>
+                        <option value="enum">{{ t('assets.workflowVariableTypes.enum') }}</option>
+                        <option value="object">{{ t('assets.workflowVariableTypes.object') }}</option>
+                        <option value="file">{{ t('assets.workflowVariableTypes.file') }}</option>
+                        <option value="credential">{{ t('assets.workflowVariableTypes.credential') }}</option>
+                        <option value="certificate">{{ t('assets.workflowVariableTypes.certificate') }}</option>
                       </select>
                     </label>
                     <label class="workflow-variable-form__value">
-                      <span>值{{ row.required ? ' *' : '' }}</span>
-                      <div v-if="row.type === 'certificate'" class="asset-form__readonly">部署计划自动注入</div>
+                      <span>{{ t('assets.workflowVariables.value') }}{{ row.required ? ' *' : '' }}</span>
+                      <div v-if="row.type === 'certificate'" class="asset-form__readonly">{{ t('assets.workflowVariables.certificateAutoInjected') }}</div>
                       <select v-else-if="row.type === 'credential'" v-model="row.value" :disabled="workflowCredentialLoading">
-                        <option value="">{{ workflowCredentialLoading ? '加载凭据中...' : '请选择凭据' }}</option>
+                        <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
                         <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
-                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential) }}
+                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
                         </option>
                       </select>
                       <select v-else-if="row.type === 'boolean'" v-model="row.value">
@@ -2398,7 +2415,7 @@ watch(
                         <option value="true">true</option>
                       </select>
                       <select v-else-if="row.type === 'enum' && row.enumValues.length" v-model="row.value">
-                        <option value="">请选择</option>
+                        <option value="">{{ t('assets.select.generic') }}</option>
                         <option v-for="item in row.enumValues" :key="item" :value="item">{{ item }}</option>
                       </select>
                       <textarea v-else-if="row.type === 'object'" v-model="row.value" rows="3" placeholder="{ }"></textarea>
@@ -2411,39 +2428,39 @@ watch(
                       />
                     </label>
                     <div class="workflow-variable-form__row-actions">
-                      <span>{{ row.fromDefinition ? 'DSL' : '手动' }}</span>
-                      <button class="gc-button gc-button--ghost" type="button" @click="removeWorkflowVariableRow(row.id)">删除</button>
+                      <span>{{ row.fromDefinition ? 'DSL' : t('assets.workflowVariables.manual') }}</span>
+                      <button class="gc-button gc-button--ghost" type="button" @click="removeWorkflowVariableRow(row.id)">{{ t('assets.actions.delete') }}</button>
                     </div>
-                    <p v-if="row.type === 'certificate'" class="workflow-variable-form__description">证书版本由部署计划选择，应用资产在下方绑定格式配置和输出项，运行时注入 {{ row.name }}.outputs.*.content。</p>
+                    <p v-if="row.type === 'certificate'" class="workflow-variable-form__description">{{ t('assets.workflowVariables.certificateDescription', { name: row.name }) }}</p>
                     <p v-else-if="row.description" class="workflow-variable-form__description">{{ row.description }}</p>
                   </li>
                 </ul>
-                <p v-else class="workflow-variable-form__empty">当前工作流没有必须手动配置的运行变量。</p>
+                <p v-else class="workflow-variable-form__empty">{{ t('assets.workflowVariables.empty') }}</p>
               </section>
 
-              <section v-if="selectedWorkflowCertificateVariables.length" class="asset-form__field asset-form__field--wide workflow-certificate-form" aria-label="证书产物绑定">
+              <section v-if="selectedWorkflowCertificateVariables.length" class="asset-form__field asset-form__field--wide workflow-certificate-form" :aria-label="t('assets.certificateBindings.title')">
                 <div class="workflow-certificate-form__head">
                   <div>
-                    <span>证书产物绑定</span>
-                    <strong>{{ selectedWorkflowCertificateVariables.length }} 个证书变量</strong>
+                    <span>{{ t('assets.certificateBindings.title') }}</span>
+                    <strong>{{ t('assets.certificateBindings.variableCount', { count: selectedWorkflowCertificateVariables.length }) }}</strong>
                   </div>
-                  <small>证书版本由部署计划选择，这里只定义该工作流变量需要使用哪个产物格式和输出项。</small>
+                  <small>{{ t('assets.certificateBindings.description') }}</small>
                 </div>
                 <ul class="workflow-certificate-form__rows">
                   <li v-for="item in selectedWorkflowCertificateVariables" :key="item.name" class="workflow-certificate-form__row">
                     <div class="workflow-certificate-form__variable">
                       <strong>{{ item.name }}</strong>
-                      <span>{{ item.definition.description || '证书产物变量' }}</span>
+                      <span>{{ item.definition.description || t('assets.certificateBindings.defaultVariableDescription') }}</span>
                     </div>
                     <template v-if="item.outputs.length">
                       <label>
-                        <span>产物格式配置 <strong>*</strong></span>
+                        <span>{{ t('assets.fields.artifactFormat') }} <strong>*</strong></span>
                         <select
                           :value="workflowCertificateArtifactBindings[item.name]?.certificateFormatId ?? ''"
                           :disabled="certificateFormatLoading"
                           @change="updateWorkflowCertificateFormat(item.name, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option value="">{{ certificateFormatLoading ? '加载格式配置中...' : '请选择格式配置' }}</option>
+                          <option value="">{{ certificateFormatLoading ? t('assets.loading.certificateFormats') : t('assets.select.artifactFormat') }}</option>
                           <option v-for="format in workflowCertificateFormatOptions(item.name)" :key="String(format.id)" :value="String(format.id)">
                             {{ workflowCertificateFormatLabel(format) }}
                           </option>
@@ -2456,7 +2473,7 @@ watch(
                           :disabled="!workflowCertificateArtifactBindings[item.name]?.certificateFormatId"
                           @change="updateWorkflowCertificateOutput(item.name, slot.name, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option value="">{{ slot.required ? '请选择输出项' : '可不选择' }}</option>
+                          <option value="">{{ slot.required ? t('assets.select.output') : t('assets.select.optionalOutput') }}</option>
                           <option
                             v-for="option in workflowCertificateOutputOptions(workflowCertificateArtifactBindings[item.name]?.certificateFormatId ?? '')"
                             :key="option.key"
@@ -2468,13 +2485,13 @@ watch(
                         <small v-if="slot.description">{{ slot.description }}</small>
                       </label>
                     </template>
-                    <p v-else class="workflow-certificate-form__empty">该证书变量尚未在 DSL 中定义 artifactContract.outputs，无法配置具体产物文件。</p>
+                    <p v-else class="workflow-certificate-form__empty">{{ t('assets.certificateBindings.noArtifactOutputs') }}</p>
                   </li>
                 </ul>
               </section>
             </div>
             <p v-if="publishedWorkflowVersionItems.length === 0 && assetDraft.workflowId && !workflowVersionListLoading" class="asset-form__hint">
-              当前工作流没有已发布版本，不能用于应用资产部署策略。
+              {{ t('assets.workflowVariables.noPublishedVersion') }}
             </p>
             <p v-if="workflowVariablesError" class="asset-form__error">{{ workflowVariablesError }}</p>
             <p v-if="workflowCertificateArtifactError" class="asset-form__error">{{ workflowCertificateArtifactError }}</p>
@@ -2486,47 +2503,47 @@ watch(
         <section v-else class="asset-wizard__panel">
           <header class="asset-wizard__panel-header">
             <div>
-              <h3>3. 确认保存</h3>
-              <p>确认访问入口和部署方式，保存后部署计划可直接按资产策略选择执行路径。</p>
+              <h3>{{ t('assets.wizard.panels.confirmTitle') }}</h3>
+              <p>{{ t('assets.wizard.panels.confirmDescription') }}</p>
             </div>
-            <span class="asset-wizard__panel-state is-active">待提交</span>
+            <span class="asset-wizard__panel-state is-active">{{ t('assets.wizard.stepState.pendingSubmit') }}</span>
           </header>
           <dl class="asset-wizard__review">
             <div>
-              <dt>访问入口</dt>
+              <dt>{{ t('assets.review.accessEntry') }}</dt>
               <dd>{{ assetDraft.protocol }}://{{ assetDraft.address }}:{{ assetDraft.port }}</dd>
             </div>
             <div>
-              <dt>部署方式</dt>
-              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? '工作流模式' : 'Agent 模式' }}</dd>
+              <dt>{{ t('assets.review.deploymentMode') }}</dt>
+              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.managementModes.workflow') : t('assets.managementModes.agent') }}</dd>
             </div>
             <div>
-              <dt>平台</dt>
+              <dt>{{ t('assets.fields.platform') }}</dt>
               <dd>{{ assetDraft.platform }}</dd>
             </div>
             <div>
-              <dt>验证 URL</dt>
-              <dd>{{ assetDraft.verifyUrl || '按访问入口自动生成' }}</dd>
+              <dt>{{ t('assets.fields.verifyUrl') }}</dt>
+              <dd>{{ assetDraft.verifyUrl || t('assets.review.autoGeneratedByEntry') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'AGENT'">
-              <dt>Agent / 站点 / 目标</dt>
-              <dd>{{ editAgentLabel || assetDraft.agentId || '未选择' }} / {{ editSiteLabel || assetDraft.siteAssetId || '未选择' }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || '未选择' }}</dd>
+              <dt>{{ t('assets.review.agentSiteTarget') }}</dt>
+              <dd>{{ editAgentLabel || assetDraft.agentId || t('assets.empty.notSelected') }} / {{ editSiteLabel || assetDraft.siteAssetId || t('assets.empty.notSelected') }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'AGENT'">
-              <dt>证书产物配置</dt>
-              <dd>{{ workflowCertificateFormatLabel(certificateFormatItems.find((item) => String(item.id ?? '') === assetDraft.agentCertificateFormatId) ?? {}) || '未选择' }}</dd>
+              <dt>{{ t('assets.fields.certificateFormat') }}</dt>
+              <dd>{{ workflowCertificateFormatLabel(certificateFormatItems.find((item) => String(item.id ?? '') === assetDraft.agentCertificateFormatId) ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-else>
-              <dt>工作流 / 版本</dt>
-              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || '未选择' }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || '未选择' }}</dd>
+              <dt>{{ t('assets.review.workflowVersion') }}</dt>
+              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'WORKFLOW'">
-              <dt>运行位置</dt>
-              <dd>{{ assetDraft.workflowRunner === 'GATEWAY' ? `Gateway：${gatewayLabel(selectedGateway ?? {}) || assetDraft.workflowGatewayId}` : '控制平面' }}</dd>
+              <dt>{{ t('assets.fields.runner') }}</dt>
+              <dd>{{ assetDraft.workflowRunner === 'GATEWAY' ? t('assets.review.gatewayRunner', { gateway: gatewayLabel(selectedGateway ?? {}) || assetDraft.workflowGatewayId }) : t('assets.runners.controlPlane') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'WORKFLOW'">
-              <dt>运行变量</dt>
-              <dd>{{ workflowVariableConfiguredCount ? `${workflowVariableConfiguredCount} 个变量` : '仅使用基础入口' }}</dd>
+              <dt>{{ t('assets.workflowVariables.title') }}</dt>
+              <dd>{{ workflowVariableConfiguredCount ? t('assets.review.variableCount', { count: workflowVariableConfiguredCount }) : t('assets.review.onlyBasicEntry') }}</dd>
             </div>
           </dl>
         </section>
@@ -2537,14 +2554,14 @@ watch(
         <p v-else-if="workflowVersionListError" class="asset-form__error">{{ workflowVersionListError }}</p>
         <p v-else-if="gatewayListError" class="asset-form__error">{{ gatewayListError }}</p>
         <p v-if="createError" class="asset-form__error">{{ createError }}</p>
-        <p v-else-if="createRequestId" class="asset-form__request">{{ isEditMode ? '最近编辑请求已完成。' : '最近创建请求已完成。' }}</p>
+        <p v-else-if="createRequestId" class="asset-form__request">{{ isEditMode ? t('assets.form.editRequestCompleted') : t('assets.form.createRequestCompleted') }}</p>
       </section>
       <template #actions>
-        <button class="gc-button" type="button" :disabled="createLoading" @click="closeCreateDialog">取消</button>
-        <button class="gc-button" type="button" :disabled="createLoading || !canGoPreviousAssetStep" @click="goPreviousAssetStep">上一步</button>
-        <button v-if="assetWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="createLoading || !canGoNextAssetStep" @click="goNextAssetStep">下一步</button>
+        <button class="gc-button" type="button" :disabled="createLoading" @click="closeCreateDialog">{{ t('designSystem.deploymentWizard.actions.cancel') }}</button>
+        <button class="gc-button" type="button" :disabled="createLoading || !canGoPreviousAssetStep" @click="goPreviousAssetStep">{{ t('designSystem.deploymentWizard.actions.previous') }}</button>
+        <button v-if="assetWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="createLoading || !canGoNextAssetStep" @click="goNextAssetStep">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
         <button v-else class="gc-button gc-button--danger" type="button" :disabled="createDisabled" @click="submitCreate">
-          {{ createLoading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '确认创建') }}
+          {{ createLoading ? (isEditMode ? t('assets.actions.saving') : t('assets.actions.creating')) : (isEditMode ? t('assets.actions.saveChanges') : t('assets.actions.confirmCreate')) }}
         </button>
       </template>
     </GcModal>

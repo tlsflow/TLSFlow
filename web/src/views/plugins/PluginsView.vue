@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { disablePlugin, listPlugins } from '@/api/modules/plugins.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
@@ -8,37 +9,38 @@ import type { BusinessPageConfig } from '@/views/business-page.types'
 
 const detailModalOpen = ref(false)
 const detailRow = ref<ViewRow | null>(null)
+const { t } = useI18n()
 
-const config: BusinessPageConfig = {
-  title: '插件',
-  description: '插件包、Provider、权限声明、签名校验、沙箱状态和隔离入口。',
+const config = computed<BusinessPageConfig>(() => ({
+  title: t('plugins.title'),
+  description: t('plugins.description'),
   readPermission: 'plugin.read',
   primaryPermission: 'plugin.write',
-  primaryActionLabel: '安装插件',
+  primaryActionLabel: t('plugins.actions.install'),
   primaryAction: async () => {},
   moduleName: 'plugins',
-  resourceName: '插件',
+  resourceName: t('plugins.resourceName'),
   defaultStatus: 'READY',
   defaultRisk: 'HIGH',
   showDetailPanel: false,
   showActionPanel: false,
   columns: [
-    { key: 'name', title: '插件名称', candidates: ['name', 'displayName', 'pluginName'] },
-    { key: 'status', title: '状态', candidates: ['status', 'sandboxStatus', 'state'] },
-    { key: 'risk', title: '风险', candidates: ['risk', 'riskLevel', 'permissionRisk'] },
-    { key: 'version', title: '版本', candidates: ['version', 'currentVersion'] },
-    { key: 'signature', title: '签名', candidates: ['signatureStatus', 'signature.status'] }
+    { key: 'name', title: t('plugins.columns.name'), candidates: ['name', 'displayName', 'pluginName'] },
+    { key: 'status', title: t('plugins.columns.status'), candidates: ['status', 'sandboxStatus', 'state'] },
+    { key: 'risk', title: t('plugins.columns.risk'), candidates: ['risk', 'riskLevel', 'permissionRisk'] },
+    { key: 'version', title: t('plugins.columns.version'), candidates: ['version', 'currentVersion'] },
+    { key: 'signature', title: t('plugins.columns.signature'), candidates: ['signatureStatus', 'signature.status'] }
   ],
   metrics: [
-    { title: '插件总数', description: '已安装和可升级插件。', status: 'READY', risk: 'HIGH' },
-    { title: '高危待处理', description: '高危权限、签名异常或沙箱隔离插件。', status: 'ERROR', risk: 'CRITICAL' }
+    { title: t('plugins.metrics.total.title'), description: t('plugins.metrics.total.description'), status: 'READY', risk: 'HIGH', kind: 'total' },
+    { title: t('plugins.metrics.risky.title'), description: t('plugins.metrics.risky.description'), status: 'ERROR', risk: 'CRITICAL' }
   ],
-  emptyTitle: '暂无插件',
-  emptyDescription: '安装插件前必须查看权限差异、签名和回滚策略。',
+  emptyTitle: t('plugins.empty.title'),
+  emptyDescription: t('plugins.empty.description'),
   load: () => listPlugins({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
   rowActions: [
     {
-      label: '详情',
+      label: t('plugins.actions.detail'),
       permission: 'plugin.read',
       reloadAfterRun: false,
       run: async (row) => {
@@ -48,9 +50,9 @@ const config: BusinessPageConfig = {
     },
   ],
   actions: [
-    { label: '禁用插件', permission: 'plugin.write', danger: true, confirmText: 'DISABLE', riskText: '禁用插件会影响 Provider、模板和执行器能力。', requiresSelection: true, run: (row) => disablePlugin(row?.id ?? '', { dryRun: true }) }
+    { label: t('plugins.actions.disable'), permission: 'plugin.write', danger: true, confirmText: 'DISABLE', riskText: t('plugins.actions.disableRisk'), requiresSelection: true, run: (row) => disablePlugin(row?.id ?? '', { dryRun: true }) }
   ]
-}
+}))
 </script>
 
 <template>
@@ -59,8 +61,8 @@ const config: BusinessPageConfig = {
 
     <GcModal
       v-model:open="detailModalOpen"
-      :title="detailRow ? `插件 ${readString(detailRow.raw, ['name', 'displayName', 'pluginName'], detailRow.id)}` : '插件详情'"
-      description="插件详情统一放进模态框，主页面只保留紧凑列表。"
+      :title="detailRow ? t('plugins.detail.titleWithName', { name: readString(detailRow.raw, ['name', 'displayName', 'pluginName'], detailRow.id) }) : t('plugins.detail.title')"
+      :description="t('plugins.detail.description')"
       size="lg"
       width="min(980px, calc(100vw - 32px))"
     >
@@ -69,12 +71,12 @@ const config: BusinessPageConfig = {
           <div class="plugin-detail__hero-copy">
             <p class="plugin-detail__eyebrow">Plugin Package</p>
             <h2>{{ readString(detailRow.raw, ['name', 'displayName', 'pluginName'], detailRow.id) }}</h2>
-            <span>版本 {{ readString(detailRow.raw, ['version', 'currentVersion']) }}</span>
+            <span>{{ t('plugins.detail.versionLabel', { version: readString(detailRow.raw, ['version', 'currentVersion']) }) }}</span>
           </div>
           <div class="plugin-detail__hero-side">
             <GcStatusTag :status="readString(detailRow.raw, ['status', 'sandboxStatus', 'state'])" />
             <div class="plugin-detail__spotlight">
-              <small>签名状态</small>
+              <small>{{ t('plugins.fields.signatureStatus') }}</small>
               <strong>{{ readString(detailRow.raw, ['signatureStatus', 'signature.status']) }}</strong>
             </div>
           </div>
@@ -82,18 +84,18 @@ const config: BusinessPageConfig = {
 
         <section class="plugin-detail__section">
           <dl class="plugin-detail__facts">
-            <div><dt>插件 ID</dt><dd>{{ readString(detailRow.raw, ['id']) }}</dd></div>
-            <div><dt>插件名称</dt><dd>{{ readString(detailRow.raw, ['name', 'displayName', 'pluginName']) }}</dd></div>
-            <div><dt>当前状态</dt><dd>{{ readString(detailRow.raw, ['status', 'sandboxStatus', 'state']) }}</dd></div>
-            <div><dt>版本</dt><dd>{{ readString(detailRow.raw, ['version', 'currentVersion']) }}</dd></div>
-            <div><dt>签名状态</dt><dd>{{ readString(detailRow.raw, ['signatureStatus', 'signature.status']) }}</dd></div>
-            <div><dt>风险等级</dt><dd>{{ readString(detailRow.raw, ['risk', 'riskLevel', 'permissionRisk']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.pluginId') }}</dt><dd>{{ readString(detailRow.raw, ['id']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.name') }}</dt><dd>{{ readString(detailRow.raw, ['name', 'displayName', 'pluginName']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.currentStatus') }}</dt><dd>{{ readString(detailRow.raw, ['status', 'sandboxStatus', 'state']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.version') }}</dt><dd>{{ readString(detailRow.raw, ['version', 'currentVersion']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.signatureStatus') }}</dt><dd>{{ readString(detailRow.raw, ['signatureStatus', 'signature.status']) }}</dd></div>
+            <div><dt>{{ t('plugins.fields.riskLevel') }}</dt><dd>{{ readString(detailRow.raw, ['risk', 'riskLevel', 'permissionRisk']) }}</dd></div>
           </dl>
         </section>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="detailModalOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
       </template>
     </GcModal>
   </section>

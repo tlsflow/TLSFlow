@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -46,11 +47,12 @@ const enableAgents = ref<ApiRecord[]>([])
 const installSession = ref<CommandSession | null>(null)
 const enableSession = ref<CommandSession | null>(null)
 const copiedKind = ref<CopiedKind>(null)
+const { t } = useI18n()
 
-const platformOptions: Array<{ value: GatewayPlatform; label: string; description: string }> = [
-  { value: 'linux_go_systemd', label: 'Linux systemd', description: '在 Linux 主机安装 Gateway Agent 服务' },
-  { value: 'windows_powershell_service', label: 'Windows Service', description: '在 Windows 主机安装 Gateway Agent 服务' },
-]
+const platformOptions = computed<Array<{ value: GatewayPlatform; label: string; description: string }>>(() => [
+  { value: 'linux_go_systemd', label: 'Linux systemd', description: t('gateways.platforms.linuxSystemd.description') },
+  { value: 'windows_powershell_service', label: 'Windows Service', description: t('gateways.platforms.windowsService.description') },
+])
 
 const gatewayRaw = computed<ApiRecord | null>(() => selectedGateway.value?.raw ?? null)
 const routeChannels = computed(() => normalizeList(gatewayRaw.value, ['routeChannels', 'channels', 'adapters', 'protocols', 'supportedProtocols']))
@@ -61,36 +63,36 @@ const gatewayStats = computed(() => ({
   successRate: formatSuccessRate(readPath(gatewayRaw.value ?? {}, 'successRate') ?? readPath(gatewayRaw.value ?? {}, 'statistics.successRate')),
   lastHeartbeatAt: formatMaybeLocalTimeByCandidates(readString(gatewayRaw.value ?? {}, ['lastHeartbeatAt', 'lastSeenAt', 'heartbeatAt', 'updatedAt']), ['lastHeartbeatAt'])
 }))
-const gatewayRegion = computed(() => firstDisplayValue(gatewayRaw.value, ['zoneName', 'zoneId', 'zoneIds', 'networkZone']) || '默认区域')
+const gatewayRegion = computed(() => firstDisplayValue(gatewayRaw.value, ['zoneName', 'zoneId', 'zoneIds', 'networkZone']) || t('gateways.values.defaultRegion'))
 const gatewayStatus = computed(() => readString(gatewayRaw.value ?? {}, ['status', 'state', 'onlineStatus']) || String(selectedGateway.value?.status ?? ''))
 const gatewayDisplayName = computed(() => {
   const name = String(selectedGateway.value?.name ?? '').trim()
   if (name && !isTechnicalId(name)) return name
-  return `${gatewayRegion.value}网关`
+  return t('gateways.values.regionGatewayName', { region: gatewayRegion.value })
 })
 const gatewayOverview = computed(() => {
   const currentLoad = gatewayStats.value.currentLoad
   const maxConcurrentTasks = gatewayStats.value.maxConcurrentTasks
   return [
-    { label: '连接状态', value: formatGatewayStatus(gatewayStatus.value), tone: statusTone(gatewayStatus.value) },
-    { label: '服务区域', value: gatewayRegion.value },
-    { label: '正在处理', value: `${currentLoad} 个任务` },
-    { label: '可用容量', value: formatCapacity(currentLoad, maxConcurrentTasks) },
-    { label: '成功率', value: gatewayStats.value.successRate },
-    { label: '最近联络', value: gatewayStats.value.lastHeartbeatAt || '-' },
+    { label: t('gateways.detail.overview.connectionStatus'), value: formatGatewayStatus(gatewayStatus.value), tone: statusTone(gatewayStatus.value) },
+    { label: t('gateways.detail.overview.serviceRegion'), value: gatewayRegion.value },
+    { label: t('gateways.detail.overview.processing'), value: t('gateways.values.taskCount', { count: currentLoad }) },
+    { label: t('gateways.detail.overview.availableCapacity'), value: formatCapacity(currentLoad, maxConcurrentTasks) },
+    { label: t('gateways.detail.overview.successRate'), value: gatewayStats.value.successRate },
+    { label: t('gateways.detail.overview.lastContact'), value: gatewayStats.value.lastHeartbeatAt || '-' },
   ]
 })
 const gatewayAbilities = computed(() => {
   const values = new Set([...routeChannels.value, ...capabilities.value].map((item) => item.trim().toLowerCase()))
   const abilities: Array<{ key: string; title: string; description: string }> = []
   if (hasAny(values, ['probe.tcp', 'probe.http', 'probe.agent', 'gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent'])) {
-    abilities.push({ key: 'probe', title: '连通性检查', description: '从该区域检查主机、网站或 Agent 是否可访问。' })
+    abilities.push({ key: 'probe', title: t('gateways.detail.abilities.probe.title'), description: t('gateways.detail.abilities.probe.description') })
   }
   if (hasAny(values, ['forward.agent_task', 'gateway.forward.agent_task'])) {
-    abilities.push({ key: 'agent-task', title: '任务转发', description: '把部署、检查等任务转给区域内的 Agent 执行。' })
+    abilities.push({ key: 'agent-task', title: t('gateways.detail.abilities.agentTask.title'), description: t('gateways.detail.abilities.agentTask.description') })
   }
   if (hasAny(values, ['forward.direct_control', 'gateway.forward.direct_control'])) {
-    abilities.push({ key: 'direct-control', title: '远程控制转发', description: '把受控操作转发到区域内 Agent，控制面无需直连内网端口。' })
+    abilities.push({ key: 'direct-control', title: t('gateways.detail.abilities.directControl.title'), description: t('gateways.detail.abilities.directControl.description') })
   }
   return abilities
 })
@@ -132,7 +134,7 @@ async function generateGatewayInstallCommand() {
     const bootstrapUrl = rewriteUrlWithBrowserOrigin(rawBootstrapUrl)
     const fallback = typeof data.installCommand === 'string' ? data.installCommand : ''
     const command = buildInstallCommand(selectedInstallPlatform.value, bootstrapUrl, fallback)
-    if (!command) throw new Error('后端没有返回 Gateway Agent 安装命令。')
+    if (!command) throw new Error(t('gateways.errors.missingInstallCommand'))
     installSession.value = {
       platform: selectedInstallPlatform.value,
       zone: readString(data, ['zone']) || installZone.value || 'default',
@@ -143,7 +145,7 @@ async function generateGatewayInstallCommand() {
       configPath: readString(data, ['configDir']),
     }
   } catch (cause) {
-    installError.value = cause instanceof Error ? cause.message : '生成 Gateway Agent 安装命令失败。'
+    installError.value = cause instanceof Error ? cause.message : t('gateways.errors.generateInstallCommandFailed')
   } finally {
     installPending.value = false
   }
@@ -164,7 +166,7 @@ async function generateGatewayEnableCommand() {
     const enableUrl = rewriteUrlWithBrowserOrigin(rawEnableUrl)
     const fallback = typeof data.enableCommand === 'string' ? data.enableCommand : ''
     const command = buildEnableCommand(selectedEnablePlatform.value, enableUrl, fallback)
-    if (!command) throw new Error('后端没有返回 Gateway 启用命令。')
+    if (!command) throw new Error(t('gateways.errors.missingEnableCommand'))
     enableSession.value = {
       platform: selectedEnablePlatform.value,
       zone: readString(data, ['zone']) || enableZone.value || 'default',
@@ -173,7 +175,7 @@ async function generateGatewayEnableCommand() {
       configPath: readString(data, ['configPath']),
     }
   } catch (cause) {
-    enableError.value = cause instanceof Error ? cause.message : '生成 Gateway 启用命令失败。'
+    enableError.value = cause instanceof Error ? cause.message : t('gateways.errors.generateEnableCommandFailed')
   } finally {
     enablePending.value = false
   }
@@ -239,16 +241,16 @@ function formatSuccessRate(value: unknown): string {
 function formatCapacity(currentLoad: number, maxConcurrentTasks: number): string {
   if (!maxConcurrentTasks) return '-'
   const available = Math.max(0, maxConcurrentTasks - currentLoad)
-  return `可接收 ${available} 个任务`
+  return t('gateways.values.availableCapacity', { count: available })
 }
 
 function formatGatewayStatus(value: string): string {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'online') return '正常在线'
-  if (normalized === 'offline') return '离线'
-  if (normalized === 'disabled') return '已停用'
-  if (normalized === 'revoked') return '已撤销'
-  if (normalized === 'upgrading') return '升级中'
+  if (normalized === 'online') return t('gateways.status.online')
+  if (normalized === 'offline') return t('gateways.status.offline')
+  if (normalized === 'disabled') return t('gateways.status.disabled')
+  if (normalized === 'revoked') return t('gateways.status.revoked')
+  if (normalized === 'upgrading') return t('gateways.status.upgrading')
   return value || '-'
 }
 
@@ -348,9 +350,9 @@ function platformLabel(platform: GatewayPlatform): string {
   return platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows Service'
 }
 
-const config: BusinessPageConfig = {
-  title: '网关',
-  description: '管理区域路由 Gateway Agent。',
+const config = computed<BusinessPageConfig>(() => ({
+  title: t('gateways.page.title'),
+  description: t('gateways.page.description'),
   showHeader: false,
   showMetrics: false,
   showDetailPanel: false,
@@ -358,65 +360,65 @@ const config: BusinessPageConfig = {
   showToolbarDangerHint: false,
   readPermission: 'gateway.read',
   primaryPermission: 'gateway.write',
-  primaryActionLabel: '新增 Gateway Agent',
+  primaryActionLabel: t('gateways.actions.addGatewayAgent'),
   primaryAction: openGatewayInstallModal,
   moduleName: 'gateways',
-  resourceName: '网关',
+  resourceName: t('gateways.resourceName'),
   defaultStatus: 'ONLINE',
   defaultRisk: 'MEDIUM',
   columns: [
-    { key: 'name', title: '网关', candidates: ['name', 'gatewayName', 'id'] },
+    { key: 'name', title: t('gateways.columns.gateway'), candidates: ['name', 'gatewayName', 'id'] },
     { key: 'agentId', title: 'Agent', candidates: ['agentId'] },
-    { key: 'zone', title: '区域', candidates: ['zoneName', 'zoneId', 'zoneIds', 'networkZone'] },
-    { key: 'status', title: '状态', candidates: ['status', 'state', 'onlineStatus'] },
-    { key: 'load', title: '负载', candidates: ['currentLoad', 'load', 'activeTasks'] },
-    { key: 'updatedAt', title: '最近心跳', candidates: ['lastHeartbeatAt', 'lastSeenAt', 'heartbeatAt', 'updatedAt'] },
-    { key: 'actions', title: '操作', candidates: [] },
+    { key: 'zone', title: t('gateways.columns.region'), candidates: ['zoneName', 'zoneId', 'zoneIds', 'networkZone'] },
+    { key: 'status', title: t('gateways.columns.status'), candidates: ['status', 'state', 'onlineStatus'] },
+    { key: 'load', title: t('gateways.columns.load'), candidates: ['currentLoad', 'load', 'activeTasks'] },
+    { key: 'updatedAt', title: t('gateways.columns.lastHeartbeat'), candidates: ['lastHeartbeatAt', 'lastSeenAt', 'heartbeatAt', 'updatedAt'] },
+    { key: 'actions', title: t('gateways.columns.actions'), candidates: [] },
   ],
   metrics: [],
   detailFields: [],
   contextLinks: [
-    { label: '查看资产', to: '/assets', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
-    { label: '查看执行记录', to: '/executions', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
+    { label: t('gateways.links.assets'), to: '/assets', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
+    { label: t('gateways.links.executions'), to: '/executions', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
   ],
-  emptyTitle: '暂无网关',
-  emptyDescription: '新增 Gateway Agent，或在现有 Agent 上启用 Gateway 角色。',
+  emptyTitle: t('gateways.empty.title'),
+  emptyDescription: t('gateways.empty.description'),
   load: () => listGateways({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
   actions: [
     {
-      label: '现有 Agent 启用 Gateway',
+      label: t('gateways.actions.enableExistingAgent'),
       permission: 'gateway.write',
       run: openGatewayEnableModal,
     },
   ],
   rowActions: [
     {
-      label: '详情',
+      label: t('gateways.actions.detail'),
       permission: 'gateway.read',
       reloadAfterRun: false,
       run: openDetailModal,
     },
     {
-      label: '探测',
+      label: t('gateways.actions.probe'),
       permission: 'gateway.write',
       danger: true,
       confirmText: 'PROBE',
-      riskText: '将从该 Gateway 所在区域发起一次可达性探测。',
+      riskText: t('gateways.actions.probeRisk'),
       run: runProbe,
     },
   ],
   onSelectionChange: handleGatewaySelection,
-}
+}))
 </script>
 
 <template>
   <section class="gateway-page">
     <BusinessResourcePage ref="pageRef" :config="config" />
 
-    <GcModal v-model:open="installModalOpen" title="新增 Gateway Agent" size="lg" width="58vw" :close-on-backdrop="false">
+    <GcModal v-model:open="installModalOpen" :title="t('gateways.modals.install.title')" size="lg" width="58vw" :close-on-backdrop="false">
       <section class="gateway-command-modal">
         <div class="gateway-command-modal__field">
-          <p class="gateway-command-modal__label">平台</p>
+          <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
           <div class="gateway-command-modal__platforms">
             <button
               v-for="option in platformOptions"
@@ -433,46 +435,46 @@ const config: BusinessPageConfig = {
         </div>
 
         <label class="gateway-command-modal__field">
-          <span class="gateway-command-modal__label">区域</span>
+          <span class="gateway-command-modal__label">{{ t('gateways.fields.region') }}</span>
           <input v-model.trim="installZone" type="text" placeholder="default">
         </label>
 
         <button class="gc-button gateway-command-modal__primary" type="button" :disabled="installPending" @click="generateGatewayInstallCommand">
-          {{ installPending ? '生成中...' : '生成安装命令' }}
+          {{ installPending ? t('gateways.actions.generating') : t('gateways.actions.generateInstallCommand') }}
         </button>
         <p v-if="installError" class="gateway-command-modal__error">{{ installError }}</p>
 
         <div v-if="installSession" class="gateway-command-modal__result">
           <dl class="gateway-command-modal__meta">
-            <div><dt>平台</dt><dd>{{ platformLabel(installSession.platform) }}</dd></div>
-            <div><dt>安装码</dt><dd>{{ installSession.code || '-' }}</dd></div>
-            <div><dt>区域</dt><dd>{{ installSession.zone }}</dd></div>
-            <div><dt>过期时间</dt><dd>{{ formatBrowserLocalTime(installSession.expiresAt) || '-' }}</dd></div>
+            <div><dt>{{ t('gateways.fields.platform') }}</dt><dd>{{ platformLabel(installSession.platform) }}</dd></div>
+            <div><dt>{{ t('gateways.fields.installCode') }}</dt><dd>{{ installSession.code || '-' }}</dd></div>
+            <div><dt>{{ t('gateways.fields.region') }}</dt><dd>{{ installSession.zone }}</dd></div>
+            <div><dt>{{ t('gateways.fields.expiresAt') }}</dt><dd>{{ formatBrowserLocalTime(installSession.expiresAt) || '-' }}</dd></div>
           </dl>
           <label class="gateway-command-modal__field">
-            <span class="gateway-command-modal__label">安装命令</span>
+            <span class="gateway-command-modal__label">{{ t('gateways.fields.installCommand') }}</span>
             <textarea readonly :value="installSession.command" rows="3" />
           </label>
         </div>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="installModalOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="installModalOpen = false">{{ t('gateways.actions.close') }}</button>
         <button
           v-if="installSession"
           class="gc-button gateway-command-modal__primary"
           type="button"
           @click="copyCommand('install', installSession.command)"
         >
-          {{ copiedKind === 'install' ? '已复制' : '复制安装命令' }}
+          {{ copiedKind === 'install' ? t('gateways.actions.copied') : t('gateways.actions.copyInstallCommand') }}
         </button>
       </template>
     </GcModal>
 
-    <GcModal v-model:open="enableModalOpen" title="现有 Agent 启用 Gateway" size="lg" width="58vw" :close-on-backdrop="false">
+    <GcModal v-model:open="enableModalOpen" :title="t('gateways.modals.enable.title')" size="lg" width="58vw" :close-on-backdrop="false">
       <section class="gateway-command-modal">
         <div class="gateway-command-modal__field">
-          <p class="gateway-command-modal__label">平台</p>
+          <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
           <div class="gateway-command-modal__platforms">
             <button
               v-for="option in platformOptions"
@@ -491,7 +493,7 @@ const config: BusinessPageConfig = {
         <label class="gateway-command-modal__field">
           <span class="gateway-command-modal__label">Agent</span>
           <select v-model="enableAgentId">
-            <option value="">不绑定具体 Agent</option>
+            <option value="">{{ t('gateways.fields.unboundAgent') }}</option>
             <option v-for="agent in enableAgents" :key="String(readPath(agent, 'id'))" :value="String(readPath(agent, 'id'))">
               {{ readString(agent, ['agentKey', 'descriptor.agentKey', 'name', 'id']) }}
             </option>
@@ -499,49 +501,49 @@ const config: BusinessPageConfig = {
         </label>
 
         <label class="gateway-command-modal__field">
-          <span class="gateway-command-modal__label">区域</span>
+          <span class="gateway-command-modal__label">{{ t('gateways.fields.region') }}</span>
           <input v-model.trim="enableZone" type="text" placeholder="default">
         </label>
 
         <button class="gc-button gateway-command-modal__primary" type="button" :disabled="enablePending" @click="generateGatewayEnableCommand">
-          {{ enablePending ? '生成中...' : '生成启用命令' }}
+          {{ enablePending ? t('gateways.actions.generating') : t('gateways.actions.generateEnableCommand') }}
         </button>
         <p v-if="enableError" class="gateway-command-modal__error">{{ enableError }}</p>
 
         <div v-if="enableSession" class="gateway-command-modal__result">
           <dl class="gateway-command-modal__meta">
-            <div><dt>平台</dt><dd>{{ platformLabel(enableSession.platform) }}</dd></div>
-            <div><dt>区域</dt><dd>{{ enableSession.zone }}</dd></div>
-            <div><dt>服务</dt><dd>{{ enableSession.serviceName || '-' }}</dd></div>
-            <div><dt>配置</dt><dd>{{ enableSession.configPath || '-' }}</dd></div>
+            <div><dt>{{ t('gateways.fields.platform') }}</dt><dd>{{ platformLabel(enableSession.platform) }}</dd></div>
+            <div><dt>{{ t('gateways.fields.region') }}</dt><dd>{{ enableSession.zone }}</dd></div>
+            <div><dt>{{ t('gateways.fields.service') }}</dt><dd>{{ enableSession.serviceName || '-' }}</dd></div>
+            <div><dt>{{ t('gateways.fields.config') }}</dt><dd>{{ enableSession.configPath || '-' }}</dd></div>
           </dl>
           <label class="gateway-command-modal__field">
-            <span class="gateway-command-modal__label">启用命令</span>
+            <span class="gateway-command-modal__label">{{ t('gateways.fields.enableCommand') }}</span>
             <textarea readonly :value="enableSession.command" rows="3" />
           </label>
         </div>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="enableModalOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="enableModalOpen = false">{{ t('gateways.actions.close') }}</button>
         <button
           v-if="enableSession"
           class="gc-button gateway-command-modal__primary"
           type="button"
           @click="copyCommand('enable', enableSession.command)"
         >
-          {{ copiedKind === 'enable' ? '已复制' : '复制启用命令' }}
+          {{ copiedKind === 'enable' ? t('gateways.actions.copied') : t('gateways.actions.copyEnableCommand') }}
         </button>
       </template>
     </GcModal>
 
-    <GcModal v-model:open="detailModalOpen" title="网关详情" size="xl" width="64vw">
+    <GcModal v-model:open="detailModalOpen" :title="t('gateways.modals.detail.title')" size="xl" width="64vw">
       <section v-if="selectedGateway" class="gateway-detail-modal">
         <header class="gateway-detail-modal__hero">
           <div>
-            <p>区域网关</p>
+            <p>{{ t('gateways.detail.eyebrow') }}</p>
             <h2>{{ gatewayDisplayName }}</h2>
-            <span>负责 {{ gatewayRegion }} 区域内的探测和转发</span>
+            <span>{{ t('gateways.detail.heroDescription', { region: gatewayRegion }) }}</span>
           </div>
           <div class="gateway-detail-modal__hero-side">
             <GcStatusTag :status="String(selectedGateway.status)" />
@@ -551,7 +553,7 @@ const config: BusinessPageConfig = {
         <section class="gateway-detail-modal__sections">
           <article class="gateway-detail-modal__section">
             <div class="gateway-detail-modal__section-head">
-              <h3>运行概览</h3>
+              <h3>{{ t('gateways.detail.sections.overview') }}</h3>
             </div>
             <dl class="gateway-detail-modal__summary">
               <div
@@ -568,7 +570,7 @@ const config: BusinessPageConfig = {
 
           <article class="gateway-detail-modal__section">
             <div class="gateway-detail-modal__section-head">
-              <h3>可用服务</h3>
+              <h3>{{ t('gateways.detail.sections.services') }}</h3>
             </div>
             <ul v-if="gatewayAbilities.length" class="gateway-detail-modal__abilities">
               <li v-for="ability in gatewayAbilities" :key="ability.key">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
@@ -70,6 +71,7 @@ const probing = ref(false)
 const addDialogOpen = ref(false)
 const error = ref('')
 const activeProbeIds = new Set<string>()
+const { t } = useI18n()
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
 
@@ -147,7 +149,7 @@ async function refreshAll() {
       selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
     }
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '监控数据加载失败'
+    error.value = cause instanceof Error ? cause.message : t('monitoring.errors.loadFailed')
   } finally {
     loading.value = false
   }
@@ -164,14 +166,14 @@ async function addMonitorTarget() {
       intervalSeconds: normalizeProbeInterval(selectedIntervalSeconds.value),
     })
     const target = normalizeMonitorTargetRecord(result.data)
-    if (!target) throw new Error('后端返回的监控目标无效')
+    if (!target) throw new Error(t('monitoring.errors.invalidTarget'))
     monitorTargets.value = [target, ...monitorTargets.value.filter((item) => item.id !== target.id)]
     selectedTargetId.value = target.id
     selectedAssetId.value = ''
     addDialogOpen.value = false
     void probeTarget(target)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '监控目标添加失败'
+    error.value = cause instanceof Error ? cause.message : t('monitoring.errors.addFailed')
   }
 }
 
@@ -188,7 +190,7 @@ async function removeMonitorTarget(targetId: string) {
   try {
     await deleteMonitorTarget(targetId)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '监控目标删除失败'
+    error.value = cause instanceof Error ? cause.message : t('monitoring.errors.deleteFailed')
     return
   }
   monitorTargets.value = monitorTargets.value.filter((item) => item.id !== targetId)
@@ -217,7 +219,7 @@ async function updateTargetInterval(targetId: string, value: number) {
       item.id === targetId ? updated : item,
     )
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '探测频率更新失败'
+    error.value = cause instanceof Error ? cause.message : t('monitoring.errors.updateIntervalFailed')
   }
 }
 
@@ -246,7 +248,7 @@ async function probeTarget(target: MonitorTarget) {
       status: readString(data, ['status'], 'WARNING') as ProbeStatus,
       latencyMs: readNumber(data.latencyMs),
       checkedAt: Date.parse(readString(data, ['checkedAt'], '')) || Date.now(),
-      message: readString(data, ['message'], '探测完成'),
+      message: readString(data, ['message'], t('monitoring.probe.completed')),
       source: readString(data, ['source'], ''),
       httpStatus: readNumber(data.httpStatus),
       certificate: readObject(data.certificate),
@@ -257,7 +259,7 @@ async function probeTarget(target: MonitorTarget) {
     saveProbeResult(target.assetId, {
       status: 'ERROR',
       checkedAt: Date.now(),
-      message: cause instanceof Error ? cause.message : '探测请求失败',
+      message: cause instanceof Error ? cause.message : t('monitoring.errors.probeFailed'),
     })
   } finally {
     activeProbeIds.delete(target.id)
@@ -328,11 +330,11 @@ function bindingsForAsset(assetId: string): ApiRecord[] {
 }
 
 function observedCertificateName(certificate: CertificateObservation): string {
-  return certificate.subject || certificate.dnsNames?.[0] || '未知证书'
+  return certificate.subject || certificate.dnsNames?.[0] || t('monitoring.fallback.unknownCertificate')
 }
 
 function observedCertificateIssuer(certificate: CertificateObservation): string {
-  return certificate.issuer || '未知颁发者'
+  return certificate.issuer || t('monitoring.fallback.unknownIssuer')
 }
 
 function observedCertificateExpiresAt(certificate: CertificateObservation): string {
@@ -358,34 +360,36 @@ function latestCertificateObservation(assetId: string): CertificateObservation |
 }
 
 function probeStatusLabel(status: TargetStatus): string {
-  if (status === 'READY') return '正常'
-  if (status === 'WARNING') return '警告'
-  if (status === 'NONE') return '待执行'
-  return '错误'
+  if (status === 'READY') return t('monitoring.status.ready')
+  if (status === 'WARNING') return t('monitoring.status.warning')
+  if (status === 'NONE') return t('monitoring.status.none')
+  return t('monitoring.status.error')
 }
 
 function probeHistoryBlockLabel(result: ProbeResult | undefined, index: number): string {
-  if (!result) return `第 ${index + 1} 次：暂无探测`
-  const latency = result.latencyMs === undefined ? '未采集延时' : `${result.latencyMs}ms`
+  if (!result) return t('monitoring.probe.emptyHistoryBlock', { index: index + 1 })
+  const latency = result.latencyMs === undefined ? t('monitoring.probe.latencyNotCollected') : `${result.latencyMs}ms`
   return `${formatLocalTime(result.checkedAt)} ${probeStatusLabel(result.status)} ${latency}`
 }
 
 function actualCertificateLabel(certificate: CertificateObservation | null): string {
-  if (!certificate) return '未采集'
-  const subject = certificate.subject || certificate.dnsNames?.[0] || '实测证书'
+  if (!certificate) return t('monitoring.fallback.notCollected')
+  const subject = certificate.subject || certificate.dnsNames?.[0] || t('monitoring.certificate.actualCertificate')
   return `${subject} / ${formatLocalDateText(certificate.notAfter ?? '')}`
 }
 
 function shortFingerprint(value: string | undefined): string {
   const normalized = normalizeFingerprint(value ?? '')
-  if (!normalized) return '无指纹'
+  if (!normalized) return t('monitoring.fallback.noFingerprint')
   return `${normalized.slice(0, 12)}...${normalized.slice(-12)}`
 }
 
 function verificationLabel(certificate: CertificateObservation | null): string {
-  if (!certificate) return '未采集'
-  if (certificate.verified) return '链验证通过'
-  return certificate.verificationError ? `链验证失败：${certificate.verificationError}` : '未通过系统信任链验证'
+  if (!certificate) return t('monitoring.fallback.notCollected')
+  if (certificate.verified) return t('monitoring.certificate.chainVerified')
+  return certificate.verificationError
+    ? t('monitoring.certificate.chainVerifyFailedWithReason', { reason: certificate.verificationError })
+    : t('monitoring.certificate.chainUntrusted')
 }
 
 function probeUrl(asset: ApiRecord | null): string {
@@ -400,11 +404,11 @@ function probeUrl(asset: ApiRecord | null): string {
 }
 
 function endpointLabel(asset: ApiRecord | null): string {
-  return probeUrl(asset) || '未配置访问地址'
+  return probeUrl(asset) || t('monitoring.fallback.noEndpoint')
 }
 
 function assetLabel(asset: ApiRecord | null): string {
-  return readString(asset, ['displayName', 'address', 'domainName', 'name'], '未知资产')
+  return readString(asset, ['displayName', 'address', 'domainName', 'name'], t('monitoring.fallback.unknownAsset'))
 }
 
 function readId(record: ApiRecord | null | undefined): string {
@@ -471,9 +475,9 @@ function pad(value: number): string {
 }
 
 function sourceLabel(source: string | undefined): string {
-  if (source === 'control_plane') return '平台'
+  if (source === 'control_plane') return t('monitoring.source.controlPlane')
   if (source === 'gateway') return 'Gateway'
-  return '未知'
+  return t('designSystem.status.UNKNOWN')
 }
 
 function riskCertificateId(risk: ApiRecord): string {
@@ -508,7 +512,7 @@ function normalizeStoredProbeResult(item: ApiRecord): ProbeResult | null {
     status,
     latencyMs: readNumber(item.latencyMs),
     checkedAt,
-    message: readString(item, ['message'], '探测完成'),
+    message: readString(item, ['message'], t('monitoring.probe.completed')),
     source: readString(item, ['source'], ''),
     httpStatus: readNumber(item.httpStatus),
     certificate: readObject(item.certificate),
@@ -590,30 +594,30 @@ function trimProbeStateToTargets() {
   <section class="gc-page monitor-page">
     <div class="monitor-page__actions">
       <button class="gc-button" type="button" :disabled="loading" @click="refreshAll">
-        {{ loading ? '刷新中...' : '刷新数据' }}
+        {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
       </button>
       <button class="gc-button gc-button--danger" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
-        {{ probing ? '检测中...' : '检测站点' }}
+        {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
       </button>
       <button class="gc-button gc-button--danger" type="button" :disabled="loading" @click="openAddDialog">
-        添加监控
+        {{ t('monitoring.actions.add') }}
       </button>
     </div>
 
-    <GcEmptyState v-if="error" title="监控数据加载失败" :description="error" />
+    <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error" />
 
     <GcEmptyState
       v-else-if="!loading && monitorTargets.length === 0"
-      title="暂无监控目标"
-      description="点击右上角添加监控，系统会按目标频率检测站点并同步采集证书信息。"
+      :title="t('monitoring.empty.title')"
+      :description="t('monitoring.empty.description')"
     />
 
     <section v-else class="monitor-page__workspace">
       <aside class="monitor-page__targets gc-card">
         <header class="monitor-page__section-head">
           <div>
-            <strong>监控目标</strong>
-            <span>{{ monitorRows.length }} 个资产</span>
+            <strong>{{ t('monitoring.sections.targets') }}</strong>
+            <span>{{ t('monitoring.targets.assetCount', { count: monitorRows.length }) }}</span>
           </div>
         </header>
         <button
@@ -627,7 +631,7 @@ function trimProbeStateToTargets() {
           <div>
             <strong>{{ row.title }}</strong>
             <span>{{ row.endpoint }}</span>
-            <div class="monitor-page__probe-blocks" aria-label="最近 10 次探测结果">
+            <div class="monitor-page__probe-blocks" :aria-label="t('monitoring.probe.recentAria')">
               <i
                 v-for="index in 10"
                 :key="index"
@@ -644,13 +648,13 @@ function trimProbeStateToTargets() {
         <section class="monitor-page__summary gc-card">
           <div class="monitor-page__summary-title">
             <div>
-              <span>当前目标</span>
+              <span>{{ t('monitoring.labels.currentTarget') }}</span>
               <h2>{{ assetLabel(selectedAsset) }}</h2>
               <p>{{ endpointLabel(selectedAsset) }}</p>
             </div>
             <div v-if="selectedTarget" class="monitor-page__target-actions">
               <label class="monitor-page__target-interval">
-                <span>探测频率</span>
+                <span>{{ t('monitoring.labels.probeInterval') }}</span>
                 <input
                   :value="selectedTarget.intervalSeconds"
                   type="number"
@@ -661,25 +665,25 @@ function trimProbeStateToTargets() {
                 <b>s</b>
               </label>
               <button class="gc-button" type="button" @click="removeMonitorTarget(selectedTarget.id)">
-                移除
+                {{ t('monitoring.actions.remove') }}
               </button>
             </div>
           </div>
           <div class="monitor-page__kpi-grid">
             <article>
-              <span>可访问性</span>
-              <strong>{{ selectedTarget ? (probeResults[selectedTarget.assetId]?.message ?? '等待站点检测') : '未选择' }}</strong>
+              <span>{{ t('monitoring.metrics.availability') }}</span>
+              <strong>{{ selectedTarget ? (probeResults[selectedTarget.assetId]?.message ?? t('monitoring.probe.waiting')) : t('monitoring.fallback.notSelected') }}</strong>
             </article>
             <article>
-              <span>访问延时</span>
-              <strong>{{ selectedTarget && probeResults[selectedTarget.assetId]?.latencyMs !== undefined ? `${probeResults[selectedTarget.assetId]?.latencyMs} ms` : '未采集' }}</strong>
+              <span>{{ t('monitoring.metrics.latency') }}</span>
+              <strong>{{ selectedTarget && probeResults[selectedTarget.assetId]?.latencyMs !== undefined ? `${probeResults[selectedTarget.assetId]?.latencyMs} ms` : t('monitoring.fallback.notCollected') }}</strong>
             </article>
             <article>
-              <span>证书状态</span>
+              <span>{{ t('monitoring.metrics.certificateStatus') }}</span>
               <strong>{{ actualCertificateLabel(selectedActualCertificate) }}</strong>
             </article>
             <article>
-              <span>实测证书变更</span>
+              <span>{{ t('monitoring.metrics.observedCertificateChanges') }}</span>
               <strong>{{ selectedObservedCertificateHistory.length }}</strong>
             </article>
           </div>
@@ -689,42 +693,42 @@ function trimProbeStateToTargets() {
           <article class="monitor-page__panel gc-card">
             <header class="monitor-page__section-head">
               <div>
-                <strong>当前站点实测证书</strong>
-                <span>随站点检测自动采集</span>
+                <strong>{{ t('monitoring.sections.actualCertificate') }}</strong>
+                <span>{{ t('monitoring.sections.actualCertificateHint') }}</span>
               </div>
             </header>
-            <div v-if="!selectedActualCertificate" class="monitor-page__empty-line">暂无实测 TLS 证书。HTTPS 目标会在站点检测时自动采集证书信息。</div>
+            <div v-if="!selectedActualCertificate" class="monitor-page__empty-line">{{ t('monitoring.empty.actualCertificate') }}</div>
             <dl v-else class="monitor-page__certificate-detail">
               <div>
-                <dt>SHA-256 指纹</dt>
+                <dt>{{ t('monitoring.certificate.sha256Fingerprint') }}</dt>
                 <dd :title="selectedActualCertificate.fingerprintSha256">{{ shortFingerprint(selectedActualCertificate.fingerprintSha256) }}</dd>
               </div>
               <div>
-                <dt>主体</dt>
-                <dd>{{ selectedActualCertificate.subject || '未知' }}</dd>
+                <dt>{{ t('monitoring.certificate.subject') }}</dt>
+                <dd>{{ selectedActualCertificate.subject || t('designSystem.status.UNKNOWN') }}</dd>
               </div>
               <div>
-                <dt>颁发者</dt>
-                <dd>{{ selectedActualCertificate.issuer || '未知' }}</dd>
+                <dt>{{ t('monitoring.certificate.issuer') }}</dt>
+                <dd>{{ selectedActualCertificate.issuer || t('designSystem.status.UNKNOWN') }}</dd>
               </div>
               <div>
-                <dt>序列号</dt>
-                <dd>{{ selectedActualCertificate.serialNumber || '未知' }}</dd>
+                <dt>{{ t('monitoring.certificate.serialNumber') }}</dt>
+                <dd>{{ selectedActualCertificate.serialNumber || t('designSystem.status.UNKNOWN') }}</dd>
               </div>
               <div>
-                <dt>有效期</dt>
-                <dd>{{ formatLocalDateText(selectedActualCertificate.notBefore ?? '') }} 至 {{ formatLocalDateText(selectedActualCertificate.notAfter ?? '') }}</dd>
+                <dt>{{ t('monitoring.certificate.validity') }}</dt>
+                <dd>{{ t('monitoring.certificate.validityRange', { start: formatLocalDateText(selectedActualCertificate.notBefore ?? ''), end: formatLocalDateText(selectedActualCertificate.notAfter ?? '') }) }}</dd>
               </div>
               <div>
-                <dt>链验证</dt>
+                <dt>{{ t('monitoring.certificate.chainVerification') }}</dt>
                 <dd>{{ verificationLabel(selectedActualCertificate) }}</dd>
               </div>
               <div>
                 <dt>SAN</dt>
-                <dd>{{ selectedActualCertificate.dnsNames?.join(', ') || '未采集' }}</dd>
+                <dd>{{ selectedActualCertificate.dnsNames?.join(', ') || t('monitoring.fallback.notCollected') }}</dd>
               </div>
               <div>
-                <dt>采集时间</dt>
+                <dt>{{ t('monitoring.certificate.collectedAt') }}</dt>
                 <dd>{{ formatLocalTime(selectedActualCertificate.checkedAt) }} / {{ sourceLabel(selectedActualCertificate.source) }}</dd>
               </div>
             </dl>
@@ -733,18 +737,18 @@ function trimProbeStateToTargets() {
           <article class="monitor-page__panel gc-card">
             <header class="monitor-page__section-head">
               <div>
-                <strong>绑定证书版本</strong>
-                <span>按实测 TLS 证书变化保留版本记录</span>
+                <strong>{{ t('monitoring.sections.observedCertificateHistory') }}</strong>
+                <span>{{ t('monitoring.sections.observedCertificateHistoryHint') }}</span>
               </div>
             </header>
-            <div v-if="selectedObservedCertificateHistory.length === 0" class="monitor-page__empty-line">暂无绑定证书版本。站点检测采集到第一张证书后会自动保留。</div>
+            <div v-if="selectedObservedCertificateHistory.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.observedCertificateHistory') }}</div>
             <table v-else class="monitor-page__table">
               <thead>
                 <tr>
-                  <th>证书名称</th>
-                  <th>颁发者名称</th>
-                  <th>到期时间</th>
-                  <th>更换时间</th>
+                  <th>{{ t('monitoring.columns.certificateName') }}</th>
+                  <th>{{ t('monitoring.columns.issuerName') }}</th>
+                  <th>{{ t('monitoring.columns.expiresAt') }}</th>
+                  <th>{{ t('monitoring.columns.changedAt') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -761,19 +765,19 @@ function trimProbeStateToTargets() {
           <article class="monitor-page__panel monitor-page__panel--wide gc-card">
             <header class="monitor-page__section-head">
               <div>
-                <strong>探测历史</strong>
-                <span>后端探测结果最近 20 次记录</span>
+                <strong>{{ t('monitoring.sections.probeHistory') }}</strong>
+                <span>{{ t('monitoring.sections.probeHistoryHint') }}</span>
               </div>
             </header>
-            <div v-if="selectedProbeHistory.length === 0" class="monitor-page__empty-line">暂无探测历史。</div>
+            <div v-if="selectedProbeHistory.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.probeHistory') }}</div>
             <table v-else class="monitor-page__table">
               <thead>
                 <tr>
-                  <th>时间</th>
-                  <th>来源</th>
-                  <th>状态</th>
-                  <th>延时</th>
-                  <th>结果</th>
+                  <th>{{ t('monitoring.columns.time') }}</th>
+                  <th>{{ t('monitoring.columns.source') }}</th>
+                  <th>{{ t('monitoring.columns.status') }}</th>
+                  <th>{{ t('monitoring.columns.latency') }}</th>
+                  <th>{{ t('monitoring.columns.result') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -781,7 +785,7 @@ function trimProbeStateToTargets() {
                   <td>{{ formatLocalTime(item.checkedAt) }}</td>
                   <td>{{ sourceLabel(item.source) }}</td>
                   <td>{{ item.status }}</td>
-                  <td>{{ item.latencyMs === undefined ? '未采集' : `${item.latencyMs} ms` }}</td>
+                  <td>{{ item.latencyMs === undefined ? t('monitoring.fallback.notCollected') : `${item.latencyMs} ms` }}</td>
                   <td>{{ item.message }}</td>
                 </tr>
               </tbody>
@@ -791,11 +795,11 @@ function trimProbeStateToTargets() {
           <article class="monitor-page__panel gc-card">
             <header class="monitor-page__section-head">
               <div>
-                <strong>风险事件</strong>
-                <span>证书链、域名、指纹和执行状态</span>
+                <strong>{{ t('monitoring.sections.riskEvents') }}</strong>
+                <span>{{ t('monitoring.sections.riskEventsHint') }}</span>
               </div>
             </header>
-            <div v-if="selectedAssetRisks.length === 0" class="monitor-page__empty-line">暂无相关事件。</div>
+            <div v-if="selectedAssetRisks.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.riskEvents') }}</div>
             <ul v-else class="monitor-page__risk-list">
               <li v-for="risk in selectedAssetRisks" :key="readId(risk)">
                 <RouterLink
@@ -803,12 +807,12 @@ function trimProbeStateToTargets() {
                   class="monitor-page__risk-link"
                   :to="{ path: '/certificates', query: { certificateId: riskCertificateId(risk) } }"
                 >
-                  <strong>{{ readString(risk, ['title', 'name'], '未命名事件') }}</strong>
-                  <span>{{ readString(risk, ['summary', 'message'], '无摘要') }}</span>
+                  <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
+                  <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
                 </RouterLink>
                 <div v-else>
-                  <strong>{{ readString(risk, ['title', 'name'], '未命名事件') }}</strong>
-                  <span>{{ readString(risk, ['summary', 'message'], '无摘要') }}</span>
+                  <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
+                  <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
                 </div>
                 <GcStatusTag :status="readString(risk, ['status'], 'OPEN')" />
               </li>
@@ -820,36 +824,36 @@ function trimProbeStateToTargets() {
 
     <GcModal
       v-model:open="addDialogOpen"
-      title="添加监控"
-      description="从应用资产列表选择一个目标，系统会固定采集可访问性、访问延时、证书信息和证书历史。"
+      :title="t('monitoring.dialog.title')"
+      :description="t('monitoring.dialog.description')"
       size="md"
     >
       <div class="monitor-page__dialog-form">
         <label>
-          <span>应用资产</span>
+          <span>{{ t('monitoring.labels.applicationAsset') }}</span>
           <select v-model="selectedAssetId" :disabled="loading">
-            <option value="">{{ loading ? '加载资产中...' : '请选择应用资产' }}</option>
+            <option value="">{{ loading ? t('monitoring.dialog.loadingAssets') : t('monitoring.dialog.selectAsset') }}</option>
             <option v-for="asset in assetOptions" :key="readId(asset)" :value="readId(asset)">
               {{ assetLabel(asset) }} / {{ endpointLabel(asset) }}
             </option>
           </select>
         </label>
         <label>
-          <span>探测频率</span>
+          <span>{{ t('monitoring.labels.probeInterval') }}</span>
           <span class="monitor-page__dialog-number">
             <input v-model.number="selectedIntervalSeconds" type="number" min="10" step="10" />
             <b>s</b>
           </span>
         </label>
         <div v-if="assetOptions.length === 0 && !loading" class="monitor-page__empty-line">
-          暂无可添加应用资产，已有目标请在详情中调整探测频率。
+          {{ t('monitoring.empty.noAddableAssets') }}
         </div>
-        <p>默认监控可访问性、访问延时、证书信息和证书历史。</p>
+        <p>{{ t('monitoring.dialog.defaultMetricsHint') }}</p>
       </div>
       <template #actions>
-        <button class="gc-button" type="button" @click="addDialogOpen = false">取消</button>
+        <button class="gc-button" type="button" @click="addDialogOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--danger" type="button" :disabled="!selectedAssetId" @click="addMonitorTarget">
-          添加监控
+          {{ t('monitoring.actions.add') }}
         </button>
       </template>
     </GcModal>

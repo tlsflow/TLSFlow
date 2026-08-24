@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { GcModal, GcStatusTag } from '@/design-system/components'
@@ -154,6 +155,7 @@ type CertificateBindingView = IisBindingView | LinuxBindingView | TomcatCertific
 
 const EMPTY_TEXT = '—'
 const CERTIFICATE_EXPIRING_DAYS = 30
+const { t } = useI18n()
 
 const installModalOpen = ref(false)
 const detailModalOpen = ref(false)
@@ -179,24 +181,24 @@ const installError = ref('')
 const now = ref(Date.now())
 const expandedRuntimeLogIds = ref<string[]>([])
 
-const versionOptions = [
-  { value: 'latest', label: '最新稳定版' },
+const versionOptions = computed(() => [
+  { value: 'latest', label: t('agents.install.versionLatest') },
   { value: '1.2.0', label: '1.2.0' },
   { value: '1.1.0', label: '1.1.0' },
-] as const
+] as const)
 
-const platformOptions: Array<{ value: InstallPlatform; label: string; description: string }> = [
+const platformOptions = computed<Array<{ value: InstallPlatform; label: string; description: string }>>(() => [
   {
     value: 'linux_go_systemd',
     label: 'Linux systemd',
-    description: '适用于 Ubuntu、Debian、CentOS、Rocky、AlmaLinux 等 Linux 发行版。',
+    description: t('agents.install.platformLinuxDescription'),
   },
   {
     value: 'windows_powershell_service',
     label: 'Windows Go Service',
-    description: '适用于 Windows Server 与 Windows 10/11，安装后注册为系统服务。',
+    description: t('agents.install.platformWindowsDescription'),
   },
-]
+])
 
 const installCommand = computed(() => installSession.value?.installCommand ?? '')
 const expiresAtMs = computed(() => (installSession.value?.expiresAt ? Date.parse(installSession.value.expiresAt) : 0))
@@ -209,10 +211,10 @@ const remainingSeconds = computed(() => {
 
 const remainingLabel = computed(() => {
   const seconds = remainingSeconds.value
-  if (seconds <= 0) return '已过期'
+  if (seconds <= 0) return t('agents.install.expired')
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
-  return `${minutes}分 ${String(rest).padStart(2, '0')}秒`
+  return t('agents.install.remainingTime', { minutes, seconds: String(rest).padStart(2, '0') })
 })
 
 const isExpired = computed(() => remainingSeconds.value <= 0)
@@ -289,18 +291,18 @@ function certificateValidityStatus(certificate: BindingCertificateView | null): 
 
 function certificateStatusLabel(certificate: BindingCertificateView | null): string {
   const status = certificateValidityStatus(certificate)
-  if (status === 'expired') return '已过期'
-  if (status === 'expiring') return '即将过期'
-  if (status === 'valid') return '有效'
-  return '有效期未知'
+  if (status === 'expired') return t('agents.certificate.statusExpired')
+  if (status === 'expiring') return t('agents.certificate.statusExpiring')
+  if (status === 'valid') return t('agents.certificate.statusValid')
+  return t('agents.certificate.statusUnknown')
 }
 
 function certificateRemainingLabel(certificate: BindingCertificateView | null): string {
   const remainingDays = certificateRemainingDays(certificate)
-  if (remainingDays === null) return '有效期未知'
-  if (remainingDays < 0) return `已过期 ${Math.abs(remainingDays)} 天`
-  if (remainingDays === 0) return '今天到期'
-  return `剩余 ${remainingDays} 天`
+  if (remainingDays === null) return t('agents.certificate.statusUnknown')
+  if (remainingDays < 0) return t('agents.certificate.expiredDays', { days: Math.abs(remainingDays) })
+  if (remainingDays === 0) return t('agents.certificate.expiresToday')
+  return t('agents.certificate.remainingDays', { days: remainingDays })
 }
 
 function firstNonEmptyValue(value: unknown, fallback = EMPTY_TEXT): string {
@@ -358,18 +360,18 @@ function normalizePortText(value: unknown): string {
 }
 
 function formatInstallStatus(value: unknown): string {
-  return value === true ? '已安装' : '未安装'
+  return value === true ? t('agents.status.installed') : t('agents.status.notInstalled')
 }
 
 function formatRunningStatus(value: unknown): string {
-  return value === true ? '运行中' : '未运行'
+  return value === true ? t('agents.status.running') : t('agents.status.notRunning')
 }
 
 function formatSiteMode(value: string): string {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'static_root') return '静态站点'
-  if (normalized === 'reverse_proxy') return '反向代理'
-  if (normalized === 'unknown') return '未识别'
+  if (normalized === 'static_root') return t('agents.siteMode.staticRoot')
+  if (normalized === 'reverse_proxy') return t('agents.siteMode.reverseProxy')
+  if (normalized === 'unknown') return t('agents.common.unrecognized')
   return value || EMPTY_TEXT
 }
 
@@ -426,16 +428,16 @@ function formatLinuxPermissionSummary(permission: Record<string, unknown> | null
   const certWritable = readObjectValue(permission, ['certPath', 'parentDirWritable']) === true
   const keyWritable = readObjectValue(permission, ['keyPath', 'parentDirWritable']) === true
   const parts: string[] = []
-  if (mode) parts.push(`权限模式：${mode}`)
-  parts.push(`证书目录：${certWritable ? '可写' : '不可写'}`)
-  parts.push(`私钥目录：${keyWritable ? '可写' : '不可写'}`)
-  if (helperRequired) parts.push('需要 helper')
+  if (mode) parts.push(t('agents.linux.permissionMode', { mode }))
+  parts.push(t('agents.linux.certDirectoryWritable', { status: certWritable ? t('agents.common.writable') : t('agents.common.notWritable') }))
+  parts.push(t('agents.linux.keyDirectoryWritable', { status: keyWritable ? t('agents.common.writable') : t('agents.common.notWritable') }))
+  if (helperRequired) parts.push(t('agents.linux.helperRequired'))
   return parts.join(' / ')
 }
 
 function buildLinuxSites(detail: Record<string, unknown>): LinuxSiteView[] {
   return readObjectList(readObjectValue(detail, ['Sites', 'sites'])).map((site, index) => ({
-    name: normalizeText(readObjectValue(site, ['Name', 'name']), `站点 ${index + 1}`),
+    name: normalizeText(readObjectValue(site, ['Name', 'name']), t('agents.site.fallbackName', { index: index + 1 })),
     siteMode: normalizeText(readObjectValue(site, ['SiteMode', 'siteMode'])),
     sitePath: normalizeText(readObjectValue(site, ['SitePath', 'sitePath'])),
     serverNames: normalizeStringList(readObjectValue(site, ['ServerNames', 'serverNames'])),
@@ -520,12 +522,12 @@ function buildRuntimeFields(data: ApiRecord, osType: string): DetailField[] {
     const patchVersion = normalizeText(buildRevisionValue)
 
     return [
-      { label: 'IP 地址', value: ipAddress, emphasis: true },
-      { label: '系统类型', value: osType },
-      { label: '系统架构', value: arch },
-      { label: 'Agent 版本', value: version },
-      { label: '操作系统版本', value: productName },
-      { label: '补丁版本', value: patchVersion },
+      { label: t('agents.fields.ipAddress'), value: ipAddress, emphasis: true },
+      { label: t('agents.fields.osType'), value: osType },
+      { label: t('agents.fields.arch'), value: arch },
+      { label: t('agents.fields.agentVersion'), value: version },
+      { label: t('agents.fields.osVersion'), value: productName },
+      { label: t('agents.fields.patchVersion'), value: patchVersion },
     ]
   }
 
@@ -533,27 +535,27 @@ function buildRuntimeFields(data: ApiRecord, osType: string): DetailField[] {
   const osVersion = readValue(data, ['agent.descriptor.osVersion', 'descriptor.osVersion', 'osVersion'])
 
   return [
-    { label: 'IP 地址', value: ipAddress, emphasis: true },
-    { label: '系统类型', value: osType },
-    { label: '系统架构', value: arch },
-    { label: 'Agent 版本', value: version },
-    { label: 'Linux 发行版', value: linuxDistribution },
-    { label: '操作系统版本', value: osVersion },
+    { label: t('agents.fields.ipAddress'), value: ipAddress, emphasis: true },
+    { label: t('agents.fields.osType'), value: osType },
+    { label: t('agents.fields.arch'), value: arch },
+    { label: t('agents.fields.agentVersion'), value: version },
+    { label: t('agents.fields.linuxDistribution'), value: linuxDistribution },
+    { label: t('agents.fields.osVersion'), value: osVersion },
   ]
 }
 
 function formatHealthStatus(value: unknown): string {
   const status = normalizeText(value, '').toLowerCase()
-  if (status === 'healthy') return '健康'
-  if (status === 'degraded') return '降级'
-  if (status === 'failed') return '失败'
-  if (status === 'unknown') return '未知'
+  if (status === 'healthy') return t('agents.health.healthy')
+  if (status === 'degraded') return t('agents.health.degraded')
+  if (status === 'failed') return t('agents.health.failed')
+  if (status === 'unknown') return t('agents.health.unknown')
   return status ? status.toUpperCase() : EMPTY_TEXT
 }
 
 function formatBooleanText(value: unknown): string {
-  if (value === true) return '是'
-  if (value === false) return '否'
+  if (value === true) return t('agents.common.yes')
+  if (value === false) return t('agents.common.no')
   return EMPTY_TEXT
 }
 
@@ -571,12 +573,12 @@ function buildHealthSummary(data: ApiRecord): string {
 
 function buildHealthFields(data: ApiRecord): DetailField[] {
   return [
-    { label: '健康状态', value: formatHealthStatus(readPath(data, 'health.status')), emphasis: true },
-    { label: '已判定离线', value: formatBooleanText(readPath(data, 'health.offline')), emphasis: true },
-    { label: '最近心跳', value: normalizeDateTime(readPath(data, 'health.lastHeartbeatAt') ?? readPath(data, 'latestHeartbeat.receivedAt')) },
-    { label: '最近恢复时间', value: normalizeDateTime(readPath(data, 'health.lastRecoveryAt')) },
-    { label: '最近上报时间', value: normalizeDateTime(readPath(data, 'health.lastTaskResultAt')), emphasis: true },
-    { label: '异常摘要', value: buildHealthSummary(data) },
+    { label: t('agents.fields.healthStatus'), value: formatHealthStatus(readPath(data, 'health.status')), emphasis: true },
+    { label: t('agents.fields.offlineDetected'), value: formatBooleanText(readPath(data, 'health.offline')), emphasis: true },
+    { label: t('agents.fields.lastHeartbeat'), value: normalizeDateTime(readPath(data, 'health.lastHeartbeatAt') ?? readPath(data, 'latestHeartbeat.receivedAt')) },
+    { label: t('agents.fields.lastRecoveryAt'), value: normalizeDateTime(readPath(data, 'health.lastRecoveryAt')) },
+    { label: t('agents.fields.lastReportAt'), value: normalizeDateTime(readPath(data, 'health.lastTaskResultAt')), emphasis: true },
+    { label: t('agents.fields.healthSummary'), value: buildHealthSummary(data) },
   ]
 }
 
@@ -618,7 +620,7 @@ function buildIisSites(data: ApiRecord): IisSiteView[] {
         })
 
       return {
-        name: normalizeText(readObjectValue(site, ['Name', 'name']), `站点 ${index + 1}`),
+        name: normalizeText(readObjectValue(site, ['Name', 'name']), t('agents.site.fallbackName', { index: index + 1 })),
         physicalPath: normalizeText(readObjectValue(site, ['PhysicalPath', 'physicalPath'])),
         appPool: normalizeText(readObjectValue(site, ['AppPool', 'appPool'])),
         state: normalizeText(readObjectValue(site, ['State', 'state'])),
@@ -642,21 +644,21 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
   )
 
   const overview: DetailSection = {
-    title: 'IIS 概况',
-    description: '这里展示宿主机上的 IIS 安装状态和版本信息。',
+    title: t('agents.sections.iisOverviewTitle'),
+    description: t('agents.sections.iisOverviewDescription'),
     fields: [
-      { label: '安装状态', value: installed === true ? '已安装' : '未安装', emphasis: true },
-      { label: 'IIS 版本', value: versionString },
-      { label: '站点数量', value: String(sites.length), emphasis: true },
-      { label: 'HTTPS 绑定', value: String(httpsBindings.length) },
-      { label: '应用程序池', value: String(uniqueAppPools.size) },
-      { label: '证书主题', value: String(uniqueCertificates.size) },
+      { label: t('agents.fields.installStatus'), value: installed === true ? t('agents.status.installed') : t('agents.status.notInstalled'), emphasis: true },
+      { label: t('agents.fields.iisVersion'), value: versionString },
+      { label: t('agents.fields.siteCount'), value: String(sites.length), emphasis: true },
+      { label: t('agents.fields.httpsBinding'), value: String(httpsBindings.length) },
+      { label: t('agents.fields.appPool'), value: String(uniqueAppPools.size) },
+      { label: t('agents.fields.certificateSubject'), value: String(uniqueCertificates.size) },
     ],
   }
 
   const siteSection: DetailSection = {
-    title: 'IIS 站点',
-    description: '这里展示 IIS 网站列表、站点路径、绑定端口以及证书主题名。',
+    title: t('agents.sections.iisSitesTitle'),
+    description: t('agents.sections.iisSitesDescription'),
     variant: 'iis-sites',
     fields: sites.length > 0
       ? sites.map((site) => ({
@@ -664,7 +666,7 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
           value: site.physicalPath,
           meta: site,
         }))
-      : [{ label: '站点列表', value: '未发现 IIS 站点' }],
+      : [{ label: t('agents.fields.siteList'), value: t('agents.empty.noIisSites') }],
   }
 
   return [overview, siteSection]
@@ -681,18 +683,18 @@ function buildLinuxFrameworkSections(
   const uniqueCertificates = countUniqueCertificates(bindings)
   const serviceName = normalizeText(readObjectValue(detail, ['Service', 'serviceName', 'service']))
   const overview: DetailSection = {
-    title: `${titlePrefix} 概况`,
-    description: `这里展示宿主机上的 ${titlePrefix} 安装状态、运行状态和配置位置。`,
+    title: t('agents.sections.frameworkOverviewTitle', { name: titlePrefix }),
+    description: t('agents.sections.frameworkOverviewDescription', { name: titlePrefix }),
     fields: [
-      { label: '安装状态', value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
-      { label: '运行状态', value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
-      { label: `${titlePrefix} 版本`, value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
-      { label: '服务名称', value: serviceName },
-      { label: '二进制路径', value: normalizeText(readObjectValue(detail, ['BinaryPath', 'binaryPath'])) },
-      { label: '配置路径', value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
-      { label: '站点数量', value: String(sites.length), emphasis: true },
-      { label: 'HTTPS 监听', value: String(httpsBindings) },
-      { label: '证书主题', value: String(uniqueCertificates) },
+      { label: t('agents.fields.installStatus'), value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
+      { label: t('agents.fields.runningStatus'), value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
+      { label: t('agents.fields.frameworkVersion', { name: titlePrefix }), value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
+      { label: t('agents.fields.serviceName'), value: serviceName },
+      { label: t('agents.fields.binaryPath'), value: normalizeText(readObjectValue(detail, ['BinaryPath', 'binaryPath'])) },
+      { label: t('agents.fields.configPath'), value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
+      { label: t('agents.fields.siteCount'), value: String(sites.length), emphasis: true },
+      { label: t('agents.fields.httpsListen'), value: String(httpsBindings) },
+      { label: t('agents.fields.certificateSubject'), value: String(uniqueCertificates) },
       ...(options.extraLabel
         ? [{ label: options.extraLabel, value: normalizeText(readObjectValue(detail, options.extraValueKeys ?? [])) }]
         : []),
@@ -700,8 +702,8 @@ function buildLinuxFrameworkSections(
   }
 
   const siteSection: DetailSection = {
-    title: `${titlePrefix} 站点`,
-    description: `这里展示 ${titlePrefix} 识别到的站点、根目录、域名、反向代理目标和证书文件路径。`,
+    title: t('agents.sections.frameworkSitesTitle', { name: titlePrefix }),
+    description: t('agents.sections.frameworkSitesDescription', { name: titlePrefix }),
     variant: 'linux-sites',
     fields: sites.length > 0
       ? sites.map((site) => ({
@@ -709,14 +711,14 @@ function buildLinuxFrameworkSections(
           value: site.sitePath,
           meta: site,
         }))
-      : [{ label: '站点列表', value: `未发现 ${titlePrefix} 站点` }],
+      : [{ label: t('agents.fields.siteList'), value: t('agents.empty.noFrameworkSites', { name: titlePrefix }) }],
   }
 
   return [overview, siteSection]
 }
 
 function buildNginxSections(data: ApiRecord): DetailSection[] {
-  return buildLinuxFrameworkSections('Nginx', readCapabilityRecord(data, 'linux.nginx.detail'), { extraLabel: '安装前缀', extraValueKeys: ['Prefix', 'prefix'] })
+  return buildLinuxFrameworkSections('Nginx', readCapabilityRecord(data, 'linux.nginx.detail'), { extraLabel: t('agents.fields.installPrefix'), extraValueKeys: ['Prefix', 'prefix'] })
 }
 
 function buildApacheSections(data: ApiRecord): DetailSection[] {
@@ -785,25 +787,25 @@ function buildTomcatSections(data: ApiRecord): DetailSection[] {
 
   return [
     {
-      title: 'Tomcat 概况',
-      description: '这里展示宿主机上的 Tomcat 安装状态、运行状态和 Catalina 路径。',
+      title: t('agents.sections.tomcatOverviewTitle'),
+      description: t('agents.sections.tomcatOverviewDescription'),
       fields: [
-        { label: '安装状态', value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
-        { label: '运行状态', value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
-        { label: 'Tomcat 版本', value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
-        { label: '服务名称', value: normalizeText(readObjectValue(detail, ['Service', 'serviceName', 'service'])) },
+        { label: t('agents.fields.installStatus'), value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
+        { label: t('agents.fields.runningStatus'), value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
+        { label: t('agents.fields.tomcatVersion'), value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
+        { label: t('agents.fields.serviceName'), value: normalizeText(readObjectValue(detail, ['Service', 'serviceName', 'service'])) },
         { label: 'Catalina Home', value: normalizeText(readObjectValue(detail, ['CatalinaHome', 'catalinaHome'])) },
         { label: 'Catalina Base', value: normalizeText(readObjectValue(detail, ['CatalinaBase', 'catalinaBase'])) },
-        { label: '配置路径', value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
-        { label: '连接器数量', value: String(connectors.length), emphasis: true },
-        { label: 'TLS 连接器', value: String(httpsConnectors) },
-        { label: '证书主题', value: String(uniqueCertificates) },
-        { label: '应用数量', value: String(apps.length), emphasis: true },
+        { label: t('agents.fields.configPath'), value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
+        { label: t('agents.fields.connectorCount'), value: String(connectors.length), emphasis: true },
+        { label: t('agents.fields.tlsConnector'), value: String(httpsConnectors) },
+        { label: t('agents.fields.certificateSubject'), value: String(uniqueCertificates) },
+        { label: t('agents.fields.appCount'), value: String(apps.length), emphasis: true },
       ],
     },
     {
-      title: 'Tomcat 连接器',
-      description: '这里展示 Tomcat Connector 的监听地址、协议、TLS 开关和证书路径。',
+      title: t('agents.sections.tomcatConnectorsTitle'),
+      description: t('agents.sections.tomcatConnectorsDescription'),
       variant: 'tomcat-connectors',
       fields: connectors.length > 0
         ? connectors.map((connector, index) => ({
@@ -811,19 +813,19 @@ function buildTomcatSections(data: ApiRecord): DetailSection[] {
             value: connector.address,
             meta: { ...connector, index },
           }))
-        : [{ label: '连接器列表', value: '未发现 Tomcat 连接器' }],
+        : [{ label: t('agents.fields.connectorList'), value: t('agents.empty.noTomcatConnectors') }],
     },
     {
-      title: 'Tomcat 应用',
-      description: '这里展示 Tomcat Host/Context 中识别到的应用路径与部署目录。',
+      title: t('agents.sections.tomcatAppsTitle'),
+      description: t('agents.sections.tomcatAppsDescription'),
       variant: 'tomcat-apps',
       fields: apps.length > 0
         ? apps.map((app, index) => ({
-            label: app.contextPath !== EMPTY_TEXT ? app.contextPath : `应用 ${index + 1}`,
+            label: app.contextPath !== EMPTY_TEXT ? app.contextPath : t('agents.app.fallbackName', { index: index + 1 }),
             value: app.docBase,
             meta: app,
           }))
-        : [{ label: '应用列表', value: '未发现 Tomcat 应用' }],
+        : [{ label: t('agents.fields.appList'), value: t('agents.empty.noTomcatApps') }],
     },
   ]
 }
@@ -893,15 +895,15 @@ function buildRuntimeLogSections(data: ApiRecord): DetailSection[] {
   const lastCapabilityReportedAt = normalizeDateTime(readPath(data, 'capabilitySnapshot.reportedAt'))
   return [
     {
-      title: '日志概览',
-      description: '这里展示最近一次能力上报的时间点，便于判断当前详情页中的能力数据是否新鲜。',
+      title: t('agents.sections.logOverviewTitle'),
+      description: t('agents.sections.logOverviewDescription'),
       fields: [
-        { label: '上次能力上报时间', value: lastCapabilityReportedAt },
+        { label: t('agents.fields.lastCapabilityReportAt'), value: lastCapabilityReportedAt },
       ],
     },
     {
-      title: '运行日志',
-      description: '这里展示手动重扫结果、心跳异常以及能力上报中断等持久化运行日志。',
+      title: t('agents.sections.runtimeLogsTitle'),
+      description: t('agents.sections.runtimeLogsDescription'),
       variant: 'runtime-logs',
       fields: logs.length > 0
         ? logs.map((log, index) => ({
@@ -909,7 +911,7 @@ function buildRuntimeLogSections(data: ApiRecord): DetailSection[] {
             value: log.summary,
             meta: { ...log, index },
           }))
-        : [{ label: '运行日志', value: '暂无运行日志' }],
+        : [{ label: t('agents.fields.runtimeLog'), value: t('agents.empty.noRuntimeLogs') }],
     },
   ]
 }
@@ -945,34 +947,34 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
   const manualRescanDisabledReason = canManualRescan
     ? ''
     : (!['WINDOWS', 'LINUX'].includes(osTypeUpper)
-        ? '当前 Agent 类型不支持手动重扫'
-        : '当前 Agent 不可拉取任务，无法执行重扫')
+        ? t('agents.detail.manualRescanUnsupportedType')
+        : t('agents.detail.manualRescanCannotPullTasks'))
 
   const tabs: DetailTab[] = [
     {
       key: 'overview',
-      label: '概览',
+      label: t('agents.tabs.overview'),
       sections: [
         {
-          title: '主要信息',
-          description: '这里展示 Agent 的身份、角色和最近心跳。',
+          title: t('agents.sections.mainInfoTitle'),
+          description: t('agents.sections.mainInfoDescription'),
           fields: [
-            { label: '主机名', value: hostname, emphasis: true },
+            { label: t('agents.fields.hostname'), value: hostname, emphasis: true },
             { label: 'Agent ID', value: agentId },
             { label: 'Agent Key', value: agentKey },
-            { label: '角色', value: role },
-            { label: '区域', value: zone },
-            { label: '最近心跳', value: normalizeDateTime(lastHeartbeat) },
+            { label: t('agents.fields.role'), value: role },
+            { label: t('agents.fields.zone'), value: zone },
+            { label: t('agents.fields.lastHeartbeat'), value: normalizeDateTime(lastHeartbeat) },
           ],
         },
         {
-          title: '运行环境',
-          description: '这里展示 Agent 上报的运行系统与版本信息。',
+          title: t('agents.sections.runtimeTitle'),
+          description: t('agents.sections.runtimeDescription'),
           fields: buildRuntimeFields(data, osType),
         },
         {
-          title: '健康与恢复',
-          description: '这里展示控制面对 Agent 的离线判断、最近恢复时间以及待补传结果等运行健康摘要。',
+          title: t('agents.sections.healthTitle'),
+          description: t('agents.sections.healthDescription'),
           fields: buildHealthFields(data),
         },
       ],
@@ -1013,7 +1015,7 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
 
   tabs.push({
     key: 'logs',
-    label: '日志',
+    label: t('agents.tabs.logs'),
     sections: buildRuntimeLogSections(data),
   })
 
@@ -1022,7 +1024,7 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
     title: hostname,
     subtitle: `${agentKey} / ${agentId}`,
     status,
-    spotlightLabel: 'IP 地址',
+    spotlightLabel: t('agents.fields.ipAddress'),
     spotlightValue: resolveIpAddress(data),
     tabs,
     canManualRescan,
@@ -1099,8 +1101,8 @@ function buildCertificateContextUsage(siteName: string, binding: CertificateBind
     : ('address' in binding && binding.address !== EMPTY_TEXT ? binding.address : '')
   const domainName = hostHeader || binding.certificate?.subject || siteName
   const resourceType = 'hostHeader' in binding
-    ? 'Agent IIS 站点'
-    : ('keystorePath' in binding ? 'Agent Tomcat 连接器' : 'Agent Linux 站点')
+    ? t('agents.certificateUsage.iisSite')
+    : ('keystorePath' in binding ? t('agents.certificateUsage.tomcatConnector') : t('agents.certificateUsage.linuxSite'))
   const bindingType = 'hostHeader' in binding
     ? 'WINDOWS_CERT_STORE'
     : 'FILE_PATH'
@@ -1118,7 +1120,7 @@ function buildCertificateContextUsage(siteName: string, binding: CertificateBind
       siteName,
       protocol: binding.protocol,
       port: binding.port,
-      hostHeader: hostHeader || ('hostHeader' in binding ? '无 Host Header' : '无监听地址'),
+      hostHeader: hostHeader || ('hostHeader' in binding ? t('agents.common.noHostHeader') : t('agents.common.noListenAddress')),
       certificatePath: 'certificatePath' in binding ? binding.certificatePath : EMPTY_TEXT,
       certificateKeyPath: 'certificateKeyPath' in binding ? binding.certificateKeyPath : EMPTY_TEXT,
       keystorePath: 'keystorePath' in binding ? binding.keystorePath : EMPTY_TEXT,
@@ -1164,7 +1166,7 @@ async function resolveCertificateAssetRoute(certificate: BindingCertificateView)
   const assetId = normalizeText(readPath(matched, 'certificateAssetId'), '')
   const versionId = normalizeText(readPath(matched, 'id'), '')
   if (assetId === EMPTY_TEXT || versionId === EMPTY_TEXT) {
-    throw new Error('证书资产数据不完整，无法跳转详情。')
+    throw new Error(t('agents.errors.certificateAssetIncomplete'))
   }
 
   return { assetId, versionId }
@@ -1181,12 +1183,12 @@ async function openCertificateAssetDetail() {
   try {
     const route = await resolveCertificateAssetRoute(certificate)
     if (!route) {
-      certificateAssetError.value = '本项目中未找到对应证书资产。'
+      certificateAssetError.value = t('agents.errors.certificateAssetNotFound')
       return
     }
     openCertificateAssetModal(route, currentSelection.siteName, currentSelection.binding)
   } catch (cause) {
-    certificateAssetError.value = cause instanceof Error ? cause.message : '查询证书资产失败。'
+    certificateAssetError.value = cause instanceof Error ? cause.message : t('agents.errors.certificateAssetQueryFailed')
   } finally {
     certificateAssetPending.value = false
   }
@@ -1215,7 +1217,7 @@ async function generateInstallCommand() {
 
     const data = result.data
     if (!data || typeof data.installCommand !== 'string') {
-      throw new Error('后端没有返回安装命令。')
+      throw new Error(t('agents.errors.installCommandMissing'))
     }
 
     const rawBootstrapUrl = typeof data.bootstrapUrl === 'string' ? data.bootstrapUrl : ''
@@ -1231,7 +1233,7 @@ async function generateInstallCommand() {
     copiedText.value = null
     ensureCountdown()
   } catch (cause) {
-    installError.value = cause instanceof Error ? cause.message : '生成安装命令失败。'
+    installError.value = cause instanceof Error ? cause.message : t('agents.errors.generateInstallCommandFailed')
   } finally {
     installPending.value = false
   }
@@ -1307,11 +1309,11 @@ async function openDetailModal(row: ViewRow) {
   try {
     const result = await getAgentDetail(row.id)
     if (!result.data) {
-      throw new Error('详情接口没有返回数据。')
+      throw new Error(t('agents.errors.detailDataMissing'))
     }
     detailData.value = buildAgentDetail(result.data, row)
   } catch (cause) {
-    detailError.value = cause instanceof Error ? cause.message : '加载详情失败。'
+    detailError.value = cause instanceof Error ? cause.message : t('agents.errors.loadDetailFailed')
   } finally {
     detailLoading.value = false
   }
@@ -1323,20 +1325,20 @@ async function triggerManualRescan() {
   detailActionMessage.value = ''
   try {
     await requestAgentCapabilityRescan(detailData.value.id)
-    detailActionMessage.value = '已创建手动重扫任务，等待 Agent 拉取执行。'
+    detailActionMessage.value = t('agents.detail.manualRescanCreated')
   } catch (cause) {
-    detailActionMessage.value = cause instanceof Error ? cause.message : '手动重扫发起失败。'
+    detailActionMessage.value = cause instanceof Error ? cause.message : t('agents.errors.manualRescanFailed')
   } finally {
     detailActionPending.value = false
   }
 }
 
-const config: BusinessPageConfig = {
+const config = computed<BusinessPageConfig>(() => ({
   title: 'Agent',
-  description: '查看 Agent 列表，生成不同平台的安装命令，并在独立模态框中查看详情。',
+  description: t('agents.page.description'),
   readPermission: 'agent.read',
   primaryPermission: 'agent.write',
-  primaryActionLabel: '安装Agent',
+  primaryActionLabel: t('agents.page.installAgent'),
   primaryAction: openInstallModal,
   moduleName: 'agents',
   resourceName: 'Agent',
@@ -1346,56 +1348,56 @@ const config: BusinessPageConfig = {
   showDetailPanel: false,
   showActionPanel: false,
   columns: [
-    { key: 'name', title: '主机名', candidates: ['descriptor.hostname', 'hostname', 'agentKey', 'id'] },
-    { key: 'ipAddress', title: 'IP 地址', candidates: ['descriptor.ipAddress', 'ipAddress'] },
-    { key: 'osType', title: '系统类型', candidates: ['descriptor.osType', 'osType', 'platform'] },
-    { key: 'status', title: '在线状态', candidates: ['status', 'state'] },
-    { key: 'version', title: '版本', candidates: ['descriptor.version', 'version'] },
-    { key: 'lastSeenAt', title: '最近心跳', candidates: ['lastSeenAt', 'updatedAt', 'registeredAt'], kind: 'date' },
-    { key: 'actions', title: '操作', candidates: [] },
+    { key: 'name', title: t('agents.columns.hostname'), candidates: ['descriptor.hostname', 'hostname', 'agentKey', 'id'] },
+    { key: 'ipAddress', title: t('agents.columns.ipAddress'), candidates: ['descriptor.ipAddress', 'ipAddress'] },
+    { key: 'osType', title: t('agents.columns.osType'), candidates: ['descriptor.osType', 'osType', 'platform'] },
+    { key: 'status', title: t('agents.columns.onlineStatus'), candidates: ['status', 'state'] },
+    { key: 'version', title: t('agents.columns.version'), candidates: ['descriptor.version', 'version'] },
+    { key: 'lastSeenAt', title: t('agents.columns.lastHeartbeat'), candidates: ['lastSeenAt', 'updatedAt', 'registeredAt'], kind: 'date' },
+    { key: 'actions', title: t('agents.columns.actions'), candidates: [] },
   ],
   metrics: [
-    { title: 'Agent 总数', description: '当前已注册到控制面的 Agent 数量。', status: 'ONLINE', risk: 'MEDIUM' },
-    { title: '异常 Agent', description: '离线、失败或漂移状态的 Agent 需要优先处理。', status: 'OFFLINE', risk: 'HIGH' },
+    { title: t('agents.metrics.totalTitle'), description: t('agents.metrics.totalDescription'), status: 'ONLINE', risk: 'MEDIUM' },
+    { title: t('agents.metrics.abnormalTitle'), description: t('agents.metrics.abnormalDescription'), status: 'OFFLINE', risk: 'HIGH' },
   ],
-  emptyTitle: '暂无 Agent',
-  emptyDescription: '点击右上角“安装Agent”，选择平台和版本后生成一次性安装命令。',
+  emptyTitle: t('agents.empty.title'),
+  emptyDescription: t('agents.empty.description'),
   load: loadAgentsPage,
   actions: [],
   rowActions: [
     {
-      label: '详情',
+      label: t('agents.actions.detail'),
       permission: 'agent.read',
       reloadAfterRun: false,
       run: openDetailModal,
     },
     {
-      label: '禁用',
+      label: t('agents.actions.disable'),
       permission: 'agent.write',
       danger: true,
       confirmText: 'DISABLE',
-      riskText: '禁用后该 Agent 将停止接收新任务。',
+      riskText: t('agents.actions.disableRisk'),
       hidden: (row) => String(row.status).toUpperCase() === 'DISABLED',
       run: (row) => disableAgent(row.id),
     },
     {
-      label: '启用',
+      label: t('agents.actions.enable'),
       permission: 'agent.write',
       confirmText: 'ENABLE',
-      riskText: '启用后该 Agent 将恢复为可调度状态。',
+      riskText: t('agents.actions.enableRisk'),
       hidden: (row) => String(row.status).toUpperCase() !== 'DISABLED',
       run: (row) => enableAgent(row.id),
     },
     {
-      label: '删除',
+      label: t('agents.actions.delete'),
       permission: 'agent.write',
       danger: true,
       confirmText: 'DELETE',
-      riskText: '删除会直接移除 Agent 记录，这个操作不可逆。',
+      riskText: t('agents.actions.deleteRisk'),
       run: (row) => deleteAgent(row.id),
     },
   ],
-}
+}))
 </script>
 
 <template>
@@ -1404,8 +1406,8 @@ const config: BusinessPageConfig = {
 
     <GcModal
       v-model:open="detailModalOpen"
-      title="Agent详情"
-      description="展示 Agent 的主要信息、运行环境以及 IIS 站点数据。"
+      :title="t('agents.detail.modalTitle')"
+      :description="t('agents.detail.modalDescription')"
       size="lg"
       width="66vw"
     >
@@ -1414,7 +1416,7 @@ const config: BusinessPageConfig = {
 
         <div v-if="detailData" class="agent-detail-modal__hero">
           <div class="agent-detail-modal__hero-copy">
-            <p class="agent-detail-modal__eyebrow">Agent 节点</p>
+            <p class="agent-detail-modal__eyebrow">{{ t('agents.detail.nodeEyebrow') }}</p>
             <h2>{{ detailData.title }}</h2>
             <span>{{ detailData.subtitle }}</span>
           </div>
@@ -1427,11 +1429,11 @@ const config: BusinessPageConfig = {
           </div>
         </div>
 
-        <p v-if="detailLoading" class="agent-detail-modal__loading">详情加载中...</p>
+        <p v-if="detailLoading" class="agent-detail-modal__loading">{{ t('agents.detail.loading') }}</p>
         <p v-if="detailActionMessage" class="agent-detail-modal__loading">{{ detailActionMessage }}</p>
 
         <template v-if="detailData">
-          <nav class="agent-detail-modal__tabs" aria-label="Agent详情标签页">
+          <nav class="agent-detail-modal__tabs" :aria-label="t('agents.detail.tabsAriaLabel')">
             <button
               v-for="tab in detailData.tabs"
               :key="tab.key"
@@ -1466,7 +1468,7 @@ const config: BusinessPageConfig = {
                     <header class="agent-detail-modal__site-head">
                       <div>
                         <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                        <p class="agent-detail-modal__site-path">路径：{{ (field.meta as IisSiteView).physicalPath }}</p>
+                        <p class="agent-detail-modal__site-path">{{ t('agents.labels.path', { value: (field.meta as IisSiteView).physicalPath }) }}</p>
                       </div>
                       <div class="agent-detail-modal__site-meta">
                         <span>{{ (field.meta as IisSiteView).state }}</span>
@@ -1496,11 +1498,11 @@ const config: BusinessPageConfig = {
                             {{ certificateStatusLabel(binding.certificate) }}
                           </span>
                         </div>
-                        <span>{{ binding.hostHeader && binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : '无 Host Header' }}</span>
+                        <span>{{ binding.hostHeader && binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : t('agents.common.noHostHeader') }}</span>
                         <small>{{ binding.certificateSubject }}</small>
-                        <em v-if="binding.certificateThumbprint !== EMPTY_TEXT">Thumbprint：{{ binding.certificateThumbprint }}</em>
+                        <em v-if="binding.certificateThumbprint !== EMPTY_TEXT">{{ t('agents.labels.thumbprint', { value: binding.certificateThumbprint }) }}</em>
                         <em v-if="binding.certificate">
-                          {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
+                          {{ t('agents.certificate.remainingWithViewAction', { remaining: certificateRemainingLabel(binding.certificate) }) }}
                         </em>
                       </div>
                     </div>
@@ -1525,25 +1527,25 @@ const config: BusinessPageConfig = {
                       <header class="agent-detail-modal__site-head">
                         <div>
                           <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                          <p class="agent-detail-modal__site-path">目录：{{ (field.meta as LinuxSiteView).sitePath }}</p>
+                          <p class="agent-detail-modal__site-path">{{ t('agents.labels.directory', { value: (field.meta as LinuxSiteView).sitePath }) }}</p>
                         </div>
                         <div class="agent-detail-modal__site-meta">
                           <span>{{ formatSiteMode((field.meta as LinuxSiteView).siteMode) }}</span>
-                          <strong>{{ (field.meta as LinuxSiteView).serverNames.length }} 个域名</strong>
+                          <strong>{{ t('agents.site.domainCount', { count: (field.meta as LinuxSiteView).serverNames.length }) }}</strong>
                         </div>
                       </header>
                       <div class="agent-detail-modal__linux-meta">
                         <p>
-                          <strong>域名</strong>
-                          <span>{{ (field.meta as LinuxSiteView).serverNames.length > 0 ? (field.meta as LinuxSiteView).serverNames.join(', ') : '未配置' }}</span>
+                          <strong>{{ t('agents.fields.domain') }}</strong>
+                          <span>{{ (field.meta as LinuxSiteView).serverNames.length > 0 ? (field.meta as LinuxSiteView).serverNames.join(', ') : t('agents.common.notConfigured') }}</span>
                         </p>
                         <p>
-                          <strong>代理目标</strong>
-                          <span>{{ (field.meta as LinuxSiteView).proxyTargets.length > 0 ? (field.meta as LinuxSiteView).proxyTargets.join('\n') : '无' }}</span>
+                          <strong>{{ t('agents.fields.proxyTarget') }}</strong>
+                          <span>{{ (field.meta as LinuxSiteView).proxyTargets.length > 0 ? (field.meta as LinuxSiteView).proxyTargets.join('\n') : t('agents.common.none') }}</span>
                         </p>
                         <p>
-                          <strong>配置文件</strong>
-                          <span>{{ (field.meta as LinuxSiteView).configFiles.length > 0 ? (field.meta as LinuxSiteView).configFiles.join('\n') : '未识别' }}</span>
+                          <strong>{{ t('agents.fields.configFile') }}</strong>
+                          <span>{{ (field.meta as LinuxSiteView).configFiles.length > 0 ? (field.meta as LinuxSiteView).configFiles.join('\n') : t('agents.common.unrecognized') }}</span>
                         </p>
                       </div>
                       <div class="agent-detail-modal__site-bindings">
@@ -1569,15 +1571,15 @@ const config: BusinessPageConfig = {
                               {{ certificateStatusLabel(binding.certificate) }}
                             </span>
                           </div>
-                          <span>{{ binding.address !== EMPTY_TEXT ? binding.address : '默认地址' }}</span>
+                          <span>{{ binding.address !== EMPTY_TEXT ? binding.address : t('agents.common.defaultAddress') }}</span>
                           <small>{{ binding.certificateName }}</small>
-                          <em>证书：{{ binding.certificatePath }}</em>
-                          <em>私钥：{{ binding.certificateKeyPath }}</em>
+                          <em>{{ t('agents.labels.certificatePath', { value: binding.certificatePath }) }}</em>
+                          <em>{{ t('agents.labels.privateKeyPath', { value: binding.certificateKeyPath }) }}</em>
                           <em v-if="binding.permissionSummary !== EMPTY_TEXT">{{ binding.permissionSummary }}</em>
-                          <em v-if="binding.testCommand !== EMPTY_TEXT">测试命令：{{ binding.testCommand }}</em>
-                          <em v-if="binding.reloadCommand !== EMPTY_TEXT">Reload 命令：{{ binding.reloadCommand }}</em>
+                          <em v-if="binding.testCommand !== EMPTY_TEXT">{{ t('agents.labels.testCommand', { value: binding.testCommand }) }}</em>
+                          <em v-if="binding.reloadCommand !== EMPTY_TEXT">{{ t('agents.labels.reloadCommand', { value: binding.reloadCommand }) }}</em>
                           <em v-if="binding.certificate">
-                            {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
+                            {{ t('agents.certificate.remainingWithViewAction', { remaining: certificateRemainingLabel(binding.certificate) }) }}
                           </em>
                         </div>
                       </div>
@@ -1607,7 +1609,7 @@ const config: BusinessPageConfig = {
                       <header class="agent-detail-modal__site-head">
                         <div class="agent-detail-modal__site-head-main">
                           <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                          <p class="agent-detail-modal__site-path">监听地址：{{ (field.meta as TomcatConnectorView).address }}</p>
+                          <p class="agent-detail-modal__site-path">{{ t('agents.labels.listenAddress', { value: (field.meta as TomcatConnectorView).address }) }}</p>
                         </div>
                         <div class="agent-detail-modal__site-meta">
                           <span>{{ (field.meta as TomcatConnectorView).tls ? 'TLS' : 'PLAINTEXT' }}</span>
@@ -1616,19 +1618,19 @@ const config: BusinessPageConfig = {
                       </header>
                       <div class="agent-detail-modal__linux-meta">
                         <p>
-                          <strong>证书主题</strong>
+                          <strong>{{ t('agents.fields.certificateSubject') }}</strong>
                           <span>{{ (field.meta as TomcatConnectorView).certificateName }}</span>
                         </p>
                         <p>
-                          <strong>证书文件</strong>
+                          <strong>{{ t('agents.fields.certificateFile') }}</strong>
                           <span>{{ (field.meta as TomcatConnectorView).certificatePath }}</span>
                         </p>
                         <p>
-                          <strong>私钥 / Keystore</strong>
+                          <strong>{{ t('agents.fields.privateKeyOrKeystore') }}</strong>
                           <span>{{
                             [
-                              (field.meta as TomcatConnectorView).certificateKeyPath !== EMPTY_TEXT ? `私钥：${(field.meta as TomcatConnectorView).certificateKeyPath}` : '',
-                              (field.meta as TomcatConnectorView).keystorePath !== EMPTY_TEXT ? `Keystore：${(field.meta as TomcatConnectorView).keystorePath}` : '',
+                              (field.meta as TomcatConnectorView).certificateKeyPath !== EMPTY_TEXT ? t('agents.labels.privateKeyPath', { value: (field.meta as TomcatConnectorView).certificateKeyPath }) : '',
+                              (field.meta as TomcatConnectorView).keystorePath !== EMPTY_TEXT ? t('agents.labels.keystorePath', { value: (field.meta as TomcatConnectorView).keystorePath }) : '',
                             ].filter(Boolean).join('\n') || EMPTY_TEXT
                           }}</span>
                         </p>
@@ -1638,7 +1640,7 @@ const config: BusinessPageConfig = {
                           type="button"
                           @click.stop="openBindingCertificate(field.label, field.meta as TomcatConnectorView)"
                         >
-                          查看证书
+                          {{ t('agents.certificate.view') }}
                         </button>
                       </div>
                     </template>
@@ -1662,7 +1664,7 @@ const config: BusinessPageConfig = {
                       <header class="agent-detail-modal__site-head">
                         <div>
                           <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                          <p class="agent-detail-modal__site-path">部署目录：{{ (field.meta as TomcatAppView).docBase }}</p>
+                          <p class="agent-detail-modal__site-path">{{ t('agents.labels.deployDirectory', { value: (field.meta as TomcatAppView).docBase }) }}</p>
                         </div>
                         <div class="agent-detail-modal__site-meta">
                           <span>AppBase</span>
@@ -1681,7 +1683,7 @@ const config: BusinessPageConfig = {
                   </article>
                 </template>
                 <template v-else-if="section.variant === 'runtime-logs'">
-                  <div class="agent-detail-modal__log-list" role="list" aria-label="运行日志列表">
+                  <div class="agent-detail-modal__log-list" role="list" :aria-label="t('agents.logs.listAriaLabel')">
                     <article
                       v-for="field in section.fields"
                       :key="`${section.title}-${field.label}`"
@@ -1700,14 +1702,14 @@ const config: BusinessPageConfig = {
                               <strong>{{ field.label }}</strong>
                               <p>{{ field.value }}</p>
                               <p class="agent-detail-modal__log-subline">
-                                <span>任务类型：{{ (field.meta as RuntimeLogView).taskType !== EMPTY_TEXT ? (field.meta as RuntimeLogView).taskType : (field.meta as RuntimeLogView).category }}</span>
-                                <span>站点名称：{{ (field.meta as RuntimeLogView).siteName !== EMPTY_TEXT ? (field.meta as RuntimeLogView).siteName : '未提供' }}</span>
+                                <span>{{ t('agents.labels.taskType', { value: (field.meta as RuntimeLogView).taskType !== EMPTY_TEXT ? (field.meta as RuntimeLogView).taskType : (field.meta as RuntimeLogView).category }) }}</span>
+                                <span>{{ t('agents.labels.siteName', { value: (field.meta as RuntimeLogView).siteName !== EMPTY_TEXT ? (field.meta as RuntimeLogView).siteName : t('agents.common.notProvided') }) }}</span>
                               </p>
                             </div>
                             <div class="agent-detail-modal__log-meta">
                               <span>{{ (field.meta as RuntimeLogView).emittedAt }}</span>
                               <b>{{ (field.meta as RuntimeLogView).dryRun ? 'DRY_RUN' : 'TASK' }}</b>
-                              <small>{{ isRuntimeLogExpanded((field.meta as RuntimeLogView).id) ? '收起' : '展开' }}</small>
+                              <small>{{ isRuntimeLogExpanded((field.meta as RuntimeLogView).id) ? t('agents.logs.collapse') : t('agents.logs.expand') }}</small>
                             </div>
                           </header>
                         </button>
@@ -1753,28 +1755,28 @@ const config: BusinessPageConfig = {
           :title="detailData?.manualRescanDisabledReason || ''"
           @click="triggerManualRescan"
         >
-          {{ detailActionPending ? '重扫提交中...' : '手动重扫' }}
+          {{ detailActionPending ? t('agents.detail.manualRescanSubmitting') : t('agents.detail.manualRescan') }}
         </button>
-        <button class="gc-button" type="button" :disabled="detailLoading || detailActionPending" @click="closeDetailModal">关闭</button>
+        <button class="gc-button" type="button" :disabled="detailLoading || detailActionPending" @click="closeDetailModal">{{ t('agents.actions.close') }}</button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="certificateModalOpen"
-      title="证书详情"
-      description="展示当前站点绑定使用的证书关键信息。"
+      :title="t('agents.certificate.modalTitle')"
+      :description="t('agents.certificate.modalDescription')"
       size="lg"
       width="56vw"
     >
       <section v-if="selectedCertificate?.binding.certificate" class="agent-certificate-modal">
         <div class="agent-certificate-modal__hero">
           <div>
-            <p class="agent-certificate-modal__eyebrow">站点绑定证书</p>
+            <p class="agent-certificate-modal__eyebrow">{{ t('agents.certificate.boundCertificate') }}</p>
             <h3>{{ selectedCertificate.binding.certificate.subject }}</h3>
             <span>{{ selectedCertificate.siteName }} / {{ selectedCertificate.binding.protocol.toUpperCase() }}:{{ selectedCertificate.binding.port }}</span>
           </div>
           <div class="agent-certificate-modal__status">
-            <small>证书状态</small>
+            <small>{{ t('agents.certificate.statusLabel') }}</small>
             <strong>{{ certificateStatusLabel(selectedCertificate.binding.certificate) }}</strong>
             <span>{{ certificateRemainingLabel(selectedCertificate.binding.certificate) }}</span>
           </div>
@@ -1782,54 +1784,54 @@ const config: BusinessPageConfig = {
 
         <article class="agent-detail-modal__section">
           <header class="agent-detail-modal__section-head">
-            <h3>证书概览</h3>
-            <p>展示证书名称、颁发者、开始时间、到期时间和指纹等关键信息。</p>
+            <h3>{{ t('agents.certificate.overviewTitle') }}</h3>
+            <p>{{ t('agents.certificate.overviewDescription') }}</p>
           </header>
           <dl class="agent-detail-modal__grid">
             <div class="agent-detail-modal__item" data-emphasis="true">
-              <dt>证书名称</dt>
+              <dt>{{ t('agents.fields.certificateName') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.subject }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>颁发者</dt>
+              <dt>{{ t('agents.fields.issuer') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.issuer }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>证书仓库</dt>
+              <dt>{{ t('agents.fields.certificateStore') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.storeName }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>开始时间</dt>
+              <dt>{{ t('agents.fields.notBefore') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.notBefore }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>到期时间</dt>
+              <dt>{{ t('agents.fields.notAfter') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.notAfter }}</dd>
             </div>
             <div
               class="agent-detail-modal__item"
               :data-emphasis="certificateValidityStatus(selectedCertificate.binding.certificate) !== 'valid' ? 'true' : 'false'"
             >
-              <dt>剩余天数</dt>
+              <dt>{{ t('agents.fields.remainingDays') }}</dt>
               <dd>{{ certificateRemainingLabel(selectedCertificate.binding.certificate) }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>证书指纹</dt>
+              <dt>{{ t('agents.fields.certificateThumbprint') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.thumbprint }}</dd>
             </div>
             <div
               v-if="selectedCertificate.binding.certificate.fingerprintSha256 !== EMPTY_TEXT"
               class="agent-detail-modal__item"
             >
-              <dt>SHA-256 指纹</dt>
+              <dt>{{ t('agents.fields.sha256Fingerprint') }}</dt>
               <dd>{{ selectedCertificate.binding.certificate.fingerprintSha256 }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>{{ 'hostHeader' in selectedCertificate.binding ? 'Host Header' : '监听地址' }}</dt>
+              <dt>{{ 'hostHeader' in selectedCertificate.binding ? 'Host Header' : t('agents.fields.listenAddress') }}</dt>
               <dd>{{
                 'hostHeader' in selectedCertificate.binding
-                  ? (selectedCertificate.binding.hostHeader !== EMPTY_TEXT ? selectedCertificate.binding.hostHeader : '无 Host Header')
-                  : (selectedCertificate.binding.address !== EMPTY_TEXT ? selectedCertificate.binding.address : '默认地址')
+                  ? (selectedCertificate.binding.hostHeader !== EMPTY_TEXT ? selectedCertificate.binding.hostHeader : t('agents.common.noHostHeader'))
+                  : (selectedCertificate.binding.address !== EMPTY_TEXT ? selectedCertificate.binding.address : t('agents.common.defaultAddress'))
               }}</dd>
             </div>
           </dl>
@@ -1845,16 +1847,16 @@ const config: BusinessPageConfig = {
           :disabled="certificateAssetPending || !selectedCertificate?.binding.certificate"
           @click="openCertificateAssetDetail"
         >
-          {{ certificateAssetPending ? '查询中...' : '查看本项目证书详情' }}
+          {{ certificateAssetPending ? t('agents.certificate.querying') : t('agents.certificate.viewProjectDetail') }}
         </button>
-        <button class="gc-button" type="button" @click="closeCertificateModal">关闭</button>
+        <button class="gc-button" type="button" @click="closeCertificateModal">{{ t('agents.actions.close') }}</button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="certificateAssetDetailOpen"
-      title="本项目证书详情"
-      description="在当前 Agent 详情上下文中展示项目内证书资产详情和关联使用关系。"
+      :title="t('agents.certificate.projectDetailTitle')"
+      :description="t('agents.certificate.projectDetailDescription')"
       size="xxl"
     >
       <CertificateDetailPanel
@@ -1864,21 +1866,21 @@ const config: BusinessPageConfig = {
         :context-usages="certificateContextUsages"
       />
       <template #actions>
-        <button class="gc-button" type="button" @click="closeCertificateAssetModal">关闭</button>
+        <button class="gc-button" type="button" @click="closeCertificateAssetModal">{{ t('agents.actions.close') }}</button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="installModalOpen"
-      title="安装 Agent"
-      description="选择平台与版本，生成一次性安装命令。安装码 10 分钟内有效，且只能使用一次。"
+      :title="t('agents.install.modalTitle')"
+      :description="t('agents.install.modalDescription')"
       size="lg"
       :close-on-backdrop="false"
       width="58vw"
     >
       <section class="agent-install-modal">
         <div class="agent-install-modal__field">
-          <p class="agent-install-modal__label">平台</p>
+          <p class="agent-install-modal__label">{{ t('agents.install.platform') }}</p>
           <div class="agent-install-modal__platforms">
             <button
               v-for="option in platformOptions"
@@ -1895,7 +1897,7 @@ const config: BusinessPageConfig = {
         </div>
 
         <div class="agent-install-modal__field">
-          <label class="agent-install-modal__label" for="agent-version">版本</label>
+          <label class="agent-install-modal__label" for="agent-version">{{ t('agents.install.version') }}</label>
           <select id="agent-version" v-model="selectedVersion">
             <option v-for="option in versionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
@@ -1908,7 +1910,7 @@ const config: BusinessPageConfig = {
             :disabled="installPending"
             @click="generateInstallCommand"
           >
-            {{ installPending ? '生成中...' : '生成安装命令' }}
+            {{ installPending ? t('agents.install.generating') : t('agents.install.generateCommand') }}
           </button>
         </div>
 
@@ -1917,36 +1919,36 @@ const config: BusinessPageConfig = {
         <div v-if="installSession" class="agent-install-modal__result">
           <dl class="agent-install-modal__meta">
             <div>
-              <dt>平台</dt>
+              <dt>{{ t('agents.install.platform') }}</dt>
               <dd>{{ installSession.platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows Go Service' }}</dd>
             </div>
             <div>
-              <dt>安装码</dt>
+              <dt>{{ t('agents.install.bootstrapToken') }}</dt>
               <dd>{{ installSession.bootstrapTokenPreview }}</dd>
             </div>
             <div>
-              <dt>区域</dt>
+              <dt>{{ t('agents.install.zone') }}</dt>
               <dd>{{ installSession.zone }}</dd>
             </div>
             <div>
-              <dt>剩余有效期</dt>
+              <dt>{{ t('agents.install.remainingValidity') }}</dt>
               <dd><span :class="{ 'agent-install-modal__expired': isExpired }">{{ remainingLabel }}</span></dd>
             </div>
           </dl>
 
           <label class="agent-install-modal__field">
-            <span class="agent-install-modal__label">安装命令</span>
+            <span class="agent-install-modal__label">{{ t('agents.install.command') }}</span>
             <textarea readonly :value="installCommand" rows="3" />
           </label>
 
-          <p class="agent-install-modal__hint">同一个安装码一旦被请求 bootstrap 脚本，就会立刻失效，不能重复使用。</p>
-          <p v-if="copiedText" class="agent-install-modal__copied">{{ copiedText === 'token' ? '安装码已复制' : '安装命令已复制' }}</p>
+          <p class="agent-install-modal__hint">{{ t('agents.install.singleUseHint') }}</p>
+          <p v-if="copiedText" class="agent-install-modal__copied">{{ copiedText === 'token' ? t('agents.install.tokenCopied') : t('agents.install.commandCopied') }}</p>
         </div>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="installPending" @click="closeInstallModal">关闭</button>
-        <button v-if="installSession" class="gc-button" type="button" @click="copyToken">复制安装码</button>
+        <button class="gc-button" type="button" :disabled="installPending" @click="closeInstallModal">{{ t('agents.actions.close') }}</button>
+        <button v-if="installSession" class="gc-button" type="button" @click="copyToken">{{ t('agents.install.copyToken') }}</button>
         <button
           v-if="installSession"
           class="gc-button agent-install-modal__primary"
@@ -1954,7 +1956,7 @@ const config: BusinessPageConfig = {
           :disabled="!installCommand"
           @click="copyInstallCommand"
         >
-          复制安装命令
+          {{ t('agents.install.copyCommand') }}
         </button>
       </template>
     </GcModal>
