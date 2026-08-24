@@ -966,17 +966,96 @@ export class PgAssetsRepository implements AssetsRepository {
        limit 1`,
       [tenantId, asset.id, targetBinding.managedTargetId, managedTarget.deviceId],
     )).rows[0];
-    const devicePluginRows = (await this.db.query<{ plugin_version_ids: string[] | null }>(
-      `select coalesce(array_agg(distinct plugin_version_id) filter (where plugin_version_id is not null), '{}') as plugin_version_ids
-       from pg_device_assets
-       where tenant_id = $1 and host_id = $2`,
+    // 控制面和网关设备的插件能力可能只登记 device.discover/device.connection.test，
+    // 也可能只留下设备绑定字段；这些来源都比应用资产的证书部署插件更能代表所属设备。
+    const devicePluginRow = (await this.db.query<{ plugin_version_id: string | null }>(
+      `with raw_candidates as (
+         select assignment.plugin_version_id,
+                case assignment.capability_key
+                  when 'device.discover' then 1
+                  when 'device.connection.test' then 2
+                  when 'device.identity.detect' then 3
+                  else 4
+                end as priority
+         from plugin_capability_assignments assignment
+         join unified_plugin_bindings binding
+           on binding.tenant_id = assignment.tenant_id
+          and binding.id = assignment.plugin_binding_id
+          and binding.plugin_version_id = assignment.plugin_version_id
+          and binding.status = 'ACTIVE'
+          and binding.managed_context->>'hostId' = $2
+         where assignment.tenant_id = $1
+           and assignment.owner_type = 'DEVICE'
+           and assignment.owner_id = $2
+           and assignment.status = 'ACTIVE'
+           and assignment.capability_key in ('device.discover', 'device.connection.test', 'device.identity.detect')
+         union all
+         select binding.plugin_version_id, 5
+         from pg_device_assets device
+         join unified_plugin_bindings binding
+           on binding.tenant_id = device.tenant_id
+          and binding.id = device.plugin_binding_id
+          and binding.status = 'ACTIVE'
+         where device.tenant_id = $1 and device.host_id = $2
+         union all
+         select device.plugin_version_id, 6
+         from pg_device_assets device
+         where device.tenant_id = $1 and device.host_id = $2
+         union all
+         select version.id, 7
+         from pg_device_assets device
+         join unified_plugin_versions version
+           on version.plugin_id = coalesce(nullif(device.product_family, ''), device.device_family)
+          and (version.tenant_id = $1 or version.tenant_id = 'SYSTEM')
+          and version.status = 'ENABLED'
+          and version.manifest->'resources'->'logos'->>'square' is not null
+         where device.tenant_id = $1 and device.host_id = $2
+       ), candidate_plugins as (
+         select candidate.plugin_version_id,
+                candidate.priority,
+                source.plugin_id,
+                source.manifest->'resources'->'logos'->>'square' is not null as has_logo
+         from raw_candidates candidate
+         join unified_plugin_versions source
+           on source.id = candidate.plugin_version_id
+          and (source.tenant_id = $1 or source.tenant_id = 'SYSTEM')
+       ), selected_plugin as (
+         select plugin_id
+         from candidate_plugins
+         where plugin_id is not null
+         order by priority, plugin_id
+         limit 1
+       ), current_logo_version as (
+         select version.id
+         from unified_plugin_versions version
+         join selected_plugin selected on selected.plugin_id = version.plugin_id
+         where (version.tenant_id = $1 or version.tenant_id = 'SYSTEM')
+           and version.status = 'ENABLED'
+           and version.manifest->'resources'->'logos'->>'square' is not null
+         order by string_to_array(
+                    trim(both '.' from regexp_replace(version.plugin_version, '[^0-9.]', '', 'g')),
+                    '.'
+                  )::int[] desc,
+                  version.updated_at desc,
+                  version.id desc
+         limit 1
+       )
+       select coalesce(
+         (select plugin_version_id
+          from candidate_plugins
+          where has_logo
+          order by priority, plugin_version_id
+          limit 1),
+         (select id from current_logo_version),
+         (select plugin_version_id
+          from candidate_plugins
+          order by priority, plugin_version_id
+          limit 1)
+       ) as plugin_version_id`,
       [tenantId, managedTarget.deviceId],
     )).rows[0];
-    const pluginVersionIds = Array.isArray(devicePluginRows?.plugin_version_ids)
-      ? devicePluginRows.plugin_version_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : [];
-    const pluginVersionId = effectivePluginRow?.plugin_version_id
-      ?? (pluginVersionIds.length === 1 ? pluginVersionIds[0] : undefined);
+    const pluginVersionId = devicePluginRow?.plugin_version_id
+      ?? effectivePluginRow?.plugin_version_id;
     const host = await this.getHostIncludingDeleted(tenantId, managedTarget.deviceId);
     const frameworkInstance = managedTarget.frameworkInstanceId
       ? await this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId)

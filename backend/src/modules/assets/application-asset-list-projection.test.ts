@@ -93,7 +93,102 @@ test('应用资产列表投影设备、框架和站点名称', async () => {
   assert.equal(result.items[0]?.targetBinding?.frameworkDisplayName, 'Microsoft IIS');
   assert.equal(result.items[0]?.targetBinding?.siteName, 'TEST');
   assert.equal(result.items[0]?.targetBinding?.pluginVersionId, pluginVersionId);
+
+  await pluginBindings.disableOwnerAssignment(tenantId, {
+    ownerType: 'APPLICATION_ASSET',
+    ownerId: applicationAsset.id,
+    capabilityKey: 'certificate.deploy',
+  });
+  const devicePluginVersionId = pluginVersionId;
+  const devicePluginBinding = await pluginBindings.createBinding(tenantId, {
+    pluginVersionId: devicePluginVersionId,
+    mode: 'MANAGED',
+    inputBindings: emptyInputBindingsV1(),
+    managedContext: { hostId: host.id },
+  });
+  await pluginBindings.assignCapability(tenantId, {
+    ownerType: 'DEVICE',
+    ownerId: host.id,
+    capabilityKey: 'device.discover',
+    pluginVersionId: devicePluginVersionId,
+    pluginBindingId: devicePluginBinding.id,
+    precedence: 'DEVICE_DEFAULT',
+  });
+  const devicePluginResult = await repository.listServiceAssets(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: { id: applicationAsset.id },
+  });
+  assert.equal(devicePluginResult.items[0]?.targetBinding?.pluginVersionId, devicePluginVersionId);
 });
+
+test('应用资产卡片为旧设备插件版本选择当前带 Logo 的版本', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const repository = new PgAssetsRepository(database);
+  const tenantId = 'tenant_application_asset_plugin_logo_upgrade';
+  const host = await repository.createHost(tenantId, {
+    hostname: 'npm-18181',
+    displayName: 'NPM-18181',
+    osType: 'NETWORK_DEVICE',
+  });
+  const managedTarget = await repository.createManagedTarget(tenantId, {
+    deviceId: host.id,
+    discoveryProviderKey: 'plugin:device.nginx-proxy-manager',
+    targetType: 'tls.binding',
+    targetKey: 'proxy-host:1',
+    supportedCapabilities: ['certificate.deploy'],
+    executionLocations: ['CONTROL_PLANE'],
+  });
+  const applicationAsset = await repository.createServiceAsset(tenantId, {
+    address: 'npm-18181.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+  });
+  await repository.createApplicationAssetTarget(tenantId, {
+    applicationAssetId: applicationAsset.id,
+    managedTargetId: managedTarget.id,
+  });
+  await insertLogoPluginVersion(database, tenantId, 'npm-old', '0.1.7', false);
+  await insertLogoPluginVersion(database, tenantId, 'npm-current', '0.1.11', true);
+  await database.query(
+    `insert into pg_device_assets
+      (service_asset_id, tenant_id, host_id, device_family, product_family, plugin_version_id, management_port, auth_mode, tls_verify, support_tier, capability_profile, metadata, created_at, updated_at, version)
+     values ($1,$2,$3,'device.nginx-proxy-manager','device.nginx-proxy-manager','npm-old',443,'AUTO',true,'SUPPORTED','{}'::jsonb,'{}'::jsonb,now(),now(),1)`,
+    [applicationAsset.id, tenantId, host.id],
+  );
+
+  const result = await repository.listServiceAssets(tenantId, { page: 1, pageSize: 20, filter: { id: applicationAsset.id } });
+  assert.equal(result.items[0]?.targetBinding?.pluginVersionId, 'npm-current');
+});
+
+async function insertLogoPluginVersion(
+  database: PgliteDatabase,
+  tenantId: string,
+  id: string,
+  version: string,
+  withLogo: boolean,
+): Promise<void> {
+  const manifest = {
+    pluginId: 'device.nginx-proxy-manager',
+    version,
+    resources: withLogo ? { logos: { square: 'logos/logo-square.svg' } } : {},
+  };
+  await database.query(
+    `insert into unified_plugin_versions
+      (id, tenant_id, plugin_id, plugin_version, source, runtime, scope, trust, support, manifest, package_sha256, manifest_sha256, resource_sha256, status, permission_approval_status, approved_permissions, validation_report, created_at, updated_at)
+     values ($1,$2,$3,$4,'USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED',$5::jsonb,'sha256:test-package','sha256:test-manifest','{}'::jsonb,$6,'NOT_REQUIRED','[]'::jsonb,'{}'::jsonb,now(),now())`,
+    [id, tenantId, manifest.pluginId, version, JSON.stringify(manifest), withLogo ? 'ENABLED' : 'DISABLED'],
+  );
+  if (withLogo) {
+    await database.query(
+      `insert into unified_plugin_resources
+        (plugin_version_id, resource_path, resource_content, resource_sha256, created_at)
+       values ($1,'logos/logo-square.svg',$2,'sha256:test-logo',now())`,
+      [id, '<svg viewBox="0 0 72 72"><rect width="72" height="72" /></svg>'],
+    );
+  }
+}
 
 test('应用资产部分更新保留验证 URL 并支持显式清空', async () => {
   const database = new PgliteDatabase();
