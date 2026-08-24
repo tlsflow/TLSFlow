@@ -12,13 +12,16 @@ codeRefs:
   - backend/src/modules/plugins/builtin-plugins/device-nginx-proxy-manager
   - docs/插件开发/nginx-proxy-manager/README.md
   - docs/插件开发/nginx-proxy-manager/测试文档/20260821-证书更新流程测试.md
-testRefs: []
-lastVerified: 2026-08-22
+testRefs:
+  - backend/src/modules/plugins/builtin-plugin-migration.test.ts
+  - backend/src/modules/plugins/application/user-plugin-directory-importer.test.ts
+  - docs/插件开发/nginx-proxy-manager/测试文档/20260821-证书更新流程测试.md
+lastVerified: 2026-08-24
 ---
 
 # 插件示例：Nginx Proxy Manager
 
-Nginx Proxy Manager（NPM）插件当前为内置插件 `device.nginx-proxy-manager`，版本以包内 Manifest 为准（旧示例记录的内置版本为 `0.1.7`，不能覆盖 Manifest 的事实）。它把 NPM 管理实例作为设备，把每个 Proxy Host 映射为可部署站点和 TLS 绑定。
+Nginx Proxy Manager（NPM）插件当前为内置插件 `device.nginx-proxy-manager`，包内 Manifest 版本为 `0.1.11`；旧示例记录的 `0.1.7` 仅作为历史测试证据，不能覆盖当前 Manifest 事实。它把 NPM 管理实例作为设备，把每个 Proxy Host 映射为可部署站点和 TLS 绑定。
 
 ## 1. 设备管理
 

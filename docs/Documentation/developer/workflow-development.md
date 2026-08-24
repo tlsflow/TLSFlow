@@ -16,8 +16,17 @@ codeRefs:
   - backend/src/modules/executors/ssh
   - backend/src/modules/executors/curl
   - backend/src/modules/executions/application/executors.ts
-testRefs: []
-lastVerified: 2026-08-22
+  - backend/src/modules/workflow-templates/domain/workflow-canvas.compiler.ts
+  - backend/src/modules/deployment-inputs/dto/deployment-input-contract.dto.ts
+  - backend/src/modules/deployment-inputs/dto/resolved-deployment-input.dto.ts
+  - backend/src/modules/deployment-inputs/schema/deployment-input-contract.schema.ts
+testRefs:
+  - backend/src/modules/workflow-templates/workflow-templates.test.ts
+  - backend/src/modules/workflow-templates/workflow-templates.security.test.ts
+  - backend/src/modules/workflow-templates/workflow-step-dispatcher.test.ts
+  - backend/src/modules/executions/workflow-executor-adapter.test.ts
+  - backend/src/modules/executions/execution-grant-artifact.test.ts
+lastVerified: 2026-08-24
 ---
 
 # 工作流开发规范
@@ -69,11 +78,56 @@ lastVerified: 2026-08-22
 
 证书材料通过 Artifact Slot，密码和令牌通过 Credential/`secret://` 引用获取；PEM、私钥和 Secret 不得进入普通变量、命令文本、日志或计划 JSON。
 
-当前 Step 类型只有：`http`、`ssh`、`sftp`、`scp`、`condition`、`transform`、`foreach`、`checkpoint`、`checkpoint_verify`、`wait` 和 `manual`。证书部署阶段固定为 `prepare → backup → install → refresh → verify`；`rollback` 是同一 WorkflowVersion 的独立数组，不是把命令追加到主流程末尾。
+当前 Step 类型为：`http`、`ssh`、`browser`、`sftp`、`scp`、`condition`、`transform`、`foreach`、`checkpoint`、`checkpoint_verify`、`wait`、`manual` 和 `plugin.action`。证书部署阶段固定为 `prepare → backup → install → refresh → verify`；`rollback` 是同一 WorkflowVersion 的独立数组，不是把命令追加到主流程末尾。`plugin.execute` 仅属于旧插件 Workflow Schema，当前 DSL 不接受。
 
 ### HTTP/CURL
 
-HTTP Step 必须引用 Contract 中的 `connectionRef`。Basic、Bearer、API Key、Cookie、自定义 Header 和 mTLS（双向 TLS）均通过 Credential/SecretRef 注入；URL 只允许 HTTP(S)，默认拒绝明文远程 HTTP。`tls.verify=false` 只有在 `allowInsecure=true`、审批、审计和隔离测试同时满足时才能使用。`extract` 可读取 JSON 路径、响应 Header、正则或状态码，`assert` 可检查状态码、JSON 路径、Header、文本、正则和证书指纹。
+HTTP Step 必须引用 Contract 中的 `connectionRef`。Basic、Bearer、API Key、Cookie、自定义 Header 和 mTLS（双向 TLS）均通过 Credential/SecretRef 注入；URL 只允许 HTTP(S)，默认拒绝明文远程 HTTP。`tls.verify=false` 只有在 DSL 显式声明 `allowInsecure=true`、解析后的执行授权包含 `allowInsecureTls=true`，并且宿主为当前租户、run、step 和 WorkflowVersion 签发有效短期 `ExecutionGrant` 时才会执行；Grant 在步骤结束后撤销。`approvalId` 不是 TLS 连接前置字段，执行事件仍必须按宿主审计规则记录，不能把该例外当成生产目标已验证。`extract` 可读取 JSON 路径、响应 Header、正则或状态码，`assert` 可检查状态码、JSON 路径、Header、文本、正则和证书指纹。
+
+### Browser Step
+
+Browser Step 由宿主 Browser Runtime 执行，只允许 `navigate`、`extract`、`verify` 三种动作，不开放任意脚本、选择器点击或文件系统访问。`url` 默认来自当前能力合同；用户或已有凭据可以显式提供 HTTPS 登录地址，宿主会把该地址的规范化 Origin 临时加入当前会话白名单，后续导航仍只能访问会话允许的 Origin；同一个受控 BrowserContext 内完成导航、提取和验证。
+
+```json
+{
+  "name": "extract-session",
+  "type": "browser",
+  "stage": "prepare",
+  "browser": {
+    "action": "extract",
+    "extractions": [
+      { "name": "sessionId", "source": "cookie", "key": "session_id", "sensitive": true },
+      { "name": "csrf", "source": "header", "key": "x-csrf-token", "optional": true, "sensitive": true }
+    ]
+  },
+  "extract": [{ "name": "browserSession", "type": "outputPath", "path": "sessionId", "sensitive": true }]
+}
+```
+
+`cookie`、`header`、`local_storage`、`session_storage` 必须提供 `key`；`url` 和 `text` 不需要 `key`。敏感提取只能进入声明过的 `BROWSER_SESSION` 或其他凭据输出合同，未声明字段必须丢弃；不得写入普通变量、日志或 Workflow 持久化快照。
+
+### Plugin Action Step
+
+`plugin.action` 只能调用当前插件版本 Manifest 中已经声明且已发布的单个 Action。宿主在执行前比对 Action Contract、输入/输出 Schema 摘要、能力、Grant、超时和幂等键；Runner 不接收 Workflow、rollback、checkpoint 或全局变量。
+
+```json
+{
+  "name": "cloud-sign-request",
+  "type": "plugin.action",
+  "pluginId": "cloud.aliyun",
+  "capability": "cloud.service.connection-test",
+  "actionId": "cloud.service.connection-test",
+  "actionContractVersion": "v1",
+  "input": { "serviceRef": "{{ asset.cloudServiceRef }}" },
+  "inputSchemaSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "outputSchemaSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "timeoutSeconds": 30,
+  "writeEffect": false,
+  "idempotencyKeyRef": "{{ variables.requestId }}"
+}
+```
+
+`inputSchemaSha256` 和 `outputSchemaSha256` 必须是资源内容的 `sha256:<64 位小写十六进制>` 摘要；`timeoutSeconds` 为 1-3600；`idempotencyKeyRef` 必须是变量引用。Runner 只能通过[宿主 Host API](./host-plugin-capabilities.md#runner-host-api-精确合同)读取云服务、Artifact、Secret、签名、HTTPS、取消状态和追加审计。
 
 ### SSH/SFTP/SCP
 
@@ -100,3 +154,17 @@ Windows Remote 当前只有规划或 Mock（模拟）边界，不能在规范中
 5. 新增 step、stage、变量或执行器后同步更新项目规范，并重新运行文档和相关测试。
 
 证书部署工作流还必须固定 `certificateVersionId` 和 `certificateFormatId`，由宿主生成叶子证书、私钥、中间链、PFX/P12、JKS 或 P7B/P7C 制品。`verify` 阶段必须读取目标服务实际返回的证书指纹；上传成功不等于部署成功。结果同步只有在正式验证成功或回滚成功后才更新当前绑定状态。
+
+## 6. 权威 Schema 与执行合同索引
+
+以下文件是机器可校验合同的唯一来源；本文只解释使用方式，不复制一份可能漂移的简化 Schema：
+
+| 合同 | 权威源码 |
+| --- | --- |
+| Workflow DSL 与 Step 校验 | `backend/src/modules/workflow-templates/schema/workflow-templates.schema.ts`、`backend/src/modules/workflow-templates/dto/workflow-templates.dto.ts` |
+| DeploymentInput Contract | `backend/src/modules/deployment-inputs/dto/deployment-input-contract.dto.ts`、`backend/src/modules/deployment-inputs/schema/deployment-input-contract.schema.ts` |
+| ResolvedDeploymentInput / Artifact 快照 | `backend/src/modules/deployment-inputs/dto/resolved-deployment-input.dto.ts` |
+| Runner `plugin.action` Host API | `backend/src/modules/plugins/runner/protocol/host-api.registry.ts`、`backend/src/modules/plugins/runner/protocol/schemas/host-api-v1.schema.json` |
+| Runner IPC v2 | `backend/src/modules/plugins/runner/protocol/protocol.types.ts`、`backend/src/modules/plugins/runner/protocol/schemas/ipc-v1.schema.json` |
+
+新增或修改 Step、stage、变量、SecretRef、extract/assert、SSH/CURL 或 Runner 适配后，必须同步更新 `docs/项目规范/20260723-工作流模板管理及编写规范.md`，并在插件迭代说明中记录合同摘要变化。
