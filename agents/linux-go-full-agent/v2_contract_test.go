@@ -48,17 +48,50 @@ func TestV2RejectsLegacyActions(t *testing.T) {
 	}
 }
 
-func TestV2RejectsTypeFieldWithoutCanonicalActionType(t *testing.T) {
+func TestV2RejectsQueuePayloadWithoutCanonicalActionType(t *testing.T) {
 	_, code, _, _ := executeLinuxTaskPayload("task-1", map[string]any{"type": agentPlanExecute})
 	if code != "ACTION_HANDLER_NOT_REGISTERED" {
-		t.Fatalf("legacy type field must not select an action handler, got %s", code)
+		t.Fatalf("非 canonical 队列字段不得选择 Agent v2 Handler, got %s", code)
+	}
+}
+
+func TestV2QueueBoundaryConvertsActionTypeToWireAction(t *testing.T) {
+	wirePayload, action, schemaVersion, err := decodeQueuedAgentV2Payload(map[string]any{
+		"actionType":          agentPlanValidate,
+		"actionSchemaVersion": "1.0",
+	})
+	if err != nil {
+		t.Fatalf("canonical 队列动作转换失败: %v", err)
+	}
+	if action != agentPlanValidate || schemaVersion != "1.0" || stringFromMap(wirePayload, "action") != agentPlanValidate {
+		t.Fatalf("队列动作转换结果不正确: action=%s schema=%s payload=%+v", action, schemaVersion, wirePayload)
+	}
+	if _, exists := wirePayload["actionType"]; exists {
+		t.Fatal("进入 Agent v2 wire 后不得保留 actionType")
+	}
+	if _, exists := wirePayload["actionSchemaVersion"]; exists {
+		t.Fatal("进入 Agent v2 wire 后不得保留 actionSchemaVersion")
+	}
+}
+
+func TestV2QueueBoundaryRejectsWireAndLegacyActions(t *testing.T) {
+	for _, payload := range []map[string]any{
+		{"action": agentPlanValidate, "actionSchemaVersion": "1.0"},
+		{"actionType": "agent.atomic_plan.execute", "actionSchemaVersion": "1.0"},
+		{"actionType": "agent.execute", "actionSchemaVersion": "1.0"},
+		{"actionType": "command.execute", "actionSchemaVersion": "1.0"},
+		{"actionType": "certificate.deploy", "actionSchemaVersion": "1.0"},
+	} {
+		if _, _, _, err := decodeQueuedAgentV2Payload(payload); err == nil {
+			t.Fatalf("非 canonical Agent v2 动作必须失败关闭: %+v", payload)
+		}
 	}
 }
 
 func TestV2RejectsMissingActionTypeWithoutSelfTestDefault(t *testing.T) {
 	_, code, _, _ := executeLinuxTaskPayload("task-1", map[string]any{})
 	if code != "ACTION_HANDLER_NOT_REGISTERED" {
-		t.Fatalf("missing actionType must be rejected, got %s", code)
+		t.Fatalf("缺少队列 actionType 必须失败关闭, got %s", code)
 	}
 }
 

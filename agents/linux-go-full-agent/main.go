@@ -357,21 +357,17 @@ func buildLinuxHealthChecks(config *AgentConfig, configPath string) []map[string
 }
 
 func executeLinuxTaskPayload(taskID string, payload map[string]any) (bool, string, string, map[string]any) {
-	taskType := strings.TrimSpace(stringFromMap(payload, "actionType"))
+	wirePayload, action, schemaVersion, err := decodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return false, "ACTION_HANDLER_NOT_REGISTERED", err.Error(), map[string]any{"taskId": taskID}
+	}
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
 		TaskID:        taskID,
-		ActionType:    taskType,
-		SchemaVersion: resolveActionSchemaVersion(taskType, payload),
-		Payload:       payload,
+		ActionType:    action,
+		SchemaVersion: schemaVersion,
+		Payload:       wirePayload,
 	})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
-}
-
-func resolveActionSchemaVersion(actionType string, payload map[string]any) string {
-	if schemaVersion := strings.TrimSpace(stringFromMap(payload, "actionSchemaVersion")); schemaVersion != "" {
-		return schemaVersion
-	}
-	return coreRegistry.DefaultSchemaVersion
 }
 
 type linuxActionRuntime struct {
@@ -768,7 +764,7 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 	if grantAgentID := stringFromMap(forwardingGrant, "delegatedAgentId"); grantAgentID != "" && grantAgentID != targetAgentID {
 		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 ForwardingGrant 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "grantAgentId": grantAgentID}, true
 	}
-	forwardPayload, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
+	forwardPayload, action, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
 	if err != nil {
 		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
 	}
@@ -780,31 +776,26 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": stringFromMap(forwardPayload, "actionType")}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": action}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}
-	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, stringFromMap(forwardPayload, "actionType"), detail, gatewayForwardWaitDuration(gatewayPayload))
+	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, action, detail, gatewayForwardWaitDuration(gatewayPayload))
 }
 
-func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, error) {
+func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, string, error) {
 	token := mapFromMap(source, "token")
 	decision := mapFromMap(source, "policyDecision")
 	if token == nil || decision == nil {
-		return nil, errors.New("Gateway 转发缺少 Token 或 Policy Decision")
-	}
-	actionType := firstNonEmpty(stringFromMap(source, "actionType"), stringFromMap(source, "action"))
-	if actionType == "" {
-		return nil, errors.New("Gateway 转发缺少 Agent v2 actionType")
+		return nil, "", errors.New("Gateway 转发缺少 Token 或 Policy Decision")
 	}
 	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
-		return nil, errors.New("Gateway Token agentId 与目标 Agent 不一致")
+		return nil, "", errors.New("Gateway Token agentId 与目标 Agent 不一致")
 	}
 	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
 	planDigest := stringFromMap(token, "planDigest")
 	payload := map[string]any{
-		"action":              actionType,
-		"actionType":          actionType,
+		"actionType":          firstNonEmpty(stringFromMap(source, "actionType"), stringFromMap(source, "action")),
 		"actionSchemaVersion": firstNonEmpty(stringFromMap(source, "actionSchemaVersion"), "1.0"),
 		"requestId":           firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
 		"agentId":             targetAgentID,
@@ -827,7 +818,11 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 	if receipt := mapFromMap(source, "receipt"); receipt != nil {
 		payload["receipt"] = receipt
 	}
-	return payload, nil
+	queuePayload, action, err := encodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return nil, "", err
+	}
+	return queuePayload, action, nil
 }
 
 func waitForGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, taskID, targetAgentID, actionType string, detail map[string]any, timeout time.Duration) (bool, string, string, map[string]any, bool) {

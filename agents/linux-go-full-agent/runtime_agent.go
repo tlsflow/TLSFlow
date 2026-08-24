@@ -871,12 +871,19 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	taskType := strings.TrimSpace(stringFromMap(payload, "actionType"))
 	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
 		return success, code, message, detail
 	}
+	wirePayload, action, schemaVersion, err := decodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return false, "ACTION_HANDLER_NOT_REGISTERED", err.Error(), map[string]any{
+			"taskId":          task.ID,
+			"executionRunId":  task.ExecutionRunID,
+			"executionStepId": task.ExecutionStepID,
+		}
+	}
 	registry := newLinuxActionRegistry(&linuxActionRuntime{client: client, config: config, state: state, counters: counters, rescan: rescan})
-	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: resolveActionSchemaVersion(taskType, payload), Payload: payload})
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: action, SchemaVersion: schemaVersion, Payload: wirePayload})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
