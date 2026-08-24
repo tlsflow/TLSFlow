@@ -15,6 +15,7 @@ export interface BootstrappedDatabase {
 
 export interface BootstrapDatabaseOptions {
   applyMigrations?: boolean;
+  retryFailedMigrations?: boolean;
 }
 
 export async function bootstrapDatabase(
@@ -31,6 +32,7 @@ export async function bootstrapDatabase(
     appliedMigrations = await runMigrations(db, migrationsDir, {
       appliedBy: env.GCAC_MIGRATION_APPLIED_BY ?? 'system',
       checksum: (content) => createHash('sha256').update(content).digest('hex'),
+      retryFailedMigrations: options.retryFailedMigrations ?? env.GCAC_RETRY_FAILED_MIGRATIONS === '1',
     });
   }
 

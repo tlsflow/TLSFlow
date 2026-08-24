@@ -17,6 +17,7 @@ const expectedForwardMigrations = [
   '20260809000800_remove_legacy_provider_runtime_records.sql',
   '20260809000900_scope_plugin_runner_constraints.sql',
   '20260810000100_plugin_runner_canonical_scope_fix.sql',
+  '20260810000150_normalize_retired_agent_atomic_runtime.sql',
   '20260810000200_agent_plan_runtime.sql',
   '20260810000300_plugin_runner_canonical_agent_plan_scope.sql',
 ] as const;
@@ -34,6 +35,31 @@ async function applyHistoricalMigrations(db: PgliteDatabase): Promise<void> {
     .filter((file) => file.endsWith('.sql') && file < firstForwardMigration)
     .sort();
   for (const file of files) await db.exec(await readFile(join(migrationDirectory, file), 'utf8'));
+}
+
+async function insertRetiredLegacyAgentAtomicVersion(db: PgliteDatabase): Promise<void> {
+  const hash = `sha256:${'a'.repeat(64)}`;
+  await db.query(`
+    insert into unified_plugin_versions (
+      id, tenant_id, plugin_id, plugin_version, source, runtime, scope, trust, support,
+      manifest, package_sha256, manifest_sha256, resource_sha256, status,
+      permission_approval_status, approved_permissions, validation_report, created_at, updated_at
+    ) values (
+      'legacy-agent-atomic-version', 'tenant-legacy-runtime', 'web.nginx', '0.1.0',
+      'BUILTIN', 'AGENT_ATOMIC', 'MANAGED', 'OFFICIAL_SIGNED', 'OFFICIAL',
+      jsonb_build_object(
+        'apiVersion', 'gcac.plugin-manifest/v1',
+        'kind', 'GcacPlugin',
+        'pluginId', 'web.nginx',
+        'canonicalPluginId', 'web.nginx',
+        'version', '0.1.0',
+        'runtime', 'AGENT_ATOMIC',
+        'executionMode', 'isolated_process',
+        'resources', jsonb_build_object('agentRecipes', jsonb_build_object('certificate.deploy', 'legacy.json'))
+      ),
+      $1, $1, '{}'::jsonb, 'RETIRED', 'NOT_REQUIRED', '[]'::jsonb, '{}'::jsonb, now(), now()
+    )
+  `, [hash]);
 }
 
 async function applyForwardMigrations(db: PgliteDatabase, files: readonly string[]): Promise<void> {
@@ -76,6 +102,7 @@ test('20260809 前向迁移在真实 PGlite schema 上严格按序执行、可�
   const db = new PgliteDatabase();
   const files = await readForwardMigrations();
   await applyHistoricalMigrations(db);
+  await insertRetiredLegacyAgentAtomicVersion(db);
 
   await applyForwardMigrations(db, files);
   const first = await schemaSnapshot(db);
@@ -84,6 +111,12 @@ test('20260809 前向迁移在真实 PGlite schema 上严格按序执行、可�
   assert.equal(first.runner_constraints, '5');
   assert.match(first.canonical_scope, /source.*BUILTIN.*runtime.*AGENT_PLAN/s);
   assert.doesNotMatch(first.canonical_scope, /AGENT_ATOMIC/);
+  assert.deepEqual(
+    (await db.query<{ runtime: string }>(
+      `select runtime from unified_plugin_versions where id = 'legacy-agent-atomic-version'`,
+    )).rows,
+    [{ runtime: 'AGENT_PLAN' }],
+  );
 
   // 逐文件重新执行，验证临时表、函数、约束和清理审计都不会制造重复数据。
   await applyForwardMigrations(db, files);
@@ -94,6 +127,7 @@ test('20260809 前向迁移整批失败时事务回滚，不留下半成品结�
   const db = new PgliteDatabase();
   const files = await readForwardMigrations();
   await applyHistoricalMigrations(db);
+  await insertRetiredLegacyAgentAtomicVersion(db);
 
   await assert.rejects(
     db.transaction(async (tx) => {
@@ -114,5 +148,11 @@ test('20260809 前向迁移整批失败时事务回滚，不留下半成品结�
   assert.equal(
     (await db.query(`select count(*)::text as count from information_schema.columns where table_name = 'automation_versions' and column_name = 'target_selector'`)).rows[0]?.count,
     '1',
+  );
+  assert.deepEqual(
+    (await db.query<{ runtime: string }>(
+      `select runtime from unified_plugin_versions where id = 'legacy-agent-atomic-version'`,
+    )).rows,
+    [{ runtime: 'AGENT_ATOMIC' }],
   );
 });

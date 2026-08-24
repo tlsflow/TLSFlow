@@ -12,6 +12,8 @@ export interface AppliedMigration {
 export interface MigrationRunnerOptions {
   appliedBy?: string;
   checksum?: (content: string) => string;
+  /** 仅在明确授权时重试 FAILED 迁移；APPLIED 记录始终严格校验 checksum。 */
+  retryFailedMigrations?: boolean;
 }
 
 export async function runMigrations(
@@ -35,8 +37,11 @@ export async function runMigrations(
   const applied: AppliedMigration[] = [];
   for (const migration of migrationFiles) {
     const { file, version, name } = migration;
-    const sql = await readFile(join(migrationsDir, file), 'utf8');
+    const rawSql = await readFile(join(migrationsDir, file), 'utf8');
+    // 迁移文件受 Git 换行策略影响，执行和新记录都基于跨平台稳定的 LF 内容。
+    const sql = normalizeMigrationText(rawSql);
     const checksum = options.checksum ? options.checksum(sql) : file;
+    const compatibleChecksums = getCompatibleChecksums(rawSql, sql, checksum, options.checksum);
     const duplicateVersion = (versionCounts.get(version) ?? 0) > 1;
     const ordinal = migrationFiles.filter((candidate) => candidate.version === version).indexOf(migration) + 1;
     const legacy = await db.query<{ version: string; name: string; checksum: string; status: string }>(
@@ -44,7 +49,7 @@ export async function runMigrations(
       [version],
     );
     let migrationVersion = version;
-    let record = legacy.rows[0];
+    let record: { version: string; name: string; checksum: string; status: string } | undefined = legacy.rows[0];
 
     if (duplicateVersion && record && record.name !== name) {
       migrationVersion = `${version}_${ordinal}`;
@@ -62,8 +67,18 @@ export async function runMigrations(
       record = disambiguated.rows[0];
     }
 
+    if (record?.status === 'FAILED' && options.retryFailedMigrations) {
+      // 失败迁移的事务内容已回滚，这里只清除失败标记，让同一份迁移重新执行。
+      // FAILED 记录的 checksum 只描述上次尝试的内容，修复失败迁移后允许显式重试当前文件。
+      await db.query(
+        'delete from schema_migrations where version = $1 and status = $2',
+        [migrationVersion, 'FAILED'],
+      );
+      record = undefined;
+    }
+
     if (record) {
-      if (record.checksum !== checksum) {
+      if (!compatibleChecksums.has(record.checksum)) {
         throw new Error(`迁移 ${migrationVersion} checksum 不一致，现有=${record.checksum}，当前=${checksum}`);
       }
       if (record.status === 'APPLIED') {
@@ -93,6 +108,27 @@ export async function runMigrations(
   }
 
   return applied;
+}
+
+function normalizeMigrationText(content: string): string {
+  return content.replace(/\r\n?/g, '\n');
+}
+
+function getCompatibleChecksums(
+  rawSql: string,
+  normalizedSql: string,
+  canonicalChecksum: string,
+  checksum?: (content: string) => string,
+): Set<string> {
+  if (!checksum) return new Set([canonicalChecksum]);
+
+  // 兼容规范化前已经写入数据库的 CRLF/CR 历史 checksum，但不放宽实际 SQL 内容校验。
+  return new Set([
+    canonicalChecksum,
+    checksum(rawSql),
+    checksum(normalizedSql.replace(/\n/g, '\r\n')),
+    checksum(normalizedSql.replace(/\n/g, '\r')),
+  ]);
 }
 
 async function ensureMigrationTables(db: DatabasePort): Promise<void> {
