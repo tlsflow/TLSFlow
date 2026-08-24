@@ -44,6 +44,7 @@ const monitorMocks = vi.hoisted(() => ({
   deleteMonitorTarget: vi.fn(),
   listRiskEvents: vi.fn(),
   listMonitorCertificateObservations: vi.fn(),
+  listMonitorProbeResults: vi.fn(),
   probeMonitorServiceAsset: vi.fn(),
   scanMonitorRisks: vi.fn(),
 }))
@@ -51,9 +52,14 @@ const monitorMocks = vi.hoisted(() => ({
 const workflowMocks = vi.hoisted(() => ({
   listWorkflowTemplates: vi.fn(),
   createWorkflowTemplate: vi.fn(),
+  listWorkflowFileTemplates: vi.fn(),
+  createWorkflowTemplateFromFile: vi.fn(),
+  applyWorkflowTemplateFromFile: vi.fn(),
+  deleteWorkflowTemplate: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
   createWorkflowTemplateVersion: vi.fn(),
   publishWorkflowTemplateVersion: vi.fn(),
+  testWorkflowTemplateStep: vi.fn(),
 }))
 
 vi.mock('@/api/modules/assets.api', () => ({
@@ -103,6 +109,7 @@ vi.mock('@/api/modules/monitors.api', () => ({
   deleteMonitorTarget: monitorMocks.deleteMonitorTarget,
   listRiskEvents: monitorMocks.listRiskEvents,
   listMonitorCertificateObservations: monitorMocks.listMonitorCertificateObservations,
+  listMonitorProbeResults: monitorMocks.listMonitorProbeResults,
   probeMonitorServiceAsset: monitorMocks.probeMonitorServiceAsset,
   scanMonitorRisks: monitorMocks.scanMonitorRisks,
 }))
@@ -110,9 +117,14 @@ vi.mock('@/api/modules/monitors.api', () => ({
 vi.mock('@/api/modules/workflow-templates.api', () => ({
   listWorkflowTemplates: workflowMocks.listWorkflowTemplates,
   createWorkflowTemplate: workflowMocks.createWorkflowTemplate,
+  listWorkflowFileTemplates: workflowMocks.listWorkflowFileTemplates,
+  createWorkflowTemplateFromFile: workflowMocks.createWorkflowTemplateFromFile,
+  applyWorkflowTemplateFromFile: workflowMocks.applyWorkflowTemplateFromFile,
+  deleteWorkflowTemplate: workflowMocks.deleteWorkflowTemplate,
   listWorkflowTemplateVersions: workflowMocks.listWorkflowTemplateVersions,
   createWorkflowTemplateVersion: workflowMocks.createWorkflowTemplateVersion,
   publishWorkflowTemplateVersion: workflowMocks.publishWorkflowTemplateVersion,
+  testWorkflowTemplateStep: workflowMocks.testWorkflowTemplateStep,
 }))
 
 import DeploymentPlansView from '@/views/deployments/DeploymentPlansView.vue'
@@ -267,6 +279,7 @@ describe('spec028 前端闭环', () => {
     monitorMocks.listMonitorTargets.mockResolvedValue(okPage([]))
     monitorMocks.listRiskEvents.mockResolvedValue(okPage([]))
     monitorMocks.listMonitorCertificateObservations.mockResolvedValue(okPage([]))
+    monitorMocks.listMonitorProbeResults.mockResolvedValue(okPage([]))
     monitorMocks.probeMonitorServiceAsset.mockResolvedValue({
       data: {
         status: 'READY',

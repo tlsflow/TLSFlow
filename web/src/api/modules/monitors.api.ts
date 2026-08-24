@@ -5,6 +5,7 @@ const MONITOR_TARGETS_PATH = '/api/v1/monitors/targets'
 const MONITOR_RISKS_PATH = '/api/v1/monitors/risks'
 const MONITOR_SCAN_PATH = '/api/v1/monitors/scan'
 const MONITOR_PROBE_PATH = '/api/v1/monitors/probe'
+const MONITOR_PROBE_RESULTS_PATH = '/api/v1/monitors/probe-results'
 const MONITOR_CERTIFICATE_OBSERVATIONS_PATH = '/api/v1/monitors/certificate-observations'
 const MONITOR_ALERT_RULES_PATH = '/api/v1/monitors/alert-rules'
 
@@ -42,6 +43,10 @@ export function scanMonitorRisks(payload: ApiBody = {}) {
 
 export function probeMonitorServiceAsset(payload: ApiBody) {
   return postAction(MONITOR_PROBE_PATH, payload, 'monitor_probe')
+}
+
+export function listMonitorProbeResults(query?: BusinessListQuery) {
+  return listRecords(MONITOR_PROBE_RESULTS_PATH, query)
 }
 
 export function listMonitorCertificateObservations(query?: BusinessListQuery) {

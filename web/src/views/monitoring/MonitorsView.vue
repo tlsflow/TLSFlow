@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
@@ -8,6 +8,7 @@ import {
   createMonitorTarget,
   deleteMonitorTarget,
   listMonitorCertificateObservations,
+  listMonitorProbeResults,
   listMonitorTargets,
   listRiskEvents,
   probeMonitorServiceAsset,
@@ -69,8 +70,6 @@ const probing = ref(false)
 const addDialogOpen = ref(false)
 const error = ref('')
 const actionMessage = ref('')
-const targetTimers = new Map<string, number>()
-const scheduledProbeIds = new Set<string>()
 const activeProbeIds = new Set<string>()
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
@@ -124,16 +123,13 @@ onMounted(() => {
   void refreshAll()
 })
 
-onBeforeUnmount(() => {
-  clearTargetProbeTimers()
-})
-
 async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
-    const [targetResult, assetResult, riskResult, bindingResult] = await Promise.all([
+    const [targetResult, probeResult, assetResult, riskResult, bindingResult] = await Promise.all([
       listMonitorTargets({ page: 1, pageSize: 500, sort: 'createdAt:desc' }),
+      listMonitorProbeResults({ page: 1, pageSize: 500 }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -141,6 +137,8 @@ async function refreshAll() {
     monitorTargets.value = (targetResult.data?.items ?? [])
       .map(normalizeMonitorTargetRecord)
       .filter((target): target is MonitorTarget => Boolean(target))
+    probeHistory.value = groupProbeResults(probeResult.data?.items ?? [])
+    probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
     trimProbeStateToTargets()
     assets.value = [...(assetResult.data?.items ?? [])]
     risks.value = [...(riskResult.data?.items ?? [])]
@@ -149,7 +147,6 @@ async function refreshAll() {
     if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
       selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
     }
-    resetTargetProbeTimers()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '监控数据加载失败'
   } finally {
@@ -175,7 +172,6 @@ async function addMonitorTarget() {
     addDialogOpen.value = false
     actionMessage.value = '监控目标已添加。'
     void probeTarget(target)
-    scheduleTargetProbe(target)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '监控目标添加失败'
   }
@@ -197,7 +193,6 @@ async function removeMonitorTarget(targetId: string) {
     error.value = cause instanceof Error ? cause.message : '监控目标删除失败'
     return
   }
-  clearTargetProbeTimer(targetId)
   monitorTargets.value = monitorTargets.value.filter((item) => item.id !== targetId)
   if (target?.assetId) {
     const nextProbeResults = { ...probeResults.value }
@@ -224,7 +219,6 @@ async function updateTargetInterval(targetId: string, value: number) {
     monitorTargets.value = monitorTargets.value.map((item) =>
       item.id === targetId ? updated : item,
     )
-    scheduleTargetProbe(updated)
     actionMessage.value = '探测频率已更新。'
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '探测频率更新失败'
@@ -249,6 +243,7 @@ async function probeTarget(target: MonitorTarget) {
   activeProbeIds.add(target.id)
   try {
     const result = await probeMonitorServiceAsset({
+      monitorTargetId: target.id,
       serviceAssetId: target.assetId,
       timeoutMs: 10000,
     })
@@ -262,6 +257,7 @@ async function probeTarget(target: MonitorTarget) {
       httpStatus: readNumber(data.httpStatus),
       certificate: readObject(data.certificate),
     })
+    await refreshProbeResults(target.assetId)
     await refreshCertificateObservations(target.assetId)
   } catch (cause) {
     saveProbeResult(target.assetId, {
@@ -286,60 +282,23 @@ async function refreshCertificateObservations(assetId?: string) {
     : grouped
 }
 
+async function refreshProbeResults(assetId?: string) {
+  const result = await listMonitorProbeResults({
+    page: 1,
+    pageSize: 500,
+    filters: assetId ? { serviceAssetId: assetId } : undefined,
+  })
+  const grouped = groupProbeResults(result.data?.items ?? [])
+  probeHistory.value = assetId
+    ? { ...probeHistory.value, [assetId]: grouped[assetId] ?? [] }
+    : grouped
+  probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
+}
+
 function saveProbeResult(assetId: string, result: ProbeResult) {
   probeResults.value = { ...probeResults.value, [assetId]: result }
   const history = [result, ...(probeHistory.value[assetId] ?? [])].slice(0, 20)
   probeHistory.value = { ...probeHistory.value, [assetId]: history }
-}
-
-function resetTargetProbeTimers() {
-  clearTargetProbeTimers()
-  for (const target of monitorTargets.value) {
-    scheduleTargetProbe(target, staggerDelaySeconds(target))
-  }
-}
-
-function scheduleTargetProbe(target: MonitorTarget, delaySeconds = target.intervalSeconds) {
-  clearTargetProbeTimer(target.id)
-  if (!monitorTargets.value.some((item) => item.id === target.id)) return
-  const delayMs = normalizeProbeInterval(delaySeconds) * 1000
-  const timer = window.setTimeout(() => {
-    void runScheduledProbe(target.id)
-  }, delayMs)
-  targetTimers.set(target.id, timer)
-}
-
-async function runScheduledProbe(targetId: string) {
-  targetTimers.delete(targetId)
-  if (scheduledProbeIds.has(targetId)) return
-  const target = monitorTargets.value.find((item) => item.id === targetId)
-  if (!target) return
-  scheduledProbeIds.add(targetId)
-  try {
-    await probeTarget(target)
-  } finally {
-    scheduledProbeIds.delete(targetId)
-    const latest = monitorTargets.value.find((item) => item.id === targetId)
-    if (latest) scheduleTargetProbe(latest)
-  }
-}
-
-function clearTargetProbeTimer(targetId: string) {
-  const timer = targetTimers.get(targetId)
-  if (timer !== undefined) window.clearTimeout(timer)
-  targetTimers.delete(targetId)
-}
-
-function clearTargetProbeTimers() {
-  for (const timer of targetTimers.values()) {
-    window.clearTimeout(timer)
-  }
-  targetTimers.clear()
-}
-
-function staggerDelaySeconds(target: MonitorTarget): number {
-  const index = monitorTargets.value.findIndex((item) => item.id === target.id)
-  return normalizeProbeInterval(target.intervalSeconds) + Math.max(0, index) * 3
 }
 
 function normalizeProbeInterval(value: number): number {
@@ -537,6 +496,39 @@ function groupCertificateObservations(items: readonly ApiRecord[]): Record<strin
   }, {})
 }
 
+function groupProbeResults(items: readonly ApiRecord[]): Record<string, ProbeResult[]> {
+  return items.reduce<Record<string, ProbeResult[]>>((acc, item) => {
+    const assetId = readString(item, ['serviceAssetId'], '')
+    const result = normalizeStoredProbeResult(item)
+    if (!assetId || !result) return acc
+    acc[assetId] = [...(acc[assetId] ?? []), result].slice(0, 20)
+    return acc
+  }, {})
+}
+
+function normalizeStoredProbeResult(item: ApiRecord): ProbeResult | null {
+  const status = readString(item, ['status'], '')
+  if (!isProbeStatus(status)) return null
+  const checkedAt = Date.parse(readString(item, ['checkedAt'], '')) || readNumber(item.checkedAt) || Date.now()
+  return {
+    status,
+    latencyMs: readNumber(item.latencyMs),
+    checkedAt,
+    message: readString(item, ['message'], '探测完成'),
+    source: readString(item, ['source'], ''),
+    httpStatus: readNumber(item.httpStatus),
+    certificate: readObject(item.certificate),
+  }
+}
+
+function latestProbeResultsFromHistory(history: Record<string, ProbeResult[]>): Record<string, ProbeResult> {
+  return Object.fromEntries(
+    Object.entries(history)
+      .map(([assetId, items]) => [assetId, items[0]] as const)
+      .filter((entry): entry is readonly [string, ProbeResult] => Boolean(entry[1])),
+  )
+}
+
 function normalizeStoredCertificateObservation(item: ApiRecord): CertificateObservation | null {
   const fingerprint = normalizeFingerprint(readString(item, ['fingerprintSha256'], ''))
   if (!fingerprint) return null
@@ -574,6 +566,10 @@ function normalizeMonitorTargetRecord(value: unknown): MonitorTarget | null {
 
 function isMonitorMetric(value: unknown): value is MonitorMetric {
   return typeof value === 'string' && defaultMetrics.includes(value as MonitorMetric)
+}
+
+function isProbeStatus(value: string): value is ProbeStatus {
+  return value === 'READY' || value === 'WARNING' || value === 'ERROR'
 }
 
 function clearStoredMonitorState() {

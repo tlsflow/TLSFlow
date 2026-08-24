@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cancelDeploymentPlan, createDeploymentPlan, dryRunDeploymentPlan, executeDeploymentPlan, submitDeploymentPlan } from '@/api/modules/deployments.api'
 import { listExecutionSteps, retryExecution, rollbackExecution } from '@/api/modules/executions.api'
 import { evaluateCapabilityCompatibility, listCapabilityDeclarations, listCapabilityRequirements, listCapabilities, matchCapabilityRequirement } from '@/api/modules/assets.api'
-import { createMonitorTarget, deleteMonitorTarget, listMonitors, listMonitorTargets, updateMonitorTarget } from '@/api/modules/monitors.api'
+import { createMonitorTarget, deleteMonitorTarget, listMonitorProbeResults, listMonitors, listMonitorTargets, updateMonitorTarget } from '@/api/modules/monitors.api'
 import { deleteBinding, listBindingUsages, persistBindingDriftResult } from '@/api/modules/bindings.api'
 
 function mockOk(data: unknown = { id: 'ok' }) {
@@ -24,6 +24,7 @@ describe('spec028 API modules', () => {
     await listBindingUsages({ filters: { certificateVersionId: 'certver-1' } })
     await listMonitors()
     await listMonitorTargets()
+    await listMonitorProbeResults()
     await listExecutionSteps({ filters: { runId: 'run-1' } })
 
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
@@ -34,6 +35,7 @@ describe('spec028 API modules', () => {
       '/api/v1/certificate-bindings/usage?page=1&pageSize=20&filter%5BcertificateVersionId%5D=certver-1',
       '/api/v1/monitors/risks?page=1&pageSize=20',
       '/api/v1/monitors/targets?page=1&pageSize=20',
+      '/api/v1/monitors/probe-results?page=1&pageSize=20',
       '/api/v1/execution-steps?page=1&pageSize=20&filter%5BrunId%5D=run-1'
     ]))
   })
