@@ -29,32 +29,25 @@ function Write-ServiceLog {
     [System.IO.File]::AppendAllText($serviceLog, ($Message + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
 }
 
-function Set-DirectControlFirewallRule {
+function Assert-ServiceRegistration {
     param(
-        [Parameter(Mandatory = $true)][string]$ProgramPath
+        [Parameter(Mandatory = $true)][string]$ExpectedBinaryPathName
     )
 
-    $firewallService = Get-Service -Name "MpsSvc" -ErrorAction SilentlyContinue
-    if ($null -eq $firewallService -or [string]$firewallService.Status -ne "Running") {
-        Write-ServiceLog -Message "Windows Firewall service is not running; firewall rule synchronization skipped."
-        return
+    $registeredService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if ($null -eq $registeredService) {
+        throw "Service registration failed: $serviceName"
     }
 
-    $firewallRuleName = "GCAC Windows Compatibility Agent Direct Control"
-    $deleteOutput = & netsh.exe advfirewall firewall delete rule "name=$firewallRuleName" 2>&1 | Out-String
-    Write-ServiceLog -Message ("Firewall rule cleanup: " + $deleteOutput.Trim())
-
-    $programRuleOutput = & netsh.exe advfirewall firewall add rule "name=$firewallRuleName" dir=in action=allow protocol=TCP localport=18933 "program=$ProgramPath" enable=yes profile=any 2>&1 | Out-String
-    $programRuleExitCode = $LASTEXITCODE
-    Write-ServiceLog -Message ("Firewall program rule: exitCode=" + $programRuleExitCode + "; output=" + $programRuleOutput.Trim())
-    if ($programRuleExitCode -eq 0) { return }
-
-    Write-ServiceLog -Message "Firewall program rule failed; trying port-only fallback."
-    $portRuleOutput = & netsh.exe advfirewall firewall add rule "name=$firewallRuleName" dir=in action=allow protocol=TCP localport=18933 enable=yes profile=any 2>&1 | Out-String
-    $portRuleExitCode = $LASTEXITCODE
-    Write-ServiceLog -Message ("Firewall port-only rule: exitCode=" + $portRuleExitCode + "; output=" + $portRuleOutput.Trim())
-    if ($portRuleExitCode -ne 0) {
-        Write-ServiceLog -Message ("Direct Control firewall rule synchronization failed and installation will continue; programRuleExitCode=" + $programRuleExitCode + "; portRuleExitCode=" + $portRuleExitCode)
+    $serviceInfo = Get-WmiObject -Class Win32_Service -Filter ("Name='" + $serviceName.Replace("'", "''") + "'") -ErrorAction Stop
+    if ($null -eq $serviceInfo) {
+        throw "Service registration metadata unavailable: $serviceName"
+    }
+    if (-not [string]::Equals(([string]$serviceInfo.PathName).Trim(), $ExpectedBinaryPathName.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Service binary path binding mismatch: $serviceName"
+    }
+    if (-not [string]::Equals([string]$serviceInfo.StartMode, "Auto", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Service startup mode binding mismatch: $serviceName"
     }
 }
 
@@ -86,7 +79,7 @@ $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\" + $serviceName
 Set-ItemProperty -LiteralPath $serviceRegistryPath -Name Description -Value "GCAC compatibility product line for Windows Server 2008 R2 SP1 through 2012 R2" -ErrorAction Stop
 & sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000 1>> $serviceLog 2>&1
 if ($LASTEXITCODE -ne 0) { Write-ServiceLog -Message ("Service recovery configuration skipped. exitCode=" + $LASTEXITCODE) }
-Set-DirectControlFirewallRule -ProgramPath $binaryPath
+Assert-ServiceRegistration -ExpectedBinaryPathName $quotedBinary
 if ($NoStartAfterInstall) {
     Write-ServiceLog -Message "Service installed without starting."
 } else {

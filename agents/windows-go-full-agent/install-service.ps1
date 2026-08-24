@@ -27,53 +27,6 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
   throw "Administrator privileges are required to install the Windows Service."
 }
 
-function Remove-ServiceByName {
-  [CmdletBinding()]
-  param(
-    [Parameter(Mandatory = $true)]
-    [string]$Name,
-
-    [Parameter(Mandatory = $false)]
-    [string]$NssmExe = ""
-  )
-
-  if ([string]::IsNullOrWhiteSpace($Name)) {
-    return $false
-  }
-
-  $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
-  if ($null -eq $service) {
-    return $false
-  }
-
-  Write-Host "Removing legacy service: $Name"
-
-  if ($service.Status -ne "Stopped") {
-    if (-not [string]::IsNullOrWhiteSpace($NssmExe) -and (Test-Path -LiteralPath $NssmExe)) {
-      & $NssmExe stop $Name confirm | Out-Null
-    }
-    Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-  }
-
-  if (-not [string]::IsNullOrWhiteSpace($NssmExe) -and (Test-Path -LiteralPath $NssmExe)) {
-    & $NssmExe remove $Name confirm | Out-Null
-  } else {
-    sc.exe delete $Name | Out-Null
-  }
-
-  for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
-    Start-Sleep -Milliseconds 500
-    $remaining = Get-Service -Name $Name -ErrorAction SilentlyContinue
-    if ($null -eq $remaining) {
-      Write-Host "Legacy service removed: $Name"
-      return $true
-    }
-  }
-
-  throw "Failed to remove service: $Name"
-}
-
 function Wait-ServiceProcessReleased {
   [CmdletBinding()]
   param(
@@ -139,43 +92,25 @@ function Remove-GoServiceByInstallRoot {
     [string]$TargetInstallRoot
   )
 
-  $normalizedInstallRoot = $TargetInstallRoot.ToLowerInvariant()
   $candidateNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-  $serviceProcessMap = @{}
   $binaryPathMap = @{}
+  [void]$candidateNames.Add($ServiceName)
+  $defaultBinaryPath = Join-Path $TargetInstallRoot "gcac-agent.exe"
+  $binaryPathMap[$ServiceName] = $defaultBinaryPath
 
   $metadataPath = Join-Path (Split-Path -Parent $ConfigDir) "service.install.json"
   if (Test-Path -LiteralPath $metadataPath) {
     try {
       $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
-      if (-not [string]::IsNullOrWhiteSpace([string]$metadata.ServiceName)) {
-        [void]$candidateNames.Add([string]$metadata.ServiceName)
+      $metadataServiceName = [string]$metadata.ServiceName
+      if ([string]::IsNullOrWhiteSpace($metadataServiceName)) {
+        throw "serviceName 为空"
       }
+      [void]$candidateNames.Add($metadataServiceName)
+      $binaryPathMap[$metadataServiceName] = $defaultBinaryPath
     } catch {
-      Write-Host "Existing Go agent metadata parse failed, fallback to service scan."
+      throw "现有 Go Agent 安装元数据无效，拒绝扫描或删除未知服务：$($_.Exception.Message)"
     }
-  }
-
-  $goServices = Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Where-Object {
-    $pathName = [string]$_.PathName
-    $name = [string]$_.Name
-    $display = [string]$_.DisplayName
-    $pathLower = $pathName.ToLowerInvariant()
-    $name -like "gcac-windows-go-agent*" -or $display -like "*Windows Go Full Agent*" -or $pathLower.Contains($normalizedInstallRoot.ToLowerInvariant())
-  }
-
-  foreach ($service in $goServices) {
-    $serviceName = [string]$service.Name
-    if ([string]::IsNullOrWhiteSpace($serviceName)) {
-      continue
-    }
-    [void]$candidateNames.Add($serviceName)
-    $serviceProcessId = 0
-    if ($null -ne $service.ProcessId) {
-      $serviceProcessId = [int]$service.ProcessId
-    }
-    $serviceProcessMap[$serviceName] = [UInt32]$serviceProcessId
-    $binaryPathMap[$serviceName] = Join-Path $TargetInstallRoot "gcac-agent.exe"
   }
 
   foreach ($serviceName in $candidateNames) {
@@ -184,12 +119,42 @@ function Remove-GoServiceByInstallRoot {
       continue
     }
     Write-Host "Removing existing Go service: $serviceName"
+    $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $serviceName.Replace("'", "''") + "'") -ErrorAction SilentlyContinue
+    $serviceProcessId = 0
+    if ($null -ne $serviceInfo -and $null -ne $serviceInfo.ProcessId) {
+      $serviceProcessId = [UInt32]$serviceInfo.ProcessId
+    }
     if ($existing.Status -ne "Stopped") {
       Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
       Start-Sleep -Seconds 1
     }
     sc.exe delete $serviceName | Out-Null
-    Wait-ServiceProcessReleased -ProcessId ([UInt32]($serviceProcessMap[$serviceName])) -BinaryPath ([string]$binaryPathMap[$serviceName])
+    Wait-ServiceProcessReleased -ProcessId $serviceProcessId -BinaryPath ([string]$binaryPathMap[$serviceName])
+  }
+}
+
+function Assert-ServiceRegistration {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$ExpectedBinaryPathName
+  )
+
+  $registeredService = Get-Service -Name $Name -ErrorAction SilentlyContinue
+  if ($null -eq $registeredService) {
+    throw "Windows Service registration failed: $Name"
+  }
+
+  $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $Name.Replace("'", "''") + "'") -ErrorAction Stop
+  if ($null -eq $serviceInfo) {
+    throw "Windows Service registration metadata unavailable: $Name"
+  }
+  $actualBinaryPathName = ([string]$serviceInfo.PathName).Trim()
+  if (-not [string]::Equals($actualBinaryPathName, $ExpectedBinaryPathName.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Windows Service binary path binding mismatch: $Name"
+  }
+  if (-not [string]::Equals([string]$serviceInfo.StartMode, "Auto", [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Windows Service startup mode binding mismatch: $Name"
   }
 }
 
@@ -233,10 +198,7 @@ New-Service -Name $ServiceName -BinaryPathName $serviceCommand -DisplayName $Dis
 sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 sc.exe failureflag $ServiceName 1 | Out-Null
 
-$registeredService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($null -eq $registeredService) {
-  throw "Windows Service registration failed: $ServiceName"
-}
+Assert-ServiceRegistration -Name $ServiceName -ExpectedBinaryPathName $serviceCommand
 
 $metadata = [pscustomobject]@{
   ServiceName = $ServiceName

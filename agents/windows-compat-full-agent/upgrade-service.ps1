@@ -26,32 +26,27 @@ function Write-UpgradeLog {
     [System.IO.File]::AppendAllText($upgradeLog, ($Message + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
 }
 
-function Set-DirectControlFirewallRule {
+function Assert-ServiceRegistration {
     param(
-        [Parameter(Mandatory = $true)][string]$ProgramPath
+        [Parameter(Mandatory = $true)][string]$ExpectedBinaryPath
     )
 
-    $firewallService = Get-Service -Name "MpsSvc" -ErrorAction SilentlyContinue
-    if ($null -eq $firewallService -or [string]$firewallService.Status -ne "Running") {
-        Write-UpgradeLog -Message "Windows Firewall service is not running; firewall rule synchronization skipped."
-        return
+    $registeredService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if ($null -eq $registeredService) {
+        throw "Service registration metadata unavailable: $serviceName"
     }
 
-    $firewallRuleName = "GCAC Windows Compatibility Agent Direct Control"
-    $deleteOutput = & netsh.exe advfirewall firewall delete rule "name=$firewallRuleName" 2>&1 | Out-String
-    Write-UpgradeLog -Message ("Firewall rule cleanup: " + $deleteOutput.Trim())
-
-    $programRuleOutput = & netsh.exe advfirewall firewall add rule "name=$firewallRuleName" dir=in action=allow protocol=TCP localport=18933 "program=$ProgramPath" enable=yes profile=any 2>&1 | Out-String
-    $programRuleExitCode = $LASTEXITCODE
-    Write-UpgradeLog -Message ("Firewall program rule: exitCode=" + $programRuleExitCode + "; output=" + $programRuleOutput.Trim())
-    if ($programRuleExitCode -eq 0) { return }
-
-    Write-UpgradeLog -Message "Firewall program rule failed; trying port-only fallback."
-    $portRuleOutput = & netsh.exe advfirewall firewall add rule "name=$firewallRuleName" dir=in action=allow protocol=TCP localport=18933 enable=yes profile=any 2>&1 | Out-String
-    $portRuleExitCode = $LASTEXITCODE
-    Write-UpgradeLog -Message ("Firewall port-only rule: exitCode=" + $portRuleExitCode + "; output=" + $portRuleOutput.Trim())
-    if ($portRuleExitCode -ne 0) {
-        Write-UpgradeLog -Message ("Direct Control firewall rule synchronization failed and upgrade will continue; programRuleExitCode=" + $programRuleExitCode + "; portRuleExitCode=" + $portRuleExitCode)
+    $serviceInfo = Get-WmiObject -Class Win32_Service -Filter ("Name='" + $serviceName.Replace("'", "''") + "'") -ErrorAction Stop
+    if ($null -eq $serviceInfo) {
+        throw "Service registration metadata unavailable: $serviceName"
+    }
+    $expectedBinaryPrefix = ('"' + $ExpectedBinaryPath.Trim() + '"').ToLowerInvariant()
+    $actualBinaryPathName = ([string]$serviceInfo.PathName).Trim().ToLowerInvariant()
+    if (-not $actualBinaryPathName.StartsWith($expectedBinaryPrefix, [StringComparison]::Ordinal)) {
+        throw "Service binary path binding mismatch: $serviceName"
+    }
+    if (-not [string]::Equals([string]$serviceInfo.StartMode, "Auto", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Service startup mode binding mismatch: $serviceName"
     }
 }
 
@@ -60,8 +55,16 @@ if ($service.Status -ne "Stopped") { Stop-Service -Name $serviceName -Force; $se
 if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination $backup -Force }
 try {
     Copy-Item -LiteralPath $incoming -Destination $target -Force
-    Set-DirectControlFirewallRule -ProgramPath $target
+    Assert-ServiceRegistration -ExpectedBinaryPath $target
     Start-Service -Name $serviceName
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    if ([string]$service.Status -ne "Running") {
+        $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+    }
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    if ([string]$service.Status -ne "Running") {
+        throw "Service did not reach Running after upgrade: $serviceName"
+    }
 }
 catch {
     if (Test-Path -LiteralPath $backup) { Copy-Item -LiteralPath $backup -Destination $target -Force }

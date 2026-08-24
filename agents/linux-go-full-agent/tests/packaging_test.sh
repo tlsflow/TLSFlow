@@ -46,6 +46,12 @@ fi
 
 echo "安装预检测试通过"
 
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_UNAME_S=Linux GCAC_TEST_MACHINE=x86_64 GCAC_TEST_KERNEL=3.2 GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/systemd" SOURCE_BINARY="${TEMP_ROOT}/agent" INSTALL_ROOT="${TEMP_ROOT}/install-parent/agent" "${AGENT_DIR}/linux/install.sh" --preflight-only >/dev/null 2>&1; then
+  echo "缺少发布签名材料时安装必须失败关闭" >&2
+  exit 1
+fi
+echo "安装缺少签名材料负例通过"
+
 cp "${TEMP_ROOT}/agent" "${TEMP_ROOT}/tampered-agent"
 printf 'tampered' >> "${TEMP_ROOT}/tampered-agent"
 if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_UNAME_S=Linux GCAC_TEST_MACHINE=x86_64 GCAC_TEST_KERNEL=3.2 GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/systemd" SOURCE_BINARY="${TEMP_ROOT}/tampered-agent" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_FILE="${TEMP_ROOT}/agent.sig" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" INSTALL_ROOT="${TEMP_ROOT}/install-parent/agent" "${AGENT_DIR}/linux/install.sh" --preflight-only >/dev/null 2>&1; then
@@ -79,6 +85,12 @@ chmod +x "${TEMP_ROOT}/upgrade/install/gcac-linux-agent" "${TEMP_ROOT}/upgrade/g
 for artifact in good-agent bad-agent downgrade-agent; do
   go run "${AGENT_DIR}/cmd/release-sign" sign "${TEMP_ROOT}/release-private.key" "${TEMP_ROOT}/upgrade/${artifact}" "${TEMP_ROOT}/upgrade/${artifact}.sig"
 done
+
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
+  echo "缺少发布签名材料时升级必须失败关闭" >&2
+  exit 1
+fi
+echo "升级缺少签名材料负例通过"
 
 PATH="${TEMP_ROOT}/bin:${PATH}" \
 GCAC_TEST_EUID=0 \

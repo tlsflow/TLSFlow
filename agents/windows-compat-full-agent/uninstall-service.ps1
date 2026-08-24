@@ -1,6 +1,5 @@
 $ErrorActionPreference = "Stop"
 $serviceName = "GCACWindowsCompatibilityAgent"
-& netsh.exe advfirewall firewall delete rule name="GCAC Windows Compatibility Agent Direct Control" | Out-Null
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if ($null -eq $service) { return }
 if ($service.Status -ne "Stopped") {

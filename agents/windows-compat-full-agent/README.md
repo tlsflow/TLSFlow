@@ -45,7 +45,7 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 - 安装和升级必须传入 `-PublicKeyFile`、`-SignatureFile`、`-SignatureVerifier`；脚本在注册或替换服务前验证 Ed25519 签名，缺少材料或验证失败时失败关闭。
 - 结果恢复：`recovery-ledger.json` 保存尚未上报的 Action Result，进程重启后先补传再继续拉取任务。
 - 身份恢复：`agent-id.txt` 保存首次注册返回的 Agent ID，服务或操作系统重启后直接恢复心跳，不重复消耗一次性注册令牌。
-- 主动管理：默认监听 `18933` Direct Control 端口并上报控制面，与 Windows Full Agent 的默认 `18930` 端口可同机共存。
+- Agent Core 不开放 Direct Control 监听端口；控制面任务只通过 Agent v2 四个规范动作进入运行时。
 - 心跳周期：默认每 10 秒上报一次；平台仍使用独立的心跳超时和管理端口连续失败规则判定离线。
 - 审计：`agent-audit.log` 记录注册、任务开始、任务完成和结果补传事件。
 
