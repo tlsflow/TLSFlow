@@ -62,6 +62,9 @@ export class AutomationsDomainService {
     if (configuration.targetSelector.expiresWithinDays !== undefined && (configuration.targetSelector.expiresWithinDays < 0 || configuration.targetSelector.expiresWithinDays > 3650)) {
       throw new AppError('VALIDATION_FAILED', '证书到期窗口越界');
     }
+    if (configuration.targetSelector.certificateVersionSelection === 'specific' && !configuration.targetSelector.certificateVersionIds?.length) {
+      throw new AppError('VALIDATION_FAILED', '指定证书版本模式必须提供证书版本');
+    }
     this.actionRegistry.validate(configuration.actions);
   }
 

@@ -6,7 +6,7 @@ export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 's
 
 export interface AutomationConfiguration {
   trigger: { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
-  targetSelector: { certificateIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
+  targetSelector: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
   actions: Array<{ type: 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification'; position: number; config: Record<string, unknown> }>
   guardrails: { maxTargetsPerRun: number; concurrencyLimit: number; requirePreview: boolean; requireDryRun: boolean; requireApproval: boolean; allowManualWhenDisabled?: boolean; allowedEnvironments?: string[]; failureCountThreshold?: number; failureRateThreshold?: number }
 }

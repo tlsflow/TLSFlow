@@ -31,10 +31,11 @@ export class AutomationTargetSelector {
     const matched: AutomationPreviewTargetDto[] = [];
     for (const binding of bindings) {
       if (binding.deletedAt || !this.matchesBinding(binding, input.selector)) continue;
-      const versionId = binding.targetCertificateVersionId ?? binding.certificateVersionId;
-      const version = versionId ? await this.certificates.getVersion(versionId) : undefined;
-      const certificate = version ? await this.certificates.getAsset(version.certificateAssetId) : undefined;
-      if (!certificate || !this.matchesCertificate(certificate, version?.notAfter, input.selector)) continue;
+      const currentVersionId = binding.targetCertificateVersionId ?? binding.certificateVersionId;
+      const currentVersion = currentVersionId ? await this.certificates.getVersion(currentVersionId) : undefined;
+      const certificate = currentVersion ? await this.certificates.getAsset(currentVersion.certificateAssetId) : undefined;
+      if (!certificate || !this.matchesCertificate(certificate, currentVersion?.notAfter, input.selector)) continue;
+      const version = await this.resolveTargetVersion(certificate.id, currentVersion, input.selector);
       const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAsset(input.tenantId, binding.serviceAssetId) : undefined;
       const environment = serviceAsset?.environment;
       if (input.selector.environments?.length && (!environment || !input.selector.environments.includes(environment))) continue;
@@ -73,8 +74,12 @@ export class AutomationTargetSelector {
     return true;
   }
 
-  private matchesCertificate(certificate: { id: string; status: string; tags: string[] }, notAfter: string | undefined, selector: AutomationTargetSelectorDto): boolean {
+  private matchesCertificate(certificate: { id: string; status: string; tags: string[]; primaryDomain?: string; sans?: string[] }, notAfter: string | undefined, selector: AutomationTargetSelectorDto): boolean {
     if (selector.certificateIds?.length && !selector.certificateIds.includes(certificate.id)) return false;
+    if (selector.certificateDomains?.length) {
+      const domains = new Set([certificate.primaryDomain, ...(certificate.sans ?? [])].filter(Boolean).map((domain) => normalizeDomain(domain as string)));
+      if (!selector.certificateDomains.some((domain) => domains.has(normalizeDomain(domain)))) return false;
+    }
     if (selector.statuses?.length && !selector.statuses.includes(certificate.status)) return false;
     if (selector.tags?.length) {
       const matched = selector.tags.filter((tag) => certificate.tags.includes(tag)).length;
@@ -87,4 +92,17 @@ export class AutomationTargetSelector {
     }
     return true;
   }
+
+  private async resolveTargetVersion(certificateAssetId: string, currentVersion: { id: string; certificateAssetId: string; notAfter?: string; deployable?: boolean } | undefined, selector: AutomationTargetSelectorDto) {
+    if (selector.certificateVersionSelection !== 'latest' && selector.certificateVersionSelection !== 'specific') return currentVersion;
+    const versions = await this.certificates.listVersionsByAsset(certificateAssetId);
+    if (selector.certificateVersionSelection === 'specific') {
+      return versions.find((version) => selector.certificateVersionIds?.includes(version.id));
+    }
+    return versions.slice().sort((left, right) => right.versionNo - left.versionNo)[0];
+  }
+}
+
+function normalizeDomain(domain: string): string {
+  return domain.trim().toLowerCase().replace(/\.$/, '');
 }

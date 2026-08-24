@@ -456,6 +456,28 @@ const zhCN = {
     common: {
       notAvailable: '暂无'
     },
+    form: {
+      existingAssetTitle: '只更新现有应用资产',
+      existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。',
+      certificateDomains: '证书域名',
+      certificateDomainsPlaceholder: '输入证书域名，多个用逗号分隔',
+      certificateDomainsHelp: '只更新这些域名对应证书的现有应用资产绑定。',
+      versionSelection: '更新到哪个证书版本',
+      versionSelectionLatest: '自动使用最新证书版本',
+      versionSelectionSpecific: '使用指定证书版本',
+      versionSelectionHelp: '运行开始时解析并冻结版本，运行期间不会因新增版本而改变。',
+      certificateVersionIds: '指定证书版本',
+      certificateVersionIdsPlaceholder: '输入证书版本 ID，多个用逗号分隔',
+      certificateVersionIdsHelp: '每个版本必须属于上面所选域名对应的证书。',
+      versionLoading: '正在加载可选证书版本。',
+      versionLoadFailed: '证书版本加载失败，请稍后重试。',
+      versionEmpty: '没有找到这些域名对应的可选证书版本。',
+      schedule: '什么时候更新',
+      scheduleHelp: '可由管理员按需启动，也可以按 Cron 和时区定期检查并更新。',
+      execution: '运行时会做什么',
+      executionHelp: '系统为每个现有资产绑定创建独立更新计划，并复用 DeploymentPlan、Dry Run、审批和 ExecutionRun。',
+      snapshot: '冻结域名、资产和证书版本快照'
+    },
     fields: {
       name: '名称',
       description: '说明',
@@ -3640,6 +3662,28 @@ const enUS = {
     empty: 'No automations yet.',
     emptyDescription: 'No description',
     common: { notAvailable: 'Not available' },
+    form: {
+      existingAssetTitle: 'Update existing application assets only',
+      existingAssetDescription: 'The automation only processes application assets with existing certificate bindings. It does not install certificates for the first time or add deployment targets.',
+      certificateDomains: 'Certificate domains',
+      certificateDomainsPlaceholder: 'Enter certificate domains separated by commas',
+      certificateDomainsHelp: 'Only existing application-asset bindings for these certificate domains are updated.',
+      versionSelection: 'Certificate version to deploy',
+      versionSelectionLatest: 'Automatically use the latest certificate version',
+      versionSelectionSpecific: 'Use specific certificate versions',
+      versionSelectionHelp: 'The version is resolved and frozen when the run starts, so later versions cannot change an active run.',
+      certificateVersionIds: 'Specific certificate versions',
+      certificateVersionIdsPlaceholder: 'Enter certificate version IDs separated by commas',
+      certificateVersionIdsHelp: 'Each version must belong to a certificate selected by the domains above.',
+      versionLoading: 'Loading available certificate versions.',
+      versionLoadFailed: 'Failed to load certificate versions. Try again later.',
+      versionEmpty: 'No selectable certificate versions were found for these domains.',
+      schedule: 'When to update',
+      scheduleHelp: 'Administrators can start it on demand or run it periodically with Cron and a time zone.',
+      execution: 'What happens during a run',
+      executionHelp: 'The system creates a separate update plan for each existing asset binding and reuses DeploymentPlan, Dry Run, approval, and ExecutionRun.',
+      snapshot: 'Freeze the domain, asset, and certificate-version snapshot'
+    },
     fields: {
       name: 'Name', description: 'Description', trigger: 'Trigger', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Require Dry Run before execution', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run'
     },

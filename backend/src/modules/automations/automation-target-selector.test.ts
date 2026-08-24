@@ -51,3 +51,55 @@ test('预览稳定分页且不创建任何业务对象', async () => {
   assert.equal(preview.items.length, 1);
   assert.equal(preview.items[0]?.target.bindingId, '2');
 });
+
+test('按证书域名筛选现有绑定并冻结最新证书版本', async () => {
+  const currentVersion = { id: 'v1', certificateAssetId: 'c1', versionNo: 1, notAfter: '2026-08-01T00:00:00.000Z', deployable: true };
+  const latestVersion = { id: 'v2', certificateAssetId: 'c1', versionNo: 2, notAfter: '2026-10-01T00:00:00.000Z', deployable: true };
+  const selector = new AutomationTargetSelector({
+    getVersion: async () => currentVersion,
+    getAsset: async () => ({ id: 'c1', name: 'example.com', primaryDomain: 'example.com', sans: ['www.example.com'], status: 'ACTIVE', tags: [] }),
+    listVersionsByAsset: async () => [currentVersion, latestVersion],
+  } as never, {
+    listCertificateBindings: async () => ({ page: 1, pageSize: 5000, total: 1, items: [{ id: 'b1', tenantId: 't', serviceAssetId: 's1', serviceInstanceId: 'i', bindingKey: '1', bindingType: 'FILE', verifyMethod: 'TLS_CONNECT', status: 'MANAGED', targetCertificateVersionId: 'v1', metadata: {}, createdAt: '', updatedAt: '', version: 1 }] }),
+  } as never, {
+    getServiceAsset: async () => ({ id: 's1', displayName: '生产站点', environment: 'production' }),
+    getHost: async () => undefined,
+  } as never);
+
+  const preview = await selector.preview({
+    tenantId: 't', actorId: 'u', automationId: 'a', automationVersion: 1, configurationChecksum: 'x',
+    selector: { certificateDomains: ['WWW.EXAMPLE.COM.'], certificateVersionSelection: 'latest' },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: true, requireApproval: true },
+  });
+
+  assert.equal(preview.executableCount, 1);
+  assert.equal(preview.items[0]?.target.certificateVersionId, 'v2');
+  latestVersion.id = 'v3';
+  assert.equal(preview.items[0]?.target.certificateVersionId, 'v2');
+});
+
+test('指定证书版本时只为所属证书资产冻结选定版本', async () => {
+  const versions = [
+    { id: 'v1', certificateAssetId: 'c1', versionNo: 1, deployable: true },
+    { id: 'v2', certificateAssetId: 'c1', versionNo: 2, deployable: true },
+  ];
+  const selector = new AutomationTargetSelector({
+    getVersion: async () => versions[0],
+    getAsset: async () => ({ id: 'c1', name: 'example.com', primaryDomain: 'example.com', sans: [], status: 'ACTIVE', tags: [] }),
+    listVersionsByAsset: async () => versions,
+  } as never, {
+    listCertificateBindings: async () => ({ page: 1, pageSize: 5000, total: 1, items: [{ id: 'b1', tenantId: 't', serviceAssetId: 's1', serviceInstanceId: 'i', bindingKey: '1', bindingType: 'FILE', verifyMethod: 'TLS_CONNECT', status: 'MANAGED', targetCertificateVersionId: 'v1', metadata: {}, createdAt: '', updatedAt: '', version: 1 }] }),
+  } as never, {
+    getServiceAsset: async () => ({ id: 's1', displayName: '生产站点', environment: 'production' }),
+    getHost: async () => undefined,
+  } as never);
+
+  const preview = await selector.preview({
+    tenantId: 't', actorId: 'u', automationId: 'a', automationVersion: 1, configurationChecksum: 'x',
+    selector: { certificateDomains: ['example.com'], certificateVersionSelection: 'specific', certificateVersionIds: ['v2'] },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: true, requireApproval: true },
+  });
+
+  assert.equal(preview.executableCount, 1);
+  assert.equal(preview.items[0]?.target.certificateVersionId, 'v2');
+});

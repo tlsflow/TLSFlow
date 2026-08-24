@@ -12,6 +12,9 @@ export type AutomationTriggerDto =
 
 export interface AutomationTargetSelectorDto {
   certificateIds?: string[];
+  certificateDomains?: string[];
+  certificateVersionSelection?: 'latest' | 'specific';
+  certificateVersionIds?: string[];
   statuses?: string[];
   expiresWithinDays?: number;
   environments?: string[];
