@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "publicPaths": [
+    "agents",
+    "backend",
+    "web",
+    "compatibility",
+    "package.json",
+    "package-lock.json",
+    "version",
+    "scripts/public-release/public-release.config.json",
+    "scripts/public-release/check-public-tree.mjs",
+    "scripts/public-release/sync-github.mjs",
+    ".workflow/0014-sync-github.yml"
+  ],
+  "generatedFiles": [
+    {
+      "source": "scripts/public-release/public-repository.gitignore",
+      "target": ".gitignore"
+    }
+  ],
+  "forbiddenPathPatterns": [
+    "^(?:specs|docs|data|output|tmp|temp|private|secrets)(?:/|$)",
+    "^AGENTS\\.md$",
+    "^\\.workflow/0014-generate-public-candidate\\.yml$",
+    "(?:^|/)(?:\\.env(?:\\.|$)|.*\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der))$",
+    "(?:^|/)(?:node_modules|\\.git|bin|obj)(?:/|$)",
+    "(?:^|/).*(?:\\.exe|\\.dll|\\.pdb)$"
+  ],
+  "sensitiveFilePatterns": [
+    "(?:^|/)(?:\\.env(?:\\.|$)|id_rsa|id_ed25519|credentials|secrets?)(?:$|\\.)",
+    "\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der)$"
+  ],
+  "sensitiveContentPatterns": [
+    "-----BEGIN [^-\\n]*PRIVATE KEY-----",
+    "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b",
+    "\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b",
+    "\\bgithub_pat_[A-Za-z0-9_]{20,}\\b",
+    "\\bsk-[A-Za-z0-9]{20,}\\b"
+  ]
+}
