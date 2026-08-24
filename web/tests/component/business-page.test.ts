@@ -148,6 +148,24 @@ describe('BusinessResourcePage', () => {
     expect(wrapper.find(':scope > .gc-page-toolbar').exists()).toBe(false)
   })
 
+  it('设备类列表将总数显示在表格页脚右侧', async () => {
+    usePermissionStore().setPermissions(['test.write'])
+    const wrapper = mount(BusinessResourcePage, {
+      props: {
+        config: createConfig({
+          showTotalInPagination: true,
+          showHeader: false,
+        }),
+      },
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('资源一'))
+    expect(wrapper.get('.business-page__toolbar-title').text()).not.toContain('总数 2')
+    expect(wrapper.get('.gc-data-table__footer').text()).toContain('总数 2')
+    expect(wrapper.get('.gc-data-table__footer').text()).toContain('第 1 页 / 每页 20 条')
+    expect(wrapper.get('.business-page__pagination').element.parentElement?.classList.contains('gc-data-table__footer')).toBe(true)
+  })
+
   it('普通资源动作按钮会执行 run 并刷新列表', async () => {
     usePermissionStore().setPermissions(['test.write'])
     const run = vi.fn(async () => undefined)

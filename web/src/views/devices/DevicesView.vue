@@ -59,6 +59,7 @@ const config = computed<BusinessPageConfig>(() => ({
   showDetailPanel: false,
   showActionPanel: false,
   tableFixed: true,
+  showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '13%' },
     { key: 'category', title: t('devices.columns.category'), candidates: ['category'], width: '8%' },

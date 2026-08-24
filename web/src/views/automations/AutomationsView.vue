@@ -74,6 +74,7 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
   defaultRisk: 'MEDIUM',
   showDetailPanel: false,
   showActionPanel: false,
+  showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('automations.fields.name'), candidates: ['name'] },
     { key: 'status', title: t('automations.columns.status'), candidates: ['status'] },

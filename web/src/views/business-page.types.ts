@@ -94,4 +94,6 @@ export interface BusinessPageConfig {
   readonly showDetailPanel?: boolean
   readonly showActionPanel?: boolean
   readonly tableFixed?: boolean
+  /** 将列表总数从工具栏移至表格页脚。 */
+  readonly showTotalInPagination?: boolean
 }

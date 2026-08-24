@@ -264,7 +264,7 @@ defineExpose({
         <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
             <strong>{{ t('businessPage.resourceList', { resource: config.resourceName }) }}</strong>
-            <span>{{ t('businessPage.total', { count: state.total.value }) }}</span>
+            <span v-if="!config.showTotalInPagination">{{ t('businessPage.total', { count: state.total.value }) }}</span>
           </div>
           <GcPageToolbar class="business-page__toolbar-actions">
             <template #actions>
@@ -381,7 +381,10 @@ defineExpose({
       </template>
 
       <template #pagination>
-        {{ t('businessPage.pagination', { page: state.page.value?.page ?? 1, pageSize: state.page.value?.pageSize ?? 20 }) }}
+        <div class="business-page__pagination">
+          <span v-if="config.showTotalInPagination">{{ t('businessPage.total', { count: state.total.value }) }}</span>
+          <span>{{ t('businessPage.pagination', { page: state.page.value?.page ?? 1, pageSize: state.page.value?.pageSize ?? 20 }) }}</span>
+        </div>
       </template>
     </GcDataTable>
 
@@ -474,6 +477,7 @@ defineExpose({
 .business-page__toolbar-title { display: grid; gap: var(--gc-space-1); }
 .business-page__toolbar-title strong { font-size: var(--gc-font-size-sm); letter-spacing: 0; }
 .business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 650; }
+.business-page__pagination { display: flex; justify-content: flex-end; gap: var(--gc-space-3); }
 .business-page__toolbar-actions { min-width: 0; }
 .business-page__toolbar-actions :deep(.gc-button),
 .business-page__toolbar-actions :deep(.gc-permission-button),

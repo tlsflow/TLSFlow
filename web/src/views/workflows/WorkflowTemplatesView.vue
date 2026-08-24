@@ -87,6 +87,7 @@ const config: BusinessPageConfig = {
   defaultRisk: 'MEDIUM',
   showDetailPanel: false,
   showActionPanel: false,
+  showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('workflows.templates.fields.name'), candidates: ['name'] },
     {

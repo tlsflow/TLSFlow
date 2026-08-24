@@ -98,6 +98,7 @@ const config = computed<BusinessPageConfig>(() => ({
   showMetrics: false,
   showDetailPanel: false,
   showActionPanel: false,
+  showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('providers.fields.displayName'), candidates: ['displayName', 'id'] },
     { key: 'provider', title: t('providers.fields.provider'), candidates: ['providerKey'], format: (record) => stringValue(record.providerKey) },
