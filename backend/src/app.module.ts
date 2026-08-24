@@ -154,6 +154,7 @@ import {
 import {
   CloudAccountAssetsApplicationService,
   CloudAccountAssetBindingProvisioner,
+  CloudAccountDiscoveryApplicationService,
   CloudResourceProjectionService,
   ProvidersController,
   getCloudAccountRouteContracts,
@@ -395,10 +396,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
         builtinRegistry: builtinPluginRegistry,
       }
       : undefined);
-  new ProvidersController(
-    cloudAccountAssetsService,
-    security,
-  ).register(app.router);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const pluginFactPipeline = createPluginFactPipeline(
@@ -470,6 +467,21 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   cloudAccountAssetsService.setBindingProvisioner(new CloudAccountAssetBindingProvisioner(unifiedPluginsService));
   const cloudResourceProjectionService = new CloudResourceProjectionService(appDb);
+  const cloudPluginActionExecutor = new PluginRunnerExecutorAdapter({
+    ...(pluginRunnerDependencies ?? {}),
+    executionGrants: security.grants,
+  });
+  const cloudAccountDiscoveryService = new CloudAccountDiscoveryApplicationService({
+    db: appDb,
+    cloudAccounts: cloudAccountAssetsService,
+    plugins: unifiedPluginsService,
+    workflows: workflowTemplatesService,
+    workflowBindings: new PluginWorkflowBindingsRepository(appDb),
+    projection: cloudResourceProjectionService,
+    pluginActionExecutor: cloudPluginActionExecutor,
+    executionGrants: security.grants,
+  });
+  new ProvidersController(cloudAccountAssetsService, cloudAccountDiscoveryService, security).register(app.router);
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(
     workflowTemplatesService,
     new PluginWorkflowBindingsRepository(appDb),
@@ -521,6 +533,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('cloudResourceProjectionService', cloudResourceProjectionService);
+  app.setResource('cloudAccountDiscoveryService', cloudAccountDiscoveryService);
   app.setResource('certificateServices', certificateServices);
   const globalSearchService = new GlobalSearchApplicationService({
     certificates: certificateServices.certificates,

@@ -196,7 +196,7 @@ test('云账号资产保留通用租户隔离 CRUD，凭据只接受 CredentialR
   assert.equal(topology.rows.length, 3);
 });
 
-test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础 CRUD', async () => {
+test('Provider 厂商旁路全部移除，OpenAPI 暴露固定连接、发现和资源查询入口', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
   const app = await createAppAsync({ db });
@@ -207,8 +207,6 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
     ['GET', '/api/v1/providers/cloud.aliyun/capabilities'],
     ['GET', '/api/v1/provider-capability-plugins'],
     ['POST', '/api/v1/providers/cloud.aliyun/draft-discovery'],
-    ['POST', '/api/v1/cloud-account-assets/caa_removed/connection-test'],
-    ['POST', '/api/v1/cloud-account-assets/caa_removed/discover'],
     ['POST', '/api/v1/cloud-account-assets/caa_removed/execute'],
     ['POST', '/api/v1/cloud-account-assets/caa_removed/execute-task'],
   ] as const;
@@ -222,6 +220,13 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
     assert.equal(response.statusCode, 404, `${method} ${path}: ${JSON.stringify(response.body)}`);
     assert.equal(app.router.match(method, path), undefined, `${method} ${path} 仍被 Router 注册`);
   }
+  for (const [method, path] of [
+    ['POST', '/api/v1/cloud-account-assets/caa_removed/connection-test'],
+    ['POST', '/api/v1/cloud-account-assets/caa_removed/discover'],
+    ['GET', '/api/v1/cloud-account-assets/caa_removed/resources'],
+  ] as const) {
+    assert.ok(app.router.match(method, path), `${method} ${path} 未被 Router 注册`);
+  }
 
   const contractKeys = getCloudAccountRouteContracts()
     .map((route) => `${route.method} ${route.path}`)
@@ -229,8 +234,11 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
   assert.deepEqual(contractKeys, [
     'GET /api/v1/cloud-account-assets',
     'GET /api/v1/cloud-account-assets/:id',
+    'GET /api/v1/cloud-account-assets/:id/resources',
     'PATCH /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets',
+    'POST /api/v1/cloud-account-assets/:id/connection-test',
+    'POST /api/v1/cloud-account-assets/:id/discover',
     'POST /api/v1/cloud-account-assets/delete',
   ]);
 
@@ -241,8 +249,11 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
   assert.ok(!openApiPaths.includes('/api/v1/providers'));
   assert.ok(!openApiPaths.some((path) => path.startsWith('/api/v1/providers/')
     || path === '/api/v1/provider-capability-plugins'
-    || /^\/api\/v1\/cloud-account-assets\/[^/]+\/(connection-test|discover|execute(?:-task)?)$/.test(path)
+    || /^\/api\/v1\/cloud-account-assets\/[^/]+\/execute(?:-task)?$/.test(path)
     || path.includes('/cloud-account-assets/{id}/actions/{action}')));
+  assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/connection-test'));
+  assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/discover'));
+  assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/resources'));
 });
 
 test('云账号创建、更新和删除使用后端持久化幂等记录', async () => {

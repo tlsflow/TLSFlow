@@ -16,8 +16,8 @@ const cloudCapabilityKeys = [
 ] as const;
 
 /**
- * 中文说明：资产创建时一次性固定 PluginVersion、输入绑定和 CapabilityAssignment。
- * 所有写入使用资产创建事务提供的 DatabasePort，任一合同失败都会回滚整个资产。
+ * 中文说明：资产创建时生成历史兼容用的输入绑定和 CapabilityAssignment。
+ * 云账号运行时不会读取这些固定版本记录，而是按 Provider 解析最新已启用插件。
  */
 export class CloudAccountAssetBindingProvisioner implements CloudAccountAssetBindingProvisionerContract {
   constructor(
@@ -25,9 +25,9 @@ export class CloudAccountAssetBindingProvisioner implements CloudAccountAssetBin
   ) {}
 
   async prepare(
-    input: Pick<CloudAccountAssetBindingProvisionInput, 'tenantId' | 'asset' | 'requestedPluginVersionId'>,
+    input: Pick<CloudAccountAssetBindingProvisionInput, 'tenantId' | 'asset'>,
   ): Promise<PreparedCloudAccountAssetBinding> {
-    const version = await this.resolveVersion(input.tenantId, input.asset.providerKey, input.requestedPluginVersionId);
+    const version = await this.resolveVersion(input.tenantId, input.asset.providerKey);
     if (version.status !== 'ENABLED') {
       throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', 'Cloud Provider 插件版本未启用', {
         pluginVersionId: version.id,
@@ -83,8 +83,7 @@ export class CloudAccountAssetBindingProvisioner implements CloudAccountAssetBin
     return { pluginVersionId: prepared.pluginVersionId, pluginBindingId: binding.id, capabilityKeys: [...capabilityKeys] };
   }
 
-  private async resolveVersion(tenantId: string, providerKey: string, requestedPluginVersionId?: string) {
-    if (requestedPluginVersionId) return this.plugins.getVersionForTenant(tenantId, requestedPluginVersionId);
+  private async resolveVersion(tenantId: string, providerKey: string) {
     const catalog = await this.plugins.listCatalog(tenantId, 'zh-CN');
     const candidate = catalog.find((item) => item.pluginId === providerKey
       && item.status === 'ENABLED'

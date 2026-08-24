@@ -20,12 +20,16 @@ export interface CloudAccountAsset {
   updatedAt: string;
   deletedAt?: string;
   version: number;
+  /** 中文说明：由投影表统计当前可用区设备、Framework 和 Site 数量，便于云服务列表直接展示拓扑规模。 */
+  deviceCount?: number;
+  frameworkCount?: number;
+  siteCount?: number;
 }
 
 export interface CreateCloudAccountAssetInput {
   displayName: string;
   providerKey: string;
-  /** 中文说明：可选的固定插件版本；未提供时由宿主从已启用目录按 providerKey 解析。 */
+  /** 中文说明：历史兼容字段；云账号创建和运行均忽略它，动作始终使用最新已启用插件版本。 */
   pluginVersionId?: string;
   accountId?: string;
   credentialRef: string;

@@ -50,7 +50,7 @@ export class CloudAccountAssetsApplicationService {
     const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
     const idempotencyScope = createScope('create', 'collection');
     const hash = idempotencyKey ? requestHash({
-      operation: 'create', providerKey, pluginVersionId: input.pluginVersionId?.trim() || undefined,
+      operation: 'create', providerKey,
       displayName: input.displayName.trim(), accountId: input.accountId?.trim() || undefined,
       credentialRef: input.credentialRef.trim(), scope, metadata: input.metadata ?? {},
     }) : undefined;
@@ -72,7 +72,6 @@ export class CloudAccountAssetsApplicationService {
           updatedAt: '',
           version: 1,
         },
-        ...(input.pluginVersionId?.trim() ? { requestedPluginVersionId: input.pluginVersionId.trim() } : {}),
       })
       : undefined;
     try {
@@ -118,7 +117,6 @@ export class CloudAccountAssetsApplicationService {
             tenantId,
             asset,
             ...(preparedBinding !== undefined ? { prepared: preparedBinding } : {}),
-            ...(input.pluginVersionId?.trim() ? { requestedPluginVersionId: input.pluginVersionId.trim() } : {}),
           });
         }
         if (idempotencyKey && hash) await saveAssetIdempotency(tx, tenantId, idempotencyScope, idempotencyKey, hash, 201, asset);
@@ -131,7 +129,17 @@ export class CloudAccountAssetsApplicationService {
 
   async list(tenantId: string): Promise<{ items: CloudAccountAsset[]; page: number; pageSize: number; total: number }> {
     const rows = await this.db.query<CloudAccountAssetRow>(
-      `select * from pg_cloud_account_assets where tenant_id=$1 and deleted_at is null order by updated_at desc`,
+      `select assets.*,
+              (select count(*)::int from pg_device_assets device
+                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
+               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
+              (select count(*)::int from pg_framework_instances framework
+                where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
+              (select count(*)::int from pg_site_assets site
+                where site.tenant_id=assets.tenant_id and site.asset_id=assets.id and site.deleted_at is null) as site_count
+         from pg_cloud_account_assets assets
+        where assets.tenant_id=$1 and assets.deleted_at is null
+        order by assets.updated_at desc`,
       [tenantId],
     );
     const items = rows.rows.map(toAsset);
@@ -154,7 +162,16 @@ export class CloudAccountAssetsApplicationService {
 
   async get(tenantId: string, id: string): Promise<CloudAccountAsset> {
     const result = await this.db.query<CloudAccountAssetRow>(
-      `select * from pg_cloud_account_assets where tenant_id=$1 and id=$2 and deleted_at is null`,
+      `select assets.*,
+              (select count(*)::int from pg_device_assets device
+                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
+               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
+              (select count(*)::int from pg_framework_instances framework
+                where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
+              (select count(*)::int from pg_site_assets site
+                where site.tenant_id=assets.tenant_id and site.asset_id=assets.id and site.deleted_at is null) as site_count
+         from pg_cloud_account_assets assets
+        where assets.tenant_id=$1 and assets.id=$2 and assets.deleted_at is null`,
       [tenantId, id],
     );
     const row = result.rows[0];
@@ -253,7 +270,16 @@ export class CloudAccountAssetsApplicationService {
 
   private async getWithDb(db: DatabasePort, tenantId: string, id: string): Promise<CloudAccountAsset> {
     const result = await db.query<CloudAccountAssetRow>(
-      `select * from pg_cloud_account_assets where tenant_id=$1 and id=$2 and deleted_at is null`,
+      `select assets.*,
+              (select count(*)::int from pg_device_assets device
+                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
+               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
+              (select count(*)::int from pg_framework_instances framework
+                where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
+              (select count(*)::int from pg_site_assets site
+                where site.tenant_id=assets.tenant_id and site.asset_id=assets.id and site.deleted_at is null) as site_count
+         from pg_cloud_account_assets assets
+        where assets.tenant_id=$1 and assets.id=$2 and assets.deleted_at is null`,
       [tenantId, id],
     );
     const row = result.rows[0];
@@ -305,6 +331,9 @@ interface CloudAccountAssetRow extends Record<string, unknown> {
   updated_at: string;
   deleted_at?: string | null;
   version: number;
+  framework_count?: number | string | null;
+  device_count?: number | string | null;
+  site_count?: number | string | null;
 }
 
 function toAsset(row: CloudAccountAssetRow): CloudAccountAsset {
@@ -323,7 +352,16 @@ function toAsset(row: CloudAccountAssetRow): CloudAccountAsset {
     updatedAt: row.updated_at,
     ...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
     version: row.version,
+    ...(numberValue(row.device_count) !== undefined ? { deviceCount: numberValue(row.device_count) } : {}),
+    ...(numberValue(row.framework_count) !== undefined ? { frameworkCount: numberValue(row.framework_count) } : {}),
+    ...(numberValue(row.site_count) !== undefined ? { siteCount: numberValue(row.site_count) } : {}),
   };
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
 }
 
 function validateCredentialRef(value: string): void {

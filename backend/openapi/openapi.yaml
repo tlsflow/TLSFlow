@@ -3715,10 +3715,70 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/resources:
+    get:
+      operationId: "listCloudAccountResources"
+      summary: "查询云账号发现资源"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/cloud-account-assets/delete:
     post:
       operationId: "deleteCloudAccountAsset"
       summary: "删除云账号资产"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/connection-test:
+    post:
+      operationId: "testCloudAccountConnection"
+      summary: "测试云账号连接"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/discover:
+    post:
+      operationId: "discoverCloudAccountResources"
+      summary: "发现云账号资源"
       tags:
         - "Cloud Service"
       responses:
