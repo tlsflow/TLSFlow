@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets } from '@/api/modules/assets.api'
@@ -15,7 +15,7 @@ import {
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
-import { listMonitorCertificateObservations } from '@/api/modules/monitors.api'
+import { listMonitorCertificateObservations, probeMonitorServiceAsset } from '@/api/modules/monitors.api'
 import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
@@ -84,6 +84,10 @@ const dryRunRequiredMessage = ref('')
 const dryRunRequiredActionLabel = ref('')
 const dryRunRequiredRow = ref<ViewRow | null>(null)
 const refreshedTerminalRunIds = new Set<string>()
+const probingAssetIds = new Set<string>()
+let unknownStateProbeTimer: number | null = null
+
+const unknownStateProbeRetryMs = 15_000
 
 const pageConfig = computed<BusinessPageConfig>(() => {
   const baseConfig = createDeploymentPlansPageConfig(t)
@@ -201,6 +205,10 @@ watch(terminalPlanExecutionRunId, async (runId) => {
   await pageRef.value?.reload()
 })
 
+onUnmounted(() => {
+  clearUnknownStateProbeRetry()
+})
+
 async function loadDeploymentPlansPage() {
   const [plansResult, versions, assetsResult, observationsResult] = await Promise.all([
     listDeploymentPlans({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
@@ -212,11 +220,13 @@ async function loadDeploymentPlansPage() {
   const assets = assetsResult
   const assetDetails = await loadApplicationAssetDetailMap(page.items ?? [], assets)
   const latestObservationsByAssetId = latestCertificateObservationsByAssetId(observationsResult.data?.items ?? [])
+  const enrichedItems = (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails, latestObservationsByAssetId))
+  scheduleUnknownStateProbeRetry(enrichedItems, assets)
   return {
     ...plansResult,
     data: {
       ...page,
-      items: (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails, latestObservationsByAssetId)),
+      items: enrichedItems,
     },
   }
 }
@@ -489,14 +499,61 @@ async function ensurePlanId(plan: DeploymentWizardPlan): Promise<string> {
 }
 
 async function createPlanDraft(plan: DeploymentWizardPlan): Promise<string> {
+  const applicationAssetId = plan.applicationAssetId
+  if (!applicationAssetId) throw new Error(t('deploymentPlans.errors.missingApplicationAssetIdForSave'))
   const created = await createDeploymentPlanFromApplicationAsset({
-    applicationAssetId: plan.applicationAssetId,
+    applicationAssetId,
     selectionMode: plan.selectionMode,
     targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
   })
   const planId = String(created.data?.id ?? '')
   if (!planId) throw new Error(t('deploymentPlans.errors.createReturnedMissingPlanId'))
+  await probeApplicationAssetCertificate(applicationAssetId)
   return planId
+}
+
+async function probeApplicationAssetCertificate(applicationAssetId: string): Promise<boolean> {
+  if (!applicationAssetId || probingAssetIds.has(applicationAssetId)) return false
+  probingAssetIds.add(applicationAssetId)
+  try {
+    await probeMonitorServiceAsset({
+      serviceAssetId: applicationAssetId,
+      timeoutMs: 10000,
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    probingAssetIds.delete(applicationAssetId)
+  }
+}
+
+function scheduleUnknownStateProbeRetry(plans: readonly ApiRecord[], assets: readonly ApiRecord[]) {
+  const applicationAssetIds = unknownUpdateApplicationAssetIds(plans, assets)
+  clearUnknownStateProbeRetry()
+  if (applicationAssetIds.length === 0) return
+  unknownStateProbeTimer = window.setTimeout(() => {
+    unknownStateProbeTimer = null
+    void retryUnknownStateProbe(applicationAssetIds)
+  }, unknownStateProbeRetryMs)
+}
+
+function clearUnknownStateProbeRetry() {
+  if (!unknownStateProbeTimer) return
+  window.clearTimeout(unknownStateProbeTimer)
+  unknownStateProbeTimer = null
+}
+
+async function retryUnknownStateProbe(applicationAssetIds: readonly string[]) {
+  await Promise.all(applicationAssetIds.map((applicationAssetId) => probeApplicationAssetCertificate(applicationAssetId)))
+  await pageRef.value?.reload()
+}
+
+function unknownUpdateApplicationAssetIds(plans: readonly ApiRecord[], assets: readonly ApiRecord[]): string[] {
+  return [...new Set(plans
+    .filter((plan) => readString(plan, ['updateNeeded']) === 'UNKNOWN')
+    .map((plan) => resolveApplicationAssetIdForPlan(plan, assets))
+    .filter(Boolean))]
 }
 
 async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardPlan) {
