@@ -1606,7 +1606,7 @@ describe('部署计划与执行编排 API', () => {
       resourceTypes: ['host', 'service_instance', 'site_asset', 'managed_target', 'secret', 'certificate_version', 'certificate_version_format', 'service_asset'],
       scope: { tenantId: 'tenant_1' },
     });
-    const { app } = await createMigratedTestApp({ security });
+    const { app, db } = await createMigratedTestApp({ security });
     const chain = createPemChainFixture('managed-no-binding.example.com');
 
     const registered = await app.inject({
@@ -1623,6 +1623,11 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
     const agentId = (registered.body as { id: string }).id;
     const hostId = `host_${agentId}`;
+    await db.query(`update pg_hosts set primary_ip = $2, ip_addresses = $3::jsonb where id = $1`, [
+      hostId,
+      '10.20.30.50',
+      JSON.stringify(['10.20.30.50']),
+    ]);
 
     const service = await app.inject({
       method: 'POST',
@@ -1874,6 +1879,25 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets.length, 1);
     assert.equal(plan.targets[0].certificateBindingId, bindingId);
     assert.equal(plan.targets[0].executionTargetId, managedTargetId);
+
+    const submitted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/submit',
+      headers: userHeaders,
+      body: { planId: (created.body as { id: string }).id },
+    });
+    assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
+
+    const dryRun = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: {
+        planId: (created.body as { id: string }).id,
+        idempotencyKey: 'idem_application_asset_plan_dry_run',
+      },
+    });
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   });
 
   it('应用资产换证执行结果回写后，会生成快照并把状态暴露到应用资产详情', async () => {

@@ -1369,15 +1369,16 @@ export class DeploymentPlansApplicationService {
     const asset = await this.certificates.getAsset(seed.certificateAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: seed.certificateAssetId });
     const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} });
-    const candidates = binding
-      ? versionsPage.items.filter((version) => this.coversBindingDomain(binding, version, asset, requestedDomain))
+    const targetDomain = normalizeDomain(requestedDomain ?? binding?.domainName ?? binding?.domain);
+    const candidates = targetDomain
+      ? versionsPage.items.filter((version) => this.coversCertificateDomain(version, asset, targetDomain))
       : versionsPage.items;
     const selected = selectLatestDeployableCertificateVersion(candidates, seed.certificateAssetId);
     if (!selected) {
       throw new AppError('RESOURCE_NOT_FOUND', '用户所选证书资产中没有匹配目标域名的可部署版本', {
         certificateAssetId: seed.certificateAssetId,
         seedCertificateVersionId: certificateVersionId,
-        domain: requestedDomain ?? binding?.domainName ?? binding?.domain,
+        domain: targetDomain,
         bindingId: binding?.id,
       });
     }
@@ -1519,8 +1520,9 @@ export class DeploymentPlansApplicationService {
           deploymentPlanTargetId: target.id,
         });
       }
+      const targetDomain = await this.resolveDeploymentTargetCertificateDomain(tenantId, target);
       if (!target.certificateBindingId) {
-        return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId);
+        return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, undefined, targetDomain);
       }
       const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
       if (!binding) {
@@ -1530,7 +1532,7 @@ export class DeploymentPlansApplicationService {
           certificateBindingId: target.certificateBindingId,
         });
       }
-      return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding);
+      return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding, targetDomain);
     }));
     const uniqueVersionIds = [...new Set(versionIds)];
     if (uniqueVersionIds.length !== 1) {
@@ -1540,6 +1542,20 @@ export class DeploymentPlansApplicationService {
       });
     }
     return uniqueVersionIds[0]!;
+  }
+
+  private async resolveDeploymentTargetCertificateDomain(
+    tenantId: string,
+    target: DeploymentPlanTargetEntity,
+  ): Promise<string | undefined> {
+    const applicationAssetId = target.applicationAssetId ?? target.serviceAssetId;
+    if (applicationAssetId) {
+      const applicationAsset = await this.assets.getServiceAsset(tenantId, applicationAssetId);
+      const applicationAssetDomain = normalizeDomain(applicationAsset?.sniName ?? applicationAsset?.address);
+      if (applicationAssetDomain) return applicationAssetDomain;
+    }
+    const certificateVerification = readRecord(target.strategyPayload)?.certificateVerification;
+    return normalizeDomain(readOptionalString(readRecord(certificateVerification)?.serverName));
   }
 
   private async resolveDeploymentArtifactForTarget(
@@ -1895,14 +1911,22 @@ export class DeploymentPlansApplicationService {
     requestedDomain?: string,
   ): boolean {
     const bindingDomain = normalizeDomain(requestedDomain ?? binding.domainName ?? binding.domain);
-    if (!bindingDomain) return false;
+    return this.coversCertificateDomain(version, asset, bindingDomain);
+  }
+
+  private coversCertificateDomain(
+    version: CertificateVersionEntity,
+    asset: CertificateAssetEntity,
+    domain?: string,
+  ): boolean {
+    if (!domain) return false;
     const candidates = [
       asset.primaryDomain,
       ...asset.sans,
       version.commonName,
       ...version.sans,
     ].map(normalizeDomain).filter(Boolean) as string[];
-    return candidates.some((candidate) => domainMatches(candidate, bindingDomain));
+    return candidates.some((candidate) => domainMatches(candidate, domain));
   }
 
   private async transitionPlan(
