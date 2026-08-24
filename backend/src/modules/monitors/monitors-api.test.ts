@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer as createHttpsServer } from 'node:https';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -16,12 +17,62 @@ import { ExecutionsRepository } from '../executions/repository/executions.reposi
 import { newId } from '../../shared/id.js';
 import type { RiskEventType } from './schema/monitors.schema.js';
 
+const CERT_PEM = `-----BEGIN CERTIFICATE-----
+MIIDVDCCAjygAwIBAgIUG5ildtPXNPyfiDQ1eus6hH5dRFowDQYJKoZIhvcNAQEL
+BQAwJTEUMBIGA1UEAwwLZXhhbXBsZS5jb20xDTALBgNVBAoMBEdDQUMwHhcNMjYw
+NjA4MDkwOTU0WhcNMjcwNjA4MDkwOTU0WjAlMRQwEgYDVQQDDAtleGFtcGxlLmNv
+bTENMAsGA1UECgwER0NBQzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
+ANnmaaLnxtwDFZBfUmKgdJL5NPCkxIWunc+vrTi1dEXkGLlzppat6C8YGWc+fFvY
+Ym+IBrukthZ7KEsjnum2rkKMEMl+a+lUPi2NDVAvy6ZyswouyxtuJnh5rC5GcReu
+esZTQ0bR/SMgI8umYUu2A7fDfna9LnXjkXxqyb7ZY5gvVUyjaC3/gINJQ945JBxC
+BO8PerlOXuRKbHXPAbeOuo0nsaiD7nMcmZ6BE5c4HvTLDfDKBzZNLaKwxwWrIr5l
+tEhg0Zm7mhtLTYZkg/UzKpbuNOr4Zd48tMtVUzlyQeRxgGTJHcnZdSX3oaizfv88
+FFhExjQwqpWaTHoiTXfk5SMCAwEAAaN8MHowHQYDVR0OBBYEFM3GnbaMzOx3k1qa
+8XB2S4Zq+lw1MB8GA1UdIwQYMBaAFM3GnbaMzOx3k1qa8XB2S4Zq+lw1MA8GA1Ud
+EwEB/wQFMAMBAf8wJwYDVR0RBCAwHoILZXhhbXBsZS5jb22CD3d3dy5leGFtcGxl
+LmNvbTANBgkqhkiG9w0BAQsFAAOCAQEAsW/aieACElxUDvOF4jcto6lQAv30DZg3
+q82o2sGsTcInQC987HN2AYK5v3uj9CyWT5OJmeFkJrRekeaFnnutGYyQoRsfJ16u
+YrVXYshRygqzFzQ6WoWEnD9mN+eILLl9kkrPlNX8mV7ly+NuMEk+Y43WTo19lrg3
+li+tUg7XYIzac937W72xTG2rrZ2MUqM+rNNSWjKh8hw32x6b0s1t6j7kKJxuPDJ7
+ypU+DoduyO53xf/mnvIGcDUESJvwRZ7Iffi1pp99oPh73SWPRyLTaYBcsPbbsi/f
+aAQqw3mzHJgVJXhAdmNXmxWG/TCNanalPXMpyLNYSW32L2rZKdE+UQ==
+-----END CERTIFICATE-----`;
+
+const PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDZ5mmi58bcAxWQ
+X1JioHSS+TTwpMSFrp3Pr604tXRF5Bi5c6aWregvGBlnPnxb2GJviAa7pLYWeyhL
+I57ptq5CjBDJfmvpVD4tjQ1QL8umcrMKLssbbiZ4eawuRnEXrnrGU0NG0f0jICPL
+pmFLtgO3w352vS5145F8asm+2WOYL1VMo2gt/4CDSUPeOSQcQgTvD3q5Tl7kSmx1
+zwG3jrqNJ7Gog+5zHJmegROXOB70yw3wygc2TS2isMcFqyK+ZbRIYNGZu5obS02G
+ZIP1MyqW7jTq+GXePLTLVVM5ckHkcYBkyR3J2XUl96Gos37/PBRYRMY0MKqVmkx6
+Ik135OUjAgMBAAECggEAGW5futsZOvlYgsfqmhyHA9ZLsaBRWBbX+p19dpEQTSNA
+0s18I7mP+oXHWo+Q57lFTSYPlHE2ApaveQw4Z6eMsV3z4Z28eM1+ZPDsR6+5sXym
+h77hW/C1qGRETlxQplu/SYv93fNJJi3XRP/vUBeiBHMFEf+kv1k8KXdfLMPmG08y
+Tu4TGdu6prKXluOjKJKCmxyjcMMiMKs3KGEHFeZpehhCBZw/BAcUeJj4P0IOax5G
+MLMyouiH8qz1ZZ43tOBGgF9gc2x7WK5yvEmAyfVE9bkehD7dzEyeYTzoym5tEebX
+MK785Iu3z8fma7qmxDHG5tIrooaN/TNq2b6582pc0QKBgQD+XWrIQYCFM21tk1E9
+GcgttA2xmYHne6gq+ZaFWE2Bemzf/oKFFtVyuauyASYnKLqv7uEc0LnTSF2hIkAP
+qA/jSGUJ9wqbvcakz6TvDUfgYDamTnqp0EdlQj3Z+uMd/uoT+SOblJnyJTOi+NdR
+EMUCxzY1OoaQ5gBun1JezQ4GMQKBgQDbTP0r2XUvodx2oJFzMC7/bEEV0Qg6KrJc
+OsEdGsQL/W9+JW5IUqQlYb97F97Cg5MPPRkjlLM8tBHkUdiNbjyrHnpdt8d50P/O
+ViMiFIPKDhUzimka32fKoPN7bkdmJ5EPP0Qa8YC4UcPZQi9Ptm5DVP0OzqDANAOE
+EA2y2mwHkwKBgQCzM2cWXCdKMDgIuX/DVxWTNUVseKRvS8vnMt1bZiF8dZ6ck/aq
+ArMv1yTiDDMv5V7YsaeAoIA6HMJx0epl3VYMHqWoRpX/sMxwsiUVkTqxFbeKpMGA
+P079RJTErB8zs7J/jccLRb7LPHBLgZpX70OMuII1L9072f418SKbzUTzEQKBgQCj
+rTigS7NtE6/KUll80Y+iUBfbwqITV967e5a6tElycXuPeTxwek3NIMGbi9tU7oMK
+Mp3aspd8TSG1eWjZVletmBfYbtxRDS5/wEaEny8l1ZD5YOrFhcyfrbVMgKiFlC5u
+ZNfeDDX4W/6C3yUUp6JwWrRtIsdT7P5ayOiQfvl2RQKBgQCajPXye+yJqWQboUyF
+C38mSIcEm7mdLCLa7psXWxsMvH15ynl34RzjI/Ne3iWIVWHbnJ9yitudvM1UcdiX
+PyyRtpZNjzHF1i72Y3Ox3WRenxBqp+KjnkkOMTrK8YqxeMXgQ1XBPXXSjhrn8yD8
+HVlUi9P3lKu3lUEi2bOiP2KYvg==
+-----END PRIVATE KEY-----`;
+
 describe('监控风险 API', () => {
   it('生成证书到期、绑定漂移、未知证书和执行失败风险，并返回仪表盘聚合', async () => {
     const { app, assetsService, bindingsService, certificatesRepository, executionsRepository } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_monitor', 'x-actor-id': 'monitor_bot' };
     await seedCertificate(certificatesRepository, { primaryDomain: 'expired.example.com', notAfter: '2026-01-01T00:00:00.000Z' });
-    await seedCertificate(certificatesRepository, { primaryDomain: 'expiring.example.com', notAfter: '2026-06-20T00:00:00.000Z' });
+    const driftCertificateVersionId = await seedCertificate(certificatesRepository, { primaryDomain: 'expiring.example.com', notAfter: '2026-06-20T00:00:00.000Z' });
 
     const host = await assetsService.createHost('tenant_monitor', {
       hostname: 'monitor-host.example.com',
@@ -42,7 +93,7 @@ describe('监控风险 API', () => {
       bindingType: 'FILE_PATH',
       certPath: '/etc/nginx/drift.pem',
       verifyMethod: 'LOCAL_FILE',
-      certificateVersionId: 'certver_drift',
+      certificateVersionId: driftCertificateVersionId,
       desiredFingerprintSha256: 'a'.repeat(64),
       observedFingerprintSha256: 'b'.repeat(64),
       status: 'DRIFTED',
@@ -57,7 +108,7 @@ describe('监控风险 API', () => {
       verifyMethod: 'LOCAL_FILE',
     });
 
-    executionsRepository.createRun({
+    await executionsRepository.createRun({
       id: newId('run'),
       tenantId: 'tenant_monitor',
       deploymentPlanId: 'plan_1',
@@ -357,6 +408,82 @@ describe('监控风险 API', () => {
     });
     assert.equal(response.statusCode, 200);
     assert.equal((response.body as { serviceAssetId: string }).serviceAssetId, asset.id);
+  });
+
+  it('监控 URL 含 @ 时返回明确配置错误，避免误测到用户名后的主机', async () => {
+    const { assetsService, monitors } = await createMonitorHarness();
+    const asset = await assetsService.createServiceAsset('tenant_probe_userinfo', {
+      address: 'test03@jacksonz.cn',
+      port: 8444,
+      protocol: 'HTTPS',
+      platform: 'LINUX',
+      discoverySource: 'MANUAL',
+      status: 'ACTIVE',
+    });
+
+    const result = await monitors.probeServiceAsset({
+      tenantId: 'tenant_probe_userinfo',
+      serviceAssetId: asset.id,
+      timeoutMs: 1000,
+    });
+
+    assert.equal(result.status, 'ERROR');
+    assert.equal(result.success, false);
+    assert.match(result.message, /实际解析主机为 jacksonz\.cn/);
+    assert.match(result.message, /test03\.jacksonz\.cn/);
+    assert.equal(result.detail?.invalidUrlUserInfo, true);
+  });
+
+  it('HTTPS 站点可达但证书不受系统信任时返回黄色警告并保留证书观测', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { app, assetsService, monitors } = await createMonitorHarness();
+      const headers = { 'x-tenant-id': 'tenant_probe_tls_warning', 'x-actor-id': 'monitor_bot' };
+      const asset = await assetsService.createServiceAsset('tenant_probe_tls_warning', {
+        address: '127.0.0.1',
+        port,
+        protocol: 'HTTPS',
+        sniName: 'example.com',
+        platform: 'LINUX',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+      });
+
+      const direct = await monitors.probeServiceAsset({
+        tenantId: 'tenant_probe_tls_warning',
+        serviceAssetId: asset.id,
+        timeoutMs: 1000,
+      });
+      assert.equal(direct.status, 'WARNING');
+      assert.equal(direct.success, true);
+      assert.equal(direct.httpStatus, 200);
+      assert.match(direct.message, /站点可达，但证书存在错误/);
+      assert.equal(direct.certificate?.verified, false);
+      assert.ok(direct.certificate?.fingerprintSha256);
+
+      const observations = await app.inject({
+        method: 'GET',
+        path: `/api/v1/monitors/certificate-observations?serviceAssetId=${asset.id}`,
+        headers,
+      });
+      assert.equal(observations.statusCode, 200);
+      const observationPage = observations.body as { total: number; items: Array<{ serviceAssetId: string; verified?: boolean; verificationError?: string }> };
+      assert.equal(observationPage.total, 1);
+      assert.equal(observationPage.items[0]!.serviceAssetId, asset.id);
+      assert.equal(observationPage.items[0]!.verified, false);
+      assert.ok(observationPage.items[0]!.verificationError);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   it('远程 TLS 观测能生成链异常、域名错配和指纹错配风险并进入聚合', async () => {

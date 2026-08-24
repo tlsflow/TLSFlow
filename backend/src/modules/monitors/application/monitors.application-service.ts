@@ -194,7 +194,7 @@ export class MonitorsApplicationService {
 
     const url = buildProbeUrl(asset);
     const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
-    const result = await probeFromControlPlane(asset.id, url, timeoutMs);
+    const result = await probeFromControlPlane(asset, url, timeoutMs);
     await this.saveCertificateObservationIfChanged(tenantId, result);
     if (input.monitorTargetId) {
       await this.repository.saveMonitorProbeResult({
@@ -302,20 +302,80 @@ function isProbeDue(target: MonitorTargetDto, latest: MonitorProbeResultDto | un
   return now.getTime() - latestCheckedAt >= normalizeMonitorInterval(target.intervalSeconds) * 1000;
 }
 
-function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {
-  return new Promise((resolve) => {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new AppError('VALIDATION_FAILED', '监控探测只支持 HTTP/HTTPS URL', { url });
+async function probeFromControlPlane(asset: ProbeAsset, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new AppError('VALIDATION_FAILED', '监控探测只支持 HTTP/HTTPS URL', { url });
+  }
+  if (parsed.username || parsed.password) {
+    return failedProbeResult(
+      asset.id,
+      url,
+      timeoutMs,
+      new Error(`监控 URL 包含用户信息或 @ 字符，实际解析主机为 ${parsed.hostname}；如需探测子域名请使用 ${suggestHostnameWithoutUserInfo(parsed)}`),
+      { parsedHost: parsed.hostname, username: parsed.username, invalidUrlUserInfo: true },
+    );
+  }
+
+  if (parsed.protocol !== 'https:') {
+    try {
+      return await requestProbe(asset.id, parsed, timeoutMs, { rejectUnauthorized: false });
+    } catch (cause) {
+      return failedProbeResult(asset.id, url, timeoutMs, cause);
+    }
+  }
+
+  try {
+    return await requestProbe(asset.id, parsed, timeoutMs, {
+      rejectUnauthorized: true,
+      servername: readTlsServerName(asset, parsed),
+    });
+  } catch (cause) {
+    if (!isTlsCertificateProbeError(cause)) {
+      return failedProbeResult(asset.id, url, timeoutMs, cause);
     }
 
+    const verificationError = errorMessage(cause);
+    try {
+      const insecureResult = await requestProbe(asset.id, parsed, timeoutMs, {
+        rejectUnauthorized: false,
+        servername: readTlsServerName(asset, parsed),
+      });
+      const certificateError = insecureResult.certificate?.verificationError || verificationError || '证书不受系统信任';
+      return {
+        ...insecureResult,
+        status: 'WARNING',
+        success: true,
+        message: `站点可达，但证书存在错误：${certificateError}`,
+        detail: {
+          ...(insecureResult.detail ?? {}),
+          reachable: true,
+          tlsVerificationError: certificateError,
+        },
+      };
+    } catch (fallbackCause) {
+      return failedProbeResult(asset.id, url, timeoutMs, fallbackCause, {
+        strictTlsError: verificationError,
+      });
+    }
+  }
+}
+
+function requestProbe(
+  serviceAssetId: string,
+  parsed: URL,
+  timeoutMs: number,
+  tls: { rejectUnauthorized: boolean; servername?: string },
+): Promise<ProbeServiceAssetResult> {
+  return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const checkedAt = new Date().toISOString();
     const client = parsed.protocol === 'https:' ? https : http;
     const request = client.request(parsed, {
       method: 'GET',
       timeout: timeoutMs,
-      rejectUnauthorized: false,
+      rejectUnauthorized: tls.rejectUnauthorized,
+      servername: tls.servername,
       headers: {
         'user-agent': 'GCAC-MonitorProbe/1.0',
         accept: '*/*',
@@ -328,7 +388,7 @@ function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: n
         resolve({
           serviceAssetId,
           source: 'control_plane',
-          url,
+          url: parsed.toString(),
           status: 'READY',
           success: true,
           latencyMs,
@@ -344,19 +404,67 @@ function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: n
       request.destroy(new Error(`探测超时：${timeoutMs}ms`));
     });
     request.on('error', (error) => {
-      resolve({
-        serviceAssetId,
-        source: 'control_plane',
-        url,
-        status: 'ERROR',
-        success: false,
-        latencyMs: Math.max(1, Date.now() - startedAt),
-        checkedAt,
-        message: error.message,
-      });
+      reject(error);
     });
     request.end();
   });
+}
+
+function failedProbeResult(
+  serviceAssetId: string,
+  url: string,
+  timeoutMs: number,
+  cause: unknown,
+  detail: Record<string, unknown> = {},
+): ProbeServiceAssetResult {
+  const message = errorMessage(cause) || `探测超时：${timeoutMs}ms`;
+  return {
+    serviceAssetId,
+    source: 'control_plane',
+    url,
+    status: 'ERROR',
+    success: false,
+    latencyMs: 1,
+    checkedAt: new Date().toISOString(),
+    message,
+    detail,
+  };
+}
+
+function readTlsServerName(asset: ProbeAsset, parsed: URL): string | undefined {
+  const explicit = asset.sniName?.trim();
+  if (explicit) return explicit;
+  return isIpAddress(parsed.hostname) ? undefined : parsed.hostname;
+}
+
+function suggestHostnameWithoutUserInfo(parsed: URL): string {
+  const prefix = parsed.username ? `${parsed.username}.` : '';
+  return `${parsed.protocol}//${prefix}${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}${parsed.pathname}`;
+}
+
+function isIpAddress(value: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value) || value.includes(':');
+}
+
+function isTlsCertificateProbeError(cause: unknown): boolean {
+  const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String((cause as { code?: unknown }).code ?? '') : '';
+  if ([
+    'CERT_HAS_EXPIRED',
+    'CERT_NOT_YET_VALID',
+    'DEPTH_ZERO_SELF_SIGNED_CERT',
+    'ERR_TLS_CERT_ALTNAME_INVALID',
+    'SELF_SIGNED_CERT_IN_CHAIN',
+    'UNABLE_TO_GET_ISSUER_CERT',
+    'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  ].includes(code)) return true;
+
+  const message = errorMessage(cause);
+  return /certificate|self signed|unable to verify|unable to get issuer|hostname\/IP does not match|altname|cert_|secure TLS connection/i.test(message);
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause ?? '');
 }
 
 function readPeerCertificate(socket: unknown): ProbeServiceAssetResult['certificate'] | undefined {

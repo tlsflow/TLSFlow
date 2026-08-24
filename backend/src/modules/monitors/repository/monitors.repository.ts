@@ -466,11 +466,11 @@ type RiskEventRow = {
   summary: string;
   scope: unknown;
   metadata: unknown;
-  first_detected_at: string;
-  last_detected_at: string;
-  resolved_at?: string | null;
-  created_at: string;
-  updated_at: string;
+  first_detected_at: string | Date;
+  last_detected_at: string | Date;
+  resolved_at?: string | Date | null;
+  created_at: string | Date;
+  updated_at: string | Date;
   occurrence_count: number;
 };
 
@@ -608,9 +608,9 @@ function toRiskEvent(row: RiskEventRow): RiskEvent {
       hostId: scope.hostId as string | undefined,
     },
     metadata: asObject(row.metadata),
-    firstDetectedAt: row.first_detected_at,
-    lastDetectedAt: row.last_detected_at,
-    resolvedAt: row.resolved_at ?? undefined,
+    firstDetectedAt: toIsoText(row.first_detected_at),
+    lastDetectedAt: toIsoText(row.last_detected_at),
+    resolvedAt: row.resolved_at === null || row.resolved_at === undefined ? undefined : toIsoText(row.resolved_at),
     occurrenceCount: Number(row.occurrence_count ?? 1),
   };
 }
