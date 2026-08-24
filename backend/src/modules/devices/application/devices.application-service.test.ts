@@ -296,3 +296,220 @@ test('设备插件能力执行缺少统一工作流服务时失败关闭而不�
     (error: unknown) => error instanceof AppError && error.errorCode === 'CAPABILITY_MISSING',
   );
 });
+
+test('设备详情自动使用同来源最新已启用插件版本', async () => {
+  const previous = devicePluginVersionFixture('plugin-version-previous', '1.0.1', 'RETIRED');
+  const latest = devicePluginVersionFixture('plugin-version-latest', '1.0.2', 'ENABLED');
+  const device = {
+    id: 'host-plugin-latest',
+    displayName: 'F5',
+    category: 'NETWORK_APPLIANCE',
+    productFamily: 'device.f5.bigip',
+    managementMethod: 'PLUGIN',
+    extensionType: 'NETWORK_APPLIANCE',
+    applicationAssetCount: 0,
+    capabilities: [],
+    allowedActions: [],
+    health: 'HEALTHY',
+    sourceStatus: 'ONLINE',
+    informationSections: [{
+      key: 'networkAppliance',
+      fields: [{ key: 'pluginVersion', value: previous.version, valueType: 'TEXT' as const }],
+    }],
+    publicSummary: { osType: 'NETWORK', managementMode: 'PLUGIN', updatedAt: previous.updatedAt },
+    overview: { deviceId: 'host-plugin-latest', displayName: 'F5', deviceType: 'NETWORK_APPLIANCE', managementMode: 'PLUGIN', status: 'HEALTHY', updatedAt: previous.updatedAt },
+    frameworks: [],
+    sites: [],
+    certificates: [],
+    logs: [],
+    extension: { type: 'PLUGIN', deviceAssetId: 'asset-plugin-latest', pluginVersionId: previous.id, pluginBindingId: 'binding-plugin-latest' },
+    extensionSummary: { pluginVersion: previous.version },
+  } as unknown as ManagedDeviceDetailDto;
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const db = {
+    query: async (sql: string) => sql.includes('plugin_capability_assignments')
+      ? { rows: [{ capability_key: 'device.connection.test' }, { capability_key: 'device.removed' }] }
+      : { rows: [] },
+  };
+  const plugins = {
+    getVersionForTenant: async (_tenantId: string, id: string) => id === latest.id ? latest : previous,
+    listAccessibleVersions: async () => [latest, previous],
+    getVersionWithUiResourcesForTenant: async (_tenantId: string, id: string) => ({
+      version: id === latest.id ? latest : previous,
+      ui: { forms: {}, presentations: {}, locale: { messages: {} } },
+    }),
+  };
+  const result = await new DevicesApplicationService(repository, undefined, undefined, db as never, plugins as never).get('tenant-1', device.id);
+  const pluginVersionField = result.informationSections.find((section) => section.key === 'networkAppliance')?.fields.find((field) => field.key === 'pluginVersion');
+  assert.equal(pluginVersionField?.value, '1.0.2');
+  assert.equal(result.controlVersion, '1.0.2');
+  assert.equal(result.extensionSummary.pluginVersion, '1.0.2');
+  assert.equal(result.pluginUi?.pluginVersionId, latest.id);
+  assert.deepEqual(result.pluginUi?.capabilities, ['device.connection.test']);
+});
+
+test('设备能力执行使用最新插件工作流并迁移历史 Binding 输入', async () => {
+  const previous = devicePluginVersionFixture('plugin-version-previous-execute', '1.0.1', 'RETIRED');
+  const latest = devicePluginVersionFixture('plugin-version-latest-execute', '1.0.2', 'ENABLED');
+  const device = {
+    id: 'host-plugin-latest-execute',
+    displayName: 'F5',
+    category: 'NETWORK_APPLIANCE',
+    productFamily: 'device.f5.bigip',
+    managementMethod: 'PLUGIN',
+    extensionType: 'NETWORK_APPLIANCE',
+    applicationAssetCount: 0,
+    capabilities: [],
+    allowedActions: [],
+    health: 'HEALTHY',
+    sourceStatus: 'ONLINE',
+    informationSections: [{ key: 'networkAppliance', fields: [] }],
+    publicSummary: { osType: 'NETWORK', managementMode: 'PLUGIN', updatedAt: previous.updatedAt },
+    overview: { deviceId: 'host-plugin-latest-execute', displayName: 'F5', deviceType: 'NETWORK_APPLIANCE', managementMode: 'PLUGIN', status: 'HEALTHY', updatedAt: previous.updatedAt },
+    frameworks: [],
+    sites: [],
+    certificates: [],
+    logs: [],
+    extension: { type: 'PLUGIN', deviceAssetId: 'asset-plugin-latest-execute', pluginVersionId: previous.id, pluginBindingId: 'binding-plugin-latest-execute' },
+    extensionSummary: {},
+  } as unknown as ManagedDeviceDetailDto;
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const binding = {
+    id: 'binding-plugin-latest-execute',
+    pluginVersionId: previous.id,
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: { legacyVariable: 'discard-me' },
+      connections: { management: { host: '10.33.5.49' } },
+      credentials: {},
+      artifacts: {},
+    },
+  };
+  const db = {
+    query: async (sql: string) => {
+      if (sql.includes('plugin_capability_assignments')) return { rows: [{ capability_key: 'device.connection.test' }] };
+      if (sql.includes('from pg_service_assets sa')) return { rows: [{
+        id: 'asset-plugin-latest-execute', tenant_id: 'tenant-1', display_name: 'F5', address: '10.33.5.49',
+        host_id: device.id, device_family: 'device.f5.bigip', management_port: 443, auth_mode: 'BASIC',
+        tls_verify: true, plugin_version_id: previous.id, plugin_binding_id: binding.id, support_tier: 'SUPPORTED',
+      }] };
+      return { rows: [] };
+    },
+  };
+  const plugins = {
+    getVersionForTenant: async (_tenantId: string, id: string) => id === latest.id ? latest : previous,
+    listAccessibleVersions: async () => [latest, previous],
+    getVersionWithUiResourcesForTenant: async () => ({ version: latest, ui: { forms: {}, presentations: {}, locale: { messages: {} } } }),
+  };
+  const pluginBindings = {
+    resolveAssignment: async () => ({ pluginBindingId: binding.id, pluginVersionId: previous.id }),
+    getTenantBinding: async () => binding,
+  };
+  let workflowPluginVersionId = '';
+  const pluginWorkflows = {
+    require: async (pluginVersionId: string) => {
+      workflowPluginVersionId = pluginVersionId;
+      return { pluginVersionId, capabilityKey: 'device.connection.test', workflowResourcePath: 'workflows/connection-test.json', workflowTemplateId: 'template-1', workflowVersionId: 'workflow-version-1', workflowContentSha256: 'sha256:workflow', createdAt: '2026-08-23T00:00:00.000Z' };
+    },
+  };
+  const workflowVersion = {
+    id: 'workflow-version-1',
+    executionMode: 'DSL',
+    content: {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'connection-test' },
+      inputContract: {
+        apiVersion: 'gcac.deployment-input/v1',
+        variables: {},
+        connections: {
+          management: {
+            transport: 'http',
+            allowedProtocols: ['https'],
+            host: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+            port: { type: 'number', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+          },
+        },
+        credentials: {},
+        artifacts: {},
+      },
+      steps: [],
+    },
+  };
+  let capturedBindings: Record<string, unknown> | undefined;
+  const deploymentInputResolver = {
+    resolve: (input: { bindingLayers: { deviceDefault?: { inputBindings: Record<string, unknown> } } }) => {
+      capturedBindings = input.bindingLayers.deviceDefault?.inputBindings;
+      return { executable: true };
+    },
+  };
+  const workflows = {
+    getVersion: async () => workflowVersion,
+    execute: async () => ({ status: 'success', id: 'workflow-run-1', stepResults: [] }),
+  };
+  const runtimeGuard = { execute: async (_context: unknown, run: () => Promise<unknown>) => run() };
+  await new DevicesApplicationService(
+    repository,
+    undefined,
+    undefined,
+    db as never,
+    plugins as never,
+    undefined,
+    pluginBindings as never,
+    pluginWorkflows as never,
+    workflows as never,
+    runtimeGuard as never,
+    undefined,
+    deploymentInputResolver as never,
+  ).executeCapability('tenant-1', device.id, 'device.connection.test');
+  assert.equal(workflowPluginVersionId, latest.id);
+  assert.equal((capturedBindings?.variables as Record<string, unknown>)?.legacyVariable, undefined);
+  assert.equal((capturedBindings?.connections as Record<string, Record<string, unknown>>)?.management?.host, '10.33.5.49');
+});
+
+function devicePluginVersionFixture(
+  id: string,
+  version: string,
+  status: 'ENABLED' | 'RETIRED',
+): UnifiedPluginVersionRecord {
+  return {
+    id,
+    tenantId: 'SYSTEM',
+    pluginId: 'device.f5.bigip',
+    version,
+    source: 'BUILTIN',
+    runtime: 'WORKFLOW_DSL',
+    scope: 'BOTH',
+    trust: 'OFFICIAL_SIGNED',
+    support: 'OFFICIAL',
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'device.f5.bigip',
+      version,
+      displayNameKey: 'plugin.f5.name',
+      publisher: 'GCAC',
+      runtime: 'WORKFLOW_DSL',
+      source: 'BUILTIN',
+      scope: 'BOTH',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      permissions: [],
+      compatibility: { productFamilies: ['device.f5.bigip'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'] },
+      capabilities: [
+        { key: 'device.connection.test', contractVersion: 'v1', actionContractId: 'device.connection.test.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
+      ],
+      resources: { workflows: { 'device.connection.test': 'workflows/connection-test.json' } },
+    },
+    packageSha256: `sha256:${id}:package`,
+    manifestSha256: `sha256:${id}:manifest`,
+    resourceSha256: { 'workflows/connection-test.json': `sha256:${id}:workflow` },
+    resources: { 'workflows/connection-test.json': '{}' },
+    status,
+    permissionApprovalStatus: 'NOT_REQUIRED',
+    approvedPermissions: [],
+    validationReport: { valid: true, errors: [], warnings: [], manifestSha256: `sha256:${id}:manifest`, resourceSha256: {} },
+    createdAt: '2026-08-23T00:00:00.000Z',
+    updatedAt: status === 'ENABLED' ? '2026-08-23T01:00:00.000Z' : '2026-08-22T01:00:00.000Z',
+  };
+}

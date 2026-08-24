@@ -20,6 +20,7 @@ import type { PluginWorkflowPublisherService } from '../../plugins/application/p
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowExecutionAuthorization } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
+import { compareSemanticVersions } from '../../plugins/application/unified-plugins.application-service.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { PgDevicesRepository, type DeviceDetailInclude, type DevicesRepository } from '../repository/devices.repository.js';
 import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugins/runtime/plugin-runtime-guard.service.js';
@@ -30,6 +31,7 @@ import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { DeploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
+import { migrateInputBindingsToContract } from '../../deployment-inputs/application/input-binding-contract-migrator.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
 export class DevicesApplicationService {
@@ -70,10 +72,7 @@ export class DevicesApplicationService {
       }));
     }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginVersionId || !device.extension.pluginBindingId || !this.unifiedPlugins) return device;
-    const assignedPlugin = await this.unifiedPlugins.getVersionForTenant(tenantId, device.extension.pluginVersionId);
-    const currentPlugin = (await this.unifiedPlugins.listAccessibleVersions(tenantId))
-      .find((version) => version.pluginId === assignedPlugin.pluginId && version.source === assignedPlugin.source)
-      ?? assignedPlugin;
+    const { currentPlugin } = await this.resolveEffectivePluginVersion(tenantId, device.extension.pluginVersionId);
     const [pluginResources, assignmentRows] = await Promise.all([
       this.unifiedPlugins.getVersionWithUiResourcesForTenant(tenantId, currentPlugin.id, locale),
       this.db.query<{ capability_key: string }>(
@@ -84,13 +83,16 @@ export class DevicesApplicationService {
       ),
     ]);
     const { version: plugin, ui } = pluginResources;
-    const capabilities = assignmentRows.rows.map((row) => row.capability_key);
+    const declaredCapabilities = new Set(plugin.manifest.capabilities.map((capability) => capability.key));
+    const capabilities = [...new Set(assignmentRows.rows.map((row) => row.capability_key))]
+      .filter((capabilityKey) => declaredCapabilities.has(capabilityKey));
     const presentation = asDevicePresentation(ui.presentations.device);
-    const localizedResources = applyResourceLabels(device, presentation, ui.locale?.messages ?? {});
+    const effectiveDevice = applyEffectivePluginVersion(device, plugin.version);
+    const localizedResources = applyResourceLabels(effectiveDevice, presentation, ui.locale?.messages ?? {});
     return {
-      ...device,
+      ...effectiveDevice,
       ...localizedResources,
-      allowedActions: [...new Set([...device.allowedActions, ...capabilities])],
+      allowedActions: [...new Set([...effectiveDevice.allowedActions, ...capabilities])],
       capabilities,
       pluginUi: {
         pluginVersionId: plugin.id,
@@ -106,6 +108,40 @@ export class DevicesApplicationService {
         messages: ui.locale?.messages ?? {},
       },
     };
+  }
+
+  /**
+   * 设备只保存接入时的 Binding；运行期必须解析该 Binding 对应插件来源下当前已启用的最高版本。
+   * 没有可用新版本时回退到历史版本，保证旧设备仍能查看和执行已有能力。
+   */
+  private async resolveEffectivePluginVersion(tenantId: string, assignedPluginVersionId: string): Promise<{
+    assignedPlugin: UnifiedPluginVersionRecord;
+    currentPlugin: UnifiedPluginVersionRecord;
+  }> {
+    if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const assignedPlugin = await this.unifiedPlugins.getVersionForTenant(tenantId, assignedPluginVersionId);
+    let candidates = (await this.unifiedPlugins.listAccessibleVersions(tenantId))
+      .filter((version) => version.pluginId === assignedPlugin.pluginId
+        && version.source === assignedPlugin.source
+        && version.status === 'ENABLED')
+      .sort((left, right) => compareSemanticVersions(right.version, left.version)
+        || right.updatedAt.localeCompare(left.updatedAt)
+        || right.id.localeCompare(left.id));
+    // listAccessibleVersions 为目录展示按 pluginId 去重；若同一 ID 存在内置/用户双来源，
+    // 去重可能隐藏设备原绑定来源，此时回查该来源的完整版本集合。
+    if (candidates.length === 0) {
+      const sourceVersions = assignedPlugin.source === 'BUILTIN'
+        ? await this.unifiedPlugins.listBuiltinVersions()
+        : await this.unifiedPlugins.listVersions(tenantId);
+      candidates = sourceVersions
+        .filter((version) => version.pluginId === assignedPlugin.pluginId
+          && version.source === assignedPlugin.source
+          && version.status === 'ENABLED')
+        .sort((left, right) => compareSemanticVersions(right.version, left.version)
+          || right.updatedAt.localeCompare(left.updatedAt)
+          || right.id.localeCompare(left.id));
+    }
+    return { assignedPlugin, currentPlugin: candidates[0] ?? assignedPlugin };
   }
 
   listOnboardingPlatforms(): DeviceOnboardingPlatformDescriptor[] {
@@ -167,14 +203,16 @@ export class DevicesApplicationService {
     if (!assignment || assignment.pluginBindingId !== device.extension.pluginBindingId) {
       throw new AppError('CAPABILITY_MISSING', '设备未分配该插件能力', { capabilityKey });
     }
-    const assignedVersion = this.unifiedPlugins
-      ? await this.unifiedPlugins.getVersionForTenant(tenantId, assignment.pluginVersionId)
-      : undefined;
-    const currentVersion = assignedVersion && this.unifiedPlugins
-      ? (await this.unifiedPlugins.listAccessibleVersions(tenantId))
-        .find((version) => version.pluginId === assignedVersion.pluginId && version.source === assignedVersion.source)
-      : undefined;
-    const effectivePluginVersionId = currentVersion?.id ?? assignment.pluginVersionId;
+    const { currentPlugin } = this.unifiedPlugins
+      ? await this.resolveEffectivePluginVersion(tenantId, assignment.pluginVersionId)
+      : { currentPlugin: undefined };
+    if (currentPlugin && !currentPlugin.manifest.capabilities.some((capability) => capability.key === capabilityKey)) {
+      throw new AppError('CAPABILITY_MISSING', '当前插件版本未声明该设备能力', {
+        capabilityKey,
+        pluginVersionId: currentPlugin.id,
+      });
+    }
+    const effectivePluginVersionId = currentPlugin?.id ?? assignment.pluginVersionId;
     const [binding, workflow] = await Promise.all([
       this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
       this.pluginWorkflows.require(effectivePluginVersionId, capabilityKey),
@@ -186,12 +224,20 @@ export class DevicesApplicationService {
     if (!deviceAsset) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId: device.extension.deviceAssetId });
     assertNormalDslWorkflowVersion(workflowVersion);
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
+    // 先按当前插件契约过滤历史 Binding，再解析凭据，避免已删除的旧凭据槽位阻塞新版本。
+    const effectiveInputBindings = currentPlugin
+      ? migrateInputBindingsToContract(contract, binding.inputBindings)
+      : binding.inputBindings;
     const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db)).resolveBindings(
       tenantId,
-      binding.inputBindings.credentials,
+      effectiveInputBindings.credentials,
     );
     const bindingLayers = {
-      deviceDefault: { pluginVersionId: effectivePluginVersionId, inputBindings: binding.inputBindings },
+      // 设备 Binding 属于历史插件版本；只把仍由当前契约声明的输入继承到新版本，避免旧字段阻塞执行。
+      deviceDefault: {
+        pluginVersionId: effectivePluginVersionId,
+        inputBindings: effectiveInputBindings,
+      },
     };
     const resolvedInput = this.deploymentInputResolver.resolve({
       phase: 'execute',
@@ -374,6 +420,23 @@ export class DevicesApplicationService {
       throw error;
     }
   }
+}
+
+function applyEffectivePluginVersion(device: ManagedDeviceDetailDto, version: string): ManagedDeviceDetailDto {
+  return {
+    ...device,
+    controlVersion: version,
+    informationSections: device.informationSections.map((section) => section.key === 'networkAppliance'
+      ? {
+          ...section,
+          fields: section.fields.map((field) => field.key === 'pluginVersion' ? { ...field, value: version } : field),
+        }
+      : section),
+    extensionSummary: {
+      ...device.extensionSummary,
+      pluginVersion: version,
+    },
+  };
 }
 
 function applyResourceLabels(
