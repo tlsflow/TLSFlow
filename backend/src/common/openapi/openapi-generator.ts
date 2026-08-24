@@ -55,6 +55,8 @@ export function generateOpenApiDocument(routes: RouteContract[], generatedAt = n
     tags: [
       { name: 'System', description: '系统基础能力' },
       { name: 'Health', description: '健康检查' },
+      { name: 'Assets', description: '主机资产、服务实例和服务端点' },
+      { name: 'Bindings', description: '证书绑定生产事实中心' },
     ],
     'x-generatedAt': generatedAt.toISOString(),
   };

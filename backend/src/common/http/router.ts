@@ -20,6 +20,14 @@ export class Router {
     this.register({ method: 'POST', path, summary, tags, handler, responses });
   }
 
+  patch(path: string, summary: string, tags: string[], handler: HttpHandler, responses?: Record<string, unknown>): void {
+    this.register({ method: 'PATCH', path, summary, tags, handler, responses });
+  }
+
+  delete(path: string, summary: string, tags: string[], handler: HttpHandler, responses?: Record<string, unknown>): void {
+    this.register({ method: 'DELETE', path, summary, tags, handler, responses });
+  }
+
   match(method: string, path: string): RouteDefinition | undefined {
     return this.routes.get(this.createKey(method.toUpperCase(), path));
   }

@@ -1,5 +1,155 @@
-export interface CertificatesPlaceholderDto {
+import type {
+  CertificateAssetEntity,
+  CertificateFormat,
+  CertificateSourceType,
+  CertificateVersionEntity,
+  CertificateVersionFormatEntity,
+} from '../schema/certificates.schema.js';
+
+export interface CertificateAssetDto {
   id: string;
-  status: 'NOT_IMPLEMENTED';
-  message: string;
+  name: string;
+  primaryDomain: string;
+  sans: string[];
+  sourceType: CertificateSourceType;
+  currentVersionId?: string;
+  status: string;
+  tags: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificateVersionDto {
+  id: string;
+  certificateAssetId: string;
+  versionNo: number;
+  commonName?: string;
+  sans: string[];
+  issuer: CertificateVersionEntity['issuer'];
+  subject: CertificateVersionEntity['subject'];
+  serialNumber: string;
+  notBefore: string;
+  notAfter: string;
+  fingerprintSha256: string;
+  publicKeyAlgorithm: string;
+  signatureAlgorithm: string;
+  leafStorageRef: string;
+  hasPrivateKey: boolean;
+  chainCertificateRefs: string[];
+  chainOrder: string[];
+  chainDiagnostics: string[];
+  chainStatus: string;
+  deployable: boolean;
+  sourceType: CertificateSourceType;
+  status: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface CertificateVersionFormatDto {
+  id: string;
+  certificateVersionId: string;
+  format: CertificateFormat;
+  artifactRef: string;
+  parameterHash: string;
+  containsPrivateKey: boolean;
+  passwordSecretRef?: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export interface CreateCertificateAssetInput {
+  name: string;
+  primaryDomain: string;
+  sans?: string[];
+  sourceType?: CertificateSourceType;
+  tags?: string[];
+  createdBy: string;
+}
+
+export interface ImportCertificateVersionInput {
+  certificateAssetId?: string;
+  certificatePem?: string;
+  certificateDerBase64?: string;
+  privateKeyPem?: string;
+  sourceType?: CertificateSourceType;
+  name?: string;
+  tags?: string[];
+  createdBy: string;
+}
+
+export interface CreateCertificateVersionFormatInput {
+  certificateVersionId: string;
+  format: CertificateFormat;
+  artifactRef: string;
+  containsPrivateKey?: boolean;
+  passwordSecretRef?: string;
+  parameters?: Record<string, unknown>;
+  createdBy: string;
+  expiresAt?: string;
+}
+
+export interface RequestCertificateFormatExportInput {
+  certificateVersionId: string;
+  format: CertificateFormat;
+  containsPrivateKey?: boolean;
+  passwordSecretRef?: string;
+  parameters?: Record<string, unknown>;
+  createdBy: string;
+  expiresAt?: string;
+}
+
+export interface CertificateFormatExportPlanDto extends CertificateVersionFormatDto {
+  exportMode: 'planned';
+  warnings: string[];
+}
+
+export interface CertificateSourceSyncInput {
+  sourceType: CertificateSourceType;
+  externalId: string;
+  certificatePem?: string;
+  certificateDerBase64?: string;
+  privateKeyPem?: string;
+  name?: string;
+  tags?: string[];
+  createdBy: string;
+}
+
+export interface CertificateSourceSyncResult {
+  sourceType: CertificateSourceType;
+  externalId: string;
+  imported: boolean;
+  asset: CertificateAssetDto;
+  version: CertificateVersionDto;
+}
+
+export interface ImportCertificateVersionResult {
+  asset: CertificateAssetDto;
+  version: CertificateVersionDto;
+  diagnostics: {
+    sourceFormat: 'pem' | 'der';
+    privateKeySaved: boolean;
+    privateKeyMatched: boolean;
+    chainStatus: string;
+    chainOrder: string[];
+    chainDiagnostics: string[];
+  };
+}
+
+export function toCertificateAssetDto(entity: CertificateAssetEntity): CertificateAssetDto {
+  return { ...entity };
+}
+
+export function toCertificateVersionDto(entity: CertificateVersionEntity): CertificateVersionDto {
+  // API 不返回私钥材料，也不暴露私钥 SecretRef。
+  const { privateKeySecretRef, ...safeEntity } = entity;
+  void privateKeySecretRef;
+  return { ...safeEntity, hasPrivateKey: Boolean(entity.privateKeySecretRef) };
+}
+
+export function toCertificateVersionFormatDto(entity: CertificateVersionFormatEntity): CertificateVersionFormatDto {
+  // 格式产物只暴露 artifactRef 和密码 SecretRef，不暴露 PFX/JKS 密码。
+  return { ...entity };
 }

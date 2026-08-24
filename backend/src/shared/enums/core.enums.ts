@@ -8,6 +8,33 @@ export type ManagementMode = (typeof ManagementModes)[number];
 export const CompatibilityLevels = ['L1', 'L2', 'L3', 'L4', 'L5'] as const;
 export type CompatibilityLevel = (typeof CompatibilityLevels)[number];
 
+export const CapabilityRiskLevels = ['low', 'medium', 'high', 'critical'] as const;
+export type CapabilityRiskLevel = (typeof CapabilityRiskLevels)[number];
+
+export const CapabilityValueTypes = ['boolean', 'string', 'number', 'string_array', 'number_array', 'object'] as const;
+export type CapabilityValueType = (typeof CapabilityValueTypes)[number];
+
+export const CapabilityDeclarationSources = ['agent_report', 'auto_probe', 'gateway_probe', 'agentless_probe', 'manual', 'plugin_manifest', 'inferred'] as const;
+export type CapabilityDeclarationSource = (typeof CapabilityDeclarationSources)[number];
+
+export const CapabilityDeclarationStatuses = ['active', 'expired', 'conflicted', 'revoked', 'pending_approval'] as const;
+export type CapabilityDeclarationStatus = (typeof CapabilityDeclarationStatuses)[number];
+
+export const CapabilityTargetTypes = ['host', 'service_instance', 'execution_target', 'agent', 'plugin'] as const;
+export type CapabilityTargetType = (typeof CapabilityTargetTypes)[number];
+
+export const CapabilityOwnerTypes = ['provider_action', 'executor_action', 'workflow_step', 'plugin_action'] as const;
+export type CapabilityOwnerType = (typeof CapabilityOwnerTypes)[number];
+
+export const CapabilityConstraintOperators = ['exists', 'equals', 'contains', 'gte', 'lte', 'matches', 'path_writable', 'format_supported'] as const;
+export type CapabilityConstraintOperator = (typeof CapabilityConstraintOperators)[number];
+
+export const CapabilityMatchStatuses = ['matched', 'degraded', 'blocked', 'manual_required', 'unknown'] as const;
+export type CapabilityMatchStatus = (typeof CapabilityMatchStatuses)[number];
+
+export const CapabilitySuggestionTypes = ['use_full_agent', 'use_legacy_agent', 'use_gateway', 'use_ssh', 'use_winrm', 'generate_script_package', 'manual_confirm', 'monitor_only'] as const;
+export type CapabilitySuggestionType = (typeof CapabilitySuggestionTypes)[number];
+
 export const ProviderTypes = ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'WINDOWS_CERT_STORE', 'CUSTOM', 'DEVICE_TEMPLATE'] as const;
 export type ProviderType = (typeof ProviderTypes)[number];
 

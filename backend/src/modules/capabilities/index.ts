@@ -4,3 +4,4 @@ export * from './domain/capabilities.domain-service.js';
 export * from './repository/capabilities.repository.js';
 export * from './dto/capabilities.dto.js';
 export * from './schema/capabilities.schema.js';
+export * from '../../shared/contracts/capability-contracts.js';
