@@ -1,5 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { PageResult, AssetsRepository } from '../../assets/repository/assets.repository.js';
@@ -582,7 +582,7 @@ function isDriftState(value: unknown): value is NonNullable<CertificateBindingDt
 }
 
 function page<T extends object>(items: T[], query: PageQuery, filterFn: (item: T, field: string, expected: string) => boolean): PageResult<T> {
-  let filtered = items;
+  let filtered = applyAuthorizationFilter(items, query);
   for (const [field, expected] of Object.entries(query.filter)) {
     filtered = filtered.filter((item) => filterFn(item, field, expected));
   }

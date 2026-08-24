@@ -2,11 +2,13 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
+import { applyAuthorizationFilter } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
-import type { RiskLevel } from '../../../shared/security-types.js';
+import type { RiskLevel, SecuritySubject } from '../../../shared/security-types.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { FallbackSuggestion } from '../../gateway-agents/gateway-agent.types.js';
+import type { SecurityServices } from '../../security/security.controller.js';
 import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
 import type { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
@@ -14,7 +16,7 @@ import type { DeploymentPlansRepository } from '../repository/deployment-plans.r
 export class DeploymentPlansController {
   private readonly service: DeploymentPlansApplicationService;
 
-  constructor(service?: DeploymentPlansApplicationService, dependencies?: DeploymentPlansApplicationDependencies) {
+  constructor(service?: DeploymentPlansApplicationService, dependencies?: DeploymentPlansApplicationDependencies, private readonly security?: SecurityServices) {
     this.service = dependencies ? new DeploymentPlansApplicationService(dependencies) : (service ?? new DeploymentPlansApplicationService());
   }
 
@@ -41,7 +43,22 @@ export class DeploymentPlansController {
 
   private async list(request: HttpRequest) {
     const items = await this.service.list({ tenantId: request.context.tenantId });
-    return { items, page: 1, pageSize: 200, total: items.length };
+    const filtered = await this.authorizedItems(this.subjectFromRequest(request), 'deployment_plan', items);
+    return { items: filtered, page: 1, pageSize: 200, total: filtered.length };
+  }
+
+  private subjectFromRequest(request: HttpRequest): SecuritySubject {
+    return { id: this.actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+  }
+
+  private async authorizedItems<T extends object>(subject: SecuritySubject, objectType: string, items: T[]): Promise<T[]> {
+    if (!this.security) return items;
+    return applyAuthorizationFilter(items, {
+      page: 1,
+      pageSize: Math.max(items.length, 1),
+      filter: {},
+      authorization: await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, 'read'),
+    });
   }
 
   private create(request: HttpRequest) {

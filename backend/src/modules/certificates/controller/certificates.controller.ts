@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
-import { parsePageQuery } from '../../../common/pagination/pagination.js';
+import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { DatabasePort } from '../../../database/database-port.js';
@@ -63,10 +63,11 @@ export class CertificatesController {
   private async listAssets(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
-    return this.services.certificates.listAssets(parsePageQuery(request.query, {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['name', 'primaryDomain', 'sourceType', 'status', 'createdAt', 'updatedAt'],
       allowedFilterFields: ['name', 'primaryDomain', 'sourceType', 'status', 'tags'],
-    }));
+    });
+    return this.services.certificates.listAssets(await this.authorizedQuery(subject, 'certificate_asset', 'read', query));
   }
 
   private async getAssetDetail(request: HttpRequest) {
@@ -122,10 +123,11 @@ export class CertificatesController {
   private async listVersions(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
-    return this.services.certificates.listVersions(parsePageQuery(request.query, {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['certificateAssetId', 'versionNo', 'commonName', 'fingerprintSha256', 'serialNumber', 'notBefore', 'notAfter', 'status', 'createdAt'],
       allowedFilterFields: ['certificateAssetId', 'primaryDomain', 'commonName', 'sans', 'san', 'fingerprintSha256', 'fingerprint', 'serialNumber', 'notAfter', 'status', 'sourceType', 'chainStatus'],
-    }));
+    });
+    return this.services.certificates.listVersions(await this.authorizedQuery(subject, 'certificate_version', 'read', query));
   }
 
   private async getVersionDetail(request: HttpRequest) {
@@ -153,7 +155,7 @@ export class CertificatesController {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version_format', request);
     const versionId = readRequiredId(request);
-    return this.services.certificates.listFormats({ page: 1, pageSize: 100, filter: { certificateVersionId: versionId } });
+    return this.services.certificates.listFormats(await this.authorizedQuery(subject, 'certificate_version_format', 'read', { page: 1, pageSize: 100, filter: { certificateVersionId: versionId } }));
   }
 
   private async archiveVersion(request: HttpRequest) {
@@ -241,10 +243,11 @@ export class CertificatesController {
   private async listFormats(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
-    return this.services.certificates.listFormats(parsePageQuery(request.query, {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['certificateVersionId', 'format', 'createdAt', 'expiresAt'],
       allowedFilterFields: ['certificateVersionId', 'format', 'containsPrivateKey'],
-    }));
+    });
+    return this.services.certificates.listFormats(await this.authorizedQuery(subject, 'certificate_version_format', 'read', query));
   }
 
   private async createFormat(request: HttpRequest) {
@@ -426,6 +429,10 @@ export class CertificatesController {
       }
     }
     throw lastError;
+  }
+
+  private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
+    return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
   private securityContext(request: HttpRequest, actor: SecuritySubject) {

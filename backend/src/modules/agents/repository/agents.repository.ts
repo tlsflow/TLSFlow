@@ -1,4 +1,4 @@
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
@@ -179,7 +179,8 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>> {
     const rows = await this.registrations.list((item) => item.tenantId === tenantId);
-    return createPageResponse(rows, query.page, query.pageSize, rows.length);
+    const authorized = applyAuthorizationFilter(rows, query);
+    return createPageResponse(authorized, query.page, query.pageSize, authorized.length);
   }
 
   async listAllRegistrations(): Promise<AgentRegistration[]> {

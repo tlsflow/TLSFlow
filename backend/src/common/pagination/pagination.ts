@@ -10,6 +10,17 @@ export interface PageQuery {
   pageSize: number;
   sort?: SortSpec;
   filter: Record<string, string>;
+  authorization?: PageAuthorizationFilter;
+}
+
+export interface PageAuthorizationFilter {
+  unrestricted?: boolean;
+  empty?: boolean;
+  objectIdField?: string;
+  objectIds?: string[];
+  dynamicConditions?: Record<string, unknown>[];
+  deniedObjectIds?: string[];
+  deniedDynamicConditions?: Record<string, unknown>[];
 }
 
 export interface PageQueryOptions {
@@ -46,6 +57,31 @@ export function parsePageQuery(raw: Record<string, string | string[] | undefined
   return { page, pageSize, sort, filter };
 }
 
+export function withAuthorization(query: PageQuery, authorization: PageAuthorizationFilter): PageQuery {
+  return { ...query, authorization };
+}
+
+export function applyAuthorizationFilter<T extends object>(items: T[], query: PageQuery): T[] {
+  const authorization = query.authorization;
+  if (!authorization || authorization.unrestricted) return items;
+  if (authorization.empty) return [];
+
+  const allowedIds = new Set(authorization.objectIds ?? []);
+  const allowedConditions = authorization.dynamicConditions ?? [];
+  const deniedIds = new Set(authorization.deniedObjectIds ?? []);
+  const deniedConditions = authorization.deniedDynamicConditions ?? [];
+  const objectIdField = authorization.objectIdField ?? 'id';
+
+  return items.filter((item) => {
+    const id = readObjectField(item, objectIdField);
+    const allowed = (typeof id === 'string' && allowedIds.has(id))
+      || allowedConditions.some((condition) => conditionMatches(item, condition));
+    if (!allowed) return false;
+    if (typeof id === 'string' && deniedIds.has(id)) return false;
+    return !deniedConditions.some((condition) => conditionMatches(item, condition));
+  });
+}
+
 function parseSort(value: string, allowedFields: readonly string[]): SortSpec {
   const [field, direction = 'asc'] = value.split(':');
   if (!field || !['asc', 'desc'].includes(direction)) {
@@ -70,4 +106,37 @@ function parseFilter(raw: Record<string, string | string[] | undefined>, allowed
     if (singleValue !== undefined) filter[field] = singleValue;
   }
   return filter;
+}
+
+function conditionMatches(item: object, condition: Record<string, unknown>): boolean {
+  for (const [field, expected] of Object.entries(condition)) {
+    if (expected === undefined || expected === null || expected === '*') continue;
+    const actual = readConditionField(item, field);
+    if (Array.isArray(expected)) {
+      if (Array.isArray(actual)) {
+        if (!actual.some((value) => expected.includes(value))) return false;
+      } else if (!expected.includes(actual)) {
+        return false;
+      }
+      continue;
+    }
+    if (Array.isArray(actual)) {
+      if (!actual.includes(expected)) return false;
+      continue;
+    }
+    if (actual !== expected) return false;
+  }
+  return true;
+}
+
+function readConditionField(item: object, field: string): unknown {
+  if (field === 'assetTag' || field === 'tag') {
+    const tags = readObjectField(item, 'tags');
+    if (Array.isArray(tags)) return tags;
+  }
+  return readObjectField(item, field);
+}
+
+function readObjectField(item: object, field: string): unknown {
+  return (item as Record<string, unknown>)[field];
 }

@@ -1,5 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { parsePageQuery } from '../../../common/pagination/pagination.js';
+import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
@@ -38,7 +38,7 @@ export class BindingsController {
     router.patch('/api/v1/certificate-bindings/status', '更新 CertificateBinding 状态', tags, (request) => this.patchCertificateBindingStatus(request));
   }
 
-  private createCertificateBinding(request: HttpRequest) {
+  private async createCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       serviceAssetId: { type: 'string' },
       siteAssetId: { type: 'string' },
@@ -76,14 +76,14 @@ export class BindingsController {
       metadata: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.manage', 'certificate_binding', request);
+    await this.assertCan(subject, 'binding.manage', 'certificate_binding', request);
     return this.service.createCertificateBinding(tenantId(request), body as unknown as CreateCertificateBindingDto).then((created) => {
       this.audit(request, subject, 'certificate_binding.created', 'binding.manage', 'certificate_binding', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listCertificateBindings(request: HttpRequest) {
+  private async listCertificateBindings(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['domainName', 'domain', 'port', 'protocol', 'bindingKey', 'createdAt', 'updatedAt', 'lastVerifiedAt', 'status', 'bindingType', 'serviceInstanceId', 'hostId'],
       allowedFilterFields: [
@@ -113,20 +113,20 @@ export class BindingsController {
       ],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.read', 'certificate_binding', request);
-    return this.service.listCertificateBindings(tenantId(request), query);
+    await this.assertCan(subject, 'binding.read', 'certificate_binding', request);
+    return this.service.listCertificateBindings(tenantId(request), await this.authorizedQuery(subject, 'certificate_binding', 'read', query));
   }
 
-  private findCertificateBindingUsages(request: HttpRequest) {
+  private async findCertificateBindingUsages(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.read', 'certificate_binding', request);
+    await this.assertCan(subject, 'binding.read', 'certificate_binding', request);
     return this.service.findCertificateBindingUsages(tenantId(request), {
       certificateVersionId: optionalQueryString(request.query.certificateVersionId),
       fingerprint: optionalQueryString(request.query.fingerprint),
     });
   }
 
-  private updateCertificateBinding(request: HttpRequest) {
+  private async updateCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       serviceAssetId: { type: 'string' },
@@ -174,7 +174,7 @@ export class BindingsController {
     });
     const { id, ...patch } = body as unknown as UpdateCertificateBindingDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.manage', 'certificate_binding', request, id);
+    await this.assertCan(subject, 'binding.manage', 'certificate_binding', request, id);
     return this.service.getRepository().getCertificateBinding(tenantId(request), id).then((before) =>
       this.service.updateCertificateBinding(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'certificate_binding.updated', 'binding.manage', 'certificate_binding', id, before, updated);
@@ -183,10 +183,10 @@ export class BindingsController {
     );
   }
 
-  private deleteCertificateBinding(request: HttpRequest) {
+  private async deleteCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, { bindingId: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
+    await this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
     return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
       this.service.deleteCertificateBinding(tenantId(request), body as unknown as DeleteCertificateBindingDto).then((deleted) => {
         this.audit(request, subject, 'certificate_binding.deleted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, deleted);
@@ -195,7 +195,7 @@ export class BindingsController {
     );
   }
 
-  private detectDrift(request: HttpRequest) {
+  private async detectDrift(request: HttpRequest) {
     const body = validateObject(request.body, {
       localFingerprintSha256: { type: 'string' },
       remoteFingerprintSha256: { type: 'string' },
@@ -203,11 +203,11 @@ export class BindingsController {
       reachable: { type: 'boolean' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.read', 'certificate_binding', request);
+    await this.assertCan(subject, 'binding.read', 'certificate_binding', request);
     return this.service.detectDrift(body as unknown as DetectBindingDriftDto);
   }
 
-  private persistDrift(request: HttpRequest) {
+  private async persistDrift(request: HttpRequest) {
     const body = validateObject(request.body, {
       bindingId: { type: 'string', required: true },
       localConfigFingerprint: { type: 'string' },
@@ -219,7 +219,7 @@ export class BindingsController {
       checkedAt: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
+    await this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
     return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
       this.service.persistDrift(tenantId(request), body as unknown as BindingDriftPersistenceDto).then((result) => {
         this.audit(request, subject, 'certificate_binding.drift_persisted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, result.binding);
@@ -228,13 +228,13 @@ export class BindingsController {
     );
   }
 
-  private patchCertificateBindingStatus(request: HttpRequest) {
+  private async patchCertificateBindingStatus(request: HttpRequest) {
     const body = validateObject(request.body, {
       bindingId: { type: 'string', required: true },
       status: { type: 'string', required: true, enum: CertificateBindingStatuses },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
+    await this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
     return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
       this.service.patchCertificateBindingStatus(tenantId(request), body as unknown as PatchCertificateBindingStatusDto).then((updated) => {
         this.audit(request, subject, 'certificate_binding.status_updated', 'binding.manage', 'certificate_binding', String(body.bindingId), before, updated);
@@ -254,13 +254,18 @@ export class BindingsController {
     return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
   }
 
-  private assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): void {
+  private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
     if (!this.security) return;
-    this.security.rbac.assertCan(subject, action, {
+    await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
       id: resourceId,
       scope: { tenantId: request.context.tenantId, ownerId: subject.id },
     }, this.securityContext(request, subject));
+  }
+
+  private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
+    if (!this.security) return query;
+    return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
   private audit(request: HttpRequest, subject: SecuritySubject, eventType: string, action: string, resourceType: string, resourceId: string | undefined, before: unknown, after: unknown): void {

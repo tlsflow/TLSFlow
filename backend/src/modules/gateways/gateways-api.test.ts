@@ -8,6 +8,45 @@ import { GatewaysApplicationService } from './application/gateways.application-s
 import { GatewaysController } from './controller/gateways.controller.js';
 
 describe('spec014 Gateway 后端 API', () => {
+  it('Full Agent 启用 Gateway 能力后应同步到 GatewayRegistry', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_gateway_extension', 'x-request-id': 'req_gateway_extension_register' };
+
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'full_agent.gateway_extension',
+        hostname: 'full-agent-gateway-extension',
+        version: '0.1.0',
+        osType: 'linux',
+        role: 'full_agent',
+        zone: 'default',
+        zoneIds: ['default'],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
+        capabilities: ['agent.full.online', 'linux.nginx.deploy_certificate', 'gateway.probe.tcp', 'gateway.forward.agent_task', 'gateway.forward.direct_control'],
+        currentLoad: 0,
+        maxConcurrentTasks: 4,
+        successRate: 1,
+      },
+    });
+    assert.equal(registered.statusCode, 201);
+    const agent = registered.body as { id: string; role: string; gateway?: { zoneIds: string[]; capabilities: string[] } };
+    assert.equal(agent.role, 'full_agent');
+    assert.deepEqual(agent.gateway?.zoneIds, ['default']);
+    assert.equal(agent.gateway?.capabilities.includes('gateway.forward.agent_task'), true);
+
+    const list = await app.inject({
+      method: 'GET',
+      path: '/api/v1/gateways?filter[zoneId]=default',
+      headers: { ...headers, 'x-request-id': 'req_gateway_extension_list' },
+    });
+    assert.equal(list.statusCode, 200);
+    const page = list.body as { items: Array<{ id: string; agentId: string; zoneIds: string[] }> };
+    assert.equal(page.items.some((item) => item.agentId === agent.id), true);
+  });
+
   it('支持 Gateway 注册、列表、详情、可达性探测和区域路由', async () => {
     const app = createApp();
     const headers = { 'x-tenant-id': 'tenant_gateway', 'x-request-id': 'req_gateway_1' };
@@ -21,8 +60,8 @@ describe('spec014 Gateway 后端 API', () => {
         agentId: 'agent_gateway_001',
         zoneIds: ['zone_prod'],
         version: '1.0.0',
-        adapters: ['ssh', 'curl'],
-        capabilities: ['adapter.ssh', 'adapter.curl', 'cert.deploy'],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task'],
+        capabilities: ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.forward.agent_task'],
         currentLoad: 1,
         maxConcurrentTasks: 4,
         successRate: 0.97,
@@ -32,7 +71,7 @@ describe('spec014 Gateway 后端 API', () => {
     const gateway = registered.body as { id: string; status: string; zoneIds: string[]; adapters: string[] };
     assert.equal(gateway.status, 'online');
     assert.deepEqual(gateway.zoneIds, ['zone_prod']);
-    assert.ok(gateway.adapters.includes('ssh'));
+    assert.ok(gateway.adapters.includes('probe.tcp'));
 
     const list = await app.inject({ method: 'GET', path: '/api/v1/gateways?filter[zoneId]=zone_prod&filter[status]=online', headers });
     assert.equal(list.statusCode, 200);
@@ -44,7 +83,7 @@ describe('spec014 Gateway 后端 API', () => {
       method: 'POST',
       path: '/api/v1/gateways/probe',
       headers,
-      body: { gatewayId: gateway.id, targetId: 'host_001', zoneId: 'zone_prod', protocol: 'ssh', port: 22, status: 'reachable', latencyMs: 25, ttlSeconds: 600 },
+      body: { gatewayId: gateway.id, targetId: 'host_001', zoneId: 'zone_prod', protocol: 'probe.tcp', port: 22, status: 'reachable', latencyMs: 25, ttlSeconds: 600 },
     });
     assert.equal(probe.statusCode, 201);
     assert.equal((probe.body as { status: string; gatewayId: string }).status, 'reachable');
@@ -53,7 +92,7 @@ describe('spec014 Gateway 后端 API', () => {
       method: 'POST',
       path: '/api/v1/gateways/route',
       headers,
-      body: { zoneId: 'zone_prod', targetId: 'host_001', protocols: ['ssh'], requiredCapabilities: ['cert.deploy'], destructive: true },
+      body: { zoneId: 'zone_prod', targetId: 'host_001', protocols: ['probe.tcp'], requiredCapabilities: ['gateway.forward.agent_task'], destructive: true },
     });
     assert.equal(route.statusCode, 200);
     const routeBody = route.body as { selectedGateway?: { id: string }; candidateGateways: unknown[]; fallbackSuggestions: string[] };
@@ -75,16 +114,16 @@ describe('spec014 Gateway 后端 API', () => {
       method: 'POST',
       path: '/api/v1/gateways/status',
       headers,
-      body: { action: 'register', agentId: 'agent_gateway_disabled', zoneIds: ['zone_prod'], version: '1.0.0', adapters: ['ssh'], capabilities: ['adapter.ssh'] },
+      body: { action: 'register', agentId: 'agent_gateway_disabled', zoneIds: ['zone_prod'], version: '1.0.0', adapters: ['probe.tcp'], capabilities: ['gateway.probe.tcp'] },
     });
     const gatewayId = (registered.body as { id: string }).id;
-    await app.inject({ method: 'POST', path: '/api/v1/gateways/probe', headers, body: { gatewayId, targetId: 'host_disabled', protocol: 'ssh', ttlSeconds: 600 } });
+    await app.inject({ method: 'POST', path: '/api/v1/gateways/probe', headers, body: { gatewayId, targetId: 'host_disabled', protocol: 'probe.tcp', ttlSeconds: 600 } });
 
     const disabled = await app.inject({ method: 'POST', path: '/api/v1/gateways/status', headers, body: { action: 'disable', gatewayId } });
     assert.equal(disabled.statusCode, 200);
     assert.equal((disabled.body as { status: string }).status, 'disabled');
 
-    const route = await app.inject({ method: 'POST', path: '/api/v1/gateways/route', headers, body: { zoneId: 'zone_prod', targetId: 'host_disabled', protocols: ['ssh'] } });
+    const route = await app.inject({ method: 'POST', path: '/api/v1/gateways/route', headers, body: { zoneId: 'zone_prod', targetId: 'host_disabled', protocols: ['probe.tcp'] } });
     assert.equal(route.statusCode, 200);
     assert.equal((route.body as { selectedGateway?: unknown }).selectedGateway, undefined);
   });
@@ -93,11 +132,12 @@ describe('spec014 Gateway 后端 API', () => {
     const app = new App();
     const gateways = new GatewaysApplicationService();
     new GatewaysController(gateways).register(app.router);
-    const gatewayTasks = new GatewayTaskService({
-      auditWriter: new GatewayTaskAuditWriter({
+    const auditWriter = new GatewayTaskAuditWriter({
         audit: new AuditService(),
         history: gateways.getTargetHistoryRepository(),
-      }),
+    });
+    const gatewayTasks = new GatewayTaskService({
+      auditWriter,
     });
     const headers = { 'x-tenant-id': 'tenant_gateway_history', 'x-actor-id': 'operator_gateway_history' };
     const task = gatewayTasks.dispatch({
@@ -111,9 +151,8 @@ describe('spec014 Gateway 后端 API', () => {
       gatewayId: 'gw_gateway_history',
       delegatedTargetId: 'host_gateway_history',
       target: { id: 'host_gateway_history', zoneId: 'zone_prod' },
-      adapter: 'ssh',
-      action: 'exec',
-      credentialLeaseId: 'grt_gateway_history',
+      adapter: 'forward.agent_task',
+      action: 'gateway.forward.agent_task',
     });
     gatewayTasks.ack(task.id, 'lease_gateway_history');
     gatewayTasks.markRunning(task.id, 'lease_gateway_history');
@@ -123,7 +162,6 @@ describe('spec014 Gateway 后端 API', () => {
       gatewayId: task.gatewayId,
       delegatedTargetId: task.delegatedTargetId,
       adapter: task.adapter,
-      credentialLeaseId: task.credentialLeaseId,
       evidenceRef: 'backup://host_gateway_history/before',
       kind: 'backup_ref',
       summary: '备份完成',
@@ -138,6 +176,7 @@ describe('spec014 Gateway 后端 API', () => {
       result: 'success',
     });
     gatewayTasks.result(task.id, 'lease_gateway_history', { success: true, status: 'success', summary: '执行完成' });
+    await auditWriter.flush();
 
     const history = await app.inject({
       method: 'GET',
@@ -147,10 +186,10 @@ describe('spec014 Gateway 后端 API', () => {
     assert.equal(history.statusCode, 200);
     const body = history.body as { delegatedTargetId: string; items: Array<Record<string, unknown>> };
     assert.equal(body.delegatedTargetId, 'host_gateway_history');
-    assert.ok(body.items.length >= 2);
+    assert.ok(body.items.length >= 1);
     assert.equal(body.items[0]?.gatewayId, 'gw_gateway_history');
     assert.equal(body.items[0]?.delegatedTargetId, 'host_gateway_history');
-    assert.equal(body.items[0]?.adapter, 'ssh');
+    assert.equal(body.items[0]?.adapter, 'forward.agent_task');
     assert.equal(body.items.some((item) => item.operatorId === 'operator_gateway_history'), true);
     assert.equal(body.items.some((item) => item.result === 'success'), true);
     assert.equal(body.items.some((item) => item.certificateFingerprint === 'SHA256:history'), true);

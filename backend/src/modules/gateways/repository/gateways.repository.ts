@@ -1,11 +1,11 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
 import type { GatewayAgentProfile, GatewayAdapterType, GatewayStatus, ReachabilityRecord, Zone } from '../../gateway-agents/index.js';
 import { PgGatewayTargetHistoryRepository, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from '../../gateway-agents/gateway-target-history.service.js';
-import type { GatewayCredentialSessionDto, GatewayDto, GatewayReachabilityDto, GatewayZoneDto, RegisterGatewayInput } from '../dto/gateways.dto.js';
+import type { GatewayDto, GatewayReachabilityDto, GatewayZoneDto, RegisterGatewayInput } from '../dto/gateways.dto.js';
 
 export interface PageResult<T> {
   items: T[];
@@ -27,8 +27,6 @@ export interface GatewaysRepository {
   upsertReachability(tenantId: string, input: Omit<GatewayReachabilityDto, 'id' | 'tenantId' | 'checkedAt' | 'expiresAt' | 'createdAt' | 'updatedAt'> & { ttlSeconds: number; now?: Date }): Promise<GatewayReachabilityDto>;
   listReachability(tenantId: string, gatewayId?: string, targetId?: string): Promise<GatewayReachabilityDto[]>;
   findReachability(tenantId: string, gatewayId: string, targetId: string, protocol: GatewayAdapterType, now?: Date): Promise<ReachabilityRecord | undefined>;
-  recordCredentialSession(tenantId: string, input: Omit<GatewayCredentialSessionDto, 'tenantId'>): Promise<GatewayCredentialSessionDto>;
-  revokeUnusedCredentialSessions(tenantId: string, gatewayId: string, now?: Date): Promise<GatewayCredentialSessionDto[]>;
   toZoneRouterInputs(tenantId: string): Promise<{ zones: Zone[]; gateways: GatewayAgentProfile[] }>;
 }
 
@@ -39,11 +37,18 @@ export class PgGatewaysRepository implements GatewaysRepository {
 
   async ensureDefaultZones(tenantId: string): Promise<GatewayZoneDto[]> {
     const existing = await this.listZones(tenantId);
-    if (existing.length > 0) return existing;
-    return [
-      await this.upsertZone(tenantId, { id: 'zone_prod', name: '生产区', type: 'production', enabled: true, policy: { priority: 10, allowedAdapters: ['ssh', 'winrm', 'curl'], maxConcurrentTasks: 10 } }),
-      await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: ['ssh', 'curl'], maxConcurrentTasks: 5 } }),
-    ];
+    const existingIds = new Set(existing.map((zone) => zone.id));
+    const defaults: GatewayZoneDto[] = [...existing];
+    if (!existingIds.has('default')) {
+      defaults.push(await this.upsertZone(tenantId, { id: 'default', name: '默认区域', type: 'custom', enabled: true, policy: { priority: 5, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 5 } }));
+    }
+    if (!existingIds.has('zone_prod')) {
+      defaults.push(await this.upsertZone(tenantId, { id: 'zone_prod', name: '生产区', type: 'production', enabled: true, policy: { priority: 10, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 10 } }));
+    }
+    if (!existingIds.has('zone_dmz')) {
+      defaults.push(await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'], maxConcurrentTasks: 5 } }));
+    }
+    return defaults;
   }
 
   async upsertZone(tenantId: string, input: Omit<Zone, 'id'> & { id?: string }): Promise<GatewayZoneDto> {
@@ -82,8 +87,8 @@ export class PgGatewaysRepository implements GatewaysRepository {
       zoneIds: dedupe(input.zoneIds),
       version: input.version,
       status: 'online',
-      adapters: dedupe(input.adapters),
-      capabilities: dedupe(input.capabilities ?? input.adapters.map((adapter) => `adapter.${adapter}`)),
+      adapters: dedupe(normalizeRouteChannels(input.adapters)),
+      capabilities: dedupe(input.capabilities ?? defaultGatewayCapabilities()),
       capabilitySetId: input.capabilitySetId ?? current?.capabilitySetId ?? newId('capset'),
       currentLoad: input.currentLoad ?? current?.currentLoad ?? 0,
       maxConcurrentTasks: input.maxConcurrentTasks ?? current?.maxConcurrentTasks ?? 4,
@@ -104,7 +109,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
       ...current,
       ...input,
       zoneIds: input.zoneIds ? dedupe(input.zoneIds) : current.zoneIds,
-      adapters: input.adapters ? dedupe(input.adapters) : current.adapters,
+      adapters: input.adapters ? dedupe(normalizeRouteChannels(input.adapters)) : current.adapters,
       capabilities: input.capabilities ? dedupe(input.capabilities) : current.capabilities,
       status,
       disabledAt: status === 'disabled' ? current.disabledAt ?? now : current.disabledAt,
@@ -114,7 +119,6 @@ export class PgGatewaysRepository implements GatewaysRepository {
     };
     if (updated.zoneIds.length === 0) throw new AppError('VALIDATION_FAILED', 'Gateway 必须绑定至少一个 Zone', { field: 'zoneIds' });
     await this.upsertGateway(updated);
-    if (status === 'disabled' || status === 'revoked') await this.revokeUnusedCredentialSessions(tenantId, gatewayId);
     return updated;
   }
 
@@ -132,7 +136,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
 
   async listGateways(tenantId: string, query: PageQuery): Promise<PageResult<GatewayDto>> {
     const rows = (await this.db.query<GatewayRow>(`select * from pg_gateways where tenant_id = $1 order by updated_at asc`, [tenantId])).rows.map(toGateway);
-    const filtered = rows.filter((gateway) => {
+    const filtered = applyAuthorizationFilter(rows, query).filter((gateway) => {
       if (query.filter.zoneId && !gateway.zoneIds.includes(query.filter.zoneId)) return false;
       if (query.filter.status && gateway.status !== query.filter.status) return false;
       return true;
@@ -179,32 +183,6 @@ export class PgGatewaysRepository implements GatewaysRepository {
     const persisted = toReachability(record);
     const status = new Date(persisted.expiresAt).getTime() <= now.getTime() ? 'expired' : persisted.status;
     return { id: persisted.id, gatewayId, targetId, protocol, port: persisted.port, status, latencyMs: persisted.latencyMs, checkedAt: persisted.checkedAt, expiresAt: persisted.expiresAt };
-  }
-
-  async recordCredentialSession(tenantId: string, input: Omit<GatewayCredentialSessionDto, 'tenantId'>): Promise<GatewayCredentialSessionDto> {
-    const session = { ...input, tenantId };
-    await this.db.query(
-      `insert into pg_gateway_credential_sessions (
-         id, tenant_id, task_id, secret_ref, grant_ref, gateway_id, target_id, protocol, allowed_actions,
-         remaining_uses, expires_at, status, created_at, revoked_at
-       ) values ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9::jsonb,$10,$11::timestamptz,$12,$13::timestamptz,$14::timestamptz)
-       on conflict (id) do update set status = excluded.status, remaining_uses = excluded.remaining_uses, revoked_at = excluded.revoked_at`,
-      [session.id, tenantId, session.taskId, JSON.stringify(session.secretRef), JSON.stringify(session.grantRef), session.gatewayId, session.targetId, session.protocol, JSON.stringify(session.allowedActions), session.remainingUses, session.expiresAt, session.status, session.createdAt, session.revokedAt ?? null],
-    );
-    return session;
-  }
-
-  async revokeUnusedCredentialSessions(tenantId: string, gatewayId: string, now = new Date()): Promise<GatewayCredentialSessionDto[]> {
-    const revoked: GatewayCredentialSessionDto[] = [];
-    const rows = (await this.db.query<GatewayCredentialSessionRow>(`select * from pg_gateway_credential_sessions where tenant_id = $1 and gateway_id = $2 and status = 'active'`, [tenantId, gatewayId])).rows;
-    for (const row of rows) {
-      const updated = toCredentialSession(row);
-      updated.status = 'revoked';
-      updated.revokedAt = now.toISOString();
-      revoked.push(updated);
-      await this.recordCredentialSession(tenantId, updated);
-    }
-    return revoked;
   }
 
   async toZoneRouterInputs(tenantId: string): Promise<{ zones: Zone[]; gateways: GatewayAgentProfile[] }> {
@@ -308,22 +286,6 @@ export class PgGatewaysRepository implements GatewaysRepository {
         entity_id varchar(128) not null
       );
       create unique index if not exists idx_pg_gateway_reachability_unique on pg_gateway_reachability (tenant_id, gateway_id, target_id, protocol);
-      create table if not exists pg_gateway_credential_sessions (
-        id varchar(128) primary key,
-        tenant_id varchar(128) not null,
-        task_id varchar(128) not null,
-        secret_ref jsonb not null,
-        grant_ref jsonb not null,
-        gateway_id varchar(128) not null,
-        target_id varchar(128) not null,
-        protocol varchar(64) not null,
-        allowed_actions jsonb not null,
-        remaining_uses integer not null,
-        expires_at timestamptz not null,
-        status varchar(32) not null,
-        created_at timestamptz not null,
-        revoked_at timestamptz
-      );
     `);
   }
 }
@@ -375,23 +337,6 @@ type GatewayReachabilityRow = {
   entity_id: string;
 };
 
-type GatewayCredentialSessionRow = {
-  id: string;
-  tenant_id: string;
-  task_id: string;
-  secret_ref: unknown;
-  grant_ref: unknown;
-  gateway_id: string;
-  target_id: string;
-  protocol: GatewayAdapterType;
-  allowed_actions: unknown;
-  remaining_uses: number;
-  expires_at: string;
-  status: GatewayCredentialSessionDto['status'];
-  created_at: string;
-  revoked_at?: string | null;
-};
-
 function toZone(row: GatewayZoneRow): GatewayZoneDto {
   return { id: row.id, tenantId: row.tenant_id, name: row.name, type: row.zone_type, policy: asObject(row.policy), enabled: row.enabled, createdAt: row.created_at, updatedAt: row.updated_at };
 }
@@ -435,25 +380,6 @@ function toReachability(row: GatewayReachabilityRow): GatewayReachabilityDto {
   };
 }
 
-function toCredentialSession(row: GatewayCredentialSessionRow): GatewayCredentialSessionDto {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    taskId: row.task_id,
-    secretRef: asObject(row.secret_ref) as { ref: string },
-    grantRef: asObject(row.grant_ref) as { ref: string },
-    gatewayId: row.gateway_id,
-    targetId: row.target_id,
-    protocol: row.protocol,
-    allowedActions: asStringArray(row.allowed_actions),
-    remainingUses: row.remaining_uses,
-    expiresAt: row.expires_at,
-    status: row.status,
-    createdAt: row.created_at,
-    revokedAt: row.revoked_at ?? undefined,
-  };
-}
-
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -464,6 +390,28 @@ function asStringArray(value: unknown): string[] {
 
 function dedupe<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function defaultGatewayRouteChannels(): GatewayAdapterType[] {
+  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'];
+}
+
+function defaultGatewayCapabilities(): string[] {
+  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task', 'gateway.forward.direct_control'];
+}
+
+function normalizeRouteChannels(values: GatewayAdapterType[]): GatewayAdapterType[] {
+  return values.map((value) => normalizeRouteChannel(String(value))).filter(Boolean);
+}
+
+function normalizeRouteChannel(value: string): GatewayAdapterType {
+  const normalized = value.trim().toLowerCase();
+  if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
+  if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
+  if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
+  if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
+  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+  return normalized as GatewayAdapterType;
 }
 
 function page<T extends { updatedAt?: string; id: string }>(items: T[], query: PageQuery): PageResult<T> {

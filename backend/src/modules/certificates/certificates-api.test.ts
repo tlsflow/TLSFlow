@@ -9,6 +9,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { CertificatesApplicationService } from './application/certificates.application-service.js';
+import { CertificateFormatExporter } from './application/certificate-format-exporter.js';
 import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
 import { generateJksKeystore } from './codecs/jks-keystore.js';
 
@@ -614,6 +615,26 @@ describe('证书资产 API', () => {
       assert.equal(JSON.stringify(body).includes('export-password-123'), false);
       assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
     }
+  });
+
+  it('PEM 格式部署产物提供不含私钥的 fullchain 输出项', () => {
+    const generated = new CertificateFormatExporter().generate('pem', {
+      version: {} as any,
+      leafDer: Buffer.from('leaf-certificate-der'),
+      chainDer: [Buffer.from('intermediate-certificate-der'), Buffer.from('root-certificate-der')],
+      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
+      parameters: {
+        includeLeafCertificate: true,
+        includeCertificateChain: true,
+        includePrivateKey: true,
+      },
+    });
+
+    const files = new Map(generated.files.map((file) => [file.key, file]));
+    assert.deepEqual([...files.keys()].sort(), ['bundle', 'chain', 'fullchain', 'private', 'public']);
+    assert.equal(files.get('fullchain')?.role, 'public_certificate');
+    assert.match(files.get('fullchain')?.content ?? '', /BEGIN CERTIFICATE/);
+    assert.equal((files.get('fullchain')?.content ?? '').includes('BEGIN PRIVATE KEY'), false);
   });
 
   it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
 import { createPageResponse, type PageResponse } from '../../../shared/dto/page-response.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
 import type {
@@ -206,7 +206,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         where status <> 'deleted'
         order by created_at desc`,
     )).rows.map(toAssetEntity);
-    return page(filterRows(rows, query.filter), query);
+    return page(filterRows(applyAuthorizationFilter(rows, query), query.filter), query);
   }
 
   async createVersion(entity: CertificateVersionEntity): Promise<CertificateVersionEntity> {
@@ -284,7 +284,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
       `select * from pg_certificate_assets
         where status <> 'deleted'`,
     )).rows.map((row) => [row.id, toAssetEntity(row)] as const));
-    const visibleVersions = versions.filter((version) => assets.has(version.certificateAssetId));
+    const visibleVersions = applyAuthorizationFilter(versions.filter((version) => assets.has(version.certificateAssetId)), query);
     return page(filterVersionRows(visibleVersions, assets, query.filter), query);
   }
 
@@ -352,7 +352,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
 
   async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatEntity>> {
     const rows = (await this.db.query<CertificateVersionFormatRow>(`select * from pg_certificate_version_formats order by created_at desc`)).rows.map(toFormatEntity);
-    return page(filterRows(rows, query.filter), query);
+    return page(filterRows(applyAuthorizationFilter(rows, query), query.filter), query);
   }
 
   async getFormat(id: string): Promise<CertificateVersionFormatEntity | undefined> {

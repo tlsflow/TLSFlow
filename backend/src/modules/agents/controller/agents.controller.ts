@@ -2,9 +2,11 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
-import { parsePageQuery } from '../../../common/pagination/pagination.js';
+import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
+import type { SecurityServices } from '../../security/security.controller.js';
 import { AgentsApplicationService } from '../application/agents.application-service.js';
 import type {
   AckAgentTaskInput,
@@ -14,6 +16,7 @@ import type {
   CreateAgentCertificateSigningRequestInput,
   CreateAgentSessionInput,
   CreateEnrollmentTokenInput,
+  CreateGatewayEnableSessionInput,
   CreateLinuxGoInstallSessionInput,
   CreateWindowsPowerShellInstallSessionInput,
   DeleteAgentInput,
@@ -38,7 +41,7 @@ const tags = ['Agents'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class AgentsController {
-  constructor(private readonly service = new AgentsApplicationService()) {}
+  constructor(private readonly service = new AgentsApplicationService(), private readonly security?: SecurityServices) {}
 
   register(router: Router): void {
     router.post('/api/v1/agents/enable', '启用 Agent', tags, (request) => this.enableAgent(request));
@@ -54,8 +57,11 @@ export class AgentsController {
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, (request) => this.createWindowsPowerShellInstallSession(request));
     router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
+    router.post('/api/v1/agents/gateway-enable-sessions', '创建现有 Agent 启用 Gateway 命令', tags, (request) => this.createGatewayEnableSession(request));
     router.get('/agent-install.ps1', '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
     router.get('/agent-install', '获取 Linux Go Agent 短安装入口', tags, (request) => this.getLinuxGoBootstrap(request));
+    router.get('/agent-enable-gateway.ps1', '获取 Windows Agent 启用 Gateway 脚本', tags, (request) => this.getWindowsGatewayEnableScript(request));
+    router.get('/agent-enable-gateway', '获取 Linux Agent 启用 Gateway 脚本', tags, (request) => this.getLinuxGatewayEnableScript(request));
     router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
     router.get('/api/v1/agents/install/windows/manifest', '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellManifest(request));
     router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
@@ -87,11 +93,21 @@ export class AgentsController {
     return this.service;
   }
 
-  private listAgents(request: HttpRequest) {
-    return this.service.listAgents(tenantId(request), parsePageQuery(request.query, {
+  private async listAgents(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['agentKey', 'status', 'registeredAt', 'updatedAt'],
       allowedFilterFields: ['agentKey', 'status'],
-    }));
+    });
+    return this.service.listAgents(tenantId(request), await this.authorizedQuery(this.subjectFromRequest(request), 'agent', 'read', query));
+  }
+
+  private subjectFromRequest(request: HttpRequest): SecuritySubject {
+    return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+  }
+
+  private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
+    if (!this.security) return query;
+    return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
   private createEnrollmentToken(request: HttpRequest) {
@@ -111,6 +127,7 @@ export class AgentsController {
   private createWindowsPowerShellInstallSession(request: HttpRequest) {
     const body = validateObject(request.body, {
       zone: { type: 'string' },
+      role: { type: 'string' },
       serviceName: { type: 'string' },
       displayName: { type: 'string' },
       installRoot: { type: 'string' },
@@ -133,6 +150,7 @@ export class AgentsController {
   private createLinuxGoInstallSession(request: HttpRequest) {
     const body = validateObject(request.body, {
       zone: { type: 'string' },
+      role: { type: 'string' },
       agentKey: { type: 'string' },
       serviceName: { type: 'string' },
       displayName: { type: 'string' },
@@ -146,6 +164,25 @@ export class AgentsController {
       body: this.service.createLinuxGoInstallSession(
         tenantId(request),
         body as unknown as CreateLinuxGoInstallSessionInput,
+        requestId(request),
+        inferBaseUrl(request),
+      ),
+    };
+  }
+
+  private createGatewayEnableSession(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      platform: { type: 'string', required: true },
+      agentId: { type: 'string' },
+      zone: { type: 'string' },
+      serviceName: { type: 'string' },
+      configPath: { type: 'string' },
+    });
+    return {
+      statusCode: 201,
+      body: this.service.createGatewayEnableSession(
+        tenantId(request),
+        body as unknown as CreateGatewayEnableSessionInput,
         requestId(request),
         inferBaseUrl(request),
       ),
@@ -216,6 +253,34 @@ export class AgentsController {
         'content-disposition': 'attachment; filename=\"gcac-linux-agent-bundle.tar.gz\"',
       },
       body: this.service.buildLinuxBundleTarGz(),
+    };
+  }
+
+  private getWindowsGatewayEnableScript(request: HttpRequest) {
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+      },
+      body: renderWindowsGatewayEnableScript({
+        zone: readQuery(request, 'zone', 'default'),
+        serviceName: readQuery(request, 'serviceName', 'gcac-agent'),
+        configPath: readQuery(request, 'configPath', 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json'),
+      }),
+    };
+  }
+
+  private getLinuxGatewayEnableScript(request: HttpRequest) {
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/x-shellscript; charset=utf-8',
+      },
+      body: renderLinuxGatewayEnableScript({
+        zone: readQuery(request, 'zone', 'default'),
+        serviceName: readQuery(request, 'serviceName', 'gcac-linux-agent'),
+        configPath: readQuery(request, 'configPath', '/etc/gcac/linux-agent/agent.config.json'),
+      }),
     };
   }
 
@@ -522,8 +587,12 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'enqueueAgentCapabilityRescanTask', summary: '创建 Agent 手动能力重扫任务', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/install-sessions/linux-go', operationId: 'createLinuxGoAgentInstallSession', summary: '创建 Linux Go Agent 安装会话', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/gateway-enable-sessions', operationId: 'createAgentGatewayEnableSession', summary: '创建现有 Agent 启用 Gateway 命令', tags, responseSchema: schema },
     { method: 'GET', path: '/agent-install.ps1', operationId: 'getWindowsPowerShellAgentShortInstall', summary: '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/agent-install', operationId: 'getLinuxGoAgentShortInstall', summary: '获取 Linux Go Agent 短安装入口', tags, responseSchema: { type: 'string' } },
+    { method: 'GET', path: '/agent-enable-gateway.ps1', operationId: 'getWindowsAgentGatewayEnableScript', summary: '获取 Windows Agent 启用 Gateway 脚本', tags, responseSchema: { type: 'string' } },
+    { method: 'GET', path: '/agent-enable-gateway', operationId: 'getLinuxAgentGatewayEnableScript', summary: '获取 Linux Agent 启用 Gateway 脚本', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
@@ -640,6 +709,8 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
     '$config.tenantId = [string]$manifest.tenantId',
     '$config.agentKey = [string]$manifest.agentKey',
+    "if ($null -eq $config.PSObject.Properties['role']) { $config | Add-Member -NotePropertyName role -NotePropertyValue ([string]$manifest.role) } else { $config.role = [string]$manifest.role }",
+    "if ($null -eq $config.PSObject.Properties['gatewayEnabled']) { $config | Add-Member -NotePropertyName gatewayEnabled -NotePropertyValue ([bool]$manifest.gatewayEnabled) } else { $config.gatewayEnabled = [bool]$manifest.gatewayEnabled }",
     '$config.controlPlaneUrl = [string]$manifest.controlPlaneUrl',
     '$config.service.name = [string]$manifest.serviceName',
     '$config.service.displayName = [string]$manifest.displayName',
@@ -676,11 +747,7 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
     "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
     '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; DataDir = [string]$manifest.dataDir; LogDir = [string]$manifest.logDir }',
-    'if ([bool]$manifest.startAfterInstall) {',
-    '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params -StartAfterInstall',
-    '} else {',
-    '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
-    '}',
+    '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
     "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
     "$selfCheckOutput = & $binaryPath self-check --config=$actualConfigPath 2>&1 | Out-String",
     "$selfCheckExitCode = $LASTEXITCODE",
@@ -697,17 +764,17 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '  Write-Warning "Bootstrap first registration run failed."',
     '  if (Test-Path -LiteralPath $runOncePath) {',
     '    Write-Host "Bootstrap register result:"',
-    '    Get-Content -LiteralPath $runOncePath -Raw | Write-Host',
+    '    Get-Content -LiteralPath $runOncePath -Raw -Encoding UTF8 | Write-Host',
     '  }',
     '  $agentLogPath = Join-Path $manifest.logDir "agent.log"',
     '  if (Test-Path -LiteralPath $agentLogPath) {',
     '    Write-Host "Agent log:"',
-    '    Get-Content -LiteralPath $agentLogPath -Raw | Write-Host',
+    '    Get-Content -LiteralPath $agentLogPath -Raw -Encoding UTF8 | Write-Host',
     '  }',
     '  $runtimeLogPath = Join-Path $manifest.logDir "runtime.log"',
     '  if (Test-Path -LiteralPath $runtimeLogPath) {',
     '    Write-Host "Runtime log:"',
-    '    Get-Content -LiteralPath $runtimeLogPath -Raw | Write-Host',
+    '    Get-Content -LiteralPath $runtimeLogPath -Raw -Encoding UTF8 | Write-Host',
     '  }',
     "  throw 'Bootstrap first registration run failed.'",
     '}',
@@ -749,6 +816,29 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '}',
     "Write-Host 'Bootstrap completed. Files staged at:' $root",
   ].join('\r\n')
+}
+
+function renderWindowsGatewayEnableScript(input: { zone: string; serviceName: string; configPath: string }): string {
+  const manifestJson = JSON.stringify(input, null, 2);
+  return [
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
+    "$ErrorActionPreference = 'Stop'",
+    '$manifest = @\'',
+    manifestJson,
+    '\'@ | ConvertFrom-Json',
+    '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
+    '$configPath = [string]$manifest.configPath',
+    "if (-not (Test-Path -LiteralPath $configPath)) { throw ('Agent config not found: ' + $configPath) }",
+    '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
+    "if ($null -eq $config.PSObject.Properties['role']) { $config | Add-Member -NotePropertyName role -NotePropertyValue 'full_agent' }",
+    "if ([string]::IsNullOrWhiteSpace([string]$config.role)) { $config.role = 'full_agent' }",
+    "if ($null -eq $config.PSObject.Properties['gatewayEnabled']) { $config | Add-Member -NotePropertyName gatewayEnabled -NotePropertyValue $true } else { $config.gatewayEnabled = $true }",
+    "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
+    '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 20), $utf8Bom)',
+    '$serviceName = [string]$manifest.serviceName',
+    'Restart-Service -Name $serviceName -Force',
+    "Write-Host ('Gateway enabled for existing Agent service: ' + $serviceName)",
+  ].join('\r\n');
 }
 
 function readOptionalQuery(request: HttpRequest, key: string): string | undefined {
@@ -809,6 +899,8 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  tenantId: manifest.tenantId,',
     '  agentKey: manifest.agentKey,',
     '  enrollmentToken: manifest.enrollmentToken,',
+    '  role: manifest.role,',
+    '  gatewayEnabled: manifest.gatewayEnabled === true,',
     '  zone: manifest.zone,',
     '  controlPlaneUrl: manifest.controlPlaneUrl,',
     '  heartbeatIntervalSeconds: 30,',
@@ -850,6 +942,42 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     'chmod +x "$WORKDIR/linux/install-systemd.sh"',
     'SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="$START_AFTER_INSTALL" bash "$WORKDIR/linux/install-systemd.sh"',
   ].join('\n')
+}
+
+function renderLinuxGatewayEnableScript(input: { zone: string; serviceName: string; configPath: string }): string {
+  const manifestJson = JSON.stringify(input, null, 2);
+  return [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    '',
+    'if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then',
+    '  echo "请使用 root 或 sudo 执行 Gateway 启用脚本" >&2',
+    '  exit 1',
+    'fi',
+    '',
+    'MANIFEST_JSON=$(cat <<\'JSON\'',
+    manifestJson,
+    'JSON',
+    ')',
+    'CONFIG_PATH=$(printf "%s" "$MANIFEST_JSON" | node -e \'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(m.configPath);\')',
+    'SERVICE_NAME=$(printf "%s" "$MANIFEST_JSON" | node -e \'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(m.serviceName);\')',
+    'if [[ ! -f "$CONFIG_PATH" ]]; then',
+    '  echo "Agent config not found: $CONFIG_PATH" >&2',
+    '  exit 1',
+    'fi',
+    'MANIFEST_JSON="$MANIFEST_JSON" CONFIG_PATH="$CONFIG_PATH" node <<\'NODE\'',
+    'const fs = require("node:fs");',
+    'const manifest = JSON.parse(process.env.MANIFEST_JSON);',
+    'const configPath = process.env.CONFIG_PATH;',
+    'const config = JSON.parse(fs.readFileSync(configPath, "utf8"));',
+    'if (!String(config.role || "").trim()) config.role = "full_agent";',
+    'config.gatewayEnabled = true;',
+    'config.zone = manifest.zone;',
+    'fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\\n");',
+    'NODE',
+    'systemctl restart "${SERVICE_NAME}.service"',
+    'echo "Gateway enabled for existing Agent service: ${SERVICE_NAME}"',
+  ].join('\n');
 }
 
 function toBashSingleQuoted(value: string): string {

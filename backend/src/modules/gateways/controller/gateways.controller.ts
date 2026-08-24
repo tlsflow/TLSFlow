@@ -2,8 +2,10 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
-import { parsePageQuery } from '../../../common/pagination/pagination.js';
+import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { SecuritySubject } from '../../../shared/security-types.js';
+import type { SecurityServices } from '../../security/security.controller.js';
 import { GatewaysApplicationService } from '../application/gateways.application-service.js';
 import type { ProbeGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
 import {
@@ -22,7 +24,7 @@ const reachabilityStatuses = ['reachable', 'unreachable', 'unknown', 'expired'];
 const statusActions = ['register', 'heartbeat', 'disable', 'revoke', 'status'];
 
 export class GatewaysController {
-  constructor(private readonly service = new GatewaysApplicationService()) {}
+  constructor(private readonly service = new GatewaysApplicationService(), private readonly security?: SecurityServices) {}
 
   register(router: Router): void {
     router.get('/api/v1/gateways', '查询 Gateway 列表', tags, async (request) => this.list(request));
@@ -38,10 +40,11 @@ export class GatewaysController {
   }
 
   private async list(request: HttpRequest) {
-    return this.service.list(tenantId(request), parsePageQuery(request.query, {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['id', 'agentId', 'status', 'updatedAt', 'lastHeartbeatAt'],
       allowedFilterFields: ['zoneId', 'status'],
-    }));
+    });
+    return this.service.list(tenantId(request), await this.authorizedQuery(this.subjectFromRequest(request), 'gateway', 'read', query));
   }
 
   private async detail(request: HttpRequest) {
@@ -54,6 +57,15 @@ export class GatewaysController {
   private async targetHistory(request: HttpRequest) {
     const delegatedTargetId = readQuery(request, 'delegatedTargetId');
     return this.service.targetHistory(tenantId(request), delegatedTargetId);
+  }
+
+  private subjectFromRequest(request: HttpRequest): SecuritySubject {
+    return { id: request.context.actorId ?? 'system_gateways', type: request.context.actorId ? 'user' : 'system', scope: { tenantId: request.context.tenantId } };
+  }
+
+  private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
+    if (!this.security || subject.type === 'system') return query;
+    return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
   private async status(request: HttpRequest) {
@@ -82,6 +94,7 @@ export class GatewaysController {
       protocols: { type: 'array', required: true },
       requiredCapabilities: { type: 'array' },
       destructive: { type: 'boolean' },
+      action: { type: 'string' },
     });
     return this.service.route(tenantId(request), normalizeRouteInput(body));
   }
@@ -147,6 +160,7 @@ function normalizeRouteInput(body: Record<string, unknown>): RouteGatewayInput {
     protocols: requiredStringArray(body.protocols, 'protocols') as RouteGatewayInput['protocols'],
     requiredCapabilities: stringArray(body.requiredCapabilities, 'requiredCapabilities'),
     destructive: body.destructive as boolean | undefined,
+    action: body.action as string | undefined,
   };
 }
 

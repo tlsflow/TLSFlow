@@ -1,5 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { parsePageQuery } from '../../../common/pagination/pagination.js';
+import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
@@ -30,10 +30,10 @@ import type {
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
-	  UpdateServiceEndpointDto,
-	  UpdateServiceInstanceDto,
+  UpdateServiceEndpointDto,
+  UpdateServiceInstanceDto,
   DeploymentStrategyDto,
-	} from '../dto/assets.dto.js';
+} from '../dto/assets.dto.js';
 
 const tags = ['Assets'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -87,7 +87,7 @@ export class AssetsController {
     return this.service;
   }
 
-  private createHost(request: HttpRequest) {
+  private async createHost(request: HttpRequest) {
     const body = validateObject(request.body, {
       hostname: { type: 'string' },
       displayName: { type: 'string' },
@@ -111,24 +111,24 @@ export class AssetsController {
       tags: { type: 'array' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'host.create', 'host', request);
+    await this.assertCan(subject, 'host.create', 'host', request);
     return this.service.createHost(tenantId(request), body as unknown as CreateHostDto).then((created) => {
       this.audit(request, subject, 'host.created', 'host.create', 'host', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listHosts(request: HttpRequest) {
+  private async listHosts(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['hostname', 'createdAt', 'updatedAt', 'status', 'environment', 'osType'],
       allowedFilterFields: ['hostname', 'primaryIp', 'osType', 'environment', 'zoneId', 'ownerId', 'discoverySource', 'agentId', 'assetFingerprint', 'status', 'tag'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'host.read', 'host', request);
-    return this.service.listHosts(tenantId(request), query);
+    await this.assertCan(subject, 'host.read', 'host', request);
+    return this.service.listHosts(tenantId(request), await this.authorizedQuery(subject, 'host', 'read', query));
   }
 
-  private updateHost(request: HttpRequest) {
+  private async updateHost(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       hostname: { type: 'string' },
@@ -154,7 +154,7 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateHostDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'host.update', 'host', request, id);
+    await this.assertCan(subject, 'host.update', 'host', request, id);
     return this.service.getRepository().getHost(tenantId(request), id).then((before) =>
       this.service.updateHost(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'host.updated', 'host.update', 'host', id, before, updated);
@@ -163,10 +163,10 @@ export class AssetsController {
     );
   }
 
-  private deleteHost(request: HttpRequest) {
+  private async deleteHost(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'host.delete', 'host', request, String(body.id));
+    await this.assertCan(subject, 'host.delete', 'host', request, String(body.id));
     return this.service.getRepository().getHost(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteHost(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'host.deleted', 'host.delete', 'host', String(body.id), before, deleted);
@@ -175,7 +175,7 @@ export class AssetsController {
     );
   }
 
-  private createServiceInstance(request: HttpRequest) {
+  private async createServiceInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
       hostId: { type: 'string' },
       providerType: { type: 'string', required: true, enum: ProviderTypes },
@@ -194,24 +194,24 @@ export class AssetsController {
       rawFacts: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_instance', request);
+    await this.assertCan(subject, 'service_instance.manage', 'service_instance', request);
     return this.service.createServiceInstance(tenantId(request), body as unknown as CreateServiceInstanceDto).then((created) => {
       this.audit(request, subject, 'service_instance.created', 'service_instance.manage', 'service_instance', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listServiceInstances(request: HttpRequest) {
+  private async listServiceInstances(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['displayName', 'providerType', 'createdAt', 'updatedAt', 'status', 'hostId'],
       allowedFilterFields: ['hostId', 'providerType', 'serviceName', 'displayName', 'providerKey', 'status', 'discoverySource'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.read', 'service_instance', request);
-    return this.service.listServiceInstances(tenantId(request), query);
+    await this.assertCan(subject, 'service_instance.read', 'service_instance', request);
+    return this.service.listServiceInstances(tenantId(request), await this.authorizedQuery(subject, 'service_instance', 'read', query));
   }
 
-  private updateServiceInstance(request: HttpRequest) {
+  private async updateServiceInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       hostId: { type: 'string' },
@@ -232,7 +232,7 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateServiceInstanceDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_instance', request, id);
+    await this.assertCan(subject, 'service_instance.manage', 'service_instance', request, id);
     return this.service.getRepository().getServiceInstance(tenantId(request), id).then((before) =>
       this.service.updateServiceInstance(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'service_instance.updated', 'service_instance.manage', 'service_instance', id, before, updated);
@@ -241,10 +241,10 @@ export class AssetsController {
     );
   }
 
-  private deleteServiceInstance(request: HttpRequest) {
+  private async deleteServiceInstance(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_instance', request, String(body.id));
+    await this.assertCan(subject, 'service_instance.manage', 'service_instance', request, String(body.id));
     return this.service.getRepository().getServiceInstance(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceInstance(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_instance.deleted', 'service_instance.manage', 'service_instance', String(body.id), before, deleted);
@@ -253,7 +253,7 @@ export class AssetsController {
     );
   }
 
-  private createServiceAsset(request: HttpRequest) {
+  private async createServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       address: { type: 'string', required: true },
       addressType: { type: 'string' },
@@ -276,35 +276,35 @@ export class AssetsController {
       targetBinding: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
     return this.service.createServiceAsset(tenantId(request), body as unknown as CreateServiceAssetDto).then((created) => {
       this.audit(request, subject, 'service_asset.created', 'service_asset.manage', 'service_asset', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listServiceAssets(request: HttpRequest) {
+  private async listServiceAssets(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['address', 'port', 'protocol', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'hostId'],
       allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'tag'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_asset.read', 'service_asset', request);
-    return this.service.listServiceAssets(tenantId(request), query);
+    await this.assertCan(subject, 'service_asset.read', 'service_asset', request);
+    return this.service.listServiceAssets(tenantId(request), await this.authorizedQuery(subject, 'service_asset', 'read', query));
   }
 
-  private getServiceAssetDetail(request: HttpRequest) {
+  private async getServiceAssetDetail(request: HttpRequest) {
     const serviceAssetId = String(request.query.serviceAssetId ?? request.query.id ?? '').trim();
     if (!serviceAssetId) throw new AppError('VALIDATION_FAILED', 'serviceAssetId 不能为空', { field: 'serviceAssetId' });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
+    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
     return this.service.getServiceAssetDetail(tenantId(request), serviceAssetId).then((detail) => {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
       return detail;
     });
   }
 
-	  private updateServiceAsset(request: HttpRequest) {
+  private async updateServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       address: { type: 'string' },
@@ -329,23 +329,23 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateServiceAssetDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, id);
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, id);
     return this.service.getRepository().getServiceAsset(tenantId(request), id).then((before) =>
       this.service.updateServiceAsset(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'service_asset.updated', 'service_asset.manage', 'service_asset', id, before, updated);
         return updated;
       }),
     );
-	  }
+  }
 
-  private updateServiceAssetDeploymentStrategy(request: HttpRequest) {
+  private async updateServiceAssetDeploymentStrategy(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string' },
       deploymentStrategy: { type: 'object', required: true },
     });
     const subject = this.subjectFromRequest(request);
     const serviceAssetId = readServiceAssetId(request, body.id);
-    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, serviceAssetId);
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, serviceAssetId);
     return this.service.getRepository().getServiceAsset(tenantId(request), serviceAssetId).then((before) =>
       this.service.updateServiceAssetDeploymentStrategy(tenantId(request), serviceAssetId, body.deploymentStrategy as DeploymentStrategyDto, subject?.id).then((updated) => {
         this.audit(request, subject, 'service_asset.deployment_strategy.updated', 'service_asset.manage', 'service_asset', serviceAssetId, before, updated);
@@ -354,10 +354,10 @@ export class AssetsController {
     );
   }
 
-  private deleteServiceAsset(request: HttpRequest) {
+  private async deleteServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
     return this.service.getRepository().getServiceAsset(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceAsset(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_asset.deleted', 'service_asset.manage', 'service_asset', String(body.id), before, deleted);
@@ -369,10 +369,15 @@ export class AssetsController {
   private async listApplicationAssetTargets(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAsync(subject, 'service_asset.read', 'service_asset', request);
-    return this.service.getRepository().listApplicationAssetTargets(tenantId(request), parsePageQuery(request.query, {
+    const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'status', 'applicationAssetId', 'managedTargetId', 'siteAssetId'],
       allowedFilterFields: ['id', 'applicationAssetId', 'managedTargetId', 'siteAssetId', 'agentId', 'providerType', 'targetType', 'status', 'bindingKey'],
-    }));
+    });
+    const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', query);
+    return this.service.getRepository().listApplicationAssetTargets(tenantId(request), {
+      ...authorized,
+      authorization: authorized.authorization ? { ...authorized.authorization, objectIdField: 'applicationAssetId' } : undefined,
+    });
   }
 
   private async createApplicationAssetTarget(request: HttpRequest) {
@@ -437,7 +442,7 @@ export class AssetsController {
     };
   }
 
-  private createSiteAsset(request: HttpRequest) {
+  private async createSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       serviceInstanceId: { type: 'string', required: true },
       serviceAssetId: { type: 'string' },
@@ -460,24 +465,24 @@ export class AssetsController {
       metadata: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'site_asset.manage', 'site_asset', request);
+    await this.assertCan(subject, 'site_asset.manage', 'site_asset', request);
     return this.service.createSiteAsset(tenantId(request), body as unknown as CreateSiteAssetDto).then((created) => {
       this.audit(request, subject, 'site_asset.created', 'site_asset.manage', 'site_asset', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listSiteAssets(request: HttpRequest) {
+  private async listSiteAssets(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['siteName', 'siteKey', 'providerType', 'port', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId'],
       allowedFilterFields: ['id', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId', 'providerType', 'siteType', 'siteName', 'siteKey', 'hostHeader', 'port', 'protocol', 'status', 'discoverySource'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'site_asset.read', 'site_asset', request);
-    return this.service.listSiteAssets(tenantId(request), query);
+    await this.assertCan(subject, 'site_asset.read', 'site_asset', request);
+    return this.service.listSiteAssets(tenantId(request), await this.authorizedQuery(subject, 'site_asset', 'read', query));
   }
 
-  private updateSiteAsset(request: HttpRequest) {
+  private async updateSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       serviceInstanceId: { type: 'string' },
@@ -502,7 +507,7 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateSiteAssetDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'site_asset.manage', 'site_asset', request, id);
+    await this.assertCan(subject, 'site_asset.manage', 'site_asset', request, id);
     return this.service.getRepository().getSiteAsset(tenantId(request), id).then((before) =>
       this.service.updateSiteAsset(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'site_asset.updated', 'site_asset.manage', 'site_asset', id, before, updated);
@@ -511,10 +516,10 @@ export class AssetsController {
     );
   }
 
-  private deleteSiteAsset(request: HttpRequest) {
+  private async deleteSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'site_asset.manage', 'site_asset', request, String(body.id));
+    await this.assertCan(subject, 'site_asset.manage', 'site_asset', request, String(body.id));
     return this.service.getRepository().getSiteAsset(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteSiteAsset(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'site_asset.deleted', 'site_asset.manage', 'site_asset', String(body.id), before, deleted);
@@ -523,7 +528,7 @@ export class AssetsController {
     );
   }
 
-  private createServiceEndpoint(request: HttpRequest) {
+  private async createServiceEndpoint(request: HttpRequest) {
     const body = validateObject(request.body, {
       serviceInstanceId: { type: 'string', required: true },
       protocol: { type: 'string', required: true, enum: assetsEnumValues.endpointProtocols },
@@ -534,24 +539,24 @@ export class AssetsController {
       status: { type: 'string', enum: assetsEnumValues.endpointStatuses },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request);
+    await this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request);
     return this.service.createServiceEndpoint(tenantId(request), body as unknown as CreateServiceEndpointDto).then((created) => {
       this.audit(request, subject, 'service_endpoint.created', 'service_instance.manage', 'service_endpoint', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listServiceEndpoints(request: HttpRequest) {
+  private async listServiceEndpoints(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['port', 'protocol', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'hostName'],
       allowedFilterFields: ['serviceInstanceId', 'hostId', 'protocol', 'hostName', 'listenIp', 'port', 'status'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.read', 'service_endpoint', request);
-    return this.service.listServiceEndpoints(tenantId(request), query);
+    await this.assertCan(subject, 'service_instance.read', 'service_endpoint', request);
+    return this.service.listServiceEndpoints(tenantId(request), await this.authorizedQuery(subject, 'service_endpoint', 'read', query));
   }
 
-  private updateServiceEndpoint(request: HttpRequest) {
+  private async updateServiceEndpoint(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       serviceInstanceId: { type: 'string' },
@@ -564,7 +569,7 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateServiceEndpointDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request, id);
+    await this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request, id);
     return this.service.getRepository().getServiceEndpoint(tenantId(request), id).then((before) =>
       this.service.updateServiceEndpoint(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'service_endpoint.updated', 'service_instance.manage', 'service_endpoint', id, before, updated);
@@ -573,10 +578,10 @@ export class AssetsController {
     );
   }
 
-  private deleteServiceEndpoint(request: HttpRequest) {
+  private async deleteServiceEndpoint(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request, String(body.id));
+    await this.assertCan(subject, 'service_instance.manage', 'service_endpoint', request, String(body.id));
     return this.service.getRepository().getServiceEndpoint(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceEndpoint(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_endpoint.deleted', 'service_instance.manage', 'service_endpoint', String(body.id), before, deleted);
@@ -585,7 +590,7 @@ export class AssetsController {
     );
   }
 
-  private createManagedTarget(request: HttpRequest) {
+  private async createManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentId: { type: 'string', required: true },
       hostId: { type: 'string' },
@@ -604,34 +609,34 @@ export class AssetsController {
       metadata: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'managed_target.manage', 'managed_target', request);
+    await this.assertCan(subject, 'managed_target.manage', 'managed_target', request);
     return this.service.createManagedTarget(tenantId(request), body as unknown as CreateManagedTargetDto).then((created) => {
       this.audit(request, subject, 'managed_target.created', 'managed_target.manage', 'managed_target', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listManagedTargets(request: HttpRequest) {
+  private async listManagedTargets(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['agentId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'createdAt', 'updatedAt', 'status', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId'],
       allowedFilterFields: ['id', 'agentId', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'bindingKey', 'deploymentMode', 'status'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'managed_target.read', 'managed_target', request);
-    return this.service.listManagedTargets(tenantId(request), query);
+    await this.assertCan(subject, 'managed_target.read', 'managed_target', request);
+    return this.service.listManagedTargets(tenantId(request), await this.authorizedQuery(subject, 'managed_target', 'read', query));
   }
 
-  private listManagedTargetSnapshots(request: HttpRequest) {
+  private async listManagedTargetSnapshots(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['capturedAt', 'createdAt', 'updatedAt', 'snapshotType', 'status', 'applicationAssetId', 'managedTargetId', 'executionRunId'],
       allowedFilterFields: ['id', 'applicationAssetId', 'siteAssetId', 'managedTargetId', 'certificateBindingId', 'executionRunId', 'executionStepId', 'snapshotType', 'status', 'storeThumbprint'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'managed_target.read', 'managed_target_snapshot', request);
-    return this.service.listManagedTargetSnapshots(tenantId(request), query);
+    await this.assertCan(subject, 'managed_target.read', 'managed_target_snapshot', request);
+    return this.service.listManagedTargetSnapshots(tenantId(request), await this.authorizedQuery(subject, 'managed_target_snapshot', 'read', query));
   }
 
-  private updateManagedTarget(request: HttpRequest) {
+  private async updateManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       agentId: { type: 'string' },
@@ -652,7 +657,7 @@ export class AssetsController {
     });
     const { id, ...patch } = body as unknown as UpdateManagedTargetDto & { id: string };
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'managed_target.manage', 'managed_target', request, id);
+    await this.assertCan(subject, 'managed_target.manage', 'managed_target', request, id);
     return this.service.getRepository().getManagedTarget(tenantId(request), id).then((before) =>
       this.service.updateManagedTarget(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'managed_target.updated', 'managed_target.manage', 'managed_target', id, before, updated);
@@ -661,10 +666,10 @@ export class AssetsController {
     );
   }
 
-  private deleteManagedTarget(request: HttpRequest) {
+  private async deleteManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'managed_target.manage', 'managed_target', request, String(body.id));
+    await this.assertCan(subject, 'managed_target.manage', 'managed_target', request, String(body.id));
     return this.service.getRepository().getManagedTarget(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteManagedTarget(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'managed_target.deleted', 'managed_target.manage', 'managed_target', String(body.id), before, deleted);
@@ -673,7 +678,7 @@ export class AssetsController {
     );
   }
 
-  private upsertDiscoverySnapshot(request: HttpRequest) {
+  private async upsertDiscoverySnapshot(request: HttpRequest) {
     const body = validateObject(request.body, {
       normalizedHash: { type: 'string', required: true },
       source: { type: 'string', enum: assetsEnumValues.discoverySources },
@@ -681,24 +686,24 @@ export class AssetsController {
       rawPayload: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
+    await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
     return this.service.upsertDiscoverySnapshot(tenantId(request), body as unknown as CreateDiscoverySnapshotDto).then((created) => {
       this.audit(request, subject, 'discovery_snapshot.upserted', 'discovery.manage', 'discovery_snapshot', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private listDiscoverySnapshots(request: HttpRequest) {
+  private async listDiscoverySnapshots(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['normalizedHash', 'source', 'createdAt', 'updatedAt'],
       allowedFilterFields: ['normalizedHash', 'source'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'discovery.read', 'discovery_snapshot', request);
-    return this.service.listDiscoverySnapshots(tenantId(request), query);
+    await this.assertCan(subject, 'discovery.read', 'discovery_snapshot', request);
+    return this.service.listDiscoverySnapshots(tenantId(request), await this.authorizedQuery(subject, 'discovery_snapshot', 'read', query));
   }
 
-  private previewDiscoveryMerge(request: HttpRequest) {
+  private async previewDiscoveryMerge(request: HttpRequest) {
     const body = validateObject(request.body, {
       normalizedHash: { type: 'string', required: true },
       source: { type: 'string', enum: assetsEnumValues.discoverySources },
@@ -706,11 +711,11 @@ export class AssetsController {
       rawPayload: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'discovery.read', 'discovery_snapshot', request);
+    await this.assertCan(subject, 'discovery.read', 'discovery_snapshot', request);
     return this.service.previewDiscoveryMerge(tenantId(request), body as unknown as PreviewDiscoveryMergeDto).then((result) => ({ statusCode: 201, body: result }));
   }
 
-  private ingestDiscovery(request: HttpRequest) {
+  private async ingestDiscovery(request: HttpRequest) {
     const body = validateObject(request.body, {
       normalizedHash: { type: 'string', required: true },
       source: { type: 'string', enum: assetsEnumValues.discoverySources },
@@ -719,14 +724,14 @@ export class AssetsController {
       apply: { type: 'boolean' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
+    await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
     return this.service.ingestDiscovery(tenantId(request), body as unknown as IngestDiscoveryDto).then((result) => {
       this.audit(request, subject, 'discovery_snapshot.ingested', 'discovery.manage', 'discovery_snapshot', result.snapshot.id, undefined, result);
       return { statusCode: 201, body: result };
     });
   }
 
-  private refreshFromAgent(request: HttpRequest) {
+  private async refreshFromAgent(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentId: { type: 'string', required: true },
       providerTypes: { type: 'array' },
@@ -734,31 +739,31 @@ export class AssetsController {
       requestId: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
+    await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
     return this.service.refreshAssetsFromAgent(tenantId(request), body as unknown as RefreshAssetsFromAgentDto).then((result) => {
       this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.snapshot.id, undefined, result);
       return { statusCode: 201, body: result };
     });
   }
 
-  private listAssetConflicts(request: HttpRequest) {
+  private async listAssetConflicts(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['resourceType', 'resourceId', 'field', 'status', 'createdAt', 'updatedAt', 'resolvedAt'],
       allowedFilterFields: ['id', 'resourceType', 'resourceId', 'field', 'status', 'sourceSnapshotId', 'resolvedBy'],
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'asset_conflict.read', 'asset_conflict', request);
-    return this.service.listAssetConflicts(tenantId(request), query);
+    await this.assertCan(subject, 'asset_conflict.read', 'asset_conflict', request);
+    return this.service.listAssetConflicts(tenantId(request), await this.authorizedQuery(subject, 'asset_conflict', 'read', query));
   }
 
-  private resolveAssetConflict(request: HttpRequest) {
+  private async resolveAssetConflict(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       resolution: { type: 'string', required: true, enum: assetsEnumValues.conflictResolutions },
       comment: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'asset_conflict.resolve', 'asset_conflict', request, String(body.id));
+    await this.assertCan(subject, 'asset_conflict.resolve', 'asset_conflict', request, String(body.id));
     return this.service.resolveAssetConflict(tenantId(request), {
       ...(body as unknown as ResolveAssetConflictDto),
       resolvedBy: subject.id,
@@ -774,9 +779,9 @@ export class AssetsController {
     return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
   }
 
-  private assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): void {
+  private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
     if (!this.security) return;
-    this.security.rbac.assertCan(subject, action, {
+    await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
       id: resourceId,
       scope: { tenantId: request.context.tenantId, ownerId: subject.id },
@@ -790,6 +795,11 @@ export class AssetsController {
       id: resourceId,
       scope: { tenantId: request.context.tenantId, ownerId: subject.id },
     }, this.securityContext(request, subject));
+  }
+
+  private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
+    if (!this.security) return query;
+    return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
   private audit(request: HttpRequest, subject: SecuritySubject, eventType: string, action: string, resourceType: string, resourceId: string | undefined, before: unknown, after: unknown): void {

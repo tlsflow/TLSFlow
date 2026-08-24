@@ -60,7 +60,16 @@ HVlUi9P3lKu3lUEi2bOiP2KYvg==
 async function createMigratedApp() {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  return createApp({ db, corePersistence: { mode: 'memory' } });
+  const security = createSecurityServices();
+  await security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: 'user_admin',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+  return createApp({ db, corePersistence: { mode: 'memory' }, security });
 }
 
 async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: string) {
@@ -117,7 +126,7 @@ async function importCertificateVersion(app: Awaited<ReturnType<typeof createMig
       privateKeyPem: PRIVATE_KEY_PEM,
     },
   });
-  assert.equal(response.statusCode, 201);
+  assert.equal(response.statusCode, 201, JSON.stringify(response.body));
   return (response.body as { version: { id: string } }).version.id;
 }
 

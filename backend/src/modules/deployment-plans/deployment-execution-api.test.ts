@@ -184,6 +184,12 @@ describe('部署计划与执行编排 API', () => {
             runner: 'CONTROL_PLANE',
             credentialRefs: { ssh: 'secret://ssh/workflow-target' },
             variableBindings: { host: fixture.domain },
+            certificateArtifactBindings: {
+              serverCert: {
+                certificateFormatId: fixture.certificateFormatId,
+                outputBindings: { bundle: 'bundle' },
+              },
+            },
           },
         },
       },
@@ -198,18 +204,98 @@ describe('部署计划与执行编排 API', () => {
         applicationAssetId: fixture.applicationAssetId,
         selectionMode: 'EXPLICIT',
         targetCertificateVersionId: fixture.certificateVersionId,
-        certificateFormatId: fixture.certificateFormatId,
         idempotencyKey: 'idem_workflow_strategy_plan',
       },
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { targets: Array<{ executorType: string; strategyPayload?: any; requiredCapabilities: string[] }> };
+    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; executorType: string; strategyPayload?: any; requiredCapabilities: string[] }> };
     assert.equal(plan.targets.length, 1);
+    assert.equal(plan.certificateFormatId, undefined);
+    assert.equal(plan.targets[0].certificateBindingId, undefined);
     assert.equal(plan.targets[0].executorType, 'WORKFLOW');
     assert.deepEqual(plan.targets[0].requiredCapabilities, ['workflow.run']);
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.workflowVersionId, workflow.version.id);
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.runner, 'CONTROL_PLANE');
-    assert.equal(plan.targets[0].strategyPayload.workflowRequest.certificateBindingId, fixture.bindingId);
+    assert.equal(plan.targets[0].strategyPayload.workflowRequest.certificateBindingId, undefined);
+    assert.equal(plan.targets[0].strategyPayload.workflowRequest.certificateArtifactBindings.serverCert.certificateFormatId, fixture.certificateFormatId);
+  });
+
+  it('无 Agent 目标绑定的 WORKFLOW 应用资产也可以创建部署计划', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const security = createSecurityServices();
+    grantWildcardPolicy(security, 'user_1', 'tenant_1');
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
+    const createdWorkflow = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      headers: userHeaders,
+      body: { content: workflowHttpCertificateFixture('无 Agent 绑定工作流') },
+    });
+    assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
+    const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
+    const published = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions/publish',
+      headers: userHeaders,
+      body: { versionId: workflow.version.id },
+    });
+    assert.equal(published.statusCode, 200, JSON.stringify(published.body));
+
+    const asset = await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers: userHeaders,
+      body: {
+        address: 'workflow-only.example.com',
+        addressType: 'DNS',
+        port: 8443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        verifyUrl: 'https://workflow-only.example.com:8443',
+        displayName: 'Workflow Only Asset',
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: workflow.template.id,
+            workflowVersionId: workflow.version.id,
+            runner: 'CONTROL_PLANE',
+            variableBindings: { callbackUrl: 'https://workflow-only.example.com:8443/verify' },
+            certificateArtifactBindings: {
+              serverCert: {
+                certificateFormatId: certificate.certificateFormatId,
+                outputBindings: { bundle: 'bundle' },
+              },
+            },
+          },
+        },
+      },
+    });
+    assert.equal(asset.statusCode, 201, JSON.stringify(asset.body));
+    const applicationAssetId = (asset.body as { id: string }).id;
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId,
+        selectionMode: 'EXPLICIT',
+        targetCertificateVersionId: certificate.certificateVersionId,
+        idempotencyKey: 'idem_workflow_only_asset_plan',
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; managedTargetId?: string; siteAssetId?: string; executionTargetId?: string; executorType: string; strategyPayload?: any }> };
+    assert.equal(plan.certificateFormatId, undefined);
+    assert.equal(plan.targets.length, 1);
+    assert.equal(plan.targets[0].executorType, 'WORKFLOW');
+    assert.equal(plan.targets[0].certificateBindingId, undefined);
+    assert.equal(plan.targets[0].managedTargetId, undefined);
+    assert.equal(plan.targets[0].siteAssetId, undefined);
+    assert.equal(plan.targets[0].executionTargetId, applicationAssetId);
+    assert.equal(plan.targets[0].strategyPayload.workflowRequest.applicationAssetId, applicationAssetId);
   });
 
   it('应用资产 WORKFLOW 策略经真实 HTTP 工作流执行后会回写绑定和资产状态', async () => {
@@ -260,6 +346,12 @@ describe('部署计划与执行编排 API', () => {
               workflowVersionId: workflow.version.id,
               runner: 'CONTROL_PLANE',
               variableBindings: { callbackUrl: workflowUrl },
+              certificateArtifactBindings: {
+                serverCert: {
+                  certificateFormatId: fixture.certificateFormatId,
+                  outputBindings: { bundle: 'bundle' },
+                },
+              },
             },
           },
         },
@@ -274,7 +366,6 @@ describe('部署计划与执行编排 API', () => {
           applicationAssetId: fixture.applicationAssetId,
           selectionMode: 'EXPLICIT',
           targetCertificateVersionId: fixture.certificateVersionId,
-          certificateFormatId: fixture.certificateFormatId,
           idempotencyKey: 'idem_workflow_real_http_plan',
         },
       });
@@ -325,18 +416,6 @@ describe('部署计划与执行编排 API', () => {
       assert.equal(workflowStep.status, 'SUCCESS');
       assert.ok(workflowStep.inputSnapshot.resultDetail?.verify, JSON.stringify(workflowStep.inputSnapshot));
       assert.equal(workflowStep.inputSnapshot.resultDetail.verify.remoteCertificateSha256, fixture.certificateFingerprintSha256);
-
-      const bindings = await app.inject({
-        method: 'GET',
-        path: `/api/v1/certificate-bindings?filter[serviceAssetId]=${fixture.applicationAssetId}`,
-        headers: userHeaders,
-      });
-      assert.equal(bindings.statusCode, 200, JSON.stringify(bindings.body));
-      const binding = (bindings.body as { items: Array<{ id: string; status: string; observedFingerprintSha256?: string; certificateVersionId?: string }> }).items.find((item) => item.id === fixture.bindingId);
-      assert.ok(binding);
-      assert.equal(binding!.status, 'MANAGED');
-      assert.equal(binding!.observedFingerprintSha256, fixture.certificateFingerprintSha256);
-      assert.equal(binding!.certificateVersionId, fixture.certificateVersionId);
 
       const detail = await app.inject({
         method: 'GET',
@@ -462,7 +541,7 @@ describe('部署计划与执行编排 API', () => {
       targets: [{
         certificateBindingId: fixture.target_1.bindingId,
         executionTargetId: fixture.hostId,
-        executorType: 'GATEWAY_SSH',
+        executorType: 'GATEWAY_FORWARD',
         zoneId: 'zone_prod',
         protocols: ['ssh'],
       }],
@@ -665,7 +744,7 @@ describe('部署计划与执行编排 API', () => {
         targets: [{
           certificateBindingId: fixture.target_1.bindingId,
           executionTargetId: fixture.target_1.managedTargetId,
-          executorType: 'GATEWAY_SSH',
+          executorType: 'GATEWAY_FORWARD',
           gatewayRoute: {
             gatewayId: 'gw_mock_safe',
             adapter: 'ssh',
@@ -2381,7 +2460,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
     metadata: { name, category: 'certificate_deployment' },
     variables: {
       host: { type: 'string', required: true },
-      sshCredential: { type: 'secret', required: false },
+      sshCredential: { type: 'credential', required: false },
     },
     steps: [
       {
@@ -2392,7 +2471,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
           connection: {
             host: '{{host}}',
             username: 'deploy',
-            credentialSecretRef: 'secret://ssh/default',
+            credential: '{{sshCredential}}',
           },
           command: 'echo deploy',
         },

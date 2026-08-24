@@ -72,6 +72,7 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /Start-Service -Name/);
     assert.match(bootstrapBody, /Join-Path \$manifest\.installRoot 'gcac-agent\.exe'/);
     assert.match(bootstrapBody, /WriteAllText\(\$selfCheckPath, \$selfCheckOutput, \$utf8Bom\)/);
+    assert.doesNotMatch(bootstrapBody, /-StartAfterInstall/);
     assert.doesNotMatch(bootstrapBody, /Start-GcacFullAgent\.ps1/);
     assert.doesNotMatch(bootstrapBody, /Invoke-RestMethod -Method Get -Uri/);
     assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
@@ -195,6 +196,110 @@ describe('Agent 安装会话安全约束', () => {
       headers,
     });
     assert.equal(shortBootstrap.statusCode, 200);
+  });
+
+  it('Gateway Agent 安装会话应生成可直接注册为 Gateway 的安装脚本', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_gateway_install',
+      'x-request-id': 'req_gateway_install',
+      host: 'gcac.example.test',
+      'x-forwarded-proto': 'https',
+    };
+
+    const linuxCreated = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/linux-go',
+      headers,
+      body: { zone: 'zone_gateway', role: 'gateway' },
+    });
+    assert.equal(linuxCreated.statusCode, 201);
+    const linuxBody = linuxCreated.body as { role: string; bootstrapUrl: string; serviceName: string };
+    assert.equal(linuxBody.role, 'gateway');
+    assert.equal(linuxBody.serviceName, 'gcac-linux-gateway-agent');
+
+    const linuxToken = new URL(linuxBody.bootstrapUrl).searchParams.get('token');
+    assert.ok(linuxToken);
+    const linuxBootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install?token=${encodeURIComponent(linuxToken)}`,
+      headers,
+    });
+    assert.equal(linuxBootstrap.statusCode, 200);
+    const linuxScript = String(linuxBootstrap.body);
+    assert.match(linuxScript, /role: manifest\.role/);
+    assert.match(linuxScript, /gatewayEnabled: manifest\.gatewayEnabled === true/);
+    assert.match(linuxScript, /SERVICE_NAME='gcac-linux-gateway-agent'/);
+
+    const windowsCreated = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-powershell',
+      headers: { ...headers, 'x-request-id': 'req_gateway_install_windows' },
+      body: { zone: 'zone_gateway', role: 'gateway', startAfterInstall: true },
+    });
+    assert.equal(windowsCreated.statusCode, 201);
+    const windowsBody = windowsCreated.body as { role: string; bootstrapUrl: string; serviceName: string };
+    assert.equal(windowsBody.role, 'gateway');
+    assert.match(windowsBody.serviceName, /^gcac-gateway-agent-/);
+
+    const windowsToken = new URL(windowsBody.bootstrapUrl).searchParams.get('token');
+    assert.ok(windowsToken);
+    const windowsBootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install.ps1?token=${encodeURIComponent(windowsToken)}`,
+      headers,
+    });
+    assert.equal(windowsBootstrap.statusCode, 200);
+    const windowsScript = String(windowsBootstrap.body);
+    assert.match(windowsScript, /NotePropertyName role/);
+    assert.match(windowsScript, /NotePropertyName gatewayEnabled/);
+  });
+
+  it('现有 Agent 启用 Gateway 会话应返回直接可运行命令', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_gateway_enable_command',
+      'x-request-id': 'req_gateway_enable_register',
+      host: 'gcac.example.test',
+      'x-forwarded-proto': 'https',
+    };
+
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'agent-existing-gateway-enable',
+        hostname: 'agent-existing-gateway-enable',
+        version: '0.1.0',
+        osType: 'linux',
+        zone: 'default',
+      },
+    });
+    assert.equal(registered.statusCode, 201);
+    const agentId = (registered.body as { id: string }).id;
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/gateway-enable-sessions',
+      headers: { ...headers, 'x-request-id': 'req_gateway_enable_command' },
+      body: { platform: 'linux_go_systemd', agentId, zone: 'zone_gateway' },
+    });
+    assert.equal(created.statusCode, 201);
+    const body = created.body as { enableCommand: string; enableUrl: string; zone: string; configPath: string };
+    assert.equal(body.zone, 'zone_gateway');
+    assert.equal(body.configPath, '/etc/gcac/linux-agent/agent.config.json');
+    assert.match(body.enableCommand, /^curl -fsSL 'https:\/\/gcac\.example\.test\/agent-enable-gateway\?/);
+
+    const url = new URL(body.enableUrl);
+    const script = await app.inject({
+      method: 'GET',
+      path: `${url.pathname}${url.search}`,
+      headers,
+    });
+    assert.equal(script.statusCode, 200);
+    assert.match(String(script.body), /config\.gatewayEnabled = true/);
+    assert.match(String(script.body), /systemctl restart/);
   });
 
   it('并发请求同一个 bootstrap token 时只能成功一次', async () => {
