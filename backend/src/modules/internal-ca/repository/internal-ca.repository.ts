@@ -1,6 +1,7 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import type {
   CaCapabilityRecordEntity,
+  CaIssuanceRecordEntity,
   CaNodeEntity,
   CaNodeEnrollmentTokenEntity,
   CaNodeTaskEntity,
@@ -59,6 +60,54 @@ export class InternalCaRepository {
 
   listCapabilityRecords(tenantId: string, ownerType: CaCapabilityRecordEntity['ownerType'], ownerId: string): Promise<CaCapabilityRecordEntity[]> {
     return this.list('pg_ca_capability_records', tenantId, { owner_type: ownerType, owner_id: ownerId });
+  }
+
+  async allocateSerialNumber(tenantId: string, caId: string, now = new Date()): Promise<string> {
+    const result = await this.db.query<{ allocated_serial: string | number }>(
+      `insert into pg_ca_serial_states (tenant_id, ca_id, next_serial, created_at, updated_at)
+       values ($1, $2, 2, $3, $3)
+       on conflict (tenant_id, ca_id) do update
+       set next_serial = pg_ca_serial_states.next_serial + 1,
+           updated_at = excluded.updated_at
+       returning next_serial - 1 as allocated_serial`,
+      [tenantId, caId, now.toISOString()],
+    );
+    const allocated = result.rows[0]?.allocated_serial;
+    if (allocated === undefined) throw new Error('CA 序列号分配未返回结果');
+    return BigInt(String(allocated)).toString(16).toUpperCase();
+  }
+
+  saveIssuanceRecord(entity: CaIssuanceRecordEntity): Promise<CaIssuanceRecordEntity> {
+    return this.upsert('pg_ca_issuance_records', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      ca_id: entity.caId,
+      serial_number: entity.serialNumber,
+      certificate_request_id: entity.certificateRequestId ?? null,
+      certificate_version_id: entity.certificateVersionId ?? null,
+      application_asset_id: entity.applicationAssetId ?? null,
+      status: entity.status,
+      record_origin: entity.recordOrigin,
+      subject_common_name: entity.subjectCommonName ?? null,
+      sans: entity.sans,
+      certificate_fingerprint_sha256: entity.certificateFingerprintSha256 ?? null,
+      public_key_fingerprint_sha256: entity.publicKeyFingerprintSha256 ?? null,
+      not_before: entity.notBefore ?? null,
+      not_after: entity.notAfter ?? null,
+      issued_at: entity.issuedAt ?? null,
+      observed_at: entity.observedAt,
+    });
+  }
+
+  getIssuanceBySerial(tenantId: string, caId: string, serialNumber: string): Promise<CaIssuanceRecordEntity | undefined> {
+    return this.getByColumns('pg_ca_issuance_records', tenantId, { ca_id: caId, serial_number: serialNumber });
+  }
+
+  getIssuanceByRequest(tenantId: string, certificateRequestId: string): Promise<CaIssuanceRecordEntity | undefined> {
+    return this.getByColumns('pg_ca_issuance_records', tenantId, { certificate_request_id: certificateRequestId });
+  }
+
+  listIssuanceRecords(tenantId: string, caId?: string): Promise<CaIssuanceRecordEntity[]> {
+    return this.list('pg_ca_issuance_records', tenantId, caId ? { ca_id: caId } : undefined);
   }
 
   saveTrustDomain(entity: CaTrustDomainEntity): Promise<CaTrustDomainEntity> {
@@ -406,6 +455,16 @@ export class InternalCaRepository {
     return result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined;
   }
 
+  private async getByColumns<T>(table: string, tenantId: string, filter: Record<string, unknown>): Promise<T | undefined> {
+    const entries = Object.entries(filter);
+    const clauses = ['tenant_id = $1', ...entries.map(([column], index) => `${column} = $${index + 2}`)];
+    const result = await this.db.query<{ payload: T }>(
+      `select payload from ${table} where ${clauses.join(' and ')} limit 1`,
+      [tenantId, ...entries.map(([, value]) => value)],
+    );
+    return result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined;
+  }
+
   private async list<T>(table: string, tenantId: string, extra?: Record<string, unknown>): Promise<T[]> {
     const clauses = ['tenant_id = $1'];
     const params: unknown[] = [tenantId];
@@ -428,7 +487,7 @@ export class InternalCaRepository {
   }
 }
 
-const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence']);
+const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'sans']);
 
 function profileVersionFromRow(row: Record<string, unknown>): CertificateProfileVersionEntity {
   return {

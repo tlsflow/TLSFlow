@@ -232,6 +232,59 @@ test('Provider 能力记录保留声明来源并在验证过期后回退', async
   assert.equal(expired?.failureReason, 'capability_verification_expired');
 });
 
+test('CA 签发账本并发分配唯一序列号且历史回填不伪造签发时间', async () => {
+  const { service, db } = await createFixture();
+  const tenantId = 'tenant-issuance-ledger';
+  const actorId = 'user-admin';
+  const provider = await service.createProvider(tenantId, {
+    name: '签发账本 Provider',
+    type: 'gcac_builtin',
+    deploymentMode: 'builtin',
+    runtimePlatform: 'embedded',
+    availabilityMode: 'single',
+  }, actorId);
+  const preview = service.previewAuthority({
+    topologyMode: 'root_only', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single', keyBackend: 'secret',
+  });
+  const [authority] = await service.createAuthority(tenantId, {
+    providerId: provider.id,
+    name: '账本根 CA',
+    commonName: 'GCAC Ledger Root CA',
+    securityDomain: 'development',
+    topologyMode: 'root_only',
+    deploymentMode: 'builtin',
+    runtimePlatform: 'embedded',
+    availabilityMode: 'single',
+    keyBackend: 'secret',
+    confirmationToken: preview.confirmationToken,
+    actorId,
+  });
+
+  const records = await Promise.all(Array.from({ length: 24 }, (_, index) => service.reserveIssuanceRecord(tenantId, {
+    caId: authority.id,
+    certificateRequestId: `request-${index}`,
+    subjectCommonName: `service-${index}.example.com`,
+  })));
+  assert.equal(new Set(records.map((record) => record.serialNumber)).size, records.length);
+  const duplicate = await service.reserveIssuanceRecord(tenantId, {
+    caId: authority.id,
+    certificateRequestId: 'request-0',
+  });
+  assert.equal(duplicate.id, records[0].id);
+
+  const historical = await service.backfillIssuanceRecord(tenantId, {
+    caId: authority.id,
+    serialNumber: 'ABCDEF',
+    certificateVersionId: 'legacy-version-no-longer-present',
+    subjectCommonName: 'legacy.example.com',
+    observedAt: '2026-07-23T00:00:00.000Z',
+  });
+  assert.equal(historical.recordOrigin, 'historical_backfill');
+  assert.equal(historical.issuedAt, undefined);
+  await db.query('delete from pg_certificate_versions where id = $1', ['legacy-version-no-longer-present']);
+  assert.equal((await service.listIssuanceRecords(tenantId, authority.id)).some((record) => record.id === historical.id), true);
+});
+
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-multi-root-ca';

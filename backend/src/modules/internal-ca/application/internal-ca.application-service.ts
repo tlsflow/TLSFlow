@@ -12,6 +12,7 @@ import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import type {
   CaCapabilityRecordEntity,
+  CaIssuanceRecordEntity,
   CaAvailabilityMode,
   CaDeploymentMode,
   CaProviderEntity,
@@ -290,6 +291,71 @@ export class InternalCaApplicationService {
       createdAt: now,
       updatedAt: now,
     })));
+  }
+
+  async reserveIssuanceRecord(tenantId: string, input: {
+    caId: string;
+    certificateRequestId?: string;
+    applicationAssetId?: string;
+    subjectCommonName?: string;
+    sans?: string[];
+  }): Promise<CaIssuanceRecordEntity> {
+    if (input.certificateRequestId) {
+      const existing = await this.repository.getIssuanceByRequest(tenantId, input.certificateRequestId);
+      if (existing) return existing;
+    }
+    await this.requireAuthority(tenantId, input.caId);
+    const now = new Date().toISOString();
+    const serialNumber = await this.repository.allocateSerialNumber(tenantId, input.caId);
+    return this.repository.saveIssuanceRecord({
+      id: newId('caissue'),
+      tenantId,
+      caId: input.caId,
+      serialNumber,
+      certificateRequestId: input.certificateRequestId,
+      applicationAssetId: input.applicationAssetId,
+      status: 'reserved',
+      recordOrigin: 'native',
+      subjectCommonName: input.subjectCommonName,
+      sans: uniqueStrings(input.sans ?? []),
+      observedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async backfillIssuanceRecord(tenantId: string, input: {
+    caId: string;
+    serialNumber: string;
+    certificateVersionId?: string;
+    subjectCommonName?: string;
+    sans?: string[];
+    issuedAt?: string;
+    observedAt?: string;
+  }): Promise<CaIssuanceRecordEntity> {
+    const existing = await this.repository.getIssuanceBySerial(tenantId, input.caId, input.serialNumber);
+    if (existing) return existing;
+    await this.requireAuthority(tenantId, input.caId);
+    const now = new Date().toISOString();
+    return this.repository.saveIssuanceRecord({
+      id: newId('caissue'),
+      tenantId,
+      caId: input.caId,
+      serialNumber: input.serialNumber.toUpperCase(),
+      certificateVersionId: input.certificateVersionId,
+      status: 'issued',
+      recordOrigin: 'historical_backfill',
+      subjectCommonName: input.subjectCommonName,
+      sans: uniqueStrings(input.sans ?? []),
+      issuedAt: input.issuedAt,
+      observedAt: input.observedAt ?? now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  listIssuanceRecords(tenantId: string, caId?: string): Promise<CaIssuanceRecordEntity[]> {
+    return this.repository.listIssuanceRecords(tenantId, caId);
   }
 
   previewAuthority(input: PreviewCaInput): CaRiskPreview {

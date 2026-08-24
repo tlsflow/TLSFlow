@@ -27,6 +27,8 @@ export type KeyExportability = typeof keyExportabilities[number];
 export type CertificateRequestStatus = typeof certificateRequestStatuses[number];
 export type CaCapabilityOwnerType = 'provider' | 'node';
 export type CaCapabilityState = 'declared' | 'discovered' | 'verified' | 'unavailable';
+export type CaIssuanceStatus = 'reserved' | 'issued' | 'revoked' | 'expired' | 'failed';
+export type CaIssuanceRecordOrigin = 'native' | 'historical_backfill' | 'external';
 
 export interface CaProviderCapabilities {
   discoverHierarchy: boolean;
@@ -55,6 +57,28 @@ export interface CaCapabilityRecordEntity {
   verifiedAt?: string;
   expiresAt?: string;
   failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CaIssuanceRecordEntity {
+  id: string;
+  tenantId: string;
+  caId: string;
+  serialNumber: string;
+  certificateRequestId?: string;
+  certificateVersionId?: string;
+  applicationAssetId?: string;
+  status: CaIssuanceStatus;
+  recordOrigin: CaIssuanceRecordOrigin;
+  subjectCommonName?: string;
+  sans: string[];
+  certificateFingerprintSha256?: string;
+  publicKeyFingerprintSha256?: string;
+  notBefore?: string;
+  notAfter?: string;
+  issuedAt?: string;
+  observedAt: string;
   createdAt: string;
   updatedAt: string;
 }
