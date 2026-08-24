@@ -20,6 +20,7 @@ Object.assign(process.env, descriptorEnv);
 
 const provider = providerFor(pluginId);
 const vectors = loadVector(executorPath, pluginId);
+const deployFailureFixture = loadDeployFailureFixture(executorPath, pluginId);
 const module = await import(pathToFileURL(resolve(executorPath)).href);
 if (typeof module.createPluginRunnerExecutor !== 'function') fail('插件入口缺少固定工厂导出');
 const executor = await module.createPluginRunnerExecutor();
@@ -90,7 +91,7 @@ async function hostCall(method, request) {
   const operationPath = request.operationPath ?? request.path;
   if (operationPath === '/fixture/unknown') throw new Error('Fixture 网络连接中断');
   if (operationPath === '/fixture/discover') return { ok: true, data: { statusCode: 200, body: { resources: [{ id: `${provider.name}-resource`, type: provider.resourceType, region: provider.service.region }] }, signatureVerified: true } };
-  if (operationPath === '/fixture/deploy-failure') return { ok: true, data: { statusCode: 409, body: { status: 'FAILED', code: 'CertificateConflict' }, signatureVerified: true } };
+  if (operationPath === '/fixture/deploy-failure') return { ok: true, data: deployFailureFixture };
   if (operationPath === '/fixture/deploy' && request.method === 'POST') return { ok: true, data: { statusCode: 202, body: { status: 'PENDING', operationId: `${provider.name}-operation` }, operationId: `${provider.name}-operation`, signatureVerified: true } };
   if (operationPath.startsWith('/operations/')) {
     operationPolls += 1;
@@ -113,6 +114,17 @@ function loadVector(executorPath, id) {
   const packageDirectory = dirname(dirname(resolve(executorPath)));
   const vectorPath = join(packageDirectory, 'fixtures', 'request-vectors.json');
   try { return JSON.parse(readFileSync(vectorPath, 'utf8')); } catch { return { provider: id }; }
+}
+
+function loadDeployFailureFixture(executorPath, id) {
+  const packageDirectory = dirname(dirname(resolve(executorPath)));
+  const fixturePath = join(packageDirectory, 'fixtures', 'deploy-failure.json');
+  let fixture;
+  try { fixture = JSON.parse(readFileSync(fixturePath, 'utf8')); } catch { fail(`${id} deploy-failure Fixture 无法加载`); }
+  if (!fixture || typeof fixture !== 'object' || Array.isArray(fixture)) fail(`${id} deploy-failure Fixture 格式无效`);
+  if (!Number.isInteger(fixture.statusCode) || fixture.statusCode < 400 || fixture.statusCode > 599) fail(`${id} deploy-failure Fixture 必须是失败响应`);
+  if (!fixture.body || typeof fixture.body !== 'object' || Array.isArray(fixture.body) || String(fixture.body.status).toUpperCase() !== 'FAILED') fail(`${id} deploy-failure Fixture 缺少失败状态`);
+  return Object.freeze({ statusCode: fixture.statusCode, body: fixture.body, signatureVerified: true });
 }
 
 function verifySignature(request, item) {
