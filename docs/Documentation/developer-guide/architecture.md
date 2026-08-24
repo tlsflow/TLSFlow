@@ -8,6 +8,7 @@ locale: zh-CN
 specRefs:
   - specs/001-平台基础与工程治理
   - specs/004-统一插件平台与厂商扩展治理
+  - specs/004.5-插件进程隔离与宿主能力边界重构治理
   - specs/007-工作流DSL与模板运行管理
   - specs/008-证书部署输入与执行编排管理
 codeRefs:
@@ -44,3 +45,5 @@ Browser
 - 监控、通知、自动化、凭据和报表：`009`。
 
 新增实现必须归属一个最小子 Spec，不能在父域和子域重复定义同一状态机。
+
+跨域执行主链固定为 `Workflow DSL -> 标准步骤执行器`，DSL 明确包含 `plugin.action` 时才进入 `Plugin Runner Action`；Runner 不拥有工作流顺序、checkpoint 或 rollback。该边界以 004.5 和 `docs/项目规范/20260723-工作流模板管理及编写规范.md` 为准。

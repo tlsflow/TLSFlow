@@ -7,6 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs:
   - specs/004-统一插件平台与厂商扩展治理
+  - specs/004.5-插件进程隔离与宿主能力边界重构治理
   - specs/006.2-受管目标上下文与应用执行配置管理
   - specs/008-证书部署输入与执行编排管理
 codeRefs:
@@ -24,8 +25,8 @@ lastVerified: 2026-08-06
 - 权限、网络、Secret、Artifact 和设备写入必须审批。
 - 日志、审计、快照和错误必须脱敏。
 - 不允许宿主按厂商字符串增加 Driver、Executor、Projector 或页面分支。
-- 声明式插件和 Agent Plan 插件不执行任意代码；代码型插件只能以 `isolated_process` 模式由同一 Docker 内独立 Plugin Runner 执行，并且必须通过代码执行授权、签名、Policy Authority、Grant 和 Host API 门禁。
-- Plugin Runner 不是 OS 沙箱。插件代码不得直接访问数据库、Repository、宿主文件、环境变量或 Agent；所有对象、凭据、制品、锁、审计、网络和 Agent 能力都必须通过登记的 Host API 请求。
+- 声明式插件和 Agent Plan 插件不执行任意代码；代码型插件只能在 DSL `plugin.action` 步骤中以 `isolated_process` 模式由同一 Docker 内独立 Plugin Runner 执行，并且必须通过代码执行授权、签名、Policy Authority、Grant 和 Host API 门禁。
+- Plugin Runner 不是 OS 沙箱，也不是 Workflow Runtime。插件代码不得直接访问数据库、Repository、宿主文件、环境变量或 Agent；所有对象、凭据、制品、网络和通用能力都必须通过登记的 Host API 请求，锁、checkpoint、审计状态和 rollback 决策由 DSL/执行控制面持有。
 
 ## 成熟度标记
 

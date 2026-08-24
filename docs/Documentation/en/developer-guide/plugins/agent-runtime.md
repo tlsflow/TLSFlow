@@ -10,14 +10,13 @@ specRefs:
   - specs/005.3-Agent控制面协议、任务传输与Full Agent发布治理
 codeRefs:
   - backend/src/modules/plugins/runtime
-  - backend/src/modules/plugins/builtin-agent-plugins
 testRefs: []
 lastVerified: 2026-08-06
 ---
 
 # Agent runtime
 
-Agent plugins use `gcac.agent-plan/v2` and controlled atomic operations. An `executionMode=agent_plan` plugin declares actions, variables, permissions, Artifacts, rollback, and platform Profiles, and cannot carry scripts, interpreters, or binaries. Code-bearing plugins use the separate `isolated_process` mode and Plugin Runner; they do not execute inside Agent Core or the host process.
+Agent plugins use `gcac.agent-plan/v2` and controlled atomic operations. An `executionMode=agent_plan` plugin declares actions, variables, permissions, Artifacts, rollback, and platform Profiles, and cannot carry scripts, interpreters, or binaries. Code-bearing capabilities use the separate `isolated_process` mode and Plugin Runner only when a normal DSL Workflow reaches an explicit `plugin.action` Step; they do not execute inside Agent Core or the host process, and they do not own Workflow control flow.
 
 Unknown Actions, unapproved permissions, target mismatches, expired plans, invalid signatures, and path traversal must fail closed before queueing. The Agent must not infer capabilities from an operating-system name.
 

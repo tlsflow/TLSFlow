@@ -16,9 +16,11 @@ lastVerified: 2026-08-06
 
 # 插件包契约
 
+本页只维护插件包 Manifest、资源和版本事实。DSL 编排、`plugin.action` 和 Runner 边界以 `specs/004.5-插件进程隔离与宿主能力边界重构治理/` 及 `docs/项目规范/20260723-工作流模板管理及编写规范.md` 为准。
+
 Manifest 使用 `gcac.plugin-manifest/v1`。必须声明 Runtime、Source、Scope、Trust、Support、Capability、Permission、Compatibility 和资源映射。
 
-同一 `pluginId + version` 内容不可变。资源路径不能越界。插件执行位置只有 `declarative`、`agent_plan` 和 `isolated_process`：声明式插件必须提供受校验的 Workflow/Manifest 资源，Agent 插件必须生成 Agent v2 类型化计划，代码型插件必须声明独立 Plugin Runner 入口、IPC 版本和资源摘要。任何代码都不得通过宿主进程动态加载，插件不得直接访问数据库、Repository、宿主文件或环境变量。
+同一 `pluginId + version` 内容不可变。资源路径不能越界。插件执行位置只有 `declarative`、`agent_plan` 和 `isolated_process`：声明式插件必须提供受校验的普通 DSL Workflow/Manifest 资源，Agent 插件必须生成 Agent v2 类型化计划，代码型插件必须声明供 `plugin.action` 使用的独立 Runner 入口、Action 合同和资源摘要。任何代码都不得通过宿主进程动态加载，插件不得直接访问数据库、Repository、宿主文件或环境变量；Runner 不接收完整 Workflow。
 
 ## 内置包版本事实源
 

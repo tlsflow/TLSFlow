@@ -30,7 +30,7 @@ Recommended order:
 Core boundaries:
 
 - Resolve plugin identity through `CapabilityAssignment -> PluginBinding -> PluginVersion`, not a vendor string.
-- Plugin execution locations are `agent_plan`, `declarative`, and `isolated_process`. Code-bearing plugins run in a separate Plugin Runner process inside the same Docker container and must not be dynamically loaded by the host. Agent and code-bearing plugins are not workflow Steps.
+- Plugin execution locations are `agent_plan`, `declarative`, and `isolated_process`. Code-bearing capabilities run in a separate Plugin Runner process inside the same Docker container and must not be dynamically loaded by the host. A normal DSL Workflow remains the orchestration owner; only an explicit `plugin.action` Step invokes one code Action, and the Runner never receives the whole Workflow.
 - Model agentless `DeviceAsset`, `ManagedTarget + Plugin`, `ManagedTarget + Workflow Override`, and `Standalone + Workflow` separately.
 - Discovered certificate locations use `source.kind=asset`; precise discovery takes precedence over plugin defaults.
 - The host governs Secrets, Artifacts, permissions, audit, snapshots, verification, and rollback. Code-bearing plugins consume controlled Grants only through an isolated Plugin Runner and after explicit code-execution authorization.

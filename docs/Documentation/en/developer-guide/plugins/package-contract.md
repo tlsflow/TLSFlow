@@ -25,7 +25,7 @@ A plugin package is an immutable capability declaration. Its manifest, resources
 
 - Use the current manifest Schema and stable plugin identity.
 - Declare resources, capabilities, input slots, permissions, network access, and compatibility explicitly.
-- Use only `agent_plan`, `declarative`, and `isolated_process` as plugin execution locations. Code-bearing packages must declare a fixed Plugin Runner entry, IPC version, and resource digest; the host must not dynamically load plugin code.
+- Use only `agent_plan`, `declarative`, and `isolated_process` as plugin execution locations. Code-bearing packages must declare a fixed Plugin Runner entry, Action contract, IPC version, and resource digest; the entry is callable only by an explicit DSL `plugin.action` Step. The host must not dynamically load plugin code, and the Runner must not receive a complete Workflow.
 - Do not encode vendor selection as a host-side Driver, Executor, Projector, or page branch.
 - Treat package and workflow hashes as content identity, not as a display label.
 

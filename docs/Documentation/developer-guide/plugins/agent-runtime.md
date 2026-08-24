@@ -10,14 +10,13 @@ specRefs:
   - specs/005.3-Agent控制面协议、任务传输与Full Agent发布治理
 codeRefs:
   - backend/src/modules/plugins/runtime
-  - backend/src/modules/plugins/builtin-agent-plugins
 testRefs: []
 lastVerified: 2026-08-06
 ---
 
 # Agent 插件运行时
 
-控制面 Plugin 使用 `gcac.agent-plan/v2` 和受控通用原语生成 Agent 计划；产品识别、配置解析和部署语义属于控制面 Plugin，不属于 Agent Core。代码型插件统一使用 `isolated_process`，由同一 Docker 内独立 Plugin Runner 执行，不能通过宿主进程动态加载。Agent-side Plugin 仅在必须调用本机专有 API 时使用独立进程窄接口。
+控制面 Plugin 使用 `gcac.agent-plan/v2` 和受控通用原语生成 Agent 计划；产品识别、配置解析和部署语义属于控制面 Plugin，不属于 Agent Core。代码型控制面能力统一使用 `isolated_process`，但只能由 DSL 的 `plugin.action` 步骤调用同一 Docker 内独立 Plugin Runner 执行单个 Action，不能通过宿主进程动态加载或接管 Workflow。Agent-side Plugin 仅在必须调用本机专有 API 时使用独立进程窄接口。
 
 未知 Action、未审批权限、目标不匹配、计划过期、签名无效或路径越界必须在入队前失败关闭。Agent 不根据操作系统名称猜测能力。
 
