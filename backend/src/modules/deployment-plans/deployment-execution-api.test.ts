@@ -419,7 +419,7 @@ describe('部署计划与执行编排 API', () => {
     assert.notEqual((nextCycle.body as { id: string }).id, planId);
   });
 
-  it('非草稿部署计划不能通过删除接口移除真实执行历史', async () => {
+  it('删除接口可以移除非草稿部署计划及其关联记录', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_protected_ready_plan');
     const response = await app.inject({
@@ -429,8 +429,16 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: ready.id },
     });
 
-    assert.equal(response.statusCode, 409, JSON.stringify(response.body));
-    assert.equal((response.body as { errorCode?: string }).errorCode, 'DEPLOYMENT_INVALID_STATE');
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal((response.body as { deleted?: boolean }).deleted, true);
+
+    const listed = await app.inject({
+      method: 'GET',
+      path: '/api/v1/deployment-plans',
+      headers: userHeaders,
+    });
+    assert.equal(listed.statusCode, 200, JSON.stringify(listed.body));
+    assert.equal((listed.body as { items: Array<{ id: string }> }).items.some((item) => item.id === ready.id), false);
   });
 
   it('创建部署计划成功，并展开 certificateBindingId 目标', async () => {

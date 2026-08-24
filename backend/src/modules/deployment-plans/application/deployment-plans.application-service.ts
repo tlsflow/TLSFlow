@@ -418,8 +418,8 @@ export class DeploymentPlansApplicationService {
 
   async updateDraftFromApplicationAsset(input: UpdateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    if (!['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'].includes(plan.status)) {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有草稿或 Dry-run 计划允许编辑', { planId: plan.id, status: plan.status });
+    if (plan.status === 'RUNNING') {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', 'RUNNING 部署计划正在执行，不能编辑', { planId: plan.id, status: plan.status });
     }
 
     const draft = await this.buildCreateInputFromApplicationAsset(input);
@@ -1344,9 +1344,6 @@ export class DeploymentPlansApplicationService {
 
   async deleteDraft(input: CancelDeploymentPlanInput, _context: RequestContext = {}): Promise<{ deleted: true; planId: string; deletedRuns: number; deletedSteps: number; deletedTargets: number; deletedTransitions: number; deletedApprovals: number; deletedAudits: number }> {
     const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    if (!['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'].includes(plan.status)) {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有草稿或 Dry-run 计划允许删除', { planId: plan.id, status: plan.status });
-    }
     const targets = await this.repository.listTargetsByPlan(plan.id, input.tenantId);
     const { runIds, stepIds } = await this.executions.getRepository().deleteRunsByDeploymentPlan(input.tenantId, plan.id);
     const targetIds = targets.map((target) => target.id);
