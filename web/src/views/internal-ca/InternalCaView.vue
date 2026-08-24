@@ -26,10 +26,13 @@ const remediationPreview = ref<InternalCaRecord | null>(null)
 const authorityWizardOpen = ref(false)
 const authorityWizardStep = ref(1)
 const authorityCreationKind = ref<'root' | 'intermediate'>('root')
+const authorityCreationMode = ref<'builtin' | 'managed_node' | 'external'>('builtin')
 const selectedRootId = ref('')
 const authorityWizardForm = ref<HTMLFormElement | null>(null)
+const providerEnrollment = ref<InternalCaRecord | null>(null)
+const providerPrepared = ref(false)
 
-const providerDraft = reactive({ name: '', type: 'gcac_builtin', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single' })
+const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
 const trustDomainDraft = reactive({ name: '', code: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
@@ -65,6 +68,18 @@ const topologyInput = computed(() => ({
   keyBackend: authorityDraft.keyBackend,
 }))
 
+const wizardStepCount = computed(() => authorityCreationKind.value === 'intermediate' ? 3 : 4)
+const wizardProgress = computed(() => `${(authorityWizardStep.value / wizardStepCount.value) * 100}%`)
+const builtinProvider = computed(() => providers.value.find((item) => text(item.type) === 'gcac_builtin'))
+const selectedCreationMode = computed(() => {
+  if (authorityCreationKind.value === 'intermediate') {
+    const provider = providers.value.find((item) => text(item.id) === authorityDraft.providerId)
+    if (text(provider?.type) === 'gcac_managed_node') return 'managed_node'
+    if (text(provider?.type) && text(provider?.type) !== 'gcac_builtin') return 'external'
+  }
+  return authorityCreationMode.value
+})
+
 onMounted(loadAll)
 
 async function loadAll() {
@@ -86,7 +101,7 @@ async function loadAll() {
     trustDistributions.value = trustResult.data ?? []
     reuseRisks.value = riskResult.data ?? []
     riskOverview.value = overviewResult.data ?? {}
-    authorityDraft.providerId ||= text(providers.value[0]?.id)
+    authorityDraft.providerId ||= text(builtinProvider.value?.id)
     const defaultTrustDomainId = text(trustDomains.value.find((item) => item.isDefault === true)?.id ?? trustDomains.value[0]?.id)
     authorityDraft.trustDomainId ||= defaultTrustDomainId
     profileDraft.trustDomainId ||= defaultTrustDomainId
@@ -116,10 +131,6 @@ async function runAction(action: () => Promise<unknown>, successKey: string) {
   }
 }
 
-async function createProvider() {
-  await runAction(() => internalCaApi.createProvider({ ...providerDraft }), 'internalCa.messages.providerCreated')
-}
-
 async function createTrustDomain() {
   await runAction(() => internalCaApi.createTrustDomain({ ...trustDomainDraft }), 'internalCa.messages.trustDomainCreated')
 }
@@ -137,6 +148,10 @@ async function previewAuthority() {
 }
 
 async function createAuthority() {
+  if (authorityCreationKind.value === 'root') {
+    await prepareProvider()
+    if (!providerPrepared.value) return
+  }
   if (!authorityPreview.value) await previewAuthority()
   const confirmationToken = text(authorityPreview.value?.confirmationToken)
   if (!confirmationToken) return
@@ -150,6 +165,8 @@ async function createAuthority() {
   if (authorityCreationKind.value === 'intermediate') selectedRootId.value = authorityDraft.parentCaId
   else selectedRootId.value = text(rootAuthorities.value.find((item) => !previousRootIds.has(text(item.id)))?.id, selectedRootId.value)
   authorityPreview.value = null
+  providerEnrollment.value = null
+  providerPrepared.value = false
   authorityWizardOpen.value = false
 }
 
@@ -157,27 +174,66 @@ function openAuthorityWizard(kind: 'root' | 'intermediate' = 'root', parent?: In
   authorityCreationKind.value = kind
   authorityWizardStep.value = 1
   authorityPreview.value = null
+  providerEnrollment.value = null
+  providerPrepared.value = false
+  authorityCreationMode.value = kind === 'intermediate' ? selectedCreationMode.value : 'builtin'
+  providerDraft.id = ''
+  providerDraft.name = ''
+  providerDraft.endpoint = ''
+  providerDraft.profile = ''
+  providerDraft.template = ''
+  providerDraft.crlUrl = ''
+  providerDraft.ocspUrl = ''
   authorityDraft.parentCaId = ''
   authorityDraft.name = ''
   authorityDraft.commonName = ''
   authorityDraft.topologyMode = 'root_with_intermediate'
-  if (kind === 'intermediate') applyParentRoot(parent ?? selectedRoot.value)
+  if (kind === 'intermediate') {
+    applyParentRoot(parent ?? selectedRoot.value)
+    authorityWizardStep.value = 1
+  }
   authorityWizardOpen.value = true
 }
 
-function chooseAuthorityKind(kind: 'root' | 'intermediate') {
-  authorityCreationKind.value = kind
-  authorityDraft.parentCaId = ''
-  if (kind === 'intermediate') applyParentRoot(selectedRoot.value ?? eligibleParentRoots.value[0])
+function chooseAuthorityMode(mode: 'builtin' | 'managed_node' | 'external') {
+  const modeChanged = authorityCreationMode.value !== mode
+  authorityCreationMode.value = mode
+  providerPrepared.value = false
+  providerEnrollment.value = null
+  if (modeChanged) {
+    providerDraft.id = ''
+    authorityDraft.providerId = mode === 'builtin' ? text(builtinProvider.value?.id) : ''
+  }
+  authorityWizardStep.value = 2
+  if (mode === 'builtin') {
+    authorityDraft.providerId = text(builtinProvider.value?.id)
+    providerDraft.type = 'gcac_builtin'
+    providerDraft.deploymentMode = 'builtin'
+    providerDraft.runtimePlatform = 'embedded'
+  }
+  if (mode === 'managed_node') {
+    providerDraft.type = 'gcac_managed_node'
+    providerDraft.deploymentMode = 'managed_node'
+    providerDraft.runtimePlatform = 'linux'
+  }
+  if (mode === 'external') {
+    providerDraft.type = 'microsoft_adcs'
+    providerDraft.deploymentMode = 'external'
+    providerDraft.runtimePlatform = 'external'
+  }
 }
 
 function applyParentRoot(parent?: InternalCaRecord) {
   if (!parent) return
+  const provider = providers.value.find((item) => text(item.id) === text(parent.providerId))
   authorityDraft.parentCaId = text(parent.id)
   authorityDraft.providerId = text(parent.providerId)
   authorityDraft.trustDomainId = text(parent.trustDomainId)
   authorityDraft.securityDomain = text(parent.securityDomain, 'production')
   authorityDraft.topologyMode = 'root_with_intermediate'
+  authorityCreationMode.value = text(provider?.type) === 'gcac_managed_node'
+    ? 'managed_node'
+    : text(provider?.type) === 'gcac_builtin' ? 'builtin' : 'external'
 }
 
 function selectParentRoot(parentId: string) {
@@ -185,11 +241,27 @@ function selectParentRoot(parentId: string) {
 }
 
 async function advanceAuthorityWizard() {
-  if (authorityWizardStep.value === 1) {
+  if (authorityCreationKind.value === 'root' && authorityWizardStep.value === 1) {
+    return
+  }
+  if (authorityCreationKind.value === 'root' && authorityWizardStep.value === 2) {
+    if (!authorityWizardForm.value?.reportValidity()) return
+    await prepareProvider()
+    if (providerPrepared.value) authorityWizardStep.value = 3
+    return
+  }
+  if (authorityCreationKind.value === 'root' && authorityWizardStep.value === 3) {
+    if (!authorityWizardForm.value?.reportValidity()) return
+    await previewAuthority()
+    if (authorityPreview.value) authorityWizardStep.value = 4
+    return
+  }
+  if (authorityCreationKind.value === 'intermediate' && authorityWizardStep.value === 1) {
+    if (!authorityWizardForm.value?.reportValidity()) return
     authorityWizardStep.value = 2
     return
   }
-  if (authorityWizardStep.value === 2) {
+  if (authorityCreationKind.value === 'intermediate' && authorityWizardStep.value === 2) {
     if (!authorityWizardForm.value?.reportValidity()) return
     await previewAuthority()
     if (authorityPreview.value) authorityWizardStep.value = 3
@@ -198,6 +270,64 @@ async function advanceAuthorityWizard() {
 
 function previousAuthorityWizardStep() {
   authorityWizardStep.value = Math.max(1, authorityWizardStep.value - 1)
+}
+
+function authorityWizardStepLabel(step: number): string {
+  if (authorityCreationKind.value === 'intermediate') {
+    return t(step === 1 ? 'internalCa.wizard.parentStep' : step === 2 ? 'internalCa.wizard.authorityStep' : 'internalCa.wizard.reviewStep')
+  }
+  return t(step === 1 ? 'internalCa.wizard.entryStep' : step === 2 ? 'internalCa.wizard.backendStep' : step === 3 ? 'internalCa.wizard.authorityStep' : 'internalCa.wizard.reviewStep')
+}
+
+function providerTypeLabel(type: unknown): string {
+  const key = text(type, 'gcac_builtin')
+  return t(`internalCa.providerTypes.${key}`)
+}
+
+async function prepareProvider() {
+  if (providerPrepared.value || authorityCreationKind.value === 'intermediate') return
+  actionPending.value = true
+  try {
+    if (authorityCreationMode.value === 'builtin') {
+      authorityDraft.providerId = text(builtinProvider.value?.id)
+      if (!authorityDraft.providerId) {
+        const result = await internalCaApi.createProvider({ name: t('internalCa.wizard.builtinProviderName'), type: 'gcac_builtin', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single' })
+        authorityDraft.providerId = text(result.data?.id)
+        await loadAll()
+      }
+      providerPrepared.value = Boolean(authorityDraft.providerId)
+      return
+    }
+    if (!providerDraft.id) {
+      if (!providerDraft.name.trim()) providerDraft.name = authorityCreationMode.value === 'managed_node' ? t('internalCa.wizard.managedProviderName') : t('internalCa.wizard.externalProviderName')
+      const provider = await internalCaApi.createProvider({
+        name: providerDraft.name,
+        type: providerDraft.type,
+        deploymentMode: providerDraft.deploymentMode,
+        runtimePlatform: providerDraft.runtimePlatform,
+        availabilityMode: providerDraft.availabilityMode,
+        endpoint: providerDraft.endpoint,
+        configuration: {
+          authMode: providerDraft.authMode,
+          profile: providerDraft.profile,
+          template: providerDraft.template,
+          crlUrl: providerDraft.crlUrl,
+          ocspUrl: providerDraft.ocspUrl,
+        },
+      })
+      providerDraft.id = text(provider.data?.id)
+    }
+    authorityDraft.providerId = providerDraft.id
+    if (authorityCreationMode.value === 'managed_node' && authorityDraft.providerId && !providerEnrollment.value) {
+      providerEnrollment.value = (await internalCaApi.createNodeEnrollmentToken(authorityDraft.providerId, 30)).data ?? null
+    }
+    providerPrepared.value = Boolean(authorityDraft.providerId) && (authorityCreationMode.value !== 'managed_node' || Boolean(providerEnrollment.value))
+    await loadAll()
+  } catch {
+    error.value = t('internalCa.messages.actionFailed')
+  } finally {
+    actionPending.value = false
+  }
 }
 
 function selectRoot(root: InternalCaRecord) {
@@ -314,7 +444,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </div>
       </article>
       <article v-else class="gc-card ca-empty"><h2>{{ t('internalCa.messages.noRootAuthority') }}</h2><p>{{ t('internalCa.messages.noRootAuthorityDescription') }}</p><button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button></article>
-      <details class="gc-card provider-settings"><summary>{{ t('internalCa.sections.providerSettings') }}</summary><form class="form-card provider-settings__form" @submit.prevent="createProvider"><label>{{ t('internalCa.fields.name') }}<input v-model="providerDraft.name" required /></label><label>{{ t('internalCa.fields.providerType') }}<select v-model="providerDraft.type"><option value="gcac_builtin">GCAC Builtin</option><option value="gcac_managed_node">GCAC CA Node</option><option value="microsoft_adcs">Microsoft AD CS</option><option value="acme">ACME</option><option value="est">EST</option><option value="scep">SCEP</option></select></label><label>{{ t('internalCa.fields.deploymentMode') }}<select v-model="providerDraft.deploymentMode"><option value="builtin">builtin</option><option value="managed_node">managed_node</option><option value="external">external</option></select></label><label>{{ t('internalCa.fields.platform') }}<select v-model="providerDraft.runtimePlatform"><option value="embedded">embedded</option><option value="windows">windows</option><option value="linux">linux</option><option value="external">external</option></select></label><button class="gc-button" :disabled="actionPending">{{ t('internalCa.actions.createProvider') }}</button></form></details>
+      <details class="gc-card provider-settings"><summary>{{ t('internalCa.sections.issuingBackends') }}</summary><div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small></article></div></details>
     </template>
 
     <template v-else-if="activeTab === 'profiles'">
@@ -342,27 +472,61 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
     <GcModal v-model:open="authorityWizardOpen" size="xl" :title="t('internalCa.wizard.title')" :description="t('internalCa.wizard.description')">
       <div class="ca-wizard">
-        <ol class="ca-wizard__steps" :aria-label="t('internalCa.wizard.stepsAria')"><li v-for="step in 3" :key="step" :class="{ 'is-active': authorityWizardStep === step, 'is-complete': authorityWizardStep > step }"><span>{{ step }}</span><strong>{{ t(`internalCa.wizard.step${step}`) }}</strong></li></ol>
-        <div v-if="authorityWizardStep === 1" class="ca-wizard__kind-grid">
-          <button type="button" class="ca-kind-card" :class="{ 'is-selected': authorityCreationKind === 'root' }" @click="chooseAuthorityKind('root')"><span class="ca-kind-card__icon">R</span><strong>{{ t('internalCa.wizard.rootTitle') }}</strong><p>{{ t('internalCa.wizard.rootDescription') }}</p></button>
-          <button type="button" class="ca-kind-card" :class="{ 'is-selected': authorityCreationKind === 'intermediate' }" :disabled="!eligibleParentRoots.length" @click="chooseAuthorityKind('intermediate')"><span class="ca-kind-card__icon">I</span><strong>{{ t('internalCa.wizard.intermediateTitle') }}</strong><p>{{ t('internalCa.wizard.intermediateDescription') }}</p></button>
-        </div>
-        <form v-else-if="authorityWizardStep === 2" ref="authorityWizardForm" class="ca-wizard__form" @submit.prevent="advanceAuthorityWizard">
-          <label v-if="authorityCreationKind === 'intermediate'">{{ t('internalCa.fields.parentAuthority') }}<select :value="authorityDraft.parentCaId" required @change="selectParentRoot(($event.target as HTMLSelectElement).value)"><option v-for="item in eligibleParentRoots" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
-          <label v-else>{{ t('internalCa.fields.provider') }}<select v-model="authorityDraft.providerId" required><option v-for="item in providers" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
-          <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
-          <label>{{ t('internalCa.fields.name') }}<input v-model="authorityDraft.name" required /></label>
-          <label>{{ t('internalCa.fields.commonName') }}<input v-model="authorityDraft.commonName" required /></label>
-          <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityDraft.securityDomain" required /></label>
-          <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.topology') }}<select v-model="authorityDraft.topologyMode"><option value="root_only">{{ t('internalCa.topology.rootOnly') }}</option><option value="root_with_intermediate">{{ t('internalCa.topology.intermediate') }}</option></select></label>
+        <div class="ca-wizard__progress"><div class="ca-wizard__progress-bar"><span :style="{ width: wizardProgress }"></span></div><ol :aria-label="t('internalCa.wizard.stepsAria')"><li v-for="step in wizardStepCount" :key="step" :class="{ 'is-active': authorityWizardStep === step, 'is-complete': authorityWizardStep > step }"><span>{{ step }}</span><div><strong>{{ authorityWizardStepLabel(step) }}</strong><small>{{ t(authorityWizardStep > step ? 'internalCa.wizard.completed' : authorityWizardStep === step ? 'internalCa.wizard.inProgress' : 'internalCa.wizard.pending') }}</small></div></li></ol></div>
+
+        <section v-if="authorityCreationKind === 'root' && authorityWizardStep === 1" class="ca-wizard__panel">
+          <header class="ca-wizard__panel-heading"><span>{{ t('internalCa.wizard.entryEyebrow') }}</span><h3>{{ t('internalCa.wizard.entryTitle') }}</h3><p>{{ t('internalCa.wizard.entryDescription') }}</p></header>
+          <div class="ca-wizard__entry-grid">
+            <button type="button" class="ca-entry-card ca-entry-card--recommended" @click="chooseAuthorityMode('builtin')"><span class="ca-entry-card__badge">{{ t('internalCa.wizard.recommended') }}</span><span class="ca-entry-card__icon">CA</span><strong>{{ t('internalCa.wizard.builtinTitle') }}</strong><p>{{ t('internalCa.wizard.builtinDescription') }}</p><ul><li>{{ t('internalCa.wizard.builtinFeature1') }}</li><li>{{ t('internalCa.wizard.builtinFeature2') }}</li></ul></button>
+            <button type="button" class="ca-entry-card" @click="chooseAuthorityMode('managed_node')"><span class="ca-entry-card__icon">N</span><strong>{{ t('internalCa.wizard.managedTitle') }}</strong><p>{{ t('internalCa.wizard.managedDescription') }}</p><ul><li>{{ t('internalCa.wizard.managedFeature1') }}</li><li>{{ t('internalCa.wizard.managedFeature2') }}</li></ul></button>
+            <button type="button" class="ca-entry-card" @click="chooseAuthorityMode('external')"><span class="ca-entry-card__icon">E</span><strong>{{ t('internalCa.wizard.externalTitle') }}</strong><p>{{ t('internalCa.wizard.externalDescription') }}</p><ul><li>{{ t('internalCa.wizard.externalFeature1') }}</li><li>{{ t('internalCa.wizard.externalFeature2') }}</li></ul></button>
+          </div>
+        </section>
+
+        <form v-else-if="authorityCreationKind === 'root' && authorityWizardStep === 2" ref="authorityWizardForm" class="ca-wizard__panel ca-wizard__form" @submit.prevent="advanceAuthorityWizard">
+          <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.backendEyebrow') }}</span><h3>{{ t(`internalCa.wizard.${authorityCreationMode}BackendTitle`) }}</h3><p>{{ t(`internalCa.wizard.${authorityCreationMode}BackendDescription`) }}</p></header>
+          <article v-if="authorityCreationMode === 'builtin'" class="ca-wizard__notice ca-wizard__full"><strong>{{ t('internalCa.wizard.builtinAutomaticTitle') }}</strong><p>{{ t('internalCa.wizard.builtinAutomaticDescription') }}</p></article>
+          <template v-else>
+            <label>{{ t('internalCa.fields.backendName') }}<input v-model="providerDraft.name" required /></label>
+            <template v-if="authorityCreationMode === 'managed_node'">
+              <label>{{ t('internalCa.fields.platform') }}<select v-model="providerDraft.runtimePlatform" required><option value="windows">Windows</option><option value="linux">Linux</option></select></label>
+              <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="providerDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
+            </template>
+            <template v-else>
+              <label>{{ t('internalCa.fields.providerType') }}<select v-model="providerDraft.type" required><option value="microsoft_adcs">{{ t('internalCa.providerTypes.microsoft_adcs') }}</option><option value="acme">{{ t('internalCa.providerTypes.acme') }}</option><option value="est">{{ t('internalCa.providerTypes.est') }}</option><option value="scep">{{ t('internalCa.providerTypes.scep') }}</option><option value="product_adapter">{{ t('internalCa.providerTypes.product_adapter') }}</option></select></label>
+              <label class="ca-wizard__full">{{ t('internalCa.fields.endpoint') }}<input v-model="providerDraft.endpoint" type="url" required /></label>
+              <label>{{ t('internalCa.fields.authMode') }}<select v-model="providerDraft.authMode"><option value="managed_secret">{{ t('internalCa.authModes.managedSecret') }}</option><option value="client_certificate">{{ t('internalCa.authModes.clientCertificate') }}</option><option value="none">{{ t('internalCa.authModes.none') }}</option></select></label>
+              <label>{{ t('internalCa.fields.profile') }}<input v-model="providerDraft.profile" /></label>
+              <label>{{ t('internalCa.fields.template') }}<input v-model="providerDraft.template" /></label>
+              <label>{{ t('internalCa.fields.crlUrl') }}<input v-model="providerDraft.crlUrl" type="url" /></label>
+              <label>{{ t('internalCa.fields.ocspUrl') }}<input v-model="providerDraft.ocspUrl" type="url" /></label>
+            </template>
+          </template>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
         </form>
-        <div v-else class="ca-wizard__review">
-          <div class="ca-wizard__review-grid"><span>{{ t('internalCa.fields.authorityType') }}</span><strong>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootTitle') : t('internalCa.wizard.intermediateTitle') }}</strong><span>{{ t('internalCa.fields.name') }}</span><strong>{{ authorityDraft.name }}</strong><span>{{ t('internalCa.fields.commonName') }}</span><strong>{{ authorityDraft.commonName }}</strong><span>{{ t('internalCa.fields.trustDomain') }}</span><strong>{{ trustDomainName(authorityDraft.trustDomainId) }}</strong></div>
+
+        <form v-else-if="(authorityCreationKind === 'root' && authorityWizardStep === 3) || (authorityCreationKind === 'intermediate' && authorityWizardStep < 3)" ref="authorityWizardForm" class="ca-wizard__panel ca-wizard__form" @submit.prevent="advanceAuthorityWizard">
+          <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.authorityEyebrow') }}</span><h3>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationTitle') : t('internalCa.wizard.intermediateConfigurationTitle') }}</h3><p>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationDescription') : t('internalCa.wizard.intermediateConfigurationDescription') }}</p></header>
+          <label v-if="authorityCreationKind === 'intermediate' && authorityWizardStep === 1" class="ca-wizard__full">{{ t('internalCa.fields.parentAuthority') }}<select :value="authorityDraft.parentCaId" required @change="selectParentRoot(($event.target as HTMLSelectElement).value)"><option v-for="item in eligibleParentRoots" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+          <template v-else>
+            <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+            <label>{{ t('internalCa.fields.name') }}<input v-model="authorityDraft.name" required /></label>
+            <label>{{ t('internalCa.fields.commonName') }}<input v-model="authorityDraft.commonName" required /></label>
+            <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityDraft.securityDomain" required /></label>
+            <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.topology') }}<select v-model="authorityDraft.topologyMode"><option value="root_only">{{ t('internalCa.topology.rootOnly') }}</option><option value="root_with_intermediate">{{ t('internalCa.topology.intermediate') }}</option></select></label>
+            <article class="ca-wizard__backend-summary ca-wizard__full"><span>{{ t('internalCa.fields.issuingBackend') }}</span><strong>{{ authorityCreationKind === 'intermediate' ? providerTypeLabel(selectedProvider?.type) : t(`internalCa.wizard.${authorityCreationMode}Title`) }}</strong><small>{{ t(`internalCa.wizard.${selectedCreationMode}SecurityNote`) }}</small></article>
+          </template>
+          <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
+        </form>
+
+        <section v-else class="ca-wizard__panel ca-wizard__review">
+          <header class="ca-wizard__panel-heading"><span>{{ t('internalCa.wizard.reviewEyebrow') }}</span><h3>{{ t('internalCa.wizard.reviewTitle') }}</h3><p>{{ t('internalCa.wizard.reviewDescription') }}</p></header>
+          <div class="ca-wizard__review-grid"><span>{{ t('internalCa.fields.entryMode') }}</span><strong>{{ t(`internalCa.wizard.${selectedCreationMode}Title`) }}</strong><span>{{ t('internalCa.fields.authorityType') }}</span><strong>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootTitle') : t('internalCa.wizard.intermediateTitle') }}</strong><span>{{ t('internalCa.fields.name') }}</span><strong>{{ authorityDraft.name }}</strong><span>{{ t('internalCa.fields.commonName') }}</span><strong>{{ authorityDraft.commonName }}</strong><span>{{ t('internalCa.fields.trustDomain') }}</span><strong>{{ trustDomainName(authorityDraft.trustDomainId) }}</strong></div>
+          <article v-if="selectedCreationMode === 'managed_node' && providerEnrollment" class="ca-wizard__enrollment"><strong>{{ t('internalCa.wizard.enrollmentTitle') }}</strong><p>{{ t('internalCa.wizard.enrollmentDescription') }}</p><code>{{ text(providerEnrollment.token) }}</code><small>{{ t('internalCa.wizard.enrollmentExpiresAt', { time: localTime(providerEnrollment.expiresAt) }) }}</small></article>
           <article class="ca-wizard__risk"><strong>{{ t('internalCa.sections.riskSummary') }}</strong><p>{{ text(authorityPreview?.overallRecommendation) }}</p><ul><li v-for="warning in asRecords(authorityPreview?.warnings)" :key="String(warning)">{{ warning }}</li></ul><p v-if="!asRecords(authorityPreview?.warnings).length">{{ t('internalCa.wizard.noWarnings') }}</p></article>
-        </div>
+        </section>
       </div>
-      <template #actions><button v-if="authorityWizardStep > 1" class="gc-button" type="button" @click="previousAuthorityWizardStep">{{ t('internalCa.actions.previous') }}</button><button v-if="authorityWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="actionPending || (authorityCreationKind === 'intermediate' && !authorityDraft.parentCaId)" @click="advanceAuthorityWizard">{{ t('internalCa.actions.next') }}</button><button v-else class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="createAuthority">{{ t('internalCa.actions.createAuthority') }}</button></template>
+      <template #actions><button v-if="authorityWizardStep > 1" class="gc-button" type="button" :disabled="actionPending" @click="previousAuthorityWizardStep">{{ t('internalCa.actions.previous') }}</button><button v-if="authorityWizardStep < wizardStepCount" class="gc-button gc-button--primary" type="button" :disabled="actionPending || (authorityCreationKind === 'intermediate' && authorityWizardStep === 1 && !authorityDraft.parentCaId)" @click="advanceAuthorityWizard">{{ t('internalCa.actions.next') }}</button><button v-else class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="createAuthority">{{ t('internalCa.actions.createAuthority') }}</button></template>
     </GcModal>
   </section>
 </template>
@@ -396,7 +560,7 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .root-ca-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gc-space-3); padding: var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
 .root-ca-card:hover { transform: translateY(calc(var(--gc-space-hairline) * -1)); border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-hover); }
 .root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); box-shadow: var(--gc-shadow-focus); }
-.root-ca-card__icon, .ca-kind-card__icon { display: grid; place-items: center; width: var(--gc-control-height-md); aspect-ratio: 1; border-radius: var(--gc-radius-lg); color: var(--gc-color-text-inverse); background: var(--gc-gradient-primary); font-weight: 700; }
+.root-ca-card__icon { display: grid; place-items: center; width: var(--gc-control-height-md); aspect-ratio: 1; border-radius: var(--gc-radius-lg); color: var(--gc-color-text-inverse); background: var(--gc-gradient-primary); font-weight: 700; }
 .root-ca-card__body, .root-ca-card__metrics { display: grid; gap: var(--gc-space-1); min-width: 0; }
 .root-ca-card__title { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-2); }
 .root-ca-card__body > span, .root-ca-card__body small, .root-ca-card__metrics { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -418,29 +582,55 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .ca-empty h2, .ca-empty p, .ca-tree__empty p { margin: 0; }
 .provider-settings { padding: var(--gc-space-4); }
 .provider-settings summary { cursor: pointer; color: var(--gc-color-text-strong); font-weight: 700; }
-.provider-settings__form { grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); margin-top: var(--gc-space-4); padding: 0; }
+.provider-settings__list { display: grid; gap: var(--gc-space-3); margin-top: var(--gc-space-4); }
+.provider-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
+.provider-summary div { display: grid; gap: var(--gc-space-1); }
+.provider-summary span, .provider-summary small { color: var(--gc-color-text-muted); }
 .ca-wizard { display: grid; gap: var(--gc-space-5); }
-.ca-wizard__steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
-.ca-wizard__steps li { display: flex; align-items: center; gap: var(--gc-space-2); padding: var(--gc-space-3); border-radius: var(--gc-radius-md); color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
-.ca-wizard__steps li > span { display: grid; place-items: center; width: var(--gc-space-6); aspect-ratio: 1; border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-field); }
-.ca-wizard__steps li.is-active { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }
-.ca-wizard__steps li.is-complete { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
-.ca-wizard__kind-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
-.ca-kind-card { display: grid; justify-items: start; gap: var(--gc-space-3); min-height: calc(var(--gc-size-card-min) * .72); padding: var(--gc-space-5); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); color: var(--gc-color-text); background: var(--gc-color-surface-raised); text-align: left; cursor: pointer; }
-.ca-kind-card p { margin: 0; color: var(--gc-color-text-muted); }
-.ca-kind-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); box-shadow: var(--gc-shadow-focus); }
-.ca-kind-card:disabled { cursor: not-allowed; opacity: .55; }
+.ca-wizard__progress { display: grid; gap: var(--gc-space-3); }
+.ca-wizard__progress-bar { height: var(--gc-space-1); overflow: hidden; border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-muted); }
+.ca-wizard__progress-bar span { display: block; height: 100%; border-radius: inherit; background: var(--gc-color-primary); transition: width .16s ease; }
+.ca-wizard__progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
+.ca-wizard__progress li { display: flex; align-items: center; gap: var(--gc-space-2); min-width: 0; color: var(--gc-color-text-muted); }
+.ca-wizard__progress li > span { display: grid; flex: 0 0 auto; place-items: center; width: var(--gc-space-7); aspect-ratio: 1; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-field); font-weight: 700; }
+.ca-wizard__progress li div { display: grid; min-width: 0; }
+.ca-wizard__progress li strong, .ca-wizard__progress li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-wizard__progress li.is-active { color: var(--gc-color-primary); }
+.ca-wizard__progress li.is-active > span { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-focus); }
+.ca-wizard__progress li.is-complete { color: var(--gc-color-success); }
+.ca-wizard__progress li.is-complete > span { border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
+.ca-wizard__panel { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-5); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
+.ca-wizard__panel-heading { display: grid; gap: var(--gc-space-2); }
+.ca-wizard__panel-heading span { color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.ca-wizard__panel-heading h3, .ca-wizard__panel-heading p { margin: 0; }
+.ca-wizard__panel-heading p { color: var(--gc-color-text-muted); }
+.ca-wizard__entry-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-4); }
+.ca-entry-card { position: relative; display: grid; align-content: start; justify-items: start; gap: var(--gc-space-3); min-height: var(--gc-size-card-min); padding: var(--gc-space-5); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); color: var(--gc-color-text); background: var(--gc-color-surface-raised); text-align: left; cursor: pointer; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.ca-entry-card:hover { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); transform: translateY(calc(var(--gc-space-1) * -1)); }
+.ca-entry-card--recommended { border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
+.ca-entry-card__badge { position: absolute; inset-block-start: var(--gc-space-3); inset-inline-end: var(--gc-space-3); padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-xl); color: var(--gc-color-success); background: var(--gc-color-success-soft); font-size: var(--gc-font-size-xs); font-weight: 700; }
+.ca-entry-card__icon { display: grid; place-items: center; width: var(--gc-space-10); aspect-ratio: 1; border-radius: var(--gc-radius-lg); color: var(--gc-color-primary); background: var(--gc-color-primary-soft); font-weight: 800; }
+.ca-entry-card p { margin: 0; color: var(--gc-color-text-muted); }
+.ca-entry-card ul { display: grid; gap: var(--gc-space-2); margin: 0; padding-inline-start: var(--gc-space-5); color: var(--gc-color-text-muted); }
 .ca-wizard__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
+.ca-wizard__full { grid-column: 1 / -1; }
 .ca-wizard__hidden-submit { position: absolute; width: 0; height: 0; padding: 0; border: 0; overflow: hidden; }
 .ca-wizard__review { display: grid; gap: var(--gc-space-4); }
 .ca-wizard__review-grid { display: grid; grid-template-columns: minmax(0, .65fr) minmax(0, 1.35fr); gap: var(--gc-space-2) var(--gc-space-4); padding: var(--gc-space-4); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-muted); }
 .ca-wizard__review-grid span { color: var(--gc-color-text-muted); }
+.ca-wizard__notice, .ca-wizard__backend-summary, .ca-wizard__enrollment { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-info-bg); }
+.ca-wizard__notice p, .ca-wizard__backend-summary small, .ca-wizard__enrollment p, .ca-wizard__enrollment small { margin: 0; color: var(--gc-color-text-muted); }
+.ca-wizard__backend-summary span { color: var(--gc-color-text-muted); }
+.ca-wizard__enrollment { border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
+.ca-wizard__enrollment code { overflow-wrap: anywhere; padding: var(--gc-space-3); border-radius: var(--gc-radius-md); color: var(--gc-color-text-strong); background: var(--gc-color-surface-field); }
 .ca-wizard__risk { padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-warning-bg); }
 .ca-wizard__risk p { color: var(--gc-color-text-muted); }
 @media (max-width: 48rem) {
   .authority-toolbar, .ca-architecture__header { align-items: stretch; flex-direction: column; }
-  .ca-wizard__kind-grid, .ca-wizard__form, .ca-tree__children { grid-template-columns: 1fr; }
-  .ca-wizard__steps strong { display: none; }
+  .ca-wizard__entry-grid, .ca-wizard__form, .ca-tree__children { grid-template-columns: 1fr; }
+  .ca-wizard__progress ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .provider-summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .provider-summary small { grid-column: 1 / -1; }
   .ca-tree__connector span { width: var(--gc-border-width-default); height: var(--gc-space-4); }
 }
 </style>
