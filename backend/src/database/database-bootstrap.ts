@@ -13,18 +13,31 @@ export interface BootstrappedDatabase {
   appliedMigrations: AppliedMigration[];
 }
 
-export async function bootstrapDatabase(env: NodeJS.ProcessEnv = process.env): Promise<BootstrappedDatabase> {
+export interface BootstrapDatabaseOptions {
+  applyMigrations?: boolean;
+}
+
+export async function bootstrapDatabase(
+  env: NodeJS.ProcessEnv = process.env,
+  options: BootstrapDatabaseOptions = {},
+): Promise<BootstrappedDatabase> {
   const config = loadDatabaseConfig(env);
   const db = createDatabase(config);
   const migrationsDir = resolve(process.cwd(), config.migrationsDir);
-  const appliedMigrations = await runMigrations(db, migrationsDir, {
-    appliedBy: env.GCAC_MIGRATION_APPLIED_BY ?? 'system',
-    checksum: (content) => createHash('sha256').update(content).digest('hex'),
-  });
+  let appliedMigrations: AppliedMigration[] = [];
 
-  structuredLogger.info('数据库初始化完成', {
+  // 迁移必须由显式脚本触发。热重载启动服务时不能抢跑半成品迁移文件。
+  if (options.applyMigrations === true) {
+    appliedMigrations = await runMigrations(db, migrationsDir, {
+      appliedBy: env.GCAC_MIGRATION_APPLIED_BY ?? 'system',
+      checksum: (content) => createHash('sha256').update(content).digest('hex'),
+    });
+  }
+
+  structuredLogger.info(options.applyMigrations === true ? '数据库初始化完成' : '数据库连接初始化完成，已跳过自动迁移', {
     backend: config.backend,
     migrationsDir,
+    migrationsApplied: options.applyMigrations === true,
     appliedMigrations: appliedMigrations.map((item) => ({ version: item.version, status: item.status })),
   }, { module: 'database' });
 

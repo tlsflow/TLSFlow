@@ -10,8 +10,11 @@
     "test:integration": "npm run build && node --test \"dist/**/*.test.js\"",
     "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
     "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
+    "migrate": "tsx src/database/migrate.ts",
+    "migrate:prod": "node dist/database/migrate.js",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/database/migrate.js && node dist/main.js",
+    "start:no-migrate": "node dist/main.js"
   },
   "dependencies": {
     "ldapts": "^8.1.8",
