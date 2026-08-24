@@ -797,6 +797,22 @@ export class GatewayRouteExecutorAdapter implements Executor {
       ?? stringFromSnapshot(input.step.inputSnapshot.delegatedAgentId)
       ?? stringFromSnapshot(input.step.inputSnapshot.agentId)
       ?? delegatedTargetId;
+    if (!this.gatewayTasks.hasDurablePersistence) {
+      return {
+        success: false,
+        errorCode: 'EXECUTION_TARGET_UNAVAILABLE',
+        errorMessage: 'Gateway v2 缺少持久化 GatewayTask 仓储，拒绝创建不可恢复的执行任务',
+        detail: { mode: 'gateway_v2_dispatch_failed', reason: 'GATEWAY_V2_TASK_PERSISTENCE_UNAVAILABLE', fallback: false },
+      };
+    }
+    if (!gatewayAgentId) {
+      return {
+        success: false,
+        errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
+        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId，拒绝在控制面本地伪执行',
+        detail: { mode: 'gateway_route_dispatch_failed', gatewayId, taskType, fallback: false },
+      };
+    }
     const forwardingGrant = this.grants.issue({
       gatewayId,
       delegatedTargetId,
@@ -842,15 +858,6 @@ export class GatewayRouteExecutorAdapter implements Executor {
       forwardingGrant,
     });
     await this.gatewayTasks.flushPersistence();
-
-    if (!gatewayAgentId) {
-      return {
-        success: false,
-        errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
-        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId，拒绝在控制面本地伪执行',
-        detail: { mode: 'gateway_route_dispatch_failed', gatewayId, taskId: task.id, taskType },
-      };
-    }
 
     const agentTask = await this.agents.enqueueTask(tenantId, {
       agentId: gatewayAgentId,
@@ -1541,7 +1548,9 @@ function buildGatewayGrant(
     planDigest: requireStringValue(token.planDigest, 'planDigest'),
     pluginId: pluginBinding.pluginId,
     pluginVersionId: pluginBinding.pluginVersionId,
+    capability: requireStringValue(token.capability, 'capability'),
     tokenId: requireStringValue(token.tokenId, 'tokenId'),
+    policyDecisionId: requireStringValue(policyDecision.decisionId, 'policyDecisionId'),
     nonce: requireStringValue(token.nonce, 'nonce'),
     revocationRef: requireStringValue(policyDecision.revocationRef, 'revocationRef'),
     forwardingGrantId,

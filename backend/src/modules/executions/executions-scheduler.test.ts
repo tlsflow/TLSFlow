@@ -14,7 +14,9 @@ import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAd
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
-import { computeAgentPlanDigest, type AgentCapabilityTokenV1, type AgentPlanV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
+import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentCapabilityTokenV1, type AgentExecutionReceiptV1, type AgentPlanV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
+import { createDurableGatewayTaskRepositories } from '../gateway-agents/gateway-task.repository.js';
+import { GatewayTaskService } from '../gateway-agents/gateway-task.service.js';
 
 function createService(dependencies: Record<string, unknown> = {}) {
   return new ExecutionsApplicationService({
@@ -22,6 +24,7 @@ function createService(dependencies: Record<string, unknown> = {}) {
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     stageIntervalMs: 0,
     tasks: testTaskEnqueuer(),
+    executionGrants: { create: async () => ({ id: 'execution-grant-scheduler-fixture' }) },
     ...dependencies,
   });
 }
@@ -406,8 +409,12 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         policyDecision,
       }),
     };
-    const executor = new GatewayRouteExecutorAdapter({ agents, agentPlanCompiler: compiler as never });
-    const result = await executor.executeStep({
+    const gatewayDb = new PgliteDatabase();
+    try {
+      await runMigrations(gatewayDb);
+      const gatewayTasks = new GatewayTaskService({ repositories: await createDurableGatewayTaskRepositories(gatewayDb) });
+      const executor = new GatewayRouteExecutorAdapter({ agents, gatewayTasks, agentPlanCompiler: compiler as never });
+      const result = await executor.executeStep({
       runType: 'apply',
       dryRun: false,
       step: {
@@ -451,17 +458,20 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       } as any,
     });
 
-    assert.equal(result.success, true);
-    assert.equal(result.detail?.mode, 'gateway_v2_control_plane_queue');
-    assert.equal(capturedPayload?.actionType, 'agent.plan.execute');
-    assert.equal((capturedPayload?.token as { tokenId?: string } | undefined)?.tokenId, 'token-gateway-fixture');
-    assert.equal((capturedPayload?.policyDecision as { decisionId?: string } | undefined)?.decisionId, 'decision-gateway-fixture');
-    assert.equal((capturedPayload?.plan as { planId?: string } | undefined)?.planId, 'plan_gateway_enqueue');
-    assert.equal(capturedPayload?.type, undefined);
-    const gatewayTask = capturedPayload?.gatewayTask as { delegatedTargetId: string; forwardingGrant?: { status: string; taskType: string } };
-    assert.equal(gatewayTask.delegatedTargetId, 'host_gateway_enqueue');
-    assert.equal(gatewayTask.forwardingGrant?.status, 'active');
-    assert.equal(gatewayTask.forwardingGrant?.taskType, 'gateway.forward.agent_task');
+      assert.equal(result.success, true);
+      assert.equal(result.detail?.mode, 'gateway_v2_control_plane_queue');
+      assert.equal(capturedPayload?.actionType, 'agent.plan.execute');
+      assert.equal((capturedPayload?.token as { tokenId?: string } | undefined)?.tokenId, 'token-gateway-fixture');
+      assert.equal((capturedPayload?.policyDecision as { decisionId?: string } | undefined)?.decisionId, 'decision-gateway-fixture');
+      assert.equal((capturedPayload?.plan as { planId?: string } | undefined)?.planId, 'plan_gateway_enqueue');
+      assert.equal(capturedPayload?.type, undefined);
+      const gatewayTask = capturedPayload?.gatewayTask as { delegatedTargetId: string; forwardingGrant?: { status: string; taskType: string } };
+      assert.equal(gatewayTask.delegatedTargetId, 'host_gateway_enqueue');
+      assert.equal(gatewayTask.forwardingGrant?.status, 'active');
+      assert.equal(gatewayTask.forwardingGrant?.taskType, 'gateway.forward.agent_task');
+    } finally {
+      await gatewayDb.close();
+    }
   });
 
   it('Gateway Agent 提交转发结果后回写原 ExecutionStep', async () => {
@@ -517,6 +527,93 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         adapters: ['forward.agent_task'],
         capabilities: ['gateway.forward.agent_task'],
       }, 'req_gateway_result_sync_register');
+      const expiresAt = new Date(Date.now() + 300_000).toISOString();
+      const planBase = {
+        planVersion: 'gcac.agent-security/v1' as const,
+        planId: 'plan_gateway_result_sync',
+        agentId: gateway.id,
+        tenantId: run.tenantId,
+        pluginId: 'web.nginx',
+        pluginVersionId: 'plugin-version-gateway-result-sync',
+        capability: 'filesystem.atomic_replace',
+        operations: [{
+          operationId: 'operation-gateway-result-sync',
+          operationType: 'filesystem.atomic_replace' as const,
+          stage: 'execute' as const,
+          input: { path: '/var/lib/gcac/config.json' },
+          dependsOn: [],
+          idempotencyKey: 'idem-operation-gateway-result-sync',
+          timeoutSeconds: 30,
+        }],
+        planDigest: '',
+        tokenId: 'token-gateway-result-sync',
+        policyDecisionId: 'decision-gateway-result-sync',
+        nonce: 'nonce-gateway-result-sync',
+        expiresAt,
+        writeEffect: true,
+      } satisfies AgentPlanV1;
+      const plan = { ...planBase, planDigest: computeAgentPlanDigest(planBase) };
+      const token = {
+        tokenVersion: 'gcac.agent-security/v1' as const,
+        tokenId: plan.tokenId,
+        agentId: gateway.id,
+        tenantId: run.tenantId,
+        pluginId: plan.pluginId,
+        pluginVersionId: plan.pluginVersionId,
+        capability: plan.capability,
+        actions: [plan.capability],
+        allowedPaths: ['/var/lib/gcac'],
+        allowedServices: [],
+        artifactDigests: [],
+        policyRef: 'policy-gateway-result-sync',
+        policyVersion: '1',
+        issuedAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt,
+        nonce: plan.nonce,
+        planDigest: plan.planDigest,
+        authorityKeyId: 'authority-gateway-result-sync',
+        signature: 'token-signature-gateway-result-sync',
+      } satisfies AgentCapabilityTokenV1;
+      const policyDecision = {
+        decisionVersion: 'gcac.agent-security/v1' as const,
+        decisionId: plan.policyDecisionId,
+        allowed: true,
+        agentId: token.agentId,
+        tenantId: token.tenantId,
+        pluginId: token.pluginId,
+        pluginVersionId: token.pluginVersionId,
+        capability: token.capability,
+        actions: token.actions,
+        allowedPaths: token.allowedPaths,
+        allowedServices: token.allowedServices,
+        artifactDigests: token.artifactDigests,
+        policyRef: token.policyRef,
+        policyVersion: token.policyVersion,
+        planDigest: plan.planDigest,
+        tokenId: token.tokenId,
+        nonce: token.nonce,
+        issuedAt: token.issuedAt,
+        validUntil: token.expiresAt,
+        authorityKeyId: token.authorityKeyId,
+        revocationRef: 'revocation-gateway-result-sync',
+        signature: 'decision-signature-gateway-result-sync',
+      } satisfies PolicyAuthorityDecisionV1;
+      const receiptBase = {
+        receiptVersion: 'gcac.agent-security/v1' as const,
+        operationId: plan.operations[0]!.operationId,
+        planId: plan.planId,
+        planDigest: plan.planDigest,
+        agentId: gateway.id,
+        tenantId: run.tenantId,
+        tokenId: token.tokenId,
+        status: 'SUCCESS' as const,
+        startedAt: new Date(Date.now() - 500).toISOString(),
+        completedAt: new Date().toISOString(),
+        operationResults: [{ status: 'success' }],
+        nonceConsumed: true,
+        digest: '',
+      } satisfies AgentExecutionReceiptV1;
+      const receipt = { ...receiptBase, digest: computeAgentExecutionReceiptDigest(receiptBase) };
       const task = await agents.enqueueTask(run.tenantId, {
         agentId: gateway.id,
         executionRunId: run.id,
@@ -526,6 +623,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
           actionType: 'agent.plan.execute',
           actionSchemaVersion: '1.0',
           gatewayTaskId: 'gateway_task_result_sync',
+          token,
+          policyDecision,
+          plan,
         },
       }, 'req_gateway_result_sync_enqueue');
       await agents.ackTask(run.tenantId, { agentId: gateway.id, taskId: task.id, leaseId: 'lease_gateway_result_sync' });
@@ -538,6 +638,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
           mode: 'gateway_agent_process',
           gatewayTaskId: 'gateway_task_result_sync',
           delegatedTargetId: 'target_gateway_result_sync',
+          receipt,
         },
       });
 
@@ -838,7 +939,24 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       agentPayloads: new Map([['target_cancel_write_unknown', {
         actionType: 'agent.plan.execute',
         writeEffect: true,
-        plan: { writeEffect: true },
+        pluginRuntimeCapability: {
+          pluginId: 'web.agent.plan',
+          pluginVersionId: 'plugin-version-cancel-fixture',
+          capabilityKey: 'filesystem.atomic_replace',
+        },
+        plan: {
+          planId: 'agent-plan-cancel-fixture',
+          pluginId: 'web.agent.plan',
+          pluginVersionId: 'plugin-version-cancel-fixture',
+          capability: 'filesystem.atomic_replace',
+          planDigest: 'e'.repeat(64),
+          writeEffect: true,
+        },
+        executionAuthorization: {
+          planId: 'plan_1',
+          actions: ['agent.plan.execute'],
+          lifetimeSeconds: 300,
+        },
       }]]),
     });
     const steps = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).sort((left, right) => left.stepNo - right.stepNo);

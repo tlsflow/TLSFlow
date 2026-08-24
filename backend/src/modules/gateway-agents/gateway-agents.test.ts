@@ -165,7 +165,9 @@ function createV2Materials(
     planDigest: plan.planDigest,
     pluginId: token.pluginId,
     pluginVersionId: token.pluginVersionId,
+    capability: token.capability,
     tokenId: token.tokenId,
+    policyDecisionId: policyDecision.decisionId,
     nonce: token.nonce,
     revocationRef: policyDecision.revocationRef,
     forwardingGrantId,
@@ -471,6 +473,23 @@ describe('spec014 Gateway 区域路由器', () => {
       forwardingGrantId: request.forwardingGrant.id,
       receipt: invalidReceipt,
     }), { errorCode: 'AUTH_FORBIDDEN' });
+  });
+
+  it('Gateway Grant 缺少 capability 或 policy decision 绑定时拒绝转发', () => {
+    const forwardingService = new GatewayV2ForwardingService();
+    const forwardingGrant = issueGrant({ tenantId: 'tenant-grant-binding', gatewayId: 'gw_grant_binding', delegatedTargetId: 'agent_grant_binding', delegatedAgentId: 'agent_grant_binding' });
+    const materials = createV2Materials('tenant-grant-binding', 'agent_grant_binding', forwardingGrant.id);
+    const task = dispatchV2Task('tenant-grant-binding', materials, forwardingGrant).listRecoverable()[0];
+
+    for (const field of ['capability', 'policyDecisionId'] as const) {
+      const malformedGrant = { ...materials.grant, [field]: '' };
+      const malformedTask = {
+        ...task,
+        grant: malformedGrant,
+        payload: { ...task.payload, grant: malformedGrant },
+      };
+      assert.throws(() => forwardingService.prepare(malformedTask, 'tenant-grant-binding', `req-missing-${field}`), { errorCode: 'AUTH_FORBIDDEN' });
+    }
   });
 
   it('GatewayTask 重启恢复已消费 Nonce，并拒绝重放', async () => {

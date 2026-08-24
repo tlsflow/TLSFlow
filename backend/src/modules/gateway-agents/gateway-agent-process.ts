@@ -4,7 +4,7 @@ import type { AgentsApplicationService } from '../agents/application/agents.appl
 import type { AgentTaskEnvelope } from '../agents/schema/agents.schema.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
 import { FailClosedGatewayAgentV2Forwarder, GatewayTaskReplayGuard, GatewayV2ForwardingService, type GatewayV2ReplayGuardPort } from './gateway-v2-forwarding.service.js';
-import type { GatewayAgentV2Forwarder, GatewayTask } from './gateway-agent.types.js';
+import type { GatewayAgentV2ForwardRequest, GatewayAgentV2Forwarder, GatewayTask } from './gateway-agent.types.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 
 export interface GatewayAgentProcessOptions {
@@ -78,6 +78,7 @@ export class GatewayAgentProcess {
     const gatewayTask = agentTask.payload.gatewayTask as GatewayTask;
 
     let authorizationCommitted = false;
+    let forwardRequest: GatewayAgentV2ForwardRequest | undefined;
     try {
       this.options.gatewayTasks.ack(gatewayTask.id, leaseId);
       this.options.gatewayTasks.markRunning(gatewayTask.id, leaseId);
@@ -102,10 +103,10 @@ export class GatewayAgentProcess {
         return { success: false };
       }
 
-      const request = this.v2Forwarding.prepare(gatewayTask, this.options.tenantId, `gateway-v2:${gatewayTask.id}`, new Date());
-      const replayBinding = { tenantId: request.tenantId, agentId: request.token.agentId, tokenId: request.token.tokenId, nonce: request.token.nonce, revocationRef: request.policyDecision.revocationRef, taskId: gatewayTask.id };
+      forwardRequest = this.v2Forwarding.prepare(gatewayTask, this.options.tenantId, `gateway-v2:${gatewayTask.id}`, new Date());
+      const replayBinding = { tenantId: forwardRequest.tenantId, agentId: forwardRequest.token.agentId, tokenId: forwardRequest.token.tokenId, nonce: forwardRequest.token.nonce, revocationRef: forwardRequest.policyDecision.revocationRef, taskId: gatewayTask.id };
       this.replayGuard.assertAvailable(replayBinding);
-      const grant = this.grants.validate(request.forwardingGrant, {
+      const grant = this.grants.validate(forwardRequest.forwardingGrant, {
         gatewayId: gatewayTask.gatewayId,
         delegatedTargetId: gatewayTask.delegatedTargetId,
         taskType: gatewayTask.action,
@@ -123,30 +124,30 @@ export class GatewayAgentProcess {
       gatewayTask.forwardingGrant = updated.forwardingGrant;
       authorizationCommitted = true;
 
-      const forwarded = this.v2Forwarding.validateResult(request, await this.forwarder.forward({ ...request, forwardingGrant: consumed }));
+      const forwarded = this.v2Forwarding.validateResult(forwardRequest, await this.forwarder.forward({ ...forwardRequest, forwardingGrant: consumed }));
       const reportedStatus = forwarded.receipt?.status ?? 'SUCCESS';
       // 写入动作一旦离开 Gateway，任何非成功结果都不能再被当作可重试的普通失败。
-      const executionStatus = request.actionType === 'agent.plan.execute' && reportedStatus !== 'SUCCESS' ? 'UNKNOWN' : reportedStatus;
+      const executionStatus = forwardRequest.actionType === 'agent.plan.execute' && reportedStatus !== 'SUCCESS' ? 'UNKNOWN' : reportedStatus;
       const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, {
         success: executionStatus === 'SUCCESS',
         executionStatus,
         summary: executionStatus === 'SUCCESS' ? 'Agent v2 已返回真实授权结果' : `Agent v2 返回 ${executionStatus}`,
         errorCode: executionStatus === 'SUCCESS' ? undefined : executionStatus === 'UNKNOWN' ? 'GATEWAY_EXECUTION_UNKNOWN' : 'AGENT_V2_EXECUTION_FAILED',
         kind: 'response_summary',
-        logs: [`${request.actionType} ${gatewayTask.delegatedTargetId} via ${gatewayTask.adapter}`],
+        logs: [`${forwardRequest.actionType} ${gatewayTask.delegatedTargetId} via ${gatewayTask.adapter}`],
         detail: {
           mode: 'gateway.v2.forward',
-          actionType: request.actionType,
-          tenantId: request.tenantId,
-          delegatedAgentId: request.token.agentId,
-          pluginId: request.token.pluginId,
-          pluginVersionId: request.token.pluginVersionId,
-          planDigest: request.token.planDigest,
-          tokenId: request.token.tokenId,
-          nonce: request.token.nonce,
-          revocationRef: request.policyDecision.revocationRef,
-          grantId: request.grant.grantId,
-          forwardingGrantId: request.forwardingGrant.id,
+          actionType: forwardRequest.actionType,
+          tenantId: forwardRequest.tenantId,
+          delegatedAgentId: forwardRequest.token.agentId,
+          pluginId: forwardRequest.token.pluginId,
+          pluginVersionId: forwardRequest.token.pluginVersionId,
+          planDigest: forwardRequest.token.planDigest,
+          tokenId: forwardRequest.token.tokenId,
+          nonce: forwardRequest.token.nonce,
+          revocationRef: forwardRequest.policyDecision.revocationRef,
+          grantId: forwardRequest.grant.grantId,
+          forwardingGrantId: forwardRequest.forwardingGrant.id,
           receipt: forwarded.receipt,
           ...(forwarded.detail ?? {}),
         },
@@ -155,6 +156,19 @@ export class GatewayAgentProcess {
       await this.submitAgentResult(agentTask, leaseId, completed, completed.result?.success ?? false);
       return { success: completed.result?.success ?? false };
     } catch (error) {
+      const errorDetails = error instanceof AppError && error.details && typeof error.details === 'object' && !Array.isArray(error.details)
+        ? error.details as Record<string, unknown>
+        : undefined;
+      if (authorizationCommitted && forwardRequest && errorDetails?.reason === 'GATEWAY_LATE_RECEIPT') {
+        this.options.gatewayTasks.recordLateV2Response(gatewayTask.id, leaseId, forwardRequest.requestId, {
+          errorCode: error instanceof AppError ? error.errorCode : 'GATEWAY_LATE_RECEIPT',
+          message: error instanceof Error ? error.message : String(error),
+          actionType: forwardRequest.actionType,
+          grantId: forwardRequest.grant.grantId,
+          tokenId: forwardRequest.token.tokenId,
+          nonce: forwardRequest.token.nonce,
+        });
+      }
       const status = authorizationCommitted ? 'unknown' : 'failed';
       const failed = this.options.gatewayTasks.result(gatewayTask.id, leaseId, {
         success: false,

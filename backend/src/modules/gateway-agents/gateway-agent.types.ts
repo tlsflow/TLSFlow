@@ -130,7 +130,9 @@ export interface GatewayGrantV1 {
   planDigest: string;
   pluginId: string;
   pluginVersionId: string;
+  capability: string;
   tokenId: string;
+  policyDecisionId: string;
   nonce: string;
   revocationRef: string;
   forwardingGrantId: string;

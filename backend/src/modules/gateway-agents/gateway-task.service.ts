@@ -394,7 +394,9 @@ function assertV2TaskBinding(task: GatewayTask, binding: GatewayV2NonceBinding):
     || gatewayGrant.planDigest !== token.planDigest
     || gatewayGrant.pluginId !== token.pluginId
     || gatewayGrant.pluginVersionId !== token.pluginVersionId
+    || gatewayGrant.capability !== token.capability
     || gatewayGrant.tokenId !== token.tokenId
+    || gatewayGrant.policyDecisionId !== decision.decisionId
     || gatewayGrant.nonce !== token.nonce
     || gatewayGrant.revocationRef !== decision.revocationRef
     || decision.allowed !== true

@@ -191,7 +191,8 @@ function assertAuthorizationBinding(
   }
   if (grant.tenantId !== processTenantId || grant.agentId !== token.agentId || grant.actionType !== actionType
     || grant.planDigest !== token.planDigest || grant.pluginId !== token.pluginId || grant.pluginVersionId !== token.pluginVersionId
-    || grant.tokenId !== token.tokenId || grant.nonce !== token.nonce || grant.revocationRef !== decision.revocationRef
+    || grant.capability !== token.capability || grant.tokenId !== token.tokenId || grant.policyDecisionId !== decision.decisionId
+    || grant.nonce !== token.nonce || grant.revocationRef !== decision.revocationRef
     || grant.forwardingGrantId !== forwardingGrant.id || grant.planId !== task.planId) {
     throw new AppError('AUTH_FORBIDDEN', 'Gateway Grant 与 Agent v2 授权材料不一致', { reason: 'GATEWAY_GRANT_BINDING_DENIED' });
   }
@@ -242,7 +243,7 @@ function assertTimeBinding(token: AgentCapabilityTokenV1, decision: PolicyAuthor
 
 function validateGatewayGrant(value: unknown): GatewayGrantV1 {
   const grant = record(value, 'GatewayGrantV1');
-  const fields = ['grantId', 'tenantId', 'agentId', 'actionType', 'planId', 'planDigest', 'pluginId', 'pluginVersionId', 'tokenId', 'nonce', 'revocationRef', 'forwardingGrantId'];
+  const fields = ['grantId', 'tenantId', 'agentId', 'actionType', 'planId', 'planDigest', 'pluginId', 'pluginVersionId', 'capability', 'tokenId', 'policyDecisionId', 'nonce', 'revocationRef', 'forwardingGrantId'];
   for (const field of fields) if (typeof grant[field] !== 'string' || !(grant[field] as string).trim()) throw new AppError('AUTH_FORBIDDEN', `Gateway Grant 缺少 ${field}`, { reason: 'GATEWAY_GRANT_REQUIRED', field });
   normalizeAction(grant.actionType);
   return grant as unknown as GatewayGrantV1;
