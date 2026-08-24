@@ -182,9 +182,9 @@ describe('CertificatesView', () => {
     expect(assetRecord.find(`#${panelId}`).exists()).toBe(false)
     expect(assetRecord.find('.certificate-page__asset-versions-trigger').exists()).toBe(false)
     expect(assetRecord.find('.gc-pro-card__footer').exists()).toBe(false)
-    expect(assetRecord.find('.certificate-page__asset-card-metadata').text()).toContain('1 个版本')
+    expect(assetRecord.find('.certificate-page__asset-card-metadata').text()).toContain('1 个')
 
-    await recordTrigger.trigger('click')
+    await assetRecord.find('.certificate-page__asset-card-validity').trigger('click')
     await waitFor(() => {
       expect(document.body.querySelectorAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
     })
@@ -242,9 +242,12 @@ describe('CertificatesView', () => {
     expect(assetCard.exists()).toBe(true)
     expect(assetCard.text()).toContain('即将过期')
     expect(assetCard.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
-    expect(assetCard.text()).toContain('外部 API')
+    expect(assetCard.text()).toContain('ACME')
+    expect(assetCard.text()).toContain('1 个')
+    expect(assetCard.text()).not.toContain('1 个版本')
     expect(assetCard.find('.certificate-page__asset-card-kicker').exists()).toBe(false)
     expect(assetCard.find('.certificate-page__asset-card-chevron').exists()).toBe(false)
+    expect(assetCard.find('.certificate-page__asset-card-source-value .gc-tag').classes()).toContain('gc-tag--success')
     const validityProgress = assetCard.get('[role="progressbar"]')
     expect(validityProgress.classes()).toContain('gc-progress--outlined')
 
@@ -289,7 +292,7 @@ describe('CertificatesView', () => {
               certificateAssetId: 'asset-user',
               notBefore: '2026-06-01T00:00:00.000Z',
               notAfter: '2026-12-17T23:59:59.000Z',
-              sourceType: 'external_api',
+              sourceType: 'unknown',
               status: 'MANAGED',
             }],
             page: 1,
@@ -306,7 +309,55 @@ describe('CertificatesView', () => {
       expect(wrapper.find('.certificate-simple-view__field-value').exists()).toBe(true)
     })
 
-    expect(wrapper.findAll('.certificate-simple-view__field-value')[1]?.text()).toBe('外部 API')
+    expect(wrapper.findAll('.certificate-simple-view__field-value')[1]?.text()).toBe('未知')
+    expect(wrapper.find('.certificate-simple-view__field-value .gc-tag').classes()).toContain('gc-tag--muted')
+  })
+
+  it('用户视图将手动来源显示为信息标签', async () => {
+    useAppStore().setViewMode('user')
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const target = String(url)
+      if (target.includes('/certificate-assets')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [{
+              id: 'asset-manual',
+              primaryDomain: 'manual.weichai.com',
+              sourceType: 'manual',
+            }],
+            page: 1,
+            pageSize: 20,
+            total: 1,
+          },
+        }), { status: 200 })
+      }
+      if (target.includes('/certificate-versions')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [{
+              id: 'certver-manual',
+              certificateAssetId: 'asset-manual',
+              notBefore: '2026-06-01T00:00:00.000Z',
+              notAfter: '2026-12-17T23:59:59.000Z',
+              sourceType: 'manual',
+              status: 'MANAGED',
+            }],
+            page: 1,
+            pageSize: 1,
+            total: 1,
+          },
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    }))
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(wrapper.find('.certificate-simple-view__field-value').exists()).toBe(true)
+    })
+
+    expect(wrapper.findAll('.certificate-simple-view__field-value')[1]?.text()).toBe('手动')
+    expect(wrapper.find('.certificate-simple-view__field-value .gc-tag').classes()).toContain('gc-tag--info')
   })
 
   it('快速切换证书记录时不会展示旧请求返回的版本', async () => {
