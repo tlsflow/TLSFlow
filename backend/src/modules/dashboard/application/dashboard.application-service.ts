@@ -540,7 +540,8 @@ function buildCertificateStatuses(input: {
   }
 
   return input.assets
-    .filter((asset) => asset.status === 'active')
+    // 资产可能在最后一个版本删除后仍保留为 active；没有活跃版本就不属于证书状态热力图。
+    .filter((asset) => asset.status === 'active' && latestVersionByAssetId.has(asset.id))
     .map((asset) => {
       const version = latestVersionByAssetId.get(asset.id);
       const daysRemaining = version?.notAfter ? daysUntil(version.notAfter, input.nowIso) : undefined;

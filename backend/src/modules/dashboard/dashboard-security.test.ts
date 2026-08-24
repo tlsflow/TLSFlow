@@ -36,6 +36,20 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.deepEqual(statusBlockIds(overview, 'gateways'), ['gateway-visible']);
 });
 
+test('Dashboard 不展示没有活跃版本的证书资产', async () => {
+  const service = createDashboardService({
+    certificate_asset: ['certificate-empty'],
+  });
+
+  const overview = await service.getOverview({
+    tenantId: 'tenant-1',
+    subject: { id: 'user-1', type: 'user', scope: { tenantId: 'tenant-1' } },
+  });
+
+  assert.deepEqual(overview.certificateStatuses, []);
+  assert.deepEqual(statusBlockIds(overview, 'certificates'), []);
+});
+
 test('Dashboard 最近审计对已知对象执行授权，未知对象默认过滤', async () => {
   const service = createDashboardService({
     service_asset: ['application-visible'],
@@ -106,6 +120,7 @@ function createDashboardService(
   const certificateAssets = [
     certificateAsset('certificate-visible', 'certificate-version-visible-recent'),
     certificateAsset('certificate-hidden', 'certificate-version-hidden'),
+    certificateAsset('certificate-empty', ''),
   ];
   const certificateVersions = [
     {
