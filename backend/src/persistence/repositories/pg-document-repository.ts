@@ -38,6 +38,21 @@ export class PgDocumentRepository<T extends IdentifiedEntity> implements AsyncRe
     return structuredClone(entity);
   }
 
+  async compareAndSwap(id: string, expectedVersion: number, entity: T): Promise<boolean> {
+    await this.ensureTable();
+    const result = await this.db.query<{ document_id: string }>(
+      `update pg_documents
+          set payload = $3::jsonb,
+              updated_at = now()
+        where namespace = $1
+          and document_id = $2
+          and payload->>'version' = $4
+      returning document_id`,
+      [this.namespace, id, JSON.stringify(entity), String(expectedVersion)],
+    );
+    return result.rows.length > 0;
+  }
+
   async get(id: string): Promise<T | undefined> {
     await this.ensureTable();
     const result = await this.db.query<{ document_id: string; payload: T }>(

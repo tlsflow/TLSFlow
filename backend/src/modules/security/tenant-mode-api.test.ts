@@ -181,6 +181,80 @@ describe('多租户模式 API', () => {
     assert.equal(stateBody.lastEnableBatch, undefined);
   });
 
+  it('预检查通过后如静态对象集合成员发生变化，旧批次必须失效并拒绝启用', async () => {
+    const fixture = await createFixture('single');
+    const token = await fixture.loginAdmin();
+    const root = (await fixture.security.tenantHierarchy!.listTenants()).find((tenant) => tenant.code === 'default');
+    assert.ok(root);
+    const objectSet = await fixture.security.objectPermissions.createObjectSet({
+      id: 'oset_preflight_member_stale',
+      tenantId: root.id,
+      name: '预检查成员快照集合',
+      kind: 'static',
+      objectTypes: ['certificate'],
+      status: 'active',
+    });
+
+    const preflight = await fixture.app.inject({
+      method: 'POST',
+      path: '/api/v1/system/tenant-mode/preflight',
+      headers: { authorization: `Bearer ${token}` },
+      body: { confirmation: 'preflight-member-stale-20260806' },
+    });
+    assert.equal(preflight.statusCode, 200);
+    const preflightBatchId = (preflight.body as { batch: { id: string } }).batch.id;
+
+    await fixture.security.objectPermissions.addObjectSetMember({
+      objectSetId: objectSet.id,
+      objectType: 'certificate',
+      objectId: 'certificate_member_added_after_preflight',
+      tenantId: root.id,
+      addedBy: 'user_admin',
+    });
+
+    const stale = await fixture.app.inject({
+      method: 'POST',
+      path: '/api/v1/system/tenant-mode/enable',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        preflightBatchId,
+        confirmation: 'enable-member-stale-20260806',
+      },
+    });
+    assert.equal(stale.statusCode, 409);
+    assert.equal((stale.body as { errorCode: string }).errorCode, 'TENANT_PREFLIGHT_STALE');
+  });
+
+  it('并发更新租户模式状态时只允许一个请求成功，不能覆盖更高版本状态', async () => {
+    const fixture = await createFixture('single');
+    const results = await Promise.allSettled([
+      fixture.security.tenantMode!.runPreflight({
+        actorId: 'user_admin',
+        confirmation: 'concurrent-preflight-a-20260806',
+      }),
+      fixture.security.tenantMode!.runPreflight({
+        actorId: 'user_admin',
+        confirmation: 'concurrent-preflight-b-20260806',
+      }),
+    ]);
+    assert.equal(results.filter((item) => item.status === 'fulfilled').length, 1);
+    const rejected = results.find((item): item is PromiseRejectedResult => item.status === 'rejected');
+    assert.ok(rejected);
+    assert.equal(rejected.reason?.errorCode, 'TENANT_MODE_CONFLICT', String(rejected.reason?.stack ?? rejected.reason));
+
+    const summary = await fixture.security.tenantMode!.getSummary();
+    assert.equal(summary.state.lifecycleState, 'SINGLE');
+    assert.equal(summary.state.activeBatchId, undefined);
+    assert.equal(summary.state.version, 3);
+    const runningBatches = await fixture.db.query<{ count: number }>(
+      `select count(*)::int as count
+         from pg_documents
+        where namespace = 'security.tenant_mode_batches'
+          and payload->>'status' = 'RUNNING'`,
+    );
+    assert.equal(runningBatches.rows[0]?.count, 0);
+  });
+
   it('预检查会阻断普通租户复用历史全局对象集合的角色绑定和授权', async () => {
     const fixture = await createFixture('single');
     const token = await fixture.loginAdmin();

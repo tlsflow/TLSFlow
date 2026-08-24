@@ -73,6 +73,7 @@ interface TenantModePreflightSnapshot {
   tenantCount: number;
   membershipCount: number;
   objectSetCount: number;
+  objectSetMemberCount: number;
   roleBindingCount: number;
   accessGrantCount: number;
 }
@@ -85,9 +86,12 @@ export interface TenantModeStateSummary {
 }
 
 type TenantHierarchyPort = Pick<TenantHierarchyService, 'listTenants' | 'listMemberships'>;
-type ObjectPermissionPort = Pick<ObjectPermissionService, 'listObjectSets' | 'listRoleBindings' | 'listAccessGrants'>;
+type ObjectPermissionPort = Pick<ObjectPermissionService, 'listObjectSets' | 'listObjectSetMembers' | 'listRoleBindings' | 'listAccessGrants'>;
 type AuditPort = Pick<AuditService, 'write'>;
 type TenantContextInvalidator = Pick<TenantContextService, 'invalidateAll'>;
+type VersionedRepositoryPort<T extends { id: string }> = AsyncRepositoryPort<T> & {
+  compareAndSwap(id: string, expectedVersion: number, entity: T): Promise<boolean>;
+};
 
 const STATE_ID = 'tenant-mode';
 const BUILTIN_OBJECT_SET_PREFIXES = ['oset_builtin_'];
@@ -105,7 +109,7 @@ export class TenantModeService implements TenantModeReader {
 
   constructor(
     private readonly db: DatabasePort,
-    private readonly states: AsyncRepositoryPort<TenantModeStateEntity>,
+    private readonly states: VersionedRepositoryPort<TenantModeStateEntity>,
     private readonly batches: AsyncRepositoryPort<TenantModeBatchEntity>,
     private readonly audit: AuditPort,
     private readonly tenantHierarchy: TenantHierarchyPort,
@@ -144,7 +148,7 @@ export class TenantModeService implements TenantModeReader {
     }
 
     const runningBatch = await this.createBatch('PREFLIGHT', state, input.actorId, input.context, input.confirmation, 'hierarchical');
-    await this.updateState({
+    await this.activateBatch(runningBatch, {
       lifecycleState: 'PREFLIGHT',
       activeBatchId: runningBatch.id,
     });
@@ -225,7 +229,7 @@ export class TenantModeService implements TenantModeReader {
 
     const preflight = await this.requirePreflightBatch(input.preflightBatchId, state);
     const runningBatch = await this.createBatch('ENABLE', state, input.actorId, input.context, input.confirmation, 'hierarchical');
-    await this.updateState({
+    await this.activateBatch(runningBatch, {
       lifecycleState: 'MIGRATING',
       activeBatchId: runningBatch.id,
     });
@@ -307,7 +311,7 @@ export class TenantModeService implements TenantModeReader {
     }
 
     const runningBatch = await this.createBatch('ROLLBACK', state, input.actorId, input.context, input.confirmation, 'single');
-    await this.updateState({
+    await this.activateBatch(runningBatch, {
       lifecycleState: 'ROLLING_BACK',
       activeBatchId: runningBatch.id,
     });
@@ -511,13 +515,23 @@ export class TenantModeService implements TenantModeReader {
       return existing;
     }
     const initialMode = readInitialMode();
-    return this.states.create({
+    const initialState: TenantModeStateEntity = {
       id: STATE_ID,
       mode: initialMode,
       lifecycleState: initialMode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
       updatedAt: new Date().toISOString(),
       version: 1,
-    });
+    };
+    try {
+      return await this.states.create(initialState);
+    } catch (error) {
+      // 并发首次读取时允许另一个请求先完成初始化，随后读取唯一事实源。
+      const createdByOtherRequest = await this.states.get(STATE_ID);
+      if (createdByOtherRequest) {
+        return createdByOtherRequest;
+      }
+      throw error;
+    }
   }
 
   private async updateState(patch: Partial<Omit<TenantModeStateEntity, 'id' | 'version'>>): Promise<TenantModeStateEntity> {
@@ -529,8 +543,25 @@ export class TenantModeService implements TenantModeReader {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
-    await this.states.upsert(next);
+    const updated = await this.states.compareAndSwap(STATE_ID, current.version, next);
+    if (!updated) {
+      throw new AppError('TENANT_MODE_CONFLICT', '多租户模式状态已被其他请求更新，请重试', {
+        expectedVersion: current.version,
+      });
+    }
     return next;
+  }
+
+  private async activateBatch(
+    batch: TenantModeBatchEntity,
+    patch: Partial<Omit<TenantModeStateEntity, 'id' | 'version'>>,
+  ): Promise<TenantModeStateEntity> {
+    try {
+      return await this.updateState(patch);
+    } catch (error) {
+      await this.batches.delete(batch.id);
+      throw error;
+    }
   }
 
   private async createBatch(
@@ -561,10 +592,11 @@ export class TenantModeService implements TenantModeReader {
 
   private async capturePreflightSnapshot(): Promise<TenantModePreflightSnapshot> {
     const capturedAt = new Date().toISOString();
-    const [tenants, memberships, objectSets, roleBindings, accessGrants, legacyOwnershipOffenders, securityDocumentOffenders] = await Promise.all([
+    const [tenants, memberships, objectSets, objectSetMembers, roleBindings, accessGrants, legacyOwnershipOffenders, securityDocumentOffenders] = await Promise.all([
       this.tenantHierarchy.listTenants(),
       this.tenantHierarchy.listMemberships({ at: capturedAt }),
       this.objectPermissions.listObjectSets(),
+      this.objectPermissions.listObjectSetMembers(),
       this.objectPermissions.listRoleBindings(),
       this.objectPermissions.listAccessGrants(),
       this.collectLegacyTenantOwnershipOffenders(),
@@ -605,6 +637,15 @@ export class TenantModeService implements TenantModeReader {
           conditions: item.conditions ?? null,
           updatedAt: item.updatedAt,
         })).sort(compareById),
+        objectSetMembers: objectSetMembers.map((item) => ({
+          id: item.id,
+          objectSetId: item.objectSetId,
+          objectType: item.objectType,
+          objectId: item.objectId,
+          tenantId: item.tenantId ?? null,
+          addedBy: item.addedBy,
+          createdAt: item.createdAt,
+        })).sort(compareById),
         roleBindings: roleBindings.map((item) => ({
           id: item.id,
           tenantId: item.tenantId,
@@ -633,6 +674,7 @@ export class TenantModeService implements TenantModeReader {
       tenantCount: tenants.length,
       membershipCount: memberships.length,
       objectSetCount: objectSets.length,
+      objectSetMemberCount: objectSetMembers.length,
       roleBindingCount: roleBindings.length,
       accessGrantCount: accessGrants.length,
     };
@@ -670,6 +712,7 @@ export class TenantModeService implements TenantModeReader {
       || typeof candidate.tenantCount !== 'number'
       || typeof candidate.membershipCount !== 'number'
       || typeof candidate.objectSetCount !== 'number'
+      || typeof candidate.objectSetMemberCount !== 'number'
       || typeof candidate.roleBindingCount !== 'number'
       || typeof candidate.accessGrantCount !== 'number'
     ) {
