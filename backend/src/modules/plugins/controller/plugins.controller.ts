@@ -13,9 +13,10 @@ import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.regi
 import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
 import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
 import { BuiltinPluginCompatibilityUpgradeService } from '../application/builtin-plugin-compatibility-upgrade.service.js';
+import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface BuiltinPluginCatalogRefresher {
-  refresh(): Promise<{
+  refresh(tenantId?: string): Promise<{
     refreshedAt: string;
     versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
     projection?: {
@@ -39,11 +40,12 @@ export class PluginsController {
     private readonly managedTargetPlugins?: ManagedTargetPluginQueryService,
     private readonly versionSwitcher?: BuiltinPluginCompatibilityUpgradeService,
     private readonly builtinCatalogRefresher?: BuiltinPluginCatalogRefresher,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   register(router: Router): void {
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
-    router.post('/api/v1/plugin-catalog/refresh-builtins', '刷新内置插件注册表', tags, () => this.refreshBuiltinCatalog());
+    router.post('/api/v1/plugin-catalog/refresh-builtins', '刷新内置插件注册表', tags, (request) => this.refreshBuiltinCatalog(request));
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
     router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
     router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
@@ -79,9 +81,21 @@ export class PluginsController {
     return { items, page: 1, pageSize: items.length, total: items.length };
   }
 
-  private refreshBuiltinCatalog() {
+  private async refreshBuiltinCatalog(request: HttpRequest) {
     if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
-    return this.builtinCatalogRefresher.refresh();
+    if (this.tasks && isUnifiedTaskWorkerEnabled()) {
+      const task = await this.tasks.enqueue({
+        tenantId: tenantId(request),
+        taskType: 'PLUGIN_REFERENCE_REFRESH',
+        requestedBy: request.context.actorId ?? 'system',
+        triggerSource: 'plugin.catalog.refresh',
+        idempotencyKey: `plugin-reference-refresh:${tenantId(request)}:${new Date().toISOString().slice(0, 16)}`,
+        payload: { scope: 'builtin-catalog' },
+        resourceRefs: [{ resourceType: 'pluginCatalog', resourceId: 'builtin' }],
+      });
+      return { statusCode: 202, body: { taskId: task.id, status: task.status } };
+    }
+    return this.builtinCatalogRefresher.refresh(tenantId(request));
   }
 
   private async listUnifiedPluginVersions(request: HttpRequest) {
@@ -99,20 +113,38 @@ export class PluginsController {
     return this.unifiedPlugins.getVersionManagementDetail(tenantId(request), decodeURIComponent(pluginVersionId));
   }
 
-  private switchPluginVersion(request: HttpRequest) {
+  private async switchPluginVersion(request: HttpRequest) {
     if (!this.versionSwitcher) throw new Error('插件版本切换服务未接入');
     const body = validateObject(request.body, {
       pluginId: { type: 'string', required: true },
       targetPluginVersionId: { type: 'string', required: true },
       expectedCurrentPluginVersionId: { type: 'string' },
     });
-    return this.versionSwitcher.switchVersion(tenantId(request), {
+    const result = await this.versionSwitcher.switchVersion(tenantId(request), {
       pluginId: String(body.pluginId),
       targetPluginVersionId: String(body.targetPluginVersionId),
       ...(typeof body.expectedCurrentPluginVersionId === 'string'
         ? { expectedCurrentPluginVersionId: body.expectedCurrentPluginVersionId }
         : {}),
     });
+    if (isUnifiedTaskWorkerEnabled()) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: tenantId(request),
+        taskType: 'PLUGIN_REFERENCE_REFRESH',
+        requestedBy: request.context.actorId ?? 'system',
+        triggerSource: 'plugin.version.switch',
+        idempotencyKey: `plugin-reference-refresh:${tenantId(request)}:${result.toPluginVersionId}:${result.switchedAt}`,
+        payload: {
+          pluginId: result.pluginId,
+          targetPluginVersionId: result.toPluginVersionId,
+        },
+        resourceRefs: [{ resourceType: 'pluginVersion', resourceId: result.toPluginVersionId }],
+      });
+    } else {
+      if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
+      await this.builtinCatalogRefresher.refresh(tenantId(request));
+    }
+    return result;
   }
 
   private async importUnifiedPluginVersion(request: HttpRequest) {

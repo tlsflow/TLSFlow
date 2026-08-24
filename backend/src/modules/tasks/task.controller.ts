@@ -40,8 +40,11 @@ export class TasksController {
     const status = query.filter.status as TaskStatus | undefined;
     if (status && !taskStatuses.includes(status)) throw new AppError('VALIDATION_FAILED', '任务状态无效', { field: 'status' });
     const includeAll = readBoolean(request.query.includeAll);
-    const requestedBy = query.filter.requestedBy;
-    if (requestedBy && requestedBy !== subject.id) await this.assertRead(subject, request, 'task.read.all');
+    const canReadAll = await this.canReadAll(subject);
+    const requestedBy = canReadAll ? query.filter.requestedBy : subject.id;
+    if (!canReadAll && query.filter.requestedBy && query.filter.requestedBy !== subject.id) {
+      await this.assertRead(subject, request, 'task.read.all');
+    }
     const page = await this.service.list({
       tenantId: requireTenantId(request),
       category,
@@ -130,6 +133,11 @@ export class TasksController {
       actor: subject,
     });
   }
+
+  private async canReadAll(subject: SecuritySubject): Promise<boolean> {
+    const permissions = await this.security.rbac.permissionsForSubject(subject);
+    return permissions.some((permission) => matchesPermission(permission, 'task.read.all'));
+  }
 }
 
 function readPathId(request: HttpRequest): string {
@@ -145,6 +153,12 @@ function readString(value: string | string[] | undefined): string | undefined {
 
 function readBoolean(value: string | string[] | undefined): boolean {
   return ['true', '1', 'yes'].includes((Array.isArray(value) ? value[0] : value)?.toLowerCase() ?? '');
+}
+
+function matchesPermission(candidate: string, required: string): boolean {
+  return candidate === '*'
+    || candidate === required
+    || (candidate.endsWith('.*') && required.startsWith(candidate.slice(0, -1)));
 }
 
 export function getTaskRouteContracts(): RouteContract[] {

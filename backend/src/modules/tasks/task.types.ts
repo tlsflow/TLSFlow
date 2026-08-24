@@ -185,6 +185,11 @@ export interface MonitoringProbePage {
 
 export interface TaskExecutionResult {
   success: boolean;
+  /**
+   * 中文说明：外部系统尚未完成时保留任务在重试队列，不能伪造成功或消耗完固定失败次数。
+   */
+  defer?: boolean;
+  nextAttemptAt?: string;
   errorCode?: string;
   errorMessage?: string;
   detail?: Record<string, unknown>;

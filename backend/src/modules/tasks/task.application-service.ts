@@ -125,9 +125,10 @@ export class TasksApplicationService {
       await this.repository.finish(task, attempt, workerId, 'SUCCEEDED', { detail: result.detail });
       return this.repository.getById(task.tenantId, task.id) as Promise<TaskRun>;
     }
-    const shouldRetry = attempt.attemptNo < definition.retryPolicy.maxAttempts;
+    const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
     const nextAttemptAt = shouldRetry
-      ? new Date(Date.now() + definition.retryPolicy.backoffSeconds * 1000 * Math.max(1, attempt.attemptNo)).toISOString()
+      ? result.nextAttemptAt
+        ?? new Date(Date.now() + definition.retryPolicy.backoffSeconds * 1000 * Math.max(1, attempt.attemptNo)).toISOString()
       : undefined;
     await this.repository.finish(task, attempt, workerId, shouldRetry ? 'RETRY_WAITING' : 'FAILED', {
       errorCode: result.errorCode,

@@ -120,6 +120,29 @@ test('执行器失败会按注册策略进入重试并最终失败', async () =>
   assert.equal(first?.status, 'RETRY_WAITING');
 });
 
+test('外部异步任务使用 defer 时不会伪造成功或提前进入终态', async () => {
+  const { service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-defer',
+    taskType: 'AGENT_UPDATE',
+    triggerSource: 'test',
+  });
+  const first = await service.runNext(
+    'worker-defer',
+    async () => ({
+      success: false,
+      defer: true,
+      nextAttemptAt: '2099-01-01T00:00:00.000Z',
+      errorCode: 'EXTERNAL_PENDING',
+      errorMessage: '等待外部 Agent 回报',
+    }),
+    task.tenantId,
+  );
+  assert.equal(first?.status, 'RETRY_WAITING');
+  assert.equal(Date.parse(first?.nextAttemptAt ?? ''), Date.parse('2099-01-01T00:00:00.000Z'));
+  assert.equal(first?.finishedAt, undefined);
+});
+
 test('父子任务不能跨租户，详情也不能越过租户边界', async () => {
   const { service } = await createFixture();
   const parent = await service.enqueue({

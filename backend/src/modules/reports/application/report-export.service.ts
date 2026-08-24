@@ -11,6 +11,7 @@ import { newId } from '../../../shared/id.js';
 import type { ReportArtifact, ReportQuery, ReportRun, ReportType } from '../schema/reports.schema.js';
 import { ReportsRepository } from '../repository/reports.repository.js';
 import { ReportsApplicationService } from './reports.application-service.js';
+import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class ReportExportService {
   private readonly queue: QueuePort;
@@ -21,6 +22,7 @@ export class ReportExportService {
     private readonly artifactRoot = resolve(process.cwd(), '../data/report-artifacts'),
     queueDb?: DatabasePort,
     queue?: QueuePort,
+    private readonly tasks?: TaskEnqueuer,
   ) {
     this.queue = queue ?? new PgJobRunner((job) => this.runExportJob(job), queueDb, ['REPORT_EXPORT']);
   }
@@ -33,14 +35,26 @@ export class ReportExportService {
     await this.repository.createReportRun(run);
     const first = await this.reports.items(input.reportType, { ...input.query, page: 1, pageSize: 500 }, input.subject);
     if (first.total > 1000) {
-      await this.queue.enqueue({
-        jobType: 'REPORT_EXPORT',
-        resourceType: 'reportRun',
-        resourceId: run.id,
-        idempotencyKey: `report-export:${run.id}`,
-        payload: { runId: run.id, query: input.query, subject: input.subject, total: first.total },
-        retryPolicy: { maxAttempts: 3, backoffSeconds: 30 },
-      });
+      if (this.tasks && isUnifiedTaskWorkerEnabled()) {
+        enqueueTaskBestEffort(this.tasks, {
+          tenantId: run.tenantId,
+          taskType: 'REPORT_EXPORT',
+          requestedBy: input.subject.id,
+          triggerSource: 'reports.export.create',
+          idempotencyKey: `report-export:${run.id}`,
+          payload: { runId: run.id, query: input.query, subject: input.subject, total: first.total },
+          resourceRefs: [{ resourceType: 'reportRun', resourceId: run.id }],
+        });
+      } else {
+        await this.queue.enqueue({
+          jobType: 'REPORT_EXPORT',
+          resourceType: 'reportRun',
+          resourceId: run.id,
+          idempotencyKey: `report-export:${run.id}`,
+          payload: { runId: run.id, query: input.query, subject: input.subject, total: first.total },
+          retryPolicy: { maxAttempts: 3, backoffSeconds: 30 },
+        });
+      }
       return run;
     }
     try {
@@ -55,6 +69,18 @@ export class ReportExportService {
   list(tenantId: string): Promise<ReportRun[]> { return this.repository.listReportRuns(tenantId); }
   async get(tenantId: string, id: string): Promise<ReportRun> { const run = await this.repository.getReportRun(tenantId, id); if (!run) throw new AppError('RESOURCE_NOT_FOUND', '报表运行不存在', { id }); return run; }
   runNextQueuedJob(): Promise<JobResult | null> { return this.queue.runNext(); }
+
+  async executeTask(payload: Record<string, unknown>): Promise<void> {
+    const parsed = parseExportJobPayload(payload);
+    const run = await this.repository.getReportRun(parsed.query.tenantId, parsed.runId);
+    if (!run) throw new AppError('RESOURCE_NOT_FOUND', '报表运行不存在', { id: parsed.runId });
+    try {
+      await this.generate(run, parsed.query, parsed.subject, parsed.total);
+    } catch (error) {
+      await this.markFailed(run.id, error);
+      throw error;
+    }
+  }
 
   async download(tenantId: string, id: string): Promise<{ run: ReportRun; artifact: ReportArtifact; content: Buffer }> {
     const run = await this.get(tenantId, id);

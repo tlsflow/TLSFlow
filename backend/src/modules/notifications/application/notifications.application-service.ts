@@ -21,6 +21,7 @@ import type { NotificationWorker } from './notification-worker.js';
 import type { ChannelAdapterRegistry } from './channel-adapter-registry.js';
 import { NotificationsDomainService } from '../domain/notifications.domain-service.js';
 import { validatePrivateOrigins } from '../security/platform-webhook-endpoint-policy.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class NotificationsApplicationService implements NotificationPort {
   constructor(
@@ -31,6 +32,7 @@ export class NotificationsApplicationService implements NotificationPort {
     private readonly worker?: NotificationWorker,
     private readonly domain = new NotificationsDomainService(),
     private readonly adapters?: ChannelAdapterRegistry,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   async enqueue(input: EnqueueNotificationInput): Promise<{ requestId: string }> {
@@ -108,6 +110,26 @@ export class NotificationsApplicationService implements NotificationPort {
         renderedBody: rendered.body,
       })),
     });
+    const deliveries = (await this.repository.listDeliveries({
+      tenantId: input.tenantId,
+      requestId: request.id,
+      page: 1,
+      pageSize: 200,
+    })).items;
+    for (const delivery of deliveries) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: delivery.tenantId,
+        taskType: 'NOTIFICATION_DELIVERY',
+        requestedBy: input.source ?? 'system',
+        triggerSource: 'notifications.enqueue',
+        idempotencyKey: `notification-delivery:${delivery.id}`,
+        payload: { deliveryId: delivery.id },
+        resourceRefs: [
+          { resourceType: 'notificationRequest', resourceId: request.id },
+          { resourceType: 'notificationDelivery', resourceId: delivery.id },
+        ],
+      });
+    }
     return { requestId: request.id };
   }
 
@@ -173,7 +195,6 @@ export class NotificationsApplicationService implements NotificationPort {
       sourceRefs: { actorId: input.actorId },
       context: { target: input.target },
     });
-    if (this.worker) await this.worker.runNext();
     return {
       request: await this.repository.getRequest(input.tenantId, result.requestId),
       deliveries: (await this.repository.listDeliveries({ tenantId: input.tenantId, pageSize: 200 })).items.filter((item) => item.requestId === result.requestId),

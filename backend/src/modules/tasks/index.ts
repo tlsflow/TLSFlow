@@ -4,3 +4,5 @@ export * from './task.repository.js';
 export * from './task.application-service.js';
 export * from './task.controller.js';
 export * from './task-enqueue.js';
+export * from './task-worker-supervisor.js';
+export * from './task-worker-adapters.js';

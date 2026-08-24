@@ -29,7 +29,6 @@ import type { AcmeRenewalScheduler } from '../application/acme-renewal-scheduler
 import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import { listAcmeDnsProviders } from '../providers/acme-dns-provider.registry.js';
-import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 const tags = ['Internal CA'];
@@ -187,6 +186,20 @@ export class InternalCaController {
       mode: body.mode, actor: subjectFromRequest(request),
       context: { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subjectFromRequest(request) },
     });
+    for (const run of runs) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: run.tenantId,
+        taskType: 'CA_RECORD_SYNC',
+        requestedBy: run.requestedBy,
+        triggerSource: 'ca.sync.manual',
+        idempotencyKey: `ca-record-sync:${run.id}`,
+        payload: { syncRunId: run.id },
+        resourceRefs: [
+          { resourceType: 'caSyncRun', resourceId: run.id },
+          { resourceType: 'certificateAuthority', resourceId: run.caId },
+        ],
+      });
+    }
     return { statusCode: 201, body: { items: runs } };
   }
 
@@ -464,12 +477,6 @@ export class InternalCaController {
       payload: { renewalJobId: job.id },
       resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }, { resourceType: 'certificateAsset', resourceId: pathId(request) }],
     });
-    void this.requireAcme().worker.runJob(tenant, job.id, actor, request.context).catch((error: unknown) => {
-      structuredLogger.warn('手动 ACME 续签任务唤醒失败', {
-        renewalJobId: job.id,
-        error: error instanceof Error ? error.message : String(error),
-      }, { module: 'acme-renewal-worker' });
-    });
     return {
       statusCode: 202,
       body: job,
@@ -606,7 +613,7 @@ export class InternalCaController {
 
   private async runAcmeRenewalJobs(request: HttpRequest) {
     await this.assertManage(request, 'certificate_renewal');
-    const jobs = await this.requireAcme().worker.runOnce(optionalNumber(objectBody(request), 'limit') ?? 10, actorId(request), request.context);
+    const jobs = await this.requireAcme().scheduler.runOnce(optionalNumber(objectBody(request), 'limit') ?? 10, new Date());
     for (const job of jobs) {
       enqueueTaskBestEffort(this.tasks, {
         tenantId: job.tenantId,
@@ -623,7 +630,17 @@ export class InternalCaController {
 
   private async retryAcmeRenewalJob(request: HttpRequest) {
     await this.assertManage(request, 'certificate_renewal');
-    return this.requireAcme().repository.retryRenewalJob(tenantId(request), pathId(request), new Date().toISOString());
+    const job = await this.requireAcme().repository.retryRenewalJob(tenantId(request), pathId(request), new Date().toISOString());
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: job.tenantId,
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      requestedBy: actorId(request),
+      triggerSource: 'acme.certificate.retry',
+      idempotencyKey: `acme-renewal:${job.id}`,
+      payload: { renewalJobId: job.id },
+      resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
+    });
+    return job;
   }
 
   private async listRevocations(request: HttpRequest) {
@@ -824,8 +841,11 @@ export class InternalCaController {
         requestedBy: actor,
         triggerSource: 'adcs-agent.install-session',
         idempotencyKey: `adcs-agent-install:${provider.id}`,
-        payload: { providerId: provider.id },
-        resourceRefs: [{ resourceType: 'caProvider', resourceId: provider.id }],
+        payload: { providerId: provider.id, enrollmentTokenId: String(result.enrollmentTokenId ?? '') },
+        resourceRefs: [
+          { resourceType: 'caProvider', resourceId: provider.id },
+          ...(result.enrollmentTokenId ? [{ resourceType: 'caNodeEnrollmentToken', resourceId: String(result.enrollmentTokenId) }] : []),
+        ],
       });
     }
     return {
@@ -848,8 +868,11 @@ export class InternalCaController {
       requestedBy: actor,
       triggerSource: 'adcs-agent.update-session',
       idempotencyKey: `adcs-agent-update:${providerId}:${result.expiresAt}`,
-      payload: { providerId },
-      resourceRefs: [{ resourceType: 'caProvider', resourceId: providerId }],
+      payload: { providerId, enrollmentTokenId: String(result.enrollmentTokenId ?? '') },
+      resourceRefs: [
+        { resourceType: 'caProvider', resourceId: providerId },
+        ...(result.enrollmentTokenId ? [{ resourceType: 'caNodeEnrollmentToken', resourceId: String(result.enrollmentTokenId) }] : []),
+      ],
     });
     return {
       statusCode: 201,
@@ -871,10 +894,10 @@ export class InternalCaController {
     );
     enqueueTaskBestEffort(this.tasks, {
       tenantId: tenant,
-      taskType: 'AGENT_CAPABILITY_RESCAN',
+      taskType: 'CA_NODE_TASK',
       requestedBy: actor,
       triggerSource: 'adcs-agent.inspection-task',
-      idempotencyKey: `adcs-inspection:${result.id}`,
+      idempotencyKey: `ca-node-task:${result.id}`,
       payload: { nodeTaskId: result.id, taskType: result.taskType },
       resourceRefs: [{ resourceType: 'caNodeTask', resourceId: result.id }],
     });
