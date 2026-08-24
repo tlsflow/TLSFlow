@@ -42,13 +42,16 @@ export class NodeCurlHttpClient implements CurlHttpClient {
         path: `${url.pathname}${url.search}`,
         method: request.method,
         headers: request.headers,
-        rejectUnauthorized: request.tls?.verify !== false,
-        ca: request.tls?.ca,
-        cert: request.tls?.cert,
-        key: request.tls?.key,
-        servername: request.tls?.servername,
-        ...(request.tls?.servername ? {
-          checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(request.tls?.servername ?? '', cert),
+        ...(useHttps ? {
+          rejectUnauthorized: request.tls?.verify !== false,
+          ca: request.tls?.ca,
+          cert: request.tls?.cert,
+          key: request.tls?.key,
+          servername: request.tls?.servername,
+          // verify=false 必须同时跳过 CA 和主机名校验；保留 servername 只用于 SNI。
+          ...(request.tls?.verify !== false && request.tls?.servername ? {
+            checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(request.tls?.servername ?? '', cert),
+          } : {}),
         } : {}),
       };
       const client = (useHttps ? httpsRequest : httpRequest)(requestOptions, (response) => {

@@ -85,12 +85,61 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
   it('拒绝非法协议、明文敏感字段和重复幂等键', async () => {
     const executor = new CurlExecutor();
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_proto', template: { url: 'file:///etc/passwd' } }), /只允许/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'default_https_only', template: { url: 'http://example.com/health' } }), /白名单/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_secret', template: { url: 'https://example.com', headers: { Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz' } } }), /敏感|Authorization/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_tls', template: { url: 'https://example.com', tls: { verify: false } } }), /TLS/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_var', template: { url: 'https://example.com/{{missing}}' }, dryRun: true }), /变量缺失：missing/);
     await executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com', method: 'POST', body: { ok: true } }, mockResponse: { statusCode: 200 } });
     await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com' } }), /幂等键/);
     assert.deepEqual(executor.getRequiredCapabilities(), ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.form.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session']);
+  });
+
+  it('根据连接快照拼接 HTTP/HTTPS，并且明文请求不携带 TLS 参数', async () => {
+    let captured: CurlHttpClientRequest | undefined;
+    const executor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          captured = request;
+          return { statusCode: 200, body: { ok: true } };
+        },
+      },
+    });
+
+    const httpResult = await executor.execute({
+      idempotencyKey: 'connection_http_protocol',
+      template: {
+        method: 'GET',
+        url: '/health',
+        connection: { host: 'npm.example.test', port: 81, tlsEnabled: false, allowedProtocols: ['http', 'https'] },
+      },
+    });
+    assert.equal(httpResult.success, true);
+    assert.equal(httpResult.rendered.url, 'http://npm.example.test:81/health');
+    assert.equal(httpResult.rendered.tlsVerify, false);
+    assert.equal(captured?.url, 'http://npm.example.test:81/health');
+    assert.equal(captured?.tls === undefined, true);
+
+    const httpsResult = await executor.execute({
+      idempotencyKey: 'connection_https_protocol',
+      template: {
+        method: 'GET',
+        url: '/health',
+        connection: { host: 'npm.example.test', port: 443, tlsEnabled: true, allowedProtocols: ['https'] },
+        tls: { verify: true },
+      },
+    });
+    assert.equal(httpsResult.success, true);
+    assert.equal(httpsResult.rendered.url, 'https://npm.example.test/health');
+    assert.equal(captured?.url, 'https://npm.example.test/health');
+    assert.equal(captured?.tls?.verify, true);
+
+    await assert.rejects(() => executor.execute({
+      idempotencyKey: 'connection_http_protocol_denied',
+      template: {
+        url: '/health',
+        connection: { host: 'npm.example.test', port: 81, tlsEnabled: false, allowedProtocols: ['https'] },
+      },
+    }), /白名单/);
   });
 
   it('Basic 认证使用用户名和通用 password SecretRef 生成 Authorization', async () => {
@@ -266,7 +315,12 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
 
     const timeout = await executor.execute({
       idempotencyKey: 'timeout_network',
-      template: { method: 'GET', url: 'http://127.0.0.1:1/api', timeoutMs: 1 },
+      template: {
+        method: 'GET',
+        url: '/api',
+        timeoutMs: 1,
+        connection: { host: '127.0.0.1', port: 1, tlsEnabled: false, allowedProtocols: ['http'] },
+      },
       retryPolicy: { maxAttempts: 1 },
     });
     assert.equal(timeout.success, false);

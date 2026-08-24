@@ -12,6 +12,7 @@ const fields: StandardPluginFieldDefinition[] = [
   field('authentication.clientCertificateRef', 'certificate_ref', 'plugins.standardFields.clientCertificate', { valueKind: 'RESOURCE_REF' }),
   field('tls.enabled', 'switch', 'plugins.standardFields.tlsEnabled', { defaultValue: true }),
   field('tls.verifyPeer', 'switch', 'plugins.standardFields.tlsVerifyPeer', { defaultValue: true }),
+  field('tls.ignoreCertificateErrors', 'switch', 'plugins.standardFields.tlsIgnoreCertificateErrors', { defaultValue: false }),
   field('tls.serverName', 'text', 'plugins.standardFields.tlsServerName'),
   field('tls.caSecretRef', 'secret_ref', 'plugins.standardFields.caSecret', { sensitive: true, valueKind: 'SECRET_REF' }),
   field('tls.minimumVersion', 'select', 'plugins.standardFields.tlsMinimumVersion', { defaultValue: 'TLSv1.2' }),

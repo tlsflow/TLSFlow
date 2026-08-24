@@ -78,10 +78,10 @@ function isRequiredEditableField(item: DeploymentInputFieldProjectionV1): boolea
 function connectionFields(
   definition: DeploymentInputContractV1['connections'][string],
   binding?: InputBindingsV1['connections'][string],
-  resolved?: { host?: string; port?: number; username?: string; tls?: { verifyPeer?: boolean; serverName?: string }; hostKey?: { expectedFingerprint?: string } },
+  resolved?: { host?: string; port?: number; username?: string; tls?: { enabled?: boolean; verifyPeer?: boolean; serverName?: string }; hostKey?: { expectedFingerprint?: string } },
 ): Record<string, DeploymentInputFieldProjectionV1> {
   const fields: Record<string, DeploymentInputFieldProjectionV1> = {};
-  for (const [slot, field] of Object.entries({ host: definition.host, port: definition.port, username: definition.username, 'tls.verifyPeer': definition.tls?.verifyPeer, 'tls.serverName': definition.tls?.serverName, 'hostKey.expectedFingerprint': definition.hostKey?.expectedFingerprint })) {
+  for (const [slot, field] of Object.entries({ host: definition.host, port: definition.port, username: definition.username, 'tls.enabled': definition.tls?.enabled, 'tls.verifyPeer': definition.tls?.verifyPeer, 'tls.serverName': definition.tls?.serverName, 'hostKey.expectedFingerprint': definition.hostKey?.expectedFingerprint })) {
     if (!field) continue;
     fields[slot] = fieldProjection(slot, field, readConnectionBindingValue(binding, slot), readConnectionBindingValue(resolved, slot));
   }

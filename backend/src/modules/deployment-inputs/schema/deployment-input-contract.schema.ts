@@ -7,6 +7,7 @@ import {
   type DeploymentConfigurationMode,
   type DeploymentConnectionDefinitionV1,
   type DeploymentConnectionFieldV1,
+  type DeploymentHttpProtocol,
   type DeploymentCredentialKind,
   type DeploymentCredentialSlotV1,
   type DeploymentInputContractV1,
@@ -36,9 +37,9 @@ const sourceKeys = {
   step_output: new Set(['kind', 'step', 'output']),
 } satisfies Record<DeploymentVariableSourceV1['kind'], Set<string>>;
 const uiKeys = new Set(['labelKey', 'group', 'order', 'helpKey']);
-const connectionKeys = new Set(['transport', 'host', 'port', 'username', 'credentialSlot', 'tls', 'hostKey', 'descriptionKey', 'ui']);
+const connectionKeys = new Set(['transport', 'allowedProtocols', 'host', 'port', 'username', 'credentialSlot', 'tls', 'hostKey', 'descriptionKey', 'ui']);
 const connectionFieldKeys = new Set(['type', 'required', 'configurationMode', 'source', 'lifecycle', 'bindingPolicy', 'default', 'sensitive', 'descriptionKey', 'ui']);
-const tlsKeys = new Set(['verifyPeer', 'serverName']);
+const tlsKeys = new Set(['enabled', 'verifyPeer', 'serverName']);
 const hostKeyKeys = new Set(['policy', 'expectedFingerprint']);
 const credentialKeys = new Set(['allowedKinds', 'required', 'configurationMode', 'lifecycle', 'descriptionKey', 'ui']);
 const artifactKeys = new Set(['kind', 'required', 'configurationMode', 'lifecycle', 'artifactContract', 'descriptionKey', 'ui']);
@@ -101,6 +102,7 @@ function validateConnectionDefinition(input: unknown, path: string): DeploymentC
   const definition = record(input, path);
   rejectUnknown(definition, connectionKeys, path);
   const transport = enumValue(definition.transport, new Set(['http', 'ssh'] as const), `${path}.transport`);
+  const allowedProtocols = validateAllowedProtocols(definition.allowedProtocols, `${path}.allowedProtocols`);
   const host = validateConnectionField(definition.host, `${path}.host`, 'string');
   const port = validateConnectionField(definition.port, `${path}.port`, 'number');
   const username = definition.username === undefined ? undefined : validateConnectionField(definition.username, `${path}.username`, 'string');
@@ -110,9 +112,11 @@ function validateConnectionDefinition(input: unknown, path: string): DeploymentC
 
   if (transport === 'http' && hostKey !== undefined) throw validationError(`${path}.hostKey 仅适用于 ssh 连接`, { path });
   if (transport === 'ssh' && tls !== undefined) throw validationError(`${path}.tls 仅适用于 http 连接`, { path });
+  if (transport === 'ssh' && definition.allowedProtocols !== undefined) throw validationError(`${path}.allowedProtocols 仅适用于 http 连接`, { path });
 
   return {
     transport,
+    ...(transport === 'http' ? { allowedProtocols } : {}),
     host,
     port,
     username,
@@ -122,6 +126,14 @@ function validateConnectionDefinition(input: unknown, path: string): DeploymentC
     descriptionKey: optionalString(definition.descriptionKey, `${path}.descriptionKey`),
     ui: validateUi(definition.ui, `${path}.ui`),
   };
+}
+
+function validateAllowedProtocols(input: unknown, path: string): DeploymentHttpProtocol[] {
+  if (input === undefined) return ['https'];
+  if (!Array.isArray(input) || input.length === 0) throw validationError(`${path} 必须是非空数组`, { path });
+  const values = input.map((item, index) => enumValue(item, new Set(['http', 'https'] as const), `${path}.${index}`));
+  if (new Set(values).size !== values.length) throw validationError(`${path} 不能包含重复协议`, { path });
+  return values;
 }
 
 function validateConnectionField(input: unknown, path: string, expectedType?: DeploymentConnectionFieldV1['type']): DeploymentConnectionFieldV1 {
@@ -265,6 +277,7 @@ function validateTls(input: unknown, path: string): DeploymentConnectionDefiniti
   const tls = record(input, path);
   rejectUnknown(tls, tlsKeys, path);
   return {
+    enabled: tls.enabled === undefined ? undefined : validateConnectionField(tls.enabled, `${path}.enabled`, 'boolean'),
     verifyPeer: validateConnectionField(tls.verifyPeer, `${path}.verifyPeer`, 'boolean'),
     serverName: tls.serverName === undefined ? undefined : validateConnectionField(tls.serverName, `${path}.serverName`, 'string'),
   };

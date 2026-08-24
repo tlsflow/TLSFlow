@@ -99,7 +99,10 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalFact(resolved.variables.serviceName, serviceName, 'serviceName');
   assertOptionalPath(resolved.variables.programPath, programPath, 'programPath', contract.platform);
   const programSha256 = rawDigest(readString(metadata.programSha256, location.programSha256, location.programPath && readString(metadata.programDigest)), 'programSha256');
-  const workingDirectory = requiredPath(readString(metadata.workingDirectory, metadata.programWorkingDirectory), 'workingDirectory');
+  const workingDirectory = requiredPath(
+    readString(metadata.workingDirectory, metadata.programWorkingDirectory, location.workingDirectory),
+    'workingDirectory',
+  );
   const configCheckArgs = stringArray(metadata.configCheckArgs ?? metadata.testArgs, 'configCheckArgs');
   const configCheckArgsTemplate = stringArray(metadata.configCheckArgsTemplate ?? configCheckArgs, 'configCheckArgsTemplate');
   if (configCheckArgs.length !== configCheckArgsTemplate.length) fail('PROGRAM', '配置检查参数模板长度不一致');
@@ -157,13 +160,25 @@ export function assertCertificateUpdatePlanBinding(
   let hasArtifact = false;
   let hasService = false;
   let hasProgram = false;
+  let hasProgramDigest = false;
+  let hasWorkingDirectory = false;
   for (const operation of plan.operations) {
     const input = operation.input;
     if (typeof input.path === 'string') planPaths.add(normalizePath(input.path, snapshot.platform));
     if (input.configFingerprint === snapshot.configFingerprint || input.expectedConfigFingerprint === snapshot.configFingerprint) hasFingerprint = true;
     if (input.artifactDigest === snapshot.artifactDigest) hasArtifact = true;
     if (input.serviceName === snapshot.serviceName) hasService = true;
-    if (input.executablePath === snapshot.programPath) hasProgram = true;
+    if (operation.operationType === 'command.execute_allowlisted') {
+      if (typeof input.executablePath === 'string' && normalizePath(input.executablePath, snapshot.platform) === normalizePath(snapshot.programPath, snapshot.platform)) {
+        hasProgram = true;
+      }
+      if (typeof input.executableSha256 === 'string' && normalizeDigest(input.executableSha256) === snapshot.programSha256) {
+        hasProgramDigest = true;
+      }
+      if (typeof input.workingDirectory === 'string' && normalizePath(input.workingDirectory, snapshot.platform) === normalizePath(snapshot.workingDirectory, snapshot.platform)) {
+        hasWorkingDirectory = true;
+      }
+    }
     if (input.path && typeof input.path !== 'string') fail('PLAN', '原子计划路径必须是已解析的事实路径');
   }
   for (const path of planPaths) if (!paths.has(path)) fail('PLAN_PATH', '计划包含不在输入快照中的路径');
@@ -171,8 +186,8 @@ export function assertCertificateUpdatePlanBinding(
   if (!planPaths.size || !hasFingerprint || !hasArtifact || !hasService) {
     fail('PLAN_BINDING', '计划未绑定路径、配置指纹、Artifact 和服务事实');
   }
-  if (plan.capability !== 'certificate.verify' && (!hasProgram || !hasLedger)) {
-    fail('PLAN_BINDING', '变更计划未绑定程序事实或执行恢复账本');
+  if (plan.capability !== 'certificate.verify' && (!hasProgram || !hasProgramDigest || !hasWorkingDirectory || !hasLedger)) {
+    fail('PLAN_BINDING', '变更计划未绑定程序路径、程序摘要、工作目录或执行恢复账本');
   }
 }
 
@@ -203,7 +218,11 @@ function resolveArtifactDigest(
   keystoreType?: CertificateUpdateResolvedSnapshotV1['keystoreType'],
 ): string {
   const resourceName = resolved.assetContext.deployment.certificateResourceName;
-  const artifact = resourceName ? resolved.artifacts[resourceName] : undefined;
+  // 六个证书更新合同都把证书材料固定在 certificateArtifact 槽位；
+  // certificateResourceName 是通用工作流的历史资源名，不能覆盖合同槽位。
+  // 保留资源名回退以兼容旧版已密封的通用部署输入。
+  const artifact = resolved.artifacts.certificateArtifact
+    ?? (resourceName ? resolved.artifacts[resourceName] : undefined);
   if (!artifact) fail('ARTIFACT', '统一部署输入缺少证书 Artifact');
   if (!artifact.outputs || typeof artifact.outputs !== 'object' || Array.isArray(artifact.outputs)) fail('ARTIFACT', '证书 Artifact outputs 格式无效');
   const value = readString(artifact.artifactSha256, artifact.sha256, artifact.outputs.artifactSha256, artifact.outputs.sha256);
@@ -368,6 +387,10 @@ const pathCaseNormalizers: Readonly<Record<'linux' | 'windows', (value: string) 
 function normalizePath(value: string, platform: 'linux' | 'windows' = 'windows'): string {
   const normalized = value.replaceAll('\\', '/').replace(/\/+/g, '/').replace(/\/\.\//g, '/');
   return pathCaseNormalizers[platform](normalized);
+}
+
+function normalizeDigest(value: string): string {
+  return value.trim().replace(/^sha256:/i, '').toLowerCase();
 }
 
 function fail(category: string, message: string): never {

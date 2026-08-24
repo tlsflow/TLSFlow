@@ -113,6 +113,34 @@ describe('spec017 CURL 真实传输闭环', () => {
     }
   });
 
+  it('TLS 关闭校验时即使 SNI 与证书主机名不匹配也允许连接', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const client = new NodeCurlHttpClient();
+      const result = await client.send({
+        url: `https://127.0.0.1:${port}/health`,
+        method: 'GET',
+        headers: {},
+        timeoutMs: 3000,
+        tls: { verify: false, servername: '127.0.0.1' },
+      });
+
+      assert.equal(result.statusCode, 200);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('真实 HTTPS 传输支持自定义 CA、mTLS 和 SNI', async () => {
     let peerAuthorized = false;
     const server = createHttpsServer({

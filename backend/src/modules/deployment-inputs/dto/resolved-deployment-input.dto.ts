@@ -1,5 +1,5 @@
 import type { DeploymentAssetContextV1 } from './deployment-asset-context.dto.js';
-import type { DeploymentInputContractV1 } from './deployment-input-contract.dto.js';
+import type { DeploymentHttpProtocol, DeploymentInputContractV1 } from './deployment-input-contract.dto.js';
 import type { InputBindingsV1 } from './input-bindings.dto.js';
 import type { CredentialDelivery, CredentialKind } from '../../../persistence/entities/credential-profile.entity.js';
 import type { EffectiveInputBindingV1, InputValueProvenanceV1 } from '../domain/deployment-input-provenance.js';
@@ -24,11 +24,14 @@ export interface ResolvedArtifactV1 {
 
 export interface ResolvedConnectionV1 {
   transport: 'http' | 'ssh';
+  /** 来自连接契约的协议白名单，供工作流适配器和 CURL 执行器共同校验。 */
+  allowedProtocols?: DeploymentHttpProtocol[];
   host?: string;
   port?: number;
   username?: string;
   credentialSlot?: string;
   tls?: {
+    enabled?: boolean;
     verifyPeer?: boolean;
     serverName?: string;
   };

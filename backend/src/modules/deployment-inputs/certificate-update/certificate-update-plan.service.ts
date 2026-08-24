@@ -67,7 +67,9 @@ export function compileCertificateUpdatePlanTemplate(input: {
     actions: operationTypes,
     allowedPaths: [...new Set([...input.snapshot.paths, input.snapshot.sourceConfigPath, input.snapshot.programPath, input.snapshot.workingDirectory])],
     allowedServices: [input.snapshot.serviceName],
-    artifactDigests: [input.snapshot.artifactDigest],
+    // 证书材料和配置检查程序都是 Agent 实际执行的不可变输入，两个摘要都必须进入
+    // 同一份授权范围；否则输入门禁虽然能生成计划，Agent 仍会拒绝真实程序。
+    artifactDigests: [...new Set([input.snapshot.artifactDigest, input.snapshot.programSha256])],
     ...(template.authorization?.approvalRef ? { approvalRef: template.authorization.approvalRef } : {}),
     lifetimeSeconds: template.authorization?.lifetimeSeconds ?? 300,
   };

@@ -871,6 +871,7 @@ function renderDeferredForeachStep(
 function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode'], output?: WorkflowMockStepOutput): unknown {
   if (step.type === 'http') {
     const httpConnection = resolveHttpConnection(step.request.connectionRef, context);
+    const renderedUrl = renderString(step.request.url, context.values, mode === 'render_only');
     const renderedHeaders = renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only') as Record<string, string>;
     const promotedHeaders = promoteSecretHeaders(renderedHeaders, step.request.headerRefs);
     const curlRequest = {
@@ -878,7 +879,13 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       dryRun: mode !== 'real_test',
       template: {
         method: step.request.method,
-        url: renderString(step.request.url, context.values, mode === 'render_only'),
+        url: renderedUrl,
+        connection: {
+          host: httpConnection.host,
+          port: httpConnection.port,
+          tlsEnabled: httpConnection.tls?.enabled !== false,
+          allowedProtocols: [...(httpConnection.allowedProtocols ?? ['https'])],
+        },
         query: renderUnknown(step.request.query, context.values, mode === 'render_only'),
         headers: promotedHeaders.headers,
         headerRefs: renderUnknown(promotedHeaders.headerRefs, context.values, mode === 'render_only'),
@@ -888,7 +895,10 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         formSecretRefs: adaptFormCredentialRefs(step.request.formCredentialRefs, context.values, mode === 'render_only'),
         multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
         auth: adaptHttpAuth(step.request.auth, context.values, mode === 'render_only'),
-        tls: adaptHttpTls(step.request.tls ?? (httpConnection?.tls ? { verify: httpConnection.tls.verifyPeer, sni: httpConnection.tls.serverName } : undefined), context.values, mode === 'render_only'),
+        // 明文 HTTP 不得携带 TLS 配置；HTTPS 才使用连接快照或 Step 显式声明的 TLS 策略。
+        tls: httpConnection.tls?.enabled !== false
+          ? adaptHttpTls(step.request.tls ?? (httpConnection.tls ? { verify: httpConnection.tls.verifyPeer, sni: httpConnection.tls.serverName } : undefined), context.values, mode === 'render_only')
+          : undefined,
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
         maxResponseBytes: step.request.maxResponseBytes,
       },

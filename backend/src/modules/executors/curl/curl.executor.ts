@@ -18,6 +18,13 @@ export interface HttpSecretValue {
 
 export interface HttpRequestTemplate {
   url: string;
+  /** 由 Workflow Adapter 从 ResolvedConnectionV1 注入，DSL 本身不能伪造该连接事实。 */
+  connection?: {
+    host: string;
+    port: number;
+    tlsEnabled: boolean;
+    allowedProtocols: Array<'http' | 'https'>;
+  };
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   query?: Record<string, Primitive>;
   headers?: Record<string, string>;
@@ -295,10 +302,21 @@ export class CurlExecutor implements Executor {
 
 function validateRequest(request: CurlExecutionRequest, allowUnresolvedVariables = false): void {
   if (!request.idempotencyKey) throw new AppError('VALIDATION_FAILED', 'idempotencyKey 必填');
-  const url = new URL(renderTemplate(request.template.url, request.variables ?? {}, false, allowUnresolvedVariables));
+  const url = resolveRequestUrl(request.template, request.variables ?? {}, allowUnresolvedVariables);
   if (!['https:', 'http:'].includes(url.protocol)) throw new AppError('VALIDATION_FAILED', '只允许 http/https URL', { url: request.template.url });
-  if (url.protocol === 'http:' && !isLocalhost(url.hostname)) {
-    throw new AppError('VALIDATION_FAILED', '非本地 HTTP 明文 URL 被拒绝', { url: request.template.url });
+  const allowedProtocols = request.template.connection?.allowedProtocols ?? ['https'];
+  if (allowedProtocols.length === 0 || allowedProtocols.some((protocol) => protocol !== 'http' && protocol !== 'https')) {
+    throw new AppError('VALIDATION_FAILED', 'allowedProtocols 必须是非空的 http/https 协议白名单', { allowedProtocols });
+  }
+  if (!allowedProtocols.includes(url.protocol.slice(0, -1) as 'http' | 'https')) {
+    throw new AppError('VALIDATION_FAILED', 'HTTP URL 协议不在连接契约白名单中', {
+      url: request.template.url,
+      protocol: url.protocol.slice(0, -1),
+      allowedProtocols,
+    });
+  }
+  if (url.protocol === 'http:' && request.template.tls !== undefined) {
+    throw new AppError('VALIDATION_FAILED', 'HTTP 明文请求不得携带 TLS 配置', { url: request.template.url });
   }
   scanSecretLike(request.template.headers ?? {}, ['headers']);
   scanSecretLike(request.template.body, ['body']);
@@ -380,7 +398,7 @@ function validateAuth(auth: HttpAuthConfig | undefined): void {
 
 function renderRequestPreview(request: CurlExecutionRequest): CurlExecutionResult['rendered'] {
   const variables = request.variables ?? {};
-  const url = new URL(renderTemplate(request.template.url, variables));
+  const url = resolveRequestUrl(request.template, variables);
   for (const [key, value] of Object.entries(request.template.query ?? {})) url.searchParams.set(key, renderTemplate(String(value), variables));
   const bodyType: 'json' | 'form' | 'multipart' | 'raw' | 'none' = request.template.bodyType ?? inferBodyType(request.template);
   const headerNames = new Set<string>([
@@ -398,7 +416,7 @@ function renderRequestPreview(request: CurlExecutionRequest): CurlExecutionResul
     hasBody: bodyType !== 'none',
     bodyType,
     timeoutMs: request.template.timeoutMs ?? defaultTimeoutMs,
-    tlsVerify: request.template.tls?.verify !== false,
+    tlsVerify: url.protocol === 'https:' && request.template.tls?.verify !== false,
   };
 }
 
@@ -410,7 +428,7 @@ async function prepareRequest(
   const variables = request.variables ?? {};
   const secrets = request.secrets ?? {};
   const redactionValues: string[] = [];
-  const url = new URL(renderTemplate(request.template.url, variables));
+  const url = resolveRequestUrl(request.template, variables);
   for (const [key, value] of Object.entries(request.template.query ?? {})) url.searchParams.set(key, renderTemplate(String(value), variables));
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(request.template.headers ?? {})) headers[key] = renderTemplate(value, variables);
@@ -424,8 +442,9 @@ async function prepareRequest(
   const bodyType: 'json' | 'form' | 'multipart' | 'raw' | 'none' = request.template.bodyType ?? inferBodyType(request.template);
   const body = await buildBody(request.template, bodyType, variables, secrets, headers, redactionValues, resolver, context);
   const timeoutMs = request.template.timeoutMs ?? defaultTimeoutMs;
-  const tlsVerify = request.template.tls?.verify !== false;
-  const tls = await resolveTlsOptions(request.template, secrets, resolver, context, redactionValues);
+  const usesTls = url.protocol === 'https:';
+  const tlsVerify = usesTls && request.template.tls?.verify !== false;
+  const tls = usesTls ? await resolveTlsOptions(request.template, secrets, resolver, context, redactionValues) : undefined;
   if (body && headers['Content-Length'] === undefined) headers['Content-Length'] = String(body.byteLength);
   const rendered = {
     method: request.template.method ?? 'GET',
@@ -472,6 +491,32 @@ async function resolveTlsOptions(
   if (cert) redactionValues.push(cert);
   if (key) redactionValues.push(key);
   return { ca, cert, key, servername: template.tls?.sni };
+}
+
+function resolveRequestUrl(
+  template: HttpRequestTemplate,
+  variables: Record<string, Primitive>,
+  allowUnresolvedVariables = false,
+): URL {
+  const rendered = renderTemplate(template.url, variables, false, allowUnresolvedVariables);
+  const connection = template.connection;
+  try {
+    const absolute = new URL(rendered);
+    if (connection && absolute.hostname === connection.host && normalizePort(absolute) === connection.port) {
+      absolute.protocol = connection.tlsEnabled ? 'https:' : 'http:';
+    }
+    return absolute;
+  } catch {
+    if (!connection) throw new AppError('VALIDATION_FAILED', 'HTTP 请求 URL 必须是完整 URL，或由连接快照提供路径和主机', { url: template.url });
+    const path = rendered.startsWith('/') ? rendered : `/${rendered}`;
+    const protocol = connection.tlsEnabled ? 'https' : 'http';
+    return new URL(`${protocol}://${connection.host}:${connection.port}${path}`);
+  }
+}
+
+function normalizePort(url: URL): number {
+  if (url.port) return Number(url.port);
+  return url.protocol === 'https:' ? 443 : 80;
 }
 
 async function applyAuth(
@@ -595,13 +640,15 @@ async function sendHttpRequest(prepared: PreparedRequest, httpClient: CurlHttpCl
       headers: prepared.headers,
       body: prepared.body,
       timeoutMs: prepared.timeoutMs,
-      tls: {
-        verify: prepared.tlsVerify,
-        ca: prepared.tls?.ca,
-        cert: prepared.tls?.cert,
-        key: prepared.tls?.key,
-        servername: prepared.tls?.servername,
-      },
+      ...(prepared.tls ? {
+        tls: {
+          verify: prepared.tlsVerify,
+          ca: prepared.tls.ca,
+          cert: prepared.tls.cert,
+          key: prepared.tls.key,
+          servername: prepared.tls.servername,
+        },
+      } : {}),
     });
     const normalized = normalizeResponse(response);
     return { response: normalized, retryable: shouldRetryStatus(normalized.statusCode, normalizeRetryPolicy(undefined, prepared.method)) };
@@ -902,10 +949,6 @@ function asPrimitiveRecord(value: unknown): Record<string, Primitive> {
 
 function isSecretRef(value: string): boolean {
   return /^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value);
-}
-
-function isLocalhost(hostname: string): boolean {
-  return ['localhost', '127.0.0.1', '::1'].includes(hostname);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

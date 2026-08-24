@@ -153,7 +153,11 @@ export class UnifiedDeploymentInputResolver {
   ): ResolvedConnectionV1 | undefined {
     const execution = request.executionOverrides?.connections[name];
     const binding = request.effectiveBinding.inputBindings.connections[name];
-    const connection: ResolvedConnectionV1 = { transport: definition.transport, credentialSlot: definition.credentialSlot };
+    const connection: ResolvedConnectionV1 = {
+      transport: definition.transport,
+      ...(definition.transport === 'http' ? { allowedProtocols: [...(definition.allowedProtocols ?? ['https'])] } : {}),
+      credentialSlot: definition.credentialSlot,
+    };
     const host = this.resolveConnectionField(request, name, 'host', definition.host, execution?.host, binding?.host, provenance, issues);
     const port = this.resolveConnectionField(request, name, 'port', definition.port, execution?.port, binding?.port, provenance, issues);
     const username = definition.username
@@ -170,11 +174,14 @@ export class UnifiedDeploymentInputResolver {
     }
 
     if (definition.tls) {
+      const enabled = definition.tls.enabled
+        ? this.resolveConnectionField(request, name, 'tls.enabled', definition.tls.enabled, execution?.tls?.enabled, binding?.tls?.enabled, provenance, issues)
+        : true;
       const verifyPeer = this.resolveConnectionField(request, name, 'tls.verifyPeer', definition.tls.verifyPeer, execution?.tls?.verifyPeer, binding?.tls?.verifyPeer, provenance, issues);
       const serverName = definition.tls.serverName
         ? this.resolveConnectionField(request, name, 'tls.serverName', definition.tls.serverName, execution?.tls?.serverName, binding?.tls?.serverName, provenance, issues)
         : undefined;
-      connection.tls = { verifyPeer: verifyPeer as boolean | undefined, serverName: serverName as string | undefined };
+      connection.tls = { enabled: enabled as boolean, verifyPeer: verifyPeer as boolean | undefined, serverName: serverName as string | undefined };
     }
     if (definition.hostKey) {
       const expectedFingerprint = definition.hostKey.expectedFingerprint

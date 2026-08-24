@@ -165,6 +165,8 @@ describe('UnifiedDeploymentInputResolver', () => {
   it('configure/preflight 延迟运行时值，execute 注入 system 和 step_output', () => {
     const configure = resolver.resolve({ ...requestFixture(), phase: 'configure' });
     const preflight = resolver.resolve({ ...requestFixture(), phase: 'preflight' });
+    const configureWithoutArtifact = resolver.resolve({ ...requestFixture(), phase: 'configure', artifactSnapshots: undefined });
+    const preflightWithoutArtifact = resolver.resolve({ ...requestFixture(), phase: 'preflight', artifactSnapshots: undefined });
     const execute = resolver.resolve({
       ...requestFixture(),
       phase: 'execute',
@@ -174,6 +176,12 @@ describe('UnifiedDeploymentInputResolver', () => {
 
     assert.equal(configure.provenance['variables.systemToken']?.deferred, true);
     assert.equal(preflight.provenance['variables.stepResult']?.deferred, true);
+    assert.equal(Object.keys(configure.artifacts).length, 1);
+    assert.equal(Object.keys(preflight.artifacts).length, 1);
+    assert.equal(preflight.artifacts.certificate?.artifactId, 'artifact-1');
+    assert.equal(Object.keys(configureWithoutArtifact.artifacts).length, 0);
+    assert.equal(configureWithoutArtifact.issues.some((item) => item.code === 'DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED'), false);
+    assert.equal(preflightWithoutArtifact.issues.some((item) => item.code === 'DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED'), true);
     assert.equal(execute.variables.systemToken, 'system-token');
     assert.deepEqual(execute.variables.stepResult, { success: true });
     assert.equal(execute.executable, true);

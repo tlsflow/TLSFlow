@@ -90,6 +90,7 @@ export function createResolvedCertificateUpdateInput(
     sourceConfigPath: path(`${productPath}/conf/server.conf`),
     serviceName: `${productPath}-confirmed`,
     programPath: path(`${productPath}/${fixtureProgramNames[frameworkType]}`),
+    workingDirectory: root,
     configFingerprint,
     confidence: overrides.confidence ?? 'EXACT',
     observedAt: '2026-08-19T04:00:00.000Z',

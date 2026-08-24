@@ -260,6 +260,7 @@ function connectionField(definition: DeploymentInputContractV1['connections'][st
   if (path === 'host') return definition.host;
   if (path === 'port') return definition.port;
   if (path === 'username') return definition.username;
+  if (path === 'tls.enabled') return definition.tls?.enabled;
   if (path === 'tls.verifyPeer') return definition.tls?.verifyPeer;
   if (path === 'tls.serverName') return definition.tls?.serverName;
   if (path === 'hostKey.expectedFingerprint') return definition.hostKey?.expectedFingerprint;

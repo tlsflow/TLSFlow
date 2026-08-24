@@ -511,19 +511,28 @@ function mapPluginDeviceForm(
     throw new AppError('VALIDATION_FAILED', 'Managed 设备接入契约必须声明唯一连接槽', { connectionSlots: connectionEntries.map(([slot]) => slot) });
   }
   const [connectionSlot, connectionDefinition] = connectionEntries[0]!;
+  const tlsEnabled = standardValues.get('tls.enabled') !== false;
+  const ignoreCertificateErrors = standardValues.has('tls.ignoreCertificateErrors')
+    ? standardValues.get('tls.ignoreCertificateErrors') === true
+    : standardValues.get('tls.verifyPeer') === false;
+  // 明文 HTTP 不进行证书校验；只有 HTTPS 才把“忽略证书错误”映射为 verifyPeer=false。
+  const tlsVerify = tlsEnabled ? !ignoreCertificateErrors : true;
   const connection: {
     host?: string;
     port?: number;
-    tls?: { verifyPeer?: boolean; serverName?: string };
+    tls?: { enabled?: boolean; verifyPeer?: boolean; serverName?: string };
   } = {};
   if (connectionDefinition.host.bindingPolicy !== 'fixed') connection.host = address;
   if (connectionDefinition.port.bindingPolicy !== 'fixed') connection.port = port;
   if (connectionDefinition.tls) {
     connection.tls = {};
-    if (connectionDefinition.tls.verifyPeer.bindingPolicy !== 'fixed') connection.tls.verifyPeer = standardValues.get('tls.verifyPeer') !== false;
+    if (connectionDefinition.tls.enabled && connectionDefinition.tls.enabled.bindingPolicy !== 'fixed') connection.tls.enabled = tlsEnabled;
+    if (connectionDefinition.tls.verifyPeer.bindingPolicy !== 'fixed') connection.tls.verifyPeer = tlsVerify;
     const serverName = optionalString(standardValues.get('tls.serverName'));
     if (serverName && connectionDefinition.tls.serverName?.bindingPolicy !== 'fixed') connection.tls.serverName = serverName;
   }
+  // TLS 例外授权是普通 Binding 输入，但只在 HTTPS 且关闭证书校验时成立。
+  if (contract.variables.allowInsecureTls) variables.allowInsecureTls = tlsEnabled && ignoreCertificateErrors;
   const credentials: Record<string, { credentialId: string }> = {};
   const credentialId = optionalString(standardValues.get('authentication.credentialId'));
   const credentialSlot = connectionDefinition.credentialSlot
@@ -534,7 +543,7 @@ function mapPluginDeviceForm(
     address,
     port,
     authMode: String(standardValues.get('authentication.mode') ?? 'PLUGIN'),
-    tlsVerify: standardValues.get('tls.verifyPeer') !== false,
+    tlsVerify,
     gatewayId: optionalString(standardValues.get('connection.gatewayId')),
     caSecretRef: optionalString(standardValues.get('tls.caSecretRef')),
     connections: { [connectionSlot]: connection },

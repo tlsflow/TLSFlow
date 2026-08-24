@@ -6,6 +6,7 @@ export type DeploymentInputLifecycle = 'pre_execution' | 'runtime_injected' | 's
 export type DeploymentBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
 export type DeploymentCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'BROWSER_SESSION';
 export type DeploymentConnectionTransport = 'http' | 'ssh';
+export type DeploymentHttpProtocol = 'http' | 'https';
 export type DeploymentArtifactKind = 'certificate' | 'file';
 
 export type DeploymentVariableSourceV1 =
@@ -55,11 +56,14 @@ export interface DeploymentConnectionFieldV1 {
 
 export interface DeploymentConnectionDefinitionV1 {
   transport: DeploymentConnectionTransport;
+  /** HTTP Connection 允许工作流 URL 使用的协议；未声明时由 Schema 归一化为 https。 */
+  allowedProtocols?: DeploymentHttpProtocol[];
   host: DeploymentConnectionFieldV1;
   port: DeploymentConnectionFieldV1;
   username?: DeploymentConnectionFieldV1;
   credentialSlot?: string;
   tls?: {
+    enabled?: DeploymentConnectionFieldV1;
     verifyPeer: DeploymentConnectionFieldV1;
     serverName?: DeploymentConnectionFieldV1;
   };

@@ -32,6 +32,20 @@ test('六个插件都能从同一类 Agent 事实生成不可变快照', () => {
   }
 });
 
+test('六个平台合同优先读取固定 certificateArtifact 槽位，不受通用资源名影响', () => {
+  for (const pluginId of certificateUpdatePluginIds) {
+    const resolved = createResolvedCertificateUpdateInput(pluginId);
+    resolved.assetContext.deployment.certificateResourceName = `certificate-${pluginId}`;
+
+    const snapshot = resolveCertificateUpdateSnapshot(
+      resolved,
+      loadCertificateUpdateContract(pluginId),
+    );
+
+    assert.equal(snapshot.artifactDigest, 'c'.repeat(64));
+  }
+});
+
 test('PEM 文件集合和 Tomcat KeyStore 的路径边界不同且不丢失', () => {
   const pem = resolveCertificateUpdateSnapshot(
     createResolvedCertificateUpdateInput('web.nginx.linux'),
@@ -105,6 +119,39 @@ test('programSha256 不是 64 位十六进制摘要时拒绝输入', () => {
     () => resolveCertificateUpdateSnapshot(resolved, loadCertificateUpdateContract('web.apache.windows')),
     /programSha256 必须是 SHA-256 摘要/,
   );
+});
+
+test('workingDirectory 可从证书位置事实读取并必须保持绝对路径', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+  delete resolved.assetContext.target!.metadata.workingDirectory;
+  resolved.assetContext.target!.certificateLocation!.workingDirectory = 'C:/GCAC-Lab/Apache24';
+
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('web.apache.windows'),
+  );
+
+  assert.equal(snapshot.workingDirectory, 'C:/GCAC-Lab/Apache24');
+
+  resolved.assetContext.target!.certificateLocation!.workingDirectory = 'Apache24';
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(resolved, loadCertificateUpdateContract('web.apache.windows')),
+    /workingDirectory 必须是绝对路径/,
+  );
+});
+
+test('Apache、Nginx 和 Tomcat 的 Linux/Windows 合同统一读取证书位置工作目录', () => {
+  for (const pluginId of certificateUpdatePluginIds) {
+    const resolved = createResolvedCertificateUpdateInput(pluginId);
+    delete resolved.assetContext.target!.metadata.workingDirectory;
+
+    const snapshot = resolveCertificateUpdateSnapshot(
+      resolved,
+      loadCertificateUpdateContract(pluginId),
+    );
+
+    assert.equal(snapshot.workingDirectory, resolved.assetContext.target!.certificateLocation!.workingDirectory);
+  }
 });
 
 test('Tomcat JKS 只接受 JKS 整体 Artifact，并固定 password SecretRef', () => {
@@ -213,7 +260,7 @@ test('路径越权、脚本程序、Shell 参数和 KeyStore SecretRef 缺失均
   );
 });
 
-test('计划绑定只接受快照路径、指纹、Artifact、服务和程序事实', () => {
+test('计划绑定只接受快照路径、指纹、Artifact、服务和配置检查程序事实', () => {
   const contract = loadCertificateUpdateContract('web.apache.windows');
   const snapshot = resolveCertificateUpdateSnapshot(
     createResolvedCertificateUpdateInput('web.apache.windows'),
@@ -224,10 +271,32 @@ test('计划绑定只接受快照路径、指纹、Artifact、服务和程序事
     capability: 'certificate.deploy',
     operations: [
       { operationType: 'filesystem.atomic_replace', input: { path: snapshot.paths[0], configFingerprint: snapshot.configFingerprint, artifactDigest: snapshot.artifactDigest, ledgerRef: 'execution-recovery-ledger' } },
-      { operationType: 'service.reload', input: { serviceName: snapshot.serviceName, executablePath: snapshot.programPath } },
+      {
+        operationType: 'command.execute_allowlisted',
+        input: {
+          executablePath: snapshot.programPath,
+          executableSha256: snapshot.programSha256,
+          args: snapshot.configCheckArgs,
+          argumentTemplate: snapshot.configCheckArgsTemplate,
+          workingDirectory: snapshot.workingDirectory,
+        },
+      },
+      {
+        operationType: 'service.reload',
+        input: { serviceName: snapshot.serviceName },
+      },
     ],
   };
   assert.doesNotThrow(() => assertCertificateUpdatePlanBinding(plan, snapshot));
+  assert.throws(
+    () => assertCertificateUpdatePlanBinding({
+      ...plan,
+      operations: plan.operations.map((operation) => operation.operationType === 'command.execute_allowlisted'
+        ? { ...operation, input: { ...operation.input, workingDirectory: 'relative/runtime' } }
+        : operation),
+    }, snapshot),
+    /程序路径、程序摘要、工作目录/,
+  );
   assert.throws(
     () => assertCertificateUpdatePlanBinding({
       ...plan,

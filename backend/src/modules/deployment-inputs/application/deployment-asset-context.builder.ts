@@ -46,7 +46,7 @@ export class DeploymentAssetContextBuilder {
     const managedTarget = topology?.managedTarget;
     const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
     const targetMetadata = managedTargetMetadata
-      ? mergeFrameworkTypeFact(managedTargetMetadata, topology?.frameworkType)
+      ? mergeFrameworkTypeFact(mergeManagedTargetListenerFacts(managedTargetMetadata), topology?.frameworkType)
       : undefined;
     const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
     const certificateLocation = targetMetadata
@@ -205,6 +205,32 @@ function mergeFrameworkRuntimeFacts(
     };
   }
   return { ...rawFacts, ...metadata };
+}
+
+/**
+ * 标准发现投影会把监听器原始事实保存在 metadata.listener 中。
+ * 证书输入合同消费的是统一 Target metadata，因此只提升标准运行事实，
+ * 不把厂商字段或监听器对象整体复制到合同上下文。
+ */
+function mergeManagedTargetListenerFacts(metadata: Record<string, unknown>): Record<string, unknown> {
+  const listener = asRecord(metadata.listener);
+  if (!listener) return { ...metadata };
+  const runtimeFactKeys = [
+    'serviceName',
+    'programPath',
+    'programSha256',
+    'programDigest',
+    'workingDirectory',
+    'programWorkingDirectory',
+    'configCheckArgs',
+    'configCheckArgsTemplate',
+    'testArgs',
+    'configFingerprint',
+  ] as const;
+  const promoted = Object.fromEntries(runtimeFactKeys.flatMap((key) => (
+    metadata[key] === undefined && listener[key] !== undefined ? [[key, listener[key]]] : []
+  )));
+  return { ...metadata, ...promoted };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

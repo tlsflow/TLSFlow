@@ -21,6 +21,7 @@ export interface CertificateLocationV1 {
   serviceName?: string;
   programPath?: string;
   programSha256?: string;
+  workingDirectory?: string;
   testCommand?: string;
   reloadCommand?: string;
   configFingerprint?: string;
@@ -56,6 +57,7 @@ export function readCertificateLocation(metadata: Record<string, unknown>, obser
     serviceName: readString(metadata.serviceName),
     programPath: readString(metadata.programPath, metadata.binaryPath),
     programSha256: readString(metadata.programSha256),
+    workingDirectory: readString(metadata.workingDirectory, metadata.programWorkingDirectory),
     testCommand: readString(metadata.testCommand),
     reloadCommand: readString(metadata.reloadCommand),
     configFingerprint: readString(metadata.configFingerprint),
@@ -89,6 +91,7 @@ function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFall
     serviceName: readString(value.serviceName),
     programPath: readString(value.programPath),
     programSha256: readString(value.programSha256),
+    workingDirectory: readString(value.workingDirectory, value.programWorkingDirectory),
     testCommand: readString(value.testCommand),
     reloadCommand: readString(value.reloadCommand),
     configFingerprint: readString(value.configFingerprint),

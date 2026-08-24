@@ -43,6 +43,11 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       );
     }
     const configCheck = result.plan.operations.find((operation) => operation.operationType === 'command.execute_allowlisted');
+    assert.equal(configCheck?.input.executablePath, snapshot.programPath);
+    assert.equal(configCheck?.input.executableSha256, snapshot.programSha256);
+    assert.deepEqual(configCheck?.input.args, snapshot.configCheckArgs);
+    assert.deepEqual(configCheck?.input.argumentTemplate, snapshot.configCheckArgsTemplate);
+    assert.equal(configCheck?.input.workingDirectory, snapshot.workingDirectory);
     assert.deepEqual(Object.keys(configCheck?.input ?? {}).sort(), [
       'args',
       'argumentTemplate',
@@ -57,6 +62,7 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       'workingDirectory',
     ].sort());
     assert.deepEqual(result.authorization.allowedServices, [snapshot.serviceName]);
+    assert.deepEqual(result.authorization.artifactDigests, [snapshot.artifactDigest, snapshot.programSha256]);
     assert.equal(result.authorization.lifetimeSeconds, 300);
   }
 });

@@ -199,6 +199,45 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.target?.certificateLocation?.certificatePath, 'C:/GCAC-Lab/certs/apache.crt.pem');
   });
 
+  it('从标准发现的 listener 事实补齐各 Web 框架的配置检查参数', () => {
+    const cases = [
+      { frameworkType: 'web.apache', args: ['-t', '-d', 'C:/Apache', '-f', 'C:/Apache/conf/httpd.conf'] },
+      { frameworkType: 'web.nginx', args: ['-t', '-p', 'C:/nginx', '-c', 'C:/nginx/conf/nginx.conf'] },
+      { frameworkType: 'app.tomcat', args: ['--check-config'] },
+    ] as const;
+
+    for (const item of cases) {
+      const topology = managedTargetContext();
+      topology.frameworkType = item.frameworkType;
+      topology.serviceInstance = {
+        ...topology.serviceInstance!,
+        frameworkType: item.frameworkType,
+      };
+      topology.managedTarget.metadata = {
+        certificateLocation: {
+          apiVersion: 'gcac.certificate-location/v1',
+          storageKind: 'PEM_FILES',
+          certificatePath: '/etc/example/tls/app.crt',
+          privateKeyPath: '/etc/example/tls/app.key',
+          sourceConfigPath: '/etc/example/app.conf',
+          confidence: 'EXACT',
+        },
+        listener: {
+          configCheckArgs: [...item.args],
+          configCheckArgsTemplate: [...item.args],
+        },
+      };
+
+      const context = deploymentAssetContextBuilder.build({
+        applicationAsset: applicationAsset(),
+        managedTargetContext: topology,
+      });
+
+      assert.deepEqual(context.target?.metadata.configCheckArgs, item.args);
+      assert.deepEqual(context.target?.metadata.configCheckArgsTemplate, item.args);
+    }
+  });
+
   it('无受管目标时生成可重放的应用资产部署目标', () => {
     const first = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });
     const second = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });

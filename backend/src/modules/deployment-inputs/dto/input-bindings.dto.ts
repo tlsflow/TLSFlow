@@ -5,6 +5,7 @@ export interface DeploymentConnectionBindingV1 {
   port?: number;
   username?: string;
   tls?: {
+    enabled?: boolean;
     verifyPeer?: boolean;
     serverName?: string;
   };
