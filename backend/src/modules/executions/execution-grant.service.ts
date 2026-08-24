@@ -10,6 +10,7 @@ export interface CreateExecutionGrantInput {
   stepId: string;
   executorType: string;
   allowedSecretRefs: string[];
+  allowedArtifactRefs?: string[];
   allowedActions: string[];
   expiresAt: string;
 }
@@ -20,6 +21,7 @@ export interface ValidateGrantInput {
   stepId: string;
   executorType: string;
   secretRef?: string;
+  artifactRef?: string;
   action?: string;
   markUsed?: boolean;
 }
@@ -41,6 +43,7 @@ export class ExecutionGrantService {
       stepId: input.stepId,
       executorType: input.executorType,
       allowedSecretRefs: [...new Set(input.allowedSecretRefs)],
+      allowedArtifactRefs: [...new Set(input.allowedArtifactRefs ?? [])],
       allowedActions: [...new Set(input.allowedActions)],
       expiresAt: input.expiresAt,
       status: 'active',
@@ -66,6 +69,9 @@ export class ExecutionGrantService {
     }
     if (input.secretRef && !grant.allowedSecretRefs.includes(input.secretRef)) {
       throw securityErrors.executorGrantDenied({ reason: 'secretRef not allowed' });
+    }
+    if (input.artifactRef && !(grant.allowedArtifactRefs ?? []).includes(input.artifactRef)) {
+      throw securityErrors.executorGrantDenied({ reason: 'artifactRef not allowed' });
     }
     if (input.action && !grant.allowedActions.includes(input.action)) {
       throw securityErrors.executorGrantDenied({ reason: 'action not allowed' });

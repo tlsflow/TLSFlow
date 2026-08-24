@@ -32,6 +32,7 @@ export interface SecurityServices {
   objectPermissions: ObjectPermissionService;
   audit: AuditService;
   approvals: ApprovalService;
+  grants: ExecutionGrantService;
   secrets: SecretService;
   auth: AuthService;
   externalIdentity: ExternalIdentityService;
@@ -62,7 +63,7 @@ export function createSecurityServices(): SecurityServices {
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
   const auth = new AuthService(rbac, undefined, audit, undefined, objectPermissions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets);
-  return { rbac, objectPermissions, audit, approvals, secrets, auth, externalIdentity };
+  return { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity };
 }
 
 export class SecurityController {

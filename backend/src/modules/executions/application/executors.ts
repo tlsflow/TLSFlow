@@ -20,6 +20,7 @@ import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertific
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
+import type { ExecutionGrantService } from '../execution-grant.service.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -72,6 +73,7 @@ export interface DefaultExecutorDependencies {
   agentPlugins?: AgentDeploymentPluginsApplicationService;
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
+  executionGrants?: ExecutionGrantService;
 }
 
 export class ExecutorRegistry {
@@ -131,7 +133,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   return [
 	    sshExecutor,
 	    curlExecutor,
-	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks }),
+	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks, executionGrants: dependencies.executionGrants }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlugins),
@@ -290,13 +292,15 @@ export class WorkflowExecutorAdapter implements Executor {
   private readonly stepExecutors: WorkflowStepExecutorRegistry;
   private readonly recovery: WorkflowRecoveryLedgerService;
   private readonly resourceLocks: PluginResourceLockService;
+  private readonly executionGrants?: ExecutionGrantService;
 
-  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService; resourceLocks?: PluginResourceLockService } = {}) {
+  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService; resourceLocks?: PluginResourceLockService; executionGrants?: ExecutionGrantService } = {}) {
     this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
     this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
     this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
     this.recovery = options.recovery ?? new WorkflowRecoveryLedgerService();
     this.resourceLocks = options.resourceLocks ?? new PluginResourceLockService();
+    this.executionGrants = options.executionGrants;
     this.stepExecutors = new WorkflowStepExecutorRegistry([
       {
         executorId: '017.CURL_HTTP',
@@ -471,9 +475,25 @@ export class WorkflowExecutorAdapter implements Executor {
       await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
       return { success: true, body: { checkpointName, captureHash }, logs: [`workflow:checkpoint:${checkpointName}:saved`] };
     }
-    const result = await this.stepExecutors.execute(executor, { input, plan, workflowStepName, attempt });
-    if (recoveryLedger && result.success) await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
-    return result;
+    const grant = this.executionGrants && executor
+      ? await this.executionGrants.create({
+          runId: input.step.executionRunId,
+          stepId: `${input.step.id}:${workflowStepName}:${attempt}`,
+          executorType: executor,
+          allowedSecretRefs: collectReferencesByScheme(plan, 'secret://'),
+          allowedArtifactRefs: collectReferencesByScheme(plan, 'artifact://'),
+          allowedActions: ['workflow.step.execute', executor],
+          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        })
+      : undefined;
+    try {
+      const grantedPlan = grant ? { ...plan, executionGrantId: grant.id } : plan;
+      const result = enforceWorkflowResultLimits(await this.stepExecutors.execute(executor, { input, plan: grantedPlan, workflowStepName, attempt }));
+      if (recoveryLedger && result.success) await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
+      return result;
+    } finally {
+      if (grant) await this.executionGrants?.revoke(grant.id);
+    }
   }
 
   private async executeCurlWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
@@ -1097,6 +1117,32 @@ function sshWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatc
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
   };
+}
+
+function collectReferencesByScheme(value: unknown, scheme: 'secret://' | 'artifact://'): string[] {
+  const references = new Set<string>();
+  const visit = (item: unknown): void => {
+    if (typeof item === 'string') {
+      for (const match of item.matchAll(new RegExp(`${scheme.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-zA-Z0-9/_#.:=-]+`, 'g'))) references.add(match[0]);
+      return;
+    }
+    if (Array.isArray(item)) return item.forEach(visit);
+    if (item && typeof item === 'object') Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return [...references].sort();
+}
+
+function enforceWorkflowResultLimits(result: WorkflowExecutorDispatchResult): WorkflowExecutorDispatchResult {
+  const bodyBytes = Buffer.byteLength(JSON.stringify(result.body ?? null), 'utf8');
+  const logBytes = Buffer.byteLength((result.logs ?? []).join('\n'), 'utf8');
+  if (bodyBytes > 1024 * 1024) {
+    return { success: false, errorCode: 'WORKFLOW_RESULT_TOO_LARGE', errorMessage: '工作流子步骤结果超过 1 MiB 上限', body: { bodyBytes } };
+  }
+  if (logBytes > 256 * 1024) {
+    return { success: false, errorCode: 'WORKFLOW_LOG_TOO_LARGE', errorMessage: '工作流子步骤日志超过 256 KiB 上限', body: { logBytes } };
+  }
+  return result;
 }
 
 function shouldFallbackDirectError(error: AppError | undefined): boolean {

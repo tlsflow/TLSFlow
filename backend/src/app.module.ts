@@ -187,6 +187,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agentPlugins: agentPluginsService,
     workflowRecovery: workflowRecoveryService,
     pluginResourceLocks: pluginResourceLockService,
+    executionGrants: security.grants,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans

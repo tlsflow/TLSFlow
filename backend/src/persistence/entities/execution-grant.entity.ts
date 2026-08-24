@@ -6,6 +6,7 @@ export interface ExecutionGrantEntity {
   stepId: string;
   executorType: string;
   allowedSecretRefs: string[];
+  allowedArtifactRefs?: string[];
   allowedActions: string[];
   expiresAt: string;
   status: ExecutionGrantStatus;
