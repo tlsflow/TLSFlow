@@ -16,7 +16,7 @@ import { createPersistedSecurityServices } from './modules/security/security-ser
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
-import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
+import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, NetscalerDeviceConnectionTester, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
 import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
@@ -96,8 +96,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
-  const deviceAssetsService = new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(appDb));
-  const devicesService = new DevicesApplicationService(new PgDevicesRepository(appDb));
+  const deviceAssetsService = new DeviceAssetsApplicationService(
+    new PgDeviceAssetsRepository(appDb),
+    new NetscalerDeviceConnectionTester(appDb, security.secrets),
+  );
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
     assetsService.getRepository(),
     new PgBindingsRepository(assetsService.getRepository(), appDb),
@@ -124,6 +126,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     security.secrets,
     executionResultSync,
     executionDetailStream,
+  );
+  const devicesService = new DevicesApplicationService(
+    new PgDevicesRepository(appDb),
+    undefined,
+    agentsService,
+    deviceAssetsService,
+    security.secrets,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(

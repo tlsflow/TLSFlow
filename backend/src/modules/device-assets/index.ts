@@ -1,6 +1,7 @@
 export * from './application/device-assets.application-service.js';
 export * from './application/device-assets.discovery-projector.js';
 export * from './application/device-assets.security.js';
+export * from './application/netscaler-device-connection-tester.js';
 export * from './controller/device-assets.controller.js';
 export * from './domain/device-assets.domain-service.js';
 export * from './dto/device-assets.dto.js';

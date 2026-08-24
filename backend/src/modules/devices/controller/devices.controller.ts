@@ -6,6 +6,7 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../application/devices.application-service.js';
+import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 
 const tags = ['Devices'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -16,7 +17,22 @@ export class DevicesController {
   register(router: Router): void {
     router.get('/api/v1/devices', '查询统一设备列表', tags, (request) => this.list(request));
     router.get('/api/v1/devices/onboarding-platforms', '查询设备添加平台', tags, () => this.service.listOnboardingPlatforms());
+    router.post('/api/v1/devices/onboarding', '添加受管设备', tags, (request) => this.onboard(request));
     router.get('/api/v1/devices/:deviceId', '查询统一设备详情', tags, (request) => this.get(request));
+  }
+
+  private async onboard(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    await this.security?.rbac.assertCan(subject, 'host.create', {
+      type: 'host', scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+    const result = await this.service.onboard(
+      tenantId(request),
+      (request.body ?? {}) as CreateManagedDeviceOnboardingDto,
+      subject.id,
+      request.context.requestId ?? 'device-onboarding',
+    );
+    return { statusCode: 201, body: result };
   }
 
   private async list(request: HttpRequest) {
@@ -57,6 +73,13 @@ export function getDeviceRouteContracts(): RouteContract[] {
     path: '/api/v1/devices',
     operationId: 'listManagedDevices',
     summary: '查询统一设备列表',
+    tags,
+    responseSchema: { type: 'object' },
+  }, {
+    method: 'POST',
+    path: '/api/v1/devices/onboarding',
+    operationId: 'onboardManagedDevice',
+    summary: '添加受管设备',
     tags,
     responseSchema: { type: 'object' },
   }, {

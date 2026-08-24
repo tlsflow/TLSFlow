@@ -65,3 +65,17 @@ export interface DeviceOnboardingPlatformDescriptor {
   formSchema: DeviceOnboardingFieldDescriptor[];
   handlerKey?: string;
 }
+
+export interface CreateManagedDeviceOnboardingDto {
+  platformKey: string;
+  displayName?: string;
+  baseUrl?: string;
+  managementAddress?: string;
+  managementPort?: number;
+  username?: string;
+  password?: string;
+  credentialId?: string;
+  authMode?: 'AUTO' | 'SESSION' | 'PER_REQUEST';
+  tlsVerify?: boolean;
+  insecureTlsAcknowledged?: boolean;
+}

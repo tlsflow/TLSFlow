@@ -9,6 +9,10 @@ import { PgDeviceAssetsRepository } from '../device-assets/repository/device-ass
 import { PgDevicesRepository } from './repository/devices.repository.js';
 import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.repository.js';
 import { DevicePlatformRegistry } from './domain/device-platform.registry.js';
+import { DevicesApplicationService } from './application/devices.application-service.js';
+import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
+import type { DeviceAssetsApplicationService } from '../device-assets/application/device-assets.application-service.js';
+import type { SecretService } from '../secrets/secret.service.js';
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
   const database = new CountingDatabase(new PgliteDatabase());
@@ -128,6 +132,47 @@ test('Spec033 平台 Registry 返回六个平台并拒绝未支持厂商', () =>
   assert.throws(() => registry.requireSupported('f5'));
   assert.throws(() => registry.requireSupported('sangfor'));
   assert.ok(platforms.flatMap((item) => item.formSchema).filter((field) => field.key === 'password').every((field) => field.type === 'SECRET_INPUT'));
+});
+
+test('Spec033 统一添加复用 Agent 会话并强制确认不安全 TLS', async () => {
+  const calls: string[] = [];
+  const agents = {
+    createWindowsPowerShellInstallSession: async () => ({ installCommand: 'install-windows' }),
+    createWindowsCompatibilityInstallSession: async () => ({ installCommand: 'install-compatibility' }),
+    createLinuxGoInstallSession: async () => ({ installCommand: 'install-linux' }),
+  } as unknown as AgentsApplicationService;
+  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, agents);
+  const windows = await service.onboard('tenant-onboarding', {
+    platformKey: 'windows', displayName: 'Windows', baseUrl: 'https://gcac.example',
+  }, 'user-onboarding', 'request-onboarding');
+  assert.equal((windows as { installCommand: string }).installCommand, 'install-windows');
+  await assert.rejects(() => service.onboard('tenant-onboarding', {
+    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.49', username: 'nsroot', password: 'secret', tlsVerify: false,
+  }, 'user-onboarding', 'request-onboarding'));
+  assert.deepEqual(calls, []);
+});
+
+test('Spec033 Citrix ADC 添加创建 SecretRef 且不回显密码', async () => {
+  const createdInputs: unknown[] = [];
+  const secrets = {
+    create: async (input: unknown) => {
+      createdInputs.push(input);
+      return { secretRef: 'secret://password/sec_adc#v1' };
+    },
+  } as unknown as SecretService;
+  const deviceAssets = {
+    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc', hostId: 'host_adc', tenantId: 'tenant_adc', ...input }),
+    testConnection: async () => ({ reachable: true, authenticated: true, productMatched: true, capabilities: {}, warnings: [] }),
+  } as unknown as DeviceAssetsApplicationService;
+  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
+  const result = await service.onboard('tenant_adc', {
+    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.49', username: 'nsroot', password: 'secret', tlsVerify: false, insecureTlsAcknowledged: true,
+  }, 'user_adc', 'request_adc');
+
+  assert.equal((result as { device: { credentialId: string } }).device.credentialId, 'secret://password/sec_adc#v1');
+  assert.ok(!JSON.stringify(result).includes('nsroot'));
+  assert.ok(!JSON.stringify(result).includes('"password"'));
+  assert.equal(createdInputs.length, 1);
 });
 
 class CountingDatabase implements DatabasePort {
