@@ -15,6 +15,7 @@ import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
+import { buildManagedTargetDeploymentStrategy, resolveDeploymentStrategyMode } from './asset-deployment-strategy.model'
 import {
   loadWorkflowCredentials,
   workflowCredentialBinding,
@@ -25,8 +26,8 @@ import {
 
 type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
-type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM'
-type AssetManagementMode = 'AGENT' | 'WORKFLOW'
+type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM' | 'DEVICE_TEMPLATE'
+type AssetManagementMode = 'MANAGED_TARGET' | 'WORKFLOW'
 type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
@@ -249,7 +250,7 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
 ]
 
 const assetDraft = reactive<AssetDraft>({
-  managementMode: 'AGENT',
+  managementMode: 'MANAGED_TARGET',
   address: '',
   port: '443',
   protocol: 'HTTPS',
@@ -377,7 +378,7 @@ const availableFrameworkOptions = computed<FrameworkType[]>(() => {
   if (assetDraft.managementMode === 'WORKFLOW') return ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
   if (assetDraft.platform === 'WINDOWS') return ['IIS']
   if (assetDraft.platform === 'LINUX') return ['NGINX', 'APACHE', 'TOMCAT']
-  return ['NGINX']
+  return ['DEVICE_TEMPLATE']
 })
 
 const filteredSiteItems = computed(() => {
@@ -580,16 +581,8 @@ const commonStepReady = computed(() => {
 })
 
 const agentStepReady = computed(() => {
-  if (assetDraft.managementMode !== 'AGENT') return true
-  if (assetDraft.agentDeploymentMode === 'PLUGIN') {
-    return Boolean(assetDraft.agentId.trim() && assetDraft.agentPluginPackageId.trim() && assetDraft.agentCertificateFormatId.trim())
-  }
-  return Boolean(
-    assetDraft.agentId.trim()
-    && assetDraft.siteAssetId.trim()
-    && assetDraft.managedTargetId.trim()
-    && assetDraft.agentCertificateFormatId.trim(),
-  )
+  if (assetDraft.managementMode !== 'MANAGED_TARGET') return true
+  return Boolean(assetDraft.managedTargetId.trim() && assetDraft.agentCertificateFormatId.trim())
 })
 
 const compatibleAgentPluginPackages = computed(() => agentPluginPackageItems.value.filter((item) => {
@@ -699,8 +692,8 @@ async function openEditDialog(row: ViewRow) {
   assetDraft.siteAssetId = String(readNested(source, ['targetBinding', 'siteAssetId']) ?? '')
   assetDraft.managedTargetId = String(readNested(source, ['targetBinding', 'managedTargetId']) ?? '')
   const deploymentStrategy = readDeploymentStrategy(source)
-  if (String(readNested(deploymentStrategy, ['type']) ?? '') === 'WORKFLOW') {
-    assetDraft.managementMode = 'WORKFLOW'
+  assetDraft.managementMode = resolveDeploymentStrategyMode(deploymentStrategy)
+  if (assetDraft.managementMode === 'WORKFLOW') {
     const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'parameterBindings']))
       ?? readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings']))
       ?? {}
@@ -726,7 +719,7 @@ async function openEditDialog(row: ViewRow) {
     workflowVariableRows.value = variableRowsFromBindings(variableBindings)
     workflowCertificateArtifactBindings.value = readWorkflowCertificateArtifactBindingsFromAsset(source, deploymentStrategy)
   } else {
-    assetDraft.managementMode = 'AGENT'
+    assetDraft.managementMode = 'MANAGED_TARGET'
     assetDraft.agentId = String(readNested(deploymentStrategy, ['agent', 'agentId']) ?? assetDraft.agentId)
     assetDraft.agentDeploymentMode = String(readNested(deploymentStrategy, ['agent', 'mode']) ?? 'NATIVE_HANDLER') as AgentDeploymentMode
     assetDraft.agentPluginPackageId = String(readNested(deploymentStrategy, ['agent', 'plugin', 'pluginPackageId']) ?? '')
@@ -1111,7 +1104,7 @@ function resetDraft() {
   editingServiceAssetId.value = ''
   editAssetDetail.value = null
   assetWizardStep.value = 1
-  assetDraft.managementMode = 'AGENT'
+  assetDraft.managementMode = 'MANAGED_TARGET'
   assetDraft.address = ''
   assetDraft.port = '443'
   assetDraft.protocol = 'HTTPS'
@@ -1218,33 +1211,8 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     }
   }
 
-  if (assetDraft.agentDeploymentMode === 'PLUGIN') {
-    const pluginPackage = selectedAgentPluginPackage.value
-    return {
-      type: 'AGENT',
-      agent: {
-        mode: 'PLUGIN',
-        agentId: assetDraft.agentId.trim(),
-        certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
-        plugin: {
-          pluginPackageId: String(pluginPackage?.id ?? ''),
-          pluginVersionId: String(pluginPackage?.id ?? ''),
-          variableBindings: buildAgentPluginVariableBindings(),
-          secretBindings: buildAgentPluginSecretBindings(),
-          certificateArtifactBindings: buildAgentPluginCertificateBindings(),
-        },
-      },
-    }
-  }
   return {
-    type: 'AGENT',
-    agent: {
-      mode: 'NATIVE_HANDLER',
-      agentId: assetDraft.agentId.trim(),
-      siteAssetId: assetDraft.siteAssetId.trim(),
-      managedTargetId: assetDraft.managedTargetId.trim(),
-      certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
-    },
+    ...buildManagedTargetDeploymentStrategy(assetDraft.managedTargetId, assetDraft.agentCertificateFormatId),
   }
 }
 
@@ -2239,7 +2207,7 @@ watch(
 watch(
   () => assetDraft.managementMode,
   async (mode) => {
-    if (mode === 'AGENT') {
+    if (mode === 'MANAGED_TARGET') {
       await loadAgents()
       return
     }
@@ -2746,11 +2714,11 @@ async function previewSelectedAgentPlugin(): Promise<void> {
             <button
               type="button"
               class="asset-wizard__mode-card"
-              :class="{ 'is-selected': assetDraft.managementMode === 'AGENT' }"
-              @click="assetDraft.managementMode = 'AGENT'"
+              :class="{ 'is-selected': assetDraft.managementMode === 'MANAGED_TARGET' }"
+              @click="assetDraft.managementMode = 'MANAGED_TARGET'"
             >
-              <span>{{ t('assets.managementModes.agent') }}</span>
-              <strong>{{ t('assets.managementModes.agentDescription') }}</strong>
+              <span>{{ t('assets.managementModes.managedTarget') }}</span>
+              <strong>{{ t('assets.managementModes.managedTargetDescription') }}</strong>
             </button>
             <button
               type="button"
@@ -2758,8 +2726,8 @@ async function previewSelectedAgentPlugin(): Promise<void> {
               :class="{ 'is-selected': assetDraft.managementMode === 'WORKFLOW' }"
               @click="assetDraft.managementMode = 'WORKFLOW'"
             >
-              <span>{{ t('assets.managementModes.workflow') }}</span>
-              <strong>{{ t('assets.managementModes.workflowDescription') }}</strong>
+              <span>{{ t('assets.managementModes.independentWorkflow') }}</span>
+              <strong>{{ t('assets.managementModes.independentWorkflowDescription') }}</strong>
             </button>
           </div>
 
@@ -2817,15 +2785,15 @@ async function previewSelectedAgentPlugin(): Promise<void> {
         <section v-else-if="assetWizardStep === 2" class="asset-wizard__panel">
           <header class="asset-wizard__panel-header">
             <div>
-              <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('assets.wizard.panels.agentTitle') }}</h3>
-              <p v-if="assetDraft.managementMode === 'AGENT'">{{ t('assets.wizard.panels.agentDescription') }}</p>
+              <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('assets.wizard.panels.managedTargetTitle') }}</h3>
+              <p v-if="assetDraft.managementMode === 'MANAGED_TARGET'">{{ t('assets.wizard.panels.managedTargetDescription') }}</p>
             </div>
             <span class="asset-wizard__panel-state" :class="modeStepReady ? 'is-done' : 'is-active'">
               {{ modeStepReady ? t('assets.wizard.stepState.readyNext') : t('assets.wizard.stepState.incomplete') }}
             </span>
           </header>
 
-          <template v-if="assetDraft.managementMode === 'AGENT'">
+          <template v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
             <div class="asset-form__grid">
               <label class="asset-form__field">
                 <span>{{ t('plugins.agentDeployment.executionMode') }} <strong>*</strong></span>
@@ -3265,7 +3233,7 @@ async function previewSelectedAgentPlugin(): Promise<void> {
             </div>
             <div>
               <dt>{{ t('assets.review.deploymentMode') }}</dt>
-              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.managementModes.workflow') : t('assets.managementModes.agent') }}</dd>
+              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.managementModes.independentWorkflow') : t('assets.managementModes.managedTarget') }}</dd>
             </div>
             <div>
               <dt>{{ t('assets.fields.platform') }}</dt>
@@ -3275,11 +3243,11 @@ async function previewSelectedAgentPlugin(): Promise<void> {
               <dt>{{ t('assets.fields.verifyUrl') }}</dt>
               <dd>{{ assetDraft.verifyUrl || t('assets.review.autoGeneratedByEntry') }}</dd>
             </div>
-            <div v-if="assetDraft.managementMode === 'AGENT'">
+            <div v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
               <dt>{{ t('assets.review.agentSiteTarget') }}</dt>
               <dd>{{ editAgentLabel || assetDraft.agentId || t('assets.empty.notSelected') }} / {{ editSiteLabel || assetDraft.siteAssetId || t('assets.empty.notSelected') }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || t('assets.empty.notSelected') }}</dd>
             </div>
-            <div v-if="assetDraft.managementMode === 'AGENT'">
+            <div v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
               <dt>{{ t('assets.fields.certificateFormat') }}</dt>
               <dd>{{ workflowCertificateFormatLabel(certificateFormatItems.find((item) => String(item.id ?? '') === assetDraft.agentCertificateFormatId) ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
