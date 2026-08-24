@@ -30,6 +30,7 @@ export default {
     edit: "編輯",
     delete: "刪除",
     notAvailable: "暫無",
+    close: "關閉",
     unknownError: "未知錯誤",
     userFallback: "未登入使用者",
     tenantFallback: "預設租戶"
@@ -611,7 +612,6 @@ export default {
     retry: "重試",
     resourceList: "{resource}列表",
     total: "總數 {count}",
-    dangerConfirmRequired: "高風險操作需確認",
     all: "全部",
     clearFilters: "清空篩選",
     pagination: "第 {page} 頁 / 每頁 {pageSize} 筆",
@@ -2241,6 +2241,8 @@ export default {
         create: "建立身分來源",
         edit: "編輯",
         delete: "刪除",
+        testConnection: "測試連通性",
+        testing: "檢測中...",
         creating: "建立中...",
         saving: "儲存中...",
         saveChanges: "儲存修改",
@@ -2270,6 +2272,7 @@ export default {
         domain: "域名",
         protocol: "協議",
         serverAddress: "伺服器位址",
+        baseDn: "Base DN",
         bindDn: "服務帳號 DN",
         bindPassword: "服務帳號密碼",
         directoryType: "目錄型別",
@@ -2283,11 +2286,15 @@ export default {
       },
       placeholders: {
         name: "例如：企業 AD",
+        domain: "例如：example.com",
+        serverAddress: "例如：ad.example.com:636",
+        baseDn: "例如：DC=example,DC=com",
+        bindDn: "例如：CN=svc-gcac,OU=Users,DC=example,DC=com",
         bindPasswordCreate: "輸入服務帳號密碼",
         bindPasswordEdit: "留空表示沿用現有密碼",
         autoByDirectoryType: "留空則按目錄型別自動推導",
-        userFilter: "例如：(uid={{username}})",
-        groupFilter: "例如：(member={{userDn}})"
+        userFilter: "例如：(uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "例如：(member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: "最終位址：{url}"
@@ -2301,10 +2308,51 @@ export default {
         disabledShort: "停用"
       },
       types: {
+        activeDirectory: "Active Directory",
         ldap: "標準 LDAP"
+      },
+      protocols: {
+        ldap: "LDAP",
+        ldaps: "LDAPS"
       },
       risks: {
         delete: "刪除身分來源後，該目錄的登入、同步和群組對映都會失效。"
+      },
+      test: {
+        dialogTitle: "測試身分來源連通性",
+        dialogDescription: "正在檢測 {name}（{server}）的 DNS、LDAP 認證連接埠和 BIND 狀態。",
+        loading: "正在依序檢測 DNS、LDAP 認證連接埠和 BIND 狀態...",
+        checks: {
+          dns: { title: "檢查 DNS 解析" },
+          port: { title: "檢查 LDAP 認證連接埠" },
+          bind: { title: "檢查 LDAP BIND" }
+        },
+        status: {
+          passed: "成功",
+          failed: "失敗",
+          skipped: "已跳過"
+        },
+        messages: {
+          summaryPassed: "LDAP 連通性檢測全部通過",
+          summaryFailed: "LDAP 連通性檢測未通過",
+          dnsIp: "目標是 IP 位址，無需進行 DNS 查詢",
+          dnsResolved: "DNS 解析成功：{addresses}",
+          dnsFailed: "DNS 解析失敗",
+          portReachable: "{protocol} 認證連接埠 {port} 可連通",
+          portFailed: "LDAP 認證連接埠不可達",
+          bindServicePassed: "LDAP 服務帳號 BIND 和 Base DN 查詢成功",
+          bindAnonymousPassed: "匿名 LDAP BIND 和 Base DN 查詢成功",
+          bindFailed: "LDAP BIND 或 Base DN 查詢失敗",
+          skippedInvalidUrl: "由於 LDAP 位址無效，已跳過",
+          skippedDnsFailed: "由於 DNS 解析失敗，已跳過",
+          skippedPortFailed: "由於 LDAP 認證連接埠不可達，已跳過",
+          unknownCheck: "檢測項未通過（{code}）",
+          checkNotReturned: "伺服器未返回此檢測項結果。"
+        },
+        errors: {
+          emptyResult: "伺服器未返回連通性檢測結果",
+          requestFailed: "連通性檢測請求失敗"
+        }
       },
       secret: {
         bindPasswordName: "{name} LDAP 服務帳號密碼"

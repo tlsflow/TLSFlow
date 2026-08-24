@@ -31,6 +31,7 @@ export default {
     edit: 'Editar',
     delete: 'Excluir',
     notAvailable: 'Indisponível',
+    close: 'Fechar',
     unknownError: 'Erro desconhecido',
     userFallback: 'Usuário não autenticado',
     tenantFallback: 'Tenant padrão'
@@ -612,7 +613,6 @@ export default {
     retry: 'Tentar novamente',
     resourceList: 'Lista de {resource}',
     total: 'Total {count}',
-    dangerConfirmRequired: 'Operações de alto risco exigem confirmação',
     all: 'Todos',
     clearFilters: 'Limpar filtros',
     pagination: 'Página {page} / {pageSize} por página',
@@ -2216,6 +2216,8 @@ export default {
         create: 'Criar fonte de identidade',
         edit: 'Editar',
         delete: 'Excluir',
+        testConnection: 'Testar conectividade',
+        testing: 'Testando...',
         creating: 'Criando...',
         saving: 'Salvando...',
         saveChanges: 'Salvar alterações',
@@ -2245,6 +2247,7 @@ export default {
         domain: 'Domínio',
         protocol: 'Protocolo',
         serverAddress: 'Endereço do servidor',
+        baseDn: 'Base DN',
         bindDn: 'DN da conta de serviço',
         bindPassword: 'Senha da conta de serviço',
         directoryType: 'Tipo de diretório',
@@ -2258,11 +2261,15 @@ export default {
       },
       placeholders: {
         name: 'Por exemplo: AD corporativo',
+        domain: 'Por exemplo: example.com',
+        serverAddress: 'Por exemplo: ad.example.com:636',
+        baseDn: 'Por exemplo: DC=example,DC=com',
+        bindDn: 'Por exemplo: CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: 'Informe a senha da conta de serviço',
         bindPasswordEdit: 'Deixe em branco para manter a senha atual',
         autoByDirectoryType: 'Deixe em branco para derivar automaticamente pelo tipo de diretório',
-        userFilter: 'Por exemplo: (uid={{username}})',
-        groupFilter: 'Por exemplo: (member={{userDn}})'
+        userFilter: "Por exemplo: (uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "Por exemplo: (member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: 'URL final: {url}'
@@ -2276,10 +2283,51 @@ export default {
         disabledShort: 'Desabilitado'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: 'LDAP padrão'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: 'Excluir a fonte de identidade invalidará o login, a sincronização e os mapeamentos de grupo deste diretório.'
+      },
+      test: {
+        dialogTitle: 'Testar conectividade da fonte de identidade',
+        dialogDescription: 'Verificando DNS, a porta de autenticação LDAP e o estado do BIND para {name} ({server}).',
+        loading: 'Verificando DNS, a porta de autenticação LDAP e o estado do BIND em sequência...',
+        checks: {
+          dns: { title: 'Verificar resolução DNS' },
+          port: { title: 'Verificar porta de autenticação LDAP' },
+          bind: { title: 'Verificar LDAP BIND' }
+        },
+        status: {
+          passed: 'Aprovado',
+          failed: 'Falhou',
+          skipped: 'Ignorado'
+        },
+        messages: {
+          summaryPassed: 'Todos os testes de conectividade LDAP foram aprovados',
+          summaryFailed: 'Os testes de conectividade LDAP não foram aprovados',
+          dnsIp: 'O destino é um endereço IP; a consulta DNS não foi necessária',
+          dnsResolved: 'DNS resolvido com sucesso: {addresses}',
+          dnsFailed: 'Falha na resolução DNS',
+          portReachable: 'A porta de autenticação {protocol} {port} está acessível',
+          portFailed: 'A porta de autenticação LDAP está inacessível',
+          bindServicePassed: 'O BIND da conta de serviço LDAP e a consulta Base DN foram concluídos',
+          bindAnonymousPassed: 'O BIND LDAP anônimo e a consulta Base DN foram concluídos',
+          bindFailed: 'Falha no BIND LDAP ou na consulta Base DN',
+          skippedInvalidUrl: 'Ignorado porque o endereço LDAP é inválido',
+          skippedDnsFailed: 'Ignorado porque a resolução DNS falhou',
+          skippedPortFailed: 'Ignorado porque a porta de autenticação LDAP está inacessível',
+          unknownCheck: 'O teste não foi aprovado ({code})',
+          checkNotReturned: 'O servidor não retornou o resultado desta verificação.'
+        },
+        errors: {
+          emptyResult: 'O servidor não retornou um resultado do teste de conectividade',
+          requestFailed: 'Falha na solicitação de teste de conectividade'
+        }
       },
       secret: {
         bindPasswordName: 'Senha da conta de serviço LDAP de {name}'

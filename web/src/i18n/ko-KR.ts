@@ -31,6 +31,7 @@ export default {
     edit: '편집',
     delete: '삭제',
     notAvailable: '사용할 수 없음',
+    close: '닫기',
     unknownError: '알 수 없는 오류',
     userFallback: '로그인하지 않은 사용자',
     tenantFallback: '기본 테넌트'
@@ -612,7 +613,6 @@ export default {
     retry: '재시도',
     resourceList: '{resource}목록',
     total: '총 개수가 {count}이다',
-    dangerConfirmRequired: '고위험 작업 여부 확인',
     all: '전체',
     clearFilters: '필터 비우기',
     pagination: '{page} 페이지/페이지당 {pageSize}',
@@ -2216,6 +2216,8 @@ export default {
         create: '아이디 원본 만들기',
         edit: '편집',
         delete: '삭제',
+        testConnection: '연결 테스트',
+        testing: '테스트 중...',
         creating: '생성 중...',
         saving: '저장 중...',
         saveChanges: '저장변경',
@@ -2245,6 +2247,7 @@ export default {
         domain: '도메인',
         protocol: '프로토콜',
         serverAddress: '서버 주소',
+        baseDn: 'Base DN',
         bindDn: '서비스 계정은 DN이다',
         bindPassword: '서비스 계정 비밀번호',
         directoryType: '디렉터리 형식',
@@ -2258,11 +2261,15 @@ export default {
       },
       placeholders: {
         name: '예를 들어:회사 AD',
+        domain: '예: example.com',
+        serverAddress: '예: ad.example.com:636',
+        baseDn: '예: DC=example,DC=com',
+        bindDn: '예: CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: '서비스 계정 비밀번호를 입력하세요',
         bindPasswordEdit: '비밀번호를 유지하려면 비워 두세요',
         autoByDirectoryType: '빈 공간은 디렉터리 형식에 따라 자동으로 유추됩니다',
-        userFilter: '예: (uid={{username}})',
-        groupFilter: '예: (member={{userDn}})'
+        userFilter: "예: (uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "예: (member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: '최종주소: {url}'
@@ -2276,10 +2283,51 @@ export default {
         disabledShort: '비활성화'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: '표준 LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: '소스가 삭제되면 디렉토리의 로그인, 동기화, 그룹 맵이 유효하지 않습니다.'
+      },
+      test: {
+        dialogTitle: 'ID 소스 연결 테스트',
+        dialogDescription: '{name} ({server})의 DNS, LDAP 인증 포트 및 BIND 상태를 확인합니다.',
+        loading: 'DNS, LDAP 인증 포트 및 BIND 상태를 순서대로 확인하는 중...',
+        checks: {
+          dns: { title: 'DNS 확인' },
+          port: { title: 'LDAP 인증 포트 확인' },
+          bind: { title: 'LDAP BIND 확인' }
+        },
+        status: {
+          passed: '성공',
+          failed: '실패',
+          skipped: '건너뜀'
+        },
+        messages: {
+          summaryPassed: '모든 LDAP 연결 검사를 통과했습니다',
+          summaryFailed: 'LDAP 연결 검사를 통과하지 못했습니다',
+          dnsIp: '대상이 IP 주소이므로 DNS 조회가 필요하지 않습니다',
+          dnsResolved: 'DNS 확인 성공: {addresses}',
+          dnsFailed: 'DNS 확인에 실패했습니다',
+          portReachable: '{protocol} 인증 포트 {port}에 연결할 수 있습니다',
+          portFailed: 'LDAP 인증 포트에 연결할 수 없습니다',
+          bindServicePassed: 'LDAP 서비스 계정 BIND 및 Base DN 조회에 성공했습니다',
+          bindAnonymousPassed: '익명 LDAP BIND 및 Base DN 조회에 성공했습니다',
+          bindFailed: 'LDAP BIND 또는 Base DN 조회에 실패했습니다',
+          skippedInvalidUrl: 'LDAP 주소가 잘못되어 건너뛰었습니다',
+          skippedDnsFailed: 'DNS 확인에 실패하여 건너뛰었습니다',
+          skippedPortFailed: 'LDAP 인증 포트에 연결할 수 없어 건너뛰었습니다',
+          unknownCheck: '검사를 통과하지 못했습니다 ({code})',
+          checkNotReturned: '서버가 이 검사 결과를 반환하지 않았습니다.'
+        },
+        errors: {
+          emptyResult: '서버가 연결 테스트 결과를 반환하지 않았습니다',
+          requestFailed: '연결 테스트 요청에 실패했습니다'
+        }
       },
       secret: {
         bindPasswordName: '{name} LDAP 서비스 계정 비밀번호'

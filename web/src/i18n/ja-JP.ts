@@ -31,6 +31,7 @@ export default {
     edit: '編集',
     delete: '削除',
     notAvailable: '利用不可',
+    close: '閉じる',
     unknownError: '不明なエラー',
     userFallback: '未ログインユーザー',
     tenantFallback: 'デフォルトテナント'
@@ -612,7 +613,6 @@ export default {
     retry: '再試行',
     resourceList: '{resource}一覧',
     total: '合計 {count}',
-    dangerConfirmRequired: '高リスク操作には確認が必要です',
     all: 'すべて',
     clearFilters: 'フィルターをクリア',
     pagination: '{page} ページ / 1ページ {pageSize} 件',
@@ -2242,6 +2242,8 @@ export default {
         create: '作成ID ソース',
         edit: '編集',
         delete: '削除',
+        testConnection: '接続テスト',
+        testing: 'テスト中...',
         creating: '作成中...',
         saving: '保存中...',
         saveChanges: '保存変更',
@@ -2271,6 +2273,7 @@ export default {
         domain: 'ドメイン名',
         protocol: 'プロトコル',
         serverAddress: 'サーバーアドレス',
+        baseDn: 'Base DN',
         bindDn: 'サービスアカウント DN',
         bindPassword: 'サービスアカウントパスワード',
         directoryType: 'ディレクトリタイプ',
@@ -2284,11 +2287,15 @@ export default {
       },
       placeholders: {
         name: '例：企業 AD',
+        domain: '例：example.com',
+        serverAddress: '例：ad.example.com:636',
+        baseDn: '例：DC=example,DC=com',
+        bindDn: '例：CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: '入力サービスアカウントパスワード',
         bindPasswordEdit: '空欄の場合は既存のパスワードを使用します',
         autoByDirectoryType: '留空则によりディレクトリタイプ自動推導',
-        userFilter: '例：(uid={{username}})',
-        groupFilter: '例：(member={{userDn}})'
+        userFilter: "例：(uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "例：(member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: '最終アドレス：{url}'
@@ -2302,10 +2309,51 @@ export default {
         disabledShort: '無効化'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: '標準 LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: '削除ID ソース後、このディレクトリのログイン、同時にと組映射都は失効。'
+      },
+      test: {
+        dialogTitle: 'ID ソース接続テスト',
+        dialogDescription: '{name}（{server}）の DNS、LDAP 認証ポート、BIND 状態を確認しています。',
+        loading: 'DNS、LDAP 認証ポート、BIND 状態を順番に確認しています...',
+        checks: {
+          dns: { title: 'DNS 解決を確認' },
+          port: { title: 'LDAP 認証ポートを確認' },
+          bind: { title: 'LDAP BIND を確認' }
+        },
+        status: {
+          passed: '成功',
+          failed: '失敗',
+          skipped: 'スキップ'
+        },
+        messages: {
+          summaryPassed: 'LDAP 接続チェックにすべて成功しました',
+          summaryFailed: 'LDAP 接続チェックに失敗しました',
+          dnsIp: '対象は IP アドレスのため、DNS ルックアップは不要です',
+          dnsResolved: 'DNS 解決に成功しました：{addresses}',
+          dnsFailed: 'DNS 解決に失敗しました',
+          portReachable: '{protocol} 認証ポート {port} に接続できます',
+          portFailed: 'LDAP 認証ポートに接続できません',
+          bindServicePassed: 'LDAP サービスアカウント BIND と Base DN クエリに成功しました',
+          bindAnonymousPassed: '匿名 LDAP BIND と Base DN クエリに成功しました',
+          bindFailed: 'LDAP BIND または Base DN クエリに失敗しました',
+          skippedInvalidUrl: 'LDAP アドレスが無効なためスキップしました',
+          skippedDnsFailed: 'DNS 解決に失敗したためスキップしました',
+          skippedPortFailed: 'LDAP 認証ポートに接続できないためスキップしました',
+          unknownCheck: 'このチェックに失敗しました（{code}）',
+          checkNotReturned: 'サーバーからこの確認結果が返されませんでした。'
+        },
+        errors: {
+          emptyResult: 'サーバーから接続テスト結果が返されませんでした',
+          requestFailed: '接続テストに失敗しました'
+        }
       },
       secret: {
         bindPasswordName: '{name} LDAP サービスアカウントパスワード'

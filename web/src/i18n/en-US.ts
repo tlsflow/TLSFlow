@@ -30,6 +30,7 @@ export default {
     edit: 'Edit',
     delete: 'Delete',
     notAvailable: 'Not available',
+    close: 'Close',
     unknownError: 'Unknown error',
     userFallback: 'Guest user',
     tenantFallback: 'Default tenant'
@@ -619,7 +620,6 @@ export default {
     retry: 'Retry',
     resourceList: '{resource} list',
     total: 'Total {count}',
-    dangerConfirmRequired: 'High-risk action requires confirmation',
     all: 'All',
     clearFilters: 'Clear filters',
     pagination: 'Page {page} / {pageSize} per page',
@@ -2325,6 +2325,8 @@ export default {
         create: 'Create identity source',
         edit: 'Edit',
         delete: 'Delete',
+        testConnection: 'Test connectivity',
+        testing: 'Testing...',
         creating: 'Creating...',
         saving: 'Saving...',
         saveChanges: 'Save changes',
@@ -2354,6 +2356,7 @@ export default {
         domain: 'Domain',
         protocol: 'Protocol',
         serverAddress: 'Server address',
+        baseDn: 'Base DN',
         bindDn: 'Service account DN',
         bindPassword: 'Service account password',
         directoryType: 'Directory type',
@@ -2367,11 +2370,15 @@ export default {
       },
       placeholders: {
         name: 'For example: Enterprise AD',
+        domain: 'For example: example.com',
+        serverAddress: 'For example: ad.example.com:636',
+        baseDn: 'For example: DC=example,DC=com',
+        bindDn: 'For example: CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: 'Enter the service account password',
         bindPasswordEdit: 'Leave empty to keep the existing password',
         autoByDirectoryType: 'Leave empty to derive from directory type',
-        userFilter: 'For example: (uid={{username}})',
-        groupFilter: 'For example: (member={{userDn}})'
+        userFilter: "For example: (uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "For example: (member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: 'Final URL: {url}'
@@ -2385,10 +2392,51 @@ export default {
         disabledShort: 'Disabled'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: 'Standard LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: 'Deleting the identity source invalidates login, sync, and group mappings for this directory.'
+      },
+      test: {
+        dialogTitle: 'Test identity source connectivity',
+        dialogDescription: 'Checking DNS, the LDAP authentication port, and BIND status for {name} ({server}).',
+        loading: 'Checking DNS, the LDAP authentication port, and BIND status in sequence...',
+        checks: {
+          dns: { title: 'Check DNS resolution' },
+          port: { title: 'Check LDAP authentication port' },
+          bind: { title: 'Check LDAP BIND' }
+        },
+        status: {
+          passed: 'Passed',
+          failed: 'Failed',
+          skipped: 'Skipped'
+        },
+        messages: {
+          summaryPassed: 'All LDAP connectivity checks passed',
+          summaryFailed: 'LDAP connectivity checks did not pass',
+          dnsIp: 'The target is an IP address; DNS lookup was not required',
+          dnsResolved: 'DNS resolved successfully: {addresses}',
+          dnsFailed: 'DNS resolution failed',
+          portReachable: '{protocol} authentication port {port} is reachable',
+          portFailed: 'The LDAP authentication port is unreachable',
+          bindServicePassed: 'LDAP service account BIND and Base DN query succeeded',
+          bindAnonymousPassed: 'Anonymous LDAP BIND and Base DN query succeeded',
+          bindFailed: 'LDAP BIND or Base DN query failed',
+          skippedInvalidUrl: 'Skipped because the LDAP address is invalid',
+          skippedDnsFailed: 'Skipped because DNS resolution failed',
+          skippedPortFailed: 'Skipped because the LDAP authentication port is unreachable',
+          unknownCheck: 'The check did not pass ({code})',
+          checkNotReturned: 'The server did not return this check result.'
+        },
+        errors: {
+          emptyResult: 'The server did not return a connectivity test result',
+          requestFailed: 'Connectivity test request failed'
+        }
       },
       secret: {
         bindPasswordName: '{name} LDAP service account password'

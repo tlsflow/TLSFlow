@@ -31,6 +31,7 @@ export default {
     edit: 'Изменить',
     delete: 'Удалить',
     notAvailable: 'Недоступно',
+    close: 'Закрыть',
     unknownError: 'Неизвестная ошибка',
     userFallback: 'Пользователь не вошел',
     tenantFallback: 'Тенант по умолчанию'
@@ -612,7 +613,6 @@ export default {
     retry: 'Повторить',
     resourceList: 'Список {resource}',
     total: 'Всего {count}',
-    dangerConfirmRequired: 'Операция высокого риска требует подтверждения',
     all: 'Все',
     clearFilters: 'Очистить фильтры',
     pagination: 'Страница {page} / по {pageSize} на странице',
@@ -2216,6 +2216,8 @@ export default {
         create: 'Создать источник идентификации',
         edit: 'Редактировать',
         delete: 'Удалить',
+        testConnection: 'Проверить подключение',
+        testing: 'Проверка...',
         creating: 'Создание...',
         saving: 'Сохранение...',
         saveChanges: 'Сохранить изменения',
@@ -2245,6 +2247,7 @@ export default {
         domain: 'Домен',
         protocol: 'Протокол',
         serverAddress: 'Адрес сервера',
+        baseDn: 'Base DN',
         bindDn: 'DN сервисной учетной записи',
         bindPassword: 'Пароль сервисной учетной записи',
         directoryType: 'Тип каталога',
@@ -2258,11 +2261,15 @@ export default {
       },
       placeholders: {
         name: 'Например: корпоративный AD',
+        domain: 'Например: example.com',
+        serverAddress: 'Например: ad.example.com:636',
+        baseDn: 'Например: DC=example,DC=com',
+        bindDn: 'Например: CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: 'Введите пароль сервисной учетной записи',
         bindPasswordEdit: 'Оставьте пустым, чтобы сохранить текущий пароль',
         autoByDirectoryType: 'Оставьте пустым для автоматического вывода по типу каталога',
-        userFilter: 'Например: (uid={{username}})',
-        groupFilter: 'Например: (member={{userDn}})'
+        userFilter: "Например: (uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "Например: (member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: 'Итоговый адрес: {url}'
@@ -2276,10 +2283,51 @@ export default {
         disabledShort: 'Отключен'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: 'Стандартный LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: 'После удаления источника идентификации вход, синхронизация и сопоставление групп этого каталога станут недействительными.'
+      },
+      test: {
+        dialogTitle: 'Проверка подключения источника идентификации',
+        dialogDescription: 'Проверка DNS, LDAP-порта аутентификации и состояния BIND для {name} ({server}).',
+        loading: 'Последовательно проверяются DNS, LDAP-порт аутентификации и состояние BIND...',
+        checks: {
+          dns: { title: 'Проверка DNS-разрешения' },
+          port: { title: 'Проверка LDAP-порта аутентификации' },
+          bind: { title: 'Проверка LDAP BIND' }
+        },
+        status: {
+          passed: 'Успешно',
+          failed: 'Ошибка',
+          skipped: 'Пропущено'
+        },
+        messages: {
+          summaryPassed: 'Все проверки подключения LDAP пройдены',
+          summaryFailed: 'Проверки подключения LDAP не пройдены',
+          dnsIp: 'Цель является IP-адресом, DNS-разрешение не требуется',
+          dnsResolved: 'DNS-разрешение выполнено успешно: {addresses}',
+          dnsFailed: 'Не удалось выполнить DNS-разрешение',
+          portReachable: 'Порт аутентификации {protocol} {port} доступен',
+          portFailed: 'Порт аутентификации LDAP недоступен',
+          bindServicePassed: 'BIND сервисной учетной записи LDAP и запрос Base DN выполнены успешно',
+          bindAnonymousPassed: 'Анонимный LDAP BIND и запрос Base DN выполнены успешно',
+          bindFailed: 'LDAP BIND или запрос Base DN завершился ошибкой',
+          skippedInvalidUrl: 'Пропущено: адрес LDAP недействителен',
+          skippedDnsFailed: 'Пропущено: DNS-разрешение завершилось ошибкой',
+          skippedPortFailed: 'Пропущено: порт аутентификации LDAP недоступен',
+          unknownCheck: 'Проверка не пройдена ({code})',
+          checkNotReturned: 'Сервер не вернул результат этой проверки.'
+        },
+        errors: {
+          emptyResult: 'Сервер не вернул результат проверки подключения',
+          requestFailed: 'Не удалось выполнить проверку подключения'
+        }
       },
       secret: {
         bindPasswordName: 'Пароль сервисной учетной записи LDAP {name}'

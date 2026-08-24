@@ -9,7 +9,12 @@ import {
   deleteIdentitySource,
   listIdentitySources,
   listRoles,
+  testIdentitySource,
   updateIdentitySource,
+  type IdentitySourceConnectionCheck,
+  type IdentitySourceConnectionCheckKey,
+  type IdentitySourceConnectionCheckStatus,
+  type IdentitySourceConnectionTestResult,
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
@@ -50,6 +55,12 @@ const advancedOpen = ref(false)
 const { t } = useI18n()
 
 const deletingId = ref('')
+const testingSourceId = ref('')
+const connectionTestOpen = ref(false)
+const connectionTestLoading = ref(false)
+const connectionTestError = ref('')
+const connectionTestSource = ref<ApiRecord | null>(null)
+const connectionTestResult = ref<IdentitySourceConnectionTestResult | null>(null)
 
 const draft = reactive<IdentitySourceDraft>(buildDefaultDraft())
 
@@ -102,6 +113,16 @@ const editorDisabled = computed(() => {
 })
 
 const derivedUrl = computed(() => `${draft.protocol}://${draft.host.trim()}`)
+const connectionCheckKeys: readonly IdentitySourceConnectionCheckKey[] = ['dns', 'port', 'bind']
+
+const connectionChecks = computed<IdentitySourceConnectionCheck[]>(() =>
+  connectionCheckKeys.map((key) => connectionTestResult.value?.checks.find((check) => check.key === key) ?? {
+    key,
+    status: 'skipped',
+    code: 'CHECK_NOT_RETURNED',
+    message: t('settings.identitySources.test.messages.checkNotReturned'),
+  }),
+)
 
 async function reloadSources() {
   pageLoading.value = true
@@ -267,12 +288,104 @@ async function removeSource(sourceId: string) {
   }
 }
 
+async function openConnectionTest(item: ApiRecord) {
+  const sourceId = String(item.id ?? '')
+  if (!sourceId || testingSourceId.value) return
+  connectionTestSource.value = item
+  connectionTestResult.value = null
+  connectionTestError.value = ''
+  connectionTestOpen.value = true
+  connectionTestLoading.value = true
+  testingSourceId.value = sourceId
+  try {
+    const result = await testIdentitySource(sourceId)
+    if (!result.data) throw new Error(t('settings.identitySources.test.errors.emptyResult'))
+    connectionTestResult.value = result.data
+  } catch (cause) {
+    connectionTestError.value = cause instanceof ApiClientError
+      ? `${cause.message}（${cause.errorCode}）`
+      : cause instanceof Error ? cause.message : t('settings.identitySources.test.errors.requestFailed')
+  } finally {
+    connectionTestLoading.value = false
+    testingSourceId.value = ''
+  }
+}
+
+function closeConnectionTest() {
+  if (connectionTestLoading.value) return
+  connectionTestOpen.value = false
+}
+
+function connectionCheckTitle(key: IdentitySourceConnectionCheckKey): string {
+  return t(`settings.identitySources.test.checks.${key}.title`)
+}
+
+function connectionCheckStatus(status: IdentitySourceConnectionCheckStatus): string {
+  return t(`settings.identitySources.test.status.${status}`)
+}
+
+function connectionTestSummary(result: IdentitySourceConnectionTestResult): string {
+  return result.ok
+    ? t('settings.identitySources.test.messages.summaryPassed')
+    : t('settings.identitySources.test.messages.summaryFailed')
+}
+
+function connectionCheckMessage(check: IdentitySourceConnectionCheck): string {
+  const details = check.details ?? {}
+  const addresses = readStringArray(details.addresses)
+  if (check.code === 'DNS_RESOLVED') {
+    return details.lookupRequired === false
+      ? t('settings.identitySources.test.messages.dnsIp')
+      : t('settings.identitySources.test.messages.dnsResolved', {
+          addresses: addresses.join(', ') || t('common.notAvailable'),
+        })
+  }
+  if (check.code === 'LDAP_PORT_REACHABLE') {
+    return t('settings.identitySources.test.messages.portReachable', {
+      protocol: readString(details.protocol).toUpperCase(),
+      port: readNumber(details.port),
+    })
+  }
+  if (check.code === 'LDAP_BIND_OK') {
+    return details.bindDnConfigured === false
+      ? t('settings.identitySources.test.messages.bindAnonymousPassed')
+      : t('settings.identitySources.test.messages.bindServicePassed')
+  }
+  if (check.code === 'SKIPPED_INVALID_URL') return t('settings.identitySources.test.messages.skippedInvalidUrl')
+  if (check.code === 'SKIPPED_DNS_FAILED') return t('settings.identitySources.test.messages.skippedDnsFailed')
+  if (check.code === 'SKIPPED_PORT_UNREACHABLE') return t('settings.identitySources.test.messages.skippedPortFailed')
+  if (check.key === 'dns') return t('settings.identitySources.test.messages.dnsFailed')
+  if (check.key === 'port') return t('settings.identitySources.test.messages.portFailed')
+  if (check.key === 'bind') return t('settings.identitySources.test.messages.bindFailed')
+  return t('settings.identitySources.test.messages.unknownCheck', { code: check.code })
+}
+
+function connectionCheckIcon(status: IdentitySourceConnectionCheckStatus): string {
+  if (status === 'passed') return '✓'
+  if (status === 'failed') return '×'
+  return '–'
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function readNumber(value: unknown): number | string {
+  return typeof value === 'number' && Number.isFinite(value) ? value : t('common.notAvailable')
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
 function displayValue(value: unknown): string {
   return formatMaybeLocalTime(value)
 }
 
 function displaySourceType(value: unknown): string {
-  return String(value) === 'ldap' ? t('settings.identitySources.types.ldap') : 'Active Directory'
+  return String(value) === 'ldap'
+    ? t('settings.identitySources.types.ldap')
+    : t('settings.identitySources.types.activeDirectory')
 }
 
 function displayEnabled(value: unknown): string {
@@ -342,6 +455,14 @@ onMounted(async () => {
               </td>
               <td>
                 <div class="identity-sources__row-actions">
+                  <button
+                    class="gc-button"
+                    type="button"
+                    :disabled="Boolean(testingSourceId)"
+                    @click="openConnectionTest(item)"
+                  >
+                    {{ testingSourceId === String(item.id) ? t('settings.identitySources.actions.testing') : t('settings.identitySources.actions.testConnection') }}
+                  </button>
                   <button class="gc-button" type="button" @click="openEditDialog(item)">{{ t('settings.identitySources.actions.edit') }}</button>
                   <GcConfirmAction
                     :action-name="t('settings.identitySources.actions.delete')"
@@ -372,33 +493,33 @@ onMounted(async () => {
           </label>
           <label class="identity-source-form__field">
             <span>{{ t('settings.identitySources.fields.domain') }}</span>
-            <input v-model="draft.domain" placeholder="example.com" autocomplete="off" />
+            <input v-model="draft.domain" :placeholder="t('settings.identitySources.placeholders.domain')" autocomplete="off" />
           </label>
           <label class="identity-source-form__field">
             <span>{{ t('settings.identitySources.fields.protocol') }} <strong>*</strong></span>
             <div class="identity-source-form__protocols">
               <label class="identity-source-form__protocol-option">
                 <input v-model="draft.protocol" type="radio" value="ldap" />
-                <span>LDAP</span>
+                <span>{{ t('settings.identitySources.protocols.ldap') }}</span>
               </label>
               <label class="identity-source-form__protocol-option">
                 <input v-model="draft.protocol" type="radio" value="ldaps" />
-                <span>LDAPS</span>
+                <span>{{ t('settings.identitySources.protocols.ldaps') }}</span>
               </label>
             </div>
           </label>
           <label class="identity-source-form__field">
             <span>{{ t('settings.identitySources.fields.serverAddress') }} <strong>*</strong></span>
-            <input v-model="draft.host" placeholder="ad.example.com:636" autocomplete="off" />
+            <input v-model="draft.host" :placeholder="t('settings.identitySources.placeholders.serverAddress')" autocomplete="off" />
             <small>{{ t('settings.identitySources.labels.finalUrl', { url: derivedUrl }) }}</small>
           </label>
           <label class="identity-source-form__field">
-            <span>Base DN <strong>*</strong></span>
-            <input v-model="draft.baseDn" placeholder="DC=example,DC=com" autocomplete="off" />
+            <span>{{ t('settings.identitySources.fields.baseDn') }} <strong>*</strong></span>
+            <input v-model="draft.baseDn" :placeholder="t('settings.identitySources.placeholders.baseDn')" autocomplete="off" />
           </label>
           <label class="identity-source-form__field">
             <span>{{ t('settings.identitySources.fields.bindDn') }} <strong>*</strong></span>
-            <input v-model="draft.bindDn" placeholder="CN=svc-gcac,OU=Users,DC=example,DC=com" autocomplete="off" />
+            <input v-model="draft.bindDn" :placeholder="t('settings.identitySources.placeholders.bindDn')" autocomplete="off" />
           </label>
           <label class="identity-source-form__field identity-source-form__field--full">
             <span>{{ t('settings.identitySources.fields.bindPassword') }} <strong>{{ editorMode === 'create' ? '*' : '' }}</strong></span>
@@ -420,7 +541,7 @@ onMounted(async () => {
             <label class="identity-source-form__field">
               <span>{{ t('settings.identitySources.fields.directoryType') }}</span>
               <select v-model="draft.type">
-                <option value="active_directory">Microsoft Active Directory</option>
+                <option value="active_directory">{{ t('settings.identitySources.types.activeDirectory') }}</option>
                 <option value="ldap">{{ t('settings.identitySources.types.ldap') }}</option>
               </select>
             </label>
@@ -472,6 +593,55 @@ onMounted(async () => {
         </button>
       </template>
     </GcModal>
+
+    <GcModal
+      v-model:open="connectionTestOpen"
+      :title="t('settings.identitySources.test.dialogTitle')"
+      :description="t('settings.identitySources.test.dialogDescription', {
+        name: displayValue(connectionTestSource?.name),
+        server: displayServer(connectionTestSource?.url),
+      })"
+      size="lg"
+      @update:open="(value) => { if (!value) closeConnectionTest() }"
+    >
+      <section class="identity-source-test">
+        <p v-if="connectionTestLoading" class="identity-source-test__loading">
+          {{ t('settings.identitySources.test.loading') }}
+        </p>
+        <p v-else-if="connectionTestError" class="identity-source-test__error">
+          {{ connectionTestError }}
+        </p>
+        <template v-else-if="connectionTestResult">
+          <p
+            class="identity-source-test__summary"
+            :class="connectionTestResult.ok ? 'identity-source-test__summary--passed' : 'identity-source-test__summary--failed'"
+          >
+            {{ connectionTestSummary(connectionTestResult) }}
+          </p>
+          <div class="identity-source-test__checks">
+            <article
+              v-for="check in connectionChecks"
+              :key="check.key"
+              class="identity-source-test__check"
+              :class="`identity-source-test__check--${check.status}`"
+            >
+              <span class="identity-source-test__icon" aria-hidden="true">{{ connectionCheckIcon(check.status) }}</span>
+              <div class="identity-source-test__content">
+                <strong>{{ connectionCheckTitle(check.key) }}</strong>
+                <span class="identity-source-test__status">{{ connectionCheckStatus(check.status) }}</span>
+                <p>{{ connectionCheckMessage(check) }}</p>
+              </div>
+            </article>
+          </div>
+        </template>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="connectionTestLoading" @click="closeConnectionTest">
+          {{ t('common.close') }}
+        </button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -511,7 +681,7 @@ onMounted(async () => {
 }
 .identity-sources__enabled-badge { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .identity-sources__enabled-badge--disabled { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
-.identity-sources__row-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--gc-space-2); min-width: 142px; white-space: nowrap; }
+.identity-sources__row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-2); min-width: 142px; }
 .identity-sources__row-actions :deep(.gc-button) { flex: 0 0 auto; white-space: nowrap; }
 
 .identity-source-form__message { margin: 0; color: var(--gc-color-success); font-weight: 800; }
@@ -545,6 +715,54 @@ onMounted(async () => {
 .identity-source-form__advanced { display: grid; gap: var(--gc-space-3); border-top: 1px solid var(--gc-color-border); padding-top: var(--gc-space-3); }
 .identity-source-form__advanced-toggle { width: fit-content; border: 0; padding: 0; color: var(--gc-color-primary); background: transparent; font-weight: 800; cursor: pointer; }
 .identity-source-form__checkbox { display: inline-flex; align-items: center; gap: 10px; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); font-weight: 750; }
+
+.identity-source-test { display: grid; gap: var(--gc-space-4); }
+.identity-source-test__loading,
+.identity-source-test__error,
+.identity-source-test__summary { margin: 0; }
+.identity-source-test__loading { color: var(--gc-color-text-muted); font-weight: 750; }
+.identity-source-test__error {
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+  font-weight: 750;
+}
+.identity-source-test__summary { font-weight: 800; }
+.identity-source-test__summary--passed { color: var(--gc-color-success); }
+.identity-source-test__summary--failed { color: var(--gc-color-danger); }
+.identity-source-test__checks { display: grid; }
+.identity-source-test__check {
+  display: grid;
+  grid-template-columns: var(--gc-space-8) minmax(0, 1fr);
+  gap: var(--gc-space-3);
+  align-items: start;
+  padding: var(--gc-space-4) 0;
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+}
+.identity-source-test__check:first-child { padding-top: 0; }
+.identity-source-test__check:last-child { padding-bottom: 0; border-bottom: 0; }
+.identity-source-test__icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--gc-space-6);
+  height: var(--gc-space-6);
+  border-radius: 50%;
+  color: var(--gc-color-muted);
+  background: var(--gc-color-muted-bg);
+  font-size: var(--gc-font-size-lg);
+  font-weight: 900;
+  line-height: 1;
+}
+.identity-source-test__check--passed .identity-source-test__icon { color: var(--gc-color-success-soft); background: var(--gc-color-success); }
+.identity-source-test__check--failed .identity-source-test__icon { color: var(--gc-color-danger-soft); background: var(--gc-color-danger); }
+.identity-source-test__content { display: grid; gap: var(--gc-space-1); }
+.identity-source-test__content strong { color: var(--gc-color-text); font-size: var(--gc-font-size-lg); }
+.identity-source-test__status { color: var(--gc-color-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }
+.identity-source-test__check--passed .identity-source-test__status { color: var(--gc-color-success); }
+.identity-source-test__check--failed .identity-source-test__status { color: var(--gc-color-danger); }
+.identity-source-test__content p { margin: 0; color: var(--gc-color-text-muted); line-height: 1.55; }
 
 @media (max-width: 860px) {
   .identity-sources__header { flex-direction: column; }

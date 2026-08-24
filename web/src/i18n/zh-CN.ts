@@ -30,6 +30,7 @@ export default {
     edit: '编辑',
     delete: '删除',
     notAvailable: '暂无',
+    close: '关闭',
     unknownError: '未知错误',
     userFallback: '未登录用户',
     tenantFallback: '默认租户'
@@ -619,7 +620,6 @@ export default {
     retry: '重试',
     resourceList: '{resource}列表',
     total: '总数 {count}',
-    dangerConfirmRequired: '高风险操作需确认',
     all: '全部',
     clearFilters: '清空筛选',
     pagination: '第 {page} 页 / 每页 {pageSize} 条',
@@ -2347,6 +2347,8 @@ export default {
         create: '创建身份源',
         edit: '编辑',
         delete: '删除',
+        testConnection: '测试连通性',
+        testing: '检测中...',
         creating: '创建中...',
         saving: '保存中...',
         saveChanges: '保存修改',
@@ -2376,6 +2378,7 @@ export default {
         domain: '域名',
         protocol: '协议',
         serverAddress: '服务器地址',
+        baseDn: 'Base DN',
         bindDn: '服务账号 DN',
         bindPassword: '服务账号密码',
         directoryType: '目录类型',
@@ -2389,11 +2392,15 @@ export default {
       },
       placeholders: {
         name: '例如：企业 AD',
+        domain: '例如：example.com',
+        serverAddress: '例如：ad.example.com:636',
+        baseDn: '例如：DC=example,DC=com',
+        bindDn: '例如：CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: '输入服务账号密码',
         bindPasswordEdit: '留空表示沿用现有密码',
         autoByDirectoryType: '留空则按目录类型自动推导',
-        userFilter: '例如：(uid={{username}})',
-        groupFilter: '例如：(member={{userDn}})'
+        userFilter: "例如：(uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "例如：(member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: '最终地址：{url}'
@@ -2407,10 +2414,51 @@ export default {
         disabledShort: '禁用'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: '标准 LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: '删除身份源后，该目录的登录、同步和组映射都会失效。'
+      },
+      test: {
+        dialogTitle: '测试身份源连通性',
+        dialogDescription: '正在检测 {name}（{server}）的 DNS、LDAP 认证端口和 BIND 状态。',
+        loading: '正在依次检测 DNS、LDAP 认证端口和 BIND 状态...',
+        checks: {
+          dns: { title: '检查 DNS 解析' },
+          port: { title: '检查 LDAP 认证端口' },
+          bind: { title: '检查 LDAP BIND' }
+        },
+        status: {
+          passed: '成功',
+          failed: '失败',
+          skipped: '已跳过'
+        },
+        messages: {
+          summaryPassed: 'LDAP 连通性检测全部通过',
+          summaryFailed: 'LDAP 连通性检测未通过',
+          dnsIp: '目标是 IP 地址，无需进行 DNS 查询',
+          dnsResolved: 'DNS 解析成功：{addresses}',
+          dnsFailed: 'DNS 解析失败',
+          portReachable: '{protocol} 认证端口 {port} 可连通',
+          portFailed: 'LDAP 认证端口不可达',
+          bindServicePassed: 'LDAP 服务账号 BIND 和 Base DN 查询成功',
+          bindAnonymousPassed: '匿名 LDAP BIND 和 Base DN 查询成功',
+          bindFailed: 'LDAP BIND 或 Base DN 查询失败',
+          skippedInvalidUrl: '由于 LDAP 地址无效，已跳过',
+          skippedDnsFailed: '由于 DNS 解析失败，已跳过',
+          skippedPortFailed: '由于 LDAP 认证端口不可达，已跳过',
+          unknownCheck: '检测项未通过（{code}）',
+          checkNotReturned: '服务端未返回该检测项结果。'
+        },
+        errors: {
+          emptyResult: '服务端未返回连通性检测结果',
+          requestFailed: '连通性检测请求失败'
+        }
       },
       secret: {
         bindPasswordName: '{name} LDAP 服务账号密码'

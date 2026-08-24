@@ -31,6 +31,7 @@ export default {
     edit: 'Modifier',
     delete: 'Supprimer',
     notAvailable: 'Indisponible',
+    close: 'Fermer',
     unknownError: 'Erreur inconnue',
     userFallback: 'Guest user',
     tenantFallback: 'Default tenant'
@@ -620,7 +621,6 @@ export default {
     retry: 'Retry',
     resourceList: '{resource} list',
     total: 'Total {count}',
-    dangerConfirmRequired: 'High-risk action requires confirmation',
     all: 'All',
     clearFilters: 'Clear filters',
     pagination: 'Page {page} / {pageSize} per page',
@@ -2291,6 +2291,8 @@ export default {
         create: 'Create identity source',
         edit: 'Edit',
         delete: 'Delete',
+        testConnection: 'Tester la connectivité',
+        testing: 'Test en cours...',
         creating: 'Creating...',
         saving: 'Saving...',
         saveChanges: 'Save changes',
@@ -2320,6 +2322,7 @@ export default {
         domain: 'Domain',
         protocol: 'Protocol',
         serverAddress: 'Server address',
+        baseDn: 'Base DN',
         bindDn: 'Service account DN',
         bindPassword: 'Service account password',
         directoryType: 'Directory type',
@@ -2333,11 +2336,15 @@ export default {
       },
       placeholders: {
         name: 'For example: Enterprise AD',
+        domain: 'For example: example.com',
+        serverAddress: 'For example: ad.example.com:636',
+        baseDn: 'For example: DC=example,DC=com',
+        bindDn: 'For example: CN=svc-gcac,OU=Users,DC=example,DC=com',
         bindPasswordCreate: 'Enter the service account password',
         bindPasswordEdit: 'Leave empty to keep the existing password',
         autoByDirectoryType: 'Leave empty to derive from directory type',
-        userFilter: 'For example: (uid={{username}})',
-        groupFilter: 'For example: (member={{userDn}})'
+        userFilter: "For example: (uid={'{'}{'{'}username{'}'}{'}'})",
+        groupFilter: "For example: (member={'{'}{'{'}userDn{'}'}{'}'})"
       },
       labels: {
         finalUrl: 'Final URL: {url}'
@@ -2351,10 +2358,51 @@ export default {
         disabledShort: 'Disabled'
       },
       types: {
+        activeDirectory: 'Active Directory',
         ldap: 'Standard LDAP'
+      },
+      protocols: {
+        ldap: 'LDAP',
+        ldaps: 'LDAPS'
       },
       risks: {
         delete: 'Deleting the identity source invalidates login, sync, and group mappings for this directory.'
+      },
+      test: {
+        dialogTitle: 'Tester la connectivité de la source d’identité',
+        dialogDescription: 'Vérification du DNS, du port d’authentification LDAP et de l’état BIND pour {name} ({server}).',
+        loading: 'Vérification séquentielle du DNS, du port d’authentification LDAP et de l’état BIND...',
+        checks: {
+          dns: { title: 'Vérifier la résolution DNS' },
+          port: { title: 'Vérifier le port d’authentification LDAP' },
+          bind: { title: 'Vérifier LDAP BIND' }
+        },
+        status: {
+          passed: 'Réussi',
+          failed: 'Échec',
+          skipped: 'Ignoré'
+        },
+        messages: {
+          summaryPassed: 'Tous les contrôles de connectivité LDAP ont réussi',
+          summaryFailed: 'Les contrôles de connectivité LDAP ont échoué',
+          dnsIp: 'La cible est une adresse IP ; la résolution DNS était inutile',
+          dnsResolved: 'Résolution DNS réussie : {addresses}',
+          dnsFailed: 'Échec de la résolution DNS',
+          portReachable: 'Le port d’authentification {protocol} {port} est accessible',
+          portFailed: 'Le port d’authentification LDAP est inaccessible',
+          bindServicePassed: 'Le BIND du compte de service LDAP et la requête Base DN ont réussi',
+          bindAnonymousPassed: 'Le BIND LDAP anonyme et la requête Base DN ont réussi',
+          bindFailed: 'Le BIND LDAP ou la requête Base DN a échoué',
+          skippedInvalidUrl: 'Ignoré car l’adresse LDAP est invalide',
+          skippedDnsFailed: 'Ignoré car la résolution DNS a échoué',
+          skippedPortFailed: 'Ignoré car le port d’authentification LDAP est inaccessible',
+          unknownCheck: 'Le contrôle a échoué ({code})',
+          checkNotReturned: 'Le serveur n’a pas renvoyé le résultat de ce contrôle.'
+        },
+        errors: {
+          emptyResult: 'Le serveur n’a pas renvoyé de résultat de test de connectivité',
+          requestFailed: 'La demande de test de connectivité a échoué'
+        }
       },
       secret: {
         bindPasswordName: '{name} LDAP service account password'

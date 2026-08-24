@@ -243,6 +243,25 @@ export function deleteIdentitySource(id: string): Promise<ApiResult<{ id: string
   })
 }
 
+export type IdentitySourceConnectionCheckKey = 'dns' | 'port' | 'bind'
+export type IdentitySourceConnectionCheckStatus = 'passed' | 'failed' | 'skipped'
+
+export interface IdentitySourceConnectionCheck {
+  readonly key: IdentitySourceConnectionCheckKey
+  readonly status: IdentitySourceConnectionCheckStatus
+  readonly code: string
+  readonly message: string
+  readonly details?: Record<string, unknown>
+}
+
+export interface IdentitySourceConnectionTestResult {
+  readonly ok: boolean
+  readonly code: string
+  readonly message: string
+  readonly checks: readonly IdentitySourceConnectionCheck[]
+  readonly requestId?: string
+}
+
 export function listSecrets(query?: BusinessListQuery): Promise<ApiPageResult> {
   return listRecords('/api/v1/secrets', query)
 }
@@ -258,8 +277,8 @@ export function createSecret(body: {
   return apiClient.post<{ id: string; secretRef: string }>('/v1/secrets', body)
 }
 
-export function testIdentitySource(sourceId: string): Promise<ApiResult<{ ok: boolean; message: string }>> {
-  return apiClient.post<{ ok: boolean; message: string }>('/v1/security/identity-sources/test', { sourceId })
+export function testIdentitySource(sourceId: string): Promise<ApiResult<IdentitySourceConnectionTestResult>> {
+  return apiClient.post<IdentitySourceConnectionTestResult>('/v1/security/identity-sources/test', { sourceId })
 }
 
 export function syncIdentitySourceUsers(body: { sourceId: string; usernamePrefix?: string; pageSize?: number }): Promise<ApiResult<ApiRecord>> {
