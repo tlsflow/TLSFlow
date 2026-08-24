@@ -4,12 +4,19 @@ export interface ApiClientOptions {
   readonly baseUrl?: string
   readonly timeoutMs?: number
   readonly getToken?: () => string | null
+  readonly getRequestContext?: () => ApiRequestContext | null
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   readonly body?: unknown
   readonly idempotencyKey?: string
   readonly timeoutMs?: number
+}
+
+export interface ApiRequestContext {
+  readonly actorId?: string | null
+  readonly actorType?: string | null
+  readonly tenantId?: string | null
 }
 
 export class ApiClientError extends Error {
@@ -38,11 +45,13 @@ export class ApiClient {
   private readonly baseUrl: string
   private readonly timeoutMs: number
   private readonly getToken?: () => string | null
+  private readonly getRequestContext?: () => ApiRequestContext | null
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api'
     this.timeoutMs = options.timeoutMs ?? 30_000
     this.getToken = options.getToken
+    this.getRequestContext = options.getRequestContext
   }
 
   async request<T>(path: string, options: ApiRequestOptions = {}): Promise<ApiResult<T>> {
@@ -56,6 +65,14 @@ export class ApiClient {
     const token = this.getToken?.()
     if (token) {
       headers.set('Authorization', `Bearer ${token}`)
+    }
+    const requestContext = this.getRequestContext?.()
+    if (requestContext?.actorId) {
+      headers.set('X-Actor-Id', requestContext.actorId)
+      headers.set('X-Actor-Type', requestContext.actorType ?? 'user')
+    }
+    if (requestContext?.tenantId) {
+      headers.set('X-Tenant-Id', requestContext.tenantId)
     }
     if (options.idempotencyKey) {
       headers.set('X-Idempotency-Key', options.idempotencyKey)
@@ -115,4 +132,12 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient()
+let apiRequestContextProvider: (() => ApiRequestContext | null) | undefined
+
+export function setApiRequestContextProvider(provider: (() => ApiRequestContext | null) | undefined): void {
+  apiRequestContextProvider = provider
+}
+
+export const apiClient = new ApiClient({
+  getRequestContext: () => apiRequestContextProvider?.() ?? null
+})
