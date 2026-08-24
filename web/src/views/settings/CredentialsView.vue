@@ -260,6 +260,7 @@ onMounted(load)
     <GcPageHeader :title="t('credentials.title')" :description="t('credentials.description')">
       <template #actions>
         <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
+        <RouterLink class="gc-button" to="/settings/browser-credentials">{{ t('credentials.browser.actions.open') }}</RouterLink>
         <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
       </template>
     </GcPageHeader>

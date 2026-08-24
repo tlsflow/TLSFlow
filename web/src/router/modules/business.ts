@@ -426,6 +426,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/settings/browser-credentials',
+    name: 'settings.browserCredentials',
+    component: () => import('@/views/settings/BrowserCredentialsView.vue'),
+    meta: {
+      title: 'credentials.browser.title',
+      titleKey: 'credentials.browser.title',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'credential.create',
+      resourceType: 'credential',
+      riskLevel: 'high',
+      breadcrumbKeys: ['nav.systemSettings', 'credentials.browser.title'],
+      keepAlive: false
+    }
+  },
+  {
     path: '/settings/version',
     name: 'settings.version',
     component: () => import('@/views/settings/VersionView.vue'),

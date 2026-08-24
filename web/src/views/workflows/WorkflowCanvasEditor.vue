@@ -357,7 +357,7 @@ function updateHttpAuthType(event: Event) {
 
 function runtimeCredentialOptions(key: string): CredentialProfileOption[] {
   const allowedKinds = canvas.value.inputContract.credentials[key]?.allowedKinds ?? []
-  return managedCredentials.value.filter((item) => allowedKinds.includes(item.kind))
+  return managedCredentials.value.filter((item) => allowedKinds.includes(item.kind as typeof allowedKinds[number]))
 }
 
 function resolveRuntimeCredentialId(key: string): string {

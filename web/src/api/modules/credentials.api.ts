@@ -2,7 +2,7 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import type { ApiResult } from '@/api/generated/client-types'
 import { toClientPath } from './common'
 
-export type CredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'DNS_PROVIDER'
+export type CredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'DNS_PROVIDER' | 'BROWSER_SESSION'
 
 export interface CredentialProfileSummary {
   id: string
@@ -93,4 +93,47 @@ export function updateCredentialStatus(id: string, expectedVersion: number, stat
 
 export function deleteCredential(id: string): Promise<ApiResult<{ id: string; deleted: true }>> {
   return apiClient.request<{ id: string; deleted: true }>(toClientPath('/api/v1/credentials/delete'), { method: 'DELETE', body: { id }, idempotencyKey: createIdempotencyKey('credential_delete') })
+}
+
+export type BrowserCredentialSessionStatus = 'CREATING' | 'READY_FOR_ACQUISITION' | 'ACQUIRING' | 'SAVED' | 'FAILED' | 'EXPIRED' | 'CLOSED'
+
+export interface BrowserCredentialSession {
+  id: string
+  assetId: string
+  pluginVersionId: string
+  workflowVersionId: string
+  status: BrowserCredentialSessionStatus
+  temporaryUrl?: string
+  expiresAt: string
+  credentialId?: string
+  errorCode?: string
+  errorMessage?: string
+  capability: {
+    pluginId: string
+    pluginVersion: string
+    loginUrl: string
+    outputParameters: string[]
+  }
+}
+
+export interface CreateBrowserCredentialSessionInput {
+  assetId: string
+  pluginVersionId: string
+  ttlSeconds?: number
+}
+
+export function createBrowserCredentialSession(input: CreateBrowserCredentialSessionInput): Promise<ApiResult<BrowserCredentialSession>> {
+  return apiClient.post<BrowserCredentialSession>(toClientPath('/api/v1/credentials/browser-sessions'), input, { idempotencyKey: createIdempotencyKey('browser_credential_session') })
+}
+
+export function getBrowserCredentialSession(id: string): Promise<ApiResult<BrowserCredentialSession>> {
+  return apiClient.get<BrowserCredentialSession>(`${toClientPath('/api/v1/credentials/browser-sessions')}/${encodeURIComponent(id)}`)
+}
+
+export function acquireBrowserCredentialSession(id: string): Promise<ApiResult<BrowserCredentialSession>> {
+  return apiClient.post<BrowserCredentialSession>(`${toClientPath('/api/v1/credentials/browser-sessions')}/${encodeURIComponent(id)}/acquire`, {}, { idempotencyKey: createIdempotencyKey('browser_credential_acquire'), timeoutMs: 120_000 })
+}
+
+export function cancelBrowserCredentialSession(id: string): Promise<ApiResult<BrowserCredentialSession>> {
+  return apiClient.post<BrowserCredentialSession>(`${toClientPath('/api/v1/credentials/browser-sessions')}/${encodeURIComponent(id)}/cancel`, {}, { idempotencyKey: createIdempotencyKey('browser_credential_cancel') })
 }
