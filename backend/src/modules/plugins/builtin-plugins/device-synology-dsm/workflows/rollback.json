@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "synology-dsm-certificate-rollback", "displayName": "Synology DSM certificate rollback", "category": "certificate", "version": "1.0.3", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "synology-dsm-certificate-rollback", "displayName": "Synology DSM certificate rollback", "category": "certificate", "version": "1.0.8", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": { "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }, "previousCertificate": { "type": "object", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.rollback.previousCertificate" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed", "sensitive": true } },

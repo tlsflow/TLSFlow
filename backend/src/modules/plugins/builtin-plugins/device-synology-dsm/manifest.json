@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.synology-dsm",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "displayNameKey": "plugin.synologyDsm.name",
   "descriptionKey": "plugin.synologyDsm.description",
   "logoUrl": "/plugin-logos/synology.svg",

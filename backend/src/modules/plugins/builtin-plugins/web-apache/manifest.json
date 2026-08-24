@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "displayNameKey": "plugin.webApache.name",
   "descriptionKey": "plugin.webApache.description",
   "defaultLocale": "zh-CN",

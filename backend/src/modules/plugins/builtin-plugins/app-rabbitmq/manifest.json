@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "app.rabbitmq",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "displayNameKey": "plugin.appRabbitmq.name",
   "descriptionKey": "plugin.appRabbitmq.description",
   "defaultLocale": "zh-CN",
