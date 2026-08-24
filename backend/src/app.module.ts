@@ -60,6 +60,10 @@ import {
   requireProductionPolicyAuthorityServicesV1,
   type ProductionPolicyAuthorityServicesV1,
 } from './modules/agents/security/policy-authority.service.js';
+import {
+  createProductionPolicyAuthorityProcessClientV1,
+  type PolicyAuthorityProcessClientV1,
+} from './modules/agents/security/policy-authority-process.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
@@ -69,6 +73,7 @@ import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/p
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import {
   createUnifiedAgentPlanPolicyAuthorityPortV1,
+  createUnifiedAgentPlanPolicyAuthorityProcessPortV1,
   type UnifiedAgentPlanAuthorizationDependenciesV1,
   type UnifiedAgentPlanGrantPortV1,
   type UnifiedAgentPlanLocalPolicyPortV1,
@@ -127,6 +132,7 @@ import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/pr
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
 import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
+import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate } from './modules/plugins/runner/host-api.request-gate.js';
 import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
 
 export interface AppDependencies {
@@ -233,6 +239,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       workflowRecovery: workflowRecoveryService,
       executionDetails: executionDetailStream,
       executions: executionPersistence.executions,
+      requestGate: new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(appDb)),
     })
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
@@ -684,20 +691,29 @@ export function registerPolicyAuthorityServices(
   app: App,
   injected?: ProductionPolicyAuthorityServicesV1,
   environment: NodeJS.ProcessEnv = process.env,
-): ProductionPolicyAuthorityServicesV1 | undefined {
+): ProductionPolicyAuthorityServicesV1 | PolicyAuthorityProcessClientV1 | undefined {
   const policyAuthority = injected === undefined
-    ? (environment.NODE_ENV === 'production' ? createProductionPolicyAuthorityServicesV1(environment) : undefined)
+    ? (environment.NODE_ENV === 'production'
+      ? (environment.GCAC_POLICY_AUTHORITY_PROCESS_ROLE === 'standalone'
+        ? createProductionPolicyAuthorityServicesV1(environment)
+        : createProductionPolicyAuthorityProcessClientV1(environment))
+      : undefined)
     : (environment.NODE_ENV === 'production' ? requireProductionPolicyAuthorityServicesV1(injected) : injected);
   if (!policyAuthority) return undefined;
-  app.setResource('policyAuthorityService', policyAuthority.service);
-  app.setResource('policyAuthorityTrustRootService', policyAuthority.trustRoot);
-  app.setResource('policyAuthorityKeySetService', policyAuthority.keySet);
-  app.setResource('policyAuthoritySigningKeySource', policyAuthority.signingKeys);
+  if ('service' in policyAuthority) {
+    app.setResource('policyAuthorityService', policyAuthority.service);
+    app.setResource('policyAuthorityTrustRootService', policyAuthority.trustRoot);
+    app.setResource('policyAuthorityKeySetService', policyAuthority.keySet);
+    app.setResource('policyAuthoritySigningKeySource', policyAuthority.signingKeys);
+  } else {
+    app.setResource('policyAuthorityProcessClient', policyAuthority);
+    app.setResource('policyAuthorityService', policyAuthority);
+  }
   return policyAuthority;
 }
 
 function createAgentPlanAuthorizationDependencies(
-  policyAuthorityServices: ProductionPolicyAuthorityServicesV1 | undefined,
+  policyAuthorityServices: ProductionPolicyAuthorityServicesV1 | PolicyAuthorityProcessClientV1 | undefined,
   security: SecurityServices,
   localPolicy: UnifiedAgentPlanLocalPolicyPortV1 | undefined,
 ): UnifiedAgentPlanAuthorizationDependenciesV1 | undefined {
@@ -706,8 +722,11 @@ function createAgentPlanAuthorizationDependencies(
   const grants: UnifiedAgentPlanGrantPortV1 = {
     validate: (input) => security.grants.validate(input),
   };
+  const policyAuthority = 'service' in policyAuthorityServices
+    ? createUnifiedAgentPlanPolicyAuthorityPortV1(policyAuthorityServices)
+    : createUnifiedAgentPlanPolicyAuthorityProcessPortV1(policyAuthorityServices);
   return {
-    policyAuthority: createUnifiedAgentPlanPolicyAuthorityPortV1(policyAuthorityServices),
+    policyAuthority,
     grants,
     localPolicy,
   };

@@ -8,13 +8,14 @@ import {
   type PolicyAuthorityAuthorizationResultV1,
   type ProductionPolicyAuthorityServicesV1,
 } from '../../agents/security/policy-authority.service.js';
+import type { PolicyAuthorityProcessClientV1 } from '../../agents/security/policy-authority-process.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ExecutionGrantEntity } from '../../../persistence/entities/execution-grant.entity.js';
 
 export interface UnifiedAgentPlanPolicyAuthorityPortV1 {
   /** 读取并验证生产授权边界；任何安全依赖缺失都必须抛错。 */
   assertReady(): void;
-  issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1;
+  issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 | Promise<PolicyAuthorityAuthorizationResultV1>;
 }
 
 export interface UnifiedAgentPlanGrantPortV1 {
@@ -53,6 +54,19 @@ export function createUnifiedAgentPlanPolicyAuthorityPortV1(
   return {
     assertReady: () => assertProductionPolicyAuthorityReady(production),
     issueAuthorization: (request) => production.service.issueAuthorization(request),
+  };
+}
+
+/**
+ * 生产宿主只持有 Policy Authority IPC 客户端，不持有签发私钥或进程内签发服务。
+ */
+export function createUnifiedAgentPlanPolicyAuthorityProcessPortV1(
+  client: PolicyAuthorityProcessClientV1,
+): UnifiedAgentPlanPolicyAuthorityPortV1 {
+  client.assertReady();
+  return {
+    assertReady: () => client.assertReady(),
+    issueAuthorization: (request) => client.issueAuthorization(request),
   };
 }
 

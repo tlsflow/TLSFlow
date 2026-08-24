@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://policy-authority-ipc/v1",
+  "title": "GCAC Policy Authority 独立进程 IPC v1",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "method": { "enum": ["hello", "health", "issueAuthorization", "revokeToken", "revokeDecision", "revokeKey", "refreshKeySet", "shutdown"] },
+    "payload": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "mayBeUnknown", "secretRedacted"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" },
+        "mayBeUnknown": { "type": "boolean" },
+        "secretRedacted": { "const": true }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "requestId", "method"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.policy-authority-ipc/v1" },
+        "requestId": { "$ref": "#/$defs/id" },
+        "method": { "$ref": "#/$defs/method" },
+        "payload": { "$ref": "#/$defs/payload" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "requestId", "method", "ok"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.policy-authority-ipc/v1" },
+        "requestId": { "$ref": "#/$defs/id" },
+        "method": { "$ref": "#/$defs/method" },
+        "ok": { "type": "boolean" },
+        "result": { "$ref": "#/$defs/payload" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    }
+  ]
+}

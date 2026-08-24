@@ -181,7 +181,7 @@ export class UnifiedAgentPlanCompilerService {
         failClosed(input, 'Agent 本地策略缺失、禁用或未覆盖全部 Plan 操作');
       }
 
-      const result = dependencies.policyAuthority.issueAuthorization({
+      const result = await dependencies.policyAuthority.issueAuthorization({
         agentId: input.agentId,
         tenantId: input.tenantId,
         pluginId: plan.pluginId,
