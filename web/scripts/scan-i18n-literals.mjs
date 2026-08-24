@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const webRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(webRoot, '..')
 const sourceRoot = path.join(webRoot, 'src')
-const reportPath = path.join(repoRoot, 'docs', '项目规范', '20260707-i18n未国际化文本扫描清单.md')
+const reportPath = path.join(repoRoot, 'docs', '检查报告', '20260707-i18n未国际化文本扫描清单.md')
 
 const scanExtensions = new Set(['.vue', '.ts', '.tsx', '.js', '.jsx'])
 const ignoredPathParts = [
