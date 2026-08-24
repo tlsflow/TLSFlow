@@ -25,5 +25,7 @@ describe('权限 Store', () => {
     await store.loadPermissions()
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/certificates'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/certificates'])
   })
 })
+

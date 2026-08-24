@@ -25,5 +25,7 @@ export interface MenuItem {
   readonly path: string
   readonly module: string
   readonly permission?: string
+  readonly icon?: string
+  readonly description?: string
   readonly children?: readonly MenuItem[]
 }

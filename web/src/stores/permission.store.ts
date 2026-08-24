@@ -8,8 +8,20 @@ interface PermissionState {
   loadedAt: string | null
 }
 
-function hasMenuPermission(item: MenuItem, permissionSet: Set<string>): boolean {
+function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>): boolean {
   return !item.permission || permissionSet.has(item.permission)
+}
+
+function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | null {
+  const children = item.children
+    ?.map((child) => filterMenuItem(child, permissionSet))
+    .filter((child): child is MenuItem => Boolean(child)) ?? []
+
+  if (!hasOwnMenuPermission(item, permissionSet) && children.length === 0) {
+    return null
+  }
+
+  return children.length > 0 ? { ...item, children } : { ...item, children: undefined }
 }
 
 export const usePermissionStore = defineStore('permission', {
@@ -21,7 +33,9 @@ export const usePermissionStore = defineStore('permission', {
     isLoaded: (state) => Boolean(state.loadedAt),
     permissionSet: (state) => new Set(state.permissions),
     visibleMenuItems(): readonly MenuItem[] {
-      return mainMenuItems.filter((item) => hasMenuPermission(item, this.permissionSet))
+      return mainMenuItems
+        .map((item) => filterMenuItem(item, this.permissionSet))
+        .filter((item): item is MenuItem => Boolean(item))
     }
   },
   actions: {

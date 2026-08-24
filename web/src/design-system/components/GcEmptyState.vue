@@ -11,6 +11,12 @@ defineProps<{ title: string; description?: string }>()
 </template>
 
 <style scoped>
-.gc-empty-state { text-align: center; padding: var(--gc-space-8); color: var(--gc-color-text-muted); }
-h2 { color: var(--gc-color-text); margin-top: 0; }
+.gc-empty-state {
+  text-align: center;
+  padding: 46px var(--gc-space-8);
+  color: var(--gc-color-text-muted);
+  border-radius: var(--gc-radius-lg);
+  background: linear-gradient(180deg, #fff, #fbfdff);
+}
+h2 { color: var(--gc-color-text); margin-top: 0; letter-spacing: -0.03em; }
 </style>
