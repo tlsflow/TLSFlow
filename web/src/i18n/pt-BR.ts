@@ -1613,7 +1613,10 @@ export default {
     channels: { createTitle: 'Criar canal de notificação' },
     fields: {
       name: 'Nome do canal', type: 'Tipo do canal', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
-      secretRef: 'SecretRef', secretRefPlaceholder: 'Informe apenas um SecretRef, nunca o segredo em texto', testTarget: 'Destino de teste',
+      smtpSecurity: 'Segurança da conexão', smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', secretValuePlaceholder: 'Informe o valor secreto',
+      optionalSecretValuePlaceholder: 'Opcional; informe o valor secreto', wecomWebhookUrl: 'URL Webhook do robô de grupo WeCom', slackWebhookUrl: 'URL Slack Incoming Webhook',
+      webhookUrl: 'URL Webhook', webhookUrlPlaceholder: 'Informe a URL Webhook completa', webhookMethod: 'Método HTTP', webhookHeaders: 'Headers fixos (JSON)',
+      webhookHeadersPlaceholder: 'Exemplo: x-source = gcac', signingSecret: 'Segredo de assinatura HMAC-SHA256', testTarget: 'Destino de teste',
       testTargetPlaceholder: 'Separe destinatários de Email por vírgulas', lastSuccess: 'Último sucesso', latency: 'Latência (ms)',
       createdAt: 'Criado em', updatedAt: 'Atualizado em', failureCategory: 'Categoria da falha', channel: 'Canal de notificação', selectChannel: 'Selecione um canal',
       source: 'Origem do evento', priority: 'Prioridade da rota', dedupeWindow: 'Janela de deduplicação (segundos)', templateKey: 'Chave do modelo', locale: 'Idioma',
@@ -1627,7 +1630,12 @@ export default {
     summary: { routes: 'Rotas de notificação', templates: 'Modelos de notificação', silences: 'Regras de silêncio', recordCount: '{count} registros' },
     empty: { channels: 'Nenhum canal de notificação', deliveries: 'Nenhum registro de entrega', routes: 'Nenhuma rota de notificação', templates: 'Nenhum modelo de notificação', silences: 'Nenhuma regra de silêncio' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: 'Falha ao carregar dados de gerenciamento de notificações', operationFailed: 'Falha na operação de gerenciamento de notificações', testUsesChannelTarget: 'Este canal enviará a notificação de teste para o destino configurado.' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Segredo de assinatura' } },
+    messages: {
+      loadFailed: 'Falha ao carregar dados de gerenciamento de notificações', operationFailed: 'Falha na operação de gerenciamento de notificações', testUsesChannelTarget: 'Este canal enviará a notificação de teste para o destino configurado.',
+      secretStoredHint: 'Este valor será criptografado e não será exibido novamente após a criação.', createSecretFailed: 'Falha ao salvar o valor criptografado', invalidHeaders: 'Os Headers fixos devem ser um objeto JSON válido',
+      smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória'
+    }
   },
   settings: {
     securityLabel: 'Entrada de configurações de segurança',

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcModal, GcSecretInput, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { createSecret } from '@/api/modules/security.api'
 import {
   createNotificationChannel,
   createNotificationRoute,
@@ -64,7 +65,20 @@ const deliveries = ref<NotificationDelivery[]>([])
 const routes = ref<NotificationRouteRecord[]>([])
 const templates = ref<NotificationTemplateRecord[]>([])
 const silences = ref<NotificationSilenceRecord[]>([])
-const channelForm = reactive({ name: '', type: 'email' as NotificationChannelType, host: '', port: '587', from: '', secretRef: '' })
+const channelForm = reactive({
+  name: '',
+  type: 'email' as NotificationChannelType,
+  host: '',
+  port: '587',
+  from: '',
+  smtpSecurity: 'starttls' as 'starttls' | 'ssl',
+  username: '',
+  password: '',
+  webhookUrl: '',
+  method: 'POST',
+  headersJson: '',
+  signingSecret: ''
+})
 const testForm = reactive({ target: '' })
 const routeForm = reactive({ name: '', channelId: '', source: 'monitor', priority: '100', dedupeWindowSeconds: '300' })
 const templateForm = reactive({ templateKey: '', titleTemplate: '', bodyTemplate: '' })
@@ -150,20 +164,83 @@ async function submit(action: () => Promise<void>) {
   }
 }
 
+async function saveChannelSecret(field: string, plainText: string, type: 'password' | 'api_token') {
+  if (!plainText.trim()) return undefined
+  const secret = await createSecret({
+    name: t('notifications.secrets.name', { channel: channelForm.name.trim(), field: t(`notifications.secrets.fields.${field}`) }),
+    type,
+    scopeType: 'global',
+    plainText,
+    metadata: { notificationChannel: true, channelType: channelForm.type, field }
+  })
+  const secretRef = String(secret.data?.secretRef ?? '')
+  if (!secretRef) throw new Error(t('notifications.messages.createSecretFailed'))
+  return secretRef
+}
+
+function webhookHeaders() {
+  const source = channelForm.headersJson.trim()
+  if (!source) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(source) as unknown
+  } catch {
+    throw new Error(t('notifications.messages.invalidHeaders'))
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(t('notifications.messages.invalidHeaders'))
+  }
+  return parsed as Record<string, unknown>
+}
+
 async function createChannel() {
   await submit(async () => {
-    const secretKey = channelForm.type === 'webhook' ? 'url' : channelForm.type === 'email' ? 'password' : 'webhookUrl'
-    const config = channelForm.type === 'email'
-      ? { host: channelForm.host, port: Number(channelForm.port), from: channelForm.from, startTls: true }
-      : {}
+    const secretRefs: Record<string, string> = {}
+    let config: Record<string, unknown> = {}
+    if (channelForm.type === 'email') {
+      if (Boolean(channelForm.username.trim()) !== Boolean(channelForm.password.trim())) {
+        throw new Error(t('notifications.messages.smtpCredentialsPairRequired'))
+      }
+      const [usernameRef, passwordRef] = await Promise.all([
+        saveChannelSecret('smtpUsername', channelForm.username.trim(), 'password'),
+        saveChannelSecret('smtpPassword', channelForm.password, 'password')
+      ])
+      if (usernameRef) secretRefs.username = usernameRef
+      if (passwordRef) secretRefs.password = passwordRef
+      config = {
+        host: channelForm.host.trim(),
+        port: Number(channelForm.port),
+        from: channelForm.from.trim(),
+        secure: channelForm.smtpSecurity === 'ssl',
+        startTls: channelForm.smtpSecurity === 'starttls',
+        rejectUnauthorized: true
+      }
+    } else if (channelForm.type === 'wecom' || channelForm.type === 'slack') {
+      const webhookUrlRef = await saveChannelSecret('webhookUrl', channelForm.webhookUrl.trim(), 'api_token')
+      if (!webhookUrlRef) throw new Error(t('notifications.messages.webhookUrlRequired'))
+      secretRefs.webhookUrl = webhookUrlRef
+    } else {
+      const headers = webhookHeaders()
+      const [urlRef, signingSecretRef] = await Promise.all([
+        saveChannelSecret('webhookUrl', channelForm.webhookUrl.trim(), 'api_token'),
+        saveChannelSecret('signingSecret', channelForm.signingSecret, 'api_token')
+      ])
+      if (!urlRef) throw new Error(t('notifications.messages.webhookUrlRequired'))
+      secretRefs.url = urlRef
+      if (signingSecretRef) secretRefs.signingSecret = signingSecretRef
+      config = { method: channelForm.method, headers }
+    }
     await createNotificationChannel({
       name: channelForm.name,
       type: channelForm.type,
       status: 'disabled',
       config,
-      secretRefs: channelForm.secretRef ? { [secretKey]: channelForm.secretRef } : {}
+      secretRefs
     })
-    Object.assign(channelForm, { name: '', type: 'email', host: '', port: '587', from: '', secretRef: '' })
+    Object.assign(channelForm, {
+      name: '', type: 'email', host: '', port: '587', from: '', smtpSecurity: 'starttls', username: '', password: '',
+      webhookUrl: '', method: 'POST', headersJson: '', signingSecret: ''
+    })
   })
 }
 
@@ -354,8 +431,22 @@ onMounted(refresh)
           <label><span>{{ t('notifications.fields.smtpHost') }}</span><input v-model="channelForm.host" required /></label>
           <label><span>{{ t('notifications.fields.smtpPort') }}</span><input v-model="channelForm.port" type="number" required /></label>
           <label><span>{{ t('notifications.fields.from') }}</span><input v-model="channelForm.from" type="email" required /></label>
+          <label><span>{{ t('notifications.fields.smtpSecurity') }}</span><select v-model="channelForm.smtpSecurity"><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option></select></label>
+          <GcSecretInput v-model="channelForm.username" :label="t('notifications.fields.smtpUsername')" :placeholder="t('notifications.fields.optionalSecretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+          <GcSecretInput v-model="channelForm.password" :label="t('notifications.fields.smtpPassword')" :placeholder="t('notifications.fields.secretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
         </template>
-        <GcSecretInput v-model="channelForm.secretRef" :label="t('notifications.fields.secretRef')" :placeholder="t('notifications.fields.secretRefPlaceholder')" />
+        <template v-else-if="channelForm.type === 'wecom'">
+          <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.wecomWebhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
+        <template v-else-if="channelForm.type === 'slack'">
+          <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.slackWebhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
+        <template v-else>
+          <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.webhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+          <label><span>{{ t('notifications.fields.webhookMethod') }}</span><select v-model="channelForm.method"><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH</option></select></label>
+          <label><span>{{ t('notifications.fields.webhookHeaders') }}</span><textarea v-model="channelForm.headersJson" :placeholder="t('notifications.fields.webhookHeadersPlaceholder')" /></label>
+          <GcSecretInput v-model="channelForm.signingSecret" :label="t('notifications.fields.signingSecret')" :placeholder="t('notifications.fields.optionalSecretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
       </form>
       <form v-else-if="activeDialog === 'test'" id="notification-test-form" class="notifications-page__form" @submit.prevent="testChannel">
         <label v-if="testingChannel?.type === 'email'"><span>{{ t('notifications.fields.testTarget') }}</span><input v-model="testForm.target" :placeholder="t('notifications.fields.testTargetPlaceholder')" required /></label>

@@ -1583,7 +1583,10 @@ const zhCN = {
     channels: { createTitle: '新建通知渠道' },
     fields: {
       name: '渠道名称', type: '渠道类型', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
-      secretRef: 'SecretRef', secretRefPlaceholder: '仅输入 SecretRef，不输入明文密钥', testTarget: '测试接收目标',
+      smtpSecurity: '连接加密', smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', secretValuePlaceholder: '请输入密文内容',
+      optionalSecretValuePlaceholder: '可选；请输入密文内容', wecomWebhookUrl: '企业微信群机器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '请输入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
+      webhookHeadersPlaceholder: '示例：x-source = gcac', signingSecret: 'HMAC-SHA256 签名密钥', testTarget: '测试接收目标',
       testTargetPlaceholder: 'Email 可输入逗号分隔的收件地址', lastSuccess: '最近成功', latency: '延迟（毫秒）',
       createdAt: '创建时间', updatedAt: '更新时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
       source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键', locale: '语言',
@@ -1595,9 +1598,14 @@ const zhCN = {
     },
     rules: { createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则' },
     summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则', recordCount: '共 {count} 条记录' },
-    empty: { channels: '暂无通知渠道记录', deliveries: '暂无投递记录', routes: '暂无通知路由', templates: '暂无通知模板', silences: '暂无静默规则' },
+    empty: { channels: '暂无通知渠道', deliveries: '暂无投递记录', routes: '暂无通知路由', templates: '暂无通知模板', silences: '暂无静默规则' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: '通知管理数据加载失败', operationFailed: '通知管理操作失败', testUsesChannelTarget: '该渠道将使用已配置的接收目标发送测试通知。' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', webhookUrl: 'Webhook URL', signingSecret: '签名密钥' } },
+    messages: {
+      loadFailed: '通知管理数据加载失败', operationFailed: '通知管理操作失败', testUsesChannelTarget: '该渠道将使用已配置的接收目标发送测试通知。',
+      secretStoredHint: '该内容将加密保存，创建后不会明文回显。', createSecretFailed: '密文保存失败', invalidHeaders: '固定 Header 必须是合法的 JSON 对象',
+      smtpCredentialsPairRequired: 'SMTP 用户名和密码必须同时填写', webhookUrlRequired: 'Webhook URL 不能为空'
+    }
   },
   settings: {
     securityLabel: '安全设置入口',
@@ -3058,8 +3066,8 @@ const zhTW = {
     },
     rules: { createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則' },
     summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
-    empty: { channels: '暫無通知渠道記錄', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
-    messages: { loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。' }
+    empty: { channels: '暫無通知渠道', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
+    messages: { ...zhCN.notifications.messages, loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。' }
   },
   designSystem: {
     ...zhCN.designSystem,
@@ -3140,7 +3148,10 @@ const enUS = {
     channels: { createTitle: 'Create Notification Channel' },
     fields: {
       name: 'Channel name', type: 'Channel type', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
-      secretRef: 'SecretRef', secretRefPlaceholder: 'Enter a SecretRef only, never a plaintext secret', testTarget: 'Test recipient',
+      smtpSecurity: 'Connection security', smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', secretValuePlaceholder: 'Enter the secret value',
+      optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete Webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
+      webhookHeadersPlaceholder: 'Example: x-source = gcac', signingSecret: 'HMAC-SHA256 signing secret', testTarget: 'Test recipient',
       testTargetPlaceholder: 'For Email, enter comma-separated recipients', lastSuccess: 'Last success', latency: 'Latency (ms)',
       createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Channel', selectChannel: 'Select a channel',
       source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale',
@@ -3154,7 +3165,12 @@ const enUS = {
     summary: { routes: 'Notification Routes', templates: 'Notification Templates', silences: 'Silence Rules', recordCount: '{count} records' },
     empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret' } },
+    messages: {
+      loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.',
+      secretStoredHint: 'This value is encrypted and will not be shown again after creation.', createSecretFailed: 'Failed to save the encrypted value', invalidHeaders: 'Fixed headers must be a valid JSON object',
+      smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required'
+    }
   },
   api: {
     errors: {

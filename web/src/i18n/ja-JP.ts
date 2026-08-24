@@ -1639,7 +1639,10 @@ export default {
     channels: { createTitle: '通知チャネルを新規作成' },
     fields: {
       name: 'チャネル名', type: 'チャネル種別', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
-      secretRef: 'SecretRef', secretRefPlaceholder: '平文の秘密情報ではなく SecretRef のみ入力', testTarget: 'テスト送信先',
+      smtpSecurity: '接続の暗号化', smtpUsername: 'SMTP ユーザー名', smtpPassword: 'SMTP パスワード', secretValuePlaceholder: '秘密情報を入力',
+      optionalSecretValuePlaceholder: '任意；秘密情報を入力', wecomWebhookUrl: 'WeCom グループボット Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '完全な Webhook URL を入力', webhookMethod: 'HTTP メソッド', webhookHeaders: '固定 Header（JSON）',
+      webhookHeadersPlaceholder: '例：x-source = gcac', signingSecret: 'HMAC-SHA256 署名キー', testTarget: 'テスト送信先',
       testTargetPlaceholder: 'Email はカンマ区切りで入力できます', lastSuccess: '最終成功', latency: '遅延（ミリ秒）',
       createdAt: '作成日時', updatedAt: '更新日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
       source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー', locale: '言語',
@@ -1653,7 +1656,12 @@ export default {
     summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール', recordCount: '{count} 件' },
     empty: { channels: '通知チャネルはありません', deliveries: '配信履歴はありません', routes: '通知ルートはありません', templates: '通知テンプレートはありません', silences: 'サイレンスルールはありません' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: '通知管理データの読み込みに失敗しました', operationFailed: '通知管理の操作に失敗しました', testUsesChannelTarget: '設定済みの送信先へテスト通知を送信します。' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP ユーザー名', smtpPassword: 'SMTP パスワード', webhookUrl: 'Webhook URL', signingSecret: '署名キー' } },
+    messages: {
+      loadFailed: '通知管理データの読み込みに失敗しました', operationFailed: '通知管理の操作に失敗しました', testUsesChannelTarget: '設定済みの送信先へテスト通知を送信します。',
+      secretStoredHint: 'この内容は暗号化して保存され、作成後は再表示されません。', createSecretFailed: '秘密情報の保存に失敗しました', invalidHeaders: '固定 Header は有効な JSON オブジェクトである必要があります',
+      smtpCredentialsPairRequired: 'SMTP ユーザー名とパスワードは両方入力してください', webhookUrlRequired: 'Webhook URL は必須です'
+    }
   },
   settings: {
     securityLabel: 'セキュリティ設定への導線',

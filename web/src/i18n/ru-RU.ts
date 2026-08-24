@@ -1613,7 +1613,10 @@ export default {
     channels: { createTitle: 'Создать канал уведомлений' },
     fields: {
       name: 'Имя канала', type: 'Тип канала', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
-      secretRef: 'SecretRef', secretRefPlaceholder: 'Введите только SecretRef, без открытого секрета', testTarget: 'Тестовый получатель',
+      smtpSecurity: 'Шифрование соединения', smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', secretValuePlaceholder: 'Введите секретное значение',
+      optionalSecretValuePlaceholder: 'Необязательно; введите секретное значение', wecomWebhookUrl: 'Webhook URL группового робота WeCom', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Введите полный Webhook URL', webhookMethod: 'Метод HTTP', webhookHeaders: 'Фиксированные Header (JSON)',
+      webhookHeadersPlaceholder: 'Пример: x-source = gcac', signingSecret: 'Ключ подписи HMAC-SHA256', testTarget: 'Тестовый получатель',
       testTargetPlaceholder: 'Email-адреса можно разделить запятыми', lastSuccess: 'Последний успех', latency: 'Задержка (мс)',
       createdAt: 'Создано', updatedAt: 'Обновлено', failureCategory: 'Категория ошибки', channel: 'Канал уведомлений', selectChannel: 'Выберите канал',
       source: 'Источник события', priority: 'Приоритет маршрута', dedupeWindow: 'Окно дедупликации (секунды)', templateKey: 'Ключ шаблона', locale: 'Язык',
@@ -1627,7 +1630,12 @@ export default {
     summary: { routes: 'Маршруты уведомлений', templates: 'Шаблоны уведомлений', silences: 'Правила тишины', recordCount: 'Записей: {count}' },
     empty: { channels: 'Нет каналов уведомлений', deliveries: 'Нет записей доставки', routes: 'Нет маршрутов уведомлений', templates: 'Нет шаблонов уведомлений', silences: 'Нет правил тишины' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: 'Не удалось загрузить данные управления уведомлениями', operationFailed: 'Операция управления уведомлениями не выполнена', testUsesChannelTarget: 'Тестовое уведомление будет отправлено на настроенный адрес канала.' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', webhookUrl: 'Webhook URL', signingSecret: 'Ключ подписи' } },
+    messages: {
+      loadFailed: 'Не удалось загрузить данные управления уведомлениями', operationFailed: 'Операция управления уведомлениями не выполнена', testUsesChannelTarget: 'Тестовое уведомление будет отправлено на настроенный адрес канала.',
+      secretStoredHint: 'Значение будет сохранено в зашифрованном виде и больше не отобразится открытым текстом.', createSecretFailed: 'Не удалось сохранить секретное значение', invalidHeaders: 'Фиксированные Header должны быть корректным объектом JSON',
+      smtpCredentialsPairRequired: 'Имя пользователя и пароль SMTP необходимо указывать вместе', webhookUrlRequired: 'Webhook URL обязателен'
+    }
   },
   settings: {
     securityLabel: 'Вход в настройки безопасности',

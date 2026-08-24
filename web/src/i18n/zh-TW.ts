@@ -1639,7 +1639,10 @@ export default {
     channels: { createTitle: '新增通知渠道' },
     fields: {
       name: '渠道名稱', type: '渠道類型', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
-      secretRef: 'SecretRef', secretRefPlaceholder: '僅輸入 SecretRef，不輸入明文密鑰', testTarget: '測試接收目標',
+      smtpSecurity: '連線加密', smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', secretValuePlaceholder: '請輸入密文內容',
+      optionalSecretValuePlaceholder: '選填；請輸入密文內容', wecomWebhookUrl: '企業微信群機器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '請輸入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
+      webhookHeadersPlaceholder: '範例：x-source = gcac', signingSecret: 'HMAC-SHA256 簽章密鑰', testTarget: '測試接收目標',
       testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
       createdAt: '建立時間', updatedAt: '更新時間', failureCategory: '失敗分類', channel: '通知渠道', selectChannel: '請選擇通知渠道',
       source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵', locale: '語言',
@@ -1651,9 +1654,14 @@ export default {
     },
     rules: { createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則' },
     summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
-    empty: { channels: '暫無通知渠道記錄', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
+    empty: { channels: '暫無通知渠道', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', webhookUrl: 'Webhook URL', signingSecret: '簽章密鑰' } },
+    messages: {
+      loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。',
+      secretStoredHint: '此內容將加密儲存，建立後不會以明文顯示。', createSecretFailed: '密文儲存失敗', invalidHeaders: '固定 Header 必須是有效的 JSON 物件',
+      smtpCredentialsPairRequired: 'SMTP 使用者名稱與密碼必須同時填寫', webhookUrlRequired: 'Webhook URL 不可為空'
+    }
   },
   settings: {
     securityLabel: "安全設定入口",

@@ -1613,7 +1613,10 @@ export default {
     channels: { createTitle: '알림 채널 만들기' },
     fields: {
       name: '채널 이름', type: '채널 유형', smtpHost: 'SMTP 호스트', smtpPort: 'SMTP 포트', from: '발신 주소',
-      secretRef: 'SecretRef', secretRefPlaceholder: '평문 비밀 대신 SecretRef만 입력', testTarget: '테스트 수신 대상',
+      smtpSecurity: '연결 암호화', smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', secretValuePlaceholder: '비밀 값을 입력하세요',
+      optionalSecretValuePlaceholder: '선택 사항; 비밀 값을 입력하세요', wecomWebhookUrl: 'WeCom 그룹 봇 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '전체 Webhook URL을 입력하세요', webhookMethod: 'HTTP 메서드', webhookHeaders: '고정 Header(JSON)',
+      webhookHeadersPlaceholder: '예: x-source = gcac', signingSecret: 'HMAC-SHA256 서명 키', testTarget: '테스트 수신 대상',
       testTargetPlaceholder: 'Email 수신자는 쉼표로 구분할 수 있습니다', lastSuccess: '최근 성공', latency: '지연 시간(ms)',
       createdAt: '생성 시간', updatedAt: '업데이트 시간', failureCategory: '실패 분류', channel: '알림 채널', selectChannel: '알림 채널 선택',
       source: '이벤트 소스', priority: '라우트 우선순위', dedupeWindow: '중복 제거 시간(초)', templateKey: '템플릿 키', locale: '언어',
@@ -1627,7 +1630,12 @@ export default {
     summary: { routes: '알림 라우트', templates: '알림 템플릿', silences: '음소거 규칙', recordCount: '총 {count}개 기록' },
     empty: { channels: '알림 채널이 없습니다', deliveries: '전송 기록이 없습니다', routes: '알림 라우트가 없습니다', templates: '알림 템플릿이 없습니다', silences: '음소거 규칙이 없습니다' },
     values: { notAvailable: '—' },
-    messages: { loadFailed: '알림 관리 데이터를 불러오지 못했습니다', operationFailed: '알림 관리 작업에 실패했습니다', testUsesChannelTarget: '이 채널은 설정된 대상으로 테스트 알림을 전송합니다.' }
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', webhookUrl: 'Webhook URL', signingSecret: '서명 키' } },
+    messages: {
+      loadFailed: '알림 관리 데이터를 불러오지 못했습니다', operationFailed: '알림 관리 작업에 실패했습니다', testUsesChannelTarget: '이 채널은 설정된 대상으로 테스트 알림을 전송합니다.',
+      secretStoredHint: '이 값은 암호화되어 저장되며 생성 후 다시 표시되지 않습니다.', createSecretFailed: '비밀 값 저장에 실패했습니다', invalidHeaders: '고정 Header는 올바른 JSON 객체여야 합니다',
+      smtpCredentialsPairRequired: 'SMTP 사용자 이름과 비밀번호를 함께 입력해야 합니다', webhookUrlRequired: 'Webhook URL은 필수입니다'
+    }
   },
   settings: {
     securityLabel: '출입구 안전 설치',

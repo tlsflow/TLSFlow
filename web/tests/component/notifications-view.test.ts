@@ -17,8 +17,10 @@ const apiMocks = vi.hoisted(() => ({
   testNotificationChannel: vi.fn(),
   retryNotificationDelivery: vi.fn()
 }))
+const securityApiMocks = vi.hoisted(() => ({ createSecret: vi.fn() }))
 
 vi.mock('@/api/modules/notifications.api', () => apiMocks)
+vi.mock('@/api/modules/security.api', () => securityApiMocks)
 
 describe('NotificationsView', () => {
   it('加载渠道与投递，并且不显示 Secret 明文', async () => {
@@ -63,6 +65,94 @@ describe('NotificationsView', () => {
     await createButton?.trigger('click')
 
     expect(wrapper.find('#notification-channel-form').exists()).toBe(true)
-    expect(wrapper.find('input[autocomplete="off"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('SecretRef')
+    expect(wrapper.find('input[type="password"][autocomplete="new-password"]').exists()).toBe(true)
+  })
+
+  it('Slack Webhook 明文只写入 Secret 服务，渠道请求只保存 SecretRef', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
+    securityApiMocks.createSecret.mockResolvedValue({ data: { id: 'sec-slack', secretRef: 'secret://api_token/sec-slack#current' } })
+    apiMocks.createNotificationChannel.mockResolvedValue({ data: { id: 'channel-slack' } })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcModal: {
+            props: ['open', 'title'],
+            template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
+          },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('暂无通知渠道')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
+    await createButton?.trigger('click')
+    const form = wrapper.get('#notification-channel-form')
+    await form.get('input:not([type="password"])').setValue('生产 Slack')
+    await form.get('select').setValue('slack')
+    await form.get('input[type="password"]').setValue('https://hooks.slack.com/services/plaintext-token')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(securityApiMocks.createSecret).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'api_token',
+      plainText: 'https://hooks.slack.com/services/plaintext-token'
+    }))
+    expect(apiMocks.createNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
+      name: '生产 Slack',
+      type: 'slack',
+      config: {},
+      secretRefs: { webhookUrl: 'secret://api_token/sec-slack#current' }
+    }))
+    expect(JSON.stringify(apiMocks.createNotificationChannel.mock.calls)).not.toContain('plaintext-token')
+  })
+
+  it('企微、Slack 和通用 Webhook 显示各自完整配置字段', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcModal: {
+            props: ['open', 'title'],
+            template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
+          },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
+    await createButton?.trigger('click')
+    const form = wrapper.get('#notification-channel-form')
+    const typeSelect = form.get('select')
+
+    await typeSelect.setValue('wecom')
+    expect(form.text()).toContain('企业微信群机器人 Webhook URL')
+
+    await typeSelect.setValue('slack')
+    expect(form.text()).toContain('Slack Incoming Webhook URL')
+
+    await typeSelect.setValue('webhook')
+    expect(form.text()).toContain('HTTP 方法')
+    expect(form.text()).toContain('固定 Header（JSON）')
+    expect(form.text()).toContain('HMAC-SHA256 签名密钥')
+    expect(form.findAll('input[type="password"]').length).toBe(2)
   })
 })
