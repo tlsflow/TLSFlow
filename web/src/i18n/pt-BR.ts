@@ -941,6 +941,7 @@ export default {
       },
       builtin: { title: 'Plugins integrados' },
       user: { title: 'Plugins do usuário' },
+      enabled: { title: 'Plugins habilitados' },
       using: { title: 'Em uso' },
       risky: {
         title: 'Alto risco pendente',

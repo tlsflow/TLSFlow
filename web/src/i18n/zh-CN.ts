@@ -989,6 +989,7 @@ export default {
       },
       builtin: { title: '内置插件' },
       user: { title: '用户插件' },
+      enabled: { title: '已启用插件' },
       using: { title: '正在使用' },
       risky: {
         title: '高危待处理',

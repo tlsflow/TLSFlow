@@ -977,6 +977,7 @@ export default {
       },
       builtin: { title: 'Built-in plugins' },
       user: { title: 'User plugins' },
+      enabled: { title: 'Enabled plugins' },
       using: { title: 'In use' },
       risky: {
         title: 'High-risk pending',

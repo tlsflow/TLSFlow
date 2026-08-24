@@ -967,6 +967,7 @@ export default {
       },
       builtin: { title: '組み込みプラグイン' },
       user: { title: 'ユーザープラグイン' },
+      enabled: { title: '有効化済みプラグイン' },
       using: { title: '使用中' },
       risky: {
         title: '高リスク待処理',

@@ -966,6 +966,7 @@ export default {
       },
       builtin: { title: "內建外掛" },
       user: { title: "使用者外掛" },
+      enabled: { title: "已啟用外掛" },
       using: { title: "正在使用" },
       risky: {
         title: "高危待處理",

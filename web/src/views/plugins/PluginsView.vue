@@ -99,6 +99,7 @@ const pagedPlugins = computed(() => {
 
 const builtinCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'builtin').length)
 const userCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'user').length)
+const enabledCount = computed(() => plugins.value.filter((plugin) => plugin.status.toLowerCase() === 'enabled').length)
 
 onMounted(() => {
   const pluginVersionId = typeof route.query.pluginVersionId === 'string' ? route.query.pluginVersionId : ''
@@ -420,15 +421,53 @@ function pluginStatusClass(plugin: PluginRecord): string {
 <template>
   <section class="plugins-page">
     <dl class="market-stats">
-      <div><dt>{{ t('plugins.metrics.total.title') }}</dt><dd>{{ plugins.length }}</dd></div>
-      <div><dt>{{ t('plugins.metrics.builtin.title') }}</dt><dd>{{ builtinCount }}</dd></div>
-      <div><dt>{{ t('plugins.metrics.user.title') }}</dt><dd>{{ userCount }}</dd></div>
+      <div class="market-stat market-stat--total">
+        <div class="market-stat__topline">
+          <span class="market-stat__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.25c0 4.61 3.2 8.9 7.5 9.75 4.3-.85 7.5-5.14 7.5-9.75V6L12 3Z" /></svg>
+          </span>
+          <dd>{{ plugins.length }}</dd>
+        </div>
+        <dt>{{ t('plugins.metrics.total.title') }}</dt>
+      </div>
+      <div class="market-stat market-stat--builtin">
+        <div class="market-stat__topline">
+          <span class="market-stat__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 7h6M9 11h6M9 15h4" /></svg>
+          </span>
+          <dd>{{ builtinCount }}</dd>
+        </div>
+        <dt>{{ t('plugins.metrics.builtin.title') }}</dt>
+      </div>
+      <div class="market-stat market-stat--user">
+        <div class="market-stat__topline">
+          <span class="market-stat__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>
+          </span>
+          <dd>{{ userCount }}</dd>
+        </div>
+        <dt>{{ t('plugins.metrics.user.title') }}</dt>
+      </div>
+      <div class="market-stat market-stat--enabled">
+        <div class="market-stat__topline">
+          <span class="market-stat__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg>
+          </span>
+          <dd>{{ enabledCount }}</dd>
+        </div>
+        <dt>{{ t('plugins.metrics.enabled.title') }}</dt>
+      </div>
     </dl>
 
     <section class="market-toolbar" :aria-label="t('plugins.aria.filters')">
       <label class="market-search">
-        <span>{{ t('plugins.filters.searchLabel') }}</span>
-        <input v-model="keyword" type="search" :placeholder="t('plugins.filters.searchPlaceholder')">
+        <span class="market-field-label">
+          {{ t('plugins.filters.searchLabel') }}
+        </span>
+        <span class="market-search__control">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+          <input v-model="keyword" type="search" :placeholder="t('plugins.filters.searchPlaceholder')">
+        </span>
       </label>
       <div class="market-filter-group">
         <button
@@ -442,10 +481,14 @@ function pluginStatusClass(plugin: PluginRecord): string {
           {{ option.label }}
         </button>
       </div>
-      <select v-model="validityFilter" class="market-select" :aria-label="t('plugins.filters.statusLabel')">
-        <option v-for="option in validityOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-      </select>
-      <button class="gc-button market-refresh" type="button" :disabled="loading" @click="refreshPlugins">
+      <label class="market-status-filter">
+        <span class="market-field-label">{{ t('plugins.filters.statusLabel') }}</span>
+        <select v-model="validityFilter" class="market-select">
+          <option v-for="option in validityOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+        </select>
+      </label>
+      <button class="gc-button gc-button--primary market-refresh" type="button" :disabled="loading" :aria-busy="loading" @click="refreshPlugins">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1 4M20 5v6h-6" /></svg>
         {{ loading ? t('plugins.actions.refreshing') : t('plugins.actions.refresh') }}
       </button>
     </section>
@@ -705,18 +748,73 @@ function pluginStatusClass(plugin: PluginRecord): string {
 
 .market-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gc-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr));
+  gap: var(--gc-space-4);
   margin: 0;
 }
 
-.market-stats div {
+.market-stats > div {
   display: grid;
-  gap: var(--gc-space-1);
-  padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-glass);
+  align-content: space-between;
+  gap: var(--gc-space-3);
+  min-height: calc(var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-3));
+  padding: var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-xl);
+  background: var(--gc-color-surface-workspace-glass);
+  box-shadow: var(--gc-shadow-card);
+  backdrop-filter: blur(var(--gc-space-4));
+  -webkit-backdrop-filter: blur(var(--gc-space-4));
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.market-stats > div:hover {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-hover);
+  box-shadow: var(--gc-shadow-hover);
+  transform: translateY(calc(var(--gc-space-tight) * -1));
+}
+
+.market-stat__topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.market-stat__icon {
+  display: grid;
+  place-items: center;
+  inline-size: var(--gc-space-8);
+  block-size: var(--gc-space-8);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.market-stat__icon svg {
+  inline-size: var(--gc-size-icon-md);
+  block-size: var(--gc-size-icon-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.market-stat--builtin .market-stat__icon {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-soft);
+}
+
+.market-stat--user .market-stat__icon {
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-soft);
+}
+
+.market-stat--enabled .market-stat__icon {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-soft);
 }
 
 .market-stats dt,
@@ -729,43 +827,117 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .market-stats dd {
   margin: 0;
   color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-2xl);
+  font-size: var(--gc-font-size-xl);
   font-weight: 800;
+  line-height: var(--gc-line-height-tight);
 }
 
 .market-toolbar {
   display: flex;
-  align-items: end;
-  gap: var(--gc-space-3);
+  align-items: center;
+  gap: var(--gc-space-2);
   flex-wrap: wrap;
-  padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-panel);
+  background: var(--gc-color-surface-workspace-glass);
+  box-shadow: var(--gc-shadow-card);
+  backdrop-filter: blur(var(--gc-space-4));
+  -webkit-backdrop-filter: blur(var(--gc-space-4));
 }
 
 .market-refresh {
   margin-left: auto;
+  min-height: var(--gc-control-height-sm);
+  padding-block: 0;
+}
+
+.market-refresh svg {
+  inline-size: var(--gc-size-icon-sm);
+  block-size: var(--gc-size-icon-sm);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
 }
 
 .market-search {
-  display: grid;
-  flex: 1 1 var(--gc-size-card-min);
-  gap: var(--gc-space-1);
+  display: flex;
+  align-items: center;
+  flex: 1 1 calc(var(--gc-size-card-min) + var(--gc-space-10));
+  min-width: min(100%, var(--gc-size-card-min));
+  gap: var(--gc-space-2);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
+.market-field-label {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  white-space: nowrap;
+  border: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 750;
+  line-height: var(--gc-line-height-tight);
+}
+
+.market-field-label svg {
+  inline-size: var(--gc-size-icon-sm);
+  block-size: var(--gc-size-icon-sm);
+  fill: none;
+  stroke: var(--gc-color-primary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.market-search__control {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.market-search__control > svg {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: var(--gc-space-3);
+  inline-size: var(--gc-size-icon-md);
+  block-size: var(--gc-size-icon-md);
+  color: var(--gc-color-text-soft);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 .market-search input,
 .market-select {
-  min-height: var(--gc-control-height-md);
+  min-height: var(--gc-control-height-sm);
   padding: 0 var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-md);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-field);
   font: inherit;
+  font-size: var(--gc-font-size-xs);
+}
+
+.market-search input {
+  width: 100%;
+  padding-inline-start: calc(var(--gc-space-8) + var(--gc-space-1));
 }
 
 .market-search input:focus,
@@ -775,26 +947,53 @@ function pluginStatusClass(plugin: PluginRecord): string {
   box-shadow: var(--gc-shadow-focus);
 }
 
+.market-status-filter {
+  display: flex;
+  align-items: center;
+  flex: 0 1 calc(var(--gc-size-card-min) - var(--gc-space-2));
+  min-width: calc(var(--gc-size-card-min) - var(--gc-space-2));
+  gap: var(--gc-space-2);
+}
+
+.market-status-filter .market-select {
+  width: 100%;
+}
+
 .market-filter-group {
   display: flex;
+  align-items: center;
   gap: var(--gc-space-1);
   flex-wrap: wrap;
+  padding: var(--gc-space-tight);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-field);
 }
 
 .market-filter {
-  min-height: var(--gc-control-height-md);
+  min-height: calc(var(--gc-control-height-sm) - var(--gc-space-tight));
   padding: 0 var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-solid);
+  background: transparent;
   cursor: pointer;
+  font: inherit;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.market-filter:hover {
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-hover);
 }
 
 .market-filter--active {
-  border-color: var(--gc-color-primary-border-strong);
-  color: var(--gc-color-primary-strong);
+  border-color: var(--gc-color-primary-border);
+  color: var(--gc-color-primary);
   background: var(--gc-color-primary-soft);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .market-error {
@@ -1187,8 +1386,18 @@ function pluginStatusClass(plugin: PluginRecord): string {
     grid-template-columns: 1fr;
   }
 
+  .market-search,
+  .market-filter-group,
+  .market-status-filter,
   .market-refresh {
     width: 100%;
+  }
+
+  .market-filter {
+    flex: 1 1 0;
+  }
+
+  .market-refresh {
     margin-left: 0;
   }
 

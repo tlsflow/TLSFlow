@@ -941,6 +941,7 @@ export default {
       },
       builtin: { title: 'Встроенные плагины' },
       user: { title: 'Пользовательские плагины' },
+      enabled: { title: 'Включенные плагины' },
       using: { title: 'Используются' },
       risky: {
         title: 'Высокий риск к обработке',

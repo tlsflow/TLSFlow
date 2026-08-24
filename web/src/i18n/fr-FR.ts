@@ -963,6 +963,7 @@ export default {
       },
       builtin: { title: 'Plugins intégrés' },
       user: { title: 'Plugins utilisateur' },
+      enabled: { title: 'Plugins activés' },
       using: { title: 'Utilisés' },
       risky: {
         title: 'High-risk pending',

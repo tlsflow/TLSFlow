@@ -941,6 +941,7 @@ export default {
       },
       builtin: { title: '기본 제공 플러그인' },
       user: { title: '사용자 플러그인' },
+      enabled: { title: '활성화된 플러그인' },
       using: { title: '사용 중' },
       risky: {
         title: '고위험군은 처리를 기다린다.',
