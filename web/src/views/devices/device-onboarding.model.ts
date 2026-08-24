@@ -13,9 +13,10 @@ export type DeviceOnboardingInitialSelection =
 export interface DeviceOnboardingPlatform {
   readonly key: string
   readonly displayNameKey: string
+  readonly supportDescriptionKey?: string
   readonly productFamily: string
   readonly managementMethod: string
-  readonly group?: 'WINDOWS' | 'OTHER'
+  readonly group?: 'AGENT' | 'OTHER'
   readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
   readonly supportStatus: 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED'
   readonly formSchema: readonly DeviceOnboardingField[]

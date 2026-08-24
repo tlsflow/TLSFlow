@@ -42,7 +42,8 @@ const isAgentInstall = computed(() => selected.value?.onboardingKind === 'AGENT_
 const initialAgentPlatformKeys = computed<readonly string[] | undefined>(() => {
   const initialSelection = props.initialSelection
   if (!initialSelection || initialSelection.kind !== 'AGENT_INSTALL') return undefined
-  return 'platformKeys' in initialSelection ? initialSelection.platformKeys : [initialSelection.platformKey]
+  const keys = 'platformKeys' in initialSelection ? initialSelection.platformKeys : [initialSelection.platformKey]
+  return keys.map(canonicalPlatformKey)
 })
 const visiblePlatforms = computed(() => {
   const allowed = initialAgentPlatformKeys.value
@@ -50,7 +51,7 @@ const visiblePlatforms = computed(() => {
   return platforms.value.filter((platform) => allowed.includes(platform.key))
 })
 const platformGroupDefinitions = [
-  { key: 'windows', platformGroup: 'WINDOWS', titleKey: 'devices.onboarding.groups.windows' },
+  { key: 'agent', platformGroup: 'AGENT', titleKey: 'devices.onboarding.groups.agent' },
   { key: 'other', platformGroup: 'OTHER', titleKey: 'devices.onboarding.groups.other' },
 ] as const
 const platformGroups = computed(() => [
@@ -76,7 +77,9 @@ async function initializeWizard(): Promise<void> {
   await loadPlatforms()
   if (!props.open || !props.initialSelection) return
   if (props.initialSelection.kind === 'AGENT_INSTALL' && 'platformKeys' in props.initialSelection && props.initialSelection.platformKeys.length > 1) {
-    const available = props.initialSelection.platformKeys.filter((key) => platforms.value.some((platform) => platform.key === key))
+    const available = props.initialSelection.platformKeys
+      .map(canonicalPlatformKey)
+      .filter((key) => platforms.value.some((platform) => platform.key === key))
     if (available.length === 0) error.value = t('devices.onboarding.unsupported')
     return
   }
@@ -98,7 +101,8 @@ async function loadPlatforms(): Promise<void> {
         listDeviceOnboardingPlatforms(),
         listPluginCatalog({ page: 1, pageSize: 500 }),
       ])
-      const agentPlatforms = [...(agentResponse.data ?? [])] as unknown as DeviceOnboardingPlatform[]
+      const agentPlatforms = [...(agentResponse.data ?? [])]
+        .map((item) => normalizeDeviceOnboardingPlatform(item as unknown as DeviceOnboardingPlatform))
       const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
       const localized = await Promise.all(pluginPlatforms.map(async (platform) => {
         const response = await getUnifiedPluginUiResources(platform.pluginVersionId ?? '', locale.value)
@@ -121,7 +125,8 @@ async function loadPlatforms(): Promise<void> {
 function resolveInitialPlatformKey(initialSelection: DeviceOnboardingInitialSelection): string | undefined {
   if (initialSelection.kind === 'AGENT_INSTALL') {
     const keys = 'platformKeys' in initialSelection ? initialSelection.platformKeys : [initialSelection.platformKey]
-    return platforms.value.find((platform) => platform.onboardingKind === 'AGENT_INSTALL' && keys.includes(platform.key))?.key
+    const canonicalKeys = keys.map(canonicalPlatformKey)
+    return platforms.value.find((platform) => platform.onboardingKind === 'AGENT_INSTALL' && canonicalKeys.includes(platform.key))?.key
   }
   return platforms.value.find((platform) => platform.pluginId === initialSelection.pluginId)?.key
 }
@@ -131,12 +136,20 @@ function platformLabel(platform: DeviceOnboardingPlatform): string {
   return t(platform.displayNameKey)
 }
 
+function platformDescription(platform: DeviceOnboardingPlatform): string {
+  return platform.supportDescriptionKey ? t(platform.supportDescriptionKey) : platform.productFamily
+}
+
 function staticPlatformLogoUrl(platform: DeviceOnboardingPlatform): string | undefined {
   const staticLogos: Record<string, string> = {
     'windows-server-2008-r2': '/platform-logos/windows-server-2008-r2.svg',
     'windows-server-2012-r2': '/platform-logos/windows-server-2012-r2.svg',
     'windows-server-2016-plus': '/platform-logos/windows-server-2016-plus.svg',
     linux: '/platform-logos/linux.svg',
+    'linux-red-hat': '/platform-logos/red-hat.svg',
+    'linux-debian-ubuntu': '/platform-logos/debian.svg',
+    'linux-kylin': '/platform-logos/kylin.svg',
+    'linux-uos': '/platform-logos/uos.svg',
   }
   return staticLogos[platform.key]
 }
@@ -227,6 +240,20 @@ function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {
     logoSquareUrl: typeof item.logoSquareUrl === 'string' ? item.logoSquareUrl : undefined,
     pluginVersionId,
     pluginId: String(item.pluginId ?? ''),
+  }
+}
+
+function canonicalPlatformKey(key: string): string {
+  return key === 'linux' ? 'linux-red-hat' : key
+}
+
+function normalizeDeviceOnboardingPlatform(platform: DeviceOnboardingPlatform): DeviceOnboardingPlatform {
+  if (platform.key !== 'linux') return platform
+  return {
+    ...platform,
+    key: canonicalPlatformKey(platform.key),
+    displayNameKey: 'devices.platforms.linuxRedHat',
+    group: 'AGENT',
   }
 }
 
@@ -354,7 +381,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
               />
               <span class="device-wizard__platform-copy">
                 <strong>{{ platformLabel(platform) }}</strong>
-                <span>{{ platform.productFamily }}</span>
+                <span>{{ platformDescription(platform) }}</span>
               </span>
             </button>
           </div>

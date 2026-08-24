@@ -59,20 +59,63 @@ describe('DeviceOnboardingWizard', () => {
     })
     await flushPromises()
 
-    expect(deviceMocks.onboardManagedDevice).toHaveBeenCalledWith({ platformKey: 'linux' })
+    expect(deviceMocks.onboardManagedDevice).toHaveBeenCalledWith({ platformKey: 'linux-red-hat' })
+    wrapper.unmount()
+  })
+
+  it('将 Linux 发行版入口放入 Agent 分组并使用对应 Logo', async () => {
+    deviceMocks.listDeviceOnboardingPlatforms.mockResolvedValue(response([{
+      key: 'linux-red-hat', displayNameKey: 'devices.platforms.linuxRedHat', productFamily: 'Linux Server', managementMethod: 'AGENT',
+      supportDescriptionKey: 'devices.platforms.linuxRedHatDescription',
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }, {
+      key: 'linux-debian-ubuntu', displayNameKey: 'devices.platforms.linuxDebianUbuntu', productFamily: 'Linux Server', managementMethod: 'AGENT',
+      supportDescriptionKey: 'devices.platforms.linuxDebianUbuntuDescription',
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }, {
+      key: 'linux-kylin', displayNameKey: 'devices.platforms.linuxKylin', productFamily: 'Linux Server', managementMethod: 'AGENT',
+      supportDescriptionKey: 'devices.platforms.linuxKylinDescription',
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }, {
+      key: 'linux-uos', displayNameKey: 'devices.platforms.linuxUos', productFamily: 'Linux Server', managementMethod: 'AGENT',
+      supportDescriptionKey: 'devices.platforms.linuxUosDescription',
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+    }]))
+
+    const wrapper = mount(DeviceOnboardingWizard, {
+      props: { open: true },
+      global: { plugins: [i18n], stubs: { Teleport: true, GcPluginForm: GcPluginFormStub } },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.device-wizard__platform-group')).toHaveLength(1)
+    expect(wrapper.find('.device-wizard__platform-group h3').text()).toBe('Agent')
+    expect(wrapper.text()).toContain('Red Hat 系列')
+    expect(wrapper.text()).toContain('Debian/Ubuntu 系列')
+    expect(wrapper.text()).toContain('麒麟系列')
+    expect(wrapper.text()).toContain('统信 OS 系列')
+    expect(wrapper.text()).toContain('RHEL/CentOS 7-9、Rocky/AlmaLinux 8-9；Linux 内核 3.2 及以上')
+    expect(wrapper.text()).toContain('银河麒麟 V10-V11')
+    expect(wrapper.text()).toContain('统信 UOS 20-25')
+    expect(wrapper.text()).not.toContain('银河麒麟 V10-V11；Linux 内核 3.2 及以上')
+    expect(wrapper.text()).not.toContain('统信 UOS 20-25；Linux 内核 3.2 及以上')
+    expect(wrapper.find('img[src="/platform-logos/red-hat.svg"]').exists()).toBe(true)
+    expect(wrapper.find('img[src="/platform-logos/debian.svg"]').exists()).toBe(true)
+    expect(wrapper.find('img[src="/platform-logos/kylin.svg"]').exists()).toBe(true)
+    expect(wrapper.find('img[src="/platform-logos/uos.svg"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
   it('应用声明多个 Agent 平台时只显示这些平台并要求用户选择', async () => {
     deviceMocks.listDeviceOnboardingPlatforms.mockResolvedValue(response([{
       key: 'linux', displayNameKey: 'devices.platforms.linux', productFamily: 'Linux Server', managementMethod: 'AGENT',
-      group: 'OTHER', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
     }, {
       key: 'windows-server-2016-plus', displayNameKey: 'devices.platforms.windowsServer2016Plus', productFamily: 'Windows Server', managementMethod: 'AGENT',
-      group: 'WINDOWS', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
     }, {
       key: 'windows-server-2008-r2', displayNameKey: 'devices.platforms.windowsServer2008R2', productFamily: 'Windows Server', managementMethod: 'AGENT',
-      group: 'WINDOWS', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
+      group: 'AGENT', onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
     }]))
     deviceMocks.onboardManagedDevice.mockResolvedValue(response({ installSession: { installCommand: 'install-windows-agent' } }))
 

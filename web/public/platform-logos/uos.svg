@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img" aria-labelledby="title">
+  <title id="title">UOS</title>
+  <circle cx="40" cy="40" r="32" fill="#F58220"/>
+  <path d="M25 27v17c0 9 6 15 15 15s15-6 15-15V27h-8v17c0 4-2 7-7 7s-7-3-7-7V27h-8Z" fill="#fff"/>
+  <circle cx="40" cy="20" r="4" fill="#1479C9"/>
+</svg>
