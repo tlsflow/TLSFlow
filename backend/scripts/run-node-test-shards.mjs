@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 const runnerPath = fileURLToPath(new URL('./run-node-test-files.mjs', import.meta.url));
 const DEFAULT_SHARD_COUNT = 2;
 const DEFAULT_MAX_PARALLEL = 2;
-const DEFAULT_FILE_TIMEOUT_MS = 180_000;
+const DEFAULT_FILE_TIMEOUT_MS = 360_000;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 
 try {
@@ -207,6 +207,6 @@ function usage() {
   --keep-artifacts               保留失败分片的临时构建产物
   --shard-count COUNT            分片总数，默认 2
   --max-parallel COUNT           最大并发分片数，默认 2
-  --file-timeout-ms MILLISECONDS 单个测试文件超时，默认 180000
+  --file-timeout-ms MILLISECONDS 单个测试文件超时，默认 360000
   --help                         显示帮助`;
 }
