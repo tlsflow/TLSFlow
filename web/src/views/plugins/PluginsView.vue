@@ -341,6 +341,7 @@ function pluginRecordFromManagementDetail(value: ApiRecord): PluginRecord {
       displayName: displayNameKey && te(displayNameKey) ? t(displayNameKey) : undefined,
       description: descriptionKey && te(descriptionKey) ? t(descriptionKey) : undefined,
       logoUrl: typeof manifest.logoUrl === 'string' ? manifest.logoUrl : undefined,
+      logoSquareUrl: typeof manifest.logoSquareUrl === 'string' ? manifest.logoSquareUrl : undefined,
       tags: [
         ...readStringList(readRecord(manifest.compatibility).productFamilies),
         ...readStringList(readRecord(manifest.compatibility).frameworkTypes),
@@ -606,6 +607,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
           <div class="plugin-detail__identity-main">
             <GcPluginLogo
               :logo-url="selectedPlugin.metadata.logoUrl"
+              :square-logo-url="selectedPlugin.metadata.logoSquareUrl"
               :fallback-text="pluginInitial(selectedPlugin)"
               :alt="t('plugins.aria.logo', { name: pluginTitle(selectedPlugin) })"
               size="detail"

@@ -88,7 +88,7 @@ describe('ApplicationOnboardingView', () => {
 
   it('受管设备路径列出站点并默认选择首个可部署证书版本', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
-      items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/plugin-logos/citrix-adc.svg', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
+      items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/plugin-logos/citrix-adc.svg', logoSquareUrl: '/plugin-logos/citrix-adc-square.svg', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
     onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-1', displayName: 'ADC', health: 'HEALTHY', selectable: true }] }))
@@ -104,7 +104,7 @@ describe('ApplicationOnboardingView', () => {
 
     const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
     await flushPromises()
-    expect(wrapper.find('.platform-card__logo img').attributes('src')).toBe('/plugin-logos/citrix-adc.svg')
+    expect(wrapper.find('.platform-card__logo img').attributes('src')).toBe('/plugin-logos/citrix-adc-square.svg')
     expect(wrapper.text()).toContain('接入能力版本')
     expect(wrapper.text()).toContain('1.0.4')
     expect(wrapper.text()).toContain('Citrix ADC 13.1')

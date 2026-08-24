@@ -33,6 +33,7 @@ function pluginRecord(index: number) {
     tags: ['network'],
     platforms: ['linux'],
     logoUrl: '',
+    logoSquareUrl: '',
     stepCount: 2,
     rollbackCount: 0,
     runtime: 'workflow_dsl',

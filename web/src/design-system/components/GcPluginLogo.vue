@@ -5,6 +5,7 @@ type PluginLogoSize = 'market' | 'detail' | 'onboarding'
 
 const props = withDefaults(defineProps<{
   logoUrl?: string
+  squareLogoUrl?: string
   fallbackText: string
   alt: string
   size?: PluginLogoSize
@@ -14,8 +15,12 @@ const props = withDefaults(defineProps<{
 
 const failed = ref(false)
 
+const sourceLogoUrl = computed(() => props.size === 'market'
+  ? props.logoUrl
+  : props.squareLogoUrl ?? props.logoUrl)
+
 const resolvedLogoUrl = computed(() => {
-  const value = props.logoUrl?.trim()
+  const value = sourceLogoUrl.value?.trim()
   if (!value || failed.value || typeof window === 'undefined') return undefined
   try {
     const url = new URL(value, window.location.origin)
@@ -27,7 +32,7 @@ const resolvedLogoUrl = computed(() => {
   }
 })
 
-watch(() => props.logoUrl, () => {
+watch([() => props.logoUrl, () => props.squareLogoUrl, () => props.size], () => {
   failed.value = false
 })
 

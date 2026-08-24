@@ -17,6 +17,7 @@ export interface PluginMetadata {
   description?: string
   tags: string[]
   logoUrl?: string
+  logoSquareUrl?: string
   platforms: string[]
 }
 
@@ -65,6 +66,7 @@ export function toCatalogPluginRecord(record: PluginCatalogItem, versionRecord?:
       displayName: readOptionalString(record.displayName),
       description: readOptionalString(record.description),
       logoUrl: readOptionalString(record.logoUrl),
+      logoSquareUrl: readOptionalString(record.logoSquareUrl),
       tags: readStringArray(record.tags),
       platforms: readStringArray(record.platforms),
     },

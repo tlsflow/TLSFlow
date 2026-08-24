@@ -20,6 +20,7 @@ export interface DeviceOnboardingPlatform {
   readonly supportStatus: 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED'
   readonly formSchema: readonly DeviceOnboardingField[]
   readonly logoUrl?: string
+  readonly logoSquareUrl?: string
   readonly pluginVersionId?: string
   readonly pluginId?: string
 }

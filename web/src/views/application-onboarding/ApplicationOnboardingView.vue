@@ -37,7 +37,7 @@ import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-on
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; logoUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
@@ -952,6 +952,7 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
         <GcPluginLogo
           class="platform-card__logo"
           :logo-url="platform.logoUrl"
+          :square-logo-url="platform.logoSquareUrl"
           :fallback-text="platformInitial(platform)"
           alt=""
           size="onboarding"

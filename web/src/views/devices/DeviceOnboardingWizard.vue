@@ -224,6 +224,7 @@ function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {
     formSchema: [],
     group: 'OTHER',
     logoUrl: typeof item.logoUrl === 'string' ? item.logoUrl : undefined,
+    logoSquareUrl: typeof item.logoSquareUrl === 'string' ? item.logoSquareUrl : undefined,
     pluginVersionId,
     pluginId: String(item.pluginId ?? ''),
   }
@@ -346,6 +347,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
               <GcPluginLogo
                 class="device-wizard__platform-logo"
                 :logo-url="platform.logoUrl ?? staticPlatformLogoUrl(platform)"
+                :square-logo-url="platform.logoSquareUrl"
                 :fallback-text="platformInitial(platform)"
                 alt=""
                 size="onboarding"
