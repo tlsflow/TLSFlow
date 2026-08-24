@@ -13,7 +13,7 @@ codeRefs:
   - backend/src/modules/plugins/promotion/plugin-promotion.service.ts
   - backend/src/modules/plugins/application/plugin-workflow-publisher.service.ts
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Plugin security and maturity
@@ -24,6 +24,8 @@ lastVerified: 2026-08-02
 - Permissions, network access, Secrets, Artifacts, and device writes require approval.
 - Logs, audit records, snapshots, and errors must be redacted.
 - The host must not add Driver, Executor, Projector, or page branches based on a vendor string.
+- Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins require separate unknown-code execution authorization before runtime entry.
+- `TRUSTED_JS` plugins may access credentials, artifacts, locks, audit, and checkpoints only through explicit Host API gates; they must not access the database or arbitrary host filesystems directly.
 
 ## Maturity status
 
@@ -31,6 +33,7 @@ lastVerified: 2026-08-02
 | --- | --- |
 | Manifest Schema and resource validation | `implemented` |
 | Normalized content hash for workflow publication | `implemented` |
+| Unknown-code execution authorization gate | `in_review` |
 | Cryptographic verification of trusted user-plugin publishers | `todo` |
 | Explicit dual-mode Promotion aggregation | `todo` |
 | Execution-time `configFingerprint` comparison | `todo` |

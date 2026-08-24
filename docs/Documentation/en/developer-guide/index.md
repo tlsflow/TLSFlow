@@ -14,7 +14,7 @@ testRefs: []
 codeRefs:
   - backend/src
   - web/src
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Developer guide
@@ -23,4 +23,4 @@ The developer guide describes the current platform boundaries for backend, front
 
 For plugin work, read the plugin package, target-mode, discovery, runtime, and maturity pages in order. For workflow work, read the DSL, input-contract, executor, and certificate-deployment pages in order.
 
-The current code, active Specs, tests, and project standards are the source of truth. A page marked `in_review` or `todo` must not be treated as a production guarantee.
+The current code, active Specs, tests, and project standards are the source of truth. Ordinary plugins do not execute code by default, and unknown-code execution requires separate authorization. A page marked `in_review` or `todo` must not be treated as a production guarantee.

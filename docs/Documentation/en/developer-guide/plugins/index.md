@@ -12,7 +12,7 @@ specRefs:
 codeRefs:
   - backend/src/modules/plugins
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Plugin development
@@ -30,7 +30,7 @@ Recommended order:
 Core boundaries:
 
 - Resolve plugin identity through `CapabilityAssignment -> PluginBinding -> PluginVersion`, not a vendor string.
-- `AGENT_ATOMIC` and `WORKFLOW_DSL` are separate runtimes. An Agent atomic plugin is not a workflow Step.
+- `AGENT_ATOMIC`, `WORKFLOW_DSL`, and `TRUSTED_JS` are separate runtimes. Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins require separate unknown-code execution authorization. Agent atomic plugins and Trusted JS plugins are not workflow Steps.
 - Model agentless `DeviceAsset`, `ManagedTarget + Plugin`, `ManagedTarget + Workflow Override`, and `Standalone + Workflow` separately.
 - Discovered certificate locations use `source.kind=asset`; precise discovery takes precedence over plugin defaults.
-- The host governs Secrets, Artifacts, permissions, audit, snapshots, verification, and rollback. A plugin consumes controlled Grants.
+- The host governs Secrets, Artifacts, permissions, audit, snapshots, verification, and rollback. A `TRUSTED_JS` plugin consumes controlled Grants only after unknown-code execution authorization.

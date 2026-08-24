@@ -14,7 +14,7 @@ codeRefs:
   - backend/src/modules/certificates
   - backend/src/modules/deployment-plans
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Product overview
@@ -31,4 +31,4 @@ GCAC addresses scattered certificate assets, unclear device targets, unauditable
 
 ## What GCAC is not
 
-GCAC is not an arbitrary remote Shell platform or a sandbox for plugins to carry scripts and binaries. Plugins declare capabilities; the host governs permissions, credentials, artifacts, execution locks, and audit records.
+GCAC is not an arbitrary remote Shell platform or a sandbox for plugins to carry scripts and binaries. Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins still require separate unknown-code execution authorization. The host governs permissions, credentials, artifacts, execution locks, and audit records.

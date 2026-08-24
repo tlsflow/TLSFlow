@@ -12,12 +12,12 @@ codeRefs:
   - backend/src/modules/plugins/runtime
   - backend/src/modules/plugins/builtin-agent-plugins
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Agent 插件运行时
 
-Agent 插件使用 `gcac.agent-plan/v1` 和受控原子操作。插件只声明动作、变量、权限、Artifact、回滚和兼容条件，不能携带脚本、解释器或二进制。
+Agent 插件使用 `gcac.agent-plan/v1` 和受控原子操作。`AGENT_ATOMIC` 插件只声明动作、变量、权限、Artifact、回滚和兼容条件，不能携带脚本、解释器或二进制；这条约束只适用于 Agent 原子运行时，不覆盖受信任的 `TRUSTED_JS` 官方插件。普通插件仍默认不执行代码，未知代码执行必须单独授权。
 
 未知 Action、未审批权限、目标不匹配、计划过期、签名无效或路径越界必须在入队前失败关闭。Agent 不根据操作系统名称猜测能力。
 

@@ -14,7 +14,7 @@ codeRefs:
 testRefs:
   - backend/src/modules/plugins/builtin-unified-plugin-loader.test.ts
   - backend/src/modules/plugins/plugin-workflow-publisher.test.ts
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Plugin package contract
@@ -25,7 +25,7 @@ A plugin package is an immutable capability declaration. Its manifest, resources
 
 - Use the current manifest Schema and stable plugin identity.
 - Declare resources, capabilities, input slots, permissions, network access, and compatibility explicitly.
-- Keep `AGENT_ATOMIC` and `WORKFLOW_DSL` as separate runtime kinds.
+- Keep `AGENT_ATOMIC`, `WORKFLOW_DSL`, and `TRUSTED_JS` as distinct runtime kinds. Ordinary plugins do not execute code by default. Trusted `TRUSTED_JS` packages may carry a controlled JavaScript entrypoint and vendor SDK dependencies, but runtime entry still requires separate unknown-code execution authorization.
 - Do not encode vendor selection as a host-side Driver, Executor, Projector, or page branch.
 - Treat package and workflow hashes as content identity, not as a display label.
 
