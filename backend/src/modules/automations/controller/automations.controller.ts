@@ -6,13 +6,14 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AutomationsApplicationService } from '../application/automations.application-service.js';
+import type { AutomationRunCoordinator } from '../application/automation-run-coordinator.js';
 import type { CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
 import { automationPublicSchema } from '../schema/automations.schema.js';
 
 const tags = ['Automations'];
 
 export class AutomationsController {
-  constructor(private readonly service = new AutomationsApplicationService(), private readonly security?: SecurityServices) {}
+  constructor(private readonly service = new AutomationsApplicationService(), private readonly security?: SecurityServices, private readonly coordinator?: AutomationRunCoordinator) {}
 
   register(router: Router): void {
     router.get('/api/v1/automations', '列出自动化', tags, (request) => this.list(request));
@@ -25,6 +26,11 @@ export class AutomationsController {
     router.delete('/api/v1/automations/:id', '删除自动化', tags, (request) => this.remove(request));
     router.post('/api/v1/automations/:id/preview', '预览自动化目标', tags, (request) => this.preview(request));
     router.post('/api/v1/automations/:id/runs', '按需执行自动化', tags, (request) => this.createRun(request));
+    router.get('/api/v1/automation-runs', '列出自动化运行', tags, (request) => this.listRuns(request));
+    router.get('/api/v1/automation-runs/:id', '获取自动化运行', tags, (request) => this.getRun(request));
+    router.get('/api/v1/automation-runs/:id/targets', '列出自动化运行目标', tags, (request) => this.listRunTargets(request));
+    router.post('/api/v1/automation-runs/:id/actions/stop', '停止自动化运行', tags, (request) => this.stopRun(request));
+    router.post('/api/v1/automation-runs/:id/actions/retry-failed', '重试自动化失败目标', tags, (request) => this.retryRun(request));
   }
 
   private async preview(request: HttpRequest) {
@@ -52,6 +58,41 @@ export class AutomationsController {
     const subject = this.subject(request);
     await this.assertCan(subject, 'automation.read', request);
     return { items: await this.service.list(this.tenantId(request)) };
+  }
+
+  private async listRuns(request: HttpRequest) {
+    const subject = this.subject(request); await this.assertCan(subject, 'automation.read', request);
+    return { items: await this.service.listRuns(this.tenantId(request), singleQuery(request.query.automationId)) };
+  }
+
+  private async getRun(request: HttpRequest) {
+    const id = runPathId(request); const subject = this.subject(request); await this.assertCan(subject, 'automation.read', request, id);
+    const run = await this.service.getRun(this.tenantId(request), id);
+    if (!run) throw new AppError('RESOURCE_NOT_FOUND', '自动化运行不存在', { id });
+    return { ...run, actionResults: await this.service.listRunActionResults(this.tenantId(request), id) };
+  }
+
+  private async listRunTargets(request: HttpRequest) {
+    const id = runPathId(request); const subject = this.subject(request); await this.assertCan(subject, 'automation.read', request, id);
+    return { items: await this.service.listRunTargets(this.tenantId(request), id) };
+  }
+
+  private async stopRun(request: HttpRequest) {
+    if (!this.coordinator) throw new Error('automation coordinator is not configured');
+    const id = runPathId(request); const subject = this.subject(request); await this.assertCan(subject, 'automation.stop', request, id);
+    const run = await this.coordinator.stop(id, this.tenantId(request));
+    await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_STOPPED, 'automation.stop', id, undefined, run);
+    return run;
+  }
+
+  private async retryRun(request: HttpRequest) {
+    if (!this.coordinator) throw new Error('automation coordinator is not configured');
+    const id = runPathId(request); const subject = this.subject(request); await this.assertCan(subject, 'automation.retry', request, id);
+    const key = String((request.body as { idempotencyKey?: string })?.idempotencyKey ?? '');
+    if (!key) throw new AppError('VALIDATION_FAILED', '重试必须提供幂等键');
+    const run = await this.coordinator.retryFailed(id, this.tenantId(request), subject.id, key);
+    await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_RETRIED, 'automation.retry', run.id, { parentRunId: id }, run);
+    return { statusCode: 201, body: run };
   }
 
   private async get(request: HttpRequest) {
@@ -157,5 +198,18 @@ export function getAutomationRouteContracts(): RouteContract[] {
     ['DELETE', '/api/v1/automations/:id', 'deleteAutomation', '删除自动化'],
     ['POST', '/api/v1/automations/:id/preview', 'previewAutomation', '预览自动化目标'],
     ['POST', '/api/v1/automations/:id/runs', 'createAutomationRun', '按需执行自动化'],
+    ['GET', '/api/v1/automation-runs', 'listAutomationRuns', '列出自动化运行'],
+    ['GET', '/api/v1/automation-runs/:id', 'getAutomationRun', '获取自动化运行'],
+    ['GET', '/api/v1/automation-runs/:id/targets', 'listAutomationRunTargets', '列出自动化运行目标'],
+    ['POST', '/api/v1/automation-runs/:id/actions/stop', 'stopAutomationRun', '停止自动化运行'],
+    ['POST', '/api/v1/automation-runs/:id/actions/retry-failed', 'retryAutomationRun', '重试自动化失败目标'],
   ].map(([method, path, operationId, summary]) => ({ method: method as RouteContract['method'], path, operationId, summary, tags, responseSchema: automationPublicSchema }));
 }
+
+function runPathId(request: HttpRequest): string {
+  const id = request.path.match(/^\/api\/v1\/automation-runs\/([^/]+)/)?.[1];
+  if (!id) throw new AppError('VALIDATION_FAILED', '缺少自动化运行 ID');
+  return decodeURIComponent(id);
+}
+
+function singleQuery(value: string | string[] | undefined): string | undefined { return Array.isArray(value) ? value[0] : value; }

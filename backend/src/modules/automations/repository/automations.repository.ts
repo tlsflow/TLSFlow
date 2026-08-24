@@ -205,6 +205,11 @@ export class AutomationsRepository {
     return result.rows.map(mapTarget);
   }
 
+  async getRunTarget(id: string, tenantId: string): Promise<AutomationRunTargetEntity | undefined> {
+    const result = await this.db.query<AutomationRow>('select * from automation_run_targets where id=$1 and tenant_id=$2', [id, tenantId]);
+    return result.rows[0] ? mapTarget(result.rows[0]) : undefined;
+  }
+
   async updateRunTarget(id: string, tenantId: string, patch: Partial<AutomationRunTargetEntity>): Promise<AutomationRunTargetEntity> {
     const result = await this.db.query<AutomationRow>('select * from automation_run_targets where id=$1 and tenant_id=$2', [id, tenantId]);
     if (!result.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '自动化运行目标不存在', { id });
@@ -227,6 +232,17 @@ export class AutomationsRepository {
       entity.externalReferenceType ?? null, entity.externalReferenceId ?? null, entity.failureStage ?? null, entity.errorCode ?? null,
       entity.errorMessage ?? null, entity.startedAt ?? null, entity.finishedAt ?? null, entity.createdAt]);
     return structuredClone(entity);
+  }
+
+  async updateActionResult(id: string, tenantId: string, patch: Partial<AutomationRunActionResultEntity>): Promise<AutomationRunActionResultEntity> {
+    const result = await this.db.query<AutomationRow>('select * from automation_run_action_results where id=$1 and tenant_id=$2', [id, tenantId]);
+    if (!result.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '自动化动作结果不存在', { id });
+    const next = { ...mapActionResult(result.rows[0]), ...structuredClone(patch), id, tenantId };
+    await this.db.query(`update automation_run_action_results set status=$1, external_reference_type=$2, external_reference_id=$3,
+      failure_stage=$4, error_code=$5, error_message=$6, started_at=$7, finished_at=$8 where id=$9 and tenant_id=$10`,
+    [next.status, next.externalReferenceType ?? null, next.externalReferenceId ?? null, next.failureStage ?? null,
+      next.errorCode ?? null, next.errorMessage ?? null, next.startedAt ?? null, next.finishedAt ?? null, id, tenantId]);
+    return next;
   }
 
   async listActionResults(runId: string, tenantId: string): Promise<AutomationRunActionResultEntity[]> {

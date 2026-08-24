@@ -18,6 +18,11 @@ export class AutomationsApplicationService {
     return this.repository;
   }
 
+  listRuns(tenantId: string, automationId?: string) { return this.repository.listRuns(tenantId, automationId); }
+  getRun(tenantId: string, runId: string) { return this.repository.getRun(runId, tenantId); }
+  listRunTargets(tenantId: string, runId: string) { return this.repository.listRunTargets(runId, tenantId); }
+  listRunActionResults(tenantId: string, runId: string) { return this.repository.listActionResults(runId, tenantId); }
+
   async preview(tenantId: string, actorId: string, id: string, page?: number, pageSize?: number): Promise<AutomationPreviewDto> {
     if (!this.targetSelector) throw new Error('automation target selector is not configured');
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
