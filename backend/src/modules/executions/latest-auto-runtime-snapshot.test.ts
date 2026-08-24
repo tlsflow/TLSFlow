@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
+import { testTaskEnqueuer } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 test('LATEST_AUTO 的运行时材料封存到执行步骤，并优先于计划输入快照', async () => {
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    tasks: testTaskEnqueuer(),
   });
   const created = await service.createApplyRun({
     deploymentPlanId: 'plan_latest_auto_runtime',
@@ -16,7 +18,7 @@ test('LATEST_AUTO 的运行时材料封存到执行步骤，并优先于计划�
     tenantId: 'tenant_1',
     executorTypeByTargetId: new Map([['target_latest_auto_runtime', 'AGENT']]),
     agentPayloadByTargetId: new Map([['target_latest_auto_runtime', {
-      actionType: 'agent.atomic_plan.execute',
+      actionType: 'agent.plan.execute',
       actionSchemaVersion: '1.0',
       deploymentInputSnapshotRef: {
         apiVersion: 'gcac.deployment-input-snapshot/v1',

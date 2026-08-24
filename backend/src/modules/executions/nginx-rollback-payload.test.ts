@@ -3,10 +3,12 @@ import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { ExecutionStepDto } from './dto/executions.dto.js';
+import { testTaskEnqueuer } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 function createService() {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    tasks: testTaskEnqueuer(),
   });
 }
 
@@ -41,7 +43,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
     tenantId: 'tenant_1',
     executorTypeByTargetId: new Map([['target_nginx_rb', 'AGENT']]),
     agentPayloadByTargetId: new Map([['target_nginx_rb', {
-      actionType: 'agent.atomic_plan.execute',
+      actionType: 'agent.plan.execute',
       actionSchemaVersion: '1.0',
       deploymentInputSnapshotRef: {
         apiVersion: 'gcac.deployment-input-snapshot/v1',
@@ -50,7 +52,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
         resolvedSha256: 'e'.repeat(64),
       },
       pluginRuntimeCapability: {
-        runtime: 'AGENT_ATOMIC',
+        runtime: 'AGENT_V2',
         capabilityKey: 'certificate.deploy',
       },
       bindingSelector: {
@@ -120,7 +122,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
 
   assert.ok(rollbackStep);
   assert.ok(verifyStep);
-  assert.equal(rollbackStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+  assert.equal(rollbackStep!.inputSnapshot.actionType, 'agent.plan.execute');
   assert.equal(rollbackStep!.inputSnapshot.operation, 'rollback');
   assert.equal(rollbackStep!.inputSnapshot.sourceRunId, created.run.id);
   assert.equal(rollbackStep!.inputSnapshot.rollbackContext.sourceRunId, created.run.id);
