@@ -5,6 +5,7 @@ import { listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
+import { listExecutionsByPlanId } from '@/api/modules/executions.api'
 import {
   createDeploymentPlanFromApplicationAsset,
   deleteDraftDeploymentPlan,
@@ -16,9 +17,29 @@ import {
 import { GcDeploymentWizard, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deploymentPlansPageConfig } from './deployment-plan.config'
+
+type RelatedRecordKind = 'dry-run' | 'certificate-update'
+
+interface RelatedExecutionRecord {
+  readonly id: string
+  readonly runId: string
+  readonly planId: string
+  readonly planName: string
+  readonly status: string
+  readonly type: string
+  readonly kind: RelatedRecordKind
+  readonly createdReason: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly targetSummary: string
+  readonly certificateVersionId: string
+  readonly certificateFormatId: string
+  readonly raw: ApiRecord
+}
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const createDialogOpen = ref(false)
@@ -32,10 +53,13 @@ const submitRequestId = ref('')
 const dryRunRunRow = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const detailPlanRow = ref<ViewRow | null>(null)
-const detailVersionRows = ref<ApiRecord[]>([])
-const detailVersionLoading = ref(false)
-const detailVersionError = ref('')
+const relatedRecords = ref<RelatedExecutionRecord[]>([])
+const relatedRecordsLoading = ref(false)
+const relatedRecordsError = ref('')
 const activeDetailTab = ref<'summary' | 'versions' | 'execution'>('summary')
+const relatedExecutionModalOpen = ref(false)
+const relatedExecutionRow = ref<ViewRow | null>(null)
+const relatedExecutionDetail = useExecutionDetail(relatedExecutionRow)
 
 const certificateItems = ref<ApiRecord[]>([])
 const certificateVersionItems = ref<ApiRecord[]>([])
@@ -46,8 +70,11 @@ const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow)
 
 const pageConfig: BusinessPageConfig = {
   ...deploymentPlansPageConfig,
+  showHeader: false,
+  showMetrics: false,
   showDetailPanel: false,
   showActionPanel: false,
+  showToolbarDangerHint: false,
   primaryAction: openCreateDialog,
   actions: (deploymentPlansPageConfig.actions ?? []).map((action) => ({
     ...action,
@@ -109,6 +136,16 @@ const detailExecutionSummaryCards = computed(() => {
     { label: '未知', value: summary.unknown },
   ]
 })
+const relatedExecutionSummaryCards = computed(() => {
+  const summary = relatedExecutionDetail.dryRunSummary.value
+  if (!summary) return []
+  return [
+    { label: '通过', value: summary.passed },
+    { label: '警告', value: summary.warning },
+    { label: '失败', value: summary.failed },
+    { label: '未知', value: summary.unknown },
+  ]
+})
 
 async function openCreateDialog() {
   createDialogOpen.value = true
@@ -145,10 +182,10 @@ async function openDetailDialog(row: ViewRow) {
   detailPlanRow.value = row
   detailModalOpen.value = true
   activeDetailTab.value = 'summary'
-  detailVersionError.value = ''
-  detailVersionRows.value = []
+  relatedRecordsError.value = ''
+  relatedRecords.value = []
   await Promise.all([
-    loadPlanVersions(row),
+    loadRelatedRecords(row),
     openExecutionDetailFromPlan(row),
   ])
 }
@@ -208,18 +245,42 @@ async function handleSave(plan: DeploymentWizardPlan) {
   }
 }
 
-async function loadPlanVersions(row: ViewRow) {
-  const planId = readString(row.raw, ['id', 'planId'])
-  if (!planId) return
-  detailVersionLoading.value = true
-  detailVersionError.value = ''
+async function loadRelatedRecords(row: ViewRow) {
+  relatedRecordsLoading.value = true
+  relatedRecordsError.value = ''
   try {
-    const result = await listDeploymentPlans({ page: 1, pageSize: 50, sort: 'updatedAt:desc', filters: { planId } })
-    detailVersionRows.value = [...(result.data?.items ?? [])]
+    const currentPlanId = readString(row.raw, ['id', 'planId'])
+    const currentTargetKeys = collectTargetKeys(row.raw)
+    const plansResult = await listDeploymentPlans({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
+    const plans = [...(plansResult.data?.items ?? [])]
+    const matchingPlans = plans.filter((plan) => {
+      const planId = readString(plan, ['id', 'planId'])
+      if (!planId) return false
+      if (planId === currentPlanId) return true
+      const targetKeys = collectTargetKeys(plan)
+      return [...targetKeys].some((key) => currentTargetKeys.has(key))
+    })
+
+    const records = (await Promise.all(matchingPlans.map(async (plan) => {
+      const planId = readString(plan, ['id', 'planId'])
+      if (!planId) return []
+      const runsResult = await listExecutionsByPlanId(planId, { page: 1, pageSize: 200, sort: 'createdAt:desc' })
+      const runs = [...(runsResult.data?.items ?? [])]
+      return runs
+        .map((run) => {
+          const runId = readString(run, ['id', 'runId'])
+          const kind = normalizeRelatedRecordKind(readString(run, ['type'], '').toLowerCase())
+          if (!runId || !kind) return null
+          return buildRelatedExecutionRecord(plan, run, runId, kind)
+        })
+        .filter((item): item is RelatedExecutionRecord => item !== null)
+    }))).flat().sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+
+    relatedRecords.value = dedupeRelatedRecords(records)
   } catch (cause) {
-    detailVersionError.value = toErrorMessage(cause, '加载计划关联记录失败')
+    relatedRecordsError.value = toErrorMessage(cause, '加载关联记录失败')
   } finally {
-    detailVersionLoading.value = false
+    relatedRecordsLoading.value = false
   }
 }
 
@@ -237,7 +298,26 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
     risk: normalizeRisk(readString(row.raw, ['risk', 'riskLevel'], 'HIGH')),
     raw: { id: runId, runId, status: readString(row.raw, ['status'], 'UNKNOWN') },
   }
-  await dryRunExecutionDetail.reload()
+}
+
+function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
+  relatedExecutionRow.value = {
+    id: record.runId,
+    name: record.planName,
+    status: record.status,
+    risk: record.kind === 'dry-run' ? 'MEDIUM' : normalizeRisk(readString(record.raw, ['risk', 'riskLevel'], 'HIGH')),
+    raw: {
+      id: record.runId,
+      runId: record.runId,
+      deploymentPlanId: record.planId,
+      status: record.status,
+      type: record.type,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      planName: record.planName,
+    },
+  }
+  relatedExecutionModalOpen.value = true
 }
 
 async function handleDryRun(plan: DeploymentWizardPlan) {
@@ -257,7 +337,6 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     infoMessage.value = runId
       ? `dry-run 已发起，当前在模态框中显示执行状态。runId: ${runId}`
       : 'dry-run 已发起，但返回中缺少 runId。'
-    await dryRunExecutionDetail.reload()
     await pageRef.value?.reload()
   } catch (cause) {
     dryRunRunRow.value = null
@@ -394,7 +473,6 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   } else {
     dryRunChecks.value = []
   }
-  void dryRunExecutionDetail.reload()
 }
 
 function readResponseData(result: unknown): ApiRecord | undefined {
@@ -485,6 +563,61 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
 function normalizeRisk(value: string): ViewRow['risk'] {
   const risk = value.toUpperCase()
   return risk === 'LOW' || risk === 'MEDIUM' || risk === 'HIGH' || risk === 'CRITICAL' ? risk : 'HIGH'
+}
+
+function collectTargetKeys(record: ApiRecord | null | undefined): Set<string> {
+  const targets = Array.isArray(record?.targets) ? record.targets as ApiRecord[] : []
+  return new Set(
+    targets.flatMap((target) => [
+      readString(target, ['certificateBindingId']),
+      readString(target, ['executionTargetId']),
+    ].filter(Boolean)),
+  )
+}
+
+function normalizeRelatedRecordKind(type: string): RelatedRecordKind | '' {
+  if (type === 'dry_run') return 'dry-run'
+  if (type === 'apply' || type === 'rollback') return 'certificate-update'
+  return ''
+}
+
+function buildRelatedExecutionRecord(
+  plan: ApiRecord,
+  run: ApiRecord | undefined,
+  runId: string,
+  kind: RelatedRecordKind,
+): RelatedExecutionRecord {
+  const planId = readString(plan, ['id', 'planId'])
+  const planName = readString(plan, ['name', 'title', 'planName'], planId)
+  return {
+    id: `${planId}:${runId}`,
+    runId,
+    planId,
+    planName,
+    status: readString(run, ['status'], readString(plan, ['status', 'state'], 'UNKNOWN')),
+    type: readString(run, ['type'], ''),
+    kind,
+    createdReason: readString(plan, ['createdReason'], 'MANUAL'),
+    createdAt: readString(run, ['createdAt'], readString(plan, ['createdAt'])),
+    updatedAt: readString(run, ['updatedAt', 'finishedAt'], readString(plan, ['updatedAt'])),
+    targetSummary: readString(plan, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId']),
+    certificateVersionId: readString(plan, ['certificateVersionId']),
+    certificateFormatId: readString(plan, ['certificateFormatId']),
+    raw: {
+      ...plan,
+      latestRun: run,
+      latestRunId: runId,
+    },
+  }
+}
+
+function dedupeRelatedRecords(records: readonly RelatedExecutionRecord[]): RelatedExecutionRecord[] {
+  const seen = new Set<string>()
+  return records.filter((record) => {
+    if (seen.has(record.runId)) return false
+    seen.add(record.runId)
+    return true
+  })
 }
 
 async function fetchAllPages(
@@ -589,16 +722,38 @@ async function fetchAllPages(
         </section>
 
         <section v-else-if="activeDetailTab === 'versions'" class="deployment-plan-detail__section">
-          <p v-if="detailVersionLoading" class="deployment-plan-detail__loading">正在加载关联记录...</p>
-          <p v-else-if="detailVersionError" class="deployment-plan-detail__error">{{ detailVersionError }}</p>
-          <ul v-else-if="detailVersionRows.length" class="deployment-plan-detail__list">
-            <li v-for="item in detailVersionRows" :key="readString(item, ['id', 'planId'])" class="deployment-plan-detail__list-item">
+          <p v-if="relatedRecordsLoading" class="deployment-plan-detail__loading">正在加载关联记录...</p>
+          <p v-else-if="relatedRecordsError" class="deployment-plan-detail__error">{{ relatedRecordsError }}</p>
+          <ul v-else-if="relatedRecords.length" class="deployment-plan-detail__list deployment-plan-detail__related-list">
+            <li v-for="item in relatedRecords" :key="item.id" class="deployment-plan-detail__list-item deployment-plan-detail__related-item">
               <div class="deployment-plan-detail__list-head">
-                <strong>{{ readString(item, ['name', 'title', 'planName']) }}</strong>
-                <GcStatusTag :status="readString(item, ['status', 'state'])" />
+                <div class="deployment-plan-detail__related-main">
+                  <strong>{{ item.planName }}</strong>
+                </div>
+                <div class="deployment-plan-detail__related-status">
+                  <span
+                    class="deployment-plan-detail__record-tag"
+                    :data-kind="item.kind"
+                  >
+                    {{ item.kind === 'dry-run' ? 'Dry-run' : '证书更新' }}
+                  </span>
+                  <GcStatusTag :status="item.status" />
+                  <button class="gc-button deployment-plan-detail__related-action" type="button" @click="openRelatedExecutionDetail(item)">查看日志</button>
+                </div>
               </div>
-              <p>审批 {{ readString(item, ['approval.status', 'approvalStatus']) }}，目标 {{ readString(item, ['targetCount', 'affectedCount', 'targets.length']) }}。</p>
-              <small>{{ readString(item, ['updatedAt', 'createdAt']) }}</small>
+              <div class="deployment-plan-detail__related-meta">
+                <span>计划 {{ item.planId }}</span>
+                <span>运行 {{ item.runId }}</span>
+                <span>来源 {{ item.createdReason }}</span>
+                <span>{{ formatBrowserLocalTime(item.updatedAt || item.createdAt) || item.updatedAt || item.createdAt }}</span>
+              </div>
+              <p>
+                <span class="deployment-plan-detail__related-label">目标</span>
+                {{ item.targetSummary || '未提供目标摘要' }}
+                <span class="deployment-plan-detail__related-separator">·</span>
+                <span class="deployment-plan-detail__related-label">证书版本</span>
+                {{ item.certificateVersionId || '未提供' }}
+              </p>
             </li>
           </ul>
           <p v-else class="deployment-plan-detail__loading">暂无关联记录。</p>
@@ -650,6 +805,108 @@ async function fetchAllPages(
 
       <template #actions>
         <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
+      </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="relatedExecutionModalOpen"
+      :title="relatedExecutionRow ? `执行详情 ${relatedExecutionRow.id}` : '执行详情'"
+      description="查看关联记录对应执行的步骤状态和详细日志。"
+      size="xxl"
+      width="min(1280px, calc(100vw - 32px))"
+    >
+      <section v-if="relatedExecutionRow" class="execution-detail-modal">
+        <section class="execution-detail-modal__hero">
+          <div class="execution-detail-modal__hero-copy">
+            <p class="execution-detail-modal__eyebrow">Related Execution</p>
+            <h2>{{ readString(relatedExecutionRow.raw, ['planName', 'name', 'id'], relatedExecutionRow.id) }}</h2>
+            <span>部署计划 {{ readString(relatedExecutionRow.raw, ['deploymentPlanId', 'planId']) }}</span>
+          </div>
+          <div class="execution-detail-modal__hero-side">
+            <GcStatusTag :status="readString(relatedExecutionRow.raw, ['status', 'state', 'result'])" />
+            <div class="execution-detail-modal__spotlight">
+              <small>运行类型</small>
+              <strong>{{ readString(relatedExecutionRow.raw, ['type']) || 'unknown' }}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="execution-detail-modal__section">
+          <dl class="execution-detail-modal__facts">
+            <div>
+              <dt>执行 ID</dt>
+              <dd>{{ readString(relatedExecutionRow.raw, ['id', 'runId'], relatedExecutionRow.id) }}</dd>
+            </div>
+            <div>
+              <dt>部署计划</dt>
+              <dd>{{ readString(relatedExecutionRow.raw, ['deploymentPlanId', 'planId']) }}</dd>
+            </div>
+            <div>
+              <dt>运行类型</dt>
+              <dd>{{ readString(relatedExecutionRow.raw, ['type']) }}</dd>
+            </div>
+            <div>
+              <dt>执行状态</dt>
+              <dd>{{ readString(relatedExecutionRow.raw, ['status', 'state', 'result']) }}</dd>
+            </div>
+            <div>
+              <dt>创建时间</dt>
+              <dd>{{ formatBrowserLocalTime(readString(relatedExecutionRow.raw, ['createdAt'])) || readString(relatedExecutionRow.raw, ['createdAt']) }}</dd>
+            </div>
+            <div>
+              <dt>更新时间</dt>
+              <dd>{{ formatBrowserLocalTime(readString(relatedExecutionRow.raw, ['updatedAt'])) || readString(relatedExecutionRow.raw, ['updatedAt']) }}</dd>
+            </div>
+          </dl>
+
+          <article
+            v-if="relatedExecutionDetail.dryRunSummary.value"
+            class="execution-detail-modal__summary"
+            :data-state="relatedExecutionDetail.dryRunSummary.value.state"
+          >
+            <div class="execution-detail-modal__summary-head">
+              <strong>{{ relatedExecutionDetail.dryRunSummary.value.label }}</strong>
+              <span>{{ relatedExecutionDetail.dryRunSummary.value.detail }}</span>
+            </div>
+            <div class="execution-detail-modal__summary-grid">
+              <div v-for="item in relatedExecutionSummaryCards" :key="item.label">
+                <small>{{ item.label }}</small>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+          </article>
+
+          <p v-if="relatedExecutionDetail.loading.value" class="execution-detail-modal__loading">正在加载步骤和日志...</p>
+          <p v-else-if="relatedExecutionDetail.error.value" class="execution-detail-modal__error">{{ relatedExecutionDetail.error.value }}</p>
+          <template v-else>
+            <ul v-if="relatedExecutionDetail.steps.value.length" class="execution-detail-modal__list">
+              <li v-for="step in relatedExecutionDetail.steps.value" :key="step.id" class="execution-detail-modal__list-item">
+                <div class="execution-detail-modal__list-head">
+                  <strong>{{ step.name }}</strong>
+                  <GcStatusTag :status="step.status" />
+                </div>
+                <p>{{ step.detail ?? '暂无步骤说明' }}</p>
+                <small>{{ step.startedAt ?? '未开始' }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
+              </li>
+            </ul>
+            <p v-else class="execution-detail-modal__loading">暂无步骤。</p>
+
+            <ul v-if="relatedExecutionDetail.lines.value.length" class="execution-detail-modal__logs">
+              <li v-for="line in relatedExecutionDetail.lines.value" :key="line.id" class="execution-detail-modal__log-item" :data-level="line.level">
+                <div class="execution-detail-modal__log-meta">
+                  <span>{{ line.time }}</span>
+                  <strong>{{ line.step || '执行日志' }}</strong>
+                </div>
+                <p>{{ line.message }}</p>
+              </li>
+            </ul>
+            <p v-else class="execution-detail-modal__loading">暂无日志。</p>
+          </template>
+        </section>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" @click="relatedExecutionModalOpen = false">关闭</button>
       </template>
     </GcModal>
   </section>
@@ -910,6 +1167,87 @@ async function fetchAllPages(
   background: #f8fbff;
 }
 
+.deployment-plan-detail__related-list {
+  gap: 6px;
+}
+
+.deployment-plan-detail__related-item {
+  gap: 6px;
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+
+.deployment-plan-detail__related-main {
+  display: grid;
+  gap: 2px;
+}
+
+.deployment-plan-detail__record-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.deployment-plan-detail__record-tag[data-kind='dry-run'] {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #bfdbfe;
+}
+
+.deployment-plan-detail__record-tag[data-kind='certificate-update'] {
+  color: #0f766e;
+  background: #ccfbf1;
+  border-color: #99f6e4;
+}
+
+.deployment-plan-detail__related-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deployment-plan-detail__related-meta span,
+.deployment-plan-detail__related-footer small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.deployment-plan-detail__related-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.deployment-plan-detail__related-item p {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.deployment-plan-detail__related-label {
+  color: #475569;
+  font-weight: 700;
+}
+
+.deployment-plan-detail__related-separator {
+  margin: 0 6px;
+  color: #94a3b8;
+}
+
+.deployment-plan-detail__related-action {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .deployment-plan-detail__list-head,
 .deployment-plan-detail__log-meta {
   display: flex;
@@ -962,6 +1300,262 @@ async function fetchAllPages(
 
   .deployment-plan-detail__facts,
   .deployment-plan-detail__summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-plan-detail__related-action {
+    width: 100%;
+  }
+}
+
+.execution-detail-modal {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.execution-detail-modal__hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid #d9e5f7;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
+    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+}
+
+.execution-detail-modal__hero-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.execution-detail-modal__eyebrow {
+  margin: 0;
+  color: #5b6f88;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.execution-detail-modal__hero-copy h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.06;
+  overflow-wrap: anywhere;
+}
+
+.execution-detail-modal__hero-copy span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.execution-detail-modal__hero-side {
+  display: grid;
+  align-content: space-between;
+  justify-items: end;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.execution-detail-modal__spotlight {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #fff;
+}
+
+.execution-detail-modal__spotlight small {
+  color: rgb(255 255 255 / 68%);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.execution-detail-modal__spotlight strong {
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.execution-detail-modal__section,
+.execution-detail-modal__summary {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #e3ebf5;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+}
+
+.execution-detail-modal__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.execution-detail-modal__facts div,
+.execution-detail-modal__summary-grid > div {
+  display: grid;
+  gap: 5px;
+  min-height: 70px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fbff;
+  border: 1px solid #e4edf8;
+}
+
+.execution-detail-modal__facts dt,
+.execution-detail-modal__summary-grid small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.execution-detail-modal__facts dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.execution-detail-modal__summary-head {
+  display: grid;
+  gap: 4px;
+}
+
+.execution-detail-modal__summary-head strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.execution-detail-modal__summary-head span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.execution-detail-modal__summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.execution-detail-modal__summary-grid strong {
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.execution-detail-modal__summary[data-state='passed'] {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.execution-detail-modal__summary[data-state='warning'] {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.execution-detail-modal__summary[data-state='failed'] {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.execution-detail-modal__summary[data-state='pending'],
+.execution-detail-modal__summary[data-state='queued'],
+.execution-detail-modal__summary[data-state='running'] {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.execution-detail-modal__list,
+.execution-detail-modal__logs {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.execution-detail-modal__logs {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.execution-detail-modal__list-item,
+.execution-detail-modal__log-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #e4edf8;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.execution-detail-modal__list-head,
+.execution-detail-modal__log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.execution-detail-modal__list-item p,
+.execution-detail-modal__list-item small,
+.execution-detail-modal__log-meta span,
+.execution-detail-modal__log-item p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.execution-detail-modal__log-meta strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.execution-detail-modal__log-item[data-level='error'] {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.execution-detail-modal__log-item[data-level='warn'] {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.execution-detail-modal__loading,
+.execution-detail-modal__error {
+  margin: 0;
+}
+
+.execution-detail-modal__error {
+  color: var(--gc-color-danger);
+}
+
+@media (max-width: 900px) {
+  .execution-detail-modal__hero {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .execution-detail-modal__facts,
+  .execution-detail-modal__summary-grid {
     grid-template-columns: 1fr;
   }
 }
