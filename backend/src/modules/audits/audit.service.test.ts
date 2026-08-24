@@ -4,6 +4,23 @@ import { RBACService } from '../rbac/rbac.service.js';
 import { AuditService } from './audit.service.js';
 
 describe('AuditService 审计权限过滤', () => {
+  it('无请求上下文时使用注入的真实默认租户 UUID', async () => {
+    const audit = new AuditService(undefined, undefined, async () => 'tenant-default-uuid');
+
+    const saved = await audit.write({
+      eventType: 'task.created',
+      actorType: 'system',
+      actorId: 'task-worker',
+      action: 'task.create',
+      resourceType: 'task',
+      resourceId: 'task_1',
+      result: 'success',
+      riskLevel: 'medium',
+    });
+
+    assert.equal(saved.tenantId, 'tenant-default-uuid');
+  });
+
   it('查询审计日志时必须通过 RBAC 权限校验', async () => {
     const audit = new AuditService();
     const rbac = new RBACService();

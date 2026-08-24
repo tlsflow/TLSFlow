@@ -106,7 +106,7 @@ export class SecretService {
   async createInTransaction(input: CreateSecretInput, db: DatabasePort, context: RequestContext = {}): Promise<SecretMetadataOutput> {
     const repositories = this.repositoriesFor(db);
     const result = await this.persistCreate(input, context, repositories.secrets, repositories.versions);
-    await this.auditCreatedWith(new AuditService(new PgDocumentRepository(db, 'security.audit_logs')), input, result.secret, result.versionId, result.fingerprint, context);
+    await this.auditCreatedWith(this.audit.forDatabase(db), input, result.secret, result.versionId, result.fingerprint, context);
     return this.toMetadataFrom(result.secret, repositories.versions);
   }
 
@@ -129,7 +129,7 @@ export class SecretService {
       currentVersionId: versionId,
       updatedAt: new Date().toISOString(),
     });
-    await new AuditService(new PgDocumentRepository(db, 'security.audit_logs')).write({
+    await this.audit.forDatabase(db).write({
       eventType: AUDIT_EVENT_TYPES.SECRET_ROTATED,
       actorType: 'user', actorId, action: 'secret.rotate', resourceType: 'secret', resourceId: secretId,
       result: 'success', riskLevel: 'high', context, failClosed: true,
@@ -146,7 +146,7 @@ export class SecretService {
       await repositories.versions.update(version.id, { status: 'revoked' });
     }
     await repositories.secrets.update(secretId, { status: 'deleted', updatedAt: new Date().toISOString() });
-    await new AuditService(new PgDocumentRepository(db, 'security.audit_logs')).write({
+    await this.audit.forDatabase(db).write({
       eventType: AUDIT_EVENT_TYPES.SECRET_DELETED,
       actorType: 'user', actorId, action: 'secret.delete', resourceType: 'secret', resourceId: secretId,
       result: 'success', riskLevel: 'high', context, failClosed: true,

@@ -19,6 +19,7 @@ export class CredentialsApplicationService {
     private readonly domain = new CredentialsDomainService(),
     private readonly db: DatabasePort = new PgliteDatabase(),
     private readonly secrets?: SecretService,
+    private readonly audit?: AuditService,
   ) {}
 
   async list(tenantId: string, filters: { kind?: string; scopeType?: string; status?: string; search?: string } = {}) {
@@ -48,7 +49,7 @@ export class CredentialsApplicationService {
         now: new Date().toISOString(),
       });
       const saved = await new CredentialsRepository(tx).save(entity);
-      await credentialAudit(tx).write({
+      await credentialAudit(tx, this.audit).write({
         eventType: 'credential.created', actorType: 'user', actorId: createdBy,
         action: 'credential.create', resourceType: 'credential', resourceId: saved.id,
         result: 'success', riskLevel: 'high', context, failClosed: true,
@@ -71,7 +72,7 @@ export class CredentialsApplicationService {
       if (current.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'CredentialProfile 版本冲突', { credentialId, expectedVersion: input.expectedVersion, actualVersion: current.version });
       const secretSlots = await this.updateSecretSlots(tx, secrets, current, actorId, input.secretValues, context);
       const updated = await repository.save(this.domain.normalizeUpdate(current, { secretSlots, expectedVersion: input.expectedVersion }, new Date().toISOString()));
-      await credentialAudit(tx).write({
+      await credentialAudit(tx, this.audit).write({
         eventType: 'credential.rotated', actorType: 'user', actorId,
         action: 'credential.rotate', resourceType: 'credential', resourceId: credentialId,
         result: 'success', riskLevel: 'high', context, failClosed: true,
@@ -107,7 +108,7 @@ export class CredentialsApplicationService {
           status: recoveredStatus,
         }, new Date().toISOString()));
         const statusChanged = current.status !== updated.status;
-        await credentialAudit(tx).write({
+        await credentialAudit(tx, this.audit).write({
           eventType: statusChanged ? 'credential.status_changed' : 'credential.updated',
           actorType: 'user', actorId,
           action: statusChanged ? 'credential.disable' : 'credential.update',
@@ -141,7 +142,7 @@ export class CredentialsApplicationService {
         if (await repository.countOtherProfilesUsingSecretRef(tenantId, credentialId, secretRef) > 0) continue;
         await secrets.deleteInTransaction(parseSecretRef(secretRef).secretId, actorId, tx, context);
       }
-      await credentialAudit(tx).write({
+      await credentialAudit(tx, this.audit).write({
         eventType: 'credential.deleted', actorType: 'user', actorId,
         action: 'credential.delete', resourceType: 'credential', resourceId: credentialId,
         result: 'success', riskLevel: 'high', context, failClosed: true,
@@ -234,8 +235,8 @@ function requirePlainText(input: CredentialSecretValueInput, slot: string): stri
   return input.plainText;
 }
 
-function credentialAudit(db: DatabasePort): AuditService {
-  return new AuditService(new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'));
+function credentialAudit(db: DatabasePort, audit?: AuditService): AuditService {
+  return audit?.forDatabase(db) ?? new AuditService(new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'));
 }
 
 function isUniqueViolation(error: unknown): boolean {

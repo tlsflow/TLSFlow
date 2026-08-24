@@ -213,6 +213,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     appDb,
     security.secrets,
+    security.audit,
   );
   registerEditionLicensing(app, appDb, security.audit);
   const gatewayPersistence = createGatewayPersistenceRepositories({

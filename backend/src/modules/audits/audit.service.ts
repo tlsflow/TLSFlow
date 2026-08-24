@@ -1,4 +1,5 @@
 import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { DatabasePort } from '../../database/database-port.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
@@ -38,6 +39,8 @@ export interface AuthorizedAuditQueryInput {
   assertCan: (subject: SecuritySubject, action: string, resource: ResourceDescriptor, context?: RequestContext) => Promise<void>;
 }
 
+export type AuditTenantResolver = () => Promise<string>;
+
 export class AuditService {
   private static readonly defaultDb = new PgliteDatabase();
 
@@ -48,14 +51,31 @@ export class AuditService {
   constructor(
     private readonly logs: AsyncRepositoryPort<AuditLogEntity> = AuditService.createDefaultRepository(),
     private readonly redaction = new RedactionService(),
+    private readonly defaultTenantResolver?: AuditTenantResolver,
   ) {}
+
+  /**
+   * 为事务复用相同的租户解析规则，只替换审计仓储的数据连接。
+   * 这样事务内写入不会退化成一个没有默认租户解析器的新实例。
+   */
+  forDatabase(db: DatabasePort): AuditService {
+    return new AuditService(
+      new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'),
+      this.redaction,
+      this.defaultTenantResolver,
+    );
+  }
 
   async write(input: WriteAuditInput): Promise<AuditLogEntity> {
     try {
       const redactedDetail = input.detail === undefined ? undefined : this.redaction.redact(input.detail).value;
+      const tenantId = await this.resolveTenantId(input.context);
+      if (!tenantId && this.defaultTenantResolver) {
+        throw new Error('审计写入缺少租户上下文');
+      }
       return this.logs.create({
         id: newId('aud'),
-        tenantId: resolveContextTenantId(input.context),
+        tenantId,
         eventType: input.eventType,
         actorType: input.actorType,
         actorId: input.actorId,
@@ -75,6 +95,10 @@ export class AuditService {
       }
       throw error;
     }
+  }
+
+  private async resolveTenantId(context: RequestContext | undefined): Promise<string | undefined> {
+    return resolveContextTenantId(context) ?? this.defaultTenantResolver?.();
   }
 
   async query(query: AuditQuery = {}): Promise<AuditLogEntity[]> {

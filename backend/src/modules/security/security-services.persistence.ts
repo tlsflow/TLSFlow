@@ -68,7 +68,7 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
   const tenantIdentity = new TenantIdentityService(db);
 
-  const audit = new AuditService(auditLogs);
+  const audit = new AuditService(auditLogs, undefined, () => resolveUnambiguousDefaultTenant(db, tenantIdentity));
   const approvals = new ApprovalService(approvalsRepo, audit, {
     allowSelfApproval: process.env.GCAC_APPROVAL_ALLOW_SELF_APPROVAL === 'true',
   });
@@ -88,4 +88,17 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
     services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode, tenantArchitecture },
     flushers: [],
   };
+}
+
+async function resolveUnambiguousDefaultTenant(db: DatabasePort, tenantIdentity: TenantIdentityService): Promise<string> {
+  const result = await db.query<{ count: string }>(
+    `select count(*)::text as count
+       from tenants
+      where status = 'ACTIVE'
+        and deleted_at is null`,
+  );
+  if (result.rows[0]?.count !== '1') {
+    throw new Error('后台审计缺少租户上下文，当前不是唯一活动租户环境');
+  }
+  return tenantIdentity.resolveDefault();
 }
