@@ -139,8 +139,17 @@ namespace GCAC.WindowsCompatibilityAgent
             try { result = registry.Execute(task); }
             catch (Exception error) { result = ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null); }
             ledger.SavePending(task.id, task.leaseId, result);
-            client.SubmitResult(agentId, task.id, task.leaseId, result);
-            ledger.MarkReported(task.id);
+            try
+            {
+                client.SubmitResult(agentId, task.id, task.leaseId, result);
+                ledger.MarkReported(task.id);
+            }
+            catch (Exception error)
+            {
+                recoveryFailures++;
+                lastError = error.Message;
+                logger.Write("error", "task.result_submit_failed", "taskId=" + task.id + " error=" + error.Message);
+            }
             lastTaskResultAtUtc = DateTime.UtcNow;
             logger.Write(result.Success ? "info" : "error", "task.completed", "taskId=" + task.id + " success=" + result.Success);
         }
@@ -266,7 +275,7 @@ namespace GCAC.WindowsCompatibilityAgent
                         : ActionResult.Failed("PREFLIGHT_BLOCKED", "前置检查未通过", new Dictionary<string, object> { { "supported", false }, { "checks", result.Checks } });
                 }
             });
-            AtomicPlanHandler atomicPlanHandler = new AtomicPlanHandler(delegate { return activeAgentId; });
+            AtomicPlanHandler atomicPlanHandler = new AtomicPlanHandler(delegate { return activeAgentId; }, dataDirectory);
             actionRegistry.Register(new ActionRegistration
             {
                 CanonicalAction = "agent.atomic_plan.execute",

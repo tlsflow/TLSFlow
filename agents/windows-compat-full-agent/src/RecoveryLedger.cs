@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Web.Script.Serialization;
 
 namespace GCAC.WindowsCompatibilityAgent
@@ -33,7 +34,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 List<RecoveryRecord> records = LoadUnsafe();
                 records.RemoveAll(delegate(RecoveryRecord record) { return record.TaskId == taskId; });
                 records.Add(new RecoveryRecord { TaskId = taskId, LeaseId = leaseId, Result = result, ResultReported = false, UpdatedAtUtc = DateTime.UtcNow });
-                File.WriteAllText(path, serializer.Serialize(records));
+                SaveUnsafe(records);
             }
         }
 
@@ -46,7 +47,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 if (record == null) return;
                 record.ResultReported = true;
                 record.UpdatedAtUtc = DateTime.UtcNow;
-                File.WriteAllText(path, serializer.Serialize(records));
+                SaveUnsafe(records);
             }
         }
 
@@ -60,6 +61,21 @@ namespace GCAC.WindowsCompatibilityAgent
             if (!File.Exists(path)) return new List<RecoveryRecord>();
             List<RecoveryRecord> records = serializer.Deserialize<List<RecoveryRecord>>(File.ReadAllText(path));
             return records ?? new List<RecoveryRecord>();
+        }
+
+        private void SaveUnsafe(List<RecoveryRecord> records)
+        {
+            string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, serializer.Serialize(records), Encoding.UTF8);
+                if (File.Exists(path)) File.Replace(temporaryPath, path, null);
+                else File.Move(temporaryPath, path);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
     }
 }

@@ -1,12 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
+using System.ServiceProcess;
 using System.Text;
 using System.Web.Script.Serialization;
 
@@ -15,14 +17,27 @@ namespace GCAC.WindowsCompatibilityAgent
     internal sealed class AtomicPlanHandler
     {
         private readonly Func<string> currentAgentId;
+        private readonly AtomicPlanLedgerStore ledgerStore;
         private readonly Dictionary<string, ActionResult> completed = new Dictionary<string, ActionResult>(StringComparer.Ordinal);
+        private readonly object sync = new object();
 
         public AtomicPlanHandler(Func<string> currentAgentIdProvider)
+            : this(currentAgentIdProvider, null)
+        {
+        }
+
+        public AtomicPlanHandler(Func<string> currentAgentIdProvider, string dataDirectory)
         {
             currentAgentId = currentAgentIdProvider;
+            if (!TextUtility.IsBlank(dataDirectory)) ledgerStore = new AtomicPlanLedgerStore(dataDirectory);
         }
 
         public ActionResult Execute(AgentTask task)
+        {
+            lock (sync) return ExecuteCore(task);
+        }
+
+        private ActionResult ExecuteCore(AgentTask task)
         {
             string requestedSchema = AtomicValue.String(task == null ? null : task.payload, "actionSchemaVersion");
             if (!TextUtility.IsBlank(requestedSchema) && requestedSchema != "1.0")
@@ -42,57 +57,197 @@ namespace GCAC.WindowsCompatibilityAgent
                 return ActionResult.Failed("AGENT_PLAN_EXPIRED", "执行计划已过期", null);
 
             string idempotencyKey = AtomicValue.String(plan, "idempotencyKey");
-            ActionResult existing;
-            if (completed.TryGetValue(idempotencyKey, out existing)) return existing;
-
             List<Dictionary<string, object>> operations = AtomicValue.DictionaryList(plan, "operations");
             if (operations.Count == 0) return ActionResult.Failed("AGENT_ATOMIC_OPERATION_FAILED", "原子执行计划没有 Operation", null);
-            AtomicExecutionContext context = new AtomicExecutionContext(AtomicValue.PermissionMap(plan));
             bool preview = string.Equals(AtomicValue.String(plan, "executionMode"), "PREFLIGHT", StringComparison.OrdinalIgnoreCase);
-            List<Dictionary<string, object>> results = new List<Dictionary<string, object>>();
-            Dictionary<string, object> failure = null;
-            foreach (Dictionary<string, object> operation in operations)
-            {
-                Dictionary<string, object> result = AtomicOperationExecutor.Execute(operation, context, preview);
-                results.Add(result);
-                if (!string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal)) { failure = result; break; }
-                context.CompletedOperations.Add(AtomicValue.String(operation, "id"));
-            }
 
-            List<Dictionary<string, object>> rollbackResults = new List<Dictionary<string, object>>();
-            bool rollbackFailed = false;
-            if (failure != null && !preview)
+            string planDigest = AtomicValue.Sha256Hex(AtomicValue.CanonicalJson(plan));
+            AtomicPlanLedgerRecord record = ledgerStore == null ? null : ledgerStore.Load(idempotencyKey);
+            if (record != null)
             {
-                List<Dictionary<string, object>> rollback = AtomicValue.DictionaryList(plan, "rollback");
-                for (int index = rollback.Count - 1; index >= 0; index--)
+                if (!string.Equals(record.PlanDigest, planDigest, StringComparison.OrdinalIgnoreCase))
+                    return ActionResult.Failed("AGENT_ATOMIC_OPERATION_FAILED", "相同幂等键对应的执行计划内容不一致", null);
+                record.EnsureCollections();
+                if (record.State == "SUCCEEDED" || record.State == "ROLLED_BACK" || record.State == "MANUAL_INTERVENTION")
                 {
-                    Dictionary<string, object> result = AtomicOperationExecutor.Execute(rollback[index], context, false);
-                    rollbackResults.Add(result);
-                    if (!string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal)) rollbackFailed = true;
+                    if (record.FinalResult != null)
+                    {
+                        record.FinalResult.Detail["cached"] = true;
+                        return record.FinalResult;
+                    }
+                    if (record.State == "SUCCEEDED") return ActionResult.Succeeded(BuildDetail(record, "SUCCEEDED"));
+                    return ActionResult.Failed(record.State == "MANUAL_INTERVENTION" ? "AGENT_ROLLBACK_FAILED" : "AGENT_ATOMIC_OPERATION_FAILED", FailureMessage(null, record), BuildDetail(record, record.State));
                 }
             }
 
+            if (ledgerStore == null && completed.ContainsKey(idempotencyKey)) return completed[idempotencyKey];
+            if (preview) return ExecutePreflight(plan, operations);
+
+            if (record == null)
+            {
+                record = AtomicPlanLedgerRecord.Create(AtomicValue.String(plan, "planId"), idempotencyKey, planDigest, "EXECUTE");
+            }
+            AtomicExecutionContext context = new AtomicExecutionContext(AtomicValue.PermissionMap(plan), record, ledgerStore == null ? Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-backups") : ledgerStore.BackupDirectory);
+
+            if (record.State == "ROLLING_BACK") return ContinueRollback(plan, record, context, null);
+            record.State = "RUNNING";
+            SaveLedger(record);
+
+            Dictionary<string, object> failure = null;
+            foreach (Dictionary<string, object> operation in operations)
+            {
+                string operationId = AtomicValue.String(operation, "id");
+                if (record.CompletedOperations.Contains(operationId)) continue;
+                Dictionary<string, object> result = AtomicOperationExecutor.Execute(operation, context, false);
+                record.OperationResults.Add(result);
+                if (string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal))
+                {
+                    context.CompletedOperations.Add(operationId);
+                    record.CompletedOperations.Add(operationId);
+                }
+                SaveLedger(record);
+                if (!string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal))
+                {
+                    failure = result;
+                    break;
+                }
+            }
+
+            if (failure != null)
+            {
+                record.State = "ROLLING_BACK";
+                SaveLedger(record);
+                return ContinueRollback(plan, record, context, failure);
+            }
+
+            record.State = "SUCCEEDED";
+            record.FinalResult = ActionResult.Succeeded(BuildDetail(record, "SUCCEEDED"));
+            SaveLedger(record);
+            completed[idempotencyKey] = record.FinalResult;
+            return record.FinalResult;
+        }
+
+        private ActionResult ExecutePreflight(Dictionary<string, object> plan, List<Dictionary<string, object>> operations)
+        {
+            List<Dictionary<string, object>> results = new List<Dictionary<string, object>>();
+            AtomicExecutionContext context = new AtomicExecutionContext(AtomicValue.PermissionMap(plan), AtomicPlanLedgerRecord.Create(AtomicValue.String(plan, "planId"), AtomicValue.String(plan, "idempotencyKey"), string.Empty, "PREFLIGHT"), Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-backups"));
+            Dictionary<string, object> failure = null;
+            foreach (Dictionary<string, object> operation in operations)
+            {
+                Dictionary<string, object> result = AtomicOperationExecutor.Execute(operation, context, true);
+                results.Add(result);
+                if (!string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal))
+                {
+                    if (failure == null) failure = result;
+                }
+                else context.CompletedOperations.Add(AtomicValue.String(operation, "id"));
+            }
             Dictionary<string, object> detail = new Dictionary<string, object>();
             detail["planId"] = AtomicValue.String(plan, "planId");
-            detail["executionMode"] = preview ? "PREFLIGHT" : "EXECUTE";
+            detail["executionMode"] = "PREFLIGHT";
             detail["operationResults"] = results;
-            detail["rollbackResults"] = rollbackResults;
-            detail["state"] = failure == null ? "SUCCEEDED" : (rollbackFailed ? "MANUAL_INTERVENTION" : (preview ? "FAILED" : "ROLLED_BACK"));
-            ActionResult finalResult = failure == null
+            detail["rollbackResults"] = new List<Dictionary<string, object>>();
+            detail["state"] = failure == null ? "SUCCEEDED" : "FAILED";
+            detail["preview"] = true;
+            detail["mutating"] = false;
+            ActionResult resultValue = failure == null
                 ? ActionResult.Succeeded(detail)
-                : ActionResult.Failed(rollbackFailed ? "AGENT_ROLLBACK_FAILED" : (preview ? "AGENT_ATOMIC_PREFLIGHT_FAILED" : "AGENT_ATOMIC_OPERATION_FAILED"), Convert.ToString(failure["errorMessage"]), detail);
-            completed[idempotencyKey] = finalResult;
-            return finalResult;
+                : ActionResult.Failed("AGENT_ATOMIC_PREFLIGHT_FAILED", Convert.ToString(failure["errorMessage"]), detail);
+            return resultValue;
+        }
+
+        private ActionResult ContinueRollback(Dictionary<string, object> plan, AtomicPlanLedgerRecord record, AtomicExecutionContext context, Dictionary<string, object> originalFailure)
+        {
+            List<Dictionary<string, object>> rollback = AtomicValue.DictionaryList(plan, "rollback");
+            bool rollbackFailed = false;
+            for (int index = rollback.Count - 1; index >= 0; index--)
+            {
+                Dictionary<string, object> operation = rollback[index];
+                string operationId = AtomicValue.String(operation, "id");
+                if (record.CompletedRollbackOperations.Contains(operationId)) continue;
+                Dictionary<string, object> result = AtomicOperationExecutor.Execute(operation, context, false);
+                record.RollbackResults.Add(result);
+                SaveLedger(record);
+                if (!string.Equals(Convert.ToString(result["status"]), "SUCCEEDED", StringComparison.Ordinal))
+                {
+                    rollbackFailed = true;
+                    break;
+                }
+                record.CompletedRollbackOperations.Add(operationId);
+                SaveLedger(record);
+            }
+            if (rollbackFailed)
+            {
+                record.State = "MANUAL_INTERVENTION";
+                record.FinalResult = ActionResult.Failed("AGENT_ROLLBACK_FAILED", FailureMessage(originalFailure, record), BuildDetail(record, "MANUAL_INTERVENTION"));
+            }
+            else
+            {
+                record.State = "ROLLED_BACK";
+                record.FinalResult = ActionResult.Failed("AGENT_ATOMIC_OPERATION_FAILED", FailureMessage(originalFailure, record), BuildDetail(record, "ROLLED_BACK"));
+            }
+            SaveLedger(record);
+            completed[record.IdempotencyKey] = record.FinalResult;
+            return record.FinalResult;
+        }
+
+        private string FailureMessage(Dictionary<string, object> originalFailure, AtomicPlanLedgerRecord record)
+        {
+            if (originalFailure != null && originalFailure.ContainsKey("errorMessage")) return Convert.ToString(originalFailure["errorMessage"]);
+            for (int index = record.OperationResults.Count - 1; index >= 0; index--)
+            {
+                Dictionary<string, object> result = record.OperationResults[index];
+                if (Convert.ToString(result["status"]) == "FAILED") return Convert.ToString(result["errorMessage"]);
+            }
+            return "原子计划执行失败";
+        }
+
+        private Dictionary<string, object> BuildDetail(AtomicPlanLedgerRecord record, string state)
+        {
+            Dictionary<string, object> detail = new Dictionary<string, object>();
+            detail["planId"] = record.PlanId;
+            detail["executionMode"] = record.ExecutionMode;
+            detail["operationResults"] = record.OperationResults;
+            detail["rollbackResults"] = record.RollbackResults;
+            detail["completedOperations"] = record.CompletedOperations;
+            detail["state"] = state;
+            return detail;
+        }
+
+        private void SaveLedger(AtomicPlanLedgerRecord record)
+        {
+            if (ledgerStore != null) ledgerStore.Save(record);
         }
     }
 
     internal sealed class AtomicExecutionContext
     {
         public readonly Dictionary<string, List<string>> Permissions;
+        public readonly AtomicPlanLedgerRecord Ledger;
+        public readonly string BackupDirectory;
         public readonly Dictionary<string, AtomicBindingSnapshot> BindingBackups = new Dictionary<string, AtomicBindingSnapshot>(StringComparer.Ordinal);
         public readonly List<string> CompletedOperations = new List<string>();
 
-        public AtomicExecutionContext(Dictionary<string, List<string>> permissions) { Permissions = permissions; }
+        public AtomicExecutionContext(Dictionary<string, List<string>> permissions, AtomicPlanLedgerRecord ledger, string backupDirectory)
+        {
+            Permissions = permissions;
+            Ledger = ledger;
+            BackupDirectory = backupDirectory;
+            if (ledger != null)
+            {
+                foreach (string operationId in ledger.CompletedOperations) CompletedOperations.Add(operationId);
+                foreach (AtomicBindingBackupRecord backup in ledger.BindingBackups)
+                {
+                    BindingBackups[backup.OperationId] = new AtomicBindingSnapshot
+                    {
+                        SiteName = backup.SiteName,
+                        BindingInformation = backup.BindingInformation,
+                        CertificateHash = AtomicValue.FromHex(backup.CertificateHash),
+                        CertificateStoreName = backup.CertificateStoreName
+                    };
+                }
+            }
+        }
     }
 
     internal sealed class AtomicBindingSnapshot
@@ -137,6 +292,12 @@ namespace GCAC.WindowsCompatibilityAgent
         private static Dictionary<string, object> Dispatch(string operationType, Dictionary<string, object> input, string operationId, AtomicExecutionContext context, bool preview)
         {
             if (operationType == "preflight.assert") return Assert(input);
+            if (operationType == "file.backup") return BackupFile(input, operationId, context, preview);
+            if (operationType == "file.atomic_replace") return ReplaceFile(input, context, preview);
+            if (operationType == "file.restore") return RestoreFile(input, context, preview);
+            if (operationType == "file.set_permissions") return SetFilePermissions(input, context, preview);
+            if (operationType == "command.execute") return ExecuteCommand(input, context, preview);
+            if (operationType == "service.control") return ControlService(input, context, preview);
             if (operationType == "windows.certificate.inspect_pfx") return InspectPfx(input, context);
             if (operationType == "windows.certificate_store.import_pfx") return ImportPfx(input, context, preview);
             if (operationType == "windows.certificate_private_key.grant") return GrantPrivateKey(input, context, preview);
@@ -144,6 +305,231 @@ namespace GCAC.WindowsCompatibilityAgent
             if (operationType == "windows.iis.binding.update_certificate") return UpdateBinding(input, context, preview);
             if (operationType == "windows.iis.binding.restore_certificate") return RestoreBinding(input, context, preview);
             throw new InvalidOperationException("unsupported atomic operation: " + operationType);
+        }
+
+        private static Dictionary<string, object> BackupFile(Dictionary<string, object> input, string operationId, AtomicExecutionContext context, bool preview)
+        {
+            string path = AtomicValue.FirstString(input, null, "path", "targetPath");
+            path = AtomicFileOperations.RequirePath(path, context.Permissions);
+            FileInfo info = AtomicFileOperations.ExistingFile(path);
+            if (preview)
+            {
+                Dictionary<string, object> detail = new Dictionary<string, object>
+                {
+                    { "path", path },
+                    { "exists", info != null },
+                    { "preview", true },
+                    { "mutating", false },
+                    { "plannedAction", "backup" }
+                };
+                if (info != null) detail["size"] = info.Length;
+                return detail;
+            }
+            AtomicFileBackupRecord backup = new AtomicFileBackupRecord
+            {
+                OperationId = operationId,
+                TargetPath = path,
+                Existed = info != null
+            };
+            if (info != null)
+            {
+                AtomicFileOperations.ValidateExistingFile(info);
+                string backupDirectory = context.BackupDirectory;
+                Directory.CreateDirectory(backupDirectory);
+                string backupPath = Path.Combine(backupDirectory, AtomicValue.Sha256Hex(context.Ledger.PlanId + ":" + operationId) + ".bak");
+                File.Copy(path, backupPath, true);
+                File.SetAttributes(backupPath, info.Attributes);
+                FileSecurity security = info.GetAccessControl(AccessControlSections.All);
+                backup.SecurityDescriptorSddl = security.GetSecurityDescriptorSddlForm(AccessControlSections.All);
+                backup.BackupPath = backupPath;
+                backup.Size = info.Length;
+                backup.Attributes = (int)info.Attributes;
+            }
+            context.Ledger.FileBackups.RemoveAll(delegate(AtomicFileBackupRecord item) { return item.OperationId == operationId; });
+            context.Ledger.FileBackups.Add(backup);
+            return new Dictionary<string, object>
+            {
+                { "path", path },
+                { "existed", backup.Existed },
+                { "backupPath", backup.BackupPath ?? string.Empty },
+                { "size", backup.Size }
+            };
+        }
+
+        private static Dictionary<string, object> ReplaceFile(Dictionary<string, object> input, AtomicExecutionContext context, bool preview)
+        {
+            string path = AtomicValue.FirstString(input, null, "path", "targetPath");
+            path = AtomicFileOperations.RequirePath(path, context.Permissions);
+            byte[] content = AtomicValue.Content(input);
+            FileInfo existing = AtomicFileOperations.ExistingFile(path);
+            if (preview)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "path", path },
+                    { "bytes", content.Length },
+                    { "sha256", AtomicValue.Sha256Hex(content) },
+                    { "preview", true },
+                    { "mutating", false },
+                    { "plannedAction", "replace" },
+                    { "targetExists", existing != null }
+                };
+            }
+            AtomicFileOperations.WriteAtomic(path, content);
+            if (existing != null) File.SetAttributes(path, existing.Attributes);
+            return new Dictionary<string, object>
+            {
+                { "path", path },
+                { "bytes", content.Length },
+                { "sha256", AtomicValue.Sha256Hex(content) }
+            };
+        }
+
+        private static Dictionary<string, object> RestoreFile(Dictionary<string, object> input, AtomicExecutionContext context, bool preview)
+        {
+            string reference = AtomicValue.String(input, "backupOperationId");
+            AtomicFileBackupRecord backup = context.Ledger.FileBackups.Find(delegate(AtomicFileBackupRecord item) { return item.OperationId == reference; });
+            if (backup == null) throw new InvalidOperationException("file backup not found: " + reference);
+            string path = AtomicFileOperations.RequirePath(backup.TargetPath, context.Permissions);
+            if (preview)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "path", path },
+                    { "backupOperationId", reference },
+                    { "existed", backup.Existed },
+                    { "preview", true },
+                    { "mutating", false },
+                    { "plannedAction", "restore" }
+                };
+            }
+            if (!backup.Existed)
+            {
+                if (File.Exists(path)) File.Delete(path);
+                else if (Directory.Exists(path)) throw new InvalidOperationException("恢复目标不是文件：" + path);
+                return new Dictionary<string, object> { { "path", path }, { "removed", true } };
+            }
+            if (TextUtility.IsBlank(backup.BackupPath) || !File.Exists(backup.BackupPath))
+                throw new InvalidOperationException("file backup content not found: " + reference);
+            byte[] content = File.ReadAllBytes(backup.BackupPath);
+            AtomicFileOperations.WriteAtomic(path, content);
+            File.SetAttributes(path, (FileAttributes)backup.Attributes);
+            if (!TextUtility.IsBlank(backup.SecurityDescriptorSddl))
+            {
+                FileInfo restored = new FileInfo(path);
+                FileSecurity security = restored.GetAccessControl(AccessControlSections.All);
+                security.SetSecurityDescriptorSddlForm(backup.SecurityDescriptorSddl);
+                restored.SetAccessControl(security);
+            }
+            return new Dictionary<string, object>
+            {
+                { "path", path },
+                { "backupOperationId", reference },
+                { "bytes", content.Length },
+                { "sha256", AtomicValue.Sha256Hex(content) }
+            };
+        }
+
+        private static Dictionary<string, object> SetFilePermissions(Dictionary<string, object> input, AtomicExecutionContext context, bool preview)
+        {
+            string path = AtomicFileOperations.RequirePath(AtomicValue.FirstString(input, null, "path", "targetPath"), context.Permissions);
+            string acl = AtomicValue.String(input, "acl");
+            if (TextUtility.IsBlank(acl)) return new Dictionary<string, object> { { "path", path }, { "unchanged", true }, { "preview", preview } };
+            if (preview)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "path", path },
+                    { "acl", acl },
+                    { "preview", true },
+                    { "mutating", false },
+                    { "plannedAction", "set_permissions" }
+                };
+            }
+            string icacls = Path.Combine(Environment.SystemDirectory, "icacls.exe");
+            Dictionary<string, object> result = AtomicFileOperations.RunProcess(icacls, new string[] { path, "/grant:r", acl }, 30);
+            result["path"] = path;
+            return result;
+        }
+
+        private static Dictionary<string, object> ExecuteCommand(Dictionary<string, object> input, AtomicExecutionContext context, bool preview)
+        {
+            string program = AtomicValue.String(input, "program");
+            AtomicFileOperations.RequireProgram(program, context.Permissions);
+            AtomicValue.RequireArgumentArray(input);
+            if (AtomicValue.IsShellProgram(program) || AtomicValue.ShellEnabled(input)) throw new InvalidOperationException("shell mode is disabled");
+            List<string> arguments = AtomicValue.StringList(input, "args");
+            if (preview)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "program", program },
+                    { "args", arguments.ToArray() },
+                    { "preview", true },
+                    { "mutating", false },
+                    { "plannedAction", "execute" }
+                };
+            }
+            int timeoutSeconds = AtomicValue.Integer(input, "timeoutSeconds", 60);
+            return AtomicFileOperations.RunProcess(program, arguments.ToArray(), timeoutSeconds);
+        }
+
+        private static Dictionary<string, object> ControlService(Dictionary<string, object> input, AtomicExecutionContext context, bool preview)
+        {
+            string serviceName = AtomicValue.FirstString(input, null, "service", "serviceName");
+            AtomicPermissions.Require(serviceName, context.Permissions, "service");
+            string action = AtomicValue.String(input, "action").ToLowerInvariant();
+            if (action != "status" && action != "start" && action != "stop" && action != "restart" && action != "reload")
+                throw new InvalidOperationException("unsupported service action: " + action);
+            ServiceController service = new ServiceController(serviceName);
+            try
+            {
+                ServiceControllerStatus status = service.Status;
+                if (preview)
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "service", serviceName },
+                        { "action", action },
+                        { "status", status.ToString() },
+                        { "preview", true },
+                        { "mutating", false },
+                        { "plannedAction", action }
+                    };
+                }
+                if (action == "start" && status != ServiceControllerStatus.Running)
+                {
+                    service.Start();
+                    service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+                }
+                else if (action == "stop" && status != ServiceControllerStatus.Stopped)
+                {
+                    service.Stop();
+                    service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                }
+                else if (action == "restart" || action == "reload")
+                {
+                    if (status != ServiceControllerStatus.Stopped)
+                    {
+                        service.Stop();
+                        service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                    }
+                    service.Start();
+                    service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+                }
+                service.Refresh();
+                return new Dictionary<string, object>
+                {
+                    { "service", serviceName },
+                    { "action", action },
+                    { "performedAction", action == "reload" ? "restart" : action },
+                    { "status", service.Status.ToString() }
+                };
+            }
+            finally
+            {
+                service.Dispose();
+            }
         }
 
         private static Dictionary<string, object> Assert(Dictionary<string, object> input)
@@ -216,6 +602,15 @@ namespace GCAC.WindowsCompatibilityAgent
             string bindingInformation = AtomicValue.BindingInformation(input);
             AtomicBindingSnapshot snapshot = IisAtomicBinding.Capture(siteName, bindingInformation);
             context.BindingBackups[operationId] = snapshot;
+            context.Ledger.BindingBackups.RemoveAll(delegate(AtomicBindingBackupRecord item) { return item.OperationId == operationId; });
+            context.Ledger.BindingBackups.Add(new AtomicBindingBackupRecord
+            {
+                OperationId = operationId,
+                SiteName = snapshot.SiteName,
+                BindingInformation = snapshot.BindingInformation,
+                CertificateHash = AtomicValue.Hex(snapshot.CertificateHash),
+                CertificateStoreName = snapshot.CertificateStoreName
+            });
             return new Dictionary<string, object> { { "siteName", siteName }, { "bindingInformation", bindingInformation }, { "certificateThumbprint", AtomicValue.Hex(snapshot.CertificateHash) } };
         }
 
@@ -270,6 +665,181 @@ namespace GCAC.WindowsCompatibilityAgent
             FileSecurity security = file.GetAccessControl();
             security.AddAccessRule(new FileSystemAccessRule(new NTAccount("IIS AppPool\\" + appPoolName), FileSystemRights.Read, AccessControlType.Allow));
             file.SetAccessControl(security);
+        }
+    }
+
+    internal static class AtomicFileOperations
+    {
+        public static string RequirePath(string value, Dictionary<string, List<string>> permissions)
+        {
+            if (TextUtility.IsBlank(value) || !Path.IsPathRooted(value)) throw new InvalidOperationException("absolute path is required");
+            string path = Path.GetFullPath(value);
+            AtomicPermissions.Require(path, permissions, "filesystem");
+            RejectReparseParents(path);
+            return path;
+        }
+
+        public static void RequireProgram(string program, Dictionary<string, List<string>> permissions)
+        {
+            if (TextUtility.IsBlank(program) || !Path.IsPathRooted(program)) throw new InvalidOperationException("absolute program path is required");
+            string path = Path.GetFullPath(program);
+            AtomicPermissions.Require(path, permissions, "process");
+            if (!File.Exists(path)) throw new FileNotFoundException("program not found", path);
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("symbolic link or reparse point is not allowed");
+        }
+
+        public static FileInfo ExistingFile(string path)
+        {
+            if (Directory.Exists(path)) throw new InvalidOperationException("target path is a directory: " + path);
+            return File.Exists(path) ? new FileInfo(path) : null;
+        }
+
+        public static void ValidateExistingFile(FileInfo info)
+        {
+            if (info == null) return;
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("symbolic link or reparse point is not allowed");
+        }
+
+        public static void WriteAtomic(string path, byte[] content)
+        {
+            FileInfo existing = ExistingFile(path);
+            string directory = Path.GetDirectoryName(path);
+            if (TextUtility.IsBlank(directory) || !Directory.Exists(directory)) throw new DirectoryNotFoundException("target directory not found: " + directory);
+            string temporaryPath = Path.Combine(directory, ".gcac-agent-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (FileStream stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    stream.Write(content, 0, content.Length);
+                    stream.Flush();
+                }
+                if (existing == null) File.Move(temporaryPath, path);
+                else File.Replace(temporaryPath, path, null);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
+        }
+
+        public static Dictionary<string, object> RunProcess(string program, string[] arguments, int timeoutSeconds)
+        {
+            if (timeoutSeconds <= 0) timeoutSeconds = 60;
+            if (timeoutSeconds > 600) timeoutSeconds = 600;
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = program,
+                Arguments = BuildArguments(arguments),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            Process process = new Process { StartInfo = startInfo };
+            try
+            {
+                StringBuilder output = new StringBuilder();
+                StringBuilder errorOutput = new StringBuilder();
+                process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs)
+                {
+                    if (eventArgs.Data != null && output.Length < 65536)
+                    {
+                        if (output.Length > 0) output.AppendLine();
+                        output.Append(eventArgs.Data);
+                    }
+                };
+                process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs)
+                {
+                    if (eventArgs.Data != null && errorOutput.Length < 65536)
+                    {
+                        if (errorOutput.Length > 0) errorOutput.AppendLine();
+                        errorOutput.Append(eventArgs.Data);
+                    }
+                };
+                if (!process.Start()) throw new InvalidOperationException("program could not be started: " + program);
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                if (!process.WaitForExit(timeoutSeconds * 1000))
+                {
+                    try { process.Kill(); }
+                    catch (Exception) { }
+                    throw new System.TimeoutException("command timed out: " + program);
+                }
+                process.WaitForExit();
+                Dictionary<string, object> detail = new Dictionary<string, object>
+                {
+                    { "program", program },
+                    { "args", arguments ?? new string[0] },
+                    { "exitCode", process.ExitCode },
+                    { "output", output.ToString() },
+                    { "errorOutput", errorOutput.ToString() }
+                };
+                if (process.ExitCode != 0) throw new InvalidOperationException("command exited with code " + process.ExitCode + ": " + errorOutput.ToString());
+                return detail;
+            }
+            finally
+            {
+                process.Close();
+            }
+        }
+
+        private static string BuildArguments(string[] arguments)
+        {
+            if (arguments == null || arguments.Length == 0) return string.Empty;
+            List<string> quoted = new List<string>();
+            foreach (string argument in arguments) quoted.Add(QuoteArgument(argument ?? string.Empty));
+            return string.Join(" ", quoted.ToArray());
+        }
+
+        private static string QuoteArgument(string argument)
+        {
+            if (argument.Length > 0 && argument.IndexOfAny(new char[] { ' ', '\t', '"' }) < 0) return argument;
+            StringBuilder result = new StringBuilder();
+            result.Append('"');
+            int backslashes = 0;
+            foreach (char current in argument)
+            {
+                if (current == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+                if (current == '"')
+                {
+                    result.Append('\\', backslashes * 2 + 1);
+                    result.Append('"');
+                    backslashes = 0;
+                    continue;
+                }
+                if (backslashes > 0)
+                {
+                    result.Append('\\', backslashes);
+                    backslashes = 0;
+                }
+                result.Append(current);
+            }
+            result.Append('\\', backslashes * 2);
+            result.Append('"');
+            return result.ToString();
+        }
+
+        private static void RejectReparseParents(string path)
+        {
+            string current = Path.GetFullPath(path);
+            FileInfo file = ExistingFile(current);
+            if (file != null) ValidateExistingFile(file);
+            string parent = Path.GetDirectoryName(current);
+            string root = Path.GetPathRoot(current);
+            while (!TextUtility.IsBlank(parent) && !string.Equals(parent, root, StringComparison.OrdinalIgnoreCase))
+            {
+                if (Directory.Exists(parent))
+                {
+                    FileAttributes attributes = File.GetAttributes(parent);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("symbolic link or reparse point is not allowed");
+                }
+                parent = Path.GetDirectoryName(parent);
+            }
         }
     }
 
@@ -338,7 +908,8 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public static void Require(string value, Dictionary<string, List<string>> permissions, string scope)
         {
-            List<string> allowed; if (!permissions.TryGetValue(scope, out allowed)) throw new InvalidOperationException("permission scope is not allowed: " + scope);
+            if (TextUtility.IsBlank(value)) throw new InvalidOperationException("permission value is required: " + scope);
+            List<string> allowed; if (permissions == null || !permissions.TryGetValue(scope, out allowed)) throw new InvalidOperationException("permission scope is not allowed: " + scope);
             foreach (string pattern in allowed) if (pattern == "*" || string.Equals(pattern, value, StringComparison.OrdinalIgnoreCase) || (pattern.EndsWith("*") && value.StartsWith(pattern.Substring(0, pattern.Length - 1), StringComparison.OrdinalIgnoreCase))) return;
             throw new InvalidOperationException("permission value is not allowed: " + value);
         }
@@ -379,6 +950,66 @@ namespace GCAC.WindowsCompatibilityAgent
         public static string Hex(byte[] value) { if (value == null) return string.Empty; StringBuilder output = new StringBuilder(value.Length * 2); foreach (byte current in value) output.Append(current.ToString("x2")); return output.ToString(); }
         public static byte[] FromHex(string value) { string normalized = value.Trim(); if (normalized.Length % 2 != 0) throw new FormatException(); byte[] output = new byte[normalized.Length / 2]; for (int index = 0; index < output.Length; index++) output[index] = Convert.ToByte(normalized.Substring(index * 2, 2), 16); return output; }
         public static bool BytesEqual(byte[] left, byte[] right) { if (left == null || right == null || left.Length != right.Length) return false; for (int index = 0; index < left.Length; index++) if (left[index] != right[index]) return false; return true; }
+        public static string Sha256Hex(string value) { return Sha256Hex(Encoding.UTF8.GetBytes(value ?? string.Empty)); }
+        public static string Sha256Hex(byte[] value) { using (SHA256 sha = SHA256.Create()) return Hex(sha.ComputeHash(value ?? new byte[0])).ToLowerInvariant(); }
+        public static byte[] Content(Dictionary<string, object> input)
+        {
+            object raw;
+            if (input != null && input.TryGetValue("content", out raw) && raw is string) return Encoding.UTF8.GetBytes((string)raw);
+            if (input != null && input.TryGetValue("contentBase64", out raw) && raw is string)
+            {
+                try { return Convert.FromBase64String((string)raw); }
+                catch (FormatException error) { throw new InvalidOperationException("文件内容 Base64 无效", error); }
+            }
+            Dictionary<string, object> artifact = Dictionary(input, "artifact");
+            if (artifact.TryGetValue("content", out raw) && raw is string) return Encoding.UTF8.GetBytes((string)raw);
+            if (artifact.TryGetValue("contentBase64", out raw) && raw is string)
+            {
+                try { return Convert.FromBase64String((string)raw); }
+                catch (FormatException error) { throw new InvalidOperationException("文件 Artifact Base64 无效", error); }
+            }
+            throw new InvalidOperationException("file content is required");
+        }
+        public static void RequireArgumentArray(Dictionary<string, object> input)
+        {
+            object raw;
+            if (input == null || !input.TryGetValue("args", out raw) || raw == null || raw is string || !(raw is IEnumerable))
+                throw new InvalidOperationException("command args array is required");
+            foreach (object item in (IEnumerable)raw) if (!(item is string)) throw new InvalidOperationException("command args must be strings");
+        }
+        public static List<string> StringList(Dictionary<string, object> input, string key)
+        {
+            List<string> result = new List<string>();
+            object raw;
+            if (input == null || !input.TryGetValue(key, out raw) || raw == null) return result;
+            IEnumerable values = raw as IEnumerable;
+            if (values == null || raw is string) throw new InvalidOperationException(key + " must be an array");
+            foreach (object item in values)
+            {
+                if (!(item is string)) throw new InvalidOperationException(key + " must contain strings");
+                result.Add((string)item);
+            }
+            return result;
+        }
+        public static int Integer(Dictionary<string, object> input, string key, int fallback)
+        {
+            object raw;
+            if (input == null || !input.TryGetValue(key, out raw) || raw == null) return fallback;
+            try { return Convert.ToInt32(raw); }
+            catch (Exception) { throw new InvalidOperationException(key + " must be an integer"); }
+        }
+        public static bool ShellEnabled(Dictionary<string, object> input)
+        {
+            Dictionary<string, object> shell;
+            if (!TryDictionary(input, "shell", out shell)) return false;
+            object raw;
+            return shell.TryGetValue("enabled", out raw) && raw is bool && (bool)raw;
+        }
+        public static bool IsShellProgram(string program)
+        {
+            string name = Path.GetFileName(program).ToLowerInvariant();
+            return name == "cmd.exe" || name == "command.com" || name == "powershell.exe" || name == "pwsh.exe" || name == "wscript.exe" || name == "cscript.exe" || name == "sh.exe" || name == "bash.exe";
+        }
         public static string CanonicalJson(object value)
         {
             Dictionary<string, object> dictionary = value as Dictionary<string, object>;

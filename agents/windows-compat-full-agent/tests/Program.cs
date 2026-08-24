@@ -2,6 +2,7 @@ using GCAC.WindowsCompatibilityAgent;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.ServiceProcess;
 
 internal static class Tests
 {
@@ -38,7 +39,19 @@ internal static class Tests
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
         Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
-        Console.WriteLine("tests=" + 29 + " failures=" + failures);
+        Run("文件备份替换失败后自动恢复", AtomicFileReplaceRollsBack);
+        Run("不存在文件的备份和恢复保持幂等", AtomicMissingFileBackupRollsBack);
+        Run("PREFLIGHT 不修改文件", AtomicPreflightDoesNotMutate);
+        Run("文件路径越权被拒绝", AtomicFilePermissionIsEnforced);
+        Run("程序路径越权被拒绝", AtomicProgramPermissionIsEnforced);
+        Run("Shell 程序被拒绝", AtomicShellProgramIsRejected);
+        Run("参数数组程序执行成功", AtomicCommandArgumentsExecute);
+        Run("服务权限越权被拒绝", AtomicServicePermissionIsEnforced);
+        Run("服务状态预演只读成功", AtomicServiceStatusPreflight);
+        Run("Atomic Plan 账本跨实例幂等", AtomicLedgerPersistsIdempotency);
+        Run("相同幂等键的不同计划被拒绝", AtomicLedgerRejectsPlanConflict);
+        Run("回滚失败进入人工处理", AtomicRollbackFailureRequiresManualIntervention);
+        Console.WriteLine("tests=" + 41 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -355,6 +368,322 @@ internal static class Tests
         Assert(Convert.ToString(response["requestId"]) == "request-1", "Direct Control 未回传 requestId");
     }
 
+    private static void AtomicFileReplaceRollsBack()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old-certificate");
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "file-rollback-plan",
+                "file-rollback-key",
+                "EXECUTE",
+                new object[]
+                {
+                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
+                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } }),
+                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false }, { "message", "forced failure" } })
+                },
+                new object[]
+                {
+                    Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "backup-file" } })
+                },
+                new object[] { Permission("filesystem", target) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_OPERATION_FAILED", "失败计划未返回原子操作错误");
+            Assert(Convert.ToString(result.Detail["state"]) == "ROLLED_BACK", "失败计划未进入 ROLLED_BACK");
+            Assert(File.ReadAllText(target) == "old-certificate", "失败回滚未恢复旧文件内容");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicMissingFileBackupRollsBack()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-missing-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "missing.pem");
+        Directory.CreateDirectory(root);
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "missing-file-plan",
+                "missing-file-key",
+                "EXECUTE",
+                new object[]
+                {
+                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
+                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } }),
+                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false } })
+                },
+                new object[]
+                {
+                    Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "backup-file" } })
+                },
+                new object[] { Permission("filesystem", target) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(!result.Success && Convert.ToString(result.Detail["state"]) == "ROLLED_BACK", "不存在文件的失败计划未回滚");
+            Assert(!File.Exists(target), "不存在文件的回滚错误创建或保留了文件");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicPreflightDoesNotMutate()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-preflight-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old-certificate");
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "preflight-file-plan",
+                "preflight-file-key",
+                "PREFLIGHT",
+                new object[]
+                {
+                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
+                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } })
+                },
+                new object[0],
+                new object[] { Permission("filesystem", target) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(result.Success, "PREFLIGHT 未通过");
+            Assert(Convert.ToBoolean(result.Detail["preview"]) && !Convert.ToBoolean(result.Detail["mutating"]), "PREFLIGHT 未声明非变更语义");
+            Assert(File.ReadAllText(target) == "old-certificate", "PREFLIGHT 修改了目标文件");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicFilePermissionIsEnforced()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-permission-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        string other = Path.Combine(root, "other.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old");
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "file-permission-plan",
+                "file-permission-key",
+                "PREFLIGHT",
+                new object[] { Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }) },
+                new object[0],
+                new object[] { Permission("filesystem", other) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "文件路径越权未失败关闭");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicProgramPermissionIsEnforced()
+    {
+        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "whoami.exe");
+        Dictionary<string, object> plan = AtomicPlanWithOperations(
+            "program-permission-plan",
+            "program-permission-key",
+            "PREFLIGHT",
+            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/user" } } }) },
+            new object[0],
+            new object[] { Permission("process", program + ".not-allowed") });
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "程序路径越权未失败关闭");
+    }
+
+    private static void AtomicShellProgramIsRejected()
+    {
+        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+        Dictionary<string, object> plan = AtomicPlanWithOperations(
+            "shell-program-plan",
+            "shell-program-key",
+            "PREFLIGHT",
+            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/c", "echo blocked" } } }) },
+            new object[0],
+            new object[] { Permission("process", program) });
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "Shell 程序未被拒绝");
+    }
+
+    private static void AtomicCommandArgumentsExecute()
+    {
+        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "whoami.exe");
+        Assert(File.Exists(program), "测试环境缺少 whoami.exe");
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-command-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "command-plan",
+                "command-key",
+                "EXECUTE",
+                new object[]
+                {
+                    Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/user" } }, { "timeoutSeconds", 30 } })
+                },
+                new object[0],
+                new object[] { Permission("process", program) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(result.Success, "参数数组程序未执行成功");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicServicePermissionIsEnforced()
+    {
+        Dictionary<string, object> plan = AtomicPlanWithOperations(
+            "service-permission-plan",
+            "service-permission-key",
+            "PREFLIGHT",
+            new object[] { Operation("status", "service.control", new Dictionary<string, object> { { "service", "Spooler" }, { "action", "status" } }) },
+            new object[0],
+            new object[] { Permission("service", "OtherService") });
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "服务越权未失败关闭");
+    }
+
+    private static void AtomicServiceStatusPreflight()
+    {
+        ServiceController[] services = ServiceController.GetServices();
+        Assert(services.Length > 0, "测试环境没有可读取的 Windows 服务");
+        string serviceName = services[0].ServiceName;
+        foreach (ServiceController service in services) service.Dispose();
+        Dictionary<string, object> plan = AtomicPlanWithOperations(
+            "service-status-plan",
+            "service-status-key",
+            "PREFLIGHT",
+            new object[] { Operation("status", "service.control", new Dictionary<string, object> { { "service", serviceName }, { "action", "status" } }) },
+            new object[0],
+            new object[] { Permission("service", serviceName) });
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(result.Success, "服务状态预演失败");
+        Assert(Convert.ToBoolean(result.Detail["preview"]) && !Convert.ToBoolean(result.Detail["mutating"]), "服务状态预演不是只读");
+    }
+
+    private static void AtomicLedgerPersistsIdempotency()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-ledger-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old");
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "ledger-plan",
+                "ledger-key",
+                "EXECUTE",
+                new object[]
+                {
+                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
+                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new" } })
+                },
+                new object[0],
+                new object[] { Permission("filesystem", target) });
+            SignPlan(plan);
+            string data = Path.Combine(root, "data");
+            ActionResult first = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            ActionResult second = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(first.Success && second.Success, "账本幂等重放未成功");
+            Assert(File.ReadAllText(target) == "new", "幂等重放破坏了文件内容");
+            Assert(Directory.GetFiles(Path.Combine(data, "atomic-plans")).Length == 1, "账本未持久化为单一计划记录");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicLedgerRejectsPlanConflict()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-conflict-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old");
+        try
+        {
+            string data = Path.Combine(root, "data");
+            Dictionary<string, object> firstPlan = AtomicPlanWithOperations(
+                "conflict-plan",
+                "conflict-key",
+                "EXECUTE",
+                new object[] { Operation("replace", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "one" } }) },
+                new object[0],
+                new object[] { Permission("filesystem", target) });
+            SignPlan(firstPlan);
+            ActionResult first = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", firstPlan } } });
+            Dictionary<string, object> secondPlan = AtomicPlanWithOperations(
+                "conflict-plan",
+                "conflict-key",
+                "EXECUTE",
+                new object[] { Operation("replace", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "two" } }) },
+                new object[0],
+                new object[] { Permission("filesystem", target) });
+            SignPlan(secondPlan);
+            ActionResult second = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", secondPlan } } });
+            Assert(first.Success, "冲突计划基线执行失败");
+            Assert(!second.Success && second.ErrorCode == "AGENT_ATOMIC_OPERATION_FAILED", "相同幂等键的不同计划未拒绝");
+            Assert(File.ReadAllText(target) == "one", "冲突计划修改了原文件");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void AtomicRollbackFailureRequiresManualIntervention()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-manual-" + Guid.NewGuid().ToString("N"));
+        string target = Path.Combine(root, "server.pem");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "old");
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlanWithOperations(
+                "manual-plan",
+                "manual-key",
+                "EXECUTE",
+                new object[]
+                {
+                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
+                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false } })
+                },
+                new object[] { Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "missing-backup" } }) },
+                new object[] { Permission("filesystem", target) });
+            SignPlan(plan);
+            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+            Assert(!result.Success && result.ErrorCode == "AGENT_ROLLBACK_FAILED", "回滚失败未返回稳定错误");
+            Assert(Convert.ToString(result.Detail["state"]) == "MANUAL_INTERVENTION", "回滚失败未进入人工处理");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static AgentConfig TestConfig()
     {
         return new AgentConfig
@@ -403,6 +732,51 @@ internal static class Tests
         ActionRegistry registry = new ActionRegistry();
         registry.Register(new ActionRegistration { CanonicalAction = "test.action", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[] { "legacy.action" }, Handler = delegate { return ActionResult.Succeeded(null); } });
         return registry;
+    }
+
+    private static Dictionary<string, object> AtomicPlanWithOperations(string planId, string idempotencyKey, string executionMode, object[] operations, object[] rollback, object[] permissions)
+    {
+        return new Dictionary<string, object>
+        {
+            { "apiVersion", "gcac.agent-plan/v1" },
+            { "planId", planId },
+            { "tenantId", "tenant-1" },
+            { "agentId", "agent-1" },
+            { "executionRunId", "run-" + planId },
+            { "executionStepId", "step-" + planId },
+            { "issuedAt", "2026-07-31T00:00:00.000Z" },
+            { "expiresAt", "2099-07-31T00:00:00.000Z" },
+            { "idempotencyKey", idempotencyKey },
+            { "plugin", new Dictionary<string, object> { { "pluginId", "fixture.atomic" }, { "version", "1.0.0" } } },
+            { "permissions", permissions },
+            { "variablesDigest", "fixture" },
+            { "executionMode", executionMode },
+            { "operations", operations },
+            { "rollback", rollback }
+        };
+    }
+
+    private static Dictionary<string, object> Operation(string id, string operationType, Dictionary<string, object> input)
+    {
+        return new Dictionary<string, object>
+        {
+            { "id", id },
+            { "name", id },
+            { "stage", "install" },
+            { "operationType", operationType },
+            { "schemaVersion", "1.0" },
+            { "input", input }
+        };
+    }
+
+    private static Dictionary<string, object> Permission(string scope, params string[] values)
+    {
+        return new Dictionary<string, object>
+        {
+            { "name", scope },
+            { "scope", scope },
+            { "values", values }
+        };
     }
 
     private static Dictionary<string, object> AtomicPlan(string operationType, Dictionary<string, object> input)
