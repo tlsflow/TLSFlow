@@ -14,6 +14,7 @@ export interface SafeHttpRequest {
   responseTimeoutMs?: number;
   maxResponseBytes?: number;
   maxRedirects?: number;
+  trustedPrivateOrigins?: string[];
 }
 
 export interface SafeHttpResponse {
@@ -34,8 +35,8 @@ export class HttpNotificationClient implements HttpNotificationClientPort {
   }
 
   private async requestRedirect(input: SafeHttpRequest, redirects: number): Promise<SafeHttpResponse> {
-    const validated = await this.policy.validateUrl(input.url);
-    const response = await this.requestOnce(input, validated.url, validated.addresses);
+    const validated = await this.policy.validateUrl(input.url, { trustedPrivateOrigins: input.trustedPrivateOrigins });
+    const response = await this.requestOnce(input, validated.url, validated.addresses, validated.allowPrivateNetwork);
     const location = response.headers.location;
     if (location && [301, 302, 303, 307, 308].includes(response.statusCode)) {
       if (redirects >= (input.maxRedirects ?? 2)) throw new AppError('NOTIFICATION_SECURITY_BLOCKED', 'Webhook 重定向次数超限');
@@ -46,7 +47,7 @@ export class HttpNotificationClient implements HttpNotificationClientPort {
     return response;
   }
 
-  private requestOnce(input: SafeHttpRequest, url: URL, expectedAddresses: string[]): Promise<SafeHttpResponse> {
+  private requestOnce(input: SafeHttpRequest, url: URL, expectedAddresses: string[], allowPrivateNetwork: boolean): Promise<SafeHttpResponse> {
     return new Promise((resolve, reject) => {
       const transport = url.protocol === 'https:' ? https : http;
       const lookup: LookupFunction = (hostname, options, callback) => {
@@ -54,7 +55,7 @@ export class HttpNotificationClient implements HttpNotificationClientPort {
           if (error) return callback(error, address, family);
           if (typeof address !== 'string') return callback(new Error('DNS 返回了非预期结果'), '', 4);
           try {
-            this.policy.assertResolvedAddress(address, expectedAddresses);
+            this.policy.assertResolvedAddress(address, expectedAddresses, allowPrivateNetwork);
             callback(null, address, family);
           } catch (policyError) {
             callback(policyError as Error, address, family);

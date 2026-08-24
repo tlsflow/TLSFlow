@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { NotificationChannelAdapter, NotificationSendInput, NotificationSendResult } from '../application/channel-adapter-registry.js';
 import type { NotificationChannel } from '../schema/notifications.schema.js';
+import { validatePlatformWebhookEndpoint } from '../security/platform-webhook-endpoint-policy.js';
 import { HttpNotificationClient, type HttpNotificationClientPort } from './http-notification-client.js';
 
 export class DingTalkNotificationAdapter implements NotificationChannelAdapter {
@@ -17,12 +18,13 @@ export class DingTalkNotificationAdapter implements NotificationChannelAdapter {
 
   async send(input: NotificationSendInput): Promise<NotificationSendResult> {
     const webhookUrl = requiredSecret(input, 'webhookUrl');
-    assertDingTalkWebhookUrl(webhookUrl);
+    const endpoint = validatePlatformWebhookEndpoint('dingtalk', webhookUrl);
     const url = signedUrl(webhookUrl, input.secrets.signingSecret);
     const response = await this.client.request({
       url,
       headers: { 'content-type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ msgtype: 'text', text: { content: notificationText(input, 20_000) } }),
+      trustedPrivateOrigins: endpoint.trustedPrivateOrigins,
     });
     const payload = parseJson(response.body);
     const code = Number(payload.errcode ?? -1);
@@ -36,13 +38,6 @@ export class DingTalkNotificationAdapter implements NotificationChannelAdapter {
       failureMessage: success ? undefined : String(payload.errmsg ?? '钉钉拒绝消息').slice(0, 300),
       responseSummary: { errcode: payload.errcode, errmsg: typeof payload.errmsg === 'string' ? payload.errmsg.slice(0, 100) : undefined },
     };
-  }
-}
-
-function assertDingTalkWebhookUrl(value: string): void {
-  const url = new URL(value);
-  if (url.protocol !== 'https:' || url.hostname !== 'oapi.dingtalk.com' || url.pathname !== '/robot/send') {
-    throw new AppError('NOTIFICATION_CHANNEL_INVALID', '钉钉机器人 Webhook URL 非官方地址');
   }
 }
 

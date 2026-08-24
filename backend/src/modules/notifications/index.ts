@@ -18,4 +18,5 @@ export * from './adapters/telegram-notification.adapter.js';
 export * from './adapters/webhook-notification.adapter.js';
 export * from './adapters/http-notification-client.js';
 export * from './security/webhook-target-policy.js';
+export * from './security/platform-webhook-endpoint-policy.js';
 export * from './controller/notifications.controller.js';

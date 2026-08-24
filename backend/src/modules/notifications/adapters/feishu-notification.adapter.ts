@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { NotificationChannelAdapter, NotificationSendInput, NotificationSendResult } from '../application/channel-adapter-registry.js';
 import type { NotificationChannel } from '../schema/notifications.schema.js';
+import { validatePlatformWebhookEndpoint } from '../security/platform-webhook-endpoint-policy.js';
 import { HttpNotificationClient, type HttpNotificationClientPort } from './http-notification-client.js';
 
 export class FeishuNotificationAdapter implements NotificationChannelAdapter {
@@ -27,24 +28,17 @@ export class FeishuNotificationAdapter implements NotificationChannelAdapter {
       body.sign = createHmac('sha256', `${timestamp}\n${signingSecret}`).digest('base64');
     }
     const webhookUrl = requiredSecret(input, 'webhookUrl');
-    assertFeishuWebhookUrl(webhookUrl);
+    const endpoint = validatePlatformWebhookEndpoint('feishu', webhookUrl);
     const response = await this.client.request({
       url: webhookUrl,
       headers: { 'content-type': 'application/json; charset=utf-8' },
       body: JSON.stringify(body),
+      trustedPrivateOrigins: endpoint.trustedPrivateOrigins,
     });
     const payload = parseJson(response.body);
     const code = Number(payload.code ?? payload.StatusCode ?? -1);
     const success = response.statusCode >= 200 && response.statusCode < 300 && code === 0;
     return platformResult(success, response.statusCode, code, payload.msg ?? payload.StatusMessage, '飞书拒绝消息');
-  }
-}
-
-function assertFeishuWebhookUrl(value: string): void {
-  const url = new URL(value);
-  const validHost = url.hostname === 'open.feishu.cn' || url.hostname === 'open.larksuite.com';
-  if (url.protocol !== 'https:' || !validHost || !url.pathname.startsWith('/open-apis/bot/v2/hook/')) {
-    throw new AppError('NOTIFICATION_CHANNEL_INVALID', '飞书机器人 Webhook URL 非官方地址');
   }
 }
 
