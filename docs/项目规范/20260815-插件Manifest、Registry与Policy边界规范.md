@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-Manifest 中的 `logoUrl` 资源和 Web 展示尺寸遵循 [`20260822-插件Logo资源与展示规范.md`](20260822-插件Logo资源与展示规范.md)；Manifest 只声明资源地址，不声明页面尺寸。
+Manifest 中的 `logoUrl`、可选 `logoSquareUrl` 资源和 Web 展示尺寸遵循 [`20260822-插件Logo资源与展示规范.md`](20260822-插件Logo资源与展示规范.md)；Manifest 只声明资源地址，不声明页面尺寸。
 
 内置插件的唯一版本事实源是包内 `manifest.json` 的 `version`。该字段必须是完整的 SemVer 2.0.0，例如 `1.2.3`、`1.2.3-beta.1` 或带构建元数据的合法版本；`v1.2.3`、`1.2` 和前导零版本均无效。
 
