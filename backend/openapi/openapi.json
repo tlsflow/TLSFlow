@@ -3575,33 +3575,19 @@
                         "type": "number"
                       },
                       "deviceFamily": {
-                        "type": "string",
-                        "enum": [
-                          "NETSCALER_ADC"
-                        ]
+                        "type": "string"
                       },
                       "credentialId": {
                         "type": "string"
                       },
                       "authMode": {
-                        "type": "string",
-                        "enum": [
-                          "AUTO",
-                          "SESSION",
-                          "PER_REQUEST"
-                        ]
+                        "type": "string"
                       },
                       "tlsVerify": {
                         "type": "boolean"
                       },
                       "supportTier": {
-                        "type": "string",
-                        "enum": [
-                          "SUPPORTED",
-                          "COMPATIBLE",
-                          "READ_ONLY",
-                          "UNSUPPORTED"
-                        ]
+                        "type": "string"
                       },
                       "capabilityProfile": {
                         "type": "object"
@@ -3665,33 +3651,19 @@
                       "type": "number"
                     },
                     "deviceFamily": {
-                      "type": "string",
-                      "enum": [
-                        "NETSCALER_ADC"
-                      ]
+                      "type": "string"
                     },
                     "credentialId": {
                       "type": "string"
                     },
                     "authMode": {
-                      "type": "string",
-                      "enum": [
-                        "AUTO",
-                        "SESSION",
-                        "PER_REQUEST"
-                      ]
+                      "type": "string"
                     },
                     "tlsVerify": {
                       "type": "boolean"
                     },
                     "supportTier": {
-                      "type": "string",
-                      "enum": [
-                        "SUPPORTED",
-                        "COMPATIBLE",
-                        "READ_ONLY",
-                        "UNSUPPORTED"
-                      ]
+                      "type": "string"
                     },
                     "capabilityProfile": {
                       "type": "object"
@@ -3754,33 +3726,19 @@
                       "type": "number"
                     },
                     "deviceFamily": {
-                      "type": "string",
-                      "enum": [
-                        "NETSCALER_ADC"
-                      ]
+                      "type": "string"
                     },
                     "credentialId": {
                       "type": "string"
                     },
                     "authMode": {
-                      "type": "string",
-                      "enum": [
-                        "AUTO",
-                        "SESSION",
-                        "PER_REQUEST"
-                      ]
+                      "type": "string"
                     },
                     "tlsVerify": {
                       "type": "boolean"
                     },
                     "supportTier": {
-                      "type": "string",
-                      "enum": [
-                        "SUPPORTED",
-                        "COMPATIBLE",
-                        "READ_ONLY",
-                        "UNSUPPORTED"
-                      ]
+                      "type": "string"
                     },
                     "capabilityProfile": {
                       "type": "object"
@@ -3845,33 +3803,19 @@
                       "type": "number"
                     },
                     "deviceFamily": {
-                      "type": "string",
-                      "enum": [
-                        "NETSCALER_ADC"
-                      ]
+                      "type": "string"
                     },
                     "credentialId": {
                       "type": "string"
                     },
                     "authMode": {
-                      "type": "string",
-                      "enum": [
-                        "AUTO",
-                        "SESSION",
-                        "PER_REQUEST"
-                      ]
+                      "type": "string"
                     },
                     "tlsVerify": {
                       "type": "boolean"
                     },
                     "supportTier": {
-                      "type": "string",
-                      "enum": [
-                        "SUPPORTED",
-                        "COMPATIBLE",
-                        "READ_ONLY",
-                        "UNSUPPORTED"
-                      ]
+                      "type": "string"
                     },
                     "capabilityProfile": {
                       "type": "object"
@@ -3936,33 +3880,19 @@
                       "type": "number"
                     },
                     "deviceFamily": {
-                      "type": "string",
-                      "enum": [
-                        "NETSCALER_ADC"
-                      ]
+                      "type": "string"
                     },
                     "credentialId": {
                       "type": "string"
                     },
                     "authMode": {
-                      "type": "string",
-                      "enum": [
-                        "AUTO",
-                        "SESSION",
-                        "PER_REQUEST"
-                      ]
+                      "type": "string"
                     },
                     "tlsVerify": {
                       "type": "boolean"
                     },
                     "supportTier": {
-                      "type": "string",
-                      "enum": [
-                        "SUPPORTED",
-                        "COMPATIBLE",
-                        "READ_ONLY",
-                        "UNSUPPORTED"
-                      ]
+                      "type": "string"
                     },
                     "capabilityProfile": {
                       "type": "object"
@@ -4048,6 +3978,36 @@
       "get": {
         "operationId": "listManagedDevices",
         "summary": "查询统一设备列表",
+        "tags": [
+          "Devices"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/devices/:deviceId/actions": {
+      "post": {
+        "operationId": "executeManagedDeviceCapability",
+        "summary": "执行设备插件能力",
         "tags": [
           "Devices"
         ],
@@ -9839,6 +9799,184 @@
         }
       }
     },
+    "/api/v1/plugin-promotions/preview": {
+      "post": {
+        "operationId": "previewPluginPromotion",
+        "summary": "预览 Standalone 目标归集",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-promotions/confirm": {
+      "post": {
+        "operationId": "confirmPluginPromotion",
+        "summary": "确认 Standalone 目标归集",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-promotions/revoke": {
+      "post": {
+        "operationId": "revokePluginPromotion",
+        "summary": "撤销 Standalone 目标归集",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-promotions": {
+      "get": {
+        "operationId": "getPluginPromotion",
+        "summary": "查询 Standalone 目标归集记录",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/metrics": {
+      "get": {
+        "operationId": "listPluginRuntimeMetrics",
+        "summary": "查询插件运行指标",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/plugin-catalog/workflow-templates/enable": {
       "post": {
         "operationId": "enableWorkflowTemplatePlugin",
@@ -12825,5 +12963,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-24T08:30:16.985Z"
+  "x-generatedAt": "2026-07-25T07:04:13.233Z"
 }

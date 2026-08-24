@@ -16,7 +16,10 @@ test('Spec033 内置驱动解析 Agent Native、Agent Plugin 和统一设备插�
 test('Spec033 驱动拒绝执行位置冲突和未注册类型', () => {
   const registry = createBuiltinDeploymentDriverRegistry();
   assert.throws(() => registry.resolve(context('DEVICE_PLUGIN', 'GATEWAY', 'PLUGIN:plugin_test')));
-  assert.throws(() => new DeploymentDriverRegistry().resolve(context('DEVICE_PROVIDER', 'CONTROL_PLANE', 'DEVICE_TEMPLATE')));
+  assert.throws(() => new DeploymentDriverRegistry().resolve({
+    ...context('DEVICE_PLUGIN', 'CONTROL_PLANE', 'DEVICE_TEMPLATE'),
+    driverKind: 'DEVICE_PROVIDER',
+  } as never));
 });
 
 function context(driverKind: ResolvedManagedTargetContext['driverKind'], executionLocation: ResolvedManagedTargetContext['executionLocation'], providerType: ResolvedManagedTargetContext['providerType']): ResolvedManagedTargetContext {
