@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { AppError } from '../../../common/errors/app-error.js';
 
-export const LINUX_AGENT_RELEASE_VERSION = '0.1.11' as const;
+export const LINUX_AGENT_RELEASE_VERSION = '0.1.13' as const;
 export const AGENT_RELEASE_SIGNING_KEY_ID = 'gcac-agent-release-v1' as const;
 
 export interface LinuxAgentArtifactReference {
@@ -40,20 +40,20 @@ const pinnedLinuxArtifacts: Readonly<Record<'amd64' | 'arm64', LinuxAgentArtifac
   amd64: Object.freeze({
     platform: 'linux_go',
     arch: 'amd64',
-    artifactRef: 'artifact://gcac/agents/linux-go-full-agent/0.1.11/linux-amd64/gcac-linux-agent',
+    artifactRef: 'artifact://gcac/agents/linux-go-full-agent/0.1.13/linux-amd64/gcac-linux-agent',
     version: LINUX_AGENT_RELEASE_VERSION,
-    digest: 'ce598f789f859c55bfbd0d2ed6219cd2aee2015e59731e6491d13b003bfadc73',
-    signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.11/linux-amd64.sig',
+    digest: 'ecbef35328a168fa93a66685724cff966d0cd3b40d6714793951dc9d1f74d8cc',
+    signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.13/linux-amd64.sig',
     signatureAlgorithm: 'Ed25519',
     signingKeyId: AGENT_RELEASE_SIGNING_KEY_ID,
   }),
   arm64: Object.freeze({
     platform: 'linux_go',
     arch: 'arm64',
-    artifactRef: 'artifact://gcac/agents/linux-go-full-agent/0.1.11/linux-arm64/gcac-linux-agent',
+    artifactRef: 'artifact://gcac/agents/linux-go-full-agent/0.1.13/linux-arm64/gcac-linux-agent',
     version: LINUX_AGENT_RELEASE_VERSION,
-    digest: '256b16564282b208fadd0a52008fdb66586d28c769624a20bb39146282a86ea9',
-    signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.11/linux-arm64.sig',
+    digest: 'fcf0470e540c4b393c76360d4ea067c5932f67e3e2eaeb8142774d4ec2a59b06',
+    signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.13/linux-arm64.sig',
     signatureAlgorithm: 'Ed25519',
     signingKeyId: AGENT_RELEASE_SIGNING_KEY_ID,
   }),

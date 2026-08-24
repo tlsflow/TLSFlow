@@ -1286,15 +1286,16 @@ func collectLinuxWebInventory() map[string]any {
 		}
 	}
 	configFiles := collectLinuxWebConfigFiles()
+	certificateFiles := collectLinuxWebCertificateFiles(configFiles)
 	return map[string]any{
 		"processExecutables": processPaths,
 		"listeningPorts":     collectLinuxListeningPorts(),
-		"configFiles":        configFiles,
-		"certificateFiles":   collectLinuxWebCertificateFiles(configFiles),
+		"configFiles":        sanitizeLinuxWebConfigFiles(configFiles),
+		"certificateFiles":   certificateFiles,
 	}
 }
 
-// 只收集受控系统目录中的原始文本，不在 Agent Core 内判断产品或站点。
+// 只在本机读取受控系统目录中的配置文本；回传前会去掉 keystore 密码。
 func collectLinuxWebConfigFiles() []map[string]any {
 	files := make([]map[string]any, 0, 128)
 	for _, root := range webDiscoveryRoots {
@@ -1333,6 +1334,21 @@ func collectLinuxWebConfigFiles() []map[string]any {
 	return files
 }
 
+func sanitizeLinuxWebConfigFiles(configFiles []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, len(configFiles))
+	for _, config := range configFiles {
+		copy := make(map[string]any, len(config))
+		for key, value := range config {
+			copy[key] = value
+		}
+		if content, ok := copy["content"].(string); ok {
+			copy["content"] = redactWebKeystorePasswords(content)
+		}
+		files = append(files, copy)
+	}
+	return files
+}
+
 // 仅保留包含固定 Web 配置语法的文件，避免无关配置先耗尽快照配额。
 func containsWebConfigSyntax(content []byte) bool {
 	lower := bytes.ToLower(content)
@@ -1351,22 +1367,30 @@ func containsWebConfigSyntax(content []byte) bool {
 // 只回传配置引用的公钥证书候选；禁止私钥和过大的文件进入能力快照。
 func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]any {
 	files := make([]map[string]any, 0, 256)
-	seen := make(map[string]struct{})
+	seen := make(map[string]map[string]any)
 	for _, config := range configFiles {
 		content, ok := config["content"].(string)
 		if !ok {
 			continue
 		}
+		configPath, _ := config["path"].(string)
+		passwords := webKeystorePasswords(content)
 		for _, match := range certificatePathPattern.FindAllStringSubmatch(content, -1) {
-			candidate := strings.TrimSpace(strings.Trim(match[1], "\"'"))
-			if !isAllowedWebDiscoveryPath(candidate) {
+			configuredPath := strings.TrimSpace(strings.Trim(match[1], "\"'"))
+			candidate := resolveWebCertificatePath(configuredPath, configPath)
+			if candidate == "" || !isAllowedWebDiscoveryPath(candidate) {
 				continue
 			}
-			if _, ok := seen[candidate]; ok {
+			if certificate, ok := seen[candidate]; ok {
+				configuredPaths, _ := certificate["configuredPaths"].([]string)
+				if !containsString(configuredPaths, configuredPath) {
+					certificate["configuredPaths"] = append(configuredPaths, configuredPath)
+				}
 				continue
 			}
-			seen[candidate] = struct{}{}
-			if certificate := readLinuxPublicCertificate(candidate); certificate != nil {
+			if certificate := readLinuxPublicCertificateWithPasswords(candidate, passwords); certificate != nil {
+				certificate["configuredPaths"] = []string{configuredPath}
+				seen[candidate] = certificate
 				files = append(files, certificate)
 			}
 			if len(files) >= 256 {
@@ -1377,7 +1401,7 @@ func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]
 	return files
 }
 
-var certificatePathPattern = regexp.MustCompile(`(?im)(?:ssl_certificate|SSLCertificateFile|certificateFile|certificate-file)\s+([^;\s]+)`)
+var certificatePathPattern = regexp.MustCompile(`(?im)(?:ssl_certificate|SSLCertificateFile|certificateFile|certificate-file|certificateKeystoreFile|keystoreFile)\s*(?:=\s*|\s+)(["']?[^;\s"']+["']?)`)
 
 var webDiscoveryRoots = []string{"/etc", "/opt", "/usr/local", "/srv", "/var/lib", "/var/www"}
 
@@ -1387,15 +1411,26 @@ func isAllowedWebDiscoveryPath(candidate string) bool {
 	}
 	clean := filepath.Clean(candidate)
 	for _, root := range webDiscoveryRoots {
-		relative, err := filepath.Rel(root, clean)
-		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		if pathWithinWebDiscoveryRoot(clean, root) {
+			return true
+		}
+		if resolvedRoot, err := filepath.EvalSymlinks(root); err == nil && pathWithinWebDiscoveryRoot(clean, resolvedRoot) {
 			return true
 		}
 	}
 	return false
 }
 
+func pathWithinWebDiscoveryRoot(path, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
+}
+
 func readLinuxPublicCertificate(path string) map[string]any {
+	return readLinuxPublicCertificateWithPasswords(path, nil)
+}
+
+func readLinuxPublicCertificateWithPasswords(path string, passwords []string) map[string]any {
 	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil || !isAllowedWebDiscoveryPath(resolvedPath) {
 		return nil
@@ -1405,14 +1440,26 @@ func readLinuxPublicCertificate(path string) map[string]any {
 		return nil
 	}
 	content, err := os.ReadFile(resolvedPath)
-	if err != nil || bytes.Contains(bytes.ToUpper(content), []byte("PRIVATE KEY")) {
+	if err != nil {
+		return nil
+	}
+	if bytes.Contains(bytes.ToUpper(content), []byte("PRIVATE KEY")) {
 		return nil
 	}
 	block, _ := pem.Decode(content)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return nil
+	if block != nil && block.Type == "CERTIFICATE" {
+		return certificateMetadata(path, block.Bytes)
 	}
-	certificate, err := x509.ParseCertificate(block.Bytes)
+	for _, password := range append([]string{""}, passwords...) {
+		if certificate := readJKSOrPKCS12Certificate(path, content, password); certificate != nil {
+			return certificate
+		}
+	}
+	return nil
+}
+
+func certificateMetadata(path string, der []byte) map[string]any {
+	certificate, err := x509.ParseCertificate(der)
 	if err != nil {
 		return nil
 	}
@@ -1426,4 +1473,64 @@ func readLinuxPublicCertificate(path string) map[string]any {
 		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
 		"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339),
 	}
+}
+
+func readJKSOrPKCS12Certificate(path string, content []byte, password string) map[string]any {
+	store := keystore.New()
+	if err := store.Load(bytes.NewReader(content), []byte(password)); err == nil {
+		for _, alias := range store.Aliases() {
+			if store.IsPrivateKeyEntry(alias) {
+				chain, err := store.GetPrivateKeyEntryCertificateChain(alias)
+				if err == nil && len(chain) > 0 {
+					return certificateMetadata(path, chain[0].Content)
+				}
+			}
+			if store.IsTrustedCertificateEntry(alias) {
+				entry, err := store.GetTrustedCertificateEntry(alias)
+				if err == nil {
+					return certificateMetadata(path, entry.Certificate.Content)
+				}
+			}
+		}
+	}
+	_, certificate, _, err := pkcs12.DecodeChain(content, password)
+	if err != nil || certificate == nil {
+		return nil
+	}
+	return certificateMetadata(path, certificate.Raw)
+}
+
+func webKeystorePasswords(content string) []string {
+	passwords := make([]string, 0, 2)
+	for _, key := range []string{"certificateKeystorePassword", "keystorePass", "keystorePassword"} {
+		pattern := regexp.MustCompile(`(?i)` + key + `\s*=\s*["']([^"']*)["']`)
+		for _, match := range pattern.FindAllStringSubmatch(content, -1) {
+			if len(match) > 1 && match[1] != "" && !containsString(passwords, match[1]) {
+				passwords = append(passwords, match[1])
+			}
+		}
+	}
+	return passwords
+}
+
+func redactWebKeystorePasswords(content string) string {
+	return regexp.MustCompile(`(?i)(certificateKeystorePassword|keystorePass|keystorePassword)(\s*=\s*["'])[^"']*(["'])`).ReplaceAllString(content, `$1$2***$3`)
+}
+
+func resolveWebCertificatePath(candidate, configPath string) string {
+	candidate = strings.TrimSpace(strings.Trim(candidate, "\"'"))
+	if candidate == "" {
+		return ""
+	}
+	if filepath.IsAbs(candidate) {
+		return filepath.Clean(candidate)
+	}
+	configDir := filepath.Dir(configPath)
+	for _, base := range []string{configDir, filepath.Dir(configDir)} {
+		resolved := filepath.Clean(filepath.Join(base, candidate))
+		if isAllowedWebDiscoveryPath(resolved) && fileExists(resolved) {
+			return resolved
+		}
+	}
+	return filepath.Clean(filepath.Join(configDir, candidate))
 }
