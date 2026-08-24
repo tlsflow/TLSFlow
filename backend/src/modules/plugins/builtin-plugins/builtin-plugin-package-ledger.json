@@ -225,6 +225,11 @@
       "pluginId": "citrix.netscaler-adc",
       "version": "1.1.24",
       "packageSha256": "sha256:70a14e021ba08092d4daf1b67689eb81d0f2a7df8bfbe3662d0aa5cfad153f32"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.25",
+      "packageSha256": "sha256:37a34bb775d809060d53faf61943a862e32bc3a687fa6fcdac2e02448bcecb65"
     }
   ]
 }

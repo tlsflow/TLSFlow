@@ -1203,7 +1203,7 @@ async function evaluateJsonata(
 function createJsonataWorker(workerData: { expression: string; input: Record<string, unknown> }): Worker {
   const compiledWorkerUrl = new URL('./jsonata-transform.worker.js', import.meta.url);
   if (existsSync(fileURLToPath(compiledWorkerUrl))) {
-    return new Worker(compiledWorkerUrl, { workerData });
+    return new Worker(compiledWorkerUrl, { workerData, execArgv: [] });
   }
 
   const sourceWorkerUrl = new URL('./jsonata-transform.worker.ts', import.meta.url);
@@ -1215,6 +1215,7 @@ function createJsonataWorker(workerData: { expression: string; input: Record<str
   `;
   return new Worker(bootstrap, {
     eval: true,
+    execArgv: [],
     workerData: {
       ...workerData,
       sourceWorkerUrl: sourceWorkerUrl.href,
