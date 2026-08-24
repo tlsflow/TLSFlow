@@ -543,7 +543,7 @@ export function pathId(request: HttpRequest): string {
   const value = request.query.id;
   const queryId = Array.isArray(value) ? value[0] : value;
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'update-sessions'].includes(segment));
   const id = queryId ?? (actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1));
   if (!id) throw new AppError('VALIDATION_FAILED', 'id 不能为空');
   return id;

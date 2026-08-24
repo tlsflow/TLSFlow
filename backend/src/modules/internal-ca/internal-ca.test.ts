@@ -44,6 +44,9 @@ test('标准 REST 删除路由可以读取最后一个路径段作为资源 ID',
   assert.equal(pathId({
     method: 'DELETE', path: '/api/v1/ca-providers/caprov_delete_me', query: {}, context: { requestId: 'req_path', traceId: 'trace_path' }, headers: {},
   }), 'caprov_delete_me');
+  assert.equal(pathId({
+    method: 'POST', path: '/api/v1/adcs-agents/providers/caprov_update_me/update-sessions', query: {}, context: { requestId: 'req_update_path', traceId: 'trace_update_path' }, headers: {},
+  }), 'caprov_update_me');
 });
 
 test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间隔', () => {
