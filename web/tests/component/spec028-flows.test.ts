@@ -56,13 +56,23 @@ const monitorMocks = vi.hoisted(() => ({
   scanMonitorRisks: vi.fn(),
 }))
 
+const tlsInspectorMocks = vi.hoisted(() => ({
+  listTlsInspectorTargets: vi.fn(),
+  createTlsInspectorTarget: vi.fn(),
+  deleteTlsInspectorTarget: vi.fn(),
+  runTlsInspection: vi.fn(),
+  getLatestTlsInspection: vi.fn(),
+  listTlsInspectionSnapshots: vi.fn(),
+  getTlsInspectionSnapshot: vi.fn(),
+}))
+
 const workflowMocks = vi.hoisted(() => ({
   getWorkflowExecutionBinding: vi.fn(),
   listWorkflowTemplates: vi.fn(),
+  listPluginWorkflowSources: vi.fn(),
+  createWorkflowFromPlugin: vi.fn(),
+  createWorkflowDraftFromPlugin: vi.fn(),
   createWorkflowTemplate: vi.fn(),
-  listWorkflowFileTemplates: vi.fn(),
-  createWorkflowTemplateFromFile: vi.fn(),
-  applyWorkflowTemplateFromFile: vi.fn(),
   deleteWorkflowTemplate: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
   createWorkflowTemplateVersion: vi.fn(),
@@ -128,13 +138,23 @@ vi.mock('@/api/modules/monitors.api', () => ({
   scanMonitorRisks: monitorMocks.scanMonitorRisks,
 }))
 
+vi.mock('@/api/modules/tls-inspector.api', () => ({
+  listTlsInspectorTargets: tlsInspectorMocks.listTlsInspectorTargets,
+  createTlsInspectorTarget: tlsInspectorMocks.createTlsInspectorTarget,
+  deleteTlsInspectorTarget: tlsInspectorMocks.deleteTlsInspectorTarget,
+  runTlsInspection: tlsInspectorMocks.runTlsInspection,
+  getLatestTlsInspection: tlsInspectorMocks.getLatestTlsInspection,
+  listTlsInspectionSnapshots: tlsInspectorMocks.listTlsInspectionSnapshots,
+  getTlsInspectionSnapshot: tlsInspectorMocks.getTlsInspectionSnapshot,
+}))
+
 vi.mock('@/api/modules/workflow-templates.api', () => ({
   getWorkflowExecutionBinding: workflowMocks.getWorkflowExecutionBinding,
   listWorkflowTemplates: workflowMocks.listWorkflowTemplates,
+  listPluginWorkflowSources: workflowMocks.listPluginWorkflowSources,
+  createWorkflowFromPlugin: workflowMocks.createWorkflowFromPlugin,
+  createWorkflowDraftFromPlugin: workflowMocks.createWorkflowDraftFromPlugin,
   createWorkflowTemplate: workflowMocks.createWorkflowTemplate,
-  listWorkflowFileTemplates: workflowMocks.listWorkflowFileTemplates,
-  createWorkflowTemplateFromFile: workflowMocks.createWorkflowTemplateFromFile,
-  applyWorkflowTemplateFromFile: workflowMocks.applyWorkflowTemplateFromFile,
   deleteWorkflowTemplate: workflowMocks.deleteWorkflowTemplate,
   listWorkflowTemplateVersions: workflowMocks.listWorkflowTemplateVersions,
   createWorkflowTemplateVersion: workflowMocks.createWorkflowTemplateVersion,
@@ -188,6 +208,7 @@ function createTestRouter(path = '/deployment-plans') {
       { path: '/bindings', component: { template: '<div>bindings</div>' } },
       { path: '/executions', component: { template: '<div>executions</div>' } },
       { path: '/monitors', component: MonitorsView },
+      { path: '/monitors/tls/:id', name: 'monitor.tls.detail', component: { template: '<div>tls detail</div>' } },
     ],
   })
 }
@@ -201,10 +222,20 @@ describe('spec028 前端闭环', () => {
       'deployment.plan.execute',
       'approval.decide',
       'execution.rollback',
-      'monitor.read',
-      'monitor.write',
-      'workflow.template.read',
-      'workflow.template.write',
+      'monitor.target.read',
+      'monitor.target.create',
+      'monitor.target.update',
+      'monitor.target.delete',
+      'monitor.target.control',
+      'monitor.risk.read',
+      'monitor.risk.scan',
+      'monitor.dashboard.read',
+      'monitor.alert_rule.read',
+      'workflow.read',
+      'workflow.create',
+      'workflow.update',
+      'workflow.delete',
+      'workflow.publish',
     ])
 
     deploymentMocks.listAssets.mockResolvedValue(okPage([
@@ -322,6 +353,23 @@ describe('spec028 前端闭环', () => {
       },
     })
     monitorMocks.scanMonitorRisks.mockResolvedValue({ data: { ok: true } })
+    tlsInspectorMocks.listTlsInspectorTargets.mockResolvedValue(okList([]))
+    tlsInspectorMocks.createTlsInspectorTarget.mockResolvedValue({
+      data: {
+        id: 'tls-target-1',
+        serviceAssetId: 'asset-1',
+        host: 'a.example.com',
+        port: 443,
+        serverName: 'a.example.com',
+        status: 'active',
+        schedule: { intervalSeconds: 3600 },
+      },
+    })
+    tlsInspectorMocks.deleteTlsInspectorTarget.mockResolvedValue({ data: {} })
+    tlsInspectorMocks.runTlsInspection.mockResolvedValue({ data: null })
+    tlsInspectorMocks.getLatestTlsInspection.mockResolvedValue({ data: null })
+    tlsInspectorMocks.listTlsInspectionSnapshots.mockResolvedValue(okList([]))
+    tlsInspectorMocks.getTlsInspectionSnapshot.mockResolvedValue({ data: null })
 
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
       {
@@ -335,6 +383,35 @@ describe('spec028 前端闭环', () => {
         updatedAt: '2026-06-08T00:00:00.000Z',
       },
     ]))
+    workflowMocks.listPluginWorkflowSources.mockResolvedValue({
+      data: {
+        items: [
+          {
+            pluginId: 'builtin.workflow.apache-8444-cert-switch',
+            pluginVersionId: 'plugin-version-apache',
+            pluginVersion: '1.0.0',
+            displayName: 'Apache 8444 证书切换',
+            capabilityKey: 'certificate.deploy',
+            workflowTemplateId: 'plugin-workflow-apache',
+            workflowVersionId: 'plugin-workflow-version-apache',
+            stepCount: 8,
+            rollbackCount: 2,
+          },
+        ],
+      },
+      requestId: 'req_plugin_sources',
+      timestamp: '2026-06-08T00:00:00.000Z',
+    })
+    workflowMocks.createWorkflowFromPlugin.mockResolvedValue({
+      data: { id: 'tpl-plugin-1' },
+      requestId: 'req_workflow_plugin_create',
+      timestamp: '2026-06-08T00:00:00.000Z',
+    })
+    workflowMocks.createWorkflowDraftFromPlugin.mockResolvedValue({
+      data: { id: 'ver-plugin-2' },
+      requestId: 'req_workflow_plugin_draft',
+      timestamp: '2026-06-08T00:00:00.000Z',
+    })
     workflowMocks.createWorkflowTemplate.mockResolvedValue({ data: { id: 'tpl-2' } })
     workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
       data: {
@@ -398,9 +475,8 @@ describe('spec028 前端闭环', () => {
       timeoutMs: 10000,
     }))
     expect(deploymentMocks.dryRunDeploymentPlan).toHaveBeenCalledWith({ planId: 'plan-1' })
-    expect(bodyText()).toContain('Dry-run 结果')
-    expect(bodyText()).toContain('等待执行步骤')
-    expect(bodyText()).toContain('任务进度')
+    expect(bodyText()).toContain('预检已发起（run-dry-1）')
+    expect(bodyText()).toContain('证书Dry-run')
   })
 
   it('部署向导会展示非受管工作流应用资产并按应用资产创建计划', async () => {
@@ -690,7 +766,7 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
 
     expect(bodyText()).not.toContain('需要先执行 Dry-run')
-    expect(bodyText()).toContain('Dry-run 结果')
+    expect(bodyText()).toContain('证书Dry-run')
   })
 
   it('部署计划列表按状态显示执行和回滚动作', async () => {
@@ -775,7 +851,7 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
 
     expect(deploymentMocks.executeDeploymentPlan).toHaveBeenCalledWith('plan-approved-execute', {})
-    expect(bodyText()).toContain('证书更新执行')
+    expect(bodyText()).toContain('证书部署')
     expect(deploymentMocks.listDeploymentPlans.mock.calls.length).toBe(listCallsAfterInitialLoad)
   })
 
@@ -933,6 +1009,7 @@ describe('spec028 前端闭环', () => {
     clickBodyButton('Dry-run 影响预览')
     await flushPromises()
 
+    expect(bodyText()).toContain('Dry-run 结果')
     expect(bodyText()).toContain('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload')
 
     clickBodyButton('关闭')
@@ -945,7 +1022,7 @@ describe('spec028 前端闭环', () => {
     clickBodyButton('确认')
     await flushPromises()
 
-    expect(bodyText()).toContain('证书更新执行')
+    expect(bodyText()).toContain('证书部署')
     expect(bodyText()).not.toContain('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload')
   })
 
@@ -1039,6 +1116,53 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
 
     expect(workflowMocks.publishWorkflowTemplateVersion).toHaveBeenCalledWith('ver-1')
+  })
+
+  it('工作流页面可从插件来源新建工作流', async () => {
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { plugins: [i18n], stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('从插件新建工作流')
+    await flushPromises()
+
+    const nameInput = document.body.querySelector('input.gc-input') as HTMLInputElement | null
+    expect(nameInput).toBeTruthy()
+    nameInput!.value = 'derived-workflow'
+    nameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    clickBodyButton('创建工作流')
+    await flushPromises()
+
+    expect(workflowMocks.listPluginWorkflowSources).toHaveBeenCalled()
+    expect(workflowMocks.createWorkflowFromPlugin).toHaveBeenCalledWith(expect.objectContaining({
+      pluginVersionId: 'plugin-version-apache',
+      capabilityKey: 'certificate.deploy',
+      name: 'derived-workflow',
+    }))
+  })
+
+  it('工作流页面可为现有工作流从插件来源生成草稿', async () => {
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { plugins: [i18n], stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('生成草稿')
+    await flushPromises()
+    const submitButtons = [...document.body.querySelectorAll('button')]
+      .filter((item) => item.textContent?.trim() === '生成草稿') as HTMLButtonElement[]
+    expect(submitButtons.length).toBeGreaterThan(1)
+    submitButtons.at(-1)!.click()
+    await flushPromises()
+
+    expect(workflowMocks.createWorkflowDraftFromPlugin).toHaveBeenCalledWith('tpl-1', expect.objectContaining({
+      pluginVersionId: 'plugin-version-apache',
+      capabilityKey: 'certificate.deploy',
+    }))
   })
 
   it('执行日志组件明确显示自动刷新兜底文案', () => {

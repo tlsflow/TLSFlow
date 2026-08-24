@@ -24,6 +24,7 @@ import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import WorkflowCanvasEditor from './WorkflowCanvasEditor.vue'
 import {
   createDefaultWorkflowCanvas,
+  isWorkflowDslCanvasImportable,
   workflowDslToCanvas,
   type WorkflowCanvasDefinition,
   type WorkflowDslV1,
@@ -70,8 +71,8 @@ const config: BusinessPageConfig = {
   description: t('workflows.templates.description'),
   showHeader: false,
   showMetrics: false,
-  readPermission: 'workflow.template.read',
-  primaryPermission: 'workflow.template.write',
+  readPermission: 'workflow.read',
+  primaryPermission: 'workflow.create',
   primaryActionLabel: t('workflows.templates.pluginSources.createTitle'),
   primaryAction: async () => openPluginSourceModal('create'),
   moduleName: 'workflows',
@@ -121,7 +122,7 @@ const config: BusinessPageConfig = {
   rowActions: [
     {
       label: t('workflows.templates.actions.edit'),
-      permission: 'workflow.template.write',
+      permission: 'workflow.update',
       reloadAfterRun: false,
       hidden: (row) => readString(row.raw, ['status']) !== 'draft' || isPluginInternal(row),
       run: async (row) => {
@@ -130,14 +131,14 @@ const config: BusinessPageConfig = {
     },
     {
       label: t('workflows.templates.pluginSources.applyAction'),
-      permission: 'workflow.template.write',
+      permission: 'workflow.update',
       reloadAfterRun: false,
       hidden: (row) => !isUserOwnedWorkflow(row),
       run: async (row) => openPluginSourceModal('apply', row),
     },
     {
       label: t('workflows.templates.actions.detail'),
-      permission: 'workflow.template.read',
+      permission: 'workflow.read',
       reloadAfterRun: false,
       run: async (row) => {
         await openDetail(row)
@@ -145,7 +146,7 @@ const config: BusinessPageConfig = {
     },
     {
       label: t('workflows.templates.actions.versionManagement'),
-      permission: 'workflow.template.write',
+      permission: 'workflow.update',
       reloadAfterRun: false,
       hidden: (row) => isPluginInternal(row),
       run: async (row) => {
@@ -154,7 +155,7 @@ const config: BusinessPageConfig = {
     },
     {
       label: t('workflows.templates.actions.delete'),
-      permission: 'workflow.template.write',
+      permission: 'workflow.delete',
       danger: true,
       confirmText: 'DELETE',
       riskText: t('workflows.templates.delete.riskText'),
@@ -378,7 +379,7 @@ async function loadPluginSources() {
   try {
     const result = await listPluginWorkflowSources(locale.value)
     pluginSourceItems.value = [...(result.data?.items ?? [])]
-    selectedPluginSourceId.value = pluginSourceItems.value[0] ? pluginSourceId(pluginSourceItems.value[0]) : ''
+    selectedPluginSourceId.value = ''
   } catch (cause) {
     pluginSourceItems.value = []
     pluginSourceError.value = cause instanceof Error ? cause.message : t('workflows.templates.pluginSources.errors.loadFailed')
@@ -426,27 +427,51 @@ async function submitPluginSourceAction() {
       capabilityKey: readString(source, ['capabilityKey']),
       name: pluginSourceWorkflowName.value.trim(),
     }
+    const actionTime = new Date().toISOString()
     if (pluginSourceMode.value === 'create') {
       if (!sourcePayload.name) throw new Error(t('workflows.templates.pluginSources.errors.nameRequired'))
-      await createWorkflowFromPlugin({
+      const result = await createWorkflowFromPlugin({
         ...sourcePayload,
         changeSummary: t('workflows.templates.changeSummaries.createFromPlugin'),
       })
+      const templateId = readString(result.data ?? {}, ['id'], '')
+      if (templateId) {
+        pageRef.value?.upsertRecord({
+          id: templateId,
+          name: sourcePayload.name,
+          origin: 'user',
+          status: 'draft',
+          capabilities: sourcePayload.capabilityKey ? [sourcePayload.capabilityKey] : [],
+          createdAt: actionTime,
+          updatedAt: actionTime,
+        }, { prepend: true })
+      }
     } else {
       const row = pluginSourceTargetRow.value
       if (!row) throw new Error(t('workflows.templates.pluginSources.errors.missingApplyTarget'))
       if (!isUserOwnedWorkflow(row)) throw new Error(t('workflows.templates.pluginSources.errors.actionFailed'))
-      await createWorkflowDraftFromPlugin(readString(row.raw, ['id']), {
+      const templateId = readString(row.raw, ['id'])
+      const result = await createWorkflowDraftFromPlugin(templateId, {
         ...sourcePayload,
         changeSummary: t('workflows.templates.changeSummaries.applyFromPlugin'),
       })
+      const versionId = readString(result.data ?? {}, ['id'], '')
+      pageRef.value?.patchRecord(templateId, {
+        status: 'draft',
+        updatedAt: actionTime,
+        ...(versionId ? { currentVersionId: versionId } : {}),
+      })
+      syncTemplateRows({
+        status: 'draft',
+        updatedAt: actionTime,
+        ...(versionId ? { currentVersionId: versionId } : {}),
+      }, templateId)
       if (editorRow.value && readString(editorRow.value.raw, ['id']) === readString(row.raw, ['id'])) {
         await loadVersions(editorRow.value)
         hydrateCanvasFromLatestVersion()
       }
     }
     pluginSourceModalOpen.value = false
-    await pageRef.value?.reload()
   } catch (cause) {
     pluginSourceError.value = cause instanceof Error ? cause.message : t('workflows.templates.pluginSources.errors.actionFailed')
   } finally {
@@ -483,12 +508,13 @@ async function createManagedVersion() {
   publishMessage.value = ''
   versionError.value = ''
   try {
-    const canvas = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
-    const compiled = await compileCanvasOnBackend(canvas)
+    const sourceContent = resolveManagedVersionSourceContent(row)
+    if (!sourceContent) throw new Error(t('workflows.templates.errors.missingWorkflowDsl'))
     const result = await createWorkflowTemplateVersion({
       templateId: readString(row.raw, ['id']),
-      content: compiled.content,
+      content: sourceContent,
       changeSummary: t('workflows.templates.changeSummaries.createVersionDraft'),
+      allowDuplicateContent: true,
     })
     publishMessage.value = t('workflows.templates.messages.versionDraftCreated')
     await loadVersions(row)
@@ -542,6 +568,21 @@ async function compileCanvasOnBackend(canvas: WorkflowCanvasDefinition): Promise
   const content = result.data?.content
   if (!content) throw new Error(t('workflows.templates.errors.missingWorkflowDsl'))
   return { content: content as WorkflowDslV1 }
+}
+
+function resolveManagedVersionSourceContent(row: ViewRow): WorkflowDslV1 | null {
+  const currentVersionId = readString(row.raw, ['currentVersionId'], '')
+  const sortedVersions = [...versionItems.value].sort((left, right) =>
+    Number(readString(right, ['version'], '0')) - Number(readString(left, ['version'], '0')),
+  )
+  const candidates = [
+    versionItems.value.find((item) => readString(item, ['id']) === currentVersionId),
+    ...sortedVersions,
+  ]
+  for (const candidate of candidates) {
+    if (candidate && isWorkflowDsl(candidate.content)) return candidate.content
+  }
+  return null
 }
 
 async function publishVersion(versionId: string) {
@@ -640,7 +681,7 @@ function syncTemplateRows(patch: Record<string, unknown>, templateId = '') {
 }
 
 function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
-  return Boolean(value && typeof value === 'object' && (value as { apiVersion?: unknown }).apiVersion === 'gcac.workflow/v1')
+  return isWorkflowDslCanvasImportable(value)
 }
 </script>
 

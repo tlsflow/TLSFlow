@@ -50,13 +50,44 @@ function versionStatusTexts(item: Element | undefined): string[] {
   return [...item?.querySelectorAll('.workflow-version-manager__status') ?? []].map((status) => status.textContent?.trim() ?? '')
 }
 
+function workflowDslFixture(name = 'existing-workflow') {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name },
+    inputContract: {
+      apiVersion: 'gcac.deployment-input/v1',
+      variables: {
+        verifyUrl: {
+          type: 'string',
+          required: true,
+          configurationMode: 'required',
+          source: { kind: 'binding' },
+          lifecycle: 'pre_execution',
+          bindingPolicy: 'required_binding',
+        },
+      },
+      connections: {
+        management: {
+          transport: 'http',
+          host: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+          port: { type: 'number', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+        },
+      },
+      credentials: {},
+      artifacts: {},
+    },
+    steps: [{ name: 'manual_1', type: 'manual', instruction: '确认' }],
+  }
+}
+
 describe('WorkflowTemplatesView', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     localStorage.clear()
     vi.clearAllMocks()
     setActivePinia(createPinia())
-    usePermissionStore().setPermissions(['workflow.template.read', 'workflow.template.write'])
+    usePermissionStore().setPermissions(['workflow.read', 'workflow.create', 'workflow.update', 'workflow.delete', 'workflow.publish'])
     config.global.plugins = [i18n]
 
     vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
@@ -132,6 +163,7 @@ describe('WorkflowTemplatesView', () => {
             status: 'draft',
             changeSummary: '初始草稿',
             createdAt: '2026-07-03T00:00:00.000Z',
+            content: workflowDslFixture(),
           },
         ],
       },
@@ -147,6 +179,7 @@ describe('WorkflowTemplatesView', () => {
       global: { stubs: { teleport: true, Teleport: true } },
     })
     await flushPromises()
+    const initialLoadCalls = vi.mocked(listWorkflowTemplates).mock.calls.length
 
     const toolbarButtons = [...document.body.querySelectorAll('.business-page__toolbar-actions button')].map((item) => item.textContent?.trim())
     expect(toolbarButtons).toEqual(['从插件新建工作流', '刷新'])
@@ -173,6 +206,7 @@ describe('WorkflowTemplatesView', () => {
       capabilityKey: 'certificate.deploy',
       name: 'derived-workflow',
     }))
+    expect(vi.mocked(listWorkflowTemplates).mock.calls.length).toBe(initialLoadCalls)
   })
 
   it('支持从插件来源为现有工作流生成新草稿', async () => {
@@ -181,6 +215,7 @@ describe('WorkflowTemplatesView', () => {
       global: { stubs: { teleport: true, Teleport: true } },
     })
     await flushPromises()
+    const initialLoadCalls = vi.mocked(listWorkflowTemplates).mock.calls.length
 
     clickBodyButton('生成草稿')
     await flushPromises()
@@ -193,6 +228,7 @@ describe('WorkflowTemplatesView', () => {
       pluginVersionId: 'plugin-version-apache',
       capabilityKey: 'certificate.deploy',
     }))
+    expect(vi.mocked(listWorkflowTemplates).mock.calls.length).toBe(initialLoadCalls)
   })
 
   it('插件内部工作流不显示从插件生成草稿入口', async () => {
@@ -354,7 +390,9 @@ describe('WorkflowTemplatesView', () => {
 
     expect(createWorkflowTemplateVersion).toHaveBeenCalledWith(expect.objectContaining({
       templateId: 'tpl-1',
+      content: workflowDslFixture(),
       changeSummary: '版本管理创建新版本草稿',
+      allowDuplicateContent: true,
     }))
 
     clickBodyButton('发布版本')
@@ -619,6 +657,7 @@ describe('WorkflowTemplatesView', () => {
               status: 'published',
               changeSummary: '初始版本',
               createdAt: '2026-07-03T00:00:00.000Z',
+              content: workflowDslFixture(),
             },
             {
               id: 'ver-2',
@@ -627,6 +666,7 @@ describe('WorkflowTemplatesView', () => {
               status: 'published',
               changeSummary: '覆盖版本',
               createdAt: '2026-07-06T09:01:49.000Z',
+              content: workflowDslFixture(),
             },
           ],
         },
@@ -643,6 +683,7 @@ describe('WorkflowTemplatesView', () => {
               status: 'published',
               changeSummary: '初始版本',
               createdAt: '2026-07-03T00:00:00.000Z',
+              content: workflowDslFixture(),
             },
             {
               id: 'ver-2',
@@ -651,6 +692,7 @@ describe('WorkflowTemplatesView', () => {
               status: 'published',
               changeSummary: '覆盖版本',
               createdAt: '2026-07-06T09:01:49.000Z',
+              content: workflowDslFixture(),
             },
             {
               id: 'ver-3',
@@ -659,6 +701,7 @@ describe('WorkflowTemplatesView', () => {
               status: 'draft',
               changeSummary: '版本管理创建新版本草稿',
               createdAt: '2026-07-06T11:30:22.000Z',
+              content: workflowDslFixture(),
             },
           ],
         },

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
+import type { ApiPage, ApiRecord } from '@/api/modules/common'
 import {
   GcConfirmAction,
   GcDataTable,
@@ -154,8 +155,52 @@ function isRowActionHidden(row: ViewRow, actionIndex: number): boolean {
   return action.hidden?.(row) ?? false
 }
 
+function upsertRecord(record: ApiRecord, options: { prepend?: boolean } = {}) {
+  const recordId = readString(record, ['id', 'resourceId', 'certificateId', 'planId', 'runId', 'eventId'], '')
+  if (!recordId) return
+  const currentPage: ApiPage = state.page.value ?? { items: [], page: 1, pageSize: 20, total: 0 }
+  const existingIndex = currentPage.items.findIndex((item) =>
+    readString(item, ['id', 'resourceId', 'certificateId', 'planId', 'runId', 'eventId'], '') === recordId,
+  )
+  const items = [...currentPage.items]
+  if (existingIndex >= 0) {
+    items[existingIndex] = {
+      ...items[existingIndex],
+      ...record,
+    }
+  } else if (options.prepend) {
+    items.unshift(record)
+  } else {
+    items.push(record)
+  }
+  const pageSize = currentPage.pageSize > 0 ? currentPage.pageSize : items.length
+  state.page.value = {
+    ...currentPage,
+    items: items.slice(0, Math.max(pageSize, 1)),
+    total: existingIndex >= 0 ? currentPage.total : currentPage.total + 1,
+  }
+}
+
+function patchRecord(recordId: string, patch: ApiRecord) {
+  if (!recordId || !state.page.value) return
+  state.page.value = {
+    ...state.page.value,
+    items: state.page.value.items.map((item) => {
+      const currentId = readString(item, ['id', 'resourceId', 'certificateId', 'planId', 'runId', 'eventId'], '')
+      return currentId === recordId
+        ? {
+          ...item,
+          ...patch,
+        }
+        : item
+    }),
+  }
+}
+
 defineExpose({
   reload: state.reload,
+  upsertRecord,
+  patchRecord,
 })
 </script>
 
