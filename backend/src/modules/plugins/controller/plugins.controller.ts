@@ -10,6 +10,7 @@ import { PluginBindingsApplicationService } from '../application/plugin-bindings
 import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
+import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
 import type {
   PluginEnableInput,
   PluginExecutionRequest,
@@ -28,6 +29,7 @@ export class PluginsController {
     private readonly agentPlugins = new AgentDeploymentPluginsApplicationService(),
     private readonly unifiedPlugins = new UnifiedPluginsApplicationService(),
     private readonly pluginBindings = new PluginBindingsApplicationService(),
+    private readonly promotions?: PluginPromotionService,
   ) {}
 
   register(router: Router): void {
@@ -57,6 +59,10 @@ export class PluginsController {
     router.patch('/api/v1/plugin-bindings', '更新统一插件绑定', tags, (request) => this.updatePluginBinding(request));
     router.post('/api/v1/capability-assignments', '设置插件能力指派', tags, (request) => this.assignPluginCapability(request));
     router.post('/api/v1/capability-assignments/resolve', '解析插件能力来源', tags, (request) => this.resolvePluginCapability(request));
+    router.post('/api/v1/plugin-promotions/preview', '预览 Standalone 目标归集', tags, (request) => this.previewPromotion(request));
+    router.post('/api/v1/plugin-promotions/confirm', '确认 Standalone 目标归集', tags, (request) => this.confirmPromotion(request));
+    router.post('/api/v1/plugin-promotions/revoke', '撤销 Standalone 目标归集', tags, (request) => this.revokePromotion(request));
+    router.get('/api/v1/plugin-promotions', '查询 Standalone 目标归集记录', tags, (request) => this.getPromotion(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/disable', '禁用 DSL 模板插件', tags, (request) => this.disableWorkflowTemplatePlugin(request));
     router.get('/api/v1/plugins/agent-packages', '查询 Agent 插件包', tags, (request) => this.listAgentPackages(request));
@@ -263,6 +269,37 @@ export class PluginsController {
     });
   }
 
+  private previewPromotion(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      sourcePluginBindingId: { type: 'string', required: true }, displayName: { type: 'string', required: true },
+      deviceFamily: { type: 'string', required: true }, managementAddress: { type: 'string', required: true },
+      managementPort: { type: 'number', required: true }, authMode: { type: 'string', required: true },
+      tlsVerify: { type: 'boolean', required: true }, gatewayId: { type: 'string' }, applicationAssetId: { type: 'string' },
+      discovery: { type: 'object', required: true },
+    });
+    return this.requirePromotions().preview(tenantId(request), body as never);
+  }
+
+  private confirmPromotion(request: HttpRequest) {
+    const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
+    return this.requirePromotions().confirm(tenantId(request), String(body.promotionId));
+  }
+
+  private revokePromotion(request: HttpRequest) {
+    const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
+    return this.requirePromotions().revoke(tenantId(request), String(body.promotionId));
+  }
+
+  private getPromotion(request: HttpRequest) {
+    const promotionId = typeof request.query.promotionId === 'string' ? request.query.promotionId : '';
+    return this.requirePromotions().get(tenantId(request), promotionId);
+  }
+
+  private requirePromotions(): PluginPromotionService {
+    if (!this.promotions) throw new Error('PluginPromotionService 未配置');
+    return this.promotions;
+  }
+
   private enableWorkflowTemplatePlugin(request: HttpRequest) {
     const body = validateObject(request.body, { fileTemplateId: { type: 'string', required: true } });
     return this.agentPlugins.enableWorkflowTemplatePlugin(tenantId(request), String(body.fileTemplateId));
@@ -391,6 +428,10 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/preview', operationId: 'previewPluginPromotion', summary: '预览 Standalone 目标归集', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/confirm', operationId: 'confirmPluginPromotion', summary: '确认 Standalone 目标归集', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/disable', operationId: 'disableWorkflowTemplatePlugin', summary: '禁用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugins/agent-packages', operationId: 'listAgentPluginPackages', summary: '查询 Agent 插件包', tags, responseSchema: pageResponseSchema },

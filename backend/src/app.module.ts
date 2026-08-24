@@ -53,7 +53,7 @@ import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } f
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
-import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
+import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
@@ -316,7 +316,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
-  new PluginsController(pluginsService, agentPluginsService, unifiedPluginsService, pluginBindingsService).register(app.router);
+  new PluginsController(pluginsService, agentPluginsService, unifiedPluginsService, pluginBindingsService, new PluginPromotionService(appDb)).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({

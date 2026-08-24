@@ -14,3 +14,6 @@ export * from './application/unified-plugins.application-service.js';
 export * from './dto/plugin-bindings.dto.js';
 export * from './repository/plugin-bindings.repository.js';
 export * from './application/plugin-bindings.application-service.js';
+export * from './promotion/plugin-promotion.dto.js';
+export * from './promotion/plugin-promotion.repository.js';
+export * from './promotion/plugin-promotion.service.js';
