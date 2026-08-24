@@ -26,6 +26,10 @@
   "plugin.citrixAdc.field.managementProtocol": "管理接口",
   "plugin.citrixAdc.field.pluginVersion": "插件版本",
   "plugin.citrixAdc.field.health": "健康状态",
+  "plugin.citrixAdc.framework.lbServer": "LBServer",
+  "plugin.citrixAdc.framework.vpnServer": "VPNServer",
+  "plugin.citrixAdc.framework.csServer": "CSServer",
+  "plugin.citrixAdc.framework.gslbServer": "GSLBServer",
   "plugin.citrixAdc.tab.sites": "站点",
   "plugin.citrixAdc.tab.certificates": "证书",
   "plugin.citrixAdc.tab.logs": "设备日志",
@@ -39,7 +43,5 @@
   "plugin.citrixAdc.column.event": "事件",
   "plugin.citrixAdc.column.result": "结果",
   "plugin.citrixAdc.column.occurredAt": "发生时间",
-  "plugin.citrixAdc.action.testConnection": "测试连接",
-  "plugin.citrixAdc.action.discover": "重新发现",
-  "plugin.citrixAdc.action.deploy": "部署证书"
+  "plugin.citrixAdc.action.discover": "重新发现"
 }

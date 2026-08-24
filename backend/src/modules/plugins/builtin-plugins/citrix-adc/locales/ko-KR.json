@@ -26,6 +26,10 @@
   "plugin.citrixAdc.field.managementProtocol": "관리 API",
   "plugin.citrixAdc.field.pluginVersion": "플러그인 버전",
   "plugin.citrixAdc.field.health": "상태",
+  "plugin.citrixAdc.framework.lbServer": "LBServer",
+  "plugin.citrixAdc.framework.vpnServer": "VPNServer",
+  "plugin.citrixAdc.framework.csServer": "CSServer",
+  "plugin.citrixAdc.framework.gslbServer": "GSLBServer",
   "plugin.citrixAdc.tab.sites": "사이트",
   "plugin.citrixAdc.tab.certificates": "인증서",
   "plugin.citrixAdc.tab.logs": "장치 로그",
@@ -39,7 +43,5 @@
   "plugin.citrixAdc.column.event": "이벤트",
   "plugin.citrixAdc.column.result": "결과",
   "plugin.citrixAdc.column.occurredAt": "발생 시간",
-  "plugin.citrixAdc.action.testConnection": "연결 테스트",
-  "plugin.citrixAdc.action.discover": "다시 검색",
-  "plugin.citrixAdc.action.deploy": "인증서 배포"
+  "plugin.citrixAdc.action.discover": "다시 검색"
 }

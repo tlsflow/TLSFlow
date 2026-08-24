@@ -26,6 +26,10 @@
   "plugin.citrixAdc.field.managementProtocol": "API de gerenciamento",
   "plugin.citrixAdc.field.pluginVersion": "Versão do plug-in",
   "plugin.citrixAdc.field.health": "Saúde",
+  "plugin.citrixAdc.framework.lbServer": "LBServer",
+  "plugin.citrixAdc.framework.vpnServer": "VPNServer",
+  "plugin.citrixAdc.framework.csServer": "CSServer",
+  "plugin.citrixAdc.framework.gslbServer": "GSLBServer",
   "plugin.citrixAdc.tab.sites": "Sites",
   "plugin.citrixAdc.tab.certificates": "Certificados",
   "plugin.citrixAdc.tab.logs": "Logs do dispositivo",
@@ -39,7 +43,5 @@
   "plugin.citrixAdc.column.event": "Evento",
   "plugin.citrixAdc.column.result": "Resultado",
   "plugin.citrixAdc.column.occurredAt": "Ocorrido em",
-  "plugin.citrixAdc.action.testConnection": "Testar conexão",
-  "plugin.citrixAdc.action.discover": "Redescobrir",
-  "plugin.citrixAdc.action.deploy": "Implantar certificado"
+  "plugin.citrixAdc.action.discover": "Redescobrir"
 }

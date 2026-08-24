@@ -72,14 +72,27 @@ async function resolveBuiltinRootDirectory(): Promise<string> {
     resolve(process.cwd(), 'backend/src/modules/plugins/builtin-plugins'),
   ];
   for (const candidate of candidates) {
-    try {
-      await access(join(candidate, 'citrix-adc', 'manifest.json'));
-      return candidate;
-    } catch {
-      // 继续检查源码目录或部署目录。
-    }
+    if (await containsPluginPackage(candidate)) return candidate;
   }
   return moduleDirectory;
+}
+
+async function containsPluginPackage(directory: string): Promise<boolean> {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        await access(join(directory, entry.name, 'manifest.json'));
+        return true;
+      } catch {
+        // 继续检查其他目录。
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResources, discoveryMappings: BuiltinDiscoveryMappings): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {

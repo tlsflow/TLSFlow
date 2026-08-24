@@ -26,6 +26,10 @@
   "plugin.citrixAdc.field.managementProtocol": "管理 API",
   "plugin.citrixAdc.field.pluginVersion": "プラグインバージョン",
   "plugin.citrixAdc.field.health": "正常性",
+  "plugin.citrixAdc.framework.lbServer": "LBServer",
+  "plugin.citrixAdc.framework.vpnServer": "VPNServer",
+  "plugin.citrixAdc.framework.csServer": "CSServer",
+  "plugin.citrixAdc.framework.gslbServer": "GSLBServer",
   "plugin.citrixAdc.tab.sites": "サイト",
   "plugin.citrixAdc.tab.certificates": "証明書",
   "plugin.citrixAdc.tab.logs": "デバイスログ",
@@ -39,7 +43,5 @@
   "plugin.citrixAdc.column.event": "イベント",
   "plugin.citrixAdc.column.result": "結果",
   "plugin.citrixAdc.column.occurredAt": "発生日時",
-  "plugin.citrixAdc.action.testConnection": "接続テスト",
-  "plugin.citrixAdc.action.discover": "再検出",
-  "plugin.citrixAdc.action.deploy": "証明書を配布"
+  "plugin.citrixAdc.action.discover": "再検出"
 }

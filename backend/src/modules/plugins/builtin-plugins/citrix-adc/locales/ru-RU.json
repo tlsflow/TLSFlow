@@ -26,6 +26,10 @@
   "plugin.citrixAdc.field.managementProtocol": "API управления",
   "plugin.citrixAdc.field.pluginVersion": "Версия плагина",
   "plugin.citrixAdc.field.health": "Состояние",
+  "plugin.citrixAdc.framework.lbServer": "LBServer",
+  "plugin.citrixAdc.framework.vpnServer": "VPNServer",
+  "plugin.citrixAdc.framework.csServer": "CSServer",
+  "plugin.citrixAdc.framework.gslbServer": "GSLBServer",
   "plugin.citrixAdc.tab.sites": "Сайты",
   "plugin.citrixAdc.tab.certificates": "Сертификаты",
   "plugin.citrixAdc.tab.logs": "Журналы устройства",
@@ -39,7 +43,5 @@
   "plugin.citrixAdc.column.event": "Событие",
   "plugin.citrixAdc.column.result": "Результат",
   "plugin.citrixAdc.column.occurredAt": "Время события",
-  "plugin.citrixAdc.action.testConnection": "Проверить подключение",
-  "plugin.citrixAdc.action.discover": "Обнаружить заново",
-  "plugin.citrixAdc.action.deploy": "Развернуть сертификат"
+  "plugin.citrixAdc.action.discover": "Обнаружить заново"
 }

@@ -165,6 +165,26 @@
       "pluginId": "citrix.netscaler-adc",
       "version": "1.1.19",
       "packageSha256": "sha256:efb79027db12c57f5f3078342a982c1a5f102a08269f6a644e053d83f8ae0dd1"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.20",
+      "packageSha256": "sha256:fda85e0aa046885d43d1c4226e3e8ce60f238e18a46f052a48421395c424fd24"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.21",
+      "packageSha256": "sha256:79067fbd69321f8d3e6468d0263121a07a3d89ea461110fbad521882e69e0d83"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.22",
+      "packageSha256": "sha256:d7a606ed59c818dd45b541392cef8474caeef2f28beb25b50f1bd72938015c42"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.23",
+      "packageSha256": "sha256:700a260930b03e58753e0704d65fa12a65525aedd55a7116d0b404fec1c56e49"
     }
   ]
 }

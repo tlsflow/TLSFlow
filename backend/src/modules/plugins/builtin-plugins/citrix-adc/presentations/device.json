@@ -1,5 +1,19 @@
 {
   "schemaVersion": "gcac.device-presentation/v1",
+  "resourceLabels": {
+    "frameworks": [
+      { "frameworkType": "citrix.lb-server", "labelKey": "plugin.citrixAdc.framework.lbServer" },
+      { "frameworkType": "citrix.vpn-server", "labelKey": "plugin.citrixAdc.framework.vpnServer" },
+      { "frameworkType": "citrix.cs-server", "labelKey": "plugin.citrixAdc.framework.csServer" },
+      { "frameworkType": "citrix.gslb-server", "labelKey": "plugin.citrixAdc.framework.gslbServer" }
+    ],
+    "sites": [
+      { "frameworkType": "citrix.lb-server", "siteType": "network.virtual-server", "groupKey": "citrix.lb-server", "groupLabelKey": "plugin.citrixAdc.framework.lbServer", "typeLabelKey": "plugin.citrixAdc.framework.lbServer" },
+      { "frameworkType": "citrix.vpn-server", "siteType": "network.virtual-server", "groupKey": "citrix.vpn-server", "groupLabelKey": "plugin.citrixAdc.framework.vpnServer", "typeLabelKey": "plugin.citrixAdc.framework.vpnServer" },
+      { "frameworkType": "citrix.cs-server", "siteType": "network.virtual-server", "groupKey": "citrix.cs-server", "groupLabelKey": "plugin.citrixAdc.framework.csServer", "typeLabelKey": "plugin.citrixAdc.framework.csServer" },
+      { "frameworkType": "citrix.gslb-server", "siteType": "network.virtual-server", "groupKey": "citrix.gslb-server", "groupLabelKey": "plugin.citrixAdc.framework.gslbServer", "typeLabelKey": "plugin.citrixAdc.framework.gslbServer" }
+    ]
+  },
   "overview": [
     {
       "id": "identity",
@@ -35,8 +49,6 @@
     ] }
   ],
   "actions": [
-    { "capabilityKey": "device.connection.test", "labelKey": "plugin.citrixAdc.action.testConnection", "tone": "info" },
-    { "capabilityKey": "device.discover", "labelKey": "plugin.citrixAdc.action.discover", "tone": "info" },
-    { "capabilityKey": "certificate.deploy", "labelKey": "plugin.citrixAdc.action.deploy", "tone": "warning" }
+    { "capabilityKey": "device.discover", "labelKey": "plugin.citrixAdc.action.discover", "tone": "info" }
   ]
 }

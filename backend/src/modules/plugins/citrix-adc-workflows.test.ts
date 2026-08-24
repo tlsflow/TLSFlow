@@ -106,8 +106,10 @@ function assertHttpRequestsUseConnectionRef(steps: Array<Record<string, any>>, r
 test('Citrix ADC 展示结构使用统一详情路径且标签页包含列定义', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
   const presentation = JSON.parse(pluginPackage.resources['presentations/device.json']!) as {
+    resourceLabels: { frameworks: Array<{ frameworkType: string }>; sites: Array<{ frameworkType: string; groupKey: string }> };
     overview: Array<{ fields: Array<{ valuePath: string }> }>;
     tabs: Array<{ id: string; columns: unknown[] }>;
+    actions: Array<{ capabilityKey: string }>;
   };
   assert.deepEqual(presentation.overview[0]?.fields.map((field) => field.valuePath), [
     'productFamily',
@@ -119,6 +121,13 @@ test('Citrix ADC 展示结构使用统一详情路径且标签页包含列定义
   ]);
   assert.equal(presentation.tabs.some((tab) => tab.id === 'frameworks'), false);
   assert.equal(presentation.tabs.every((tab) => tab.columns.length > 0), true);
+  assert.deepEqual(presentation.resourceLabels.frameworks.map((item) => item.frameworkType), [
+    'citrix.lb-server', 'citrix.vpn-server', 'citrix.cs-server', 'citrix.gslb-server',
+  ]);
+  assert.deepEqual(presentation.resourceLabels.sites.map((item) => item.groupKey), [
+    'citrix.lb-server', 'citrix.vpn-server', 'citrix.cs-server', 'citrix.gslb-server',
+  ]);
+  assert.deepEqual(presentation.actions.map((item) => item.capabilityKey), ['device.discover']);
 });
 
 test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
@@ -152,9 +161,26 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
   const validated = new DeviceDiscoverySchemaService().validate(discovery);
   assert.equal(validated.device.productFamily, 'citrix.netscaler-adc');
-  assert.deepEqual(validated.frameworks, [{ stableKey: 'framework:nitro', frameworkType: 'adc.load-balancer', displayName: 'NITRO' }]);
+  assert.deepEqual(validated.frameworks, [
+    { stableKey: 'framework:lbserver', frameworkType: 'citrix.lb-server', displayName: 'LBServer' },
+    { stableKey: 'framework:vpnserver', frameworkType: 'citrix.vpn-server', displayName: 'VPNServer' },
+    { stableKey: 'framework:csserver', frameworkType: 'citrix.cs-server', displayName: 'CSServer' },
+    { stableKey: 'framework:gslbserver', frameworkType: 'citrix.gslb-server', displayName: 'GSLBServer' },
+  ]);
   assert.equal(validated.device.metadata?.managementProtocol, 'NITRO API');
   assert.deepEqual(validated.sites.map((site) => site.stableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
+  assert.deepEqual(validated.sites.map((site) => site.frameworkStableKey), [
+    'framework:lbserver',
+    'framework:vpnserver',
+    'framework:csserver',
+    'framework:gslbserver',
+  ]);
+  assert.deepEqual(validated.managedTargets.map((target) => target.frameworkStableKey), [
+    'framework:lbserver',
+    'framework:vpnserver',
+    'framework:csserver',
+    'framework:gslbserver',
+  ]);
   assert.equal(validated.certificates[0]?.stableKey, 'CERT:leaf-one');
   assert.equal(validated.certificates[0]?.sha256Fingerprint, '7ba6becd05012d4dc445954692203028e5042f2f13949ccf9acd4f7a5b2d293d');
   assert.equal(validated.certificates[0]?.notBefore, '2026-01-01T00:00:00Z');
@@ -188,9 +214,13 @@ test('Citrix ADC 发现对零个和单个站点始终输出数组', async () => 
 
   const empty = await run([]);
   assert.deepEqual(empty.sites, []);
+  assert.deepEqual(empty.frameworks, []);
   const single = await run([{ name: 'lb-one', servicetype: 'SSL', ipv46: '10.0.0.41', port: 443 }]);
   assert.equal(Array.isArray(single.sites), true);
   assert.deepEqual(single.sites.map((site) => site.stableKey), ['LB:lb-one']);
+  assert.deepEqual(single.frameworks, [
+    { stableKey: 'framework:lbserver', frameworkType: 'citrix.lb-server', displayName: 'LBServer' },
+  ]);
 });
 
 test('Citrix ADC 发现为包含特殊字符的厂商名称生成合法稳定键', async () => {
@@ -332,8 +362,8 @@ test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接
       },
     },
     bindingLayers: {
-      deviceDefault: { pluginVersionId: 'citrix.netscaler-adc:1.1.19', inputBindings: deviceBinding },
-      assetOverride: { pluginVersionId: 'citrix.netscaler-adc:1.1.19', inputBindings: assetBinding },
+      deviceDefault: { pluginVersionId: 'citrix.netscaler-adc:1.1.21', inputBindings: deviceBinding },
+      assetOverride: { pluginVersionId: 'citrix.netscaler-adc:1.1.21', inputBindings: assetBinding },
     },
     credentialSnapshots: {
       credential: {
