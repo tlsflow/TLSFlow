@@ -2,9 +2,9 @@
 // 不要手写修改；需要变更契约时先更新后端 OpenAPI。
 
 
-export type ApiPath = "/api/v1/health" | "/api/v1/auth/login" | "/api/v1/auth/external-login" | "/api/v1/auth/identity-sources/public" | "/api/v1/auth/logout" | "/api/v1/auth/me" | "/api/v1/auth/permissions" | "/api/v1/auth/permission-context" | "/api/v1/auth/password" | "/api/v1/auth/preferences" | "/api/v1/auth/preferences" | "/api/v1/secrets" | "/api/v1/secrets" | "/api/v1/secrets/metadata" | "/api/v1/approvals" | "/api/v1/approvals/decide" | "/api/v1/audit-events" | "/api/v1/security/users" | "/api/v1/security/users" | "/api/v1/security/users" | "/api/v1/security/groups" | "/api/v1/security/groups" | "/api/v1/security/groups/lookup-external" | "/api/v1/security/groups/external" | "/api/v1/security/users/lookup-external" | "/api/v1/security/users/external" | "/api/v1/security/users/status" | "/api/v1/security/users/roles" | "/api/v1/security/users/delete" | "/api/v1/security/roles" | "/api/v1/security/roles" | "/api/v1/security/roles/delete" | "/api/v1/security/permission-policies" | "/api/v1/security/permission-policies" | "/api/v1/security/object-types" | "/api/v1/security/object-sets" | "/api/v1/security/object-sets" | "/api/v1/security/object-set-members" | "/api/v1/security/role-bindings" | "/api/v1/security/role-bindings" | "/api/v1/security/access-grants" | "/api/v1/security/access-grants" | "/api/v1/security/object-capabilities" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources/delete" | "/api/v1/security/identity-sources/test" | "/api/v1/security/identity-sources/sync-users" | "/api/v1/security/group-role-mappings" | "/api/v1/security/group-role-mappings" | "/api/v1/deployment-plans" | "/api/v1/deployment-plans" | "/api/v1/deployment-plans/from-application-asset" | "/api/v1/deployment-plans/update-from-application-asset" | "/api/v1/deployment-plans/submit" | "/api/v1/deployment-plans/dry-run" | "/api/v1/deployment-plans/execute" | "/api/v1/deployment-plans/cancel" | "/api/v1/deployment-plans/delete" | "/api/v1/deployment-plans/capabilities/reevaluate" | "/api/v1/execution-runs" | "/api/v1/execution-steps" | "/api/v1/execution-runs/stream" | "/api/v1/execution-runs/retry" | "/api/v1/execution-runs/rollback" | "/api/v1/hosts" | "/api/v1/hosts" | "/api/v1/hosts" | "/api/v1/hosts/delete" | "/api/v1/service-instances" | "/api/v1/service-instances" | "/api/v1/service-instances" | "/api/v1/service-instances/delete" | "/api/v1/service-assets" | "/api/v1/service-assets" | "/api/v1/service-assets" | "/api/v1/service-assets/detail" | "/api/v1/service-assets/:id/deployment-strategy" | "/api/v1/service-assets/deployment-strategy" | "/api/v1/service-assets/delete" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets/delete" | "/api/v1/site-assets" | "/api/v1/site-assets" | "/api/v1/site-assets" | "/api/v1/site-assets/delete" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints/delete" | "/api/v1/managed-targets" | "/api/v1/managed-targets" | "/api/v1/managed-targets" | "/api/v1/managed-target-snapshots" | "/api/v1/managed-targets/delete" | "/api/v1/discovery-snapshots" | "/api/v1/discovery-snapshots" | "/api/v1/discovery-snapshots/ingest" | "/api/v1/discovery-snapshots/merge-preview" | "/api/v1/assets/refresh-from-agent" | "/api/v1/asset-conflicts" | "/api/v1/asset-conflicts/resolve" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings/usage" | "/api/v1/certificate-bindings/delete" | "/api/v1/certificate-bindings/drift" | "/api/v1/certificate-bindings/drift-results" | "/api/v1/certificate-bindings/status" | "/api/v1/certificate-formats/capabilities" | "/api/v1/certificate-assets" | "/api/v1/certificate-assets" | "/api/v1/certificate-assets/detail" | "/api/v1/certificate-assets/:id" | "/api/v1/certificate-assets/:id/usage" | "/api/v1/certificate-assets/archive" | "/api/v1/certificate-assets/delete" | "/api/v1/certificate-versions" | "/api/v1/certificate-versions/detail" | "/api/v1/certificate-versions/usage" | "/api/v1/certificate-versions/:id/formats" | "/api/v1/certificate-versions/import" | "/api/v1/certificate-versions/archive" | "/api/v1/certificate-versions/revoke" | "/api/v1/certificate-versions/delete" | "/api/v1/certificate-versions/validate-import" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats/export-plan" | "/api/v1/certificate-version-formats/export" | "/api/v1/certificate-version-formats/delete" | "/api/v1/certificate-sources/mock-sync" | "/api/v1/capabilities/definitions" | "/api/v1/capabilities/declarations" | "/api/v1/capabilities/declarations" | "/api/v1/capabilities/declarations/manual" | "/api/v1/capabilities/requirements" | "/api/v1/capabilities/requirements" | "/api/v1/capabilities/match" | "/api/v1/capabilities/compatibility/evaluate" | "/api/v1/agents" | "/api/v1/agents/detail" | "/api/v1/agents/capabilities" | "/api/v1/agents/capabilities" | "/api/v1/agents/certificates" | "/api/v1/agents/tasks" | "/api/v1/agents/tasks" | "/api/v1/agents/tasks/log-cursor" | "/api/v1/agents/upgrades/suggestion" | "/api/v1/agents/:agentId/rescan" | "/api/v1/agents/enrollment-tokens" | "/api/v1/agents/install-sessions/windows-powershell" | "/api/v1/agents/install-sessions/linux-go" | "/api/v1/agents/gateway-enable-sessions" | "/agent-install.ps1" | "/agent-install" | "/agent-enable-gateway.ps1" | "/agent-enable-gateway" | "/api/v1/agents/install/windows/bootstrap.ps1" | "/api/v1/agents/install/windows/manifest" | "/api/v1/agents/disable" | "/api/v1/agents/register" | "/api/v1/agents/sessions" | "/api/v1/agents/certificate-requests" | "/api/v1/agents/certificates/sign" | "/api/v1/agents/certificates/rotate" | "/api/v1/agents/certificates/revoke" | "/api/v1/agents/heartbeat" | "/api/v1/agents/tasks/pull" | "/api/v1/agents/tasks/ack" | "/api/v1/agents/tasks/logs" | "/api/v1/agents/tasks/logs" | "/api/v1/agents/tasks/log-batches" | "/api/v1/agents/tasks/result" | "/api/v1/agents/versions" | "/api/v1/agents/upgrades/check" | "/api/v1/agents/upgrades/result" | "/api/v1/gateways" | "/api/v1/gateways/detail" | "/api/v1/gateways/target-history" | "/api/v1/gateways/route" | "/api/v1/gateways/probe" | "/api/v1/gateways/status" | "/api/v1/providers" | "/api/v1/providers/discovery-runs" | "/api/v1/provider-discovery-results" | "/api/v1/provider-discovery-result" | "/api/v1/plugins/packages" | "/api/v1/plugins/packages" | "/api/v1/plugins/permissions/approve" | "/api/v1/plugins/enable" | "/api/v1/plugins/disable" | "/api/v1/plugins/execute" | "/api/v1/plugins/executions" | "/api/v1/plugins/step-draft" | "/api/v1/plugins/permission-summary" | "/api/v1/plugins/capabilities" | "/api/v1/workflow-templates" | "/api/v1/workflow-templates" | "/api/v1/workflow-templates/canvas/compile" | "/api/v1/workflow-templates/canvas/validate" | "/api/v1/workflow-templates/delete" | "/api/v1/workflow-file-templates" | "/api/v1/workflow-file-templates/create" | "/api/v1/workflow-file-templates/apply" | "/api/v1/workflow-template-versions" | "/api/v1/workflow-template-versions" | "/api/v1/workflow-template-versions/draft" | "/api/v1/workflow-template-versions/note" | "/api/v1/workflow-template-versions/publish" | "/api/v1/workflow-template-runs/preview" | "/api/v1/workflow-template-runs/test" | "/api/v1/workflow-template-runs/test-step" | "/api/v1/dashboard/overview" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets/delete" | "/api/v1/monitors/scan" | "/api/v1/monitors/probe" | "/api/v1/monitors/risks" | "/api/v1/monitors/probe-results" | "/api/v1/monitors/certificate-observations" | "/api/v1/monitors/dashboard" | "/api/v1/monitors/alert-rules" | "/api/v1/monitors/alert-rules" | "/api/v1/openapi.json"
+export type ApiPath = "/api/v1/health" | "/api/v1/auth/login" | "/api/v1/auth/external-login" | "/api/v1/auth/identity-sources/public" | "/api/v1/auth/logout" | "/api/v1/auth/me" | "/api/v1/auth/permissions" | "/api/v1/auth/permission-context" | "/api/v1/auth/password" | "/api/v1/auth/preferences" | "/api/v1/auth/preferences" | "/api/v1/secrets" | "/api/v1/secrets" | "/api/v1/secrets/metadata" | "/api/v1/approvals" | "/api/v1/approvals/decide" | "/api/v1/audit-events" | "/api/v1/security/users" | "/api/v1/security/users" | "/api/v1/security/users" | "/api/v1/security/groups" | "/api/v1/security/groups" | "/api/v1/security/groups/lookup-external" | "/api/v1/security/groups/external" | "/api/v1/security/users/lookup-external" | "/api/v1/security/users/external" | "/api/v1/security/users/status" | "/api/v1/security/users/roles" | "/api/v1/security/users/delete" | "/api/v1/security/roles" | "/api/v1/security/roles" | "/api/v1/security/roles/delete" | "/api/v1/security/permission-policies" | "/api/v1/security/permission-policies" | "/api/v1/security/object-types" | "/api/v1/security/object-sets" | "/api/v1/security/object-sets" | "/api/v1/security/object-set-members" | "/api/v1/security/role-bindings" | "/api/v1/security/role-bindings" | "/api/v1/security/access-grants" | "/api/v1/security/access-grants" | "/api/v1/security/object-capabilities" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources" | "/api/v1/security/identity-sources/delete" | "/api/v1/security/identity-sources/test" | "/api/v1/security/identity-sources/sync-users" | "/api/v1/security/group-role-mappings" | "/api/v1/security/group-role-mappings" | "/api/v1/deployment-plans" | "/api/v1/deployment-plans" | "/api/v1/deployment-plans/from-application-asset" | "/api/v1/deployment-plans/update-from-application-asset" | "/api/v1/deployment-plans/submit" | "/api/v1/deployment-plans/dry-run" | "/api/v1/deployment-plans/execute" | "/api/v1/deployment-plans/cancel" | "/api/v1/deployment-plans/delete" | "/api/v1/deployment-plans/capabilities/reevaluate" | "/api/v1/execution-runs" | "/api/v1/execution-steps" | "/api/v1/execution-runs/stream" | "/api/v1/execution-runs/retry" | "/api/v1/execution-runs/rollback" | "/api/v1/hosts" | "/api/v1/hosts" | "/api/v1/hosts" | "/api/v1/hosts/delete" | "/api/v1/service-instances" | "/api/v1/service-instances" | "/api/v1/service-instances" | "/api/v1/service-instances/delete" | "/api/v1/service-assets" | "/api/v1/service-assets" | "/api/v1/service-assets" | "/api/v1/service-assets/detail" | "/api/v1/service-assets/:id/deployment-strategy" | "/api/v1/service-assets/deployment-strategy" | "/api/v1/service-assets/workflow-binding-projection" | "/api/v1/service-assets/delete" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets" | "/api/v1/application-asset-targets/delete" | "/api/v1/site-assets" | "/api/v1/site-assets" | "/api/v1/site-assets" | "/api/v1/site-assets/delete" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints" | "/api/v1/service-endpoints/delete" | "/api/v1/managed-targets" | "/api/v1/managed-targets" | "/api/v1/managed-targets" | "/api/v1/managed-target-snapshots" | "/api/v1/managed-targets/delete" | "/api/v1/discovery-snapshots" | "/api/v1/discovery-snapshots" | "/api/v1/discovery-snapshots/ingest" | "/api/v1/discovery-snapshots/merge-preview" | "/api/v1/assets/refresh-from-agent" | "/api/v1/asset-conflicts" | "/api/v1/asset-conflicts/resolve" | "/api/v1/device-assets" | "/api/v1/device-assets" | "/api/v1/device-assets" | "/api/v1/device-assets/detail" | "/api/v1/device-assets/delete" | "/api/v1/device-assets/test-connection" | "/api/v1/device-assets/discover" | "/api/v1/devices" | "/api/v1/devices/onboarding" | "/api/v1/devices/onboarding-platforms" | "/api/v1/devices/:deviceId" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings" | "/api/v1/certificate-bindings/usage" | "/api/v1/certificate-bindings/delete" | "/api/v1/certificate-bindings/drift" | "/api/v1/certificate-bindings/drift-results" | "/api/v1/certificate-bindings/status" | "/api/v1/certificate-formats/capabilities" | "/api/v1/certificate-assets" | "/api/v1/certificate-assets" | "/api/v1/certificate-assets/detail" | "/api/v1/certificate-assets/:id" | "/api/v1/certificate-assets/:id/usage" | "/api/v1/certificate-assets/archive" | "/api/v1/certificate-assets/delete" | "/api/v1/certificate-versions" | "/api/v1/certificate-versions/detail" | "/api/v1/certificate-versions/usage" | "/api/v1/certificate-versions/:id/formats" | "/api/v1/certificate-versions/import" | "/api/v1/certificate-versions/archive" | "/api/v1/certificate-versions/revoke" | "/api/v1/certificate-versions/delete" | "/api/v1/certificate-versions/validate-import" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats" | "/api/v1/certificate-version-formats/export-plan" | "/api/v1/certificate-version-formats/export" | "/api/v1/certificate-version-formats/delete" | "/api/v1/certificate-sources/mock-sync" | "/api/v1/ca-providers" | "/api/v1/ca-providers" | "/api/v1/ca-providers/:id" | "/api/v1/ca-providers/:id/test" | "/api/v1/certificate-authorities" | "/api/v1/certificate-authorities" | "/api/v1/certificate-authorities/preview" | "/api/v1/certificate-profiles" | "/api/v1/certificate-profiles" | "/api/v1/certificate-profiles/:id/versions" | "/api/v1/certificate-requests" | "/api/v1/certificate-requests" | "/api/v1/certificate-requests/:id/approve" | "/api/v1/certificate-requests/:id/retry" | "/api/v1/certificate-requests/:id/query" | "/api/v1/certificate-requests/:id/activate" | "/api/v1/certificate-renewals" | "/api/v1/certificate-renewals/scan" | "/api/v1/certificate-revocations" | "/api/v1/certificate-revocations" | "/api/v1/certificate-revocations/:id/approve" | "/api/v1/ca-trust-distributions" | "/api/v1/ca-trust-distributions" | "/api/v1/ca-trust-distributions/:id/approve" | "/api/v1/ca-trust-distributions/:id/complete" | "/api/v1/reports/certificate-reuse/overview" | "/api/v1/reports/certificate-reuse/items" | "/api/v1/reports/certificate-reuse/export" | "/api/v1/reports/certificate-reuse/:id/remediation-preview" | "/api/v1/ca-nodes" | "/api/v1/ca-nodes/enrollment-tokens" | "/api/v1/ca-nodes/register" | "/api/v1/ca-nodes/heartbeat" | "/api/v1/ca-nodes/tasks/lease" | "/api/v1/ca-nodes/tasks/:id/result" | "/api/v1/adcs-agents/install-sessions" | "/api/v1/adcs-agents/install.ps1" | "/api/v1/adcs-agents/binary" | "/api/v1/capabilities/definitions" | "/api/v1/capabilities/declarations" | "/api/v1/capabilities/declarations" | "/api/v1/capabilities/declarations/manual" | "/api/v1/capabilities/requirements" | "/api/v1/capabilities/requirements" | "/api/v1/capabilities/match" | "/api/v1/capabilities/compatibility/evaluate" | "/api/v1/agents" | "/api/v1/agents/detail" | "/api/v1/agents/capabilities" | "/api/v1/agents/capabilities" | "/api/v1/agents/certificates" | "/api/v1/agents/tasks" | "/api/v1/agents/tasks" | "/api/v1/agents/tasks/log-cursor" | "/api/v1/agents/upgrades/suggestion" | "/api/v1/agents/:agentId/rescan" | "/api/v1/agents/enrollment-tokens" | "/api/v1/agents/install-sessions/windows-powershell" | "/api/v1/agents/install-sessions/linux-go" | "/api/v1/agents/gateway-enable-sessions" | "/agent-install.ps1" | "/agent-install" | "/agent-enable-gateway.ps1" | "/agent-enable-gateway" | "/api/v1/agents/install/windows/bootstrap.ps1" | "/api/v1/agents/install/windows/manifest" | "/api/v1/agents/disable" | "/api/v1/agents/register" | "/api/v1/agents/sessions" | "/api/v1/agents/certificate-requests" | "/api/v1/agents/certificates/sign" | "/api/v1/agents/certificates/rotate" | "/api/v1/agents/certificates/revoke" | "/api/v1/agents/heartbeat" | "/api/v1/agents/tasks/pull" | "/api/v1/agents/tasks/ack" | "/api/v1/agents/tasks/logs" | "/api/v1/agents/tasks/logs" | "/api/v1/agents/tasks/log-batches" | "/api/v1/agents/tasks/result" | "/api/v1/agents/versions" | "/api/v1/agents/upgrades/check" | "/api/v1/agents/upgrades/result" | "/api/v1/gateways" | "/api/v1/gateways/detail" | "/api/v1/gateways/target-history" | "/api/v1/gateways/route" | "/api/v1/gateways/probe" | "/api/v1/gateways/status" | "/api/v1/providers" | "/api/v1/providers/discovery-runs" | "/api/v1/provider-discovery-results" | "/api/v1/provider-discovery-result" | "/api/v1/compatibility/catalog" | "/api/v1/plugins/packages" | "/api/v1/plugins/packages" | "/api/v1/plugins/permissions/approve" | "/api/v1/plugins/enable" | "/api/v1/plugins/disable" | "/api/v1/plugins/execute" | "/api/v1/plugins/executions" | "/api/v1/plugins/step-draft" | "/api/v1/plugins/permission-summary" | "/api/v1/plugins/capabilities" | "/api/v1/plugin-catalog" | "/api/v1/plugin-catalog/workflow-templates/enable" | "/api/v1/plugin-catalog/workflow-templates/disable" | "/api/v1/plugins/agent-packages" | "/api/v1/plugins/agent-packages" | "/api/v1/plugins/agent-packages/permissions/approve" | "/api/v1/plugins/agent-packages/enable" | "/api/v1/plugins/agent-packages/disable" | "/api/v1/plugins/agent-mounts" | "/api/v1/plugins/agent-mounts" | "/api/v1/plugins/agent-mounts" | "/api/v1/plugins/agent-mounts/validate" | "/api/v1/plugins/agent-mounts/disable" | "/api/v1/plugins/agent-binding/preview" | "/api/v1/plugins/agent-plan/compile" | "/api/v1/workflow-templates" | "/api/v1/workflow-templates" | "/api/v1/workflow-templates/rename" | "/api/v1/workflow-templates/canvas/compile" | "/api/v1/workflow-templates/canvas/validate" | "/api/v1/workflow-templates/delete" | "/api/v1/workflow-file-templates" | "/api/v1/workflow-file-templates/create" | "/api/v1/workflow-file-templates/apply" | "/api/v1/workflow-template-versions" | "/api/v1/workflow-template-versions" | "/api/v1/workflow-template-versions/draft" | "/api/v1/workflow-template-versions/note" | "/api/v1/workflow-template-versions/publish" | "/api/v1/workflow-template-runs/preview" | "/api/v1/workflow-template-runs/test" | "/api/v1/workflow-template-runs/test-step" | "/api/v1/automations" | "/api/v1/automations" | "/api/v1/automations/:id" | "/api/v1/automations/:id" | "/api/v1/automations/:id" | "/api/v1/automations/:id/actions/copy" | "/api/v1/automations/:id/actions/enable" | "/api/v1/automations/:id/actions/disable" | "/api/v1/automations/:id/preview" | "/api/v1/automations/:id/runs" | "/api/v1/automation-runs" | "/api/v1/automation-runs/:id" | "/api/v1/automation-runs/:id/targets" | "/api/v1/automation-runs/:id/actions/stop" | "/api/v1/automation-runs/:id/actions/retry-failed" | "/api/v1/dashboard/overview" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets" | "/api/v1/monitors/targets/delete" | "/api/v1/monitors/scan" | "/api/v1/monitors/probe" | "/api/v1/monitors/risks" | "/api/v1/monitors/risks/:id/acknowledge" | "/api/v1/monitors/risks/:id/suppress" | "/api/v1/monitors/risks/:id/ignore" | "/api/v1/monitors/risks/:id/resolve" | "/api/v1/monitors/risks/:id/reopen" | "/api/v1/monitors/risks/:id/history" | "/api/v1/monitors/probe-results" | "/api/v1/monitors/certificate-observations" | "/api/v1/monitors/dashboard" | "/api/v1/monitors/alert-rules" | "/api/v1/monitors/alert-rules" | "/api/v1/notification-channels" | "/api/v1/notification-channels" | "/api/v1/notification-routes" | "/api/v1/notification-templates" | "/api/v1/notification-silences" | "/api/v1/notification-requests" | "/api/v1/notification-deliveries" | "/api/v1/reports/incident-window/overview" | "/api/v1/reports/incident-window/trends" | "/api/v1/reports/incident-window/items" | "/api/v1/reports/risk-response/overview" | "/api/v1/reports/risk-response/trends" | "/api/v1/reports/risk-response/items" | "/api/v1/reports/automation-effectiveness/overview" | "/api/v1/reports/automation-effectiveness/trends" | "/api/v1/reports/automation-effectiveness/items" | "/api/v1/report-runs" | "/api/v1/report-runs" | "/api/v1/report-runs/:id" | "/api/v1/report-runs/:id/download" | "/api/v1/openapi.json"
 
-export type ApiOperationId = "getHealth" | "login" | "externalLogin" | "listPublicIdentitySources" | "logout" | "getCurrentUser" | "getCurrentPermissions" | "getPermissionContext" | "changeCurrentUserPassword" | "getCurrentUserPreferences" | "updateCurrentUserPreferences" | "listSecrets" | "createSecret" | "getSecretMetadata" | "createApproval" | "decideApproval" | "queryAuditEvents" | "listSecurityUsers" | "createSecurityUser" | "updateSecurityUser" | "listSecurityGroups" | "createSecurityGroup" | "lookupExternalSecurityGroup" | "createExternalSecurityGroup" | "lookupExternalSecurityUser" | "createExternalSecurityUser" | "updateSecurityUserStatus" | "assignSecurityUserRole" | "deleteSecurityUser" | "listSecurityRoles" | "createSecurityRole" | "deleteSecurityRole" | "listSecurityPermissionPolicies" | "createSecurityPermissionPolicy" | "listSecurityObjectTypes" | "listSecurityObjectSets" | "createSecurityObjectSet" | "addSecurityObjectSetMember" | "listSecurityRoleBindings" | "createSecurityRoleBinding" | "listSecurityAccessGrants" | "createSecurityAccessGrant" | "getSecurityObjectCapabilities" | "listIdentitySources" | "createIdentitySource" | "updateIdentitySource" | "deleteIdentitySource" | "testIdentitySource" | "syncIdentitySourceUsers" | "listGroupRoleMappings" | "createGroupRoleMapping" | "listDeploymentPlans" | "createDeploymentPlan" | "createDeploymentPlanFromApplicationAsset" | "updateDeploymentPlanFromApplicationAsset" | "submitDeploymentPlan" | "dryRunDeploymentPlan" | "executeDeploymentPlan" | "cancelDeploymentPlan" | "deleteDraftDeploymentPlan" | "reevaluateDeploymentPlanCapabilities" | "listExecutionRuns" | "listExecutionSteps" | "streamExecutionRunDetail" | "retryExecutionRun" | "rollbackExecutionRun" | "listHosts" | "createHost" | "updateHost" | "deleteHost" | "listServiceInstances" | "createServiceInstance" | "updateServiceInstance" | "deleteServiceInstance" | "listServiceAssets" | "createServiceAsset" | "updateServiceAsset" | "getServiceAssetDetail" | "updateServiceAssetDeploymentStrategyById" | "updateServiceAssetDeploymentStrategy" | "deleteServiceAsset" | "listApplicationAssetTargets" | "createApplicationAssetTarget" | "updateApplicationAssetTarget" | "deleteApplicationAssetTarget" | "listSiteAssets" | "createSiteAsset" | "updateSiteAsset" | "deleteSiteAsset" | "listServiceEndpoints" | "createServiceEndpoint" | "updateServiceEndpoint" | "deleteServiceEndpoint" | "listManagedTargets" | "createManagedTarget" | "updateManagedTarget" | "listManagedTargetSnapshots" | "deleteManagedTarget" | "listDiscoverySnapshots" | "upsertDiscoverySnapshot" | "ingestDiscovery" | "previewDiscoveryMerge" | "refreshAssetsFromAgent" | "listAssetConflicts" | "resolveAssetConflict" | "listCertificateBindings" | "createCertificateBinding" | "updateCertificateBinding" | "findCertificateBindingUsages" | "deleteCertificateBinding" | "detectCertificateBindingDrift" | "persistCertificateBindingDrift" | "patchCertificateBindingStatus" | "getCertificateFormatCapabilities" | "listCertificateAssets" | "createCertificateAsset" | "getCertificateAssetDetail" | "getCertificateAssetDetailById" | "getCertificateAssetUsageById" | "archiveCertificateAsset" | "deleteCertificateAsset" | "listCertificateVersions" | "getCertificateVersionDetail" | "getCertificateVersionUsage" | "listCertificateVersionFormatsByVersionId" | "importCertificateVersion" | "archiveCertificateVersion" | "revokeCertificateVersion" | "deleteCertificateVersion" | "validateImportCertificateVersion" | "listCertificateVersionFormats" | "createCertificateVersionFormat" | "updateCertificateVersionFormat" | "planCertificateVersionFormatExport" | "exportCertificateVersionFormatArtifact" | "deleteCertificateVersionFormat" | "mockSyncCertificateSource" | "listCapabilityDefinitions" | "listCapabilityDeclarations" | "createCapabilityDeclaration" | "createManualCapabilityDeclaration" | "listCapabilityRequirements" | "createCapabilityRequirement" | "matchCapabilityRequirement" | "evaluateCapabilityCompatibility" | "listAgents" | "getAgentDetail" | "getAgentCapabilities" | "reportAgentCapabilities" | "listAgentCertificates" | "listAgentTaskQueue" | "enqueueAgentTask" | "getAgentTaskLogCursor" | "getAgentUpgradeSuggestion" | "enqueueAgentCapabilityRescanTask" | "createAgentEnrollmentToken" | "createWindowsPowerShellAgentInstallSession" | "createLinuxGoAgentInstallSession" | "createAgentGatewayEnableSession" | "getWindowsPowerShellAgentShortInstall" | "getLinuxGoAgentShortInstall" | "getWindowsAgentGatewayEnableScript" | "getLinuxAgentGatewayEnableScript" | "getWindowsPowerShellAgentBootstrap" | "getWindowsPowerShellAgentInstallManifest" | "disableAgent" | "registerAgent" | "createAgentMtlsSession" | "createAgentCertificateSigningRequest" | "signAgentCertificate" | "rotateAgentCertificate" | "revokeAgentCertificate" | "heartbeatAgent" | "pullAgentTasks" | "ackAgentTask" | "submitAgentTaskLog" | "listAgentTaskLogs" | "submitAgentTaskLogBatch" | "submitAgentTaskResult" | "publishAgentVersion" | "checkAgentUpgrade" | "submitAgentUpgradeResult" | "listGateways" | "getGatewayDetail" | "listGatewayTargetHistory" | "routeGateway" | "probeGatewayReachability" | "updateGatewayStatus" | "listProviders" | "runProviderDiscovery" | "listProviderDiscoveryResults" | "getProviderDiscoveryResult" | "listPluginPackages" | "uploadPluginPackage" | "approvePluginPermissions" | "enablePlugin" | "disablePlugin" | "executePluginMockRuntime" | "listPluginExecutions" | "createPluginStepDraft" | "createPluginPermissionSummary" | "publishPluginCapabilities" | "listWorkflowTemplates" | "createWorkflowTemplate" | "compileWorkflowCanvas" | "validateWorkflowCanvas" | "deleteWorkflowTemplate" | "listWorkflowFileTemplates" | "createWorkflowTemplateFromFile" | "applyWorkflowTemplateFromFile" | "listWorkflowTemplateVersions" | "createWorkflowTemplateVersion" | "updateCurrentWorkflowTemplateDraftVersion" | "updateWorkflowTemplateVersionNote" | "publishWorkflowTemplateVersion" | "previewWorkflowTemplateRun" | "testWorkflowTemplateRun" | "testWorkflowTemplateStep" | "getDashboardOverview" | "listMonitorTargets" | "createMonitorTarget" | "updateMonitorTarget" | "deleteMonitorTarget" | "scanMonitorRisks" | "probeMonitorServiceAsset" | "listMonitorRisks" | "listMonitorProbeResults" | "listMonitorCertificateObservations" | "getMonitorDashboard" | "createMonitorAlertRule" | "listMonitorAlertRules" | "getOpenApiDocument"
+export type ApiOperationId = "getHealth" | "login" | "externalLogin" | "listPublicIdentitySources" | "logout" | "getCurrentUser" | "getCurrentPermissions" | "getPermissionContext" | "changeCurrentUserPassword" | "getCurrentUserPreferences" | "updateCurrentUserPreferences" | "listSecrets" | "createSecret" | "getSecretMetadata" | "createApproval" | "decideApproval" | "queryAuditEvents" | "listSecurityUsers" | "createSecurityUser" | "updateSecurityUser" | "listSecurityGroups" | "createSecurityGroup" | "lookupExternalSecurityGroup" | "createExternalSecurityGroup" | "lookupExternalSecurityUser" | "createExternalSecurityUser" | "updateSecurityUserStatus" | "assignSecurityUserRole" | "deleteSecurityUser" | "listSecurityRoles" | "createSecurityRole" | "deleteSecurityRole" | "listSecurityPermissionPolicies" | "createSecurityPermissionPolicy" | "listSecurityObjectTypes" | "listSecurityObjectSets" | "createSecurityObjectSet" | "addSecurityObjectSetMember" | "listSecurityRoleBindings" | "createSecurityRoleBinding" | "listSecurityAccessGrants" | "createSecurityAccessGrant" | "getSecurityObjectCapabilities" | "listIdentitySources" | "createIdentitySource" | "updateIdentitySource" | "deleteIdentitySource" | "testIdentitySource" | "syncIdentitySourceUsers" | "listGroupRoleMappings" | "createGroupRoleMapping" | "listDeploymentPlans" | "createDeploymentPlan" | "createDeploymentPlanFromApplicationAsset" | "updateDeploymentPlanFromApplicationAsset" | "submitDeploymentPlan" | "dryRunDeploymentPlan" | "executeDeploymentPlan" | "cancelDeploymentPlan" | "deleteDraftDeploymentPlan" | "reevaluateDeploymentPlanCapabilities" | "listExecutionRuns" | "listExecutionSteps" | "streamExecutionRunDetail" | "retryExecutionRun" | "rollbackExecutionRun" | "listHosts" | "createHost" | "updateHost" | "deleteHost" | "listServiceInstances" | "createServiceInstance" | "updateServiceInstance" | "deleteServiceInstance" | "listServiceAssets" | "createServiceAsset" | "updateServiceAsset" | "getServiceAssetDetail" | "updateServiceAssetDeploymentStrategyById" | "updateServiceAssetDeploymentStrategy" | "projectWorkflowBinding" | "deleteServiceAsset" | "listApplicationAssetTargets" | "createApplicationAssetTarget" | "updateApplicationAssetTarget" | "deleteApplicationAssetTarget" | "listSiteAssets" | "createSiteAsset" | "updateSiteAsset" | "deleteSiteAsset" | "listServiceEndpoints" | "createServiceEndpoint" | "updateServiceEndpoint" | "deleteServiceEndpoint" | "listManagedTargets" | "createManagedTarget" | "updateManagedTarget" | "listManagedTargetSnapshots" | "deleteManagedTarget" | "listDiscoverySnapshots" | "upsertDiscoverySnapshot" | "ingestDiscovery" | "previewDiscoveryMerge" | "refreshAssetsFromAgent" | "listAssetConflicts" | "resolveAssetConflict" | "listDeviceAssets" | "createDeviceAsset" | "updateDeviceAsset" | "getDeviceAsset" | "deleteDeviceAsset" | "testDeviceAssetConnection" | "refreshDeviceAssetDiscovery" | "listManagedDevices" | "onboardManagedDevice" | "listDeviceOnboardingPlatforms" | "getManagedDevice" | "listCertificateBindings" | "createCertificateBinding" | "updateCertificateBinding" | "findCertificateBindingUsages" | "deleteCertificateBinding" | "detectCertificateBindingDrift" | "persistCertificateBindingDrift" | "patchCertificateBindingStatus" | "getCertificateFormatCapabilities" | "listCertificateAssets" | "createCertificateAsset" | "getCertificateAssetDetail" | "getCertificateAssetDetailById" | "getCertificateAssetUsageById" | "archiveCertificateAsset" | "deleteCertificateAsset" | "listCertificateVersions" | "getCertificateVersionDetail" | "getCertificateVersionUsage" | "listCertificateVersionFormatsByVersionId" | "importCertificateVersion" | "archiveCertificateVersion" | "revokeCertificateVersion" | "deleteCertificateVersion" | "validateImportCertificateVersion" | "listCertificateVersionFormats" | "createCertificateVersionFormat" | "updateCertificateVersionFormat" | "planCertificateVersionFormatExport" | "exportCertificateVersionFormatArtifact" | "deleteCertificateVersionFormat" | "mockSyncCertificateSource" | "listCaProviders" | "createCaProvider" | "deleteCaProvider" | "testCaProvider" | "listCertificateAuthorities" | "createCertificateAuthority" | "previewCertificateAuthority" | "listCertificateProfiles" | "createCertificateProfile" | "createCertificateProfileVersion" | "listCertificateRequests" | "createCertificateRequest" | "approveCertificateRequest" | "retryCertificateRequest" | "queryCertificateRequestIssuance" | "activateCertificateRequest" | "listCertificateRenewals" | "scanCertificateRenewals" | "listCertificateRevocations" | "createCertificateRevocation" | "approveCertificateRevocation" | "listCaTrustDistributions" | "createCaTrustDistribution" | "approveCaTrustDistribution" | "completeCaTrustDistribution" | "getCertificateReuseRiskOverview" | "listCertificateReuseRisks" | "exportCertificateReuseRisks" | "previewCertificateReuseRemediation" | "listCaNodes" | "createCaNodeEnrollmentToken" | "registerCaNode" | "heartbeatCaNode" | "leaseCaNodeTask" | "completeCaNodeTask" | "createAdcsAgentInstallSession" | "getAdcsAgentInstallScript" | "getAdcsAgentBinary" | "listCapabilityDefinitions" | "listCapabilityDeclarations" | "createCapabilityDeclaration" | "createManualCapabilityDeclaration" | "listCapabilityRequirements" | "createCapabilityRequirement" | "matchCapabilityRequirement" | "evaluateCapabilityCompatibility" | "listAgents" | "getAgentDetail" | "getAgentCapabilities" | "reportAgentCapabilities" | "listAgentCertificates" | "listAgentTaskQueue" | "enqueueAgentTask" | "getAgentTaskLogCursor" | "getAgentUpgradeSuggestion" | "enqueueAgentCapabilityRescanTask" | "createAgentEnrollmentToken" | "createWindowsPowerShellAgentInstallSession" | "createLinuxGoAgentInstallSession" | "createAgentGatewayEnableSession" | "getWindowsPowerShellAgentShortInstall" | "getLinuxGoAgentShortInstall" | "getWindowsAgentGatewayEnableScript" | "getLinuxAgentGatewayEnableScript" | "getWindowsPowerShellAgentBootstrap" | "getWindowsPowerShellAgentInstallManifest" | "disableAgent" | "registerAgent" | "createAgentMtlsSession" | "createAgentCertificateSigningRequest" | "signAgentCertificate" | "rotateAgentCertificate" | "revokeAgentCertificate" | "heartbeatAgent" | "pullAgentTasks" | "ackAgentTask" | "submitAgentTaskLog" | "listAgentTaskLogs" | "submitAgentTaskLogBatch" | "submitAgentTaskResult" | "publishAgentVersion" | "checkAgentUpgrade" | "submitAgentUpgradeResult" | "listGateways" | "getGatewayDetail" | "listGatewayTargetHistory" | "routeGateway" | "probeGatewayReachability" | "updateGatewayStatus" | "listProviders" | "runProviderDiscovery" | "listProviderDiscoveryResults" | "getProviderDiscoveryResult" | "listCompatibilityCatalog" | "listPluginPackages" | "uploadPluginPackage" | "approvePluginPermissions" | "enablePlugin" | "disablePlugin" | "executePluginMockRuntime" | "listPluginExecutions" | "createPluginStepDraft" | "createPluginPermissionSummary" | "publishPluginCapabilities" | "listPluginCatalog" | "enableWorkflowTemplatePlugin" | "disableWorkflowTemplatePlugin" | "listAgentPluginPackages" | "uploadAgentPluginPackage" | "approveAgentPluginPermissions" | "enableAgentPluginPackage" | "disableAgentPluginPackage" | "listAgentPluginMounts" | "createAgentPluginMount" | "deleteAgentPluginMount" | "validateAgentPluginMount" | "disableAgentPluginMount" | "previewAgentPluginBinding" | "compileAgentPluginPlan" | "listWorkflowTemplates" | "createWorkflowTemplate" | "renameWorkflowTemplate" | "compileWorkflowCanvas" | "validateWorkflowCanvas" | "deleteWorkflowTemplate" | "listWorkflowFileTemplates" | "createWorkflowTemplateFromFile" | "applyWorkflowTemplateFromFile" | "listWorkflowTemplateVersions" | "createWorkflowTemplateVersion" | "updateCurrentWorkflowTemplateDraftVersion" | "updateWorkflowTemplateVersionNote" | "publishWorkflowTemplateVersion" | "previewWorkflowTemplateRun" | "testWorkflowTemplateRun" | "testWorkflowTemplateStep" | "listAutomations" | "createAutomation" | "getAutomation" | "updateAutomation" | "deleteAutomation" | "copyAutomation" | "enableAutomation" | "disableAutomation" | "previewAutomation" | "createAutomationRun" | "listAutomationRuns" | "getAutomationRun" | "listAutomationRunTargets" | "stopAutomationRun" | "retryAutomationRun" | "getDashboardOverview" | "listMonitorTargets" | "createMonitorTarget" | "updateMonitorTarget" | "deleteMonitorTarget" | "scanMonitorRisks" | "probeMonitorServiceAsset" | "listMonitorRisks" | "acknowledgeMonitorRisk" | "suppressMonitorRisk" | "ignoreMonitorRisk" | "resolveMonitorRisk" | "reopenMonitorRisk" | "listMonitorRiskStatusHistory" | "listMonitorProbeResults" | "listMonitorCertificateObservations" | "getMonitorDashboard" | "createMonitorAlertRule" | "listMonitorAlertRules" | "listNotificationChannels" | "createNotificationChannel" | "listNotificationRoutes" | "listNotificationTemplates" | "listNotificationSilences" | "listNotificationRequests" | "listNotificationDeliveries" | "getIncidentWindowOverview" | "getIncidentWindowTrends" | "getIncidentWindowItems" | "getRiskResponseOverview" | "getRiskResponseTrends" | "getRiskResponseItems" | "getAutomationEffectivenessOverview" | "getAutomationEffectivenessTrends" | "getAutomationEffectivenessItems" | "createReportRun" | "listReportRuns" | "getReportRun" | "downloadReportRun" | "getOpenApiDocument"
 
 export const apiOperations = [
   {
@@ -408,6 +408,11 @@ export const apiOperations = [
     "operationId": "updateServiceAssetDeploymentStrategy"
   },
   {
+    "path": "/api/v1/service-assets/workflow-binding-projection",
+    "method": "POST",
+    "operationId": "projectWorkflowBinding"
+  },
+  {
     "path": "/api/v1/service-assets/delete",
     "method": "POST",
     "operationId": "deleteServiceAsset"
@@ -531,6 +536,61 @@ export const apiOperations = [
     "path": "/api/v1/asset-conflicts/resolve",
     "method": "POST",
     "operationId": "resolveAssetConflict"
+  },
+  {
+    "path": "/api/v1/device-assets",
+    "method": "GET",
+    "operationId": "listDeviceAssets"
+  },
+  {
+    "path": "/api/v1/device-assets",
+    "method": "POST",
+    "operationId": "createDeviceAsset"
+  },
+  {
+    "path": "/api/v1/device-assets",
+    "method": "PATCH",
+    "operationId": "updateDeviceAsset"
+  },
+  {
+    "path": "/api/v1/device-assets/detail",
+    "method": "GET",
+    "operationId": "getDeviceAsset"
+  },
+  {
+    "path": "/api/v1/device-assets/delete",
+    "method": "POST",
+    "operationId": "deleteDeviceAsset"
+  },
+  {
+    "path": "/api/v1/device-assets/test-connection",
+    "method": "POST",
+    "operationId": "testDeviceAssetConnection"
+  },
+  {
+    "path": "/api/v1/device-assets/discover",
+    "method": "POST",
+    "operationId": "refreshDeviceAssetDiscovery"
+  },
+  {
+    "path": "/api/v1/devices",
+    "method": "GET",
+    "operationId": "listManagedDevices"
+  },
+  {
+    "path": "/api/v1/devices/onboarding",
+    "method": "POST",
+    "operationId": "onboardManagedDevice"
+  },
+  {
+    "path": "/api/v1/devices/onboarding-platforms",
+    "method": "GET",
+    "operationId": "listDeviceOnboardingPlatforms"
+  },
+  {
+    "path": "/api/v1/devices/:deviceId",
+    "method": "GET",
+    "operationId": "getManagedDevice"
   },
   {
     "path": "/api/v1/certificate-bindings",
@@ -691,6 +751,196 @@ export const apiOperations = [
     "path": "/api/v1/certificate-sources/mock-sync",
     "method": "POST",
     "operationId": "mockSyncCertificateSource"
+  },
+  {
+    "path": "/api/v1/ca-providers",
+    "method": "GET",
+    "operationId": "listCaProviders"
+  },
+  {
+    "path": "/api/v1/ca-providers",
+    "method": "POST",
+    "operationId": "createCaProvider"
+  },
+  {
+    "path": "/api/v1/ca-providers/:id",
+    "method": "DELETE",
+    "operationId": "deleteCaProvider"
+  },
+  {
+    "path": "/api/v1/ca-providers/:id/test",
+    "method": "POST",
+    "operationId": "testCaProvider"
+  },
+  {
+    "path": "/api/v1/certificate-authorities",
+    "method": "GET",
+    "operationId": "listCertificateAuthorities"
+  },
+  {
+    "path": "/api/v1/certificate-authorities",
+    "method": "POST",
+    "operationId": "createCertificateAuthority"
+  },
+  {
+    "path": "/api/v1/certificate-authorities/preview",
+    "method": "POST",
+    "operationId": "previewCertificateAuthority"
+  },
+  {
+    "path": "/api/v1/certificate-profiles",
+    "method": "GET",
+    "operationId": "listCertificateProfiles"
+  },
+  {
+    "path": "/api/v1/certificate-profiles",
+    "method": "POST",
+    "operationId": "createCertificateProfile"
+  },
+  {
+    "path": "/api/v1/certificate-profiles/:id/versions",
+    "method": "POST",
+    "operationId": "createCertificateProfileVersion"
+  },
+  {
+    "path": "/api/v1/certificate-requests",
+    "method": "GET",
+    "operationId": "listCertificateRequests"
+  },
+  {
+    "path": "/api/v1/certificate-requests",
+    "method": "POST",
+    "operationId": "createCertificateRequest"
+  },
+  {
+    "path": "/api/v1/certificate-requests/:id/approve",
+    "method": "POST",
+    "operationId": "approveCertificateRequest"
+  },
+  {
+    "path": "/api/v1/certificate-requests/:id/retry",
+    "method": "POST",
+    "operationId": "retryCertificateRequest"
+  },
+  {
+    "path": "/api/v1/certificate-requests/:id/query",
+    "method": "POST",
+    "operationId": "queryCertificateRequestIssuance"
+  },
+  {
+    "path": "/api/v1/certificate-requests/:id/activate",
+    "method": "POST",
+    "operationId": "activateCertificateRequest"
+  },
+  {
+    "path": "/api/v1/certificate-renewals",
+    "method": "GET",
+    "operationId": "listCertificateRenewals"
+  },
+  {
+    "path": "/api/v1/certificate-renewals/scan",
+    "method": "POST",
+    "operationId": "scanCertificateRenewals"
+  },
+  {
+    "path": "/api/v1/certificate-revocations",
+    "method": "GET",
+    "operationId": "listCertificateRevocations"
+  },
+  {
+    "path": "/api/v1/certificate-revocations",
+    "method": "POST",
+    "operationId": "createCertificateRevocation"
+  },
+  {
+    "path": "/api/v1/certificate-revocations/:id/approve",
+    "method": "POST",
+    "operationId": "approveCertificateRevocation"
+  },
+  {
+    "path": "/api/v1/ca-trust-distributions",
+    "method": "GET",
+    "operationId": "listCaTrustDistributions"
+  },
+  {
+    "path": "/api/v1/ca-trust-distributions",
+    "method": "POST",
+    "operationId": "createCaTrustDistribution"
+  },
+  {
+    "path": "/api/v1/ca-trust-distributions/:id/approve",
+    "method": "POST",
+    "operationId": "approveCaTrustDistribution"
+  },
+  {
+    "path": "/api/v1/ca-trust-distributions/:id/complete",
+    "method": "POST",
+    "operationId": "completeCaTrustDistribution"
+  },
+  {
+    "path": "/api/v1/reports/certificate-reuse/overview",
+    "method": "GET",
+    "operationId": "getCertificateReuseRiskOverview"
+  },
+  {
+    "path": "/api/v1/reports/certificate-reuse/items",
+    "method": "GET",
+    "operationId": "listCertificateReuseRisks"
+  },
+  {
+    "path": "/api/v1/reports/certificate-reuse/export",
+    "method": "GET",
+    "operationId": "exportCertificateReuseRisks"
+  },
+  {
+    "path": "/api/v1/reports/certificate-reuse/:id/remediation-preview",
+    "method": "POST",
+    "operationId": "previewCertificateReuseRemediation"
+  },
+  {
+    "path": "/api/v1/ca-nodes",
+    "method": "GET",
+    "operationId": "listCaNodes"
+  },
+  {
+    "path": "/api/v1/ca-nodes/enrollment-tokens",
+    "method": "POST",
+    "operationId": "createCaNodeEnrollmentToken"
+  },
+  {
+    "path": "/api/v1/ca-nodes/register",
+    "method": "POST",
+    "operationId": "registerCaNode"
+  },
+  {
+    "path": "/api/v1/ca-nodes/heartbeat",
+    "method": "POST",
+    "operationId": "heartbeatCaNode"
+  },
+  {
+    "path": "/api/v1/ca-nodes/tasks/lease",
+    "method": "POST",
+    "operationId": "leaseCaNodeTask"
+  },
+  {
+    "path": "/api/v1/ca-nodes/tasks/:id/result",
+    "method": "POST",
+    "operationId": "completeCaNodeTask"
+  },
+  {
+    "path": "/api/v1/adcs-agents/install-sessions",
+    "method": "POST",
+    "operationId": "createAdcsAgentInstallSession"
+  },
+  {
+    "path": "/api/v1/adcs-agents/install.ps1",
+    "method": "GET",
+    "operationId": "getAdcsAgentInstallScript"
+  },
+  {
+    "path": "/api/v1/adcs-agents/binary",
+    "method": "GET",
+    "operationId": "getAdcsAgentBinary"
   },
   {
     "path": "/api/v1/capabilities/definitions",
@@ -968,6 +1218,11 @@ export const apiOperations = [
     "operationId": "getProviderDiscoveryResult"
   },
   {
+    "path": "/api/v1/compatibility/catalog",
+    "method": "GET",
+    "operationId": "listCompatibilityCatalog"
+  },
+  {
     "path": "/api/v1/plugins/packages",
     "method": "GET",
     "operationId": "listPluginPackages"
@@ -1018,6 +1273,81 @@ export const apiOperations = [
     "operationId": "publishPluginCapabilities"
   },
   {
+    "path": "/api/v1/plugin-catalog",
+    "method": "GET",
+    "operationId": "listPluginCatalog"
+  },
+  {
+    "path": "/api/v1/plugin-catalog/workflow-templates/enable",
+    "method": "POST",
+    "operationId": "enableWorkflowTemplatePlugin"
+  },
+  {
+    "path": "/api/v1/plugin-catalog/workflow-templates/disable",
+    "method": "POST",
+    "operationId": "disableWorkflowTemplatePlugin"
+  },
+  {
+    "path": "/api/v1/plugins/agent-packages",
+    "method": "GET",
+    "operationId": "listAgentPluginPackages"
+  },
+  {
+    "path": "/api/v1/plugins/agent-packages",
+    "method": "POST",
+    "operationId": "uploadAgentPluginPackage"
+  },
+  {
+    "path": "/api/v1/plugins/agent-packages/permissions/approve",
+    "method": "POST",
+    "operationId": "approveAgentPluginPermissions"
+  },
+  {
+    "path": "/api/v1/plugins/agent-packages/enable",
+    "method": "POST",
+    "operationId": "enableAgentPluginPackage"
+  },
+  {
+    "path": "/api/v1/plugins/agent-packages/disable",
+    "method": "POST",
+    "operationId": "disableAgentPluginPackage"
+  },
+  {
+    "path": "/api/v1/plugins/agent-mounts",
+    "method": "GET",
+    "operationId": "listAgentPluginMounts"
+  },
+  {
+    "path": "/api/v1/plugins/agent-mounts",
+    "method": "POST",
+    "operationId": "createAgentPluginMount"
+  },
+  {
+    "path": "/api/v1/plugins/agent-mounts",
+    "method": "DELETE",
+    "operationId": "deleteAgentPluginMount"
+  },
+  {
+    "path": "/api/v1/plugins/agent-mounts/validate",
+    "method": "POST",
+    "operationId": "validateAgentPluginMount"
+  },
+  {
+    "path": "/api/v1/plugins/agent-mounts/disable",
+    "method": "POST",
+    "operationId": "disableAgentPluginMount"
+  },
+  {
+    "path": "/api/v1/plugins/agent-binding/preview",
+    "method": "POST",
+    "operationId": "previewAgentPluginBinding"
+  },
+  {
+    "path": "/api/v1/plugins/agent-plan/compile",
+    "method": "POST",
+    "operationId": "compileAgentPluginPlan"
+  },
+  {
     "path": "/api/v1/workflow-templates",
     "method": "GET",
     "operationId": "listWorkflowTemplates"
@@ -1026,6 +1356,11 @@ export const apiOperations = [
     "path": "/api/v1/workflow-templates",
     "method": "POST",
     "operationId": "createWorkflowTemplate"
+  },
+  {
+    "path": "/api/v1/workflow-templates/rename",
+    "method": "POST",
+    "operationId": "renameWorkflowTemplate"
   },
   {
     "path": "/api/v1/workflow-templates/canvas/compile",
@@ -1098,6 +1433,81 @@ export const apiOperations = [
     "operationId": "testWorkflowTemplateStep"
   },
   {
+    "path": "/api/v1/automations",
+    "method": "GET",
+    "operationId": "listAutomations"
+  },
+  {
+    "path": "/api/v1/automations",
+    "method": "POST",
+    "operationId": "createAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id",
+    "method": "GET",
+    "operationId": "getAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id",
+    "method": "PATCH",
+    "operationId": "updateAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id",
+    "method": "DELETE",
+    "operationId": "deleteAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id/actions/copy",
+    "method": "POST",
+    "operationId": "copyAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id/actions/enable",
+    "method": "POST",
+    "operationId": "enableAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id/actions/disable",
+    "method": "POST",
+    "operationId": "disableAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id/preview",
+    "method": "POST",
+    "operationId": "previewAutomation"
+  },
+  {
+    "path": "/api/v1/automations/:id/runs",
+    "method": "POST",
+    "operationId": "createAutomationRun"
+  },
+  {
+    "path": "/api/v1/automation-runs",
+    "method": "GET",
+    "operationId": "listAutomationRuns"
+  },
+  {
+    "path": "/api/v1/automation-runs/:id",
+    "method": "GET",
+    "operationId": "getAutomationRun"
+  },
+  {
+    "path": "/api/v1/automation-runs/:id/targets",
+    "method": "GET",
+    "operationId": "listAutomationRunTargets"
+  },
+  {
+    "path": "/api/v1/automation-runs/:id/actions/stop",
+    "method": "POST",
+    "operationId": "stopAutomationRun"
+  },
+  {
+    "path": "/api/v1/automation-runs/:id/actions/retry-failed",
+    "method": "POST",
+    "operationId": "retryAutomationRun"
+  },
+  {
     "path": "/api/v1/dashboard/overview",
     "method": "GET",
     "operationId": "getDashboardOverview"
@@ -1138,6 +1548,36 @@ export const apiOperations = [
     "operationId": "listMonitorRisks"
   },
   {
+    "path": "/api/v1/monitors/risks/:id/acknowledge",
+    "method": "POST",
+    "operationId": "acknowledgeMonitorRisk"
+  },
+  {
+    "path": "/api/v1/monitors/risks/:id/suppress",
+    "method": "POST",
+    "operationId": "suppressMonitorRisk"
+  },
+  {
+    "path": "/api/v1/monitors/risks/:id/ignore",
+    "method": "POST",
+    "operationId": "ignoreMonitorRisk"
+  },
+  {
+    "path": "/api/v1/monitors/risks/:id/resolve",
+    "method": "POST",
+    "operationId": "resolveMonitorRisk"
+  },
+  {
+    "path": "/api/v1/monitors/risks/:id/reopen",
+    "method": "POST",
+    "operationId": "reopenMonitorRisk"
+  },
+  {
+    "path": "/api/v1/monitors/risks/:id/history",
+    "method": "GET",
+    "operationId": "listMonitorRiskStatusHistory"
+  },
+  {
     "path": "/api/v1/monitors/probe-results",
     "method": "GET",
     "operationId": "listMonitorProbeResults"
@@ -1161,6 +1601,106 @@ export const apiOperations = [
     "path": "/api/v1/monitors/alert-rules",
     "method": "GET",
     "operationId": "listMonitorAlertRules"
+  },
+  {
+    "path": "/api/v1/notification-channels",
+    "method": "GET",
+    "operationId": "listNotificationChannels"
+  },
+  {
+    "path": "/api/v1/notification-channels",
+    "method": "POST",
+    "operationId": "createNotificationChannel"
+  },
+  {
+    "path": "/api/v1/notification-routes",
+    "method": "GET",
+    "operationId": "listNotificationRoutes"
+  },
+  {
+    "path": "/api/v1/notification-templates",
+    "method": "GET",
+    "operationId": "listNotificationTemplates"
+  },
+  {
+    "path": "/api/v1/notification-silences",
+    "method": "GET",
+    "operationId": "listNotificationSilences"
+  },
+  {
+    "path": "/api/v1/notification-requests",
+    "method": "GET",
+    "operationId": "listNotificationRequests"
+  },
+  {
+    "path": "/api/v1/notification-deliveries",
+    "method": "GET",
+    "operationId": "listNotificationDeliveries"
+  },
+  {
+    "path": "/api/v1/reports/incident-window/overview",
+    "method": "GET",
+    "operationId": "getIncidentWindowOverview"
+  },
+  {
+    "path": "/api/v1/reports/incident-window/trends",
+    "method": "GET",
+    "operationId": "getIncidentWindowTrends"
+  },
+  {
+    "path": "/api/v1/reports/incident-window/items",
+    "method": "GET",
+    "operationId": "getIncidentWindowItems"
+  },
+  {
+    "path": "/api/v1/reports/risk-response/overview",
+    "method": "GET",
+    "operationId": "getRiskResponseOverview"
+  },
+  {
+    "path": "/api/v1/reports/risk-response/trends",
+    "method": "GET",
+    "operationId": "getRiskResponseTrends"
+  },
+  {
+    "path": "/api/v1/reports/risk-response/items",
+    "method": "GET",
+    "operationId": "getRiskResponseItems"
+  },
+  {
+    "path": "/api/v1/reports/automation-effectiveness/overview",
+    "method": "GET",
+    "operationId": "getAutomationEffectivenessOverview"
+  },
+  {
+    "path": "/api/v1/reports/automation-effectiveness/trends",
+    "method": "GET",
+    "operationId": "getAutomationEffectivenessTrends"
+  },
+  {
+    "path": "/api/v1/reports/automation-effectiveness/items",
+    "method": "GET",
+    "operationId": "getAutomationEffectivenessItems"
+  },
+  {
+    "path": "/api/v1/report-runs",
+    "method": "POST",
+    "operationId": "createReportRun"
+  },
+  {
+    "path": "/api/v1/report-runs",
+    "method": "GET",
+    "operationId": "listReportRuns"
+  },
+  {
+    "path": "/api/v1/report-runs/:id",
+    "method": "GET",
+    "operationId": "getReportRun"
+  },
+  {
+    "path": "/api/v1/report-runs/:id/download",
+    "method": "GET",
+    "operationId": "downloadReportRun"
   },
   {
     "path": "/api/v1/openapi.json",
