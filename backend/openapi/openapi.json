@@ -2612,6 +2612,37 @@
         }
       }
     },
+    "/api/v1/application-assets/:applicationAssetId/standalone-workflow": {
+      "put": {
+        "operationId": "saveStandaloneWorkflowExecution",
+        "summary": "保存非受管工作流执行配置",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/service-assets/delete": {
       "post": {
         "operationId": "deleteServiceAsset",
@@ -3947,7 +3978,7 @@
     "/api/v1/devices/:deviceId/actions": {
       "post": {
         "operationId": "executeManagedDeviceCapability",
-        "summary": "执行设备插件能力",
+        "summary": "执行统一设备能力",
         "tags": [
           "Devices"
         ],
@@ -5159,6 +5190,11 @@
                   "certificatePem": {
                     "type": "string"
                   },
+                  "certificateDerBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
                   "privateKeyPem": {
                     "type": "string",
                     "writeOnly": true,
@@ -5173,6 +5209,32 @@
                     "type": "string",
                     "writeOnly": true,
                     "x-sensitive": true
+                  },
+                  "jksBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksKeyPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksAlias": {
+                    "type": "string"
+                  },
+                  "p7bBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "allowCertificateOnly": {
+                    "type": "boolean"
                   },
                   "declaredFormat": {
                     "type": "string",
@@ -5349,6 +5411,11 @@
                   "certificatePem": {
                     "type": "string"
                   },
+                  "certificateDerBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
                   "privateKeyPem": {
                     "type": "string",
                     "writeOnly": true,
@@ -5363,6 +5430,32 @@
                     "type": "string",
                     "writeOnly": true,
                     "x-sensitive": true
+                  },
+                  "jksBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksKeyPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksAlias": {
+                    "type": "string"
+                  },
+                  "p7bBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "allowCertificateOnly": {
+                    "type": "boolean"
                   },
                   "declaredFormat": {
                     "type": "string",
@@ -10071,10 +10164,105 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
-      },
+      }
+    },
+    "/api/v1/workflow-sources/plugins": {
+      "get": {
+        "operationId": "listPluginWorkflowSources",
+        "summary": "列出插件工作流来源",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-execution-bindings/:bindingId": {
+      "get": {
+        "operationId": "getWorkflowExecutionBinding",
+        "summary": "读取工作流执行绑定",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/from-plugin": {
       "post": {
-        "operationId": "createWorkflow",
-        "summary": "创建工作流草稿",
+        "operationId": "createWorkflowFromPlugin",
+        "summary": "从插件能力创建工作流",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/:workflowId/drafts/from-plugin": {
+      "post": {
+        "operationId": "createWorkflowDraftFromPlugin",
+        "summary": "从插件能力生成工作流草稿",
         "tags": [
           "WorkflowTemplates"
         ],
@@ -10106,35 +10294,6 @@
       "get": {
         "operationId": "listWorkflowTemplates",
         "summary": "列出工作流模板",
-        "tags": [
-          "WorkflowTemplates"
-        ],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "500": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      },
-      "post": {
-        "operationId": "createWorkflowTemplate",
-        "summary": "创建工作流模板草稿",
         "tags": [
           "WorkflowTemplates"
         ],
@@ -10259,99 +10418,6 @@
       "post": {
         "operationId": "deleteWorkflowTemplate",
         "summary": "删除工作流模板",
-        "tags": [
-          "WorkflowTemplates"
-        ],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "500": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/workflow-file-templates": {
-      "get": {
-        "operationId": "listWorkflowFileTemplates",
-        "summary": "扫描内置与用户导入工作流文件模板",
-        "tags": [
-          "WorkflowTemplates"
-        ],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "500": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/workflow-file-templates/create": {
-      "post": {
-        "operationId": "createWorkflowTemplateFromFile",
-        "summary": "基于工作流文件模板创建草稿",
-        "tags": [
-          "WorkflowTemplates"
-        ],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "404": {
-            "$ref": "#/components/responses/ErrorResponse"
-          },
-          "500": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/workflow-file-templates/apply": {
-      "post": {
-        "operationId": "applyWorkflowTemplateFromFile",
-        "summary": "用工作流文件模板覆盖现有草稿",
         "tags": [
           "WorkflowTemplates"
         ],
@@ -12614,5 +12680,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-28T03:55:54.602Z"
+  "x-generatedAt": "2026-07-29T09:20:56.155Z"
 }

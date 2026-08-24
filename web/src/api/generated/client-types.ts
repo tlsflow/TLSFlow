@@ -69,6 +69,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/application-asset-targets",
     "/api/v1/application-asset-targets/delete",
     "/api/v1/application-assets/:applicationAssetId/managed-target",
+    "/api/v1/application-assets/:applicationAssetId/standalone-workflow",
     "/api/v1/approvals",
     "/api/v1/approvals/decide",
     "/api/v1/asset-conflicts",
@@ -301,9 +302,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/service-endpoints/delete",
     "/api/v1/site-assets",
     "/api/v1/site-assets/delete",
-    "/api/v1/workflow-file-templates",
-    "/api/v1/workflow-file-templates/apply",
-    "/api/v1/workflow-file-templates/create",
+    "/api/v1/workflow-execution-bindings/:bindingId",
+    "/api/v1/workflow-sources/plugins",
     "/api/v1/workflow-template-runs/preview",
     "/api/v1/workflow-template-runs/test",
     "/api/v1/workflow-template-runs/test-step",
@@ -316,6 +316,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/workflow-templates/canvas/validate",
     "/api/v1/workflow-templates/delete",
     "/api/v1/workflow-templates/rename",
-    "/api/v1/workflows"
+    "/api/v1/workflows",
+    "/api/v1/workflows/:workflowId/drafts/from-plugin",
+    "/api/v1/workflows/from-plugin"
   ]
 } as const
