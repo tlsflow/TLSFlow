@@ -152,6 +152,22 @@ test('Registry resourceHash 与 Cloud Capability Runner 使用同一排序摘要
   assert.equal(entry.resourceHash, canonicalResourceHash(entry.resourceSha256));
 });
 
+test('全部内置横向 Logo 使用铺满 72×48 的内层画布', async () => {
+  const packages = await new BuiltinUnifiedPluginLoader().loadPackages();
+  const horizontalLogos = packages
+    .map((pluginPackage) => pluginPackage.manifest as { resources?: { logos?: { horizontal?: string } } })
+    .map((manifest, index) => ({ manifest, pluginPackage: packages[index] }))
+    .filter(({ manifest }) => manifest.resources?.logos?.horizontal);
+
+  assert.equal(horizontalLogos.length, 19);
+  for (const { manifest, pluginPackage } of horizontalLogos) {
+    const path = manifest.resources!.logos!.horizontal!;
+    const content = pluginPackage.resources[path];
+    assert.match(content, /<svg[^>]*viewBox="0 0 72 48"/);
+    assert.match(content, /<svg x="0" y="0" width="72" height="48"[^>]*preserveAspectRatio="xMidYMid meet"/);
+  }
+});
+
 test('同一插件版本摘要不同只跳过冲突插件', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);

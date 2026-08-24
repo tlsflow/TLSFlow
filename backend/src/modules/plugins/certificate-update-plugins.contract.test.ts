@@ -90,7 +90,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId === 'web.nginx.linux' ? '1.0.4' : pluginId === 'web.nginx.windows' ? '1.0.5' : pluginId.endsWith('.windows') ? '1.0.3' : '1.0.2');
+  assert.equal(manifest.version, pluginId === 'web.nginx.linux' ? '1.0.5' : pluginId === 'web.nginx.windows' ? '1.0.6' : pluginId === 'web.apache.linux' || pluginId === 'app.tomcat.linux' ? '1.0.3' : '1.0.4');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');

@@ -18,7 +18,7 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
 
   for (const [name, certificateSteps] of cases) {
     const workflow = readWorkflow(name);
-    assert.equal(workflow.metadata?.version, '2.0.8');
+    assert.equal(workflow.metadata?.version, '2.0.9');
     const steps = workflow.steps as Array<Record<string, any>>;
     assert.equal(steps[0]?.name, 'authenticate');
     assert.equal(steps[0]?.request?.form?.api, 'SYNO.API.Auth');
@@ -58,7 +58,7 @@ test('Synology 证书 Artifact 使用宿主标准输出键', () => {
 test('Synology 应用接入配方声明统一向导所需的部署默认值', async () => {
   const manifest = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/manifest.json', import.meta.url), 'utf8')) as Record<string, any>;
   const recipe = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/onboarding/application-asset.json', import.meta.url), 'utf8')) as Record<string, any>;
-  assert.equal(manifest.version, '2.0.8');
+  assert.equal(manifest.version, '2.0.9');
   assert.deepEqual(recipe.deploymentDefaults, {
     capabilityKey: 'certificate.deploy',
     variables: { allowInsecureTls: true },
