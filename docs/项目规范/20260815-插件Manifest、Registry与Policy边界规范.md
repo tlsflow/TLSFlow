@@ -10,7 +10,7 @@ P2 发布清单属于历史开发证据，不是当前运行时、数据库切�
 
 1. `BuiltinUnifiedPluginLoader` 扫描 `backend/src/modules/plugins/builtin-plugins` 的直接子目录，读取 Manifest 和声明资源，校验资源路径、资源存在性、固定 `runtime/index.js` 入口，并计算包内容。
 2. `builtin-plugin-policy.ts` 在内置边界校验 `source=BUILTIN`、Canonical Plugin ID、`PLUGIN_RUNNER`、`gcac.plugin-runner/v1`、Runner 入口和权限拒绝项。
-3. `BuiltinPluginRegistry` 只从 Loader 的已验证包派生 `pluginId`、Manifest 版本、Capability、Workflow 声明、Manifest/资源/包摘要和 Runner 路径。重复扫描同摘要幂等，同一 `pluginId@version` 出现不同包内容必须失败关闭并保留旧快照。
+3. `BuiltinPluginRegistry` 只从 Loader 的已验证包派生 `pluginId`、Manifest 版本、Capability、Workflow 声明、Manifest/资源/包摘要和 Runner 路径。重复扫描同摘要幂等；同一 `pluginId@version` 出现不同包内容时只跳过冲突插件并保留其他插件的快照。
 4. `unified_plugin_versions`、资源记录和 Workflow Binding 是 Registry/应用服务派生的运行期状态，不得反向覆盖 Manifest。
 5. Runner 执行时继续使用 Manifest 权限、绑定中的 Host Permission、Host API Registry 和 `ExecutionGrantService` 做逐次授权；旧 P2 Grant 表不再参与授权。
 
