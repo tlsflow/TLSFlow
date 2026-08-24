@@ -30,6 +30,7 @@ describe('AutomationEditor', () => {
     await wrapper.find('select:not([data-testid])').setValue('1')
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await wrapper.findAll('input')[0].setValue('生产证书更新')
+    expect(wrapper.get('[data-testid="automation-description-field"]').classes()).toContain('automation-editor__field--full')
     await wrapper.find('form').trigger('submit')
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as Record<string, any>
