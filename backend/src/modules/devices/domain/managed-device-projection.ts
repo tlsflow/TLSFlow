@@ -2,6 +2,7 @@ import type {
   ManagedDeviceHealth,
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
+import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 
 export interface ManagedDeviceProjectionSource {
   id: string;
@@ -18,6 +19,7 @@ export interface ManagedDeviceProjectionSource {
   agent?: {
     payload: Record<string, unknown>;
     capabilitySnapshot: Record<string, unknown>;
+    lastHeartbeatAt?: string;
   };
   networkAppliance?: {
     deviceFamily: string;
@@ -54,6 +56,10 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
     const payload = source.agent?.payload ?? {};
     const descriptor = asRecord(payload.descriptor);
     const sourceStatus = stringValue(payload.status) ?? source.hostStatus;
+    const lastContactAt = source.agent?.lastHeartbeatAt
+      ?? stringValue(asRecord(payload.gateway).lastHeartbeatAt)
+      ?? stringValue(payload.updatedAt)
+      ?? source.lastDiscoveredAt;
     const osType = (stringValue(descriptor.osType) ?? source.osType).toUpperCase();
     return {
       id: source.id,
@@ -62,10 +68,10 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       productFamily: SERVER_PRODUCT_FAMILY_BY_OS[osType] ?? source.osName ?? osType,
       managementMethod: source.managementMode,
       managementAddress: source.primaryIp ?? source.hostname,
-      health: mapAgentHealth(sourceStatus),
+      health: mapAgentHealth(sourceStatus, lastContactAt),
       sourceStatus,
       softwareVersion: projectAgentSystemVersion(osType, descriptor, source),
-      lastContactAt: stringValue(payload.updatedAt) ?? source.lastDiscoveredAt,
+      lastContactAt,
       applicationAssetCount: source.applicationAssetCount,
       capabilities: stringArray(descriptor.capabilities),
       extensionType: 'AGENT',
@@ -136,20 +142,50 @@ export function mapNetworkDeviceHealth(
   lastErrorCode?: string,
   supportTier?: string,
   lastDiscoveredAt?: string,
+  now: Date = new Date(),
 ): ManagedDeviceHealth {
-  if (hostStatus.trim().toUpperCase() === 'DISABLED') return 'DISABLED';
-  if (lastErrorCode) return 'UNREACHABLE';
-  if (supportTier?.trim().toUpperCase() === 'UNSUPPORTED') return 'DEGRADED';
-  if (lastDiscoveredAt) return 'HEALTHY';
-  return 'UNKNOWN';
+  return resolveManagedDeviceHealth({
+    sourceStatus: hostStatus,
+    lastContactAt: lastDiscoveredAt,
+    lastErrorCode,
+    degraded: supportTier?.trim().toUpperCase() === 'UNSUPPORTED',
+    staleAfterSeconds: readPositiveSeconds('DEVICE_HEALTH_STALE_SECONDS', 300),
+    staleHealth: 'UNKNOWN',
+    now,
+  });
 }
 
-export function mapAgentHealth(status: string): ManagedDeviceHealth {
-  const normalized = status.trim().toUpperCase();
-  if (normalized === 'ONLINE' || normalized === 'ACTIVE' || normalized === 'HEALTHY') return 'HEALTHY';
-  if (normalized === 'DISABLED' || normalized === 'REVOKED') return 'DISABLED';
-  if (normalized === 'OFFLINE' || normalized === 'UNREACHABLE') return 'UNREACHABLE';
-  if (normalized === 'UPGRADING' || normalized === 'DEGRADED') return 'DEGRADED';
+export function mapAgentHealth(status: string, lastHeartbeatAt?: string, now: Date = new Date()): ManagedDeviceHealth {
+  return resolveManagedDeviceHealth({
+    sourceStatus: status,
+    lastContactAt: lastHeartbeatAt,
+    staleAfterSeconds: readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 180),
+    staleHealth: 'UNREACHABLE',
+    now,
+  });
+}
+
+interface ManagedDeviceHealthObservation {
+  sourceStatus: string;
+  lastContactAt?: string;
+  lastErrorCode?: string;
+  degraded?: boolean;
+  staleAfterSeconds: number;
+  staleHealth: Extract<ManagedDeviceHealth, 'UNKNOWN' | 'UNREACHABLE'>;
+  now: Date;
+}
+
+export function resolveManagedDeviceHealth(observation: ManagedDeviceHealthObservation): ManagedDeviceHealth {
+  const normalized = observation.sourceStatus.trim().toUpperCase();
+  if (normalized === 'DISABLED' || normalized === 'REVOKED' || normalized === 'DELETED') return 'DISABLED';
+  if (observation.lastErrorCode || normalized === 'OFFLINE' || normalized === 'UNREACHABLE' || normalized === 'ERROR') {
+    return 'UNREACHABLE';
+  }
+  if (isObservationStale(observation.lastContactAt, observation.staleAfterSeconds, observation.now)) return observation.staleHealth;
+  if (observation.degraded || normalized === 'UPGRADING' || normalized === 'DEGRADED' || normalized === 'STALE') {
+    return 'DEGRADED';
+  }
+  if (observation.lastContactAt && ['ONLINE', 'ACTIVE', 'HEALTHY', 'DISCOVERED'].includes(normalized)) return 'HEALTHY';
   return 'UNKNOWN';
 }
 

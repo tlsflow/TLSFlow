@@ -5,6 +5,8 @@ import {
   AgentManagedDeviceProjectionAdapter,
   PluginManagedDeviceProjectionAdapter,
   ManagedDeviceProjectionRegistry,
+  mapAgentHealth,
+  mapNetworkDeviceHealth,
   type ManagedDeviceProjectionAdapter,
   type ManagedDeviceProjectionSource,
 } from './managed-device-projection.js';
@@ -19,11 +21,13 @@ const commonSource: ManagedDeviceProjectionSource = {
 };
 
 test('统一设备投影为 Windows Agent 输出系统版本而非 Agent 版本', () => {
+  const now = new Date();
   const result = new AgentManagedDeviceProjectionAdapter().project({
     ...commonSource,
     osType: 'WINDOWS',
     osVersion: 'Windows Server 2022 21H2',
     agent: {
+      lastHeartbeatAt: now.toISOString(),
       payload: {
         status: 'ONLINE',
         descriptor: {
@@ -110,6 +114,7 @@ test('统一设备投影从 Windows 能力快照兼容读取存量系统版本',
 });
 
 test('统一设备投影为 Citrix ADC 输出固件版本和 Build', () => {
+  const lastDiscoveredAt = new Date().toISOString();
   const result = new PluginManagedDeviceProjectionAdapter().project({
     ...commonSource,
     managementMode: 'API',
@@ -118,13 +123,35 @@ test('统一设备投影为 Citrix ADC 输出固件版本和 Build', () => {
       softwareVersion: '13.1',
       softwareBuild: '55.29.nc',
       capabilityProfile: { certificateDeploy: true },
-      lastDiscoveredAt: '2026-07-23T08:00:00.000Z',
+      lastDiscoveredAt,
     },
   });
 
   assert.equal(result.softwareVersion, '13.1 55.29.nc');
   assert.equal(result.health, 'HEALTHY');
   assert.deepEqual(result.capabilities, ['certificateDeploy']);
+});
+
+test('Agent 注册状态在线但心跳过期时统一投影为不可达', () => {
+  const result = mapAgentHealth(
+    'ONLINE',
+    '2026-07-25T07:55:00.000Z',
+    new Date('2026-07-25T08:00:00.000Z'),
+  );
+
+  assert.equal(result, 'UNREACHABLE');
+});
+
+test('插件设备只有过期历史发现记录时不再伪装为健康', () => {
+  const result = mapNetworkDeviceHealth(
+    'ACTIVE',
+    undefined,
+    'FULL',
+    '2026-07-25T07:50:00.000Z',
+    new Date('2026-07-25T08:00:00.000Z'),
+  );
+
+  assert.equal(result, 'UNKNOWN');
 });
 
 test('统一设备投影 Registry 支持注册新的设备类型适配器', () => {

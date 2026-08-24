@@ -340,6 +340,11 @@ const DEVICE_LIST_SQL = `
     from pg_documents
     where namespace = 'agents:snapshots'
     order by payload->>'agentId', payload->>'reportedAt' desc
+  ), agent_heartbeats as (
+    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload->>'receivedAt' as received_at
+    from pg_documents
+    where namespace = 'agents:heartbeats'
+    order by payload->>'agentId', payload->>'receivedAt' desc
   ), application_counts as (
     select host_id, count(distinct asset_id)::int as asset_count
     from (
@@ -370,6 +375,7 @@ const DEVICE_LIST_SQL = `
     host.agent_id,
     agent.payload as agent_payload,
     snapshot.payload as agent_capability_payload,
+    heartbeat.received_at as agent_last_heartbeat_at,
     device.service_asset_id as device_asset_id,
     device.device_family,
     device.management_port,
@@ -389,6 +395,7 @@ const DEVICE_LIST_SQL = `
   from pg_hosts host
   left join agent_extensions agent on agent.agent_id = host.agent_id
   left join agent_snapshots snapshot on snapshot.agent_id = host.agent_id
+  left join agent_heartbeats heartbeat on heartbeat.agent_id = host.agent_id
   left join pg_device_assets device on device.tenant_id = host.tenant_id and device.host_id = host.id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
@@ -412,6 +419,7 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   agent_id: string | null;
   agent_payload: Record<string, unknown> | null;
   agent_capability_payload: Record<string, unknown> | null;
+  agent_last_heartbeat_at: string | null;
   device_asset_id: string | null;
   device_family: string | null;
   management_port: number | null;
@@ -547,6 +555,7 @@ function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSourc
     source.agent = {
       payload: asRecord(row.agent_payload),
       capabilitySnapshot: asRecord(row.agent_capability_payload),
+      lastHeartbeatAt: row.agent_last_heartbeat_at ?? undefined,
     };
   }
   return source;

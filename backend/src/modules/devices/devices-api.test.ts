@@ -252,6 +252,7 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   const devices = new PgDeviceAssetsRepository(database);
   const tenantId = 'tenant_spec033_devices';
   const agentId = 'agent_spec033_devices';
+  const heartbeatAt = new Date().toISOString();
 
   const host = await assets.createHost(tenantId, {
     hostname: 'spec033-win',
@@ -276,6 +277,15 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
         version: '1.2.3',
         capabilities: ['certificate.deploy'],
       },
+    })],
+  );
+  await database.query(
+    `insert into pg_documents (namespace, document_id, payload, updated_at) values ($1, $2, $3::jsonb, now())`,
+    ['agents:heartbeats', `heartbeat:${agentId}`, JSON.stringify({
+      id: `heartbeat:${agentId}`,
+      tenantId,
+      agentId,
+      receivedAt: heartbeatAt,
     })],
   );
   await database.query(
@@ -324,7 +334,7 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === host.id)?.applicationAssetCount, 1);
   assert.equal(result.items.find((item) => item.id === host.id)?.health, 'HEALTHY');
   assert.equal(result.items.find((item) => item.id === host.id)?.softwareVersion, 'Windows Server 2022 21H2');
-  assert.equal(result.items.find((item) => item.id === host.id)?.lastContactAt, '2026-07-22T08:00:00.000Z');
+  assert.equal(result.items.find((item) => item.id === host.id)?.lastContactAt, heartbeatAt);
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.managementMethod, 'PLUGIN');
 });
 
@@ -378,8 +388,9 @@ test('Spec033 统一设备列表不展示服务资产已删除的 ADC 残留 Hos
 });
 
 test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边界', async () => {
-  assert.equal(mapAgentHealth('online'), 'HEALTHY');
-  assert.equal(mapAgentHealth('ONLINE'), 'HEALTHY');
+  const now = new Date('2026-07-25T08:00:00.000Z');
+  assert.equal(mapAgentHealth('online', now.toISOString(), now), 'HEALTHY');
+  assert.equal(mapAgentHealth('ONLINE', now.toISOString(), now), 'HEALTHY');
   assert.equal(mapAgentHealth('upgrading'), 'DEGRADED');
   assert.equal(mapAgentHealth('offline'), 'UNREACHABLE');
   assert.equal(mapAgentHealth('disabled'), 'DISABLED');
