@@ -7,7 +7,7 @@ import { newId } from '../../../shared/id.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
+import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
 import { assertLegacyExecutionRetired, DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
@@ -782,6 +782,7 @@ export class DeploymentPlansApplicationService {
           workflowExecutionBindingId: executionSource.binding.id,
           bindingVersion: executionSource.binding.version,
           workflowTemplateId: executionSource.binding.workflowTemplateId,
+          workflowVersionSelection: executionSource.binding.workflowVersionSelection,
           workflowVersionId: executionSource.workflowVersionId,
           runner: executionSource.binding.runner,
           gatewayId: executionSource.binding.gatewayId,
@@ -2543,11 +2544,105 @@ export class DeploymentPlansApplicationService {
       if (runNo !== 0) return runNo;
       return String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''));
     })[0];
+    const targets = (await this.repository.listTargetsByPlan(plan.id, plan.tenantId)).map((target) => this.toTargetDto(target));
+    const workflowExecutionIdentities = await this.resolveWorkflowExecutionIdentities(targets);
     return {
       ...plan,
-      targets: (await this.repository.listTargetsByPlan(plan.id, plan.tenantId)).map((target) => this.toTargetDto(target)),
+      targets,
+      ...(workflowExecutionIdentities.length > 0 ? { workflowExecutionIdentities } : {}),
       latestRunId: latestRun?.id,
       latestRun,
+    };
+  }
+
+  /**
+   * 从部署计划目标快照解析实际使用的工作流版本。
+   *
+   * 计划创建时，LATEST_PUBLISHED 会先解析成一个不可变的 workflowVersionId；
+   * 这里同时读取 executionSource 中保留的原始选择策略，避免把“解析时最新”
+   * 错误显示成用户手动固定版本。
+   */
+  private async resolveWorkflowExecutionIdentities(
+    targets: readonly DeploymentPlanTargetDto[],
+  ): Promise<DeploymentPlanWorkflowIdentityDto[]> {
+    const identities = new Map<string, DeploymentPlanWorkflowIdentityDto>();
+    for (const target of targets) {
+      const identity = await this.resolveWorkflowExecutionIdentity(target);
+      if (!identity) continue;
+      const key = [
+        identity.mode,
+        identity.workflowId ?? '',
+        identity.workflowVersionId,
+        identity.workflowVersionSelection,
+        identity.pluginVersionId ?? '',
+      ].join('|');
+      const existing = identities.get(key);
+      if (existing) {
+        existing.targetIds.push(target.id);
+        continue;
+      }
+      identities.set(key, { ...identity, targetIds: [target.id] });
+    }
+    return [...identities.values()];
+  }
+
+  private async resolveWorkflowExecutionIdentity(
+    target: DeploymentPlanTargetDto,
+  ): Promise<Omit<DeploymentPlanWorkflowIdentityDto, 'targetIds'> | undefined> {
+    const strategyPayload = target.strategyPayload;
+    const executionSource = readRecord(strategyPayload?.executionSource);
+    const workflowRequest = readRecord(strategyPayload?.workflowRequest);
+    const isPluginInternalWorkflow = readOptionalString(executionSource?.type) === 'PLUGIN';
+    if (target.executorType !== 'WORKFLOW' && !isPluginInternalWorkflow) return undefined;
+
+    const workflowVersionSelection = readWorkflowVersionSelection(
+      executionSource?.workflowVersionSelection
+        ?? workflowRequest?.workflowVersionSelection,
+    );
+    const declaredWorkflowVersionId = readOptionalString(executionSource?.workflowVersionId)
+      ?? readOptionalString(executionSource?.internalWorkflowVersionId)
+      ?? readOptionalString(workflowRequest?.workflowVersionId);
+    const declaredWorkflowId = readOptionalString(executionSource?.workflowTemplateId)
+      ?? readOptionalString(workflowRequest?.workflowId);
+
+    let workflowVersionId = declaredWorkflowVersionId;
+    let workflowVersion: Awaited<ReturnType<WorkflowTemplatesApplicationService['getVersion']>> | undefined;
+    if (!workflowVersionId && workflowVersionSelection === 'LATEST_PUBLISHED' && declaredWorkflowId && this.workflows) {
+      try {
+        workflowVersion = await this.workflows.getRuntimePublishedVersion(declaredWorkflowId);
+        workflowVersionId = workflowVersion?.id;
+      } catch {
+        // 目录服务异常时保留无版本身份，不能阻断部署计划列表。
+      }
+    }
+    if (workflowVersionId && this.workflows) {
+      try {
+        workflowVersion = await this.workflows.getVersion(workflowVersionId);
+      } catch {
+        // 历史计划可能引用已经清理的工作流版本，仍返回不可变 ID 供审计定位。
+      }
+    }
+
+    const workflowId = declaredWorkflowId
+      ?? workflowVersion?.templateId;
+    if (!workflowVersionId) return undefined;
+    const workflowName = workflowVersion?.content.metadata.name
+      ?? readOptionalString(workflowRequest?.workflowName);
+    const pluginId = readOptionalString(workflowRequest?.pluginId);
+    const pluginVersion = readOptionalString(workflowRequest?.pluginVersion);
+    const pluginVersionId = readOptionalString(workflowRequest?.pluginVersionId)
+      ?? readOptionalString(executionSource?.pluginVersionId);
+
+    return {
+      mode: isPluginInternalWorkflow ? 'PLUGIN_INTERNAL_WORKFLOW' : 'WORKFLOW',
+      ...(workflowId ? { workflowId } : {}),
+      ...(workflowName ? { workflowName } : {}),
+      workflowVersionId,
+      workflowVersionSelection,
+      ...(workflowVersion?.content.metadata.version ? { workflowDslVersion: workflowVersion.content.metadata.version } : {}),
+      ...(pluginId ? { pluginId } : {}),
+      ...(pluginVersion ? { pluginVersion } : {}),
+      ...(pluginVersionId ? { pluginVersionId } : {}),
     };
   }
 
@@ -2742,6 +2837,10 @@ export function resolveBoundCertificateOutput(
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readWorkflowVersionSelection(value: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
+  return value === 'LATEST_PUBLISHED' ? 'LATEST_PUBLISHED' : 'PINNED';
 }
 
 function collectBindingCredentials(

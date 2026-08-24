@@ -506,7 +506,17 @@ describe('部署计划与执行编排 API', () => {
       },
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; executorType: string; strategyPayload?: any; requiredCapabilities: string[] }> };
+    const plan = created.body as {
+      certificateFormatId?: string;
+      targets: Array<{ id: string; certificateBindingId?: string; executorType: string; strategyPayload?: any; requiredCapabilities: string[] }>;
+      workflowExecutionIdentities?: Array<{
+        mode: string;
+        workflowName?: string;
+        workflowVersionId: string;
+        workflowDslVersion?: string;
+        workflowVersionSelection: string;
+      }>;
+    };
     assert.equal(plan.targets.length, 1);
     assert.equal(plan.certificateFormatId, fixture.certificateFormatId);
     assert.equal(plan.targets[0].certificateBindingId, fixture.bindingId);
@@ -517,6 +527,15 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.certificateBindingId, fixture.bindingId);
     assert.ok(plan.targets[0].strategyPayload.deploymentInputPreflight);
     assert.ok(plan.targets[0].strategyPayload.deploymentInputSnapshotRef);
+    assert.deepEqual(plan.workflowExecutionIdentities, [{
+      mode: 'WORKFLOW',
+      workflowId: workflow.template.id,
+      workflowName: workflow.version.content.metadata.name,
+      workflowVersionId: workflow.version.id,
+      workflowDslVersion: workflow.version.content.metadata.version,
+      workflowVersionSelection: 'PINNED',
+      targetIds: [plan.targets[0].id],
+    }]);
   });
 
   it('WORKFLOW 应用资产选择始终最新版本时，已有部署计划 dry-run 仍使用创建时固定版本', async () => {
@@ -571,10 +590,17 @@ describe('部署计划与执行编排 API', () => {
       },
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { id: string; targets: Array<{ strategyPayload?: any }> };
+    const plan = created.body as {
+      id: string;
+      targets: Array<{ id: string; strategyPayload?: any }>;
+      workflowExecutionIdentities?: Array<{ workflowVersionSelection: string; workflowVersionId: string }>;
+    };
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.workflowVersionId, workflow.version.id);
+    assert.equal(plan.workflowExecutionIdentities?.[0]?.workflowVersionSelection, 'LATEST_PUBLISHED');
+    assert.equal(plan.workflowExecutionIdentities?.[0]?.workflowVersionId, workflow.version.id);
 
     const v2Content = workflowTemplateFixture('应用资产工作流实时版本');
+    v2Content.metadata.version = '1.0.1';
     v2Content.steps[0]!.ssh!.command = 'echo deploy v2';
     const createdV2 = await app.inject({
       method: 'POST',
@@ -2646,7 +2672,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
   return {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
-    metadata: { name, category: 'certificate_deployment' },
+    metadata: { name, category: 'certificate_deployment', version: '1.0.0' },
     inputContract: {
       apiVersion: 'gcac.deployment-input/v1',
       variables: {},

@@ -7,6 +7,20 @@ export type DeploymentPlanType = 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONL
 export type DeploymentPlanApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 export type DeploymentPlanTargetStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'COMPLETED';
 export type DeploymentPlanSelectionMode = 'EXPLICIT' | 'LATEST_AUTO';
+export type DeploymentPlanWorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
+
+export interface DeploymentPlanWorkflowIdentityDto {
+  mode: 'WORKFLOW' | 'PLUGIN_INTERNAL_WORKFLOW';
+  workflowId?: string;
+  workflowName?: string;
+  workflowVersionId: string;
+  workflowDslVersion?: string;
+  workflowVersionSelection: DeploymentPlanWorkflowVersionSelection;
+  pluginId?: string;
+  pluginVersion?: string;
+  pluginVersionId?: string;
+  targetIds: string[];
+}
 
 export interface DeploymentPlanPolicyDto {
   approvalRequired?: boolean;
@@ -81,6 +95,7 @@ export interface DeploymentPlanDto {
   updatedBy?: string;
   version: number;
   targets: DeploymentPlanTargetDto[];
+  workflowExecutionIdentities?: DeploymentPlanWorkflowIdentityDto[];
   latestRunId?: string;
   latestRun?: ExecutionRunDto;
 }
