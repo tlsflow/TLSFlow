@@ -56,6 +56,7 @@ test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间�
   assert.doesNotMatch(script, /pollSeconds/);
   assert.match(script, /existingConfig\.nodeId/);
   assert.match(script, /config\.enrollmentToken = ''/);
+  assert.ok(script.indexOf('Stop-Service -Name $serviceName') < script.indexOf('Invoke-WebRequest -UseBasicParsing -Uri $binaryUrl'));
   assert.equal(getInternalCaRouteContracts().some((route) => route.operationId === 'streamCaNodeTasks'), true);
 });
 
