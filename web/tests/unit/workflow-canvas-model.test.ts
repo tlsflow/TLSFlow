@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultWorkflowCanvas,
+  isWorkflowDslCanvasImportable,
   isWorkflowDslV1,
   workflowDslToCanvas,
 } from '@/views/workflows/workflow-canvas.model'
@@ -24,6 +25,7 @@ describe('workflow canvas model', () => {
         backupDir: '/var/backups/gcac-certs',
       }),
     }))
+    expect(String(canvas.nodes[1]?.config.command)).toContain('{{variables.certificatePaths.backupDir}}')
   })
 
   it('导入 DSL 后会把高级字段保留在 rawStep 并记录 rollback', () => {
@@ -232,5 +234,89 @@ describe('workflow canvas model', () => {
     expect(rawStep?.type).toBe('transform')
     expect(rawStep?.type === 'transform' ? rawStep.transform.outputs.serviceBindingsJson?.format : undefined).toBe('jsonString')
     expect(rawStep?.type === 'transform' ? rawStep.transform.maxInputBytes : undefined).toBe(1048576)
+  })
+
+  it('旧 DSL 也会被兼容导入，而不是回退到默认 nginx 骨架', () => {
+    const legacyDsl = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: {
+        name: 'legacy-apache',
+        displayName: '旧版 Apache 工作流',
+      },
+      variables: {
+        verifyUrl: {
+          type: 'string',
+          source: { kind: 'asset_ssl', path: 'target.verifyUrl' },
+          default: 'https://127.0.0.1:8444/',
+          required: true,
+          lifecycle: 'pre_execution',
+          bindingPolicy: 'fixed',
+          configurationMode: 'required',
+        },
+        serverCert: {
+          type: 'certificate',
+          source: { kind: 'certificate' },
+          required: true,
+          lifecycle: 'runtime_injected',
+          artifactContract: {
+            outputs: {
+              certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8' },
+              keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', sensitive: true },
+            },
+          },
+          configurationMode: 'runtime',
+        },
+      },
+      connections: {
+        targetSsh: {
+          protocol: 'ssh',
+          host: { source: 'binding', configurationMode: 'required' },
+          port: { source: 'dsl_default', default: 22, configurationMode: 'advanced' },
+          username: { source: 'binding', configurationMode: 'required' },
+          credential: { slot: 'sshCredential', source: 'credential', configurationMode: 'required' },
+          hostKey: { policy: 'trust_on_first_use', configurationMode: 'advanced' },
+        },
+      },
+      steps: [
+        {
+          name: 'prepare_validate_apache_site',
+          type: 'ssh',
+          stage: 'prepare',
+          ssh: {
+            mode: 'script',
+            connectionRef: 'targetSsh',
+            script: "set -eu\nprintf 'legacy apache\\n'",
+            timeoutSeconds: 120,
+          },
+        },
+        {
+          name: 'verify_backend_https_response',
+          type: 'http',
+          stage: 'verify',
+          request: {
+            method: 'GET',
+            url: '{{verifyUrl}}',
+            timeoutSeconds: 30,
+          },
+          assert: [{ type: 'statusCode', equals: 200 }],
+        },
+      ],
+    } as const
+
+    expect(isWorkflowDslV1(legacyDsl)).toBe(false)
+    expect(isWorkflowDslCanvasImportable(legacyDsl)).toBe(true)
+
+    const canvas = workflowDslToCanvas(legacyDsl)
+
+    expect(canvas.metadata.name).toBe('legacy-apache')
+    expect(canvas.nodes.map((node) => node.label)).toEqual([
+      'prepare_validate_apache_site',
+      'verify_backend_https_response',
+    ])
+    expect(canvas.nodes.map((node) => node.type)).toEqual(['ssh', 'verify'])
+    expect(canvas.inputContract.connections.targetSsh.transport).toBe('ssh')
+    expect(canvas.inputContract.credentials.sshCredential.allowedKinds).toContain('SSH_KEY')
+    expect(canvas.inputContract.artifacts.serverCert.artifactContract.outputs.keyFile?.role).toBe('private_key')
   })
 })

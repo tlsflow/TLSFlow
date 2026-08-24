@@ -19,6 +19,7 @@ import {
   getNodeTypeDefinition,
   getNodeStage,
   getVariableFlow,
+  isWorkflowDslCanvasImportable,
   isWorkflowDslV1,
   removeWorkflowVariable,
   renameWorkflowVariable,
@@ -436,7 +437,7 @@ function importDslIntoCanvas() {
   if (!canEdit.value) return
   try {
     const parsed = JSON.parse(dslEditorText.value) as unknown
-    if (!isWorkflowDslV1(parsed)) {
+    if (!isWorkflowDslCanvasImportable(parsed)) {
       throw new Error(t('workflows.canvasEditor.dsl.errors.invalidTopLevel'))
     }
     const imported = workflowDslToCanvas(parsed)
