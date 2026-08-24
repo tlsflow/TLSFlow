@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
+import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from './task-events'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -12,16 +14,51 @@ const { t } = useI18n()
 const PAGE_SIZE = 100
 const HISTORY_BATCH_SIZE = 20
 const RECENT_COMPLETED_COUNT = 5
+const TASK_FALLBACK_REFRESH_INTERVAL_MS = 15_000
 const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'])
 const COMPLETED_STATUSES: ReadonlySet<TaskStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
-const KNOWN_TASK_CATEGORIES: ReadonlySet<TaskCategory> = new Set(['EXECUTION', 'MONITORING', 'SYSTEM'])
+const EXECUTION_TASK_TYPES: ReadonlySet<string> = new Set([
+  'ACME_CERTIFICATE_ISSUE',
+  'ACME_CERTIFICATE_RENEWAL',
+  'ACME_CHALLENGE',
+  'CERTIFICATE_DRY_RUN',
+  'CERTIFICATE_DEPLOY',
+  'CERTIFICATE_VERIFY',
+  'CERTIFICATE_ROLLBACK',
+  'PROVIDER_OPERATION',
+  'AGENT_INSTALL',
+  'AGENT_UPDATE',
+  'AGENT_CAPABILITY_RESCAN',
+  'PLUGIN_REFERENCE_REFRESH',
+  'DEPLOYMENT_PLAN_REFRESH',
+])
+const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
+  'MONITORING_BATCH',
+  'MONITORING_PROBE',
+])
+const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
+  'CA_NODE_TASK',
+  'CA_RECORD_SYNC',
+  'CERTIFICATE_REVOCATION',
+  'CRL_PUBLISH',
+  'TRUST_DISTRIBUTION',
+  'GATEWAY_DELEGATION',
+  'WORKFLOW_RUN',
+  'AUTOMATION_RUN',
+  'REPORT_EXPORT',
+  'NOTIFICATION_DELIVERY',
+])
+const DEPLOYMENT_EXECUTION_TASK_TYPES: ReadonlySet<string> = new Set([
+  'CERTIFICATE_DRY_RUN',
+  'CERTIFICATE_DEPLOY',
+  'CERTIFICATE_ROLLBACK',
+])
 type TaskTabCategory = TaskCategory | 'OTHER'
 
 const loading = ref(false)
 const detailLoading = ref(false)
 const error = ref('')
 const detailError = ref('')
-const tasks = ref<readonly TaskRun[]>([])
 const quickActiveTasks = ref<TaskRun[]>([])
 const quickRecentCompleted = ref<TaskRun[]>([])
 const quickHistoryBuffer = ref<TaskRun[]>([])
@@ -33,6 +70,7 @@ const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
 const keyword = ref('')
 const showAllTasks = ref(false)
 const allTasksModalOpen = ref(false)
+const switchingToAllTasks = ref(false)
 const allTasks = ref<TaskRun[]>([])
 const allTasksKeyword = ref('')
 const allTasksLoading = ref(false)
@@ -41,6 +79,15 @@ const allTasksPage = ref(1)
 const allTasksHasMore = ref(true)
 const allTasksScroll = ref<HTMLElement | null>(null)
 const allTasksCategory = ref<TaskTabCategory>('EXECUTION')
+const allTasksReloadQueued = ref(false)
+const realtimeConnected = ref(isTaskRealtimeConnected())
+const deploymentPlanNames = ref<Record<string, string>>({})
+const deploymentPlanNameRequests = new Set<string>()
+const deploymentPlanNameMisses = new Set<string>()
+let taskRefreshTimer: number | undefined
+let disposeGlobalTaskRefresh: (() => void) | undefined
+let disposeTaskRealtime: (() => void) | undefined
+let disposeTaskActivity: (() => void) | undefined
 const detailTask = computed(() => detail.value?.task ?? null)
 const allTaskTabs = computed(() => [
   { value: 'EXECUTION', label: t('tasks.tabs.execution') },
@@ -48,6 +95,7 @@ const allTaskTabs = computed(() => [
   { value: 'SYSTEM', label: t('tasks.tabs.system') },
   { value: 'OTHER', label: t('tasks.tabs.other') },
 ])
+const hasQuickTasks = computed(() => quickActiveTasks.value.length > 0 || quickRecentCompleted.value.length > 0)
 const visibleDetailEvents = computed(() => {
   const events = detail.value?.events ?? []
   return detailTask.value?.category === 'MONITORING'
@@ -58,18 +106,30 @@ const visibleDetailEvents = computed(() => {
 watch(() => props.open, (open) => {
   if (open) {
     window.addEventListener('keydown', handleKeydown)
-    void loadQuickTasks(true)
+    void refreshQuickTasks()
   } else {
     window.removeEventListener('keydown', handleKeydown)
-    allTasksModalOpen.value = false
+    if (!switchingToAllTasks.value) allTasksModalOpen.value = false
     detail.value = null
   }
 }, { immediate: true })
 watch(showAllTasks, () => {
-  if (props.open) void loadQuickTasks(true)
+  if (props.open) void refreshQuickTasks()
 })
+watch([() => props.open, allTasksModalOpen], ([popoverOpen, modalOpen]) => {
+  updateRefreshTimer(popoverOpen || modalOpen)
+  if (popoverOpen || modalOpen) refreshVisibleTasks()
+}, { immediate: true })
 watch(allTasksCategory, () => {
-  if (allTasksModalOpen.value) void loadAllTasks(true)
+  if (!allTasksModalOpen.value) return
+  if (allTasksLoading.value) {
+    allTasksReloadQueued.value = true
+    return
+  }
+  void loadAllTasks(true)
+})
+watch(realtimeConnected, () => {
+  updateRefreshTimer(props.open || allTasksModalOpen.value)
 })
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -78,87 +138,169 @@ function handleKeydown(event: KeyboardEvent): void {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  stopTaskRefresh()
+  disposeGlobalTaskRefresh?.()
+  disposeTaskRealtime?.()
+  disposeTaskActivity?.()
+  disposeGlobalTaskRefresh = undefined
+  disposeTaskRealtime = undefined
+  disposeTaskActivity = undefined
+})
+
+onMounted(() => {
+  disposeGlobalTaskRefresh = subscribeGlobalTaskRefresh(() => {
+    if (detail.value && detailTask.value?.id) {
+      void refreshTaskDetail(detailTask.value.id)
+      return
+    }
+    refreshVisibleTasks()
+  })
+  disposeTaskRealtime = subscribeTaskRealtime((message) => {
+    void handleRealtimeMessage(message)
+  })
+  disposeTaskActivity = subscribeTaskActivity((state) => {
+    realtimeConnected.value = state.connected
+  })
 })
 
 function mergeTasks(existing: readonly TaskRun[], incoming: readonly TaskRun[]): TaskRun[] {
   const merged = new Map(existing.map((task) => [task.id, task]))
   incoming.forEach((task) => merged.set(task.id, task))
-  return [...merged.values()]
+  return sortTasks([...merged.values()])
 }
 
-function isOtherTask(task: TaskRun): boolean {
-  return !KNOWN_TASK_CATEGORIES.has(task.category)
+function prependTasks(incoming: readonly TaskRun[], existing: readonly TaskRun[]): TaskRun[] {
+  const incomingIds = new Set(incoming.map((task) => task.id))
+  return sortTasks([...incoming, ...existing.filter((task) => !incomingIds.has(task.id))])
 }
 
-function syncQuickTasks(): void {
-  tasks.value = mergeTasks(quickActiveTasks.value, quickRecentCompleted.value)
+function taskTabCategory(task: TaskRun): TaskTabCategory {
+  if (task.category === 'EXECUTION' || EXECUTION_TASK_TYPES.has(task.taskType)) return 'EXECUTION'
+  if (task.category === 'MONITORING' || MONITORING_TASK_TYPES.has(task.taskType)) return 'MONITORING'
+  if (task.category === 'SYSTEM' || SYSTEM_TASK_TYPES.has(task.taskType)) return 'SYSTEM'
+  return 'OTHER'
+}
+
+function matchesQuickTaskScope(task: TaskRun): boolean {
+  return showAllTasks.value || taskTabCategory(task) === 'EXECUTION'
+}
+
+function matchesAllTaskScope(task: TaskRun): boolean {
+  return taskTabCategory(task) === allTasksCategory.value
+}
+
+function quickQueryCategory(): TaskCategory | undefined {
+  return showAllTasks.value ? undefined : 'EXECUTION'
+}
+
+function allTasksQueryCategory(): TaskCategory | undefined {
+  return allTasksCategory.value === 'OTHER' ? undefined : allTasksCategory.value
+}
+
+function applyQuickTasksState(next: {
+  active: TaskRun[]
+  recent: TaskRun[]
+  historyBuffer: TaskRun[]
+  page: number
+  hasMore: boolean
+}): void {
+  if (!sameTaskList(quickActiveTasks.value, next.active)) quickActiveTasks.value = next.active
+  if (!sameTaskList(quickRecentCompleted.value, next.recent)) quickRecentCompleted.value = next.recent
+  if (!sameTaskList(quickHistoryBuffer.value, next.historyBuffer)) quickHistoryBuffer.value = next.historyBuffer
+  quickPage.value = next.page
+  quickHasMore.value = next.hasMore
+  void resolveDeploymentPlanNames([...next.active, ...next.recent, ...next.historyBuffer])
 }
 
 function appendQuickHistoryBatch(size = HISTORY_BATCH_SIZE): void {
   if (quickHistoryBuffer.value.length === 0) return
-  quickRecentCompleted.value = [
+  quickRecentCompleted.value = sortTasks([
     ...quickRecentCompleted.value,
     ...quickHistoryBuffer.value.splice(0, size),
-  ]
-  syncQuickTasks()
+  ])
 }
 
-function resetQuickTasks(): void {
-  tasks.value = []
-  quickActiveTasks.value = []
-  quickRecentCompleted.value = []
-  quickHistoryBuffer.value = []
-  quickPage.value = 1
-  quickHasMore.value = true
-}
-
-async function requestQuickPage(): Promise<void> {
-  if (!quickHasMore.value) return
+async function requestQuickPage(page: number): Promise<{
+  items: TaskRun[]
+  page: number
+  hasMore: boolean
+}> {
   const result = await listTasks({
-    page: quickPage.value,
+    page,
     pageSize: PAGE_SIZE,
     keyword: keyword.value.trim() || undefined,
-    includeAll: showAllTasks.value,
-    filters: showAllTasks.value ? undefined : { category: 'EXECUTION' },
+    filters: quickQueryCategory() ? { category: quickQueryCategory() } : undefined,
+    includeAll: true,
   })
   const data = result.data
-  const items = data?.items ?? []
-  quickActiveTasks.value = mergeTasks(
-    quickActiveTasks.value,
-    items.filter((task) => ACTIVE_STATUSES.has(task.status)),
-  )
-  quickHistoryBuffer.value = mergeTasks(
-    quickHistoryBuffer.value,
-    items.filter((task) => COMPLETED_STATUSES.has(task.status)),
-  )
-  const currentPage = data?.page ?? quickPage.value
+  const fetchedItems = (data?.items ?? []).filter(matchesQuickTaskScope)
+  const currentPage = data?.page ?? page
   const pageSize = data?.pageSize ?? PAGE_SIZE
   const total = data?.total ?? 0
-  quickPage.value = currentPage + 1
-  quickHasMore.value = currentPage * pageSize < total && items.length > 0
+  return {
+    items: fetchedItems,
+    page: currentPage + 1,
+    hasMore: currentPage * pageSize < total && fetchedItems.length > 0,
+  }
 }
 
-async function loadQuickTasks(reset = false): Promise<void> {
+async function refreshQuickTasks(): Promise<void> {
   if (loading.value) return
-  if (reset) resetQuickTasks()
-  if (!quickHasMore.value && tasks.value.length > 0) return
   loading.value = true
   error.value = ''
   try {
-    if (reset) {
-      do {
-        await requestQuickPage()
-        while (quickRecentCompleted.value.length < RECENT_COMPLETED_COUNT && quickHistoryBuffer.value.length > 0) {
-          appendQuickHistoryBatch(RECENT_COMPLETED_COUNT - quickRecentCompleted.value.length)
-        }
-      } while (quickHasMore.value && quickRecentCompleted.value.length < RECENT_COMPLETED_COUNT)
-    } else if (quickHistoryBuffer.value.length > 0) {
+    let page = 1
+    let hasMore = true
+    let active: TaskRun[] = []
+    let recent: TaskRun[] = []
+    let historyBuffer: TaskRun[] = []
+    do {
+      const response = await requestQuickPage(page)
+      active = mergeTasks(active, response.items.filter((task) => ACTIVE_STATUSES.has(task.status)))
+      historyBuffer = mergeTasks(historyBuffer, response.items.filter((task) => COMPLETED_STATUSES.has(task.status)))
+      while (recent.length < RECENT_COMPLETED_COUNT && historyBuffer.length > 0) {
+        recent = sortTasks([
+          ...recent,
+          ...historyBuffer.splice(0, RECENT_COMPLETED_COUNT - recent.length),
+        ])
+      }
+      page = response.page
+      hasMore = response.hasMore
+    } while (hasMore && recent.length < RECENT_COMPLETED_COUNT)
+    applyQuickTasksState({ active, recent, historyBuffer, page, hasMore })
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadQuickTasks(reset = false): Promise<void> {
+  if (reset) {
+    await refreshQuickTasks()
+    return
+  }
+  if (loading.value) return
+  if (!quickHasMore.value && hasQuickTasks.value) return
+  loading.value = true
+  error.value = ''
+  try {
+    if (quickHistoryBuffer.value.length > 0) {
       appendQuickHistoryBatch()
     } else {
-      await requestQuickPage()
+      const response = await requestQuickPage(quickPage.value)
+      quickActiveTasks.value = mergeTasks(
+        quickActiveTasks.value,
+        response.items.filter((task) => ACTIVE_STATUSES.has(task.status)),
+      )
+      quickHistoryBuffer.value = mergeTasks(
+        quickHistoryBuffer.value,
+        response.items.filter((task) => COMPLETED_STATUSES.has(task.status)),
+      )
+      quickPage.value = response.page
+      quickHasMore.value = response.hasMore
       appendQuickHistoryBatch()
     }
-    syncQuickTasks()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
   } finally {
@@ -173,48 +315,143 @@ function handleQuickScroll(event: Event): void {
   }
 }
 
-function openAllTasks(): void {
+async function openAllTasks(): Promise<void> {
   allTasksKeyword.value = keyword.value
   allTasksCategory.value = 'EXECUTION'
+  allTasksReloadQueued.value = false
+  switchingToAllTasks.value = true
+  emit('close')
+  await nextTick()
   allTasksModalOpen.value = true
+  switchingToAllTasks.value = false
   void loadAllTasks(true)
 }
 
-function resetAllTasks(): void {
-  allTasks.value = []
-  allTasksPage.value = 1
-  allTasksHasMore.value = true
-  allTasksError.value = ''
+function applyAllTasksState(next: {
+  items: TaskRun[]
+  page: number
+  hasMore: boolean
+}): void {
+  if (!sameTaskList(allTasks.value, next.items)) allTasks.value = next.items
+  allTasksPage.value = next.page
+  allTasksHasMore.value = next.hasMore
+  void resolveDeploymentPlanNames(next.items)
+}
+
+async function requestAllTasksPage(page: number): Promise<{
+  items: TaskRun[]
+  page: number
+  hasMore: boolean
+}> {
+  const result = await listTasks({
+    page,
+    pageSize: PAGE_SIZE,
+    keyword: allTasksKeyword.value.trim() || undefined,
+    filters: allTasksQueryCategory() ? { category: allTasksQueryCategory() } : undefined,
+    includeAll: true,
+  })
+  const data = result.data
+  const fetchedItems = (data?.items ?? []).filter(matchesAllTaskScope)
+  const currentPage = data?.page ?? page
+  const pageSize = data?.pageSize ?? PAGE_SIZE
+  const total = data?.total ?? 0
+  return {
+    items: fetchedItems,
+    page: currentPage + 1,
+    hasMore: currentPage * pageSize < total && fetchedItems.length > 0,
+  }
 }
 
 async function loadAllTasks(reset = false): Promise<void> {
   if (allTasksLoading.value) return
-  if (reset) resetAllTasks()
-  if (!allTasksHasMore.value && allTasks.value.length > 0) return
+  if (!reset && !allTasksHasMore.value && allTasks.value.length > 0) return
   allTasksLoading.value = true
   allTasksError.value = ''
   try {
-    const result = await listTasks({
-      page: allTasksPage.value,
-      pageSize: PAGE_SIZE,
-      keyword: allTasksKeyword.value.trim() || undefined,
-      includeAll: allTasksCategory.value === 'OTHER',
-      filters: allTasksCategory.value === 'OTHER' ? undefined : { category: allTasksCategory.value },
-    })
-    const data = result.data
-    const fetchedItems = data?.items ?? []
-    const items = allTasksCategory.value === 'OTHER' ? fetchedItems.filter(isOtherTask) : fetchedItems
-    const currentPage = data?.page ?? allTasksPage.value
-    const pageSize = data?.pageSize ?? PAGE_SIZE
-    const total = data?.total ?? 0
-    allTasks.value = mergeTasks(allTasks.value, items)
-    allTasksPage.value = currentPage + 1
-    allTasksHasMore.value = currentPage * pageSize < total && items.length > 0
+    let nextItems = reset ? [] : [...allTasks.value]
+    let nextPage = reset ? 1 : allTasksPage.value
+    let nextHasMore = reset ? true : allTasksHasMore.value
+    do {
+      const response = await requestAllTasksPage(nextPage)
+      nextItems = reset ? sortTasks(response.items) : mergeTasks(nextItems, response.items)
+      nextPage = response.page
+      nextHasMore = response.hasMore
+    } while (reset && nextItems.length === 0 && nextHasMore)
+    applyAllTasksState({ items: nextItems, page: nextPage, hasMore: nextHasMore })
   } catch (cause) {
     allTasksError.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
   } finally {
     allTasksLoading.value = false
+    if (allTasksReloadQueued.value && allTasksModalOpen.value) {
+      allTasksReloadQueued.value = false
+      void loadAllTasks(true)
+    } else {
+      allTasksReloadQueued.value = false
+    }
   }
+}
+
+async function refreshAllTasks(): Promise<void> {
+  if (allTasksLoading.value) return
+  allTasksLoading.value = true
+  allTasksError.value = ''
+  const category = allTasksCategory.value
+  try {
+    const result = await listTasks({
+      page: 1,
+      pageSize: PAGE_SIZE,
+      keyword: allTasksKeyword.value.trim() || undefined,
+      filters: allTasksQueryCategory() ? { category: allTasksQueryCategory() } : undefined,
+      includeAll: true,
+    })
+    if (category !== allTasksCategory.value) {
+      allTasksReloadQueued.value = true
+      return
+    }
+    const data = result.data
+    const fetchedItems = (data?.items ?? []).filter((task) => taskTabCategory(task) === category)
+    const merged = prependTasks(fetchedItems, allTasks.value)
+    applyAllTasksState({
+      items: merged,
+      page: allTasksPage.value,
+      hasMore: (data?.total ?? 0) > merged.length,
+    })
+  } catch (cause) {
+    allTasksError.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
+  } finally {
+    allTasksLoading.value = false
+    if (allTasksReloadQueued.value && allTasksModalOpen.value) {
+      allTasksReloadQueued.value = false
+      void loadAllTasks(true)
+    }
+  }
+}
+
+function refreshVisibleTasks(): void {
+  if (allTasksModalOpen.value) {
+    void refreshAllTasks()
+    return
+  }
+  if (props.open) void refreshQuickTasks()
+}
+
+function updateRefreshTimer(shouldRun: boolean): void {
+  if (!shouldRun || realtimeConnected.value) {
+    stopTaskRefresh()
+    return
+  }
+  startTaskRefresh()
+}
+
+function startTaskRefresh(): void {
+  if (taskRefreshTimer !== undefined) return
+  taskRefreshTimer = window.setInterval(refreshVisibleTasks, TASK_FALLBACK_REFRESH_INTERVAL_MS)
+}
+
+function stopTaskRefresh(): void {
+  if (taskRefreshTimer === undefined) return
+  window.clearInterval(taskRefreshTimer)
+  taskRefreshTimer = undefined
 }
 
 function handleAllTasksScroll(event: Event): void {
@@ -231,17 +468,25 @@ async function openTask(task: TaskRun): Promise<void> {
   detailLoading.value = true
   detailError.value = ''
   try {
-    const result = await getTask(task.id)
-    detail.value = result.data ?? null
-    if (task.category === 'MONITORING') {
-      const probes = await listMonitoringProbes(task.id, { page: 1, pageSize: 20 })
-      monitoringProbes.value = probes.data?.items ?? []
-    }
+    const loadedDetail = await refreshTaskDetail(task.id)
+    if (loadedDetail?.task) void resolveDeploymentPlanNames([loadedDetail.task])
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : t('tasks.messages.detailFailed')
   } finally {
     detailLoading.value = false
   }
+}
+
+async function refreshTaskDetail(taskId: string): Promise<TaskDetail | null> {
+  const result = await getTask(taskId)
+  detail.value = result.data ?? null
+  if (detail.value?.task.category === 'MONITORING') {
+    const probes = await listMonitoringProbes(taskId, { page: 1, pageSize: 20 })
+    monitoringProbes.value = probes.data?.items ?? []
+    return detail.value
+  }
+  monitoringProbes.value = []
+  return detail.value
 }
 
 function closeDetail(): void {
@@ -250,11 +495,19 @@ function closeDetail(): void {
 }
 
 function submitQuickSearch(): void {
-  void loadQuickTasks(true)
+  void refreshQuickTasks()
 }
 
 function submitAllTasksSearch(): void {
   void loadAllTasks(true)
+}
+
+async function handleRealtimeMessage(message: TaskRealtimeMessage): Promise<void> {
+  if (message.type === 'task.changed' && detailTask.value?.id === message.task.id) {
+    await refreshTaskDetail(message.task.id)
+    return
+  }
+  refreshVisibleTasks()
 }
 
 function statusTone(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
@@ -272,6 +525,182 @@ function localTime(value?: string): string {
 function recordValue(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   return value === undefined || value === null ? t('common.notAvailable') : typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function taskStatusLabel(status: TaskStatus): string {
+  return t(`tasks.status.${status}`)
+}
+
+function taskTypeLabel(task: TaskRun): string {
+  const key = `tasks.typeLabels.${task.taskType}`
+  const label = t(key)
+  return label === key ? t('tasks.typeLabels.OTHER') : label
+}
+
+function taskRelatedName(task: TaskRun): string {
+  if (DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) {
+    const planId = taskDeploymentPlanId(task)
+    if (planId && deploymentPlanNames.value[planId]) return deploymentPlanNames.value[planId]
+  }
+  const candidate = normalizeTaskRelatedName(firstNonEmptyString(
+    recordStringByKeys(task.resourceSummary, ['displayName', 'name', 'planName', 'assetDisplayName', 'assetName', 'providerDisplayName', 'providerName', 'pluginName', 'workflowName', 'applicationName', 'siteName', 'bindingName', 'bindingDisplayName', 'certificateName', 'technologyName', 'targetName']),
+    recordStringByKeys(task.payload, ['displayName', 'name', 'planName', 'deploymentPlanName', 'pluginName', 'workflowName', 'workflowId', 'providerDisplayName', 'providerName', 'providerKey', 'operationKey', 'technologyName', 'siteName', 'bindingName', 'bindingInformation', 'agentId', 'certificateAssetId', 'deploymentPlanId', 'renewalJobId', 'certificateRequestId', 'targetPluginVersionId', 'pluginId', 'scope']),
+  ))
+  if (DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType) && isRecordId(candidate, 'pln_')) return t('tasks.relatedNames.deploymentPlan')
+  return candidate ?? taskTypeLabel(task)
+}
+
+function taskResultSummary(task: TaskRun): string {
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+    return firstNonEmptyString(
+      task.lastErrorMessage,
+      stringFromRecord(task.progress, 'errorMessage'),
+      stringFromRecord(task.progress, 'status'),
+    ) ?? t(`tasks.status.${task.status}`)
+  }
+  return firstNonEmptyString(
+    stringFromRecord(task.progress, 'summary'),
+    stringFromRecord(task.progress, 'message'),
+    stringFromRecord(task.progress, 'status'),
+    stringFromRecord(task.resourceSummary, 'summary'),
+  ) ?? t(`tasks.status.${task.status}`)
+}
+
+function taskOverview(task: TaskRun): string {
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') return taskResultSummary(task)
+  return firstNonEmptyString(
+    stringFromRecord(task.progress, 'summary'),
+    stringFromRecord(task.progress, 'message'),
+    stringFromRecord(task.progress, 'detail'),
+    stringFromRecord(task.progress, 'status'),
+    stringFromRecord(task.resourceSummary, 'summary'),
+  ) ?? t(`tasks.summaryTemplates.${task.status}`, { task: taskTypeLabel(task) })
+}
+
+function taskStatusSummary(task: TaskRun): string {
+  const status = taskStatusLabel(task.status)
+  const overview = taskOverview(task)
+  return overview === status ? overview : `${status} · ${overview}`
+}
+
+function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {
+  return [...tasks].sort((left, right) => {
+    const createdCompare = Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    if (createdCompare !== 0) return createdCompare
+    return right.id.localeCompare(left.id)
+  })
+}
+
+function sameTaskList(left: readonly TaskRun[], right: readonly TaskRun[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every((task, index) => taskSignature(task) === taskSignature(right[index]))
+}
+
+function taskSignature(task?: TaskRun): string {
+  if (!task) return ''
+  return [
+    task.id,
+    task.taskType,
+    task.status,
+    task.requestedBy ?? '',
+    task.createdAt,
+    task.startedAt ?? '',
+    task.finishedAt ?? '',
+    task.lastErrorCode ?? '',
+    task.lastErrorMessage ?? '',
+    JSON.stringify(task.resourceSummary ?? {}),
+    JSON.stringify(task.payload ?? {}),
+    JSON.stringify(task.progress ?? {}),
+  ].join('|')
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
+function stringFromRecord(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!record) return undefined
+  const value = record[key]
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return undefined
+}
+
+function recordStringByKeys(record: Record<string, unknown> | undefined, keys: readonly string[]): string | undefined {
+  if (!record) return undefined
+  for (const key of keys) {
+    const value = stringFromRecord(record, key)
+    if (value) return value
+  }
+  return undefined
+}
+
+function normalizeTaskRelatedName(value?: string): string | undefined {
+  if (!value) return undefined
+  if (value === 'builtin-catalog') return t('tasks.relatedNames.builtinCatalog')
+  return value
+}
+
+function taskDeploymentPlanId(task: TaskRun): string | undefined {
+  return firstNonEmptyString(
+    stringFromRecord(task.resourceSummary, 'deploymentPlanId'),
+    stringFromRecord(task.payload, 'deploymentPlanId'),
+    stringFromRecord(task.payload, 'planId'),
+  )
+}
+
+function isRecordId(value: string | undefined, prefix: string): boolean {
+  return typeof value === 'string' && value.startsWith(prefix)
+}
+
+async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<void> {
+  const missingPlanIds = Array.from(new Set(tasks
+    .filter((task) => DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType))
+    .map(taskDeploymentPlanId)
+    .filter((planId): planId is string => {
+      if (!planId) return false
+      return !deploymentPlanNames.value[planId] && !deploymentPlanNameRequests.has(planId) && !deploymentPlanNameMisses.has(planId)
+    })))
+  if (missingPlanIds.length === 0) return
+  missingPlanIds.forEach((planId) => deploymentPlanNameRequests.add(planId))
+  const resolved: Record<string, string> = {}
+  try {
+    let page = 1
+    let hasMore = true
+    const pending = new Set(missingPlanIds)
+    while (hasMore && pending.size > 0) {
+      const result = await listDeploymentPlans({ page, pageSize: PAGE_SIZE })
+      const data = result.data
+      for (const item of data?.items ?? []) {
+        const id = stringFromRecord(item, 'id')
+        if (!id || !pending.has(id)) continue
+        const name = firstNonEmptyString(
+          stringFromRecord(item, 'name'),
+          stringFromRecord(item, 'title'),
+          stringFromRecord(item, 'planName'),
+          stringFromRecord(item, 'displayName'),
+        )
+        if (name && !isRecordId(name, 'pln_')) resolved[id] = name
+        pending.delete(id)
+      }
+      const currentPage = data?.page ?? page
+      const pageSize = data?.pageSize ?? PAGE_SIZE
+      const total = data?.total ?? 0
+      hasMore = currentPage * pageSize < total
+      page = currentPage + 1
+    }
+  } catch {
+    // 中文说明：任务列表不能因为名称补全失败而中断，后续刷新会继续尝试解析。
+  } finally {
+    missingPlanIds.forEach((planId) => deploymentPlanNameRequests.delete(planId))
+  }
+  missingPlanIds
+    .filter((planId) => !resolved[planId])
+    .forEach((planId) => deploymentPlanNameMisses.add(planId))
+  if (Object.keys(resolved).length > 0) deploymentPlanNames.value = { ...deploymentPlanNames.value, ...resolved }
 }
 </script>
 
@@ -299,7 +728,8 @@ function recordValue(record: Record<string, unknown>, key: string): string {
           <div class="task-drawer__detail-header">
             <div>
               <p class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
-              <h3>{{ detailTask?.taskType }}</h3>
+              <h3>{{ detailTask ? taskRelatedName(detailTask) : '' }}</h3>
+              <p v-if="detailTask" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
             </div>
             <GcStatusTag :status="detailTask?.status ?? 'UNKNOWN'" :tone="statusTone(detailTask?.status ?? 'QUEUED')" />
           </div>
@@ -379,19 +809,50 @@ function recordValue(record: Record<string, unknown>, key: string): string {
           </form>
           <p v-if="error" class="gc-form-error">{{ error }}</p>
           <div ref="quickScroll" class="task-drawer__scroll" @scroll="handleQuickScroll">
-            <div v-if="loading && tasks.length === 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
-            <div v-else-if="tasks.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
-            <div v-else class="task-drawer__items">
-              <button v-for="task in tasks" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
-                <span class="task-drawer__item-main">
-                  <strong>{{ task.taskType }}</strong>
-                  <small>{{ task.id }}</small>
-                  <span>{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</span>
-                </span>
-                <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
-              </button>
+            <div v-if="loading && !hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
+            <div v-else class="task-drawer__quick-groups">
+              <section class="task-drawer__group">
+                <header class="task-drawer__group-header">
+                  <h3>{{ t('tasks.quick.active') }}</h3>
+                  <span class="task-drawer__group-count">{{ quickActiveTasks.length }}</span>
+                </header>
+                <div v-if="quickActiveTasks.length === 0" class="task-drawer__empty task-drawer__empty--section">{{ t('tasks.values.empty') }}</div>
+                <div v-else class="task-drawer__items">
+                  <button v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
+                    <span class="task-drawer__item-main">
+                      <span class="task-drawer__item-header">
+                        <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                        <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                      </span>
+                      <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                    </span>
+                    <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
+                  </button>
+                </div>
+              </section>
+              <section class="task-drawer__group">
+                <header class="task-drawer__group-header">
+                  <h3>{{ t('tasks.quick.recent') }}</h3>
+                  <span class="task-drawer__group-count">{{ quickRecentCompleted.length }}</span>
+                </header>
+                <div v-if="quickRecentCompleted.length === 0" class="task-drawer__empty task-drawer__empty--section">{{ t('tasks.values.empty') }}</div>
+                <div v-else class="task-drawer__items">
+                  <button v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
+                    <span class="task-drawer__item-main">
+                      <span class="task-drawer__item-header">
+                        <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                        <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                      </span>
+                      <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                    </span>
+                    <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
+                  </button>
+                </div>
+              </section>
+              <div v-if="loading && hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
             </div>
-            <div v-if="loading && tasks.length > 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
           </div>
           <button class="gc-button gc-button--primary task-drawer__view-all" type="button" @click="openAllTasks">
             {{ t('tasks.actions.viewAll') }}
@@ -424,9 +885,12 @@ function recordValue(record: Record<string, unknown>, key: string): string {
         <div v-else class="task-drawer__items">
           <button v-for="task in allTasks" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
             <span class="task-drawer__item-main">
-              <strong>{{ task.taskType }}</strong>
-              <small>{{ task.id }}</small>
-              <span>{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</span>
+              <span class="task-drawer__item-header">
+                <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+              </span>
+              <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+              <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
             </span>
             <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
           </button>
@@ -521,11 +985,15 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 .task-drawer__detail,
 .task-drawer__all-list {
   flex: 1 1 auto;
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--gc-space-5);
+}
+
+:deep(.gc-modal__body) {
+  display: flex;
+  min-height: 0;
 }
 
 .task-drawer__list,
@@ -540,6 +1008,36 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 .task-drawer__toolbar {
   display: flex;
   align-items: center;
+}
+
+.task-drawer__quick-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-4);
+  min-height: max-content;
+}
+
+.task-drawer__group {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__group-header h3 {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__group-count {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
 }
 
 .task-drawer__search {
@@ -638,11 +1136,17 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 
 .task-drawer__scroll,
 .task-drawer__all-scroll {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
+}
+
+.task-drawer__scroll {
+  min-height: 16rem;
 }
 
 .task-drawer__all-list {
@@ -656,6 +1160,7 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 
 .task-drawer__all-scroll {
   max-height: calc(60vh - var(--gc-space-10));
+  min-height: 16rem;
 }
 
 .task-drawer__view-all {
@@ -684,23 +1189,47 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 
 .task-drawer__item-main {
   display: grid;
-  gap: var(--gc-space-1);
+  gap: var(--gc-space-2);
   min-width: 0;
 }
 
-.task-drawer__item-main strong,
-.task-drawer__item-main small,
-.task-drawer__item-main span {
+.task-drawer__item-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: 0;
+}
+
+.task-drawer__item-title,
+.task-drawer__item-summary,
+.task-drawer__item-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-drawer__item-main small,
-.task-drawer__item-main span,
+.task-drawer__item-type {
+  flex: 0 0 auto;
+  padding: var(--gc-space-1) var(--gc-space-2);
+  border-radius: var(--gc-radius-pill);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.task-drawer__item-title {
+  min-width: 0;
+  color: var(--gc-color-text-strong);
+}
+
+.task-drawer__item-summary,
+.task-drawer__item-meta,
 .task-drawer__eyebrow {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__item-summary {
+  color: var(--gc-color-text);
 }
 
 .task-drawer__detail-header {
@@ -795,9 +1324,18 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 
 .task-drawer__loading,
 .task-drawer__empty {
+  margin: auto 0;
   padding: var(--gc-space-6) 0;
   color: var(--gc-color-text-muted);
   text-align: center;
+}
+
+.task-drawer__empty--section {
+  margin: 0;
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) dashed var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-subtle);
 }
 
 @media (max-width: 35rem) {

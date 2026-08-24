@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
+import { listTasks, type TaskStatus } from '@/api/modules/tasks.api'
 import { GcModal } from '@/design-system/components'
 import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
 import { useAppStore } from '@/stores/app.store'
@@ -12,6 +13,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
+import { subscribeGlobalTaskRefresh, subscribeTaskActivity } from '@/views/tasks/task-events'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,10 +39,15 @@ const activeChildren = computed(() => activeTopItem.value?.children ?? [])
 const lockContentScroll = computed(() => route.path === '/certificates')
 const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
+const TASK_ENTRY_REFRESH_INTERVAL_MS = 15_000
+const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
 const taskDrawerOpen = ref(false)
+const activeTaskCount = ref(0)
+const taskEntryConnected = ref(false)
 const userMenuOpen = ref(false)
 const languageMenuOpen = ref(false)
 const userMenuRoot = ref<HTMLElement | null>(null)
+const taskEntryRoot = ref<HTMLElement | null>(null)
 const passwordDialogOpen = ref(false)
 const passwordSubmitting = ref(false)
 const passwordError = ref('')
@@ -55,6 +62,10 @@ const currentTenantName = computed(() => authStore.user?.tenantName ?? t('common
 const currentUserInitial = computed(() => currentUserName.value.slice(0, 1).toUpperCase())
 const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferences.themeDark') : t('preferences.themeLight'))
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
+let disposeTaskActivity: (() => void) | undefined
+let disposeTaskRefresh: (() => void) | undefined
+let taskEntryRefreshTimer: number | undefined
+let taskEntryRefreshPending = false
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -91,13 +102,15 @@ function refreshDashboard() {
 }
 
 function toggleUserMenu() {
+  taskDrawerOpen.value = false
   userMenuOpen.value = !userMenuOpen.value
   if (!userMenuOpen.value) languageMenuOpen.value = false
 }
 
-function openTaskDrawer() {
+function toggleTaskDrawer() {
   closeUserMenu()
-  taskDrawerOpen.value = true
+  taskDrawerOpen.value = !taskDrawerOpen.value
+  if (taskDrawerOpen.value) void refreshTaskEntryCount()
 }
 
 function closeUserMenu() {
@@ -106,9 +119,15 @@ function closeUserMenu() {
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
-  const root = userMenuRoot.value
-  if (!root || !event.target || root.contains(event.target as Node)) return
+  if (!event.target) return
+  const target = event.target as Node
+  if (userMenuRoot.value?.contains(target)) {
+    taskDrawerOpen.value = false
+    return
+  }
   closeUserMenu()
+  if (taskEntryRoot.value?.contains(target)) return
+  taskDrawerOpen.value = false
 }
 
 function resetPasswordForm() {
@@ -168,13 +187,74 @@ watch(passwordDialogOpen, (opened) => {
   if (!opened) resetPasswordForm()
 })
 
+watch(showTaskEntry, (visible) => {
+  if (visible) {
+    startTaskEntryRefresh()
+    void refreshTaskEntryCount()
+    return
+  }
+  stopTaskEntryRefresh()
+  activeTaskCount.value = 0
+}, { immediate: true })
+
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
+  disposeTaskActivity = subscribeTaskActivity((state) => {
+    taskEntryConnected.value = state.connected
+    if (state.activeCount > 0) {
+      activeTaskCount.value = state.activeCount
+      return
+    }
+    void refreshTaskEntryCount()
+  })
+  disposeTaskRefresh = subscribeGlobalTaskRefresh(() => {
+    void refreshTaskEntryCount()
+  })
+  void refreshTaskEntryCount()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  disposeTaskActivity?.()
+  disposeTaskRefresh?.()
+  stopTaskEntryRefresh()
+  disposeTaskActivity = undefined
+  disposeTaskRefresh = undefined
 })
+
+function startTaskEntryRefresh(): void {
+  if (typeof window === 'undefined' || taskEntryRefreshTimer !== undefined) return
+  taskEntryRefreshTimer = window.setInterval(() => {
+    void refreshTaskEntryCount()
+  }, TASK_ENTRY_REFRESH_INTERVAL_MS)
+}
+
+function stopTaskEntryRefresh(): void {
+  if (taskEntryRefreshTimer === undefined) return
+  window.clearInterval(taskEntryRefreshTimer)
+  taskEntryRefreshTimer = undefined
+}
+
+async function refreshTaskEntryCount(): Promise<void> {
+  if (!showTaskEntry.value || taskEntryRefreshPending) return
+  taskEntryRefreshPending = true
+  try {
+    const counts = await Promise.all(ACTIVE_TASK_STATUSES.map(async (status) => {
+      const result = await listTasks({
+        page: 1,
+        pageSize: 1,
+        filters: { category: 'EXECUTION', status },
+        includeAll: true,
+      })
+      return result.data?.total ?? 0
+    }))
+    activeTaskCount.value = counts.reduce((sum, count) => sum + count, 0)
+  } catch {
+    // 中文说明：角标只是提示信息，失败时保留已有计数，避免影响主导航。
+  } finally {
+    taskEntryRefreshPending = false
+  }
+}
 </script>
 
 <template>
@@ -202,19 +282,23 @@ onBeforeUnmount(() => {
         </RouterLink>
       </nav>
 
-      <button
-        v-if="showTaskEntry"
-        class="gc-shell__task-button"
-        type="button"
-        :aria-label="t('tasks.aria.openDrawer')"
-        :aria-expanded="taskDrawerOpen"
-        @click="openTaskDrawer"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" />
-          <path d="m8 12 2.2 2.2L16 8.5" />
-        </svg>
-      </button>
+      <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
+        <button
+          class="gc-shell__task-button"
+          :class="{ 'gc-shell__task-button--active': activeTaskCount > 0, 'gc-shell__task-button--connected': taskEntryConnected }"
+          type="button"
+          :aria-label="t('tasks.aria.openDrawer')"
+          :aria-expanded="taskDrawerOpen"
+          @click="toggleTaskDrawer"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" />
+            <path d="m8 12 2.2 2.2L16 8.5" />
+          </svg>
+          <span v-if="activeTaskCount > 0" class="gc-shell__task-badge">{{ activeTaskCount > 99 ? '99+' : activeTaskCount }}</span>
+        </button>
+        <TaskDrawer :open="taskDrawerOpen" @close="taskDrawerOpen = false" />
+      </div>
 
       <div ref="userMenuRoot" class="gc-shell__user" :aria-label="t('userMenu.currentUser')">
         <button
@@ -376,6 +460,5 @@ onBeforeUnmount(() => {
       </form>
     </GcModal>
 
-    <TaskDrawer :open="taskDrawerOpen" @close="taskDrawerOpen = false" />
   </div>
 </template>
