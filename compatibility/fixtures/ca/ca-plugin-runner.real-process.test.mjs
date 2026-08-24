@@ -12,6 +12,7 @@ const fixtureDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(fixtureDirectory, '../../..');
 const backendRoot = join(repositoryRoot, 'backend');
 const runnerServer = join(backendRoot, 'dist/modules/plugins/runner/runner-server.js');
+const failureVectors = readJson(join(fixtureDirectory, 'ca-plugin-runner.failure-vectors.json'));
 const tenantId = 'tenant-ca-fixture';
 const workflowVersionId = 'workflow-version-ca-1';
 const planDigest = sha256Hex('ca-fixture-plan');
@@ -104,6 +105,9 @@ test('CA Manifest、Workflow 和 Agent-side 资源通过统一合同', async () 
   assert.equal(JSON.stringify(dns).includes('ca.account.manage'), false);
   assert.equal(JSON.stringify(dns).includes('ca.order.manage'), false);
   assert.equal(JSON.stringify(dns).includes('ca.challenge.orchestrate'), false);
+  assert.deepEqual(failureVectors.cases.map((item) => item.pluginId).sort(), [
+    'ca.acme', 'ca.acme-dns', 'ca.microsoft-adcs', 'ca.openssl',
+  ]);
 });
 
 test('ca.openssl 真实 Runner 子进程完成创建、签发、续期、吊销、UNKNOWN、恢复和审计', async () => {
@@ -173,6 +177,10 @@ test('ca.openssl 真实 Runner 子进程完成创建、签发、续期、吊销�
     assert.equal(inlineSecret.status, 'FAILED');
     assert.equal(inlineSecret.error?.code, 'CA_SECRET_INLINE_FORBIDDEN');
     assert.equal(JSON.stringify(inlineSecret).includes(developmentIssuerPrivateKeyPem), false);
+
+    const fault = failureFixture('ca.openssl');
+    const faultResult = await execute(runner, fault.capability, fault.input, { writeEffect: fault.writeEffect });
+    assertFixtureFailure(faultResult, fault);
     assert.ok(runner.calls.filter((call) => call.method === 'audit.append').length >= 7);
   } finally {
     await closeRunner(runner.client);
@@ -234,6 +242,9 @@ test('ca.acme 真实 Runner 子进程保持账户、订单、挑战编排边界�
     assert.equal(revoked.normalizedObjects[0].status, 'revoked');
 
     const unknownId = 'acme-unknown-write';
+    const fault = failureFixture('ca.acme');
+    const faultResult = await execute(runner, fault.capability, fault.input, { writeEffect: fault.writeEffect });
+    assertFixtureFailure(faultResult, fault);
     const unknown = await execute(runner, 'ca.order.manage', {
       operation: 'certificate.revoke', workflowKey: 'ca.order.revoke', workflowVersion: '1.0.0', certificateUrl: 'https://acme.test.invalid/cert/2', reason: 'unspecified',
       sandboxRef: 'sandbox://acme', sandboxResponse: { statusCode: 503, body: {} }, secretRef: 'secret://ca/acme/account',
@@ -290,6 +301,9 @@ test('ca.acme-dns 真实 Runner 子进程只执行 DNS Solver 并收敛传播、
     assert.equal(ownership.error?.code, 'DNS_SOLVER_OWNERSHIP_VIOLATION');
 
     const unknownId = 'dns-unknown-write';
+    const fault = failureFixture('ca.acme-dns');
+    const faultResult = await execute(runner, fault.capability, fault.input, { writeEffect: fault.writeEffect });
+    assertFixtureFailure(faultResult, fault);
     const unknown = await execute(runner, 'ca.challenge.dns-solver', { ...base, operation: 'record.cleanup', failureMode: 'unknown' }, { idempotencyKey: unknownId });
     assert.equal(unknown.status, 'UNKNOWN');
 
@@ -335,10 +349,11 @@ test('ca.microsoft-adcs 控制面和独立 Agent-side Runner 完成 Plan、Recei
     assert.equal(agentSuccess.normalizedObjects[0].kind, 'AgentExecutionReceiptV1');
     assert.equal(agentSuccess.normalizedObjects[0].planDigest, plan.planDigest);
 
-    const agentUnknown = await execute(agent, 'ca.certificate.issue', {
-      operation: 'ca.certificate.issue', agentPlan: plan, agentCoreResult: coreResult(plan, 'UNKNOWN'),
-    }, { executionId, executionStepId, idempotencyKey: 'adcs-agent-unknown' });
-    assert.equal(agentUnknown.status, 'UNKNOWN');
+    const fault = failureFixture('ca.microsoft-adcs');
+    const agentUnknown = await execute(agent, fault.capability, {
+      operation: 'ca.certificate.issue', agentPlan: plan, agentCoreResult: coreResult(plan, fault.fault.agentCoreStatus),
+    }, { executionId, executionStepId, idempotencyKey: 'adcs-agent-unknown', writeEffect: fault.writeEffect });
+    assertFixtureFailure(agentUnknown, fault);
     assert.equal(agentUnknown.error?.mayBeUnknown, true);
 
     const missingCore = await execute(agent, 'ca.certificate.issue', { operation: 'ca.certificate.issue', agentPlan: plan }, { executionId, executionStepId, idempotencyKey: 'adcs-agent-missing-core', writeEffect: false });
@@ -396,6 +411,17 @@ function createRunner(pluginId, packageDirectory, capabilities, permissions, opt
     ...(permissions.length > 0 ? { hostApiHandler: hostApiHandler(calls, options.secretData ?? { privateKeyPem: developmentIssuerPrivateKeyPem, certificatePem: developmentCertificatePem, credentialFingerprint: sha256('adcs-credential'), apiToken: 'development-dns-token' }) } : {}),
   });
   return { client, calls, digests };
+}
+
+function failureFixture(pluginId) {
+  const fixture = failureVectors.cases.find((item) => item.pluginId === pluginId);
+  assert.ok(fixture, `缺少 ${pluginId} 故障向量`);
+  return clone(fixture);
+}
+
+function assertFixtureFailure(result, fixture) {
+  assert.equal(result.status, fixture.expect.status, fixture.id);
+  assert.equal(result.error?.code, fixture.expect.errorCode, fixture.id);
 }
 
 function hostApiHandler(calls, secretData) {
