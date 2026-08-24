@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
-import { listTasks, type TaskStatus } from '@/api/modules/tasks.api'
 import { GcModal } from '@/design-system/components'
 import { productBrand } from '@/brand/product-brand'
 import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
@@ -15,7 +14,7 @@ import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { isQuickTask, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 
 type ToastTone = 'success' | 'warning' | 'danger' | 'info'
 
@@ -84,8 +83,6 @@ const currentPageTitle = computed(() => {
   return ''
 })
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
-const TASK_ENTRY_REFRESH_INTERVAL_MS = 15_000
-const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
 const globalSearchOpen = ref(false)
 const taskDrawerOpen = ref(false)
 const activeTaskCount = ref(0)
@@ -116,8 +113,6 @@ const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferen
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
-let taskEntryRefreshTimer: number | undefined
-let taskEntryRefreshPending = false
 let toastSequence = 0
 let mobileNavPreviousFocus: HTMLElement | null = null
 let mobileViewportQuery: MediaQueryList | undefined
@@ -273,7 +268,6 @@ function toggleTaskDrawer() {
   globalSearchOpen.value = false
   closeUserMenu()
   taskDrawerOpen.value = !taskDrawerOpen.value
-  if (taskDrawerOpen.value) void refreshTaskEntryCount()
 }
 
 function openGlobalSearch() {
@@ -366,13 +360,7 @@ watch(
 )
 
 watch(showTaskEntry, (visible) => {
-  if (visible) {
-    startTaskEntryRefresh()
-    void refreshTaskEntryCount()
-    return
-  }
-  stopTaskEntryRefresh()
-  activeTaskCount.value = 0
+  if (!visible) activeTaskCount.value = 0
 }, { immediate: true })
 
 onMounted(() => {
@@ -390,14 +378,9 @@ onMounted(() => {
   window.addEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity = subscribeTaskActivity((state) => {
     taskEntryConnected.value = state.connected
-    if (state.activeCount > 0) {
-      activeTaskCount.value = state.activeCount
-      return
-    }
-    void refreshTaskEntryCount()
+    activeTaskCount.value = state.activeCount
   })
   disposeTaskRealtime = subscribeTaskRealtime(handleTaskRealtime)
-  void refreshTaskEntryCount()
 })
 
 onBeforeUnmount(() => {
@@ -410,7 +393,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity?.()
   disposeTaskRealtime?.()
-  stopTaskEntryRefresh()
   disposeTaskActivity = undefined
   disposeTaskRealtime = undefined
   executionTaskSuccessToastIds.clear()
@@ -458,51 +440,6 @@ function removeToastNotice(id: number): void {
   if (timer !== undefined) window.clearTimeout(timer)
   toastTimers.delete(id)
   toastNotices.value = toastNotices.value.filter((item) => item.id !== id)
-}
-
-function startTaskEntryRefresh(): void {
-  if (typeof window === 'undefined' || taskEntryRefreshTimer !== undefined) return
-  taskEntryRefreshTimer = window.setInterval(() => {
-    void refreshTaskEntryCount()
-  }, TASK_ENTRY_REFRESH_INTERVAL_MS)
-}
-
-function stopTaskEntryRefresh(): void {
-  if (taskEntryRefreshTimer === undefined) return
-  window.clearInterval(taskEntryRefreshTimer)
-  taskEntryRefreshTimer = undefined
-}
-
-async function refreshTaskEntryCount(): Promise<void> {
-  if (!showTaskEntry.value || taskEntryRefreshPending) return
-  taskEntryRefreshPending = true
-  try {
-    const counts = await Promise.all(ACTIVE_TASK_STATUSES.map(async (status) => {
-      const [executionResult, automationResult] = await Promise.all([
-        listTasks({
-          page: 1,
-          pageSize: 100,
-          filters: { status, category: 'EXECUTION' },
-          includeAll: true,
-        }),
-        listTasks({
-          page: 1,
-          pageSize: 100,
-          filters: { status, taskType: 'AUTOMATION_RUN' },
-          includeAll: true,
-        }),
-      ])
-      return new Set([
-        ...(executionResult.data?.items ?? []),
-        ...(automationResult.data?.items ?? []),
-      ].filter(isQuickTask).map((task) => task.id)).size
-    }))
-    activeTaskCount.value = counts.reduce((sum, count) => sum + count, 0)
-  } catch {
-    // 中文说明：角标只是提示信息，失败时保留已有计数，避免影响主导航。
-  } finally {
-    taskEntryRefreshPending = false
-  }
 }
 
 </script>

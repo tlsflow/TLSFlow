@@ -13,6 +13,7 @@ const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CAN
 export interface TaskRealtimeMessageSnapshot {
   type: 'snapshot';
   activeTasks: TaskRun[];
+  recentTasks: TaskRun[];
   emittedAt: string;
 }
 
@@ -67,7 +68,7 @@ export class TaskRealtimeGateway {
 
   constructor(
     private readonly stream: TaskRealtimeStreamService,
-    private readonly tasks: Pick<TasksApplicationService, 'listActiveExecutionTasks'>,
+    private readonly tasks: Pick<TasksApplicationService, 'listActiveExecutionTasks' | 'listRecentTaskRuns'>,
     private readonly security: SecurityServices,
   ) {
     this.wss.on('connection', (socket: WebSocket, _request: IncomingMessage, client: TaskRealtimeClient) => {
@@ -141,9 +142,11 @@ export class TaskRealtimeGateway {
       client.canReadAll ? undefined : client.actorId,
       client.canDecideApprovals,
     );
+    const recentTasks = await this.tasks.listRecentTaskRuns(client.tenantId, client.canReadAll ? undefined : client.actorId);
     send({
       type: 'snapshot',
       activeTasks,
+      recentTasks: recentTasks.filter((task) => isTaskVisibleToClient(task, client)),
       emittedAt: new Date().toISOString(),
     });
   }

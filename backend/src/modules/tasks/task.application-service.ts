@@ -115,6 +115,10 @@ export class TasksApplicationService {
     return this.repository.listActiveExecutionTasks(tenantId, requestedBy, includePendingApprovals);
   }
 
+  async listRecentTaskRuns(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
+    return this.repository.listRecentTaskRuns(tenantId, requestedBy);
+  }
+
   async cancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
     try {
       const task = await this.repository.requestCancel(tenantId, id, actorId, reason);

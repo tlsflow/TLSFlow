@@ -227,6 +227,24 @@ export class TaskRepository {
     return rows.rows.map(mapTaskRun);
   }
 
+  async listRecentTaskRuns(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
+    const params: unknown[] = [tenantId];
+    const where = [
+      'tenant_id = $1',
+      `status in ('SUCCEEDED', 'FAILED', 'CANCELLED')`,
+      `(category = 'EXECUTION' or task_type in ('AUTOMATION_RUN', 'ACME_CERTIFICATE_RENEWAL'))`,
+    ];
+    if (requestedBy) {
+      params.push(requestedBy);
+      where.push(`requested_by = $${params.length}`);
+    }
+    const rows = await this.db.query<TaskRunRow>(
+      `select * from task_runs where ${where.join(' and ')} order by coalesce(finished_at, created_at) desc limit 50`,
+      params,
+    );
+    return rows.rows.map(mapTaskRun);
+  }
+
   async claimNext(tenantId: string | undefined, workerId: string, leaseSeconds: number): Promise<{ task: TaskRun; attempt: TaskAttempt } | undefined> {
     return this.db.transaction(async (tx) => {
       await recoverExpiredLeases(tx);

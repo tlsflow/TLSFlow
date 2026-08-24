@@ -161,6 +161,39 @@ test('includeAll=true 时分类过滤仍然生效，避免监控任务挤掉执�
   assert.equal(page.items[0]?.category, 'EXECUTION');
 });
 
+test('实时首帧的最近完成任务排除监控任务并遵守发起人范围', async () => {
+  const { db, repository, service } = await createFixture();
+  const tenantId = 'tenant-task-recent';
+  const monitoringTask = await service.enqueue({
+    tenantId,
+    taskType: 'MONITORING_BATCH',
+    requestedBy: 'user-monitor',
+    triggerSource: 'scheduler',
+  });
+  const executionTask = await service.enqueue({
+    tenantId,
+    taskType: 'CERTIFICATE_DRY_RUN',
+    requestedBy: 'user-execution',
+    triggerSource: 'deployment.dry-run',
+  });
+  const automationTask = await service.enqueue({
+    tenantId,
+    taskType: 'AUTOMATION_RUN',
+    requestedBy: 'user-execution',
+    triggerSource: 'automation.manual',
+  });
+  await db.query(
+    `update task_runs set status = 'SUCCEEDED', finished_at = now()
+      where id = any($1::text[])`,
+    [[monitoringTask.id, executionTask.id, automationTask.id]],
+  );
+
+  const allRecent = await repository.listRecentTaskRuns(tenantId);
+  assert.deepEqual(new Set(allRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id]));
+  const userRecent = await repository.listRecentTaskRuns(tenantId, 'user-execution');
+  assert.deepEqual(new Set(userRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id]));
+});
+
 test('执行器失败会按注册策略进入重试并最终失败', async () => {
   const { service } = await createFixture();
   const task = await service.enqueue({
