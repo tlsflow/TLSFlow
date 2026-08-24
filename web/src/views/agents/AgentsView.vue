@@ -55,6 +55,7 @@ interface BindingCertificateView {
   readonly notBefore: string
   readonly notAfter: string
   readonly thumbprint: string
+  readonly fingerprintSha256: string
   readonly storeName: string
   readonly notAfterAt: number | null
 }
@@ -94,6 +95,7 @@ interface IisBindingView {
   readonly protocol: string
   readonly port: string
   readonly certificateSubject: string
+  readonly certificateThumbprint: string
   readonly hostHeader: string
   readonly certificate: BindingCertificateView | null
 }
@@ -398,19 +400,21 @@ function buildLinuxBindingView(binding: Record<string, unknown>): LinuxBindingVi
           notBefore: normalizeDateTime(readObjectValue(certificateRecord, ['NotBefore', 'notBefore'])),
           notAfter: normalizeDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
           thumbprint: normalizeText(readObjectValue(certificateRecord, ['Thumbprint', 'thumbprint'])),
+          fingerprintSha256: normalizeText(readObjectValue(certificateRecord, ['FingerprintSHA256', 'fingerprintSha256'])),
           storeName: normalizeText(readObjectValue(certificateRecord, ['StoreName', 'storeName']), 'FILE_PATH'),
           notAfterAt: parseDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
         }
       : certificateName !== EMPTY_TEXT
-      ? {
-          subject: certificateName,
-          issuer: EMPTY_TEXT,
-          notBefore: EMPTY_TEXT,
-          notAfter: EMPTY_TEXT,
-          thumbprint: EMPTY_TEXT,
-          storeName: 'FILE_PATH',
-          notAfterAt: null,
-        }
+        ? {
+            subject: certificateName,
+            issuer: EMPTY_TEXT,
+            notBefore: EMPTY_TEXT,
+            notAfter: EMPTY_TEXT,
+            thumbprint: EMPTY_TEXT,
+            fingerprintSha256: EMPTY_TEXT,
+            storeName: 'FILE_PATH',
+            notAfterAt: null,
+          }
       : null,
   }
 }
@@ -597,6 +601,7 @@ function buildIisSites(data: ApiRecord): IisSiteView[] {
             port: normalizeText(readObjectValue(binding, ['Port', 'port'])),
             hostHeader: normalizeText(readObjectValue(binding, ['HostHeader', 'hostHeader'])),
             certificateSubject: certificate ? normalizeText(readObjectValue(certificate, ['Subject', 'subject'])) : EMPTY_TEXT,
+            certificateThumbprint: normalizeText(readObjectValue(binding, ['CertificateThumbprint', 'certificateThumbprint'])),
             certificate: certificate
               ? {
                   subject: normalizeText(readObjectValue(certificate, ['Subject', 'subject'])),
@@ -604,6 +609,7 @@ function buildIisSites(data: ApiRecord): IisSiteView[] {
                   notBefore: normalizeDateTime(readObjectValue(certificate, ['NotBefore', 'notBefore'])),
                   notAfter: normalizeDateTime(readObjectValue(certificate, ['NotAfter', 'notAfter'])),
                   thumbprint: normalizeText(readObjectValue(certificate, ['Thumbprint', 'thumbprint'])),
+                  fingerprintSha256: normalizeText(readObjectValue(certificate, ['FingerprintSHA256', 'fingerprintSha256'])),
                   storeName: normalizeText(readObjectValue(certificate, ['StoreName', 'storeName'])),
                   notAfterAt: parseDateTime(readObjectValue(certificate, ['NotAfter', 'notAfter'])),
                 }
@@ -740,6 +746,7 @@ function buildTomcatConnectors(data: ApiRecord): TomcatConnectorView[] {
           notBefore: normalizeDateTime(readObjectValue(certificateRecord, ['NotBefore', 'notBefore'])),
           notAfter: normalizeDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
           thumbprint: normalizeText(readObjectValue(certificateRecord, ['Thumbprint', 'thumbprint'])),
+          fingerprintSha256: normalizeText(readObjectValue(certificateRecord, ['FingerprintSHA256', 'fingerprintSha256'])),
           storeName: normalizeText(readObjectValue(certificateRecord, ['StoreName', 'storeName']), normalizeText(readObjectValue(connector, ['KeystorePath', 'keystorePath']))),
           notAfterAt: parseDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
         }
@@ -751,6 +758,7 @@ function buildTomcatConnectors(data: ApiRecord): TomcatConnectorView[] {
           notBefore: EMPTY_TEXT,
           notAfter: EMPTY_TEXT,
           thumbprint: EMPTY_TEXT,
+          fingerprintSha256: EMPTY_TEXT,
           storeName: normalizeText(readObjectValue(connector, ['KeystorePath', 'keystorePath'])),
           notAfterAt: null,
         }
@@ -1133,12 +1141,13 @@ function closeCertificateAssetModal() {
 
 async function resolveCertificateAssetRoute(certificate: BindingCertificateView): Promise<{ assetId: string; versionId: string } | null> {
   const normalizedThumbprint = normalizeHex(certificate.thumbprint)
-  const certificateNames = collectCertificateNames(certificate)
-  const keyword = certificateNames[0] || normalizedThumbprint || certificate.subject
+  const normalizedSha256 = normalizeHex(certificate.fingerprintSha256)
+  const certificateFingerprint = normalizedSha256 || (normalizedThumbprint.length === 64 ? normalizedThumbprint : '')
+  if (!certificateFingerprint) return null
   const result = await listCertificateVersions({
     page: 1,
     pageSize: 20,
-    keyword,
+    keyword: certificateFingerprint,
   })
   const items = Array.isArray(result.data?.items) ? result.data.items : []
   const matched = items.find((item) => {
@@ -1147,18 +1156,7 @@ async function resolveCertificateAssetRoute(certificate: BindingCertificateView)
     if (!versionId || versionId === EMPTY_TEXT || !assetId || assetId === EMPTY_TEXT) return false
 
     const fingerprintSha256 = normalizeHex(normalizeText(readPath(item, 'fingerprintSha256'), ''))
-    const versionNames = [
-      normalizeCertificateName(normalizeText(readPath(item, 'commonName'), '')),
-      normalizeCertificateName(normalizeText(readPath(item, 'subject.commonName'), '')),
-      ...((readPath(item, 'sans') as unknown[] | undefined) ?? [])
-        .map((name) => normalizeCertificateName(String(name ?? '')))
-        .filter(Boolean),
-    ].filter(Boolean)
-
-    const matchedBySha256 = normalizedThumbprint.length === 64 && fingerprintSha256 === normalizedThumbprint
-    const matchedByName = certificateNames.some((name) => versionNames.includes(name))
-
-    return matchedBySha256 || matchedByName
+    return fingerprintSha256 === certificateFingerprint
   }) as ApiRecord | undefined
 
   if (!matched) return null
@@ -1197,25 +1195,9 @@ async function openCertificateAssetDetail() {
 async function openBindingCertificate(siteName: string, binding: CertificateBindingView) {
   if (!binding.certificate || certificateAssetPending.value) return
 
-  certificateAssetPending.value = true
   certificateAssetError.value = ''
   selectedCertificate.value = { siteName, binding }
-
-  try {
-    const route = await resolveCertificateAssetRoute(binding.certificate)
-    if (route) {
-      openCertificateAssetModal(route, siteName, binding)
-      return
-    }
-
-    certificateAssetError.value = '本项目中未找到对应证书资产，已切换为证书详情视图。'
-    certificateModalOpen.value = true
-  } catch (cause) {
-    certificateAssetError.value = cause instanceof Error ? cause.message : '查询证书资产失败。'
-    certificateModalOpen.value = true
-  } finally {
-    certificateAssetPending.value = false
-  }
+  certificateModalOpen.value = true
 }
 
 async function generateInstallCommand() {
@@ -1516,6 +1498,7 @@ const config: BusinessPageConfig = {
                         </div>
                         <span>{{ binding.hostHeader && binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : '无 Host Header' }}</span>
                         <small>{{ binding.certificateSubject }}</small>
+                        <em v-if="binding.certificateThumbprint !== EMPTY_TEXT">Thumbprint：{{ binding.certificateThumbprint }}</em>
                         <em v-if="binding.certificate">
                           {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
                         </em>
@@ -1833,6 +1816,13 @@ const config: BusinessPageConfig = {
             <div class="agent-detail-modal__item">
               <dt>证书指纹</dt>
               <dd>{{ selectedCertificate.binding.certificate.thumbprint }}</dd>
+            </div>
+            <div
+              v-if="selectedCertificate.binding.certificate.fingerprintSha256 !== EMPTY_TEXT"
+              class="agent-detail-modal__item"
+            >
+              <dt>SHA-256 指纹</dt>
+              <dd>{{ selectedCertificate.binding.certificate.fingerprintSha256 }}</dd>
             </div>
             <div class="agent-detail-modal__item">
               <dt>{{ 'hostHeader' in selectedCertificate.binding ? 'Host Header' : '监听地址' }}</dt>

@@ -53,6 +53,7 @@ function okPage(items: readonly Record<string, unknown>[]) {
 
 describe('AgentsView', () => {
   beforeEach(() => {
+    Object.values(apiMocks).forEach((mock) => mock.mockReset())
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['agent.read', 'agent.write'])
 
@@ -212,6 +213,7 @@ describe('AgentsView', () => {
                         NotBefore: '2026-01-01T00:00:00.000Z',
                         NotAfter: '2027-01-01T00:00:00.000Z',
                         Thumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+                        FingerprintSHA256: '11'.repeat(32),
                         StoreName: 'My',
                       },
                     },
@@ -439,13 +441,10 @@ describe('AgentsView', () => {
     await bindingCard!.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-      keyword: 'portal.example.com',
-    })
-    expect(wrapper.text()).toContain('本项目证书详情')
-    expect(wrapper.text()).toContain('逻辑域名')
+    expect(apiMocks.listCertificateVersions).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('站点绑定证书')
+    expect(wrapper.text()).toContain('证书指纹')
+    expect(wrapper.text()).toContain('AABBCCDDEEFF00112233445566778899AABBCCDD')
     expect(wrapper.text()).toContain('portal.example.com')
   })
 
@@ -989,11 +988,7 @@ describe('AgentsView', () => {
     await bindingCard!.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-      keyword: 'test.local',
-    })
+    expect(apiMocks.listCertificateVersions).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('证书详情')
     expect(wrapper.text()).toContain('CN=test.local')
     expect(wrapper.text()).toContain('CN=GCAC Test CA')
@@ -1098,11 +1093,7 @@ describe('AgentsView', () => {
     await certificateButton!.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-      keyword: 'test.local',
-    })
+    expect(apiMocks.listCertificateVersions).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('证书详情')
     expect(wrapper.text()).toContain('2027-06-23')
     expect(wrapper.text()).toContain('FFEEDDCCBBAA99887766554433221100FFEEDDCC')
@@ -1110,18 +1101,7 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('/etc/gcac-test/certs/test.p12')
   })
 
-  it('站点证书不在本项目中时，退回显示简单证书详情', async () => {
-    apiMocks.listCertificateVersions.mockResolvedValueOnce({
-      data: {
-        items: [],
-        page: 1,
-        pageSize: 20,
-        total: 0,
-      },
-      requestId: 'req_certificate_versions_empty',
-      timestamp: '2026-06-21T00:00:00.000Z',
-    })
-
+  it('点击 IIS 站点证书时直接显示 Agent 实际上报的证书详情', async () => {
     const wrapper = mount(AgentsView, mountOptions)
     await flushPromises()
 
@@ -1140,21 +1120,17 @@ describe('AgentsView', () => {
     await bindingCard!.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-      keyword: 'portal.example.com',
-    })
+    expect(apiMocks.listCertificateVersions).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('证书详情')
     expect(wrapper.text()).toContain('证书名称')
     expect(wrapper.text()).toContain('颁发者')
     expect(wrapper.text()).toContain('开始时间')
     expect(wrapper.text()).toContain('到期时间')
     expect(wrapper.text()).toContain('CN=GCAC Test CA')
-    expect(wrapper.text()).toContain('本项目中未找到对应证书资产')
+    expect(wrapper.text()).toContain('AABBCCDDEEFF00112233445566778899AABBCCDD')
   })
 
-  it('IIS 证书主题包含 CN 前缀时，仍能匹配到项目中的证书资产', async () => {
+  it('IIS 证书主题包含 CN 前缀时，也不会按域名自动打开项目最新证书', async () => {
     apiMocks.getAgentDetail.mockResolvedValueOnce({
       data: {
         agent: {
@@ -1227,26 +1203,6 @@ describe('AgentsView', () => {
       timestamp: '2026-06-21T00:00:00.000Z',
     })
 
-    apiMocks.listCertificateVersions.mockResolvedValueOnce({
-      data: {
-        items: [
-          {
-            id: 'ver-jacksonz-1',
-            certificateAssetId: 'cert-jacksonz-1',
-            fingerprintSha256: '22'.repeat(32),
-            commonName: '*.jacksonz.cn',
-            subject: { commonName: '*.jacksonz.cn' },
-            sans: ['*.jacksonz.cn', 'jacksonz.cn'],
-          },
-        ],
-        page: 1,
-        pageSize: 20,
-        total: 1,
-      },
-      requestId: 'req_certificate_versions_jacksonz',
-      timestamp: '2026-06-21T00:00:00.000Z',
-    })
-
     const wrapper = mount(AgentsView, mountOptions)
     await flushPromises()
 
@@ -1265,13 +1221,10 @@ describe('AgentsView', () => {
     await bindingCard!.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-      keyword: '*.jacksonz.cn',
-    })
-    expect(wrapper.text()).toContain('本项目证书详情')
-    expect(wrapper.text()).not.toContain('本项目中未找到对应证书资产')
+    expect(apiMocks.listCertificateVersions).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('站点绑定证书')
+    expect(wrapper.text()).toContain('CN=*.jacksonz.cn')
+    expect(wrapper.text()).toContain('95D9A57D301B626A02B7BEF5E5218D6EAE3A55CA')
   })
 
   it('关闭本项目证书详情模态框后，仍停留在 Agent 站点详情上下文', async () => {
@@ -1293,7 +1246,19 @@ describe('AgentsView', () => {
     await bindingCard!.trigger('click')
     await flushPromises()
 
+    expect(wrapper.text()).toContain('站点绑定证书')
+    const assetDetailButton = wrapper.findAll('button').find((button) => button.text() === '查看本项目证书详情')
+    expect(assetDetailButton).toBeTruthy()
+    await assetDetailButton!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '11'.repeat(32),
+    })
     expect(wrapper.text()).toContain('本项目证书详情')
+    expect(wrapper.find('.certificate-detail-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('Agent详情')
 
     const closeButtons = wrapper.findAll('button').filter((button) => button.text() === '关闭')
@@ -1301,7 +1266,7 @@ describe('AgentsView', () => {
     await closeButtons[closeButtons.length - 1]!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('本项目证书详情')
+    expect(wrapper.find('.certificate-detail-panel').exists()).toBe(false)
     expect(wrapper.text()).toContain('Agent详情')
     expect(wrapper.text()).toContain('IIS 概况')
     expect(wrapper.text()).toContain('Default Web Site')
@@ -1324,6 +1289,12 @@ describe('AgentsView', () => {
     const bindingCard = wrapper.findAll('.agent-detail-modal__binding-chip').find((item) => item.text().includes('HTTPS:443'))
     expect(bindingCard).toBeTruthy()
     await bindingCard!.trigger('click')
+    await flushPromises()
+
+    const assetDetailButton = wrapper.findAll('button').find((button) => button.text() === '查看本项目证书详情')
+    expect(assetDetailButton).toBeTruthy()
+    await assetDetailButton!.trigger('click')
+    await flushPromises()
     await flushPromises()
 
     const usageTab = wrapper.findAll('button').find((button) => button.text() === '关联资产')
