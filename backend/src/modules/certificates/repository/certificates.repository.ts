@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { getRequestContext } from '../../../common/tracing/request-context.js';
 import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
 import { createPageResponse, type PageResponse } from '../../../shared/dto/page-response.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
@@ -13,27 +14,27 @@ import type {
 export interface CertificatesRepository {
   readonly moduleName: 'certificates';
   createAsset(entity: CertificateAssetEntity): Promise<CertificateAssetEntity>;
-  updateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity>;
-  getAsset(id: string): Promise<CertificateAssetEntity | undefined>;
-  findAssetByPrimaryDomain(primaryDomain: string): Promise<CertificateAssetEntity | undefined>;
-  deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity>;
-  listVersionsByAsset(certificateAssetId: string): Promise<CertificateVersionEntity[]>;
-  updateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity>;
-  promoteVersionAtomic(certificateVersionId: string): Promise<CertificateVersionEntity>;
-  deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity>;
-  listFormatsByVersion(certificateVersionId: string): Promise<CertificateVersionFormatEntity[]>;
-  listAssets(query: PageQuery): Promise<PageResponse<CertificateAssetEntity>>;
+  updateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity>;
+  getAsset(id: string, tenantId?: string): Promise<CertificateAssetEntity | undefined>;
+  findAssetByPrimaryDomain(primaryDomain: string, tenantId?: string): Promise<CertificateAssetEntity | undefined>;
+  deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity>;
+  listVersionsByAsset(certificateAssetId: string, tenantId?: string): Promise<CertificateVersionEntity[]>;
+  updateVersion(id: string, patch: Partial<CertificateVersionEntity>, tenantId?: string): Promise<CertificateVersionEntity>;
+  promoteVersionAtomic(certificateVersionId: string, tenantId?: string): Promise<CertificateVersionEntity>;
+  deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>, tenantId?: string): Promise<CertificateVersionEntity>;
+  listFormatsByVersion(certificateVersionId: string, tenantId?: string): Promise<CertificateVersionFormatEntity[]>;
+  listAssets(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateAssetEntity>>;
   createVersion(entity: CertificateVersionEntity): Promise<CertificateVersionEntity>;
-  getVersion(id: string): Promise<CertificateVersionEntity | undefined>;
-  getVersionByFingerprint(fingerprintSha256: string): Promise<CertificateVersionEntity | undefined>;
-  countVersionsByAsset(certificateAssetId: string): Promise<number>;
-  listVersions(query: PageQuery): Promise<PageResponse<CertificateVersionEntity>>;
+  getVersion(id: string, tenantId?: string): Promise<CertificateVersionEntity | undefined>;
+  getVersionByFingerprint(fingerprintSha256: string, tenantId?: string): Promise<CertificateVersionEntity | undefined>;
+  countVersionsByAsset(certificateAssetId: string, tenantId?: string): Promise<number>;
+  listVersions(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionEntity>>;
   createFormat(entity: CertificateVersionFormatEntity): Promise<CertificateVersionFormatEntity>;
-  updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>): Promise<CertificateVersionFormatEntity>;
-  deleteFormat(id: string): Promise<CertificateVersionFormatEntity>;
-  listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatEntity>>;
-  getFormat(id: string): Promise<CertificateVersionFormatEntity | undefined>;
-  getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined>;
+  updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>, tenantId?: string): Promise<CertificateVersionFormatEntity>;
+  deleteFormat(id: string, tenantId?: string): Promise<CertificateVersionFormatEntity>;
+  listFormats(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionFormatEntity>>;
+  getFormat(id: string, tenantId?: string): Promise<CertificateVersionFormatEntity | undefined>;
+  getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string, tenantId?: string): Promise<CertificateVersionFormatEntity | undefined>;
 }
 
 export class PgCertificatesRepository implements CertificatesRepository {
@@ -46,11 +47,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
   async createAsset(entity: CertificateAssetEntity): Promise<CertificateAssetEntity> {
     await this.db.query(
       `insert into pg_certificate_assets (
-         id, name, primary_domain, sans, source_type, current_version_id,
+         id, tenant_id, name, primary_domain, sans, source_type, current_version_id,
          status, tags, created_by, created_at, updated_at
-       ) values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8::jsonb, $9, $10::timestamptz, $11::timestamptz)`,
+       ) values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz)`,
       [
         entity.id,
+        entity.tenantId ?? effectiveTenantId(),
         entity.name,
         entity.primaryDomain,
         JSON.stringify(entity.sans ?? []),
@@ -63,11 +65,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.updatedAt,
       ],
     );
-    return structuredClone(entity);
+    return { ...structuredClone(entity), tenantId: entity.tenantId ?? effectiveTenantId() };
   }
 
-  async updateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity> {
-    const current = await this.getAssetOrThrow(id);
+  async updateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    const current = await this.getAssetOrThrow(id, scopedTenantId);
     const next = { ...current, ...patch, id };
     await this.db.query(
       `update pg_certificate_assets
@@ -79,7 +82,8 @@ export class PgCertificatesRepository implements CertificatesRepository {
               status = $7,
               tags = $8::jsonb,
               updated_at = $9::timestamptz
-        where id = $1`,
+        where id = $1
+          and ($12::text is null or tenant_id = $12)`,
       [
         id,
         next.name,
@@ -90,48 +94,54 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.status,
         JSON.stringify(next.tags ?? []),
         next.updatedAt,
+        scopedTenantId ?? null,
       ],
     );
-    return next;
+    return { ...next, tenantId: current.tenantId ?? scopedTenantId };
   }
 
-  async getAsset(id: string): Promise<CertificateAssetEntity | undefined> {
+  async getAsset(id: string, tenantId?: string): Promise<CertificateAssetEntity | undefined> {
     const result = await this.db.query<CertificateAssetRow>(
-      `select * from pg_certificate_assets where id = $1`,
-      [id],
+      `select * from pg_certificate_assets
+        where id = $1
+          and ($2::text is null or tenant_id = $2)`,
+      [id, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
   }
 
-  async findAssetByPrimaryDomain(primaryDomain: string): Promise<CertificateAssetEntity | undefined> {
+  async findAssetByPrimaryDomain(primaryDomain: string, tenantId?: string): Promise<CertificateAssetEntity | undefined> {
     const result = await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
         where lower(primary_domain) = lower($1)
           and status <> 'deleted'
+          and ($2::text is null or tenant_id = $2)
         order by created_at asc
         limit 1`,
-      [primaryDomain],
+      [primaryDomain, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
   }
 
-  async deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity> {
-    return this.updateAsset(id, patch);
+  async deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity> {
+    return this.updateAsset(id, patch, tenantId);
   }
 
-  async listVersionsByAsset(certificateAssetId: string): Promise<CertificateVersionEntity[]> {
+  async listVersionsByAsset(certificateAssetId: string, tenantId?: string): Promise<CertificateVersionEntity[]> {
     const result = await this.db.query<CertificateVersionRow>(
       `select * from pg_certificate_versions
         where certificate_asset_id = $1
           and status <> 'deleted'
+          and ($2::text is null or tenant_id = $2)
         order by version_no asc, created_at asc`,
-      [certificateAssetId],
+      [certificateAssetId, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows.map(toVersionEntity);
   }
 
-  async updateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity> {
-    const current = await this.getVersionOrThrow(id);
+  async updateVersion(id: string, patch: Partial<CertificateVersionEntity>, tenantId?: string): Promise<CertificateVersionEntity> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    const current = await this.getVersionOrThrow(id, scopedTenantId);
     const next = { ...current, ...patch, id };
     await this.db.query(
       `update pg_certificate_versions
@@ -165,7 +175,8 @@ export class PgCertificatesRepository implements CertificatesRepository {
               certificate_profile_version_id = $29,
               key_reference_id = $30,
               key_custody_mode = $31
-        where id = $1`,
+        where id = $1
+          and ($32::text is null or tenant_id = $32)`,
       [
         id,
         next.certificateAssetId,
@@ -198,57 +209,64 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.certificateProfileVersionId ?? null,
         next.keyReferenceId ?? null,
         next.keyCustodyMode ?? null,
+        scopedTenantId ?? null,
       ],
     );
-    return next;
+    return { ...next, tenantId: current.tenantId ?? scopedTenantId };
   }
 
-  async promoteVersionAtomic(certificateVersionId: string): Promise<CertificateVersionEntity> {
+  async promoteVersionAtomic(certificateVersionId: string, tenantId?: string): Promise<CertificateVersionEntity> {
+    const scopedTenantId = effectiveTenantId(tenantId);
     return this.db.transaction(async (tx) => {
       const repository = new PgCertificatesRepository(tx);
-      const version = await repository.getVersion(certificateVersionId);
+      const version = await repository.getVersion(certificateVersionId, scopedTenantId);
       if (!version) throw new Error(`certificate version not found: ${certificateVersionId}`);
-      const asset = await repository.getAsset(version.certificateAssetId);
+      const asset = await repository.getAsset(version.certificateAssetId, scopedTenantId);
       if (!asset) throw new Error(`certificate asset not found: ${version.certificateAssetId}`);
       const currentVersion = asset.currentVersionId && asset.currentVersionId !== version.id
-        ? await repository.getVersion(asset.currentVersionId)
+        ? await repository.getVersion(asset.currentVersionId, scopedTenantId)
         : undefined;
       const now = new Date().toISOString();
       if (currentVersion) {
         await repository.updateVersion(currentVersion.id, {
           activationState: 'superseded',
           updatedAt: now,
-        } as Partial<CertificateVersionEntity>);
+        } as Partial<CertificateVersionEntity>, scopedTenantId);
       }
       const promoted = await repository.updateVersion(version.id, {
         activationState: 'promoted',
         updatedAt: now,
-      } as Partial<CertificateVersionEntity>);
+      } as Partial<CertificateVersionEntity>, scopedTenantId);
       await repository.updateAsset(asset.id, {
         currentVersionId: promoted.id,
         updatedAt: now,
-      });
+      }, scopedTenantId);
       return promoted;
     });
   }
 
-  async deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity> {
-    return this.updateVersion(id, patch);
+  async deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>, tenantId?: string): Promise<CertificateVersionEntity> {
+    return this.updateVersion(id, patch, tenantId);
   }
 
-  async listFormatsByVersion(certificateVersionId: string): Promise<CertificateVersionFormatEntity[]> {
+  async listFormatsByVersion(certificateVersionId: string, tenantId?: string): Promise<CertificateVersionFormatEntity[]> {
     const result = await this.db.query<CertificateVersionFormatRow>(
-      `select * from pg_certificate_version_formats where certificate_version_id = $1 order by created_at asc`,
-      [certificateVersionId],
+      `select * from pg_certificate_version_formats
+        where certificate_version_id = $1
+          and ($2::text is null or tenant_id = $2)
+        order by created_at asc`,
+      [certificateVersionId, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows.map(toFormatEntity);
   }
 
-  async listAssets(query: PageQuery): Promise<PageResponse<CertificateAssetEntity>> {
+  async listAssets(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateAssetEntity>> {
     const rows = (await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
         where status <> 'deleted'
+          and ($1::text is null or tenant_id = $1)
         order by created_at desc`,
+      [effectiveTenantId(tenantId) ?? null],
     )).rows.map(toAssetEntity);
     return page(filterRows(applyAuthorizationFilter(rows, query), query.filter), query);
   }

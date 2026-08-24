@@ -24,6 +24,7 @@ export interface CertificateDistinguishedName {
 
 export interface CertificateAssetEntity {
   id: string;
+  tenantId?: string;
   name: string;
   primaryDomain: string;
   sans: string[];
@@ -38,6 +39,7 @@ export interface CertificateAssetEntity {
 
 export interface CertificateVersionEntity {
   id: string;
+  tenantId?: string;
   certificateAssetId: string;
   versionNo: number;
   commonName?: string;
@@ -72,6 +74,7 @@ export interface CertificateVersionEntity {
 
 export interface CertificateVersionFormatEntity {
   id: string;
+  tenantId?: string;
   certificateVersionId?: string;
   format: CertificateFormat;
   artifactRef: string;

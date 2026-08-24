@@ -72,6 +72,7 @@ export interface CertificateArtifactFileDto {
 }
 
 export interface CreateCertificateAssetInput {
+  tenantId?: string;
   name: string;
   primaryDomain: string;
   sans?: string[];
@@ -122,18 +123,21 @@ export interface CertificateFormatCapabilitiesDto {
 }
 
 export interface ChangeCertificateAssetStatusInput {
+  tenantId?: string;
   id: string;
   status: 'active' | 'archived' | 'deleted';
   actorId: string;
 }
 
 export interface ChangeCertificateVersionStatusInput {
+  tenantId?: string;
   id: string;
   status: 'active' | 'archived' | 'revoked' | 'deleted';
   actorId: string;
 }
 
 export interface ImportCertificateVersionInput {
+  tenantId?: string;
   certificateAssetId?: string;
   certificatePem?: string;
   certificateDerBase64?: string;
@@ -161,6 +165,7 @@ export interface ImportCertificateVersionInput {
 }
 
 export interface CreateCertificateVersionFormatInput {
+  tenantId?: string;
   certificateVersionId?: string;
   format: CertificateFormat;
   containsPrivateKey?: boolean;
@@ -171,6 +176,7 @@ export interface CreateCertificateVersionFormatInput {
 }
 
 export interface UpdateCertificateVersionFormatInput {
+  tenantId?: string;
   id: string;
   certificateVersionId?: string;
   format?: CertificateFormat;
@@ -182,11 +188,13 @@ export interface UpdateCertificateVersionFormatInput {
 }
 
 export interface DeleteCertificateVersionFormatInput {
+  tenantId?: string;
   id: string;
   deletedBy: string;
 }
 
 export interface CertificateSourceSyncInput {
+  tenantId?: string;
   sourceType: CertificateSourceType;
   externalId: string;
   certificatePem?: string;
