@@ -23,8 +23,10 @@ const props = withDefaults(defineProps<{
   initialPlan?: DeploymentWizardInitialPlan | null
   dryRunChecks?: readonly ApiRecord[]
   simple?: boolean
-  /** 资产页直接部署时替换默认 Dry-run 操作，并保持现有计划页行为不变。 */
+  /** 资产页直接部署时替换默认预检操作，并保持现有计划页行为不变。 */
   primaryActionLabel?: string
+  /** 可选的同步只读预检入口。仅资产详情页传入，不能启动执行任务。 */
+  manualPreflightActionLabel?: string
 }>(), {
   loading: false,
   dryRunRequestId: '',
@@ -35,11 +37,13 @@ const props = withDefaults(defineProps<{
   dryRunChecks: () => [],
   simple: false,
   primaryActionLabel: '',
+  manualPreflightActionLabel: '',
 })
 
 const emit = defineEmits<{
   save: [plan: DeploymentWizardPlan]
   dryRun: [plan: DeploymentWizardPlan]
+  preflight: [plan: DeploymentWizardPlan]
   deploy: [plan: DeploymentWizardPlan]
   submit: [plan: DeploymentWizardPlan]
   execute: [plan: DeploymentWizardPlan]
@@ -603,6 +607,9 @@ function normalizeDomainKey(value: string): string {
         <button class="gc-button" type="button" :disabled="loading" @click="emit('cancel')">{{ t('designSystem.deploymentWizard.actions.cancel') }}</button>
         <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" :disabled="!canGoNext || loading" @click="goNext">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
         <template v-else>
+          <button v-if="manualPreflightActionLabel" class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('preflight', buildPlan())">
+            {{ manualPreflightActionLabel }}
+          </button>
           <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="primaryActionLabel ? emit('deploy', buildPlan()) : emit('dryRun', buildPlan())">
             {{ primaryActionLabel || (simple ? t('deploymentPlans.userView.prepareAction') : t('designSystem.deploymentWizard.actions.dryRun')) }}
           </button>

@@ -304,7 +304,12 @@ describe('spec028 前端闭环', () => {
       timestamp: '2026-06-08T00:00:00.000Z',
     })
     deploymentMocks.dryRunDeploymentPlan.mockResolvedValue({
-      data: { run: { id: 'run-dry-1', status: 'RUNNING', type: 'dry_run' } },
+      data: {
+        checks: [
+          { key: 'certificate_domain:target-1', label: '证书与目标域名', status: 'passed', detail: '证书域名匹配。' },
+        ],
+        summary: { passed: 1, warning: 0, failed: 0, unknown: 0 },
+      },
       requestId: 'req_dry',
       timestamp: '2026-06-08T00:00:00.000Z',
     })
@@ -438,7 +443,7 @@ describe('spec028 前端闭环', () => {
     document.body.innerHTML = ''
   })
 
-  it('部署向导可以发起 dry-run，并显示统一后的任务流模态框', async () => {
+  it('部署向导可以手动发起同步 dry-run 预检，且不创建执行运行', async () => {
     const router = createTestRouter()
     router.push('/deployment-plans')
     await router.isReady()
@@ -463,7 +468,7 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
     clickBodyButton('下一步')
     await flushPromises()
-    clickBodyButton('先做 Dry-run')
+    clickBodyButton('运行 Dry-run 预检')
     await flushPromises()
 
     expect(deploymentMocks.createDeploymentPlanFromApplicationAsset).toHaveBeenCalledWith(expect.objectContaining({
@@ -475,8 +480,9 @@ describe('spec028 前端闭环', () => {
       timeoutMs: 10000,
     }))
     expect(deploymentMocks.dryRunDeploymentPlan).toHaveBeenCalledWith({ planId: 'plan-1' })
-    expect(bodyText()).toContain('预检已发起（run-dry-1）')
-    expect(bodyText()).toContain('证书Dry-run')
+    expect(bodyText()).toContain('已返回 1 项预检')
+    expect(bodyText()).toContain('证书与目标域名')
+    expect(bodyText()).not.toContain('run-dry-1')
   })
 
   it('部署向导会展示非受管工作流应用资产并按应用资产创建计划', async () => {
@@ -719,7 +725,7 @@ describe('spec028 前端闭环', () => {
     expect(bodyText()).not.toContain('部署向导')
   })
 
-  it('执行部署缺少有效 dry-run 时，会弹出前端确认模态框引导用户先做 dry-run', async () => {
+  it('正式执行不依赖历史 dry-run 结果', async () => {
     deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
       {
         id: 'plan-success',
@@ -730,13 +736,11 @@ describe('spec028 前端闭环', () => {
         latestRun: { id: 'run-apply-1', status: 'SUCCESS', type: 'dry_run' },
       },
     ]))
-    deploymentMocks.executeDeploymentPlan.mockRejectedValue(
-      new ApiClientError('正式执行前必须先完成一次成功的 Dry-run 影响预览。', {
-        errorCode: 'DRY_RUN_REQUIRED',
-        requestId: 'req_execute_failed',
-        status: 409,
-      }),
-    )
+    deploymentMocks.executeDeploymentPlan.mockResolvedValue({
+      data: { run: { id: 'run-apply-2', status: 'DISPATCHED', type: 'apply' } },
+      requestId: 'req_execute_success',
+      timestamp: '2026-08-15T00:00:00.000Z',
+    })
 
     const router = createTestRouter()
     router.push('/deployment-plans')
@@ -758,15 +762,9 @@ describe('spec028 前端闭环', () => {
     clickBodyButton('确认')
     await flushPromises()
 
-    expect(bodyText()).toContain('需要先执行 Dry-run')
-    expect(bodyText()).toContain('正式执行前必须先完成一次成功的 Dry-run 影响预览。')
-    expect(bodyText()).toContain('先做 Dry-run')
-
-    clickBodyButton('先做 Dry-run')
-    await flushPromises()
-
+    expect(deploymentMocks.executeDeploymentPlan).toHaveBeenCalledWith('plan-success', { reason: 'deployment-plan-reexecute' })
     expect(bodyText()).not.toContain('需要先执行 Dry-run')
-    expect(bodyText()).toContain('证书Dry-run')
+    expect(bodyText()).not.toContain('正式执行前必须先完成一次成功的 Dry-run 影响预览。')
   })
 
   it('部署计划列表按状态显示执行和回滚动作', async () => {
@@ -1009,7 +1007,6 @@ describe('spec028 前端闭环', () => {
     clickBodyButton('Dry-run 影响预览')
     await flushPromises()
 
-    expect(bodyText()).toContain('Dry-run 结果')
     expect(bodyText()).toContain('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload')
 
     clickBodyButton('关闭')

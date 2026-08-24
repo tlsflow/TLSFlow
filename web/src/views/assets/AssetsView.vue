@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
-import { listExecutionStepsByRunId, listExecutionsByPlanId, rollbackExecution } from '@/api/modules/executions.api'
+import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats, listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
@@ -192,7 +192,6 @@ const deploymentLoading = ref(false)
 const deploymentError = ref('')
 const deploymentInfo = ref('')
 const deploymentPlanId = ref('')
-const deploymentRequestId = ref('')
 const deploymentDryRunChecks = ref<ApiRecord[]>([])
 const deploymentCertificateItems = ref<ApiRecord[]>([])
 const deploymentCertificateVersionItems = ref<ApiRecord[]>([])
@@ -695,7 +694,6 @@ async function openDeploymentDialog(row?: ViewRow) {
   deploymentError.value = ''
   deploymentInfo.value = ''
   deploymentPlanId.value = ''
-  deploymentRequestId.value = ''
   deploymentDryRunChecks.value = []
   deploymentWizardInitialPlan.value = { applicationAssetId }
   await loadDeploymentDialogOptions()
@@ -750,16 +748,6 @@ async function deployCertificateVersion(plan: DeploymentWizardPlan) {
   deploymentInfo.value = ''
   try {
     const planId = await ensureDeploymentPlan(plan)
-    const dryRun = await dryRunDeploymentPlan({ planId })
-    deploymentRequestId.value = dryRun.requestId
-    deploymentDryRunChecks.value = extractDeploymentDryRunChecks(dryRun.data)
-    deploymentInfo.value = t('assets.deployment.feedback.preflightRunning')
-    const dryRunRun = await waitForDeploymentDryRun(planId, String(readNested(dryRun.data, ['run', 'id']) ?? ''))
-    if (String(dryRunRun.status ?? '') !== 'SUCCESS') {
-      throw new Error(String(dryRunRun.errorMessage ?? t('assets.deployment.errors.preflightFailed')))
-    }
-    const completedChecks = await loadDeploymentDryRunChecks(String(dryRunRun.id ?? ''))
-    if (completedChecks.length > 0) deploymentDryRunChecks.value = completedChecks
     const submitted = await submitDeploymentPlan(planId)
     const submittedPlan = submitted.data ?? {}
     const status = String(submittedPlan.status ?? '')
@@ -768,8 +756,7 @@ async function deployCertificateVersion(plan: DeploymentWizardPlan) {
       await loadDeploymentRecords(selectedApplicationAssetId.value)
       return
     }
-    const executed = await executeDeploymentPlan(planId)
-    deploymentRequestId.value = executed.requestId
+    await executeDeploymentPlan(planId)
     deploymentInfo.value = t('assets.deployment.feedback.executionStarted')
     await loadDeploymentRecords(selectedApplicationAssetId.value)
   } catch (cause) {
@@ -779,25 +766,20 @@ async function deployCertificateVersion(plan: DeploymentWizardPlan) {
   }
 }
 
-async function waitForDeploymentDryRun(planId: string, runId: string): Promise<ApiRecord> {
-  const timeoutAt = Date.now() + 60_000
-  while (Date.now() < timeoutAt) {
-    const result = await listExecutionsByPlanId(planId, { page: 1, pageSize: 50, sort: 'createdAt:desc' })
-    const run = (result.data?.items ?? []).find((item) => String(item.id ?? '') === runId)
-      ?? (result.data?.items ?? []).find((item) => String(item.type ?? '') === 'dry_run')
-    if (run) {
-      const status = String(run.status ?? '')
-      if (['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(status)) return run
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 500))
+async function preflightCertificateDeployment(plan: DeploymentWizardPlan) {
+  deploymentLoading.value = true
+  deploymentError.value = ''
+  deploymentInfo.value = ''
+  try {
+    const planId = await ensureDeploymentPlan(plan)
+    const result = await dryRunDeploymentPlan({ planId })
+    deploymentDryRunChecks.value = extractDeploymentPreflightChecks(result.data)
+    deploymentInfo.value = t('assets.deployment.preflightAvailable', { count: deploymentDryRunChecks.value.length })
+  } catch (cause) {
+    deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.preflightFailed')
+  } finally {
+    deploymentLoading.value = false
   }
-  throw new Error(t('assets.deployment.errors.preflightTimeout'))
-}
-
-async function loadDeploymentDryRunChecks(runId: string): Promise<ApiRecord[]> {
-  if (!runId) return []
-  const result = await listExecutionStepsByRunId(runId, { page: 1, pageSize: 200, sort: 'stepNo:asc' })
-  return extractDeploymentDryRunChecks({ steps: [...(result.data?.items ?? [])] })
 }
 
 async function loadDeploymentRecords(applicationAssetId: string) {
@@ -815,8 +797,9 @@ async function loadDeploymentRecords(applicationAssetId: string) {
   }
 }
 
-function extractDeploymentDryRunChecks(data: ApiRecord | undefined): ApiRecord[] {
+function extractDeploymentPreflightChecks(data: ApiRecord | undefined): ApiRecord[] {
   if (!data) return []
+  if (Array.isArray(data.checks)) return data.checks as ApiRecord[]
   const steps = Array.isArray(data.steps) ? data.steps as ApiRecord[] : []
   for (const step of steps) {
     const resultDetail = readNested(step, ['inputSnapshot', 'resultDetail'])
@@ -985,7 +968,23 @@ async function openEditDialog(row: ViewRow) {
   if (assetDraft.managementMode === 'MANAGED_TARGET' && assetDraft.managedTargetId) {
     await loadManagedTargetPluginResolution(assetDraft.managedTargetId)
   }
-  if (workflowExecutionBindingId) await loadExistingWorkflowExecutionBinding(workflowExecutionBindingId)
+  const shouldLoadWorkflowBinding = Boolean(workflowExecutionBindingId)
+    && (assetDraft.managementMode === 'WORKFLOW' || assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE')
+  if (shouldLoadWorkflowBinding) {
+    try {
+      await loadExistingWorkflowExecutionBinding(workflowExecutionBindingId)
+    } catch (cause) {
+      const canFallbackToPlugin = assetDraft.managementMode === 'MANAGED_TARGET'
+        && assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
+        && cause instanceof ApiClientError
+        && cause.errorCode === 'RESOURCE_NOT_FOUND'
+      if (!canFallbackToPlugin) throw cause
+      // 工作流绑定已被历史清理时，受管目标仍可回到插件执行，避免脏 ID 阻塞资产编辑。
+      assetDraft.managedExecutionMode = 'PLUGIN'
+      assetDraft.workflowExecutionBindingId = ''
+      assetDraft.workflowExecutionBindingVersion = 0
+    }
+  }
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   await refreshWorkflowBindingProjection()
 }
@@ -3066,7 +3065,9 @@ function managedTargetLabel(target: ApiRecord): string {
         :loading="deploymentLoading"
         :initial-plan="deploymentWizardInitialPlan"
         :dry-run-checks="deploymentDryRunChecks"
+        :manual-preflight-action-label="t('assets.deployment.fields.preflight')"
         :primary-action-label="t('assets.deployment.deployThisVersion')"
+        @preflight="preflightCertificateDeployment"
         @deploy="deployCertificateVersion"
         @cancel="closeDeploymentDialog"
       />

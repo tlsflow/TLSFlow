@@ -54,7 +54,6 @@ const manualRunPreviewError = ref('')
 const manualRunSubmitting = ref(false)
 const manualRunError = ref('')
 const manualRunStopOnError = ref(false)
-const manualRunDryRun = ref(false)
 const applicationAssets = ref<ApiRecord[]>([])
 const applicationAssetsLoaded = ref(false)
 let applicationAssetsRequest: Promise<void> | null = null
@@ -330,7 +329,6 @@ async function openManualRun(item: AutomationRecord) {
   manualRunPreviewLoading.value = false
   manualRunError.value = ''
   manualRunStopOnError.value = false
-  manualRunDryRun.value = Boolean(item.configuration.guardrails.requireDryRun)
   manualRunOpen.value = true
   manualRunLoading.value = true
   try {
@@ -393,7 +391,6 @@ async function submitManualRun() {
       },
       executionOptions: {
         stopOnError: manualRunStopOnError.value,
-        dryRun: manualRunDryRun.value || Boolean(automation.configuration.guardrails.requireDryRun),
       },
     })
     manualRunOpen.value = false
@@ -417,7 +414,6 @@ function manualRunVersionLabel(version: ApiRecord): string {
   return [name, asset, notAfter].filter(Boolean).join(' · ')
 }
 
-const manualRunCanDryRun = computed(() => manualRunAutomation.value?.configuration.guardrails.requireDryRun !== true)
 const manualRunExecutableCount = computed(() => {
   const preview = manualRunPreview.value
   if (!preview) return 0
@@ -704,10 +700,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
                 <dd>{{ detailRecord.configuration.guardrails.failureCountThreshold ?? t('automations.common.notAvailable') }}</dd>
               </div>
               <div>
-                <dt>{{ t('automations.fields.requireDryRun') }}</dt>
-                <dd>{{ booleanSummary(detailRecord.configuration.guardrails.requireDryRun) }}</dd>
-              </div>
-              <div>
                 <dt>{{ t('automations.fields.requireApproval') }}</dt>
                 <dd>{{ booleanSummary(detailRecord.configuration.guardrails.requireApproval) }}</dd>
               </div>
@@ -860,10 +852,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
             <label>
               <input v-model="manualRunStopOnError" type="checkbox" :disabled="manualRunSubmitting" />
               <span>{{ t('automations.manualRun.stopOnError') }}</span>
-            </label>
-            <label>
-              <input v-model="manualRunDryRun" type="checkbox" :disabled="manualRunSubmitting || !manualRunCanDryRun" />
-              <span>{{ t('automations.manualRun.dryRun') }}</span>
             </label>
           </div>
         </GcCard>

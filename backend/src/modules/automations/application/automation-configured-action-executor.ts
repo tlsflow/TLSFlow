@@ -35,22 +35,8 @@ export class AutomationConfiguredActionExecutor implements AutomationActionExecu
         if (!planId) throw new Error('AUTOMATION_DEPLOYMENT_PLAN_MISSING');
         let plan = await this.deployment.getPlan(planId, input.run.tenantId);
         if (plan.status === 'DRAFT') {
-          const requireDryRun = input.action.config.dryRunFirst || input.run.executionOptions?.dryRun === true;
-          if (requireDryRun && plan.latestRun?.type !== 'dry_run') {
-            const dryRun = await this.deployment.dryRun({ planId, runId: input.run.id, automationId: input.run.automationId, approvalId: input.approvalId, actorId: input.run.createdBy, tenantId: input.run.tenantId, idempotencyKey: '' }) as { run?: { id?: string } };
-            return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: dryRun.run?.id };
-          }
-          if (requireDryRun && plan.latestRun?.type === 'dry_run') {
-            if (['PENDING', 'DISPATCHED', 'RUNNING'].includes(plan.latestRun.status)) {
-              return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: plan.latestRun.id };
-            }
-            if (plan.latestRun.status !== 'SUCCESS') {
-              throw Object.assign(new Error(`AUTOMATION_DRY_RUN_${plan.latestRun.status}`), {
-                errorCode: `AUTOMATION_DRY_RUN_${plan.latestRun.status}`,
-                failureStage: 'dry_run' as const,
-              });
-            }
-          }
+          // 旧配置中的 dryRunFirst / executionOptions.dryRun 仅作历史兼容。
+          // 自动化不能再创建带副作用的预检任务，正式执行会自行同步校验。
           plan = await this.deployment.submit({
             planId,
             actorId: input.run.createdBy,

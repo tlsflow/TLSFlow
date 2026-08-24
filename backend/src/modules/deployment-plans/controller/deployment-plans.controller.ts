@@ -42,7 +42,7 @@ export class DeploymentPlansController {
     router.post('/api/v1/deployment-plans/from-application', '按 Application 创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/update-from-application-asset', '编辑应用资产部署计划草稿', ['DeploymentPlans'], (request) => this.updateFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/submit', '提交部署计划', ['DeploymentPlans'], (request) => this.submit(request));
-    router.post('/api/v1/deployment-plans/dry-run', 'Dry-run 部署计划', ['DeploymentPlans'], (request) => this.dryRun(request));
+    router.post('/api/v1/deployment-plans/dry-run', '同步预检部署计划', ['DeploymentPlans'], (request) => this.dryRun(request));
     router.post('/api/v1/deployment-plans/execute', '执行部署计划', ['DeploymentPlans'], (request) => this.execute(request));
     router.post('/api/v1/deployment-plans/cancel', '取消部署计划', ['DeploymentPlans'], (request) => this.cancel(request));
     router.post('/api/v1/deployment-plans/delete', '删除部署计划', ['DeploymentPlans'], (request) => this.deleteDraft(request));
@@ -229,7 +229,8 @@ export class DeploymentPlansController {
     await this.assertPlanAction(request, ['application.deployment.execute', 'deployment.plan.execute'], String(body.planId));
     return this.service.dryRun({
       planId: String(body.planId),
-      idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
+      // 同步预检没有任何可重放写入；保留传入字段只为兼容旧客户端。
+      idempotencyKey: body.idempotencyKey === undefined ? undefined : String(body.idempotencyKey),
       actorId: this.actorId(request),
       tenantId: request.context.tenantId,
     }, this.securityContext(request));

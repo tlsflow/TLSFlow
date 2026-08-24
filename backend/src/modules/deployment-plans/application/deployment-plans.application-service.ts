@@ -9,7 +9,7 @@ import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { ApplicationAssetDeploymentRecordDto, CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
+import type { ApplicationAssetDeploymentRecordDto, CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanPreflightResultDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
@@ -414,7 +414,6 @@ export class DeploymentPlansApplicationService {
       temporary: input.temporary === true,
       createdBy: input.actorId,
     }, targetDrafts);
-
     const plan = await this.repository.createPlan({
       id: newId('pln'),
       tenantId: input.tenantId,
@@ -981,6 +980,9 @@ export class DeploymentPlansApplicationService {
     const workflow = capability.pluginRuntime === 'WORKFLOW_DSL'
       ? await this.requirePluginWorkflow(capability.pluginVersionId, capability.assignment.capabilityKey)
       : undefined;
+    const workflowVersion = workflow && this.workflows
+      ? await this.workflows.getVersion(workflow.workflowVersionId)
+      : undefined;
     const executionSource = this.executionSourceResolver.resolvePlugin({
       capability,
       workflowVersionId: workflow?.workflowVersionId,
@@ -994,7 +996,11 @@ export class DeploymentPlansApplicationService {
       applicationAsset: asset,
       resolvedInput,
       certificateBindingId: certificateBinding?.id,
-      workflow: workflow ? { workflowId: workflow.workflowTemplateId, workflowVersionId: workflow.workflowVersionId } : undefined,
+      workflow: workflow ? {
+        workflowId: workflow.workflowTemplateId,
+        workflowVersionId: workflow.workflowVersionId,
+        ...(workflowVersion?.executionMode === 'PLUGIN_RUNNER' ? { executionMode: 'PLUGIN_RUNNER' as const } : {}),
+      } : undefined,
     });
     const resolved = this.deploymentStrategyResolver.resolve({
       applicationAsset: asset,
@@ -1467,7 +1473,7 @@ export class DeploymentPlansApplicationService {
     }
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
-    await this.assertLatestDryRunPassed(plan, input.tenantId);
+    await this.assertSynchronousPlanPreflight(plan, targets);
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
@@ -1522,66 +1528,21 @@ export class DeploymentPlansApplicationService {
     return { plan: await this.toDto(running), ...created };
   }
 
-  async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
+  async dryRun(input: DryRunDeploymentPlanInput, _context: RequestContext = {}): Promise<DeploymentPlanPreflightResultDto> {
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'dry-run');
-    let plan = await this.synchronizeApprovalState(storedPlan);
-    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
+    const plan = storedPlan;
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许 dry-run', { planId: plan.id, status: plan.status });
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许执行同步预检', { planId: plan.id, status: plan.status });
     }
 
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
-    if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
-    const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
-    const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
-    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
-    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
-      plan,
-      targets,
-      agentPayloadByTargetId,
-      input.actorId,
-      context.requestId ?? input.idempotencyKey,
-    );
-    for (const [targetId, payload] of agentPayloadByTargetId) {
-      const executionAuthorization = readRecord(payload.executionAuthorization);
-      const runtimeSnapshot = runtimeSnapshots.get(targetId);
-      const workflowRequest = readRecord(payload.workflowRequest);
-      agentPayloadByTargetId.set(targetId, {
-        ...payload,
-        ...(trustPlanByTargetId.get(targetId) ? { certificateTrustPlan: trustPlanByTargetId.get(targetId) } : {}),
-        executionAuthorization: {
-          ...executionAuthorization,
-          tenantId: plan.tenantId,
-          planId: plan.id,
-          targetId,
-          approvalId: automationApproval?.id ?? plan.approvalId,
-          workflowVersionId: readOptionalString(workflowRequest?.workflowVersionId),
-          snapshotHash: plan.snapshotHash,
-          approved: plan.approvalStatus === 'APPROVED' || Boolean(automationApproval),
-          allowInsecureTls: runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true,
-        },
-      });
-    }
-    const created = await this.executions.createDryRun({
-      deploymentPlanId: plan.id,
-      deploymentPlanTargetIds: targets.map((target) => target.id),
-      type: 'dry_run',
-      idempotencyKey: input.idempotencyKey,
-      actorId: input.actorId,
-      tenantId: plan.tenantId ?? input.tenantId,
-      executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
-      gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
-      agentPayloadByTargetId,
-      concurrencyLimit: plan.policy.batchSize,
-      stepMaxAttempts: plan.policy.retry?.maxAttempts,
-      retry: plan.policy.retry,
-      failurePolicy: plan.policy.failurePolicy,
-      source: input.executionSource,
-    }, context);
-    const stepsWithInitialChecks = await this.attachInitialDryRunChecks(created.steps, targets, deploymentArtifactByTargetId, agentPayloadByTargetId, input.actorId, input.tenantId);
-    const stepsWithTrustChecks = await this.attachTrustPlanDryRunChecks(stepsWithInitialChecks, trustPlanByTargetId, input.actorId, input.tenantId);
-    return { plan: await this.toDto(plan), ...created, steps: stepsWithTrustChecks };
+    if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可预检目标', { planId: plan.id });
+    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
+    return {
+      plan: await this.toDto(plan),
+      checks,
+      summary: summarizeDryRunChecks(checks),
+    };
   }
 
   async cancel(input: CancelDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -2363,6 +2324,8 @@ export class DeploymentPlansApplicationService {
     return {
       certificateVersionId,
       certificateFormatId: format.id,
+      artifactRef: generated.artifactRef,
+      artifactSha256: generated.artifactSha256,
       format: generated.format,
       containsPrivateKey: generated.containsPrivateKey,
       certificatePem: generated.certificatePem,
@@ -2418,6 +2381,8 @@ export class DeploymentPlansApplicationService {
       const baseMaterial = enrichWorkflowCertificateMaterial({
         certificateVersionId,
         certificateFormatId: generated.certificateFormatId,
+        artifactRef: generated.artifactRef,
+        artifactSha256: generated.artifactSha256,
         format: generated.format,
         containsPrivateKey: generated.containsPrivateKey,
         fingerprintSha256: version.fingerprintSha256,
@@ -2457,6 +2422,8 @@ export class DeploymentPlansApplicationService {
       first ??= {
         certificateVersionId,
         certificateFormatId: generated.certificateFormatId,
+        artifactRef: generated.artifactRef,
+        artifactSha256: generated.artifactSha256,
         format: generated.format,
         containsPrivateKey: generated.containsPrivateKey,
         certificatePem: generated.certificatePem,
@@ -2540,9 +2507,11 @@ export class DeploymentPlansApplicationService {
   ): Promise<Record<string, unknown> | undefined> {
     if (!target.certificateBindingId) return undefined;
     const currentBinding = await this.tryGetBinding(tenantId, target.certificateBindingId);
-    if (!isAgentManagedTlsBinding(currentBinding)) return undefined;
     const sealedProof = readRecord(target.strategyPayload?.preDeployBindingProof);
+    // 创建计划时已经固定了 Agent TLS 证明；执行阶段必须优先重验这份证明，
+    // 不能因为历史绑定缺少 discoverySource 标记就悄悄跳过 TLS 校验。
     if (!sealedProof) {
+      if (!isAgentManagedTlsBinding(currentBinding)) return undefined;
       throw new AppError('VALIDATION_FAILED', 'Agent Web 部署目标缺少创建时固定的本机 TLS 证书证明，请重新生成部署计划', {
         code: 'PRE_DEPLOY_TLS_PROOF_MISSING',
         deploymentPlanTargetId: target.id,
@@ -3171,7 +3140,7 @@ export class DeploymentPlansApplicationService {
     target: DeploymentPlanTargetDto,
     workflowVersions = new Map<string, Promise<WorkflowVersion | undefined>>(),
   ): Promise<Omit<DeploymentPlanWorkflowIdentityDto, 'targetIds'> | undefined> {
-    if (target.executorType !== 'WORKFLOW') return undefined;
+    if (target.executorType !== 'WORKFLOW' && target.executorType !== 'PLUGIN_RUNNER') return undefined;
 
     const executionSource = readRecord(target.strategyPayload?.executionSource);
     const sourceType = readOptionalString(executionSource?.type);
@@ -3299,21 +3268,394 @@ export class DeploymentPlansApplicationService {
     return { ...target };
   }
 
-  private async assertLatestDryRunPassed(plan: DeploymentPlanEntity, tenantId?: string): Promise<void> {
-    const runs = await this.executions.listRuns({ tenantId, deploymentPlanId: plan.id }) as ExecutionRunDto[];
-    const latestRun = runs
-      .sort((left, right) => {
-        const runNo = Number(right.runNo ?? 0) - Number(left.runNo ?? 0);
-        if (runNo !== 0) return runNo;
-        return String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''));
-      })[0];
-    if (latestRun?.type === 'dry_run' && latestRun.status === 'SUCCESS') return;
-    throw new AppError('DEPLOYMENT_INVALID_STATE', '正式执行前必须先完成一次成功的 Dry-run 影响预览', {
+  /**
+   * 正式执行不再依赖一条历史 Dry-run Run。每次执行前都直接复核当前计划的
+   * 可验证事实，既避免异步预检卡死，也防止用户绕过预检后执行过期快照。
+   */
+  private async assertSynchronousPlanPreflight(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+  ): Promise<void> {
+    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
+    const blocking = checks.filter((check) => check.status === 'failed' || check.status === 'unknown');
+    if (blocking.length === 0) return;
+    throw new AppError('VALIDATION_FAILED', `部署计划同步预检失败：${blocking.map((check) => check.detail ?? check.label).join('；')}`, {
+      code: 'DEPLOYMENT_PREFLIGHT_FAILED',
       planId: plan.id,
-      latestRunId: latestRun?.id,
-      latestRunType: latestRun?.type,
-      latestRunStatus: latestRun?.status,
+      checks: blocking,
+      summary: summarizeDryRunChecks(checks),
     });
+  }
+
+  /**
+   * 这组检查只读取控制面数据，不能创建执行运行、任务、Grant 或证书产物。
+   * 手动预检和正式执行共用它，避免两条规则逐渐偏离。
+   */
+  private async collectSynchronousPlanPreflightChecks(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+  ): Promise<DeploymentPlanDryRunCheckDto[]> {
+    const checks: DeploymentPlanDryRunCheckDto[] = [this.buildPlanSnapshotPreflightCheck(plan, targets)];
+    const targetChecks = await Promise.all(targets.map(async (target) => [
+      await this.buildTargetCompatibilityPreflightCheck(target),
+      await this.buildCertificateDomainPreflightCheck(plan, target),
+      await this.buildDeploymentInputSnapshotPreflightCheck(plan, target),
+      await this.buildExecutionSummaryPreflightCheck(target),
+    ]));
+    checks.push(...targetChecks.flat());
+    checks.push(await this.buildApprovalPreflightCheck(plan));
+    return checks;
+  }
+
+  private buildPlanSnapshotPreflightCheck(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+  ): DeploymentPlanDryRunCheckDto {
+    const actual = this.domain.buildSnapshotHash(plan, targets);
+    if (actual !== plan.snapshotHash) {
+      return {
+        key: 'plan_snapshot_hash',
+        label: '部署计划摘要',
+        status: 'failed',
+        detail: '部署计划摘要与目标快照不一致，请重新创建部署计划。',
+        evidence: { planId: plan.id, expectedSnapshotHash: plan.snapshotHash, actualSnapshotHash: actual },
+      };
+    }
+    return {
+      key: 'plan_snapshot_hash',
+      label: '部署计划摘要',
+      status: 'passed',
+      detail: '部署计划及目标摘要一致。',
+      evidence: { planId: plan.id, snapshotHash: plan.snapshotHash },
+    };
+  }
+
+  private async buildTargetCompatibilityPreflightCheck(
+    target: DeploymentPlanTargetEntity,
+  ): Promise<DeploymentPlanDryRunCheckDto> {
+    try {
+      assertDeploymentExecutorTypes([target], 'synchronous-preflight');
+      if (!['READY', 'COMPLETED', 'FAILED'].includes(target.status)) {
+        throw new AppError('VALIDATION_FAILED', '部署目标当前状态不允许执行', {
+          deploymentPlanTargetId: target.id,
+          status: target.status,
+        });
+      }
+      if (!target.executionTargetId) {
+        throw new AppError('VALIDATION_FAILED', '部署目标缺少固定执行目标', {
+          deploymentPlanTargetId: target.id,
+        });
+      }
+      const matchStatus = readOptionalString(target.matchResult?.status);
+      if (matchStatus === 'blocked') {
+        throw new AppError('CAPABILITY_MISSING', '目标能力匹配已被阻断', {
+          deploymentPlanTargetId: target.id,
+          matchResult: target.matchResult,
+        });
+      }
+      if (matchStatus === 'manual_required' || matchStatus === 'degraded') {
+        return {
+          key: `target_compatibility:${target.id}`,
+          label: '部署目标兼容性',
+          status: 'warning',
+          detail: '目标能力存在人工确认或降级风险，正式执行将按计划审批策略处理。',
+          evidence: { deploymentPlanTargetId: target.id, executorType: target.executorType, matchStatus },
+        };
+      }
+      return {
+        key: `target_compatibility:${target.id}`,
+        label: '部署目标兼容性',
+        status: 'passed',
+        detail: '目标状态、执行器和能力匹配可用于部署。',
+        evidence: { deploymentPlanTargetId: target.id, executorType: target.executorType, matchStatus: matchStatus ?? 'assumed' },
+      };
+    } catch (error) {
+      return this.toFailedPreflightCheck(`target_compatibility:${target.id}`, '部署目标兼容性', error, {
+        deploymentPlanTargetId: target.id,
+      });
+    }
+  }
+
+  private async buildCertificateDomainPreflightCheck(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+  ): Promise<DeploymentPlanDryRunCheckDto> {
+    try {
+      const tenantId = target.tenantId ?? plan.tenantId;
+      if (!tenantId) throw new AppError('VALIDATION_FAILED', '部署目标缺少 tenantId，无法校验证书。', { deploymentPlanTargetId: target.id });
+      const binding = target.certificateBindingId
+        ? await this.tryGetBinding(tenantId, target.certificateBindingId)
+        : undefined;
+      if (target.certificateBindingId && !binding) {
+        throw new AppError('RESOURCE_NOT_FOUND', '部署目标引用的 CertificateBinding 已不存在。', {
+          deploymentPlanTargetId: target.id,
+          certificateBindingId: target.certificateBindingId,
+        });
+      }
+      const asset = target.applicationAssetId
+        ? await this.assets.getServiceAsset(tenantId, target.applicationAssetId)
+        : undefined;
+      const domain = normalizeDomain(binding?.domainName ?? binding?.domain ?? asset?.sniName ?? asset?.address);
+      const certificateVersionId = plan.selectionMode === 'LATEST_AUTO'
+        ? await this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding, domain, tenantId)
+        : plan.certificateVersionId;
+      if (binding) {
+        await this.assertCertificateVersionDeployable(
+          certificateVersionId,
+          binding,
+          domain,
+          plan.certificateFormatId,
+          tenantId,
+        );
+      } else {
+        await this.resolveWorkflowCertificateVersionId({
+          tenantId,
+          selectionMode: 'EXPLICIT',
+          requestedCertificateVersionId: certificateVersionId,
+          requestedDomain: domain,
+        });
+      }
+      await this.assertPreflightCertificateArtifactFormats(plan, target, certificateVersionId, tenantId);
+      return {
+        key: `certificate_domain:${target.id}`,
+        label: '证书与目标域名',
+        status: 'passed',
+        detail: '可部署证书版本、格式和目标域名匹配。',
+        evidence: {
+          deploymentPlanTargetId: target.id,
+          certificateVersionId,
+          domain,
+          selectionMode: plan.selectionMode,
+        },
+      };
+    } catch (error) {
+      return this.toFailedPreflightCheck(`certificate_domain:${target.id}`, '证书与目标域名', error, {
+        deploymentPlanTargetId: target.id,
+        certificateVersionId: plan.certificateVersionId,
+      });
+    }
+  }
+
+  private async assertPreflightCertificateArtifactFormats(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+    certificateVersionId: string,
+    tenantId: string,
+  ): Promise<void> {
+    if (plan.certificateFormatId) {
+      await this.resolveCertificateFormatForVersion(certificateVersionId, plan.certificateFormatId, tenantId);
+    }
+    const workflowRequest = readRecord(target.strategyPayload?.workflowRequest);
+    const bindings = readWorkflowCertificateArtifactBindings(readRecord(workflowRequest?.inputBindings)?.artifacts);
+    for (const binding of Object.values(bindings)) {
+      await this.resolveCertificateFormatForVersion(certificateVersionId, binding.certificateFormatId, tenantId);
+    }
+  }
+
+  private async buildDeploymentInputSnapshotPreflightCheck(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+  ): Promise<DeploymentPlanDryRunCheckDto> {
+    try {
+      const tenantId = target.tenantId ?? plan.tenantId;
+      if (!tenantId) throw new AppError('VALIDATION_FAILED', '部署目标缺少 tenantId，无法校验输入快照。', { deploymentPlanTargetId: target.id });
+      const runtimeSnapshot = await this.readTargetDeploymentInputRuntimeSnapshot(target, tenantId);
+      const artifact = readDeploymentArtifactRuntimeSnapshot(runtimeSnapshot.deploymentArtifact, target.id);
+      const ref = readRecord(target.strategyPayload?.deploymentInputSnapshotRef);
+      return {
+        key: `deployment_input_snapshot:${target.id}`,
+        label: '部署输入快照',
+        status: 'passed',
+        detail: '不可变输入快照及其摘要可重放。',
+        evidence: {
+          deploymentPlanTargetId: target.id,
+          snapshotId: readOptionalString(ref?.snapshotId),
+          resolvedSha256: readOptionalString(ref?.resolvedSha256),
+          certificateVersionId: artifact.certificateVersionId,
+          certificateFormatId: artifact.certificateFormatId,
+        },
+      };
+    } catch (error) {
+      return this.toFailedPreflightCheck(`deployment_input_snapshot:${target.id}`, '部署输入快照', error, {
+        deploymentPlanTargetId: target.id,
+      });
+    }
+  }
+
+  private async buildExecutionSummaryPreflightCheck(
+    target: DeploymentPlanTargetEntity,
+  ): Promise<DeploymentPlanDryRunCheckDto> {
+    try {
+      this.assertAgentPlanPreflightShape(target);
+      const source = readRecord(target.strategyPayload?.executionSource);
+      const pluginVersionId = readOptionalString(source?.pluginVersionId);
+      if (!source || !pluginVersionId) {
+        if (target.executorType === 'WORKFLOW' || target.executorType === 'PLUGIN_RUNNER') {
+          throw new AppError('VALIDATION_FAILED', '工作流部署目标缺少固定插件版本摘要。', {
+            deploymentPlanTargetId: target.id,
+          });
+        }
+        return {
+          key: `execution_summary:${target.id}`,
+          label: '执行绑定摘要',
+          status: 'passed',
+          detail: '该目标不使用统一插件版本摘要。',
+          evidence: { deploymentPlanTargetId: target.id, executorType: target.executorType },
+        };
+      }
+      if (!this.unifiedPlugins) {
+        return {
+          key: `execution_summary:${target.id}`,
+          label: '执行绑定摘要',
+          status: 'unknown',
+          detail: '当前控制面未接入插件版本读取器，无法校验固定插件摘要。',
+          evidence: { deploymentPlanTargetId: target.id, pluginVersionId },
+        };
+      }
+      const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
+      const expectedResourceSha256 = readStringMap(source?.resourceSha256);
+      const sourcePluginId = readOptionalString(source?.pluginId);
+      const sourcePluginVersion = readOptionalString(source?.pluginVersion);
+      const sourcePackageSha256 = readOptionalString(source?.packageSha256);
+      const sourceManifestSha256 = readOptionalString(source?.manifestSha256);
+      if (!sourcePluginId || !sourcePluginVersion || !sourcePackageSha256 || !sourceManifestSha256 || !expectedResourceSha256) {
+        throw new AppError('VALIDATION_FAILED', '执行来源缺少固定插件身份或摘要。', {
+          deploymentPlanTargetId: target.id,
+          pluginVersionId,
+        });
+      }
+      if (plugin.pluginId !== sourcePluginId
+        || plugin.version !== sourcePluginVersion
+        || plugin.packageSha256 !== sourcePackageSha256
+        || plugin.manifestSha256 !== sourceManifestSha256
+        || canonicalize(plugin.resourceSha256) !== canonicalize(expectedResourceSha256)) {
+        throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '执行绑定摘要与固定插件版本不一致。', {
+          deploymentPlanTargetId: target.id,
+          pluginVersionId,
+        });
+      }
+      await this.assertWorkflowAndRunnerSummary(target, source, plugin);
+      return {
+        key: `execution_summary:${target.id}`,
+        label: '执行绑定摘要',
+        status: 'passed',
+        detail: '固定插件、工作流和 Runner 摘要一致。',
+        evidence: {
+          deploymentPlanTargetId: target.id,
+          pluginVersionId,
+          packageSha256: plugin.packageSha256,
+          manifestSha256: plugin.manifestSha256,
+        },
+      };
+    } catch (error) {
+      return this.toFailedPreflightCheck(`execution_summary:${target.id}`, '执行绑定摘要', error, {
+        deploymentPlanTargetId: target.id,
+      });
+    }
+  }
+
+  private assertAgentPlanPreflightShape(target: DeploymentPlanTargetEntity): void {
+    const runtime = readOptionalString(readRecord(target.strategyPayload?.pluginRuntimeCapability)?.runtime);
+    if (runtime !== 'AGENT_PLAN') return;
+    requireAgentPlanExecutionShape(target.strategyPayload ?? {});
+  }
+
+  private async assertWorkflowAndRunnerSummary(
+    target: DeploymentPlanTargetEntity,
+    source: Record<string, unknown>,
+    plugin: Awaited<ReturnType<UnifiedPluginVersionReader['getVersion']>>,
+  ): Promise<void> {
+    const sourceType = readOptionalString(source.type);
+    const workflowVersionId = readOptionalString(source.workflowVersionId);
+    const workflowContentSha256 = readOptionalString(source.workflowContentSha256);
+    if ((sourceType === 'PLUGIN' || sourceType === 'WORKFLOW') && workflowVersionId) {
+      if (!workflowContentSha256) throw new AppError('VALIDATION_FAILED', '执行来源缺少固定工作流内容摘要。', { deploymentPlanTargetId: target.id });
+      if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本读取器未接入。', { deploymentPlanTargetId: target.id });
+      const workflow = await this.workflows.getVersion(workflowVersionId);
+      if (!workflow || workflow.contentHash !== workflowContentSha256) {
+        throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '固定工作流版本内容摘要不一致。', {
+          deploymentPlanTargetId: target.id,
+          workflowVersionId,
+        });
+      }
+    }
+    if (target.executorType !== 'PLUGIN_RUNNER') return;
+    const draft = readRecord(target.strategyPayload?.pluginRunnerBindingDraft);
+    if (!draft) throw new AppError('VALIDATION_FAILED', 'Plugin Runner 目标缺少固定执行绑定摘要。', { deploymentPlanTargetId: target.id });
+    const expectedResourceHash = pluginResourceAggregateHash(plugin.resourceSha256);
+    if (readOptionalString(draft.pluginVersionId) !== plugin.id
+      || readOptionalString(draft.pluginId) !== plugin.pluginId
+      || readOptionalString(draft.pluginVersion) !== plugin.version
+      || readOptionalString(draft.packageHash) !== plugin.packageSha256
+      || readOptionalString(draft.manifestHash) !== plugin.manifestSha256
+      || readOptionalString(draft.resourceHash) !== expectedResourceHash
+      || readOptionalString(draft.capability) !== readOptionalString(source.capabilityKey)) {
+      throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Plugin Runner 执行绑定摘要与固定插件包不一致。', {
+        deploymentPlanTargetId: target.id,
+        pluginVersionId: plugin.id,
+      });
+    }
+  }
+
+  private async buildApprovalPreflightCheck(plan: DeploymentPlanEntity): Promise<DeploymentPlanDryRunCheckDto> {
+    try {
+      const approvalRequired = await this.requiresApproval(plan);
+      if (!approvalRequired) {
+        return {
+          key: 'approval',
+          label: '审批状态',
+          status: 'passed',
+          detail: '当前部署策略不要求审批。',
+          evidence: { approvalRequired: false, approvalStatus: plan.approvalStatus },
+        };
+      }
+      const approval = plan.approvalId ? await this.approval.get(plan.approvalId, plan.tenantId) : undefined;
+      if (plan.approvalStatus === 'APPROVED' && (!approval || approval.status === 'approved' || approval.status === 'consumed')) {
+        return {
+          key: 'approval',
+          label: '审批状态',
+          status: 'passed',
+          detail: '正式执行所需审批已满足。',
+          evidence: { approvalRequired: true, approvalId: plan.approvalId, approvalStatus: approval?.status ?? plan.approvalStatus },
+        };
+      }
+      if (approval?.status === 'rejected' || approval?.status === 'expired' || approval?.status === 'cancelled') {
+        return {
+          key: 'approval',
+          label: '审批状态',
+          status: 'failed',
+          detail: '关联审批单已被拒绝、过期或取消，不能执行部署。',
+          evidence: { approvalRequired: true, approvalId: approval.id, approvalStatus: approval.status },
+        };
+      }
+      return {
+        key: 'approval',
+        label: '审批状态',
+        status: 'warning',
+        detail: approval ? '部署仍在等待审批通过。' : '正式执行前将创建或校验审批单。',
+        evidence: { approvalRequired: true, approvalId: plan.approvalId, approvalStatus: approval?.status ?? plan.approvalStatus },
+      };
+    } catch (error) {
+      return this.toFailedPreflightCheck('approval', '审批状态', error, { planId: plan.id });
+    }
+  }
+
+  private toFailedPreflightCheck(
+    key: string,
+    label: string,
+    error: unknown,
+    evidence: Record<string, unknown>,
+  ): DeploymentPlanDryRunCheckDto {
+    return {
+      key,
+      label,
+      status: 'failed',
+      detail: error instanceof Error ? error.message : String(error),
+      evidence: {
+        ...evidence,
+        errorCode: error instanceof AppError ? error.errorCode : 'SYSTEM_INTERNAL_ERROR',
+      },
+    };
   }
 }
 
@@ -3799,18 +4141,7 @@ function attachPreDeployBindingProofToAgentPlan(
   payload: Record<string, unknown>,
   proof: Record<string, unknown>,
 ): Record<string, unknown> {
-  const rawPlan = readRecord(payload.plan);
-  if (!rawPlan || !Array.isArray(rawPlan.operations) || rawPlan.operations.length === 0) {
-    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 operations，无法插入部署前 TLS 校验', {
-      code: 'AGENT_PLAN_OPERATIONS_REQUIRED',
-    });
-  }
-  const authorization = readRecord(payload.executionAuthorization);
-  if (!authorization || !Array.isArray(authorization.actions)) {
-    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 executionAuthorization.actions', {
-      code: 'AGENT_PLAN_AUTHORIZATION_REQUIRED',
-    });
-  }
+  const { rawPlan, authorization } = requireAgentPlanExecutionShape(payload);
   const plan = structuredClone(rawPlan) as unknown as AgentPlanV1;
   const operationId = `predeploy-tls-${String(proof.bindingId).replace(/[^A-Za-z0-9_.:-]/g, '-')}`;
   const verifyOperation = {
@@ -3846,6 +4177,25 @@ function attachPreDeployBindingProofToAgentPlan(
   };
 }
 
+function requireAgentPlanExecutionShape(payload: Record<string, unknown>): {
+  rawPlan: Record<string, unknown>;
+  authorization: Record<string, unknown>;
+} {
+  const rawPlan = readRecord(payload.plan);
+  if (!rawPlan || !Array.isArray(rawPlan.operations) || rawPlan.operations.length === 0) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 operations，无法执行部署', {
+      code: 'AGENT_PLAN_OPERATIONS_REQUIRED',
+    });
+  }
+  const authorization = readRecord(payload.executionAuthorization);
+  if (!authorization || !Array.isArray(authorization.actions)) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 executionAuthorization.actions', {
+      code: 'AGENT_PLAN_AUTHORIZATION_REQUIRED',
+    });
+  }
+  return { rawPlan, authorization };
+}
+
 function summarizeDryRunChecks(checks: readonly DeploymentPlanDryRunCheckDto[]): { passed: number; failed: number; warning: number; unknown: number } {
   const summary = { passed: 0, failed: 0, warning: 0, unknown: 0 };
   for (const check of checks) {
@@ -3855,6 +4205,14 @@ function summarizeDryRunChecks(checks: readonly DeploymentPlanDryRunCheckDto[]):
     else summary.unknown += 1;
   }
   return summary;
+}
+
+/** 与插件 Runtime Adapter 使用同一稳定排序规则，避免对象键顺序造成伪摘要不一致。 */
+function pluginResourceAggregateHash(resourceSha256: Record<string, string>): string {
+  const ordered = Object.fromEntries(
+    Object.entries(resourceSha256).sort(([left], [right]) => left.localeCompare(right)),
+  );
+  return `sha256:${createHash('sha256').update(JSON.stringify(ordered), 'utf8').digest('hex')}`;
 }
 
 function domainMatches(pattern: string, domain: string): boolean {

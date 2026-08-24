@@ -68,7 +68,7 @@ describe('deployment-plan.config', () => {
     expect(executeAction?.disabledReason?.(row)).toBe('审批申请已提交，等待审批人批准后才能执行。')
   })
 
-  it('审批通过但最新运行不是 dry-run 时允许点击并交给后端返回 dry-run 引导', () => {
+  it('审批通过但最新运行不是 dry-run 时仍允许直接执行', () => {
     const executeAction = deploymentPlanUiActions.find((action) => action.key === 'execute')
     const row = {
       id: 'plan-approved-with-apply',

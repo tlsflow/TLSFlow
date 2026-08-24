@@ -86,7 +86,7 @@ export class DeploymentPlansDomainService {
       certificateVersionId: plan.certificateVersionId,
       certificateFormatId: plan.certificateFormatId,
       temporary: plan.temporary === true,
-      policy: plan.policy,
+      policy: this.snapshotPolicy(plan.policy),
       targets: targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
         executionTargetId: target.executionTargetId,
@@ -118,6 +118,17 @@ export class DeploymentPlansDomainService {
 
   private targetSortKey(target: Pick<CreateDeploymentPlanInput['targets'][number], 'certificateBindingId' | 'managedTargetId' | 'siteAssetId' | 'domain'>): string {
     return [target.certificateBindingId ?? '', target.managedTargetId ?? '', target.siteAssetId ?? '', target.domain ?? ''].join(':');
+  }
+
+  private snapshotPolicy(policy: DeploymentPlanPolicyDto | undefined): Record<string, unknown> {
+    const normalized = this.normalizePolicy(policy);
+    return {
+      approvalRequired: normalized.approvalRequired,
+      riskLevel: normalized.riskLevel,
+      failurePolicy: normalized.failurePolicy,
+      ...(normalized.batchSize === undefined ? {} : { batchSize: normalized.batchSize }),
+      ...(normalized.retry === undefined ? {} : { retry: normalized.retry }),
+    };
   }
 
   private hash(value: unknown): string {

@@ -31,7 +31,7 @@ import type { PluginRunnerExecutionInput, PluginRunnerLaunchSpec } from '../plug
 import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/protocol.types.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
-import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
+import { computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
 import { signPolicyPayload } from '../agents/security/agent-security.contract.js';
 import { FilePolicyAuthorityStateStoreV1, PolicyAuthorityServiceV1 } from '../agents/security/policy-authority.service.js';
 
@@ -575,113 +575,6 @@ async function ensureIisAgentPlanPlugin(app: ReturnType<typeof createApp>): Prom
   await unifiedPlugins.enableVersion(approved.id);
 }
 
-async function completeAgentDryRun(app: ReturnType<typeof createApp>, input: {
-  planId: string;
-  agentId: string;
-  idempotencyKey: string;
-}) {
-  const dryRun = await app.inject({
-    method: 'POST',
-    path: '/api/v1/deployment-plans/dry-run',
-    headers: userHeaders,
-    body: { planId: input.planId, idempotencyKey: input.idempotencyKey },
-  });
-  assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-  const body = dryRun.body as { run: { id: string }; steps: Array<{ id: string; inputSnapshot: unknown }> };
-  const executions = app.getResource('executionsService') as ExecutionsApplicationService;
-  assert.ok(executions);
-  const dispatched = await executions.runDispatchedExecution(body.run.id, 'user_1', 'tenant_1');
-  assert.equal(dispatched.success, true, JSON.stringify(dispatched));
-  assert.equal(dispatched.pending, true, JSON.stringify(dispatched));
-  let completed = false;
-  for (let cycle = 0; cycle < 20 && !completed; cycle += 1) {
-    const pulled = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/tasks/pull?agentId=${input.agentId}`,
-      headers: userHeaders,
-    });
-    assert.equal(pulled.statusCode, 200, JSON.stringify(pulled.body));
-    const queuedTasks = pulled.body as Array<{ id: string; agentId: string; payload: Record<string, unknown> }>;
-    if (queuedTasks.length === 0) {
-      const currentRun = await executions.getRun(body.run.id, 'tenant_1');
-      completed = currentRun.status === 'SUCCESS';
-      if (!completed) {
-        const resumed = await executions.runDispatchedExecution(body.run.id, 'user_1', 'tenant_1');
-        assert.equal(resumed.success, true, JSON.stringify(resumed));
-      }
-      continue;
-    }
-    for (const task of queuedTasks) {
-      const leaseId = `lease_dry_run_${task.id}`;
-      const ack = await app.inject({
-        method: 'POST',
-        path: '/api/v1/agents/tasks/ack',
-        headers: userHeaders,
-        body: { agentId: task.agentId, taskId: task.id, leaseId },
-      });
-      assert.equal(ack.statusCode, 200, JSON.stringify(ack.body));
-      const plan = task.payload.plan as { planId: string; planDigest: string; operations: Array<{ operationId: string; operationType: string; stage?: string }> };
-      const token = task.payload.token as { tokenId: string };
-      const startedAt = new Date().toISOString();
-      const operation = plan.operations[0];
-      assert.ok(operation, JSON.stringify(plan));
-      const operationId = operation.operationId;
-      const operationResults = [{
-        operationId,
-        operationType: operation.operationType,
-        stage: operation.stage ?? 'prepare',
-        status: 'SUCCEEDED',
-        detail: { passed: true },
-      }];
-      const receipt = {
-        receiptVersion: 'gcac.agent-security/v1',
-        operationId,
-        planId: plan.planId,
-        planDigest: plan.planDigest,
-        agentId: task.agentId,
-        tenantId: 'tenant_1',
-        tokenId: token.tokenId,
-        status: 'SUCCESS',
-        startedAt,
-        completedAt: new Date().toISOString(),
-        operationResults,
-        nonceConsumed: false,
-      };
-      const result = await app.inject({
-        method: 'POST',
-        path: '/api/v1/agents/tasks/result',
-        headers: userHeaders,
-        body: {
-          agentId: task.agentId,
-          taskId: task.id,
-          leaseId,
-          success: true,
-          status: 'SUCCESS',
-          detail: { mode: 'agent_v2_receipt', operationResults, receipt: { ...receipt, digest: computeAgentExecutionReceiptDigest(receipt) } },
-        },
-      });
-      assert.equal(result.statusCode, 200, JSON.stringify(result.body));
-    }
-    completed = (await executions.getRun(body.run.id, 'tenant_1')).status === 'SUCCESS';
-  }
-  assert.equal(completed, true, JSON.stringify(await executions.getRun(body.run.id, 'tenant_1')));
-  const storedRun = await executions.getRun(body.run.id, 'tenant_1');
-  assert.equal(storedRun.status, 'SUCCESS', JSON.stringify(storedRun));
-  const storedSteps = await executions.listSteps({ tenantId: 'tenant_1', executionRunId: body.run.id });
-  assert.equal(storedSteps.length, body.steps.length);
-  assert.ok(storedSteps.every((step: { status: string }) => step.status === 'SUCCESS'), JSON.stringify(storedSteps));
-  assert.ok(storedSteps.some((step: { inputSnapshot?: { resultDetail?: { dryRunSummary?: unknown } } }) => step.inputSnapshot?.resultDetail?.dryRunSummary), JSON.stringify(storedSteps));
-  const drained = await app.inject({
-    method: 'GET',
-    path: `/api/v1/agents/tasks/pull?agentId=${input.agentId}`,
-    headers: userHeaders,
-  });
-  assert.equal(drained.statusCode, 200, JSON.stringify(drained.body));
-  assert.deepEqual(drained.body, []);
-  return body;
-}
-
-
 describe('部署计划与执行编排 API', () => {
   afterEach(closeTestResources);
   after(closeTestResources);
@@ -778,6 +671,7 @@ describe('部署计划与执行编排 API', () => {
           tenantId: 'tenant_1',
           pluginVersionId: workflow.plugin.id,
           capabilityKey: 'certificate.deploy',
+          workflowKey: 'certificate.deploy',
           workflowTemplateId: workflow.binding.workflowTemplateId,
           workflowVersionSelection: 'FIXED',
           workflowVersionId: workflow.binding.workflowVersionId,
@@ -900,6 +794,7 @@ describe('部署计划与执行编排 API', () => {
           tenantId: 'tenant_1',
           pluginVersionId: workflow.plugin.id,
           capabilityKey: 'certificate.deploy',
+          workflowKey: 'certificate.deploy',
           workflowTemplateId: workflow.binding.workflowTemplateId,
           workflowVersionSelection: 'FIXED',
           workflowVersionId: workflow.binding.workflowVersionId,
@@ -960,13 +855,12 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: (created.body as { id: string }).id, idempotencyKey: 'idem_workflow_only_asset_dry_run' },
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunSteps = (dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> }).steps;
-    const workflowStep = dryRunSteps.find((step) => step.stepType === 'INSTALL');
-    const verifyStep = dryRunSteps.find((step) => step.stepType === 'VERIFY');
-    assert.equal(workflowStep?.inputSnapshot.workflowRequest.applicationAssetId, applicationAssetId);
-    assert.equal(verifyStep?.inputSnapshot.certificateVerification.connectHost, 'workflow-only.example.com');
-    assert.equal(verifyStep?.inputSnapshot.certificateVerification.serverName, 'workflow-only.example.com');
-    assert.equal(verifyStep?.inputSnapshot.certificateVerification.port, 8443);
+    const dryRunBody = dryRun.body as { checks: Array<{ key: string; status: string }>; run?: unknown; steps?: unknown; jobId?: unknown };
+    assert.ok(dryRunBody.checks.length > 0);
+    assert.equal(dryRunBody.checks.some((check) => check.key.startsWith('certificate_domain:')), true);
+    assert.equal(dryRunBody.run, undefined);
+    assert.equal(dryRunBody.steps, undefined);
+    assert.equal(dryRunBody.jobId, undefined);
   });
 
   it('应用资产 WORKFLOW 策略经真实 HTTP 工作流执行后会回写绑定和资产状态', async () => {
@@ -1020,6 +914,7 @@ describe('部署计划与执行编排 API', () => {
             tenantId: 'tenant_1',
             pluginVersionId: workflow.plugin.id,
             capabilityKey: 'certificate.deploy',
+            workflowKey: 'certificate.deploy',
             workflowTemplateId: workflow.binding.workflowTemplateId,
             workflowVersionSelection: 'FIXED',
             workflowVersionId: workflow.binding.workflowVersionId,
@@ -1064,17 +959,7 @@ describe('部署计划与执行编排 API', () => {
       });
       assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
 
-      const dryRun = await app.inject({
-        method: 'POST',
-        path: '/api/v1/deployment-plans/dry-run',
-        headers: userHeaders,
-        body: { planId: plan.id, idempotencyKey: 'idem_workflow_real_http_dry_run' },
-      });
-      assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-      const dryRunBody = dryRun.body as { run: { id: string } };
       const executions = app.getResource('executionsService') as ExecutionsApplicationService;
-      const dryRunResult = await executions.runDispatchedExecution(dryRunBody.run.id, 'user_1', 'tenant_1');
-      assert.equal(dryRunResult.success, true, JSON.stringify(dryRunResult));
 
       const executed = await app.inject({
         method: 'POST',
@@ -1171,7 +1056,6 @@ describe('部署计划与执行编排 API', () => {
     const { app, fixture } = await createMigratedTestApp();
     const secondFixture = await importCertificateFormatFixture(app, 'tenant_1', 'iis-site.example.com', 'tenant_1_edit_success');
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_edit_success');
-    await completeAgentDryRun(app, { planId: ready.id, agentId: fixture.agentId, idempotencyKey: 'idem_edit_success_dry_run' });
     const executed = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans/execute',
@@ -1203,7 +1087,7 @@ describe('部署计划与执行编排 API', () => {
       headers: userHeaders,
     });
     assert.equal(runs.statusCode, 200, JSON.stringify(runs.body));
-    assert.ok(((runs.body as { items: unknown[] }).items ?? []).length >= 2);
+    assert.ok(((runs.body as { items: unknown[] }).items ?? []).length >= 1);
   });
 
   it('创建部署计划未手填 gatewayRoute 时自动调用 ZoneRouter 写入路由', async () => {
@@ -1397,12 +1281,6 @@ describe('部署计划与执行编排 API', () => {
       updatedAt: new Date().toISOString(),
       updatedBy: 'user_1',
     });
-    await completeAgentDryRun(app, {
-      planId: createdPlan.id,
-      agentId: fixture.agentId,
-      idempotencyKey: 'idem_ready_explicit_approval_dry_run',
-    });
-
     const executed = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans/execute',
@@ -1464,8 +1342,6 @@ describe('部署计划与执行编排 API', () => {
     security.rbac.createPolicy({ subjectType: 'user', subjectId: 'approver_1', effect: 'allow', actions: ['approval.decide'], resourceTypes: ['approval'], scope: { tenantId: 'tenant_1' } });
     const { app, fixture } = await createMigratedTestApp({ security });
     const { planId, approvalId } = await createApprovedHighRiskPlan(app, fixture, 'idem_approved_high');
-    await completeAgentDryRun(app, { planId, agentId: fixture.agentId, idempotencyKey: 'idem_approved_high_dry_run' });
-
     const response = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId, approvalId, idempotencyKey: 'idem_run_high' } });
 
     assert.equal(response.statusCode, 200);
@@ -1488,22 +1364,49 @@ describe('部署计划与执行编排 API', () => {
     );
   });
 
-  it('dry-run 创建执行运行，步骤全部标记 dryRun=true 且不推进计划到 RUNNING', async () => {
+  it('同步预检只返回检查结果，不创建 ExecutionRun、任务或执行步骤', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_plan');
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    const before = await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: plan.id });
 
     const response = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/dry-run', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_dry_run' } });
 
     assert.equal(response.statusCode, 200);
-    const body = response.body as { plan: { status: string }; run: { type: string; status: string }; steps: Array<{ stepType: string; inputSnapshot: { dryRun?: boolean } }> };
+    const body = response.body as {
+      plan: { status: string };
+      checks: Array<{ key: string; status: string }>;
+      summary: { passed: number; failed: number; warning: number; unknown: number };
+      run?: unknown;
+      steps?: unknown;
+      jobId?: unknown;
+    };
     assert.equal(body.plan.status, 'READY');
-    assert.equal(body.run.type, 'dry_run');
+    assert.ok(body.checks.length > 0, JSON.stringify(body));
+    assert.equal(body.summary.passed + body.summary.failed + body.summary.warning + body.summary.unknown, body.checks.length);
+    assert.equal(body.run, undefined);
+    assert.equal(body.steps, undefined);
+    assert.equal(body.jobId, undefined);
+    const after = await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: plan.id });
+    assert.deepEqual(after.map((run) => run.id), before.map((run) => run.id));
+  });
+
+  it('正式执行不再依赖历史 Dry-run 运行', async () => {
+    const { app, fixture } = await createMigratedTestApp();
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_execute_without_dry_run_plan');
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/execute',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_execute_without_dry_run' },
+    });
+
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const body = response.body as { plan: { status: string }; run: { type: string; status: string } };
+    assert.equal(body.plan.status, 'RUNNING');
+    assert.equal(body.run.type, 'apply');
     assert.equal(body.run.status, 'DISPATCHED');
-    assert.deepEqual(
-      body.steps.map((step) => step.stepType),
-      ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'],
-    );
-    assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
   it('配置证书与运行证书不同时保留 DRIFTED，并把运行指纹作为 Agent Plan 第一项校验', async () => {
@@ -1512,29 +1415,30 @@ describe('部署计划与执行编排 API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      path: '/api/v1/deployment-plans/dry-run',
+      path: '/api/v1/deployment-plans/execute',
       headers: userHeaders,
-      body: { planId: plan.id, idempotencyKey: 'idem_agent_tls_proof_drifted_dry_run' },
+      body: { planId: plan.id, idempotencyKey: 'idem_agent_tls_proof_drifted_execute' },
     });
 
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const executionRunId = (response.body as { run: { id: string } }).run.id;
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    const executionSteps = await executions.listSteps({ tenantId: 'tenant_1', executionRunId });
     const body = response.body as {
-      steps: Array<{
-        inputSnapshot: {
-          plan?: { planDigest: string; operations: Array<{ operationType: string; input: Record<string, unknown> }> };
-          executionAuthorization?: { actions?: string[] };
-        };
-      }>;
+      run: { id: string };
     };
-    const snapshot = body.steps.map((step) => step.inputSnapshot).find((item) => item.plan);
+    const snapshot = executionSteps
+      .map((step: any) => step.inputSnapshot)
+      .find((item: any) => item.plan?.operations?.some((operation: any) => operation.operationType === 'certificate.tls.verify'));
     assert.ok(snapshot?.plan, JSON.stringify(body));
-    assert.equal(snapshot.plan.operations[0]?.operationType, 'certificate.tls.verify');
+    const tlsOperation = snapshot.plan.operations.find((operation: any) => operation.operationType === 'certificate.tls.verify');
+    assert.ok(tlsOperation, JSON.stringify(snapshot.plan));
     assert.equal(
-      snapshot.plan.operations[0]?.input.expectedFingerprintSha256,
+      tlsOperation.input.expectedFingerprintSha256,
       fixture.target_1.observedFingerprintSha256,
     );
     assert.notEqual(
-      snapshot.plan.operations[0]?.input.expectedFingerprintSha256,
+      tlsOperation.input.expectedFingerprintSha256,
       fixture.certificateFingerprintSha256,
     );
     assert.equal(snapshot.executionAuthorization?.actions?.includes('certificate.tls.verify'), true);
@@ -1564,7 +1468,7 @@ describe('部署计划与执行编排 API', () => {
     assert.match(JSON.stringify(response.body), /TLS|运行态证明/);
   });
 
-  it('Agent Plan 有绑定证明但 operations 为空时必须失败关闭', async () => {
+  it('Agent Plan 有绑定证明但 operations 为空时，预检返回失败检查', async () => {
     const { app, service, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_plan_operations_missing');
     const targets = await service.getRepository().listTargetsByPlan(plan.id, 'tenant_1');
@@ -1586,18 +1490,20 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: plan.id, idempotencyKey: 'idem_agent_plan_operations_missing_dry_run' },
     });
 
-    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
-    assert.match(JSON.stringify(response.body), /operations/);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const body = response.body as {
+      checks: Array<{ key: string; status: string; detail?: string }>;
+      summary: { failed: number };
+    };
+    const check = body.checks.find((item) => item.key.startsWith('execution_summary:'));
+    assert.equal(check?.status, 'failed', JSON.stringify(body));
+    assert.match(check?.detail ?? '', /operations/);
+    assert.equal(body.summary.failed, 1);
   });
 
   it('执行前当前绑定证明丢失时拒绝执行，并保持计划为 READY', async () => {
     const { app, db, service, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_tls_proof_missing_execute');
-    await completeAgentDryRun(app, {
-      planId: plan.id,
-      agentId: fixture.agentId,
-      idempotencyKey: 'idem_agent_tls_proof_missing_execute_dry_run',
-    });
     await clearBindingTlsProof(db, fixture.target_1.bindingId);
 
     const response = await app.inject({
@@ -1613,7 +1519,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(persisted.status, 'READY');
   });
 
-  it('dry-run 返回后可立即从统一任务列表查询到对应任务', async () => {
+  it('dry-run 返回同步结果且不创建统一任务', async () => {
     const security = createSecurityServices();
     await grantDeploymentFixturePolicies(security, 'tenant_1');
     security.rbac.createPolicy({
@@ -1635,36 +1541,16 @@ describe('部署计划与执行编排 API', () => {
     });
 
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as {
-      jobId: string;
-      run: { id: string; externalRunId?: string };
-    };
-    assert.ok(dryRunBody.jobId);
-    assert.equal(dryRunBody.run.externalRunId, dryRunBody.jobId);
-
-    const tasks = await app.inject({
-      method: 'GET',
-      path: `/api/v1/tasks?page=1&pageSize=20&filter[taskId]=${encodeURIComponent(dryRunBody.jobId)}`,
-      headers: userHeaders,
-    });
-
-    assert.equal(tasks.statusCode, 200, JSON.stringify(tasks.body));
-    const taskBody = tasks.body as {
-      items: Array<{
-        id: string;
-        taskType: string;
-        category: string;
-        payload?: { runId?: string };
-      }>;
-    };
-    assert.equal(taskBody.items.length, 1);
-    assert.equal(taskBody.items[0]?.id, dryRunBody.jobId);
-    assert.equal(taskBody.items[0]?.taskType, 'CERTIFICATE_DRY_RUN');
-    assert.equal(taskBody.items[0]?.category, 'EXECUTION');
-    assert.equal(taskBody.items[0]?.payload?.runId, dryRunBody.run.id);
+    const dryRunBody = dryRun.body as { checks: Array<{ status: string }>; run?: unknown; steps?: unknown; jobId?: unknown };
+    assert.ok(dryRunBody.checks.length > 0);
+    assert.equal(dryRunBody.run, undefined);
+    assert.equal(dryRunBody.steps, undefined);
+    assert.equal(dryRunBody.jobId, undefined);
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    assert.deepEqual((await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: plan.id })).map((run) => run.type), []);
   });
 
-  it('dry-run 返回时保留过程态，并等待 Agent 返回真实检查结论', async () => {
+  it('dry-run 同步返回静态检查结论，不等待 Agent', async () => {
     const { app, service: deploymentService, fixture, bindings } = await createMigratedDeploymentService();
     await bindings.updateCertificateBinding('tenant_1', fixture.target_1.bindingId, {
       observedFingerprintSha256: fixture.certificateFingerprintSha256,
@@ -1687,20 +1573,12 @@ describe('部署计划与执行编排 API', () => {
     });
 
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    const body = response.body as {
-      run: { status: string };
-      steps: Array<{ stepType: string; status: string; inputSnapshot: { resultDetail?: { dryRunChecks?: Array<{ key: string; status: string; evidence?: Record<string, unknown> }>; operationResults?: unknown[] } } }>;
-    };
-    assert.equal(body.run.status, 'DISPATCHED');
-    assert.equal(body.steps.every((step) => step.status === 'PENDING'), true);
-
-    assert.ok(body.steps.length > 0);
-    const staticChecks = body.steps.flatMap((step) => step.inputSnapshot.resultDetail?.dryRunChecks ?? []);
-    assert.equal(staticChecks.some((check) => check.key === 'certificate_already_active' && check.status === 'warning'), true);
-    assert.equal(
-      body.steps.every((step) => step.inputSnapshot.resultDetail?.operationResults === undefined),
-      true,
-    );
+    const body = response.body as { checks: Array<{ key: string; status: string }>; summary: { passed: number; failed: number; warning: number; unknown: number }; run?: unknown; steps?: unknown };
+    assert.ok(body.checks.length > 0);
+    assert.equal(body.checks.some((check) => check.key.startsWith('certificate_domain:')), true);
+    assert.equal(body.summary.passed + body.summary.failed + body.summary.warning + body.summary.unknown, body.checks.length);
+    assert.equal(body.run, undefined);
+    assert.equal(body.steps, undefined);
   });
 
   it('历史计划目标缺少 target.tenantId 时，仍可使用 plan.tenantId 发起 dry-run', async () => {
@@ -1722,19 +1600,16 @@ describe('部署计划与执行编排 API', () => {
     });
 
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
-    const body = response.body as {
-      run: { status: string };
-      steps: Array<{ inputSnapshot: { certificateBindingId?: string } }>;
-    };
-    assert.equal(body.run.status, 'DISPATCHED');
-    assert.equal(body.steps.length > 0, true);
-    assert.equal(body.steps.every((step) => step.inputSnapshot.certificateBindingId === fixture.target_1.bindingId), true);
+    const body = response.body as { checks: Array<{ key: string; status: string }>; run?: unknown; steps?: unknown };
+    const certificateCheck = body.checks.find((check) => check.key.startsWith('certificate_domain:'));
+    assert.equal(certificateCheck?.status, 'passed');
+    assert.equal(body.run, undefined);
+    assert.equal(body.steps, undefined);
   });
 
   it('取消计划会传播到已入队 run，并取消未开始步骤', async () => {
     const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_cancel_plan');
-    await completeAgentDryRun(app, { planId: plan.id, agentId: fixture.agentId, idempotencyKey: 'idem_cancel_dry_run' });
     const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_cancel_run' } });
     const runId = (executed.body as { run: { id: string } }).run.id;
 
@@ -1750,7 +1625,6 @@ describe('部署计划与执行编排 API', () => {
   it('执行失败后可以进入回滚', async () => {
     const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_rollback_plan');
-    await completeAgentDryRun(app, { planId: plan.id, agentId: fixture.agentId, idempotencyKey: 'idem_rollback_dry_run' });
     const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_rollback_run' } });
     assert.equal(executed.statusCode, 200);
     const runId = (executed.body as { run: { id: string } }).run.id;
@@ -1885,8 +1759,6 @@ describe('部署计划与执行编排 API', () => {
 
     const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
     assert.equal(submitted.statusCode, 200);
-
-    await completeAgentDryRun(app, { planId: plan.id, agentId: fixture.agentId, idempotencyKey: 'idem_header_dry' });
 
     const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: { ...userHeaders, 'x-idempotency-key': 'idem_header_exec' }, body: { planId: plan.id } });
     assert.equal(executed.statusCode, 200);
@@ -2556,13 +2428,11 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: (created.body as { id: string }).id, idempotencyKey: 'idem_application_asset_plan_without_binding_dry_run' },
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: { actionType?: string; deploymentArtifact?: unknown; resolvedDeploymentInput?: unknown } }> };
-    assert.equal(
-      dryRunBody.steps.some((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
-      true,
-    );
-    assert.equal(dryRunBody.steps.every((step) => step.inputSnapshot.deploymentArtifact === undefined), true);
-    assert.equal(dryRunBody.steps.every((step) => step.inputSnapshot.resolvedDeploymentInput === undefined), true);
+    const dryRunBody = dryRun.body as { checks: Array<{ key: string; status: string }>; run?: unknown; steps?: unknown };
+    assert.ok(dryRunBody.checks.length > 0);
+    assert.equal(dryRunBody.checks.some((check) => check.key.startsWith('deployment_input_snapshot:')), true);
+    assert.equal(dryRunBody.run, undefined);
+    assert.equal(dryRunBody.steps, undefined);
     const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
       'tenant_1',
       String(plan.targets[0]?.strategyPayload?.deploymentInputSnapshotRef?.snapshotId),
@@ -2694,12 +2564,28 @@ describe('部署计划与执行编排 API', () => {
           storeLocation: 'LocalMachine',
           storeName: 'My',
           storeThumbprint: '1234567890ABCDEF1234567890ABCDEF12345678',
+          discoverySource: 'AGENT',
           verifyMethod: 'TLS_CONNECT',
         },
       });
       assert.equal(binding.statusCode, 201, JSON.stringify(binding.body));
       bindingId = (binding.body as { id: string }).id;
     }
+
+    const bindingProof = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers: userHeaders,
+      body: {
+        id: bindingId,
+        discoverySource: 'AGENT',
+        observedFingerprintSha256: importedBody.version.fingerprintSha256,
+        remoteEndpointFingerprint: importedBody.version.fingerprintSha256,
+        checkedAt: new Date().toISOString(),
+        metadata: { observedCertificate: { fingerprintSha256: importedBody.version.fingerprintSha256 } },
+      },
+    });
+    assert.equal(bindingProof.statusCode, 200, JSON.stringify(bindingProof.body));
 
     const created = await app.inject({
       method: 'POST',
@@ -2869,10 +2755,24 @@ describe('部署计划与执行编排 API', () => {
         storeLocation: 'LocalMachine',
         storeName: 'My',
         storeThumbprint: '1111111111111111111111111111111111111111',
+        discoverySource: 'AGENT',
         verifyMethod: 'TLS_CONNECT',
       },
     });
     assert.equal(binding.statusCode, 201, JSON.stringify(binding.body));
+    const bindingProof = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers: userHeaders,
+      body: {
+        id: (binding.body as { id: string }).id,
+        observedFingerprintSha256: importedBody.version.fingerprintSha256,
+        remoteEndpointFingerprint: importedBody.version.fingerprintSha256,
+        checkedAt: new Date().toISOString(),
+        metadata: { observedCertificate: { fingerprintSha256: importedBody.version.fingerprintSha256 } },
+      },
+    });
+    assert.equal(bindingProof.statusCode, 200, JSON.stringify(bindingProof.body));
 
     const createdPlan = await app.inject({
       method: 'POST',
@@ -2895,8 +2795,6 @@ describe('部署计划与执行编排 API', () => {
       body: { planId },
     });
     assert.equal(submitted.statusCode, 200);
-    await completeAgentDryRun(app, { planId, agentId, idempotencyKey: 'idem_sync_application_asset_dry_run' });
-
     const executed = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans/execute',
@@ -3080,7 +2978,7 @@ describe('部署计划与执行编排 API', () => {
       certificateFormatId: formatAId,
     });
 
-    await app.inject({
+    const formatBinding = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-bindings',
       headers: userHeaders,
@@ -3100,9 +2998,31 @@ describe('部署计划与执行编排 API', () => {
         storeLocation: 'LocalMachine',
         storeName: 'My',
         storeThumbprint: '3333333333333333333333333333333333333333',
+        discoverySource: 'AGENT',
+        observedFingerprintSha256: importedBody.version.fingerprintSha256,
+        remoteEndpointFingerprint: importedBody.version.fingerprintSha256,
+        checkedAt: new Date().toISOString(),
+        metadata: {
+          observedCertificate: {
+            fingerprintSha256: importedBody.version.fingerprintSha256,
+          },
+        },
         verifyMethod: 'TLS_CONNECT',
       },
     });
+    assert.equal(formatBinding.statusCode, 201, JSON.stringify(formatBinding.body));
+    const formatBindingProof = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers: userHeaders,
+      body: {
+        id: (formatBinding.body as { id: string }).id,
+        remoteEndpointFingerprint: importedBody.version.fingerprintSha256,
+        checkedAt: new Date().toISOString(),
+        metadata: { observedCertificate: { fingerprintSha256: importedBody.version.fingerprintSha256 } },
+      },
+    });
+    assert.equal(formatBindingProof.statusCode, 200, JSON.stringify(formatBindingProof.body));
 
     const created = await app.inject({
       method: 'POST',
@@ -3135,12 +3055,10 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: plan.id, idempotencyKey: 'idem_application_asset_format_dry_run' },
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: Record<string, unknown> }> };
-    const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.plan.execute');
-    assert.ok(atomicStep);
-    assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
-    assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
-    assert.equal(typeof atomicStep!.inputSnapshot.pfxBase64, 'undefined');
+    const dryRunBody = dryRun.body as { checks: Array<{ key: string; status: string }>; run?: unknown; steps?: unknown };
+    assert.ok(dryRunBody.checks.some((check) => check.key.startsWith('deployment_input_snapshot:')));
+    assert.equal(dryRunBody.run, undefined);
+    assert.equal(dryRunBody.steps, undefined);
 
     const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
       'tenant_1',
@@ -3151,7 +3069,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(runtimeSnapshot?.deploymentArtifact.containsPrivateKey, true);
   });
 
-  it('Agent Atomic dry-run 执行结果回传后会把 operationResults 转换为统一预检结果', async () => {
+  it('同步 dry-run 不接受 Agent 回传，也不创建执行步骤', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_checks_plan');
 
@@ -3162,52 +3080,12 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: ready.id, idempotencyKey: 'idem_dry_run_checks_run' },
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as { run: { id: string }; steps: Array<{ id: string; inputSnapshot: any }> };
-    const step = dryRunBody.steps[0]!;
-
-    const resultSync = app.getResource('executionResultSync') as {
-      applyAgentTaskResult(input: Record<string, unknown>): Promise<void>;
-    };
-    await resultSync.applyAgentTaskResult({
-      tenantId: 'tenant_1',
-      executionRunId: dryRunBody.run.id,
-      executionStepId: step.id,
-      actorId: fixture.agentId,
-      success: true,
-      detail: {
-        planId: 'agplan_dry_run_checks',
-        state: 'SUCCEEDED',
-        operationResults: [
-          { operationId: 'iis-pfx-inspect', operationType: 'windows.certificate.inspect_pfx', stage: 'prepare', status: 'SUCCEEDED', detail: { subject: 'CN=example.com' } },
-          { operationId: 'iis-binding-check', operationType: 'preflight.assert', stage: 'prepare', status: 'SUCCEEDED', detail: { passed: true } },
-        ],
-      },
-    });
-
-    const executionSteps = await app.inject({
-      method: 'GET',
-      path: `/api/v1/execution-steps?executionRunId=${dryRunBody.run.id}`,
-      headers: userHeaders,
-    });
-    assert.equal(executionSteps.statusCode, 200, JSON.stringify(executionSteps.body));
-    const storedStep = ((executionSteps.body as {
-      items: Array<{ id: string; inputSnapshot: any }>;
-    }).items ?? []).find((item) => item.id === step.id);
-    assert.ok(storedStep);
-    assert.deepEqual(storedStep!.inputSnapshot.resultDetail.dryRunSummary, { passed: 2, failed: 0, warning: 0, unknown: 0 });
-    assert.equal(storedStep!.inputSnapshot.resultDetail.dryRunChecks.length, 2);
-    assert.deepEqual(storedStep!.inputSnapshot.resultDetail.dryRunChecks[0], {
-      key: 'atomic:iis-pfx-inspect',
-      label: 'iis-pfx-inspect · windows.certificate.inspect_pfx',
-      status: 'passed',
-      detail: '原子操作 iis-pfx-inspect 已完成非破坏性预演。',
-      evidence: {
-        operationId: 'iis-pfx-inspect',
-        operationType: 'windows.certificate.inspect_pfx',
-        stage: 'prepare',
-        result: { subject: 'CN=example.com' },
-      },
-    });
+    const dryRunBody = dryRun.body as { checks: Array<{ key: string; status: string }>; run?: unknown; steps?: unknown };
+    assert.ok(dryRunBody.checks.length > 0);
+    assert.equal(dryRunBody.run, undefined);
+    assert.equal(dryRunBody.steps, undefined);
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    assert.deepEqual(await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: ready.id }), []);
   });
 
 });
@@ -3797,6 +3675,7 @@ async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId
         storeLocation: 'LocalMachine',
         storeName: 'My',
         storeThumbprint: `${item.key}`.padEnd(40, '1').slice(0, 40).toUpperCase(),
+        discoverySource: 'AGENT',
         verifyMethod: 'TLS_CONNECT',
       },
     });

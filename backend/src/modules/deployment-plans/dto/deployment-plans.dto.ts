@@ -130,6 +130,23 @@ export interface DeploymentPlanDryRunCheckDto {
 }
 
 /**
+ * 部署计划的同步只读预检结果。
+ *
+ * 该结果不对应 ExecutionRun：它只校验计划快照、证书、目标、输入和审批
+ * 的当前一致性，绝不派发任务或调用任何远端执行器。
+ */
+export interface DeploymentPlanPreflightResultDto {
+  plan: DeploymentPlanDto;
+  checks: DeploymentPlanDryRunCheckDto[];
+  summary: {
+    passed: number;
+    failed: number;
+    warning: number;
+    unknown: number;
+  };
+}
+
+/**
  * 应用资产视角的部署记录。
  *
  * DeploymentPlan 仍是执行快照和审批边界；该 DTO 只把同一应用资产的
@@ -225,7 +242,8 @@ export interface DryRunDeploymentPlanInput {
   planId: string;
   actorId: string;
   tenantId?: string;
-  idempotencyKey: string;
+  /** 同步只读预检不创建任务，因此幂等键仅为旧调用方兼容字段。 */
+  idempotencyKey?: string;
   executionSource?: ExecutionSourceDto;
 }
 

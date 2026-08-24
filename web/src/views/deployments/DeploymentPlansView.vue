@@ -139,11 +139,6 @@ const latestExecutionMode = ref<'dry-run' | 'apply' | 'rollback'>('dry-run')
 const latestExecutionRequestId = ref('')
 const executionModalTransitionName = ref('gc-modal')
 const executionTaskFlights = ref<ExecutionTaskFlight[]>([])
-const dryRunRequiredModalOpen = ref(false)
-const dryRunRequiredPending = ref(false)
-const dryRunRequiredMessage = ref('')
-const dryRunRequiredActionLabel = ref('')
-const dryRunRequiredRow = ref<ViewRow | null>(null)
 const probingAssetIds = new Set<string>()
 let unknownStateProbeTimer: number | null = null
 let executionFlightSequence = 0
@@ -471,13 +466,11 @@ function userPlanRow(plan: ApiRecord): ViewRow {
 
 function recommendedUserPlanAction(plan: ApiRecord): DeploymentPlanUiAction | null {
   const status = readString(plan, ['status', 'state'], 'DRAFT')
-  const actionKey = status === 'DRY_RUN_PASSED'
+  const actionKey = ['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'].includes(status)
     ? 'submit'
     : ['APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'].includes(status)
       ? 'execute'
-      : ['DRAFT', 'DRY_RUN_FAILED'].includes(status)
-        ? 'dry-run'
-        : null
+      : null
   if (!actionKey) return null
   return userPlanActions.value.find((action) => action.key === actionKey) ?? null
 }
@@ -600,14 +593,6 @@ async function closeDryRunResultModal(options: { reload?: boolean } = {}) {
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
   if (options.reload === true) await pageRef.value?.reload()
-}
-
-function closeDryRunRequiredModal(force = false) {
-  if (dryRunRequiredPending.value && !force) return
-  dryRunRequiredModalOpen.value = false
-  dryRunRequiredMessage.value = ''
-  dryRunRequiredActionLabel.value = ''
-  dryRunRequiredRow.value = null
 }
 
 async function loadWizardOptions() {
@@ -763,23 +748,14 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
   }
   loading.value = true
   resetMessages()
-  openExecutionModalStarting('dry-run')
   try {
     const planId = await ensurePlanId(plan)
-    const dryRun = await dryRunDeploymentPlan({ planId })
-    executionStarting.value = false
-    dryRunRequestId.value = dryRun.requestId
-    openExecutionModalFromResult(dryRun, 'dry-run', null, { autoMinimize: true })
-    dryRunChecks.value = extractDryRunChecks(dryRun.data)
-    const runId = dryRunRunRow.value?.id ?? ''
-    infoMessage.value = runId
-      ? t('deploymentPlans.feedback.dryRunStartedWithRunId', { runId })
-      : t('deploymentPlans.feedback.dryRunStartedMissingRunId')
+    const preflight = await dryRunDeploymentPlan({ planId })
+    dryRunRequestId.value = preflight.requestId
+    dryRunChecks.value = extractDryRunChecks(preflight.data)
+    infoMessage.value = t('assets.deployment.preflightAvailable', { count: dryRunChecks.value.length })
     await loadUserPlans()
   } catch (cause) {
-    executionStarting.value = false
-    dryRunRunRow.value = null
-    dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
   } finally {
     loading.value = false
@@ -919,9 +895,8 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
       ? t('deploymentPlans.feedback.executeTriggeredWithRunId', { runId })
       : messageWithOptionalPlanId('deploymentPlans.feedback.executeTriggeredWithPlanId', 'deploymentPlans.feedback.executeTriggered', planId)
   } else if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) {
-    infoMessage.value = runId
-      ? t('deploymentPlans.feedback.dryRunTriggeredWithRunId', { runId })
-      : messageWithOptionalPlanId('deploymentPlans.feedback.dryRunTriggeredWithPlanId', 'deploymentPlans.feedback.dryRunTriggered', planId)
+    dryRunChecks.value = extractDryRunChecks(readResponseData(result))
+    infoMessage.value = t('assets.deployment.preflightAvailable', { count: dryRunChecks.value.length })
   } else if (isDeploymentPlanActionLabel(actionLabel, 'cancel')) {
     infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.cancelledWithPlanId', 'deploymentPlans.feedback.cancelled', planId)
   } else if (isDeploymentPlanActionLabel(actionLabel, 'edit')) {
@@ -935,26 +910,12 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   await pageRef.value?.reload()
 }
 
-function handleActionError(actionLabel: string, row: ViewRow | null, cause: unknown) {
-  if (shouldPromptDryRun(actionLabel, cause)) {
-    executionStarting.value = false
-    dryRunResultModalOpen.value = false
-    dryRunRequiredRow.value = row
-    dryRunRequiredActionLabel.value = actionLabel
-    dryRunRequiredMessage.value = toErrorMessage(cause, t('deploymentPlans.disabled.needDryRun'))
-    dryRunRequiredModalOpen.value = true
-    errorMessage.value = ''
-    infoMessage.value = ''
-    return
-  }
+function handleActionError(actionLabel: string, _row: ViewRow | null, cause: unknown) {
   if (isDryRunActionLabel(actionLabel)) {
-    errorMessage.value = ''
-    infoMessage.value = ''
     dryRunChecks.value = []
     dryRunRunRow.value = null
-    latestExecutionMode.value = 'dry-run'
-    dryRunResultModalOpen.value = true
     dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
+    dryRunResultModalOpen.value = true
     return
   }
   if (executionModeForActionLabel(actionLabel)) {
@@ -964,32 +925,6 @@ function handleActionError(actionLabel: string, row: ViewRow | null, cause: unkn
     return
   }
   errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.actionFailed', { action: actionLabel }))
-}
-
-function shouldPromptDryRun(actionLabel: string, cause: unknown): boolean {
-  if (!isDeploymentPlanActionLabel(actionLabel, 'execute')) return false
-  const message = toErrorMessage(cause, '').toLowerCase()
-  return message.includes('dry-run')
-}
-
-async function runRequiredDryRun() {
-  if (!dryRunRequiredRow.value || dryRunRequiredPending.value) return
-  const row = dryRunRequiredRow.value
-  dryRunRequiredPending.value = true
-  closeDryRunRequiredModal(true)
-  try {
-    const dryRunLabel = deploymentPlanActionLabel('dryRun')
-    const result = await runPlanAction(
-      dryRunLabel,
-      row,
-      () => dryRunDeploymentPlan({ planId: readString(row.raw, ['id', 'planId']) }),
-    )
-    await handleActionFeedback(dryRunLabel, row, result)
-  } catch (cause) {
-    handleActionError(deploymentPlanActionLabel('dryRun'), row, cause)
-  } finally {
-    dryRunRequiredPending.value = false
-  }
 }
 
 function openExecutionModalFromResult(
@@ -1045,7 +980,7 @@ function openExecutionModalStarting(mode: DeploymentExecutionMode, fallbackRow?:
   executionStarting.value = true
   dryRunRunRow.value = null
   dryRunResultModalOpen.value = false
-  if (mode !== 'dry-run' && fallbackRow) {
+  if (fallbackRow) {
     dryRunRunRow.value = {
       id: '',
       name: t('deploymentPlans.execution.startingName'),
@@ -1137,8 +1072,7 @@ function dispatchExecutionStartedToast(_mode: DeploymentExecutionMode) {
   window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message: t('deploymentPlans.feedback.executionTaskStarted'), tone: 'info' } }))
 }
 
-function executionModeForActionLabel(actionLabel: string): 'dry-run' | 'apply' | 'rollback' | '' {
-  if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) return 'dry-run'
+function executionModeForActionLabel(actionLabel: string): 'apply' | 'rollback' | '' {
   if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return 'apply'
   if (isDeploymentPlanActionLabel(actionLabel, 'rollback')) return 'rollback'
   return ''
@@ -1401,6 +1335,7 @@ function resolveApplicationAssetIdFromPlan(row: ApiRecord): string {
 
 function extractDryRunChecks(data: ApiRecord | undefined): ApiRecord[] {
   if (!data) return []
+  if (Array.isArray(data.checks)) return data.checks as ApiRecord[]
   const steps = Array.isArray(data.steps) ? data.steps as ApiRecord[] : []
   for (const step of steps) {
     const resultDetail = readPath(step, 'inputSnapshot.resultDetail')
@@ -1745,29 +1680,6 @@ async function fetchAllPages(
         </button>
         <button class="gc-button gc-button--primary" type="button" :disabled="approvalPending" @click="decideApprovalFromModal('approved')">
           {{ approvalPending ? t('deploymentPlans.approval.processing') : t('deploymentPlans.actions.approve') }}
-        </button>
-      </template>
-    </GcModal>
-
-    <GcModal
-      v-model:open="dryRunRequiredModalOpen"
-      :title="t('deploymentPlans.dryRunRequired.title')"
-      :description="t('deploymentPlans.dryRunRequired.description')"
-      size="md"
-      width="var(--gc-size-modal-default)"
-      :close-on-backdrop="!dryRunRequiredPending"
-    >
-      <section class="deployment-plans-page__dry-run-required">
-        <p class="deployment-plans-page__error">{{ dryRunRequiredMessage }}</p>
-        <p class="deployment-plans-page__dry-run-required-copy">
-          {{ t('deploymentPlans.dryRunRequired.copy', { action: dryRunRequiredActionLabel || deploymentPlanActionLabel('execute') }) }}
-        </p>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="dryRunRequiredPending" @click="closeDryRunRequiredModal()">{{ t('deploymentPlans.common.cancel') }}</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="dryRunRequiredPending" @click="runRequiredDryRun">
-          {{ dryRunRequiredPending ? t('deploymentPlans.dryRunRequired.runningAction') : t('deploymentPlans.dryRunRequired.primaryAction') }}
         </button>
       </template>
     </GcModal>

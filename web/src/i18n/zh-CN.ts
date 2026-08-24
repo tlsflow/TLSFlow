@@ -301,7 +301,7 @@ export default {
     deploymentWizard: {
       actions: {
         cancel: '取消',
-        dryRun: '先做 Dry-run',
+        dryRun: '运行 Dry-run 预检',
         next: '下一步',
         previous: '上一步',
         save: '保存计划'
@@ -312,7 +312,7 @@ export default {
       },
       capability: {
         targetMissingDetail: '尚未选择部署目标。',
-        targetSelectedDetail: '已选择部署目标，建议先完成 dry-run 再提交执行。',
+        targetSelectedDetail: '已选择部署目标，可直接提交执行；Dry-run 可在资产详情页手动发起。',
         targetSelection: '部署目标选择',
         targetSource: '部署目标'
       },
@@ -650,11 +650,11 @@ export default {
     emptyDescription: '未填写说明',
     common: { notAvailable: '暂无', allRelated: '全部关联目标' },
     formStep: { stepProgress: '第 {current} 步，共 {total} 步', previous: '上一步', next: '下一步', reviewTitle: '配置摘要', reviewText: '触发器：{trigger}；执行范围：{scope}；证书域名：{domains}。运行开始后会冻结目标快照。' },
-    scheduleBuilder: { api: '通过外部 API 触发', apiHelp: '保存后由外部系统调用自动化运行 API。每次调用仍会执行目标预览、Dry Run 和审批规则。', once: '在固定时间执行一次', onceHelp: '选择浏览器本地时间。任务执行一次后不会再次排期。', recurring: '定期执行', scheduleHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringWarningTitle: '证书更新不建议使用定期执行', recurringWarning: '证书换证通常应由外部系统在证书签发后触发，或安排一次固定时间执行。只有明确需要周期检查时才使用此选项。', certificateVersionCreated: '证书新版本事件', certificateVersionCreatedHelp: '证书通过外部来源或导入产生新版本后，由平台事件触发自动化。', runAt: '执行时间', frequency: '执行周期', daily: '每天', weekly: '每周', monthly: '每月', time: '执行时刻', weekday: '星期', monthDay: '每月日期', legacyCustom: '保留原有自定义计划', legacyCron: '原有 Cron（只读）', weekdays: { 0: '星期日', 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六' } },
-    form: { existingAssetTitle: '只更新现有应用资产', existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。', certificateDomains: '证书域名', certificateDomainsPlaceholder: '输入证书域名，多个用逗号分隔', certificateDomainsHelp: '只更新这些域名对应证书的现有应用资产绑定。', versionSelection: '更新到哪个证书版本', versionSelectionLatest: '自动使用最新证书版本', versionSelectionSpecific: '使用指定证书版本', versionSelectionHelp: '运行开始时解析并冻结版本，运行期间不会因新增版本而改变。', certificateVersionIds: '指定证书版本', certificateVersionIdsPlaceholder: '输入证书版本 ID，多个用逗号分隔', certificateVersionIdsHelp: '每个版本必须属于上面所选域名对应的证书。', versionLoading: '正在加载可选证书版本。', versionLoadFailed: '证书版本加载失败，请稍后重试。', versionEmpty: '没有找到这些域名对应的可选证书版本。', schedule: '什么时候更新', scheduleHelp: '可由管理员按需启动，也可以按 Cron 和时区定期检查并更新。', execution: '运行时会做什么', executionHelp: '系统为每个现有资产绑定创建独立更新计划，并复用 DeploymentPlan、Dry Run、审批和 ExecutionRun。', snapshot: '冻结域名、资产和证书版本快照' },
-    fields: { name: '名称', description: '说明', trigger: '触发方式', eventSources: '事件来源', eventSourcesHelp: '选择证书事件从哪里进入平台。', targetScope: '更新范围', selectedAssets: '指定应用资产', selectedAssetsHelp: '请选择至少一个已纳管的应用资产。', certificateTags: '证书标签（逗号分隔）', certificateTagsHelp: '按证书标签过滤事件或轮询范围。', targetEnvironments: '目标环境（逗号分隔）', targetEnvironmentsHelp: '按目标资产环境过滤。', targetOwners: '目标负责人（逗号分隔）', targetOwnersHelp: '按目标资产负责人过滤。', cron: 'Cron 表达式', timeZone: '时区', expiresWithinDays: '到期天数范围', environments: '目标环境（逗号分隔）', certificateIds: '指定证书（可选）', certificateIdsPlaceholder: '输入证书 ID，多个用逗号分隔', certificateIdsHelp: '填写后只处理指定证书；留空则按到期范围和环境自动匹配。', expiresWithinDaysHelp: '只匹配在此天数内到期的证书。', environmentsHelp: '只处理这些环境中的证书，例如 production, staging。', planType: '部署计划类型', planTypeHelp: '每个命中的证书目标都会在运行时创建一份独立的 DeploymentPlan。', planTypeUpdate: '更新现有证书绑定', planTypeInstall: '安装证书到目标', planTypeVerifyOnly: '只验证，不变更证书', planMode: '运行方式', planModeHelp: '自动化不绑定已有计划；运行时会为每个目标创建新计划。', planModeCreateAndExecute: '创建计划并执行', planModeCreateOnly: '只创建计划，暂不执行', maxTargets: '单次最大目标数', concurrency: '并发数', failureCount: '失败数量阈值', requireDryRun: '执行前必须完成 Dry Run', requireApproval: '执行前必须审批', startedAt: '开始时间', finishedAt: '结束时间', failureStage: '失败阶段', parentRun: '父运行' },
+    scheduleBuilder: { api: '通过外部 API 触发', apiHelp: '保存后由外部系统调用自动化运行 API。每次调用仍会执行目标预览和审批规则。', once: '在固定时间执行一次', onceHelp: '选择浏览器本地时间。任务执行一次后不会再次排期。', recurring: '定期执行', scheduleHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringWarningTitle: '证书更新不建议使用定期执行', recurringWarning: '证书换证通常应由外部系统在证书签发后触发，或安排一次固定时间执行。只有明确需要周期检查时才使用此选项。', certificateVersionCreated: '证书新版本事件', certificateVersionCreatedHelp: '证书通过外部来源或导入产生新版本后，由平台事件触发自动化。', runAt: '执行时间', frequency: '执行周期', daily: '每天', weekly: '每周', monthly: '每月', time: '执行时刻', weekday: '星期', monthDay: '每月日期', legacyCustom: '保留原有自定义计划', legacyCron: '原有 Cron（只读）', weekdays: { 0: '星期日', 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六' } },
+    form: { existingAssetTitle: '只更新现有应用资产', existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。', certificateDomains: '证书域名', certificateDomainsPlaceholder: '输入证书域名，多个用逗号分隔', certificateDomainsHelp: '只更新这些域名对应证书的现有应用资产绑定。', versionSelection: '更新到哪个证书版本', versionSelectionLatest: '自动使用最新证书版本', versionSelectionSpecific: '使用指定证书版本', versionSelectionHelp: '运行开始时解析并冻结版本，运行期间不会因新增版本而改变。', certificateVersionIds: '指定证书版本', certificateVersionIdsPlaceholder: '输入证书版本 ID，多个用逗号分隔', certificateVersionIdsHelp: '每个版本必须属于上面所选域名对应的证书。', versionLoading: '正在加载可选证书版本。', versionLoadFailed: '证书版本加载失败，请稍后重试。', versionEmpty: '没有找到这些域名对应的可选证书版本。', schedule: '什么时候更新', scheduleHelp: '可由管理员按需启动，也可以按 Cron 和时区定期检查并更新。', execution: '运行时会做什么', executionHelp: '系统为每个现有资产绑定创建独立更新计划，并复用 DeploymentPlan、审批和 ExecutionRun。', snapshot: '冻结域名、资产和证书版本快照' },
+    fields: { name: '名称', description: '说明', trigger: '触发方式', eventSources: '事件来源', eventSourcesHelp: '选择证书事件从哪里进入平台。', targetScope: '更新范围', selectedAssets: '指定应用资产', selectedAssetsHelp: '请选择至少一个已纳管的应用资产。', certificateTags: '证书标签（逗号分隔）', certificateTagsHelp: '按证书标签过滤事件或轮询范围。', targetEnvironments: '目标环境（逗号分隔）', targetEnvironmentsHelp: '按目标资产环境过滤。', targetOwners: '目标负责人（逗号分隔）', targetOwnersHelp: '按目标资产负责人过滤。', cron: 'Cron 表达式', timeZone: '时区', expiresWithinDays: '到期天数范围', environments: '目标环境（逗号分隔）', certificateIds: '指定证书（可选）', certificateIdsPlaceholder: '输入证书 ID，多个用逗号分隔', certificateIdsHelp: '填写后只处理指定证书；留空则按到期范围和环境自动匹配。', expiresWithinDaysHelp: '只匹配在此天数内到期的证书。', environmentsHelp: '只处理这些环境中的证书，例如 production, staging。', planType: '部署计划类型', planTypeHelp: '每个命中的证书目标都会在运行时创建一份独立的 DeploymentPlan。', planTypeUpdate: '更新现有证书绑定', planTypeInstall: '安装证书到目标', planTypeVerifyOnly: '只验证，不变更证书', planMode: '运行方式', planModeHelp: '自动化不绑定已有计划；运行时会为每个目标创建新计划。', planModeCreateAndExecute: '创建计划并执行', planModeCreateOnly: '只创建计划，暂不执行', maxTargets: '单次最大目标数', concurrency: '并发数', failureCount: '失败数量阈值', requireDryRun: '历史 Dry Run 设置（当前不作为执行门槛）', requireApproval: '执行前必须审批', startedAt: '开始时间', finishedAt: '结束时间', failureStage: '失败阶段', parentRun: '父运行' },
     actions: { create: '新建自动化', detail: '详情', edit: '编辑', delete: '删除', cancel: '取消', save: '保存', copy: '复制', enable: '启用', disable: '停用', runNow: '立即执行', preview: '预览目标', history: '运行历史', confirmRun: '确认执行', stop: '停止运行', retryFailed: '重试失败目标', openPlan: '查看部署计划', openExecution: '查看执行记录' },
-    manualRun: { title: '手动执行', description: '请选择一个证书版本后再执行。', versionLabel: '证书版本', versionPlaceholder: '请选择证书版本', help: '执行时会按该版本所属证书资产解析关联的应用资产。', empty: '没有可用于手动执行的证书版本。', stopOnError: '错误中断工作流', dryRun: '先执行 Dry-run', start: '开始执行' },
+    manualRun: { title: '手动执行', description: '请选择一个证书版本后再执行。', versionLabel: '证书版本', versionPlaceholder: '请选择证书版本', help: '执行时会按该版本所属证书资产解析关联的应用资产。', empty: '没有可用于手动执行的证书版本。', stopOnError: '错误中断工作流', dryRun: '运行可选 Dry-run 预检', start: '开始执行' },
     columns: { status: '状态', trigger: '触发方式', targets: '目标上限', actions: '执行动作', nextRun: '下次运行', lastRun: '最近运行' },
     triggers: { onDemand: '按需执行', schedule: '定时执行' },
     triggerTypes: { on_demand: '按需执行', schedule: '定时执行', certificate_version_created: '证书新版本事件', retry: '失败重试' },
@@ -670,7 +670,7 @@ export default {
     exclusions: { permission_denied: '无目标权限', missing_version: '缺少证书版本', version_not_deployable: '证书版本不可部署', binding_not_managed: '绑定未纳管', environment_not_allowed: '环境不在允许范围', binding_missing: '缺少绑定', asset_missing_deployment_capability: '目标资产不支持部署', certificate_version_downgrade: '目标证书版本低于资产当前版本', certificate_already_up_to_date: '当前资产已是目标有效期，跳过更新', filter_not_matched: '不满足过滤条件', runtime_context_required: '缺少运行时上下文', unknown: '未知排除原因' },
     failureStages: { selection: '目标选择', plan_creation: '计划创建', dry_run: 'Dry Run', approval: '审批', execution: '执行', verification: '验证', rollback: '回滚', notification: '通知' },
     progress: { total: '总数', pending: '等待中', running: '执行中', waitingApproval: '等待审批', succeeded: '成功', failed: '失败', skipped: '已跳过', cancelled: '已取消' },
-    editor: { createTitle: '新建自动化', editTitle: '编辑自动化', description: '配置何时运行、处理哪些证书、如何创建部署计划以及失败时的安全边界。', exactVersionFromEvent: '证书新版本事件会把本次产生的精确证书版本固定到运行快照里，审批恢复后也不会漂移到后续版本。', sections: { basic: '基本信息', basicHelp: '给自动化一个容易识别的名称，说明它负责哪类证书变更。', trigger: '触发器', triggerHelp: '先定义自动化由什么事实触发，再决定后续的执行和条件。', targets: '处理哪些证书', targetsHelp: '这里选择的是证书目标，不是已有部署计划；运行开始时会冻结目标快照。', execution: '执行器', executionHelp: '先确定这条自动化会如何更新资产，再决定额外条件和安全控制。', conditions: '条件与安全', conditionsHelp: '这里同时定义命中条件、范围过滤、审批和并发等护栏。', plan: '证书部署计划', planRelationTitle: '不会绑定已有部署计划', planRelationDescription: '自动化会根据上面的证书筛选条件，在每次运行时创建部署计划。', planRelationHelp: '每个命中的证书目标对应一份独立 DeploymentPlan，计划 ID 会在运行详情中显示；这样不同证书不会共用错误的目标快照。', guardrails: '执行安全控制', guardrailsHelp: '这些限制决定一次最多处理多少目标、是否先预检/审批，以及失败后何时停止。' }, chain: { createPlan: '按目标创建 DeploymentPlan', dryRun: '执行 Dry Run 预检', approval: '等待审批通过', executePlan: '执行该目标的 DeploymentPlan' } },
+    editor: { createTitle: '新建自动化', editTitle: '编辑自动化', description: '配置何时运行、处理哪些证书、如何创建部署计划以及失败时的安全边界。', exactVersionFromEvent: '证书新版本事件会把本次产生的精确证书版本固定到运行快照里，审批恢复后也不会漂移到后续版本。', sections: { basic: '基本信息', basicHelp: '给自动化一个容易识别的名称，说明它负责哪类证书变更。', trigger: '触发器', triggerHelp: '先定义自动化由什么事实触发，再决定后续的执行和条件。', targets: '处理哪些证书', targetsHelp: '这里选择的是证书目标，不是已有部署计划；运行开始时会冻结目标快照。', execution: '执行器', executionHelp: '先确定这条自动化会如何更新资产，再决定额外条件和安全控制。', conditions: '条件与安全', conditionsHelp: '这里同时定义命中条件、范围过滤、审批和并发等护栏。', plan: '证书部署计划', planRelationTitle: '不会绑定已有部署计划', planRelationDescription: '自动化会根据上面的证书筛选条件，在每次运行时创建部署计划。', planRelationHelp: '每个命中的证书目标对应一份独立 DeploymentPlan，计划 ID 会在运行详情中显示；这样不同证书不会共用错误的目标快照。', guardrails: '执行安全控制', guardrailsHelp: '这些限制决定一次最多处理多少目标、是否先预检/审批，以及失败后何时停止。' }, chain: { createPlan: '按目标创建 DeploymentPlan', dryRun: '可选 Dry Run 预检', approval: '等待审批通过', executePlan: '执行该目标的 DeploymentPlan' } },
     runs: { title: '自动化运行历史', description: '查看运行级状态、不可变目标快照和失败阶段。', progress: '{succeeded}/{total} 成功' },
     runDetail: { title: '自动化运行详情', description: '配置版本 {version}', noFailure: '未发生失败', triggerContext: '触发上下文', sourceType: '来源类型', certificateVersion: '精确证书版本', approvalId: '审批 ID', deliveryId: '投递 ID', excludedReasons: '排除原因' },
     aria: { preview: '自动化目标预览', runs: '自动化运行列表', progress: '自动化运行进度' },
@@ -1117,11 +1117,11 @@ export default {
       submitRisk: '提交后计划会进入审批或待执行状态。',
       review: '进行审批',
       approve: '批准审批',
-      approveRisk: '批准后计划才具备正式执行资格，但仍必须通过 Dry-run 和宿主 ExecutionGrant 校验。',
+      approveRisk: '批准后计划才具备正式执行资格，执行时仍需通过宿主 ExecutionGrant 校验。',
       reject: '驳回审批',
       rejectRisk: '驳回后计划不能正式执行，需要重新提交审批。',
       execute: '执行部署',
-      executeRisk: '执行会修改目标证书配置。已完成或失败的计划再次执行也使用这个入口；执行前应先运行 Dry-run 影响预览。',
+      executeRisk: '执行会修改目标证书配置。已完成或失败的计划再次执行也使用这个入口；正式执行会同步完成必要预检，也可在资产详情页先运行 Dry-run 影响预览。',
       cancel: '取消计划',
       cancelRisk: '只取消尚未完成的部署计划，不回退已经完成的部署。',
       rollback: '回滚执行',
@@ -1177,7 +1177,7 @@ export default {
       missingApproval: '缺少审批通过信息，不能执行。',
       approvalPending: '审批申请已提交，等待审批人批准后才能执行。',
       approvalRejected: '审批未通过，不能执行。',
-      needDryRun: '正式执行前必须先完成一次成功的 Dry-run 影响预览。',
+      needDryRun: 'Dry-run 是可选的影响预览，用于查看证书、域名和目标兼容性检查结论。',
       missingRunId: '缺少 runId，不能回滚。',
       missingSelection: '缺少部署计划选择'
     },
@@ -1238,11 +1238,11 @@ export default {
       viewLogs: '查看日志'
     },
     dryRunRequired: {
-      copy: '当前操作：{action}。请先做一次 Dry-run，确认影响范围和检查结论后再继续正式执行。',
-      description: '正式执行前需要先完成一次成功的 Dry-run 影响预览。',
-      primaryAction: '先做 Dry-run',
-      runningAction: '正在发起 Dry-run…',
-      title: '需要先执行 Dry-run'
+      copy: '当前操作：{action}。Dry-run 是可选的影响预览，不会阻止正式执行。',
+      description: '可先运行同步 Dry-run 查看静态检查结论，正式执行时系统仍会再次完成必要预检。',
+      primaryAction: '运行 Dry-run',
+      runningAction: '正在运行 Dry-run…',
+      title: '可选 Dry-run 影响预览'
     },
     execution: {
       applyName: '部署执行 {runId}',
