@@ -1,4 +1,4 @@
-import { X509Certificate, createHash } from 'node:crypto';
+import { X509Certificate, createHash, randomBytes } from 'node:crypto';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { sha256Fingerprint } from '../../../common/crypto/fingerprint.js';
@@ -53,6 +53,41 @@ import {
   type CertificateVersionFormatEntity,
   certificateFormats,
 } from '../schema/certificates.schema.js';
+
+/**
+ * 宿主默认证书产物配置文件（模板）：一个扩展名一个配置，配置即完整产物规范
+ * （格式编码 + 输出扩展名 + 包含内容 + 密码要求），应用资产配置时直接选用即可，
+ * 无需再按扩展名分支。与插件配方 certificate.acceptedFormats 的标准格式码对应。
+ * - .der  DER   二进制单证书（无私钥，Java）
+ * - .cer  DER   二进制单证书（无私钥，Windows 惯例）
+ * - .crt  PEM   证书文件 leaf+chain（无私钥，Apache/Nginx 惯例）
+ * - .pem  PEM   Bundle：公钥+证书链+私钥（Apache/Nginx）
+ * - .p7b  PKCS#7 证书链+leaf（无私钥，Tomcat/Windows）
+ * - .p7c  PKCS#7 证书链+leaf（无私钥）
+ * - .spc  PKCS#7 证书链+leaf（无私钥，Windows）
+ * - .pfx  PKCS#12 leaf+链+私钥+密码（Windows Server）
+ * - .p12  PKCS#12 leaf+链+私钥+密码（Windows Server）
+ * - .jks  JKS   leaf+链+私钥+密码（Tomcat）
+ * 这些是"配置文件"而非产物本身——证书版本只保存公钥/私钥材料，
+ * 实际产物在部署时按配置文件 + 证书材料按需生成。
+ * 每次后端启动时默认补全（幂等，已存在配置原地对齐），且不允许删除。
+ */
+const DEFAULT_FORMAT_CONFIGS: ReadonlyArray<{
+  format: (typeof certificateFormats)[number];
+  containsPrivateKey: boolean;
+  parameters: Record<string, unknown>;
+}> = [
+  { format: 'der', containsPrivateKey: false, parameters: { configName: '宿主默认 DER 证书', extension: 'der' } },
+  { format: 'der', containsPrivateKey: false, parameters: { configName: '宿主默认 CER 证书', extension: 'cer' } },
+  { format: 'pem', containsPrivateKey: false, parameters: { configName: '宿主默认 CRT 证书', extension: 'crt', includeLeafCertificate: true, includeCertificateChain: true } },
+  { format: 'pem', containsPrivateKey: true, parameters: { configName: '宿主默认 PEM Bundle', extension: 'pem', includeLeafCertificate: true, includeCertificateChain: true, includePrivateKey: true } },
+  { format: 'p7b', containsPrivateKey: false, parameters: { configName: '宿主默认 P7B 证书链', extension: 'p7b', includeLeafCertificate: true, includeCertificateChain: true } },
+  { format: 'p7b', containsPrivateKey: false, parameters: { configName: '宿主默认 P7C 证书链', extension: 'p7c', includeLeafCertificate: true, includeCertificateChain: true } },
+  { format: 'p7b', containsPrivateKey: false, parameters: { configName: '宿主默认 SPC 证书链', extension: 'spc', includeLeafCertificate: true, includeCertificateChain: true } },
+  { format: 'pfx', containsPrivateKey: true, parameters: { configName: '宿主默认 PFX 容器', extension: 'pfx' } },
+  { format: 'pfx', containsPrivateKey: true, parameters: { configName: '宿主默认 P12 容器', extension: 'p12' } },
+  { format: 'jks', containsPrivateKey: true, parameters: { configName: '宿主默认 JKS 容器', extension: 'jks' } },
+];
 
 export interface CertificatesApplicationDependencies {
   db?: DatabasePort;
@@ -450,10 +485,9 @@ export class CertificatesApplicationService {
       passwordSecretRef: input.passwordSecretRef,
       parameters,
     });
-    if (input.certificateVersionId) {
-      const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash, input.tenantId);
-      if (existing) return toCertificateVersionFormatDto(existing);
-    }
+    // 无论是否绑定证书版本都按自然键去重：全局模板（certificateVersionId 为空）同样不能重复创建。
+    const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash, input.tenantId);
+    if (existing) return toCertificateVersionFormatDto(existing);
 
     const format = await this.repository.createFormat({
       id: newId('certfmt'),
@@ -470,6 +504,111 @@ export class CertificatesApplicationService {
       expiresAt: input.expiresAt,
     });
     return toCertificateVersionFormatDto(format);
+  }
+
+  /**
+   * 启动时补全宿主默认证书产物配置文件（模板，不绑定具体证书版本）。
+   * 幂等：已存在的默认配置按 configName 原地对齐（参数变更时更新，不产生重复记录）；
+   * PFX/JKS 按格式规范自动生成密码 Secret。证书版本本身只保存公钥/私钥材料，
+   * 实际产物在部署时按配置文件 + 证书材料按需生成。
+   */
+  async ensureDefaultFormatConfigs(createdBy = 'system', tenantId?: string): Promise<{ ensured: number }> {
+    let ensured = 0;
+    for (const config of DEFAULT_FORMAT_CONFIGS) {
+      try {
+        const existing = await this.findDefaultFormatConfig(config, tenantId);
+        const passwordSecretRef = (config.format === 'pfx' || config.format === 'jks')
+          ? (existing?.passwordSecretRef ?? await this.createDefaultConfigPasswordSecret(config, createdBy, tenantId))
+          : undefined;
+        if (existing) {
+          const currentParamsHash = buildCertificateFormatParameterHash({
+            format: existing.format,
+            containsPrivateKey: Boolean(existing.containsPrivateKey),
+            passwordSecretRef: undefined,
+            parameters: existing.parameters ?? {},
+          });
+          const templateParamsHash = buildCertificateFormatParameterHash({
+            format: config.format,
+            containsPrivateKey: config.containsPrivateKey,
+            passwordSecretRef: undefined,
+            parameters: config.parameters,
+          });
+          if (currentParamsHash !== templateParamsHash || (passwordSecretRef !== undefined && existing.passwordSecretRef !== passwordSecretRef)) {
+            await this.updateFormat({
+              id: existing.id,
+              format: config.format,
+              containsPrivateKey: config.containsPrivateKey,
+              passwordSecretRef,
+              parameters: config.parameters,
+              createdBy,
+              tenantId,
+            });
+            ensured += 1;
+          }
+          continue;
+        }
+        await this.createFormat({
+          tenantId,
+          format: config.format,
+          containsPrivateKey: config.containsPrivateKey,
+          passwordSecretRef,
+          parameters: config.parameters,
+          createdBy,
+        });
+        ensured += 1;
+      } catch (error) {
+        console.warn(`[certificates] 默认证书产物配置文件补全失败 format=${config.format}`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    return { ensured };
+  }
+
+  /** 按默认配置的 configName 定位已有默认配置文件（不绑定证书版本的全局模板）。 */
+  private async findDefaultFormatConfig(
+    config: (typeof DEFAULT_FORMAT_CONFIGS)[number],
+    tenantId?: string,
+  ): Promise<CertificateVersionFormatEntity | undefined> {
+    const configName = typeof config.parameters.configName === 'string' ? config.parameters.configName : '';
+    if (!configName) return undefined;
+    const page = await this.repository.listFormats({ page: 1, pageSize: 200, filter: {} }, tenantId);
+    return page.items.find((item) => !item.certificateVersionId
+      && item.format === config.format
+      && readParameterString(item.parameters, 'configName') === configName);
+  }
+
+  /** PFX/JKS 规范要求设置密码，自动生成一个随机密码 Secret 供部署解析。 */
+  private async createDefaultConfigPasswordSecret(
+    config: (typeof DEFAULT_FORMAT_CONFIGS)[number],
+    createdBy: string,
+    tenantId?: string,
+  ): Promise<string> {
+    const created = await this.dependencies.secrets.create({
+      tenantId,
+      name: `默认导出密码 ${config.parameters.configName ?? config.format}`,
+      type: 'pfx_password',
+      scopeType: 'global',
+      plainText: randomBytes(24).toString('base64url'),
+      createdBy,
+    });
+    return created.secretRef;
+  }
+
+  /** 判断证书产物配置记录是否为宿主默认配置文件（模板），默认配置不允许删除。 */
+  isDefaultFormatConfig(config: Pick<CertificateVersionFormatEntity, 'format' | 'containsPrivateKey' | 'parameters' | 'certificateVersionId'>): boolean {
+    if (config.certificateVersionId) return false;
+    return DEFAULT_FORMAT_CONFIGS.some((template) => template.format === config.format
+      && template.containsPrivateKey === Boolean(config.containsPrivateKey)
+      && buildCertificateFormatParameterHash({
+        format: config.format,
+        containsPrivateKey: Boolean(config.containsPrivateKey),
+        passwordSecretRef: undefined,
+        parameters: config.parameters ?? {},
+      }) === buildCertificateFormatParameterHash({
+        format: template.format,
+        containsPrivateKey: template.containsPrivateKey,
+        passwordSecretRef: undefined,
+        parameters: template.parameters,
+      }));
   }
 
   async updateFormat(input: UpdateCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto> {
@@ -536,6 +675,12 @@ export class CertificatesApplicationService {
     const current = await this.repository.getFormat(input.id, input.tenantId);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书产物配置不存在', { certificateVersionFormatId: input.id });
+    }
+    if (this.isDefaultFormatConfig(current)) {
+      throw new AppError('DEFAULT_CERTIFICATE_FORMAT_PROTECTED', '宿主默认证书产物配置文件不允许删除', {
+        format: current.format,
+        certificateVersionFormatId: input.id,
+      });
     }
     const deleted = await this.repository.deleteFormat(input.id, input.tenantId);
     void this.dependencies.audit?.write({
@@ -957,6 +1102,11 @@ function readBooleanParameter(parameters: Record<string, unknown> | undefined, k
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value === 'true';
   return false;
+}
+
+function readParameterString(parameters: Record<string, unknown> | undefined, key: string): string {
+  const value = parameters?.[key];
+  return typeof value === 'string' ? value : '';
 }
 
 function parseDistinguishedName(value: string): CertificateDistinguishedName {

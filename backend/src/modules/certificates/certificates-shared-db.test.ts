@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { AppError } from '../../common/errors/app-error.js';
 import type { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { createCertificateTestFixture, type CertificateTestFixture } from './certificate-test-fixtures.js';
+import { CertificatesApplicationService } from './application/certificates.application-service.js';
+import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
 
 describe('证书模块共享数据库回归', () => {
   it('导入后读取证书资产列表应命中同一份数据库', async () => {
@@ -47,6 +50,46 @@ describe('证书模块共享数据库回归', () => {
     assert.equal(listed.statusCode, 200);
     assert.equal((listed.body as any).total, 1);
     assert.equal((listed.body as any).items[0].primaryDomain, 'leaf.example.test');
+  });
+
+  it('默认证书产物配置文件启动补全幂等：按扩展名覆盖 10 种标准配置，容器格式携带密码，且不允许删除', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const security = createSecurityServices();
+    const artifacts = new PgCertificateArtifactStore(db);
+    const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+
+    const first = await certificates.ensureDefaultFormatConfigs('system');
+    assert.equal(first.ensured, 10);
+
+    // 幂等：再次补全不会重复创建或重复更新。
+    const again = await certificates.ensureDefaultFormatConfigs('system');
+    assert.equal(again.ensured, 0);
+
+    const page = await certificates.listFormats({ page: 1, pageSize: 100, filter: {} });
+    assert.equal(page.total, 10);
+    const byExtension = new Map(page.items.map((item) => [String((item.parameters as Record<string, unknown>)?.extension), item]));
+    assert.equal(byExtension.size, 10);
+    // 无密钥格式
+    for (const ext of ['der', 'cer']) assert.equal(byExtension.get(ext)?.containsPrivateKey, false, `${ext} 不应含私钥`);
+    // 有密钥格式：PEM Bundle / PFX / P12 / JKS
+    assert.equal(byExtension.get('pem')?.containsPrivateKey, true);
+    assert.equal((byExtension.get('pem')?.parameters as Record<string, unknown>)?.includePrivateKey, true);
+    for (const ext of ['pfx', 'p12', 'jks']) {
+      assert.equal(byExtension.get(ext)?.containsPrivateKey, true, `${ext} 应含私钥`);
+      assert.ok(byExtension.get(ext)?.passwordSecretRef, `${ext} 应携带密码 Secret`);
+    }
+    // CRT 为 PEM 证书文件（无密钥），P7B 系列为证书链（无密钥）
+    assert.equal(byExtension.get('crt')?.containsPrivateKey, false);
+    for (const ext of ['p7b', 'p7c', 'spc']) {
+      assert.equal(byExtension.get(ext)?.containsPrivateKey, false, `${ext} 不应含私钥`);
+      assert.equal((byExtension.get(ext)?.parameters as Record<string, unknown>)?.includeCertificateChain, true);
+    }
+
+    await assert.rejects(
+      certificates.deleteFormat({ id: byExtension.get('pem')!.id, deletedBy: 'system' }),
+      (error: unknown) => error instanceof AppError && error.errorCode === 'DEFAULT_CERTIFICATE_FORMAT_PROTECTED',
+    );
   });
 
   it('不同证书域名导入后应保留为独立资产和版本', async () => {

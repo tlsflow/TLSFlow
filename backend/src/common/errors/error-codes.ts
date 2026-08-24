@@ -65,6 +65,7 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   CERTIFICATE_ISSUANCE_CONFLICT: { httpStatus: 409, message: '证书签发冲突' },
   PUBLIC_KEY_MISMATCH: { httpStatus: 422, message: '公钥不匹配' },
   KEY_REUSE_FORBIDDEN: { httpStatus: 409, message: '禁止跨应用复用私钥' },
+  DEFAULT_CERTIFICATE_FORMAT_PROTECTED: { httpStatus: 409, message: '宿主默认证书产物配置文件不允许删除' },
   CERTIFICATE_REVOCATION_UNSUPPORTED: { httpStatus: 422, message: '当前 CA 不支持证书吊销' },
   TRUST_DISTRIBUTION_FAILED: { httpStatus: 500, message: '信任链分发失败' },
   ASSET_UNREACHABLE: { httpStatus: 422, message: '资产不可达' },

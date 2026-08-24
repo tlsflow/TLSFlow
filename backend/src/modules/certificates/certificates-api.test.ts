@@ -206,6 +206,15 @@ describe('证书资产 API', () => {
     });
     const versionId = (imported.body as any).version.id;
 
+    // 证书导入只保存公钥/私钥材料，不自动生成任何格式产物记录。
+    const versionFormats = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/${versionId}/formats`,
+      headers: headers('user_cert2'),
+    });
+    assert.equal(versionFormats.statusCode, 200);
+    assert.equal((versionFormats.body as any).items.length, 0);
+
     const format = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-version-formats',
@@ -254,6 +263,52 @@ describe('证书资产 API', () => {
     assert.equal((page.body as any).pageSize, 1);
     assert.equal((page.body as any).total, 1);
     assert.equal((page.body as any).items[0].certificateVersionId, versionId);
+  });
+
+  it('宿主默认证书产物配置文件不允许删除，用户自定义配置可删除', async () => {
+    const { app } = await createAuthorizedApp('user_defaults');
+
+    // 手工创建与宿主默认配置签名一致的配置（无证书版本、标准 PEM 参数）。
+    const defaultLike = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: headers('user_defaults'),
+      body: {
+        format: 'pem',
+        containsPrivateKey: true,
+        parameters: { configName: '宿主默认 PEM Bundle', extension: 'pem', includeLeafCertificate: true, includeCertificateChain: true, includePrivateKey: true },
+      },
+    });
+    assert.equal(defaultLike.statusCode, 201);
+
+    const blockedDelete = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/delete',
+      headers: headers('user_defaults'),
+      body: { id: (defaultLike.body as any).id },
+    });
+    assert.equal(blockedDelete.statusCode, 409);
+    assert.equal((blockedDelete.body as any).errorCode, 'DEFAULT_CERTIFICATE_FORMAT_PROTECTED');
+
+    const custom = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: headers('user_defaults'),
+      body: {
+        format: 'der',
+        containsPrivateKey: false,
+        parameters: { configName: '自定义 DER', publicEncoding: 'der' },
+      },
+    });
+    assert.equal(custom.statusCode, 201);
+
+    const allowedDelete = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/delete',
+      headers: headers('user_defaults'),
+      body: { id: (custom.body as any).id },
+    });
+    assert.equal(allowedDelete.statusCode, 200);
   });
 
   it('未接入的 PFX 导出和来源同步都必须由 Plugin Runner 失败关闭', async () => {

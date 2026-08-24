@@ -1181,6 +1181,17 @@ export async function createAppAsync(
   if (unifiedPlugins && pluginWorkflowPublisher) {
     await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, { registry: builtinPluginRegistry });
   }
+  // 每次后端启动时补全宿主默认证书产物配置文件（模板）；幂等且不允许删除。
+  const certificateServices = app.getResource<CertificateServices>('certificateServices');
+  if (certificateServices?.certificates) {
+    try {
+      await certificateServices.certificates.ensureDefaultFormatConfigs('system');
+    } catch (error) {
+      structuredLogger.warn('默认证书产物配置文件补全失败，已继续启动后端', {
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'certificate-default-configs' });
+    }
+  }
   return app;
 }
 
