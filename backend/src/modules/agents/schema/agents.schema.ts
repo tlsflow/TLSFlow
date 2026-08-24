@@ -5,7 +5,7 @@ export type EnrollmentTokenStatus = 'active' | 'expired' | 'exhausted' | 'revoke
 export type AgentUpgradeStatus = 'planned' | 'accepted' | 'succeeded' | 'failed' | 'rolled_back' | 'manual_required';
 export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejected' | 'superseded';
 export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
-export type AgentInstallSessionPlatform = 'windows_powershell_service' | 'linux_go_systemd';
+export type AgentInstallSessionPlatform = 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
 
 export interface EnrollmentToken {
   id: string;

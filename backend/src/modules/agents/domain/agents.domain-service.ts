@@ -2,7 +2,7 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, ran
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
-import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
+import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsCompatibilityInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
 import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
@@ -81,6 +81,50 @@ export class AgentsDomainService {
       configDir,
       dataDir,
       logDir,
+    };
+  }
+
+  createWindowsCompatibilityInstallSession(
+    tenantId: string,
+    input: CreateWindowsCompatibilityInstallSessionInput,
+    requestId: string,
+    controlPlaneUrl: string,
+  ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
+    const role = normalizeInstallRole(input.role);
+    if (role !== 'full_agent') throw new AppError('VALIDATION_FAILED', 'Windows Compatibility Agent 仅支持 full_agent 角色');
+    const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
+      allowedRoles: [role],
+      allowedZones: [input.zone?.trim() || 'default'],
+      maxUses: 1,
+      ttlSeconds: 1800,
+      createdBy: 'system',
+    }, requestId);
+    const bootstrapToken = createInstallBootstrapToken();
+    const now = new Date();
+    const id = newId('aginst');
+    const zone = input.zone?.trim() || 'default';
+    return {
+      id,
+      tenantId,
+      platform: 'windows_compatibility_service',
+      role,
+      bootstrapToken,
+      bootstrapTokenHash: sha256Hex(bootstrapToken),
+      bootstrapTokenPreview: bootstrapToken,
+      enrollmentTokenRecord,
+      enrollmentToken: enrollmentTokenRecord.token,
+      agentKey: `wincompat.${id.toLowerCase()}`,
+      controlPlaneUrl,
+      zone,
+      startAfterInstall: input.startAfterInstall !== false,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
+      serviceName: 'GCACWindowsCompatibilityAgent',
+      displayName: 'GCAC Windows Compatibility Agent',
+      installRoot: normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsCompatibilityAgent', 'installRoot'),
+      configDir: normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config', 'configDir'),
+      dataDir: normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data', 'dataDir'),
+      logDir: normalizeWindowsPath(input.logDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs', 'logDir'),
     };
   }
 

@@ -10,7 +10,7 @@ import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import { AgentDirectClient } from './agent-direct-client.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateGatewayEnableSessionInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, GatewayEnableSessionProjection, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateGatewayEnableSessionInput, CreateLinuxGoInstallSessionInput, CreateWindowsCompatibilityInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, GatewayEnableSessionProjection, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
@@ -685,6 +685,56 @@ export class AgentsApplicationService {
     };
   }
 
+  async createWindowsCompatibilityInstallSession(tenantId: string, input: CreateWindowsCompatibilityInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
+    const session = this.domain.createWindowsCompatibilityInstallSession(tenantId, input, requestId, baseUrl);
+    await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
+    await this.repository.createInstallSession({
+      id: session.id,
+      tenantId: session.tenantId,
+      platform: session.platform,
+      role: session.role,
+      bootstrapTokenHash: session.bootstrapTokenHash,
+      bootstrapTokenPreview: session.bootstrapTokenPreview,
+      enrollmentToken: session.enrollmentToken,
+      agentKey: session.agentKey,
+      controlPlaneUrl: session.controlPlaneUrl,
+      zone: session.zone,
+      startAfterInstall: session.startAfterInstall,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      usedAt: session.usedAt,
+      usedByIp: session.usedByIp,
+      serviceName: session.serviceName,
+      displayName: session.displayName,
+      installRoot: session.installRoot,
+      configDir: session.configDir,
+      dataDir: session.dataDir,
+      logDir: session.logDir,
+    });
+    const token = encodeURIComponent(session.bootstrapToken);
+    const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
+    return {
+      sessionId: session.id,
+      platform: session.platform,
+      role: session.role,
+      expiresAt: session.expiresAt,
+      bootstrapUrl,
+      installCommand: `(New-Object Net.WebClient).DownloadString('${bootstrapUrl}') | Invoke-Expression`,
+      bootstrapTokenPreview: session.bootstrapTokenPreview,
+      enrollmentToken: session.enrollmentToken,
+      serviceName: session.serviceName,
+      displayName: session.displayName,
+      installRoot: session.installRoot,
+      configDir: session.configDir,
+      dataDir: session.dataDir,
+      logDir: session.logDir,
+      agentKey: session.agentKey,
+      tenantId: session.tenantId,
+      zone: session.zone,
+      enrollmentTokenPreview: `${session.enrollmentToken.slice(0, 12)}...${session.enrollmentToken.slice(-6)}`,
+    };
+  }
+
   async createLinuxGoInstallSession(tenantId: string, input: CreateLinuxGoInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
     const session = this.domain.createLinuxGoInstallSession(tenantId, input, requestId, baseUrl);
     await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
@@ -795,26 +845,9 @@ export class AgentsApplicationService {
   }
 
   async buildWindowsPowerShellInstallManifest(session: AgentInstallSession) {
-    const artifacts = await loadWindowsGoAgentArtifacts();
-    return {
-      sessionId: session.id,
-      platform: session.platform,
-      role: session.role ?? 'full_agent',
-      gatewayEnabled: session.role === 'gateway',
-      tenantId: session.tenantId,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-      startAfterInstall: session.startAfterInstall,
-      controlPlaneUrl: session.controlPlaneUrl,
-      agentKey: session.agentKey,
-      enrollmentToken: session.enrollmentToken,
-      zone: session.zone,
-      artifacts,
-    };
+    const builder = windowsInstallManifestBuilders[session.platform];
+    if (!builder) throw new AppError('RESOURCE_NOT_FOUND', '未登记对应的 Windows Agent 安装器', { platform: session.platform });
+    return builder(session);
   }
 
   buildLinuxGoInstallManifest(session: AgentInstallSession) {
@@ -1217,6 +1250,95 @@ async function loadWindowsGoAgentArtifacts() {
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+type WindowsInstallManifestBuilder = (session: AgentInstallSession) => Promise<Record<string, unknown>>;
+
+const windowsInstallManifestBuilders: Partial<Record<AgentInstallSession['platform'], WindowsInstallManifestBuilder>> = {
+  windows_powershell_service: buildWindowsModernInstallManifest,
+  windows_compatibility_service: buildWindowsCompatibilityInstallManifest,
+};
+
+async function buildWindowsModernInstallManifest(session: AgentInstallSession): Promise<Record<string, unknown>> {
+  return {
+    sessionId: session.id,
+    platform: session.platform,
+    role: session.role ?? 'full_agent',
+    gatewayEnabled: session.role === 'gateway',
+    tenantId: session.tenantId,
+    serviceName: session.serviceName,
+    displayName: session.displayName,
+    installRoot: session.installRoot,
+    configDir: session.configDir,
+    dataDir: session.dataDir,
+    logDir: session.logDir,
+    startAfterInstall: session.startAfterInstall,
+    controlPlaneUrl: session.controlPlaneUrl,
+    agentKey: session.agentKey,
+    enrollmentToken: session.enrollmentToken,
+    zone: session.zone,
+    artifacts: await loadWindowsGoAgentArtifacts(),
+  };
+}
+
+async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSession): Promise<Record<string, unknown>> {
+  return {
+    sessionId: session.id,
+    platform: session.platform,
+    tenantId: session.tenantId,
+    serviceName: session.serviceName,
+    displayName: session.displayName,
+    installRoot: session.installRoot,
+    configDir: session.configDir,
+    dataDir: session.dataDir,
+    logDir: session.logDir,
+    startAfterInstall: session.startAfterInstall,
+    controlPlaneUrl: session.controlPlaneUrl,
+    agentKey: session.agentKey,
+    enrollmentToken: session.enrollmentToken,
+    zone: session.zone,
+    binaryRelativePath: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe',
+    targetBinaryName: 'GCAC.WindowsCompatibilityAgent.exe',
+    configRelativePath: 'config/agent.config.template.json',
+    installScriptRelativePath: 'install-service.ps1',
+    artifacts: await loadWindowsCompatibilityAgentArtifacts(),
+    config: {
+      schemaVersion: 'gcac.windows-compat-agent-config/v1',
+      tenantId: session.tenantId,
+      agentKey: session.agentKey,
+      enrollmentToken: session.enrollmentToken,
+      controlPlaneUrl: session.controlPlaneUrl,
+      heartbeatIntervalSeconds: 30,
+      taskPollIntervalSeconds: 5,
+      requiredHotfixes: [],
+      dataDirectory: session.dataDir,
+      logDirectory: session.logDir,
+    },
+  };
+}
+
+async function loadWindowsCompatibilityAgentArtifacts(): Promise<Array<{ path: string; description: string; content: string; encoding: 'utf8' | 'base64' }>> {
+  const agentRoot = resolveWindowsCompatibilityAgentRoot();
+  const artifactPaths = [
+    { source: resolveWindowsCompatibilityBinaryPath(agentRoot), target: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe', encoding: 'base64' as const },
+    { source: path.join(agentRoot, 'install-service.ps1'), target: 'install-service.ps1', encoding: 'utf8' as const },
+    { source: path.join(agentRoot, 'uninstall-service.ps1'), target: 'uninstall-service.ps1', encoding: 'utf8' as const },
+    { source: path.join(agentRoot, 'upgrade-service.ps1'), target: 'upgrade-service.ps1', encoding: 'utf8' as const },
+    { source: path.join(agentRoot, 'config', 'agent.config.template.json'), target: 'config/agent.config.template.json', encoding: 'utf8' as const },
+  ];
+  for (const artifact of artifactPaths) {
+    if (!existsSync(artifact.source)) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'Windows Compatibility Agent 安装产物不存在，请先执行 build.ps1', { path: artifact.source });
+    }
+  }
+  return Promise.all(artifactPaths.map(async (artifact) => ({
+    path: artifact.target,
+    description: `Windows Compatibility Agent 安装文件: ${artifact.target}`,
+    content: artifact.encoding === 'base64'
+      ? (await readFile(artifact.source)).toString('base64')
+      : stripUtf8Bom(await readFile(artifact.source, 'utf8')),
+    encoding: artifact.encoding,
+  })));
+}
+
 async function walkWindowsGoAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }>> {
   const entries = await readdir(currentDir, { withFileTypes: true });
   const artifacts: Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
@@ -1265,6 +1387,38 @@ function resolveWindowsGoAgentRoot(): string {
   const relativeAgentPath = path.join('agents', 'windows-go-full-agent');
   const searchRoots = [currentDirPath, process.cwd()];
   for (const searchRoot of searchRoots) {
+    let cursor = searchRoot;
+    for (let depth = 0; depth < 8; depth += 1) {
+      const candidate = path.resolve(cursor, relativeAgentPath);
+      if (existsSync(candidate)) return candidate;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) break;
+      cursor = parent;
+    }
+  }
+  return path.resolve(process.cwd(), relativeAgentPath);
+}
+
+function resolveWindowsCompatibilityAgentRoot(): string {
+  const configuredRoot = process.env.GCAC_WINDOWS_COMPAT_AGENT_ROOT?.trim();
+  if (configuredRoot) return path.resolve(configuredRoot);
+  return resolveAgentProductRoot('windows-compat-full-agent');
+}
+
+function resolveWindowsCompatibilityBinaryPath(agentRoot: string): string {
+  const configuredBinary = process.env.GCAC_WINDOWS_COMPAT_AGENT_BINARY?.trim();
+  return configuredBinary ? path.resolve(configuredBinary) : path.join(agentRoot, 'bin', 'Release', 'GCAC.WindowsCompatibilityAgent.exe');
+}
+
+function resolveAgentProductRoot(productDirectory: string): string {
+  const backendMarker = `${path.sep}backend${path.sep}`;
+  const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
+  if (backendMarkerIndex >= 0) {
+    const candidate = path.join(currentDirPath.slice(0, backendMarkerIndex), 'agents', productDirectory);
+    if (existsSync(candidate)) return candidate;
+  }
+  const relativeAgentPath = path.join('agents', productDirectory);
+  for (const searchRoot of [currentDirPath, process.cwd()]) {
     let cursor = searchRoot;
     for (let depth = 0; depth < 8; depth += 1) {
       const candidate = path.resolve(cursor, relativeAgentPath);

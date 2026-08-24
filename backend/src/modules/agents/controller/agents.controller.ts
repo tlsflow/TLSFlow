@@ -18,6 +18,7 @@ import type {
   CreateEnrollmentTokenInput,
   CreateGatewayEnableSessionInput,
   CreateLinuxGoInstallSessionInput,
+  CreateWindowsCompatibilityInstallSessionInput,
   CreateWindowsPowerShellInstallSessionInput,
   DeleteAgentInput,
   DisableAgentInput,
@@ -56,6 +57,7 @@ export class AgentsController {
     router.post('/api/v1/agents/:agentId/rescan', '创建 Agent 手动能力重扫任务', tags, (request) => this.enqueueCapabilityRescan(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, (request) => this.createWindowsPowerShellInstallSession(request));
+    router.post('/api/v1/agents/install-sessions/windows-compatibility', '创建 Windows Compatibility Agent 安装会话', tags, (request) => this.createWindowsCompatibilityInstallSession(request));
     router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
     router.post('/api/v1/agents/gateway-enable-sessions', '创建现有 Agent 启用 Gateway 命令', tags, (request) => this.createGatewayEnableSession(request));
     router.get('/agent-install.ps1', '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
@@ -164,6 +166,29 @@ export class AgentsController {
       body: this.service.createLinuxGoInstallSession(
         tenantId(request),
         body as unknown as CreateLinuxGoInstallSessionInput,
+        requestId(request),
+        inferBaseUrl(request),
+      ),
+    };
+  }
+
+  private createWindowsCompatibilityInstallSession(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      zone: { type: 'string' },
+      role: { type: 'string' },
+      serviceName: { type: 'string' },
+      displayName: { type: 'string' },
+      installRoot: { type: 'string' },
+      configDir: { type: 'string' },
+      dataDir: { type: 'string' },
+      logDir: { type: 'string' },
+      startAfterInstall: { type: 'boolean' },
+    });
+    return {
+      statusCode: 201,
+      body: this.service.createWindowsCompatibilityInstallSession(
+        tenantId(request),
+        body as unknown as CreateWindowsCompatibilityInstallSessionInput,
         requestId(request),
         inferBaseUrl(request),
       ),
@@ -683,7 +708,22 @@ function inferBaseUrl(request: HttpRequest): string {
   return `${proto}://${host ?? 'localhost'}`;
 }
 
+type WindowsBootstrapManifest = Record<string, unknown> & { platform: string };
+type WindowsBootstrapRenderer = (manifest: WindowsBootstrapManifest) => string;
+
+const windowsBootstrapRenderers: Record<string, WindowsBootstrapRenderer> = {
+  windows_powershell_service: renderWindowsModernBootstrapScript,
+  windows_compatibility_service: renderWindowsCompatibilityBootstrapScript,
+};
+
 function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
+  const record = manifest as WindowsBootstrapManifest;
+  const renderer = windowsBootstrapRenderers[record.platform];
+  if (!renderer) throw new AppError('RESOURCE_NOT_FOUND', '未登记对应的 Windows Agent Bootstrap 渲染器', { platform: record.platform });
+  return renderer(record);
+}
+
+function renderWindowsModernBootstrapScript(manifest: WindowsBootstrapManifest): string {
   const manifestJson = JSON.stringify(manifest, null, 2);
   return [
     '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
@@ -816,6 +856,93 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '}',
     "Write-Host 'Bootstrap completed. Files staged at:' $root",
   ].join('\r\n')
+}
+
+function renderWindowsCompatibilityBootstrapScript(manifest: WindowsBootstrapManifest): string {
+  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
+  const artifactEntries = artifacts.map((value) => {
+    const artifact = value as { path?: unknown; content?: unknown; encoding?: unknown };
+    const artifactPath = String(artifact.path ?? '');
+    const content = String(artifact.content ?? '');
+    const contentBase64 = artifact.encoding === 'base64'
+      ? content
+      : Buffer.from(content, 'utf8').toString('base64');
+    return `  (New-Object PSObject -Property @{ Path = '${powerShellSingleQuote(artifactPath)}'; ContentBase64 = '${contentBase64}' })`;
+  }).join(',\r\n');
+  const configBase64 = Buffer.from(JSON.stringify(manifest.config ?? {}, null, 2), 'utf8').toString('base64');
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    `$sessionId = '${powerShellSingleQuote(String(manifest.sessionId ?? ''))}'`,
+    `$installRoot = '${powerShellSingleQuote(String(manifest.installRoot ?? ''))}'`,
+    `$configDir = '${powerShellSingleQuote(String(manifest.configDir ?? ''))}'`,
+    `$dataDir = '${powerShellSingleQuote(String(manifest.dataDir ?? ''))}'`,
+    `$logDir = '${powerShellSingleQuote(String(manifest.logDir ?? ''))}'`,
+    `$serviceName = '${powerShellSingleQuote(String(manifest.serviceName ?? ''))}'`,
+    `$binaryRelativePath = '${powerShellSingleQuote(String(manifest.binaryRelativePath ?? ''))}'`,
+    `$targetBinaryName = '${powerShellSingleQuote(String(manifest.targetBinaryName ?? ''))}'`,
+    `$installScriptRelativePath = '${powerShellSingleQuote(String(manifest.installScriptRelativePath ?? ''))}'`,
+    `$root = Join-Path $env:TEMP ('gcac-win-compat-agent-' + $sessionId)`,
+    `$bootstrapLogPath = Join-Path $logDir 'bootstrap.log'`,
+    'New-Item -ItemType Directory -Force -Path $root | Out-Null',
+    '$artifacts = @(',
+    artifactEntries,
+    ')',
+    'foreach ($artifact in $artifacts) {',
+    '  $artifactPath = Join-Path $root $artifact.Path',
+    '  $artifactDirectory = Split-Path -Parent $artifactPath',
+    '  if (-not [string]::IsNullOrEmpty($artifactDirectory)) { New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null }',
+    '  [System.IO.File]::WriteAllBytes($artifactPath, [System.Convert]::FromBase64String([string]$artifact.ContentBase64))',
+    '}',
+    'New-Item -ItemType Directory -Force -Path $installRoot | Out-Null',
+    'New-Item -ItemType Directory -Force -Path $configDir | Out-Null',
+    'New-Item -ItemType Directory -Force -Path $dataDir | Out-Null',
+    'New-Item -ItemType Directory -Force -Path $logDir | Out-Null',
+    '$sourceBinary = Join-Path $root $binaryRelativePath',
+    '$targetBinary = Join-Path $installRoot $targetBinaryName',
+    "$actualConfigPath = Join-Path $configDir 'agent.config.json'",
+    `[System.IO.File]::WriteAllBytes($actualConfigPath, [System.Convert]::FromBase64String('${configBase64}'))`,
+    '$preflightOutput = & $sourceBinary --config $actualConfigPath --preflight 2>&1 | Out-String',
+    '$preflightExitCode = $LASTEXITCODE',
+    "$preflightLogPath = Join-Path $logDir 'bootstrap-preflight.json'",
+    '[System.IO.File]::WriteAllText($preflightLogPath, $preflightOutput, (New-Object System.Text.UTF8Encoding($false)))',
+    'if ($preflightExitCode -ne 0) {',
+    "  [System.IO.File]::AppendAllText($bootstrapLogPath, ('Preflight failed.' + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))",
+    "  throw 'Windows Compatibility Agent preflight failed; see bootstrap.log.'",
+    '}',
+    '$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue',
+    'if ($null -ne $existingService) {',
+    '  $existingService.Close()',
+    "  $uninstallScript = Join-Path $root 'uninstall-service.ps1'",
+    '  $uninstallOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $uninstallScript 2>&1 | Out-String',
+    '  $uninstallExitCode = $LASTEXITCODE',
+    "  [System.IO.File]::AppendAllText($bootstrapLogPath, $uninstallOutput, (New-Object System.Text.UTF8Encoding($false)))",
+    "  if ($uninstallExitCode -ne 0) { throw 'Existing Windows Compatibility Agent service removal failed; see bootstrap.log.' }",
+    '}',
+    '$copyDeadline = [DateTime]::UtcNow.AddSeconds(30)',
+    'do {',
+    '  try {',
+    '    Copy-Item -LiteralPath $sourceBinary -Destination $targetBinary -Force -ErrorAction Stop',
+    '    $copyCompleted = $true',
+    '  } catch [System.IO.IOException] {',
+    '    $copyCompleted = $false',
+    '    Start-Sleep -Milliseconds 250',
+    '  }',
+    '} while (-not $copyCompleted -and [DateTime]::UtcNow -lt $copyDeadline)',
+    "if (-not $copyCompleted) { throw 'Windows Compatibility Agent executable replacement timed out; see bootstrap.log.' }",
+    '$installScript = Join-Path $root $installScriptRelativePath',
+    '$installOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript -InstallRoot $installRoot -ConfigPath $actualConfigPath 2>&1 | Out-String',
+    '$installExitCode = $LASTEXITCODE',
+    "[System.IO.File]::AppendAllText($bootstrapLogPath, $installOutput, (New-Object System.Text.UTF8Encoding($false)))",
+    "if ($installExitCode -ne 0) { throw 'Windows Compatibility Agent service installation failed; see bootstrap.log.' }",
+    '$service = Get-Service -Name $serviceName -ErrorAction Stop',
+    "if ([string]$service.Status -ne 'Running') { throw 'Windows Compatibility Agent service is not running; see bootstrap.log.' }",
+    "[System.IO.File]::AppendAllText($bootstrapLogPath, ('Service started: ' + $serviceName + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))",
+  ].join('\r\n');
+}
+
+function powerShellSingleQuote(value: string): string {
+  return value.replace(/'/gu, "''");
 }
 
 function renderWindowsGatewayEnableScript(input: { zone: string; serviceName: string; configPath: string }): string {

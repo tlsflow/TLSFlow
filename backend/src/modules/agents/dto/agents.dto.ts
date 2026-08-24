@@ -202,6 +202,8 @@ export interface CreateWindowsPowerShellInstallSessionInput {
   startAfterInstall?: boolean;
 }
 
+export interface CreateWindowsCompatibilityInstallSessionInput extends CreateWindowsPowerShellInstallSessionInput {}
+
 export interface CreateLinuxGoInstallSessionInput {
   zone?: string;
   role?: 'full_agent' | 'gateway';
@@ -215,7 +217,7 @@ export interface CreateLinuxGoInstallSessionInput {
 }
 
 export interface CreateGatewayEnableSessionInput {
-  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
   agentId?: string;
   zone?: string;
   serviceName?: string;
@@ -301,7 +303,7 @@ export interface AgentUpgradeSuggestionProjection {
 
 export interface AgentInstallSessionBootstrapProjection {
   sessionId: string;
-  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
   role: 'full_agent' | 'gateway';
   expiresAt: string;
   bootstrapUrl: string;
@@ -322,7 +324,7 @@ export interface AgentInstallSessionBootstrapProjection {
 }
 
 export interface GatewayEnableSessionProjection {
-  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
   agentId?: string;
   zone: string;
   serviceName: string;

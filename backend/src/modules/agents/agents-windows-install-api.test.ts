@@ -126,6 +126,54 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(String(bootstrap.body), /\$manifest = @'/);
   });
 
+  it('Windows Compatibility Agent 生成兼容 PowerShell 的独立安装命令和 Bootstrap', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_agent_windows_compat_install',
+      'x-request-id': 'req_agent_windows_compat_install',
+      host: 'gcac.example.test',
+      'x-forwarded-proto': 'https',
+    };
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-compatibility',
+      headers,
+      body: { zone: 'default', startAfterInstall: true },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdBody = created.body as { platform: string; serviceName: string; installCommand: string; bootstrapUrl: string };
+    assert.equal(createdBody.platform, 'windows_compatibility_service');
+    assert.equal(createdBody.serviceName, 'GCACWindowsCompatibilityAgent');
+    assert.match(createdBody.installCommand, /^\(New-Object Net\.WebClient\)\.DownloadString\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=.*'\) \| Invoke-Expression$/);
+
+    const token = new URL(createdBody.bootstrapUrl).searchParams.get('token');
+    assert.ok(token);
+    const bootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install.ps1?token=${encodeURIComponent(token!)}`,
+      headers,
+    });
+    assert.equal(bootstrap.statusCode, 200);
+    const body = String(bootstrap.body);
+    assert.match(body, /GCAC\.WindowsCompatibilityAgent\.exe/);
+    assert.match(body, /--preflight/);
+    assert.match(body, /install-service\.ps1/);
+    assert.match(body, /uninstall-service\.ps1/);
+    assert.match(body, /-InstallRoot \$installRoot -ConfigPath \$actualConfigPath/);
+    assert.match(body, /Get-Service -Name \$serviceName/);
+    assert.match(body, /Existing Windows Compatibility Agent service removal failed/);
+    assert.match(body, /executable replacement timed out/);
+    assert.match(body, /FromBase64String/);
+    assert.match(body, /bootstrap\.log/);
+    assert.ok(body.indexOf('$preflightOutput = & $sourceBinary') < body.indexOf('$uninstallOutput = & powershell'));
+    assert.ok(body.indexOf('$uninstallOutput = & powershell') < body.indexOf('Copy-Item -LiteralPath $sourceBinary'));
+    assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('$installOutput = & powershell'));
+    assert.doesNotMatch(body, /\[Console\]::OutputEncoding/);
+    assert.doesNotMatch(body, /Write-Host \('Windows Compatibility Agent installed successfully/);
+    assert.doesNotMatch(body, /ConvertFrom-Json/);
+    assert.doesNotMatch(body, /register-once/);
+  });
+
   it('Linux bootstrap 短码只能使用一次且脚本不再二次拉 manifest', async () => {
     const app = createApp();
     const headers = {
