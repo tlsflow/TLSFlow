@@ -9,6 +9,8 @@ import type { AuditLogEntity } from '../../../persistence/entities/audit-log.ent
 import type { DeploymentPlansRepository } from '../../deployment-plans/repository/deployment-plans.repository.js';
 import { buildAuditPresentationContext, emptyAuditPresentationContext, presentAuditLog, type AuditPresentationContext } from '../../audits/audit-presentation.service.js';
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
+import type { SecuritySubject } from '../../../shared/security-types.js';
+import type { ObjectPermissionService } from '../../security/object-permission.service.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
 
 export interface DashboardApplicationDependencies {
@@ -19,6 +21,7 @@ export interface DashboardApplicationDependencies {
   gateways: GatewaysRepository;
   audit: AuditService;
   deploymentPlans: DeploymentPlansRepository;
+  objectPermissions: ObjectPermissionService;
 }
 
 const DASHBOARD_AUDIT_LIMIT = 8;
@@ -26,8 +29,16 @@ const DASHBOARD_AUDIT_LIMIT = 8;
 export class DashboardApplicationService {
   constructor(private readonly dependencies: DashboardApplicationDependencies) {}
 
-  async getOverview(input: { tenantId: string }): Promise<DashboardOverview> {
+  async getOverview(input: { tenantId: string; subject: SecuritySubject }): Promise<DashboardOverview> {
     const generatedAt = new Date().toISOString();
+    const [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization] = await Promise.all([
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'service_asset', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_asset', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_version', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_binding', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'agent', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'gateway', 'read'),
+    ]);
     const [
       applicationAssets,
       certificateAssets,
@@ -37,14 +48,19 @@ export class DashboardApplicationService {
       gateways,
       auditLogs,
     ] = await Promise.all([
-      this.dependencies.assets.listServiceAssets(input.tenantId, allRowsQuery('updatedAt:desc')),
-      this.dependencies.certificates.listAssets(allRowsQuery('updatedAt:desc'), input.tenantId),
-      this.dependencies.certificates.listVersions(allRowsQuery('notAfter:asc'), input.tenantId),
-      this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery('updatedAt:desc')),
-      this.dependencies.agents.listRegistrations(input.tenantId, allRowsQuery('updatedAt:desc')),
-      this.dependencies.gateways.listGateways(input.tenantId, allRowsQuery('updatedAt:desc')),
+      this.dependencies.assets.listServiceAssets(input.tenantId, allRowsQuery('updatedAt:desc', applicationAuthorization)),
+      this.dependencies.certificates.listAssets(allRowsQuery('updatedAt:desc', certificateAuthorization), input.tenantId),
+      this.dependencies.certificates.listVersions(allRowsQuery('notAfter:asc', certificateVersionAuthorization), input.tenantId),
+      this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery('updatedAt:desc', bindingAuthorization)),
+      this.dependencies.agents.listRegistrations(input.tenantId, allRowsQuery('updatedAt:desc', agentAuthorization)),
+      this.dependencies.gateways.listGateways(input.tenantId, allRowsQuery('updatedAt:desc', gatewayAuthorization)),
       this.dependencies.audit.query({ resourceScope: { tenantId: input.tenantId } }),
     ]);
+    const authorizedAuditLogs = await filterDashboardAuditLogs(
+      this.dependencies.objectPermissions,
+      input.subject,
+      auditLogs,
+    );
 
     const activeCertificateVersions = certificateVersions.items.filter((version) => version.status === 'active');
     const validCertificateCount = activeCertificateVersions.filter((version) => isAfter(version.notAfter, generatedAt)).length;
@@ -60,7 +76,7 @@ export class DashboardApplicationService {
     });
     const auditContext = await buildAuditPresentationContext({
       tenantId: input.tenantId,
-      auditLogs,
+      auditLogs: authorizedAuditLogs,
       deploymentPlans: this.dependencies.deploymentPlans,
       applicationAssets: applicationAssets.items,
       bindings: bindings.items,
@@ -84,7 +100,7 @@ export class DashboardApplicationService {
         agents: agents.items,
         gateways: gateways.items,
       }),
-      recentAudits: buildRecentDashboardAudits(auditLogs, auditContext),
+      recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
     };
   }
 }
@@ -212,6 +228,54 @@ function readDetailString(detail: unknown, key: string): string | undefined {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
   const value = (detail as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+async function filterDashboardAuditLogs(
+  objectPermissions: ObjectPermissionService,
+  subject: SecuritySubject,
+  logs: AuditLogEntity[],
+): Promise<AuditLogEntity[]> {
+  const result: AuditLogEntity[] = [];
+  for (const log of logs) {
+    if (!log.resourceId) {
+      result.push(log);
+      continue;
+    }
+    const objectType = dashboardAuditObjectType(log.resourceType);
+    // 带对象 ID 但无法映射对象类型时不能凭租户范围放行，避免未知对象绕过对象授权。
+    if (!objectType) continue;
+    const decision = await objectPermissions.can(subject, 'read', {
+      objectType,
+      objectId: log.resourceId,
+      tenantId: subject.scope?.tenantId,
+    });
+    if (decision.allowed) result.push(log);
+  }
+  return result;
+}
+
+function dashboardAuditObjectType(resourceType: string): string | undefined {
+  const aliases: Record<string, string> = {
+    certificate: 'certificate_asset',
+    certificate_version: 'certificate_version',
+    certificate_version_format: 'certificate_version_format',
+    deployment_plan: 'deployment_plan',
+    executionRun: 'execution_run',
+    execution_run: 'execution_run',
+    approval: 'approval',
+    plugin: 'plugin_version',
+    plugin_version: 'plugin_version',
+    workflow_template: 'workflow_template',
+    gateway: 'gateway',
+    agent: 'agent',
+    service_asset: 'service_asset',
+    application_asset: 'application_asset',
+    binding: 'certificate_binding',
+    certificate_binding: 'certificate_binding',
+    secret: 'secret',
+    secret_version: 'secret',
+  };
+  return aliases[resourceType];
 }
 
 function buildStatusGroups(input: {
@@ -464,13 +528,14 @@ function isoOrUndefined(value: unknown): string | undefined {
   return undefined;
 }
 
-function allRowsQuery(sort = 'updatedAt:desc'): PageQuery {
+function allRowsQuery(sort = 'updatedAt:desc', authorization?: PageQuery['authorization']): PageQuery {
   const [field, direction = 'desc'] = sort.split(':');
   return {
     page: 1,
     pageSize: 1000,
     sort: { field, direction: direction === 'asc' ? 'asc' : 'desc' },
     filter: {},
+    authorization,
   };
 }
 

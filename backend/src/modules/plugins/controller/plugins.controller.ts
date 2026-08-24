@@ -1,6 +1,5 @@
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
-import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -14,6 +13,14 @@ import { PluginPromotionService } from '../promotion/plugin-promotion.service.js
 import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
 import { BuiltinPluginCompatibilityUpgradeService } from '../application/builtin-plugin-compatibility-upgrade.service.js';
 import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { SecurityServices } from '../../security/security.controller.js';
+import {
+  assertRouteAction,
+  assertRouteObjectAccess,
+  filterAuthorizedItems,
+  requireRouteSecurity,
+  type RouteSecurityContext,
+} from '../../security/security-route-helpers.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<{
@@ -41,6 +48,7 @@ export class PluginsController {
     private readonly versionSwitcher?: BuiltinPluginCompatibilityUpgradeService,
     private readonly builtinCatalogRefresher?: BuiltinPluginCatalogRefresher,
     private readonly tasks?: TaskEnqueuer,
+    private readonly security?: SecurityServices,
   ) {}
 
   register(router: Router): void {
@@ -56,8 +64,8 @@ export class PluginsController {
     router.post('/api/v1/plugin-versions/disable', '禁用统一插件版本', tags, (request) => this.disableUnifiedPluginVersion(request));
     router.post('/api/v1/plugin-versions/retire', '退休统一插件版本', tags, (request) => this.retireUnifiedPluginVersion(request));
     router.get('/api/v1/plugin-versions/upgrade-diff', '查询统一插件升级差异', tags, (request) => this.getUnifiedPluginUpgradeDiff(request));
-    router.get('/api/v1/plugin-form/standard-fields', '查询插件标准字段', tags, () => ({ items: this.standardFields.list() }));
-    router.get('/api/v1/plugin-capabilities', '查询宿主支持的插件能力 Contract', tags, () => ({ items: this.capabilityRegistry.list() }));
+    router.get('/api/v1/plugin-form/standard-fields', '查询插件标准字段', tags, (request) => this.listStandardFields(request));
+    router.get('/api/v1/plugin-capabilities', '查询宿主支持的插件能力 Contract', tags, (request) => this.listPluginCapabilities(request));
     router.get('/api/v1/plugin-versions/ui-resources', '查询插件表单、展示和语言资源', tags, (request) => this.getUnifiedPluginUiResources(request));
     router.post('/api/v1/plugin-bindings', '创建统一插件绑定', tags, (request) => this.createPluginBinding(request));
     router.get('/api/v1/plugin-bindings', '查询统一插件绑定', tags, (request) => this.getPluginBinding(request));
@@ -68,7 +76,7 @@ export class PluginsController {
     router.post('/api/v1/plugin-promotions/confirm', '确认 Standalone 目标归集', tags, (request) => this.confirmPromotion(request));
     router.post('/api/v1/plugin-promotions/revoke', '撤销 Standalone 目标归集', tags, (request) => this.revokePromotion(request));
     router.get('/api/v1/plugin-promotions', '查询 Standalone 目标归集记录', tags, (request) => this.getPromotion(request));
-    router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => ({ items: pluginRuntimeGuard.listMetrics(tenantId(request)) }));
+    router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => this.listRuntimeMetrics(request));
     router.get('/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', '查询受管目标生效部署能力', tags, (request) => this.getManagedTargetEffectiveCapability(request));
     router.get('/api/v1/managed-targets/:managedTargetId/compatible-plugins', '查询受管目标兼容插件', tags, (request) => this.listManagedTargetCompatiblePlugins(request));
     router.post('/api/v1/managed-targets/:managedTargetId/deployment-input-projection', '生成应用资产插件部署输入投影', tags, (request) => this.projectApplicationAssetPluginInputs(request));
@@ -76,69 +84,97 @@ export class PluginsController {
   }
 
   private async listCatalog(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
     const runtime = queryFilterString(request, 'runtime');
     const providerKey = queryFilterString(request, 'providerKey');
-    const items = await this.unifiedPlugins.listCatalog(tenantId(request), locale, {
+    const items = await this.unifiedPlugins.listCatalog(security.tenantId, locale, {
       ...(runtime ? { runtime: runtime as 'AGENT_ATOMIC' | 'WORKFLOW_DSL' | 'TRUSTED_JS' } : {}),
       ...(providerKey ? { providerKey } : {}),
     });
-    return { items, page: 1, pageSize: items.length, total: items.length };
+    const authorizedItems = await this.filterVersionItems(security, items, 'pluginVersionId');
+    return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
   }
 
   private async refreshBuiltinCatalog(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
     if (this.tasks && isUnifiedTaskWorkerEnabled()) {
       const task = await this.tasks.enqueue({
-        tenantId: tenantId(request),
+        tenantId: security.tenantId,
         taskType: 'PLUGIN_REFERENCE_REFRESH',
         requestedBy: request.context.actorId ?? 'system',
         triggerSource: 'plugin.catalog.refresh',
-        idempotencyKey: `plugin-reference-refresh:${tenantId(request)}:${new Date().toISOString().slice(0, 16)}`,
+        idempotencyKey: `plugin-reference-refresh:${security.tenantId}:${new Date().toISOString().slice(0, 16)}`,
         payload: { scope: 'builtin-catalog' },
         resourceRefs: [{ resourceType: 'pluginCatalog', resourceId: 'builtin' }],
       });
       return { statusCode: 202, body: { taskId: task.id, status: task.status } };
     }
-    return this.builtinCatalogRefresher.refresh(tenantId(request));
+    return this.builtinCatalogRefresher.refresh(security.tenantId);
   }
 
   private async listUnifiedPluginVersions(request: HttpRequest) {
-    const items = await this.unifiedPlugins.listVersions(tenantId(request));
-    return { items, page: 1, pageSize: items.length, total: items.length };
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
+    const items = await this.unifiedPlugins.listVersions(security.tenantId);
+    const authorizedItems = await filterAuthorizedItems(security, items, 'plugin_version', 'read');
+    return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
   }
 
-  private listPluginVersionGroups(request: HttpRequest) {
-    return this.unifiedPlugins.listVersionGroups(tenantId(request));
+  private async listPluginVersionGroups(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
+    const groups = await this.unifiedPlugins.listVersionGroups(security.tenantId);
+    const result = [];
+    for (const group of groups) {
+      const versions = await this.filterVersionItems(security, group.versions, 'id');
+      if (versions.length === 0) continue;
+      result.push({
+        ...group,
+        versions,
+        ...(group.activeVersionId && versions.some((item) => item.id === group.activeVersionId)
+          ? { activeVersionId: group.activeVersionId }
+          : {}),
+      });
+    }
+    return result;
   }
 
-  private getPluginVersionManagementDetail(request: HttpRequest) {
+  private async getPluginVersionManagementDetail(request: HttpRequest) {
+    const security = this.securityContext(request);
     const pluginVersionId = request.path.match(/^\/api\/v1\/plugin-version-management\/([^/]+)$/)?.[1];
     if (!pluginVersionId) throw new Error('插件版本管理详情路径无效');
-    return this.unifiedPlugins.getVersionManagementDetail(tenantId(request), decodeURIComponent(pluginVersionId));
+    const version = await this.requirePluginVersion(security, decodeURIComponent(pluginVersionId), 'read');
+    return this.unifiedPlugins.getVersionManagementDetail(security.tenantId, version.id);
   }
 
   private async switchPluginVersion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     if (!this.versionSwitcher) throw new Error('插件版本切换服务未接入');
     const body = validateObject(request.body, {
       pluginId: { type: 'string', required: true },
       targetPluginVersionId: { type: 'string', required: true },
       expectedCurrentPluginVersionId: { type: 'string' },
     });
-    const result = await this.versionSwitcher.switchVersion(tenantId(request), {
+    const targetVersion = await this.requirePluginVersion(security, String(body.targetPluginVersionId), 'control');
+    const result = await this.versionSwitcher.switchVersion(security.tenantId, {
       pluginId: String(body.pluginId),
-      targetPluginVersionId: String(body.targetPluginVersionId),
+      targetPluginVersionId: targetVersion.id,
       ...(typeof body.expectedCurrentPluginVersionId === 'string'
         ? { expectedCurrentPluginVersionId: body.expectedCurrentPluginVersionId }
         : {}),
     });
     if (isUnifiedTaskWorkerEnabled()) {
       enqueueTaskBestEffort(this.tasks, {
-        tenantId: tenantId(request),
+        tenantId: security.tenantId,
         taskType: 'PLUGIN_REFERENCE_REFRESH',
         requestedBy: request.context.actorId ?? 'system',
         triggerSource: 'plugin.version.switch',
-        idempotencyKey: `plugin-reference-refresh:${tenantId(request)}:${result.toPluginVersionId}:${result.switchedAt}`,
+        idempotencyKey: `plugin-reference-refresh:${security.tenantId}:${result.toPluginVersionId}:${result.switchedAt}`,
         payload: {
           pluginId: result.pluginId,
           targetPluginVersionId: result.toPluginVersionId,
@@ -147,12 +183,14 @@ export class PluginsController {
       });
     } else {
       if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
-      await this.builtinCatalogRefresher.refresh(tenantId(request));
+      await this.builtinCatalogRefresher.refresh(security.tenantId);
     }
     return result;
   }
 
   private async importUnifiedPluginVersion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       manifest: { type: 'object', required: true },
       resources: { type: 'object' },
@@ -160,93 +198,171 @@ export class PluginsController {
     });
     return {
       statusCode: 201,
-      body: await this.unifiedPlugins.importVersion(tenantId(request), body as unknown as ImportUnifiedPluginVersionInput),
+      body: await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput),
     };
   }
 
-  private approveUnifiedPluginPermissions(request: HttpRequest) {
+  private async approveUnifiedPluginPermissions(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       pluginVersionId: { type: 'string', required: true },
       approvedPermissions: { type: 'array', required: true },
     });
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
     return this.unifiedPlugins.approvePermissions(
-      String(body.pluginVersionId),
+      version.id,
       (body.approvedPermissions as unknown[]).map(String),
     );
   }
 
-  private enableUnifiedPluginVersion(request: HttpRequest) {
+  private async enableUnifiedPluginVersion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
-    return this.unifiedPlugins.enableVersion(String(body.pluginVersionId));
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
+    return this.unifiedPlugins.enableVersion(version.id);
   }
 
-  private disableUnifiedPluginVersion(request: HttpRequest) {
+  private async disableUnifiedPluginVersion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
-    return this.unifiedPlugins.disableVersion(String(body.pluginVersionId));
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
+    return this.unifiedPlugins.disableVersion(version.id);
   }
 
-  private retireUnifiedPluginVersion(request: HttpRequest) {
+  private async retireUnifiedPluginVersion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
-    return this.unifiedPlugins.retireVersion(String(body.pluginVersionId));
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
+    return this.unifiedPlugins.retireVersion(version.id);
   }
 
-  private getUnifiedPluginUpgradeDiff(request: HttpRequest) {
+  private async getUnifiedPluginUpgradeDiff(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const fromVersionId = typeof request.query.fromVersionId === 'string' ? request.query.fromVersionId : '';
     const toVersionId = typeof request.query.toVersionId === 'string' ? request.query.toVersionId : '';
-    return this.unifiedPlugins.getUpgradeDiff(fromVersionId, toVersionId);
+    const [from, to] = await Promise.all([
+      this.requirePluginVersion(security, fromVersionId, 'read'),
+      this.requirePluginVersion(security, toVersionId, 'read'),
+    ]);
+    return this.unifiedPlugins.getUpgradeDiff(from.id, to.id);
   }
 
-  private getUnifiedPluginUiResources(request: HttpRequest) {
+  private async getUnifiedPluginUiResources(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const pluginVersionId = typeof request.query.pluginVersionId === 'string' ? request.query.pluginVersionId : '';
     const locale = typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN';
-    return this.unifiedPlugins.getUiResources(pluginVersionId, locale);
+    const version = await this.requirePluginVersion(security, pluginVersionId, 'read');
+    return this.unifiedPlugins.getUiResources(version.id, locale);
   }
 
-  private createPluginBinding(request: HttpRequest) {
+  private async createPluginBinding(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       pluginVersionId: { type: 'string', required: true }, mode: { type: 'string', required: true },
       inputBindings: { type: 'object', required: true }, managedContext: { type: 'object' },
     });
-    return this.pluginBindings.createBinding(tenantId(request), {
+    await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
+    return this.pluginBindings.createBinding(security.tenantId, {
       pluginVersionId: String(body.pluginVersionId), mode: body.mode as 'MANAGED' | 'STANDALONE',
       inputBindings: body.inputBindings as never,
       managedContext: body.managedContext as never,
     });
   }
 
-  private getPluginBinding(request: HttpRequest) {
+  private async getPluginBinding(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const bindingId = typeof request.query.bindingId === 'string' ? request.query.bindingId : '';
-    return this.pluginBindings.getTenantBinding(tenantId(request), bindingId);
+    const binding = await this.pluginBindings.getTenantBinding(security.tenantId, bindingId);
+    await assertRouteObjectAccess(security, 'read', {
+      objectType: 'plugin_binding',
+      objectId: binding.id,
+      tenantId: binding.tenantId,
+    });
+    await this.requirePluginVersion(security, binding.pluginVersionId, 'read');
+    return binding;
   }
 
-  private updatePluginBinding(request: HttpRequest) {
+  private async updatePluginBinding(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       bindingId: { type: 'string', required: true }, expectedVersion: { type: 'number', required: true },
       inputBindings: { type: 'object' }, managedContext: { type: 'object' }, status: { type: 'string' },
     });
-    return this.pluginBindings.updateBinding(tenantId(request), String(body.bindingId), body as never);
+    const binding = await this.pluginBindings.getTenantBinding(security.tenantId, String(body.bindingId));
+    await assertRouteObjectAccess(security, 'edit', {
+      objectType: 'plugin_binding',
+      objectId: binding.id,
+      tenantId: binding.tenantId,
+    });
+    await this.requirePluginVersion(security, binding.pluginVersionId, 'read');
+    return this.pluginBindings.updateBinding(security.tenantId, String(body.bindingId), body as never);
   }
 
-  private assignPluginCapability(request: HttpRequest) {
+  private async assignPluginCapability(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       ownerType: { type: 'string', required: true }, ownerId: { type: 'string', required: true }, capabilityKey: { type: 'string', required: true },
       pluginVersionId: { type: 'string', required: true }, pluginBindingId: { type: 'string', required: true }, precedence: { type: 'string', required: true },
     });
-    return this.pluginBindings.assignCapability(tenantId(request), body as never);
+    const binding = await this.pluginBindings.getTenantBinding(security.tenantId, String(body.pluginBindingId));
+    await assertRouteObjectAccess(security, 'edit', {
+      objectType: 'plugin_binding',
+      objectId: binding.id,
+      tenantId: binding.tenantId,
+    });
+    await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
+    await this.assertObjectReadForOwner(security, String(body.ownerType), String(body.ownerId));
+    return this.pluginBindings.assignCapability(security.tenantId, body as never);
   }
 
-  private resolvePluginCapability(request: HttpRequest) {
+  private async resolvePluginCapability(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const body = validateObject(request.body, {
       capabilityKey: { type: 'string', required: true }, deviceId: { type: 'string' }, managedTargetId: { type: 'string' }, applicationAssetId: { type: 'string' },
     });
-    return this.pluginBindings.resolveAssignment(tenantId(request), String(body.capabilityKey), {
+    const owners = {
       deviceId: typeof body.deviceId === 'string' ? body.deviceId : undefined,
       managedTargetId: typeof body.managedTargetId === 'string' ? body.managedTargetId : undefined,
       applicationAssetId: typeof body.applicationAssetId === 'string' ? body.applicationAssetId : undefined,
-    });
+    };
+    for (const [ownerType, ownerId] of [
+      ['DEVICE', owners.deviceId],
+      ['MANAGED_TARGET', owners.managedTargetId],
+      ['APPLICATION_ASSET', owners.applicationAssetId],
+    ] as const) {
+      if (ownerId) await this.assertObjectReadForOwner(security, ownerType, ownerId);
+    }
+    const assignment = await this.pluginBindings.resolveAssignment(security.tenantId, String(body.capabilityKey), owners);
+    if (assignment) {
+      await assertRouteObjectAccess(security, 'read', {
+        objectType: 'plugin_capability_assignment',
+        objectId: assignment.id,
+        tenantId: assignment.tenantId,
+      });
+      await assertRouteObjectAccess(security, 'read', {
+        objectType: 'plugin_binding',
+        objectId: assignment.pluginBindingId,
+        tenantId: assignment.tenantId,
+      });
+      await this.requirePluginVersion(security, assignment.pluginVersionId, 'read');
+    }
+    return assignment;
   }
 
-  private previewPromotion(request: HttpRequest) {
+  private async previewPromotion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, {
       sourcePluginBindingId: { type: 'string', required: true }, displayName: { type: 'string', required: true },
       deviceFamily: { type: 'string', required: true }, managementAddress: { type: 'string', required: true },
@@ -254,51 +370,87 @@ export class PluginsController {
       tlsVerify: { type: 'boolean', required: true }, gatewayId: { type: 'string' }, applicationAssetId: { type: 'string' },
       discovery: { type: 'object', required: true },
     });
-    return this.requirePromotions().preview(tenantId(request), body as never);
+    const source = await this.pluginBindings.getTenantBinding(security.tenantId, String(body.sourcePluginBindingId));
+    await assertRouteObjectAccess(security, 'control', {
+      objectType: 'plugin_binding',
+      objectId: source.id,
+      tenantId: source.tenantId,
+    });
+    await this.requirePluginVersion(security, source.pluginVersionId, 'read');
+    if (typeof body.gatewayId === 'string') await this.assertObjectRead(security, 'gateway', body.gatewayId);
+    if (typeof body.applicationAssetId === 'string') await this.assertObjectRead(security, 'application_asset', body.applicationAssetId);
+    return this.requirePromotions().preview(security.tenantId, body as never);
   }
 
-  private confirmPromotion(request: HttpRequest) {
+  private async confirmPromotion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
-    return this.requirePromotions().confirm(tenantId(request), String(body.promotionId));
+    const record = await this.requirePromotions().get(security.tenantId, String(body.promotionId));
+    await this.assertPromotionObjects(security, record);
+    return this.requirePromotions().confirm(security.tenantId, record.id);
   }
 
-  private revokePromotion(request: HttpRequest) {
+  private async revokePromotion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
-    return this.requirePromotions().revoke(tenantId(request), String(body.promotionId));
+    const record = await this.requirePromotions().get(security.tenantId, String(body.promotionId));
+    await this.assertPromotionObjects(security, record);
+    return this.requirePromotions().revoke(security.tenantId, record.id);
   }
 
-  private getPromotion(request: HttpRequest) {
+  private async getPromotion(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const promotionId = typeof request.query.promotionId === 'string' ? request.query.promotionId : '';
-    return this.requirePromotions().get(tenantId(request), promotionId);
+    const record = await this.requirePromotions().get(security.tenantId, promotionId);
+    await this.assertPromotionObjects(security, record, 'read');
+    return record;
   }
 
-  private getManagedTargetEffectiveCapability(request: HttpRequest) {
+  private async getManagedTargetEffectiveCapability(request: HttpRequest) {
+    const security = this.securityContext(request);
     const service = this.requireManagedTargetPlugins();
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const match = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/deployment-capabilities\/([^/]+)$/);
     if (!match) throw new Error('受管目标能力路径无效');
+    const managedTargetId = decodeURIComponent(match[1]!);
+    await this.assertObjectRead(security, 'managed_target', managedTargetId);
+    const applicationAssetId = queryString(request, 'applicationAssetId');
+    if (applicationAssetId) await this.assertObjectRead(security, 'application_asset', applicationAssetId);
     return service.getEffectiveCapability({
-      tenantId: tenantId(request),
-      managedTargetId: decodeURIComponent(match[1]!),
+      tenantId: security.tenantId,
+      managedTargetId,
       capabilityKey: decodeURIComponent(match[2]!),
-      applicationAssetId: queryString(request, 'applicationAssetId'),
+      applicationAssetId,
     });
   }
 
-  private listManagedTargetCompatiblePlugins(request: HttpRequest) {
+  private async listManagedTargetCompatiblePlugins(request: HttpRequest) {
+    const security = this.securityContext(request);
     const service = this.requireManagedTargetPlugins();
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const managedTargetId = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/compatible-plugins$/)?.[1];
     if (!managedTargetId) throw new Error('受管目标兼容插件路径无效');
-    return service.listCompatiblePlugins({
-      tenantId: tenantId(request),
-      managedTargetId: decodeURIComponent(managedTargetId),
+    const resolvedManagedTargetId = decodeURIComponent(managedTargetId);
+    await this.assertObjectRead(security, 'managed_target', resolvedManagedTargetId);
+    const applicationAssetId = queryString(request, 'applicationAssetId');
+    if (applicationAssetId) await this.assertObjectRead(security, 'application_asset', applicationAssetId);
+    const result = await service.listCompatiblePlugins({
+      tenantId: security.tenantId,
+      managedTargetId: resolvedManagedTargetId,
       capabilityKey: queryString(request, 'capabilityKey') ?? 'certificate.deploy',
-      applicationAssetId: queryString(request, 'applicationAssetId'),
+      applicationAssetId,
       locale: queryString(request, 'locale') ?? 'zh-CN',
     });
+    return { ...result, items: await this.filterVersionItems(security, result.items, 'pluginVersionId') };
   }
 
-  private saveApplicationAssetManagedTarget(request: HttpRequest) {
+  private async saveApplicationAssetManagedTarget(request: HttpRequest) {
+    const security = this.securityContext(request);
     const service = this.requireManagedTargetPlugins();
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
     const applicationAssetId = request.path.match(/^\/api\/v1\/application-assets\/([^/]+)\/managed-target$/)?.[1];
     if (!applicationAssetId) throw new Error('应用资产受管目标路径无效');
     const body = validateObject(request.body, {
@@ -310,15 +462,31 @@ export class PluginsController {
       pluginOverride: { type: 'object' },
       workflowExecution: { type: 'object' },
     }) as unknown as SaveManagedTargetPluginOverrideInput;
+    const resolvedApplicationAssetId = decodeURIComponent(applicationAssetId);
+    await this.assertObjectAccess(security, 'application_asset', resolvedApplicationAssetId, 'edit');
+    await this.assertObjectAccess(security, 'managed_target', String(body.managedTargetId), 'edit');
+    if (body.pluginOverride) {
+      await this.requirePluginVersion(security, body.pluginOverride.pluginVersionId, 'read');
+      if (body.pluginOverride.pluginBindingId) {
+        const binding = await this.pluginBindings.getTenantBinding(security.tenantId, body.pluginOverride.pluginBindingId);
+        await assertRouteObjectAccess(security, 'edit', {
+          objectType: 'plugin_binding',
+          objectId: binding.id,
+          tenantId: binding.tenantId,
+        });
+      }
+    }
     return service.saveApplicationAssetTarget({
-      tenantId: tenantId(request),
-      applicationAssetId: decodeURIComponent(applicationAssetId),
+      tenantId: security.tenantId,
+      applicationAssetId: resolvedApplicationAssetId,
       value: body,
     });
   }
 
-  private projectApplicationAssetPluginInputs(request: HttpRequest) {
+  private async projectApplicationAssetPluginInputs(request: HttpRequest) {
+    const security = this.securityContext(request);
     const service = this.requireManagedTargetPlugins();
+    await assertRouteAction(security, 'plugin.read', 'plugin');
     const managedTargetId = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/deployment-input-projection$/)?.[1];
     if (!managedTargetId) throw new Error('受管目标部署输入投影路径无效');
     const body = validateObject(request.body, {
@@ -329,9 +497,15 @@ export class PluginsController {
       inputBindings: { type: 'object' },
     });
     const applicationAsset = body.applicationAsset as Record<string, unknown>;
+    const resolvedManagedTargetId = decodeURIComponent(managedTargetId);
+    await this.assertObjectRead(security, 'managed_target', resolvedManagedTargetId);
+    if (typeof applicationAsset.id === 'string' && applicationAsset.id !== 'draft') {
+      await this.assertObjectRead(security, 'application_asset', applicationAsset.id);
+    }
+    if (typeof body.pluginVersionId === 'string') await this.requirePluginVersion(security, body.pluginVersionId, 'read');
     return service.projectApplicationAssetPluginInputs({
-      tenantId: tenantId(request),
-      managedTargetId: decodeURIComponent(managedTargetId),
+      tenantId: security.tenantId,
+      managedTargetId: resolvedManagedTargetId,
       capabilityKey: typeof body.capabilityKey === 'string' ? body.capabilityKey : undefined,
       pluginVersionId: typeof body.pluginVersionId === 'string' ? body.pluginVersionId : undefined,
       certificateFormatId: typeof body.certificateFormatId === 'string' ? body.certificateFormatId : undefined,
@@ -347,6 +521,111 @@ export class PluginsController {
     });
   }
 
+  private listStandardFields(request: HttpRequest) {
+    const security = this.securityContext(request);
+    return assertRouteAction(security, 'plugin.read', 'plugin').then(() => ({ items: this.standardFields.list() }));
+  }
+
+  private listPluginCapabilities(request: HttpRequest) {
+    const security = this.securityContext(request);
+    return assertRouteAction(security, 'plugin.read', 'plugin').then(() => ({ items: this.capabilityRegistry.list() }));
+  }
+
+  private async listRuntimeMetrics(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
+    const items = await this.filterVersionItems(
+      security,
+      pluginRuntimeGuard.listMetrics(security.tenantId),
+      'pluginVersionId',
+    );
+    return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private securityContext(request: HttpRequest): RouteSecurityContext {
+    return requireRouteSecurity(request, this.security);
+  }
+
+  private async requirePluginVersion(
+    security: RouteSecurityContext,
+    pluginVersionId: string,
+    accessLevel: 'read' | 'control',
+  ) {
+    if (!pluginVersionId.trim()) throw new Error('pluginVersionId 不能为空');
+    const version = await this.unifiedPlugins.getVersionForTenant(security.tenantId, pluginVersionId);
+    await assertRouteObjectAccess(security, accessLevel, {
+      objectType: 'plugin_version',
+      objectId: version.id,
+      tenantId: version.ownerType === 'SYSTEM' ? security.tenantId : version.tenantId,
+      ownerType: version.ownerType,
+    });
+    return version;
+  }
+
+  private async filterVersionItems<T extends object>(
+    security: RouteSecurityContext,
+    items: T[],
+    objectIdField: string,
+  ): Promise<T[]> {
+    const decorated = items.map((item) => ({ ...item, tenantId: security.tenantId }));
+    const authorized = await filterAuthorizedItems(security, decorated, 'plugin_version', 'read', objectIdField);
+    const allowed = new Set(authorized.map((item) => String((item as Record<string, unknown>)[objectIdField])));
+    return items.filter((item) => allowed.has(String((item as Record<string, unknown>)[objectIdField])));
+  }
+
+  private async assertObjectRead(security: RouteSecurityContext, objectType: string, objectId: string): Promise<void> {
+    await assertRouteObjectAccess(security, 'read', {
+      objectType,
+      objectId,
+      tenantId: security.tenantId,
+    });
+  }
+
+  private async assertObjectAccess(
+    security: RouteSecurityContext,
+    objectType: string,
+    objectId: string,
+    accessLevel: 'read' | 'edit' | 'control',
+  ): Promise<void> {
+    await assertRouteObjectAccess(security, accessLevel, {
+      objectType,
+      objectId,
+      tenantId: security.tenantId,
+    });
+  }
+
+  private async assertObjectReadForOwner(
+    security: RouteSecurityContext,
+    ownerType: string,
+    ownerId: string,
+  ): Promise<void> {
+    const objectType = ownerType === 'DEVICE'
+      ? 'device_asset'
+      : ownerType === 'MANAGED_TARGET'
+        ? 'managed_target'
+        : ownerType === 'APPLICATION_ASSET'
+          ? 'application_asset'
+          : undefined;
+    if (!objectType) throw new Error(`不支持的插件能力所有者类型: ${ownerType}`);
+    await this.assertObjectRead(security, objectType, ownerId);
+  }
+
+  private async assertPromotionObjects(
+    security: RouteSecurityContext,
+    record: {
+      sourcePluginBindingId: string;
+      targetPluginBindingId?: string;
+      deviceAssetId?: string;
+      applicationAssetId?: string;
+    },
+    accessLevel: 'read' | 'control' = 'control',
+  ): Promise<void> {
+    await this.assertObjectAccess(security, 'plugin_binding', record.sourcePluginBindingId, accessLevel);
+    if (record.targetPluginBindingId) await this.assertObjectAccess(security, 'plugin_binding', record.targetPluginBindingId, accessLevel);
+    if (record.deviceAssetId) await this.assertObjectAccess(security, 'device_asset', record.deviceAssetId, accessLevel);
+    if (record.applicationAssetId) await this.assertObjectAccess(security, 'application_asset', record.applicationAssetId, accessLevel);
+  }
+
   private requireManagedTargetPlugins(): ManagedTargetPluginQueryService {
     if (!this.managedTargetPlugins) throw new Error('受管目标插件查询服务未接入');
     return this.managedTargetPlugins;
@@ -357,10 +636,6 @@ export class PluginsController {
     return this.promotions;
   }
 
-}
-
-function tenantId(request: HttpRequest): string {
-  return requireTenantId(request);
 }
 
 export function getPluginsRouteContracts(): RouteContract[] {

@@ -75,11 +75,21 @@ export class ObjectPermissionService {
     private readonly audit?: AuditService,
   ) {}
 
+  private defaultObjectTypesPromise?: Promise<void>;
+
   async ensureDefaultObjectTypes(): Promise<void> {
-    for (const item of defaultObjectTypes()) {
-      const existing = await this.objectTypes.get(item.id);
-      if (!existing) await this.objectTypes.create(item);
+    if (!this.defaultObjectTypesPromise) {
+      this.defaultObjectTypesPromise = (async () => {
+        for (const item of defaultObjectTypes()) {
+          const existing = await this.objectTypes.get(item.id);
+          if (!existing) await this.objectTypes.create(item);
+        }
+      })().catch((error) => {
+        this.defaultObjectTypesPromise = undefined;
+        throw error;
+      });
     }
+    await this.defaultObjectTypesPromise;
   }
 
   async listGroups(): Promise<GroupEntity[]> {

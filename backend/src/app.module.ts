@@ -652,6 +652,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     builtinPluginCompatibilityUpgrader,
     builtinCatalogRefresher,
     tasksService,
+    security,
   ).register(app.router);
   new WorkflowTemplatesController(
     workflowTemplatesService,
@@ -672,6 +673,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     gateways: gatewaysService.getRepository(),
     audit: security.audit,
     deploymentPlans: deploymentPlans.getRepository(),
+    objectPermissions: security.objectPermissions,
   }), security).register(app.router);
   new MonitorsController(monitorsService, security).register(app.router);
   new TasksController(tasksService, security).register(app.router);

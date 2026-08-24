@@ -19,6 +19,7 @@ export class DashboardController {
     await assertRouteAction(security, 'dashboard.read', 'dashboard');
     return this.service.getOverview({
       tenantId: security.tenantId,
+      subject: security.subject,
     });
   }
 }
