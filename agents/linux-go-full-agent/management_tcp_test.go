@@ -74,6 +74,45 @@ func TestManagementServerExposesHealthAndDirectDiscoveryOnly(t *testing.T) {
 	}
 }
 
+func TestManagementServerExposesUpgradeStatusAndRejectsUnwiredUpgrade(t *testing.T) {
+	port := freeTCPPort(t)
+	config := &AgentConfig{ManagementListenAddress: "127.0.0.1", ManagementPort: port}
+	config.Paths.Linux.DataDir = t.TempDir()
+	server, _, err := startManagementServer(config, runtimeIdentity{PrimaryIPAddress: "127.0.0.1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown(context.Background())
+	client := &http.Client{Timeout: time.Second}
+	var response *http.Response
+	for attempt := 0; attempt < 20; attempt++ {
+		response, err = client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/control/upgrade/status", port))
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var status agentUpgradeStatus
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || status.Status != "idle" {
+		t.Fatalf("升级状态端点响应异常 status=%d value=%+v", response.StatusCode, status)
+	}
+	upgrade, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/api/v1/control/upgrade", port), "application/json", bytes.NewBufferString(`{"planId":"plan"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgrade.Body.Close()
+	if upgrade.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("未装配升级处理器时应返回 503，实际=%d", upgrade.StatusCode)
+	}
+}
+
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

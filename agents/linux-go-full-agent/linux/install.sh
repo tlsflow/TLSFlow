@@ -151,6 +151,10 @@ install -d -m 0755 "${INSTALL_ROOT}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"
 temporary_binary="${INSTALL_ROOT}/.gcac-linux-agent.new.$$"
 install -m 0755 "${SOURCE_BINARY}" "${temporary_binary}"
 mv -f "${temporary_binary}" "${INSTALL_ROOT}/gcac-linux-agent"
+install -d -m 0755 "${INSTALL_ROOT}/linux" "${INSTALL_ROOT}/release"
+install -m 0755 "${AGENT_DIR}/linux/upgrade.sh" "${INSTALL_ROOT}/linux/upgrade.sh"
+install -m 0755 "${AGENT_DIR}/linux/rollback.sh" "${INSTALL_ROOT}/linux/rollback.sh"
+install -m 0755 "${AGENT_DIR}/release/verify-signature.sh" "${INSTALL_ROOT}/release/verify-signature.sh"
 binary_version=$("${INSTALL_ROOT}/gcac-linux-agent" version 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 binary_version="${binary_version:-unknown}"
 if [ ! -e "${CONFIG_DIR}/agent.config.json" ]; then

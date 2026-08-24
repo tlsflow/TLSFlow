@@ -2,8 +2,10 @@
 set -eu
 
 SERVICE_NAME="${SERVICE_NAME:-gcac-linux-agent}"
-SERVICE_USER="${SERVICE_USER:-gcac-agent}"
-SERVICE_GROUP="${SERVICE_GROUP:-gcac-agent}"
+# Full Agent 需要像 Windows Service 的 LocalSystem 一样拥有替换自身制品和
+# 控制服务生命周期的权限；普通任务仍通过 Agent v2 的受控动作执行。
+SERVICE_USER="${SERVICE_USER:-root}"
+SERVICE_GROUP="${SERVICE_GROUP:-root}"
 DISPLAY_NAME="${DISPLAY_NAME:-GCAC Linux Go Full Agent}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/gcac/linux-agent}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/gcac/linux-agent}"
@@ -66,6 +68,10 @@ install -d -m 0755 -o root -g root "${INSTALL_ROOT}"
 install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}"
 install -d -m 0750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${DATA_DIR}" "${LOG_DIR}"
 install -m 0755 -o root -g root "${BINARY_SOURCE_PATH}" "${BINARY_TARGET_PATH}"
+install -d -m 0755 -o root -g root "${INSTALL_ROOT}/linux" "${INSTALL_ROOT}/release"
+install -m 0755 -o root -g root "${BUNDLE_DIR}/linux/upgrade.sh" "${INSTALL_ROOT}/linux/upgrade.sh"
+install -m 0755 -o root -g root "${BUNDLE_DIR}/linux/rollback.sh" "${INSTALL_ROOT}/linux/rollback.sh"
+install -m 0755 -o root -g root "${BUNDLE_DIR}/release/verify-signature.sh" "${INSTALL_ROOT}/release/verify-signature.sh"
 binary_version=$("${BINARY_TARGET_PATH}" version 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
 binary_version="${binary_version:-unknown}"
 

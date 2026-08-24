@@ -241,12 +241,13 @@ type reportedCapability struct {
 	Evidence      map[string]any `json:"evidence,omitempty"`
 }
 
-// 管理监听只提供健康检查和经过 Agent v2 授权的 Web 重新发现。
+// 管理监听只提供健康检查、受控本地升级和经过 Agent v2 授权的 Web 重新发现。
 // 计划执行和任意命令仍只能走异步任务队列。
 func startManagementServer(
 	config *AgentConfig,
 	identity runtimeIdentity,
 	executeDiscovery func(context.Context, map[string]any) directDiscoveryResponse,
+	upgradeHandlers ...func(context.Context, map[string]any) directUpgradeResponse,
 ) (*http.Server, string, error) {
 	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
 	listener, err := net.Listen("tcp", listenAddress)
@@ -255,7 +256,7 @@ func startManagementServer(
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      70 * time.Second,
+		WriteTimeout:      15 * time.Minute,
 		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.Method == http.MethodGet && (request.URL.Path == "/api/v1/control/health" || request.URL.Path == "/healthz") {
 				writer.Header().Set("Content-Type", "application/json")
@@ -263,9 +264,42 @@ func startManagementServer(
 				_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion, "hostname": hostname, "managementEndpoint": managementEndpointForIdentity(identity, config)})
 				return
 			}
+			if request.Method == http.MethodGet && request.URL.Path == "/api/v1/control/upgrade/status" {
+				status := reconcileCompletedUpgradeStatus(config, loadUpgradeStatus(config))
+				requestedTransactionID := strings.TrimSpace(request.URL.Query().Get("transactionId"))
+				if requestedTransactionID != "" && status.TransactionID != requestedTransactionID {
+					writeUpgradeResponse(writer, http.StatusConflict, directUpgradeResponse{
+						ErrorCode:     "AGENT_UPGRADE_STATUS_IDENTITY_MISMATCH",
+						ErrorMessage:  "查询的升级事务与 Agent 当前事务不匹配",
+						TransactionID: status.TransactionID,
+						Status:        status.Status,
+					})
+					return
+				}
+				writeUpgradeStatusResponse(writer, status)
+				return
+			}
+			if request.Method == http.MethodPost && request.URL.Path == "/api/v1/control/upgrade" {
+				if len(upgradeHandlers) == 0 || upgradeHandlers[0] == nil {
+					writeUpgradeResponse(writer, http.StatusServiceUnavailable, directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_UNAVAILABLE", ErrorMessage: "Agent 升级运行时尚未装配"})
+					return
+				}
+				defer request.Body.Close()
+				var payload map[string]any
+				decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+				if err := decoder.Decode(&payload); err != nil || payload == nil {
+					writeUpgradeResponse(writer, http.StatusBadRequest, directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_INVALID", ErrorMessage: "升级请求不是有效 JSON"})
+					return
+				}
+				requestCtx, cancel := context.WithTimeout(request.Context(), 15*time.Minute)
+				defer cancel()
+				result := upgradeHandlers[0](requestCtx, payload)
+				writeUpgradeResponse(writer, directUpgradeHTTPStatus(result), result)
+				return
+			}
 			if request.Method != http.MethodPost || request.URL.Path != "/api/v1/control/discovery" {
 				writer.Header().Set("Allow", "GET, POST")
-				http.Error(writer, "management endpoint only supports health checks and direct web discovery", http.StatusNotFound)
+				http.Error(writer, "management endpoint only supports health checks, local upgrades and direct web discovery", http.StatusNotFound)
 				return
 			}
 			if executeDiscovery == nil {
@@ -373,6 +407,8 @@ func handleRun(args []string) error {
 		directDiscoveryMu.Lock()
 		defer directDiscoveryMu.Unlock()
 		return executeDirectWebDiscovery(requestCtx, client, config, state, counters, rescan, payload)
+	}, func(requestCtx context.Context, payload map[string]any) directUpgradeResponse {
+		return executeLocalUpgrade(requestCtx, config, state, payload)
 	})
 	if err != nil {
 		return err

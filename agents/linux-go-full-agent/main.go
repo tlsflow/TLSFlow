@@ -49,6 +49,8 @@ type AgentConfig struct {
 	CapabilityRescanEnabled    *bool             `json:"capabilityRescanEnabled"`
 	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
 	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
+	UpgradeTrustKeySet         map[string]string `json:"upgradeTrustKeySet"`
+	ReleaseTrustKeySet         map[string]string `json:"releaseTrustKeySet"`
 	Paths                      struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`

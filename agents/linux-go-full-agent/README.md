@@ -34,6 +34,10 @@ go test ./...
 
 正式发布使用 `release/build-release.sh`，发布产物必须经过签名与可复现构建校验。
 
+宿主端在线升级使用 `POST /api/v1/control/upgrade` 和 `GET /api/v1/control/upgrade/status?transactionId=...`。Agent 会先校验 `management.upgrade.v1`、产品线/架构、时间窗口、Nonce、SHA-256 和已配置的 Ed25519 信任根，再启动固定的 `linux/upgrade.sh` 适配器；`accepted` 只表示适配器已启动，不表示替换成功，最终结果必须以状态账本中的 `succeeded`、`rolled_back`、`unknown` 或 `manual_required` 为准。
+
+本地文件替换和服务控制需要 root。`linux/install-systemd.sh` 默认以 root 运行 Full Agent，行为与 Windows Service 的 LocalSystem 基线一致；如显式指定非 root `SERVICE_USER`，管理端点会在下载前返回 `AGENT_UPGRADE_PERMISSION_DENIED`，不会消费 Nonce 或写入升级制品。
+
 安装或升级必须显式提供发布公钥、签名文件和 Ed25519 验证器；缺少任一材料时脚本失败关闭，不允许通过 `ALLOW_UNSIGNED_INSTALL` 或 `ALLOW_UNSIGNED_UPGRADE` 绕过：
 
 ```bash

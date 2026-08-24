@@ -6,8 +6,9 @@ AGENT_DIR=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
 TEMP_ROOT=$(mktemp -d)
 trap 'rm -rf "${TEMP_ROOT}"' EXIT INT TERM
 
-mkdir -p "${TEMP_ROOT}/bin" "${TEMP_ROOT}/systemd" "${TEMP_ROOT}/install-parent"
+mkdir -p "${TEMP_ROOT}/bin" "${TEMP_ROOT}/systemd" "${TEMP_ROOT}/install-parent" "${TEMP_ROOT}/upgrade/systemd-units"
 cp "${AGENT_DIR}/gcac-linux-agent" "${TEMP_ROOT}/agent"
+grep -q '^KillMode=process$' "${AGENT_DIR}/linux/gcac-linux-agent.service"
 go run "${AGENT_DIR}/cmd/release-sign" keygen "${TEMP_ROOT}/release-private.key" "${TEMP_ROOT}/release-public.key"
 go run "${AGENT_DIR}/cmd/release-sign" sign "${TEMP_ROOT}/release-private.key" "${TEMP_ROOT}/agent" "${TEMP_ROOT}/agent.sig"
 go build -o "${TEMP_ROOT}/release-sign" "${AGENT_DIR}/cmd/release-sign"
@@ -86,7 +87,7 @@ for artifact in good-agent bad-agent downgrade-agent; do
   go run "${AGENT_DIR}/cmd/release-sign" sign "${TEMP_ROOT}/release-private.key" "${TEMP_ROOT}/upgrade/${artifact}" "${TEMP_ROOT}/upgrade/${artifact}.sig"
 done
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
   echo "缺少发布签名材料时升级必须失败关闭" >&2
   exit 1
 fi
@@ -95,13 +96,21 @@ echo "升级缺少签名材料负例通过"
 PATH="${TEMP_ROOT}/bin:${PATH}" \
 GCAC_TEST_EUID=0 \
 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" \
+GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" \
 INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" \
 DATA_DIR="${TEMP_ROOT}/upgrade/data" \
+UPGRADE_STATUS_PATH="${TEMP_ROOT}/upgrade/data/status.json" \
+UPGRADE_PLAN_ID="plan-packaging" \
+UPGRADE_TRANSACTION_ID="transaction-packaging" \
+UPGRADE_AGENT_ID="agent-packaging" \
+UPGRADE_FROM_VERSION="2.1.0" \
+UPGRADE_TARGET_VERSION="2.2.0" \
+UPGRADE_ARTIFACT_SHA256="$(sha256sum "${TEMP_ROOT}/upgrade/good-agent" | awk '{print $1}')" \
 PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" \
 SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" \
     "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/bad-agent" "" "${TEMP_ROOT}/upgrade/bad-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/bad-agent" "" "${TEMP_ROOT}/upgrade/bad-agent.sig" >/dev/null 2>&1; then
   echo "坏版本升级必须失败" >&2
   exit 1
 fi
@@ -112,18 +121,20 @@ fi
 
 grep -q 'upgrade_succeeded' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
 grep -q 'upgrade_rolled_back' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
+grep -q '"status":"succeeded"' "${TEMP_ROOT}/upgrade/data/status.json"
+grep -q '^KillMode=process$' "${TEMP_ROOT}/upgrade/systemd-units/gcac-linux-agent.service.d/gcac-upgrade-helper.conf"
 echo "升级和自动回滚测试通过"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/downgrade-agent" "" "${TEMP_ROOT}/upgrade/downgrade-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/downgrade-agent" "" "${TEMP_ROOT}/upgrade/downgrade-agent.sig" >/dev/null 2>&1; then
   echo "major 降级必须默认拒绝" >&2
   exit 1
 fi
 echo "major 降级边界测试通过"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_TEST_INTERRUPT_AFTER_REPLACE=1 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_TEST_INTERRUPT_AFTER_REPLACE=1 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
   echo "中断注入必须返回非零" >&2
   exit 1
 fi
-PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
+PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" GCAC_SYSTEMD_UNIT_DIR="${TEMP_ROOT}/upgrade/systemd-units" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
 grep -q 'upgrade_power_loss_recovered' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
 echo "升级断电恢复测试通过"

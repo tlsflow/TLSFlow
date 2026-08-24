@@ -13,6 +13,8 @@ ExecStart=__INSTALL_ROOT__/gcac-linux-agent run --config __CONFIG_DIR__/agent.co
 ExecStartPre=__INSTALL_ROOT__/gcac-linux-agent self-check --config __CONFIG_DIR__/agent.config.json
 Restart=on-failure
 RestartSec=5s
+# 升级脚本由 Agent 子进程启动，停止主服务时必须保留该脚本完成替换和回滚。
+KillMode=process
 NoNewPrivileges=true
 
 [Install]
