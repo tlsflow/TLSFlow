@@ -289,7 +289,17 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
 
         <footer class="plugin-card__footer">
           <span>{{ t('plugins.card.stepCount', { count: plugin.stepCount }) }}</span>
-          <button class="gc-button" type="button" @click="openDetail(plugin)">{{ t('plugins.actions.detail') }}</button>
+          <div class="plugin-card__actions">
+            <button class="gc-button" type="button" @click="openDetail(plugin)">{{ t('plugins.actions.detail') }}</button>
+            <button
+              class="gc-button gc-button--primary"
+              type="button"
+              :disabled="!plugin.valid || Boolean(creatingPluginId)"
+              @click="createWorkflowFromPlugin(plugin)"
+            >
+              {{ creatingPluginId === plugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.create') }}
+            </button>
+          </div>
         </footer>
       </article>
     </section>
@@ -491,7 +501,13 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
 
 .plugin-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(
+      min(100%, calc(var(--gc-size-card-min) + var(--gc-space-10) + var(--gc-space-10) + var(--gc-space-10))),
+      1fr
+    )
+  );
   gap: var(--gc-space-3);
 }
 
@@ -681,6 +697,12 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
   font-size: var(--gc-font-size-xs);
 }
 
+.plugin-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-1);
+}
+
 .plugin-detail {
   display: grid;
   gap: var(--gc-space-5);
@@ -734,18 +756,8 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
   background: var(--gc-color-danger-bg) !important;
 }
 
-@media (max-width: 1100px) {
-  .plugin-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 900px) {
   .market-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .plugin-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -758,10 +770,6 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
   .market-refresh {
     width: 100%;
     margin-left: 0;
-  }
-
-  .plugin-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
