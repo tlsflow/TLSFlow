@@ -3,7 +3,6 @@ import type { ApiResult } from './generated/client-types'
 export interface ApiClientOptions {
   readonly baseUrl?: string
   readonly timeoutMs?: number
-  readonly getToken?: () => string | null
   readonly getRequestContext?: () => ApiRequestContext | null
 }
 
@@ -46,13 +45,11 @@ export function createIdempotencyKey(prefix = 'idem'): string {
 export class ApiClient {
   private readonly baseUrl: string
   private readonly timeoutMs: number
-  private readonly getToken?: () => string | null
   private readonly getRequestContext?: () => ApiRequestContext | null
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api'
     this.timeoutMs = options.timeoutMs ?? 30_000
-    this.getToken = options.getToken
     this.getRequestContext = options.getRequestContext
   }
 
@@ -64,10 +61,6 @@ export class ApiClient {
     headers.set('Accept', options.accept ?? 'application/json')
     headers.set('X-Request-Id', requestId)
 
-    const token = this.getToken?.()
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`)
-    }
     const requestContext = this.getRequestContext?.()
     if (requestContext?.actorId) {
       headers.set('X-Actor-Id', requestContext.actorId)
@@ -88,6 +81,7 @@ export class ApiClient {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...options,
+        credentials: options.credentials ?? 'include',
         headers,
         body,
         signal: controller.signal
@@ -114,10 +108,6 @@ export class ApiClient {
     headers.set('Accept', options.accept ?? '*/*')
     headers.set('X-Request-Id', requestId)
 
-    const token = this.getToken?.()
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`)
-    }
     const requestContext = this.getRequestContext?.()
     if (requestContext?.actorId) {
       headers.set('X-Actor-Id', requestContext.actorId)
@@ -138,6 +128,7 @@ export class ApiClient {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...options,
+        credentials: options.credentials ?? 'include',
         headers,
         body,
         signal: controller.signal
@@ -184,25 +175,15 @@ export class ApiClient {
 }
 
 let apiRequestContextProvider: (() => ApiRequestContext | null) | undefined
-let apiTokenProvider: (() => string | null) | undefined
 
 export function setApiRequestContextProvider(provider: (() => ApiRequestContext | null) | undefined): void {
   apiRequestContextProvider = provider
-}
-
-export function setApiTokenProvider(provider: (() => string | null) | undefined): void {
-  apiTokenProvider = provider
 }
 
 export function readApiRequestContext(): ApiRequestContext | null {
   return apiRequestContextProvider?.() ?? null
 }
 
-export function readApiToken(): string | null {
-  return apiTokenProvider?.() ?? null
-}
-
 export const apiClient = new ApiClient({
-  getToken: () => apiTokenProvider?.() ?? null,
   getRequestContext: () => apiRequestContextProvider?.() ?? null
 })

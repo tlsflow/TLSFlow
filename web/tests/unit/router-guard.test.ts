@@ -26,7 +26,6 @@ describe('路由权限守卫', () => {
     })
     registerRouterGuards(router)
     useAuthStore().setSession({
-      token: 'test-token',
       user: {
         id: 'user_test',
         displayName: '测试用户',
@@ -45,7 +44,6 @@ describe('路由权限守卫', () => {
     setAuthProvider({
       async bootstrapSession() {
         return {
-          token: 'provider-token',
           user: {
             id: 'provider-user',
             username: 'provider',
