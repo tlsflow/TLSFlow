@@ -1297,10 +1297,12 @@ function readExecutionSource(value: unknown): ExecutionSourceDto | undefined {
   if (type !== 'automation' && type !== 'deployment_plan') return undefined;
   const automationRunId = readString(source, 'automationRunId');
   const automationId = readString(source, 'automationId');
+  const approvalId = readString(source, 'approvalId');
   return {
     type,
     ...(automationRunId ? { automationRunId } : {}),
     ...(automationId ? { automationId } : {}),
+    ...(approvalId ? { approvalId } : {}),
   };
 }
 

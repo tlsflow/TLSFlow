@@ -57,6 +57,7 @@ export class DeploymentPlansDomainService {
       selectionMode: input.selectionMode ?? 'EXPLICIT',
       planType: input.planType ?? 'UPDATE',
       createdReason: input.createdReason ?? 'MANUAL',
+      temporary: input.temporary === true,
       policy: this.normalizePolicy(input.policy),
       targets: input.targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
@@ -85,6 +86,7 @@ export class DeploymentPlansDomainService {
       selectionMode: plan.selectionMode,
       certificateVersionId: plan.certificateVersionId,
       certificateFormatId: plan.certificateFormatId,
+      temporary: plan.temporary === true,
       policy: plan.policy,
       targets: targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,

@@ -224,7 +224,7 @@ export class DeploymentPlansApplicationService {
   }
 
   async list(input: { tenantId?: string } = {}): Promise<DeploymentPlanDto[]> {
-    const sourcePlans = await this.repository.listPlans(input.tenantId);
+    const sourcePlans = (await this.repository.listPlans(input.tenantId)).filter((plan) => plan.temporary !== true);
     const approvalIds = sourcePlans
       .map((plan) => plan.approvalId)
       .filter((id): id is string => Boolean(id));
@@ -349,6 +349,7 @@ export class DeploymentPlansApplicationService {
       idempotencyKey: input.idempotencyKey,
       policy,
       createdReason: input.createdReason ?? 'MANUAL',
+      temporary: input.temporary === true,
       createdBy: input.actorId,
     }, targetDrafts);
 
@@ -367,6 +368,7 @@ export class DeploymentPlansApplicationService {
       requestHash,
       policy,
       createdReason: input.createdReason ?? 'MANUAL',
+      temporary: input.temporary === true,
       createdAt: now,
       updatedAt: now,
       createdBy: input.actorId,
@@ -434,9 +436,11 @@ export class DeploymentPlansApplicationService {
       const draft = await this.buildCreateInputFromApplicationAsset(input);
       return this.create(draft, context);
     }
-    const reusableDraft = await this.repository.findLatestManualDraftByApplicationAsset(input.tenantId, input.applicationAssetId);
-    if (reusableDraft) {
-      return this.updateDraftFromApplicationAsset({ ...input, planId: reusableDraft.id }, context);
+    if (input.reuseDraft !== false) {
+      const reusableDraft = await this.repository.findLatestManualDraftByApplicationAsset(input.tenantId, input.applicationAssetId);
+      if (reusableDraft) {
+        return this.updateDraftFromApplicationAsset({ ...input, planId: reusableDraft.id }, context);
+      }
     }
     const draft = await this.buildCreateInputFromApplicationAsset(input);
     return this.create(draft, context);
@@ -701,6 +705,7 @@ export class DeploymentPlansApplicationService {
       }],
       planType: input.planType ?? 'UPDATE',
       policy: input.policy,
+      temporary: input.temporary,
       createdReason: 'MANUAL',
       idempotencyKey: input.idempotencyKey,
       actorId: input.actorId,
@@ -1228,6 +1233,7 @@ export class DeploymentPlansApplicationService {
       }],
       planType: input.planType ?? 'UPDATE',
       policy: input.policy,
+      temporary: input.temporary,
       createdReason: 'MANUAL',
       idempotencyKey: input.idempotencyKey,
       actorId: input.actorId,
@@ -1248,9 +1254,17 @@ export class DeploymentPlansApplicationService {
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
 
     if (plan.status === 'PENDING_APPROVAL') {
+      if (automationApproval) {
+        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
+          approvalStatus: 'NOT_REQUIRED',
+          approvalId: undefined,
+        });
+        return this.toDto(ready);
+      }
       if (!input.approvalId) return this.toDto(plan);
       await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
       const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
@@ -1262,6 +1276,13 @@ export class DeploymentPlansApplicationService {
     }
 
     if (await this.requiresApproval(plan)) {
+      if (automationApproval) {
+        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
+          approvalStatus: 'NOT_REQUIRED',
+          approvalId: undefined,
+        });
+        return this.toDto(ready);
+      }
       if (input.approvalId) {
         await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
@@ -1308,9 +1329,19 @@ export class DeploymentPlansApplicationService {
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
     let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     let executionApprovalId = plan.approvalId;
     let executionApproved = plan.approvalStatus === 'APPROVED';
-    if (await this.requiresApproval(plan)) {
+    if (automationApproval) {
+      executionApprovalId = automationApproval.id;
+      executionApproved = true;
+      if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
+        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
+          approvalStatus: 'NOT_REQUIRED',
+          approvalId: undefined,
+        });
+      }
+    } else if (await this.requiresApproval(plan)) {
       executionApprovalId = input.approvalId ?? plan.approvalId;
       if (!executionApprovalId) {
         await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
@@ -1400,6 +1431,7 @@ export class DeploymentPlansApplicationService {
 
   async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
     let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许 dry-run', { planId: plan.id, status: plan.status });
     }
@@ -1427,10 +1459,10 @@ export class DeploymentPlansApplicationService {
           tenantId: plan.tenantId,
           planId: plan.id,
           targetId,
-          approvalId: plan.approvalId,
+          approvalId: automationApproval?.id ?? plan.approvalId,
           workflowVersionId: readOptionalString(workflowRequest?.workflowVersionId),
           snapshotHash: plan.snapshotHash,
-          approved: plan.approvalStatus === 'APPROVED',
+          approved: plan.approvalStatus === 'APPROVED' || Boolean(automationApproval),
           allowInsecureTls: runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true,
         },
       });
@@ -1508,6 +1540,23 @@ export class DeploymentPlansApplicationService {
     };
   }
 
+  /**
+   * 删除自动化内部使用的临时部署计划，但保留执行运行和自动化运行历史。
+   */
+  async cleanupTemporaryPlan(input: { planId: string; tenantId: string }): Promise<boolean> {
+    const plan = await this.repository.getPlan(input.planId, input.tenantId);
+    if (!plan || plan.temporary !== true) return false;
+    const runs = await this.executions.listRuns({ tenantId: input.tenantId, deploymentPlanId: plan.id }) as ExecutionRunDto[];
+    if (runs.some((run) => ['PENDING', 'DISPATCHED', 'RUNNING'].includes(run.status))) return false;
+    const targets = await this.repository.listTargetsByPlan(plan.id, input.tenantId);
+    await this.repository.deleteTransitionsByEntityIds([plan.id, ...targets.map((target) => target.id)], input.tenantId);
+    await this.approval.deleteByDeploymentPlan(plan.id, plan.approvalId, input.tenantId);
+    if (this.deploymentInputSnapshots) await this.deploymentInputSnapshots.deleteByPlan(input.tenantId, plan.id);
+    await this.repository.deleteTargetsByPlan(plan.id, input.tenantId);
+    await this.repository.deletePlan(plan.id);
+    return true;
+  }
+
   async reevaluateCapabilities(input: ReevaluateDeploymentPlanCapabilitiesInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY'].includes(plan.status)) {
@@ -1569,16 +1618,17 @@ export class DeploymentPlansApplicationService {
       ? this.resolveCertificateVersionId({
           tenantId: input.tenantId,
           selectionMode,
-          requestedCertificateVersionId: input.certificateVersionId,
-          requestedCertificateFormatId: input.certificateFormatId,
-          binding: target.binding,
-          requestedDomain: target.domain,
-        })
-      : this.resolveWorkflowCertificateVersionId({
-          tenantId: input.tenantId!,
-          selectionMode,
-          requestedCertificateVersionId: input.certificateVersionId,
-        })));
+           requestedCertificateVersionId: input.certificateVersionId,
+           requestedCertificateFormatId: input.certificateFormatId,
+           binding: target.binding,
+           requestedDomain: target.domain,
+         })
+       : this.resolveWorkflowCertificateVersionId({
+           tenantId: input.tenantId!,
+           selectionMode,
+           requestedCertificateVersionId: input.certificateVersionId,
+           requestedDomain: target.domain,
+         })));
     issues.push(...this.inputPreflight.collect('VERSION', versionResults, resolvedTargetEntries.map((entry) => entry.targetIndex)));
     const resolvedVersionEntries = versionResults.flatMap((result, index) => result.status === 'fulfilled'
       ? [{ ...resolvedTargetEntries[index]!, certificateVersionId: result.value }]
@@ -1803,6 +1853,7 @@ export class DeploymentPlansApplicationService {
     tenantId: string;
     selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
     requestedCertificateVersionId?: string;
+    requestedDomain?: string;
   }): Promise<string> {
     if (!input.requestedCertificateVersionId) {
       throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署计划必须指定 certificateVersionId', { selectionMode: input.selectionMode });
@@ -1816,6 +1867,15 @@ export class DeploymentPlansApplicationService {
         deployable: version.deployable,
         notAfter: version.notAfter,
       });
+    }
+    if (input.requestedDomain) {
+      const asset = await this.certificates.getAsset(version.certificateAssetId, input.tenantId);
+      if (!asset || !this.coversCertificateDomain(version, asset, input.requestedDomain)) {
+        throw new AppError('VALIDATION_FAILED', '证书版本域名与部署目标域名不匹配', {
+          certificateVersionId: input.requestedCertificateVersionId,
+          domain: normalizeDomain(input.requestedDomain),
+        });
+      }
     }
     return input.requestedCertificateVersionId;
   }
@@ -1835,7 +1895,12 @@ export class DeploymentPlansApplicationService {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', { certificateVersionId, status: version.status, deployable: version.deployable, notAfter: version.notAfter });
     }
     if (!this.coversBindingDomain(binding, version, asset, requestedDomain)) {
-      throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', { certificateVersionId, domain: requestedDomain ?? binding.domainName ?? binding.domain });
+      throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', {
+        certificateVersionId,
+        domain: normalizeDomain(requestedDomain ?? binding.domainName ?? binding.domain),
+        requestedDomain: normalizeDomain(requestedDomain),
+        bindingDomain: normalizeDomain(binding.domainName ?? binding.domain),
+      });
     }
     if (requestedCertificateFormatId) {
       await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId, tenantId);
@@ -2614,6 +2679,8 @@ export class DeploymentPlansApplicationService {
     asset: CertificateAssetEntity,
     requestedDomain?: string,
   ): boolean {
+    // 应用资产创建入口传入的 domain 是用户配置的部署目标。绑定记录只在没有应用资产域名时兜底，
+    // 避免自动化运行快照中的绑定字段覆盖应用资产的预定义部署参数。
     const bindingDomain = normalizeDomain(requestedDomain ?? binding.domainName ?? binding.domain);
     return this.coversCertificateDomain(version, asset, bindingDomain);
   }
@@ -2656,6 +2723,22 @@ export class DeploymentPlansApplicationService {
     const parameters = await this.approvalParameters(plan);
     const scopes = Array.isArray(parameters.tlsScopes) ? parameters.tlsScopes : [];
     return scopes.some((scope) => readRecord(scope)?.allowInsecureTls === true);
+  }
+
+  private async resolveAutomationApproval(
+    source: import('../../executions/dto/executions.dto.js').ExecutionSourceDto | undefined,
+    tenantId?: string,
+  ): Promise<ApprovalRequestEntity | undefined> {
+    if (source?.type !== 'automation' || !source.approvalId || !source.automationRunId) return undefined;
+    const approval = await this.approval.get(source.approvalId, tenantId);
+    const isBoundToRun = approval?.resourceRefs.some((ref) => ref.type === 'automationRun' && ref.id === source.automationRunId);
+    if (!approval || !isBoundToRun || !['approved', 'consumed'].includes(approval.status)) {
+      throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '自动化运行审批无效，不能作为部署授权', {
+        approvalId: source.approvalId,
+        automationRunId: source.automationRunId,
+      });
+    }
+    return approval;
   }
 
   private approvalRiskLevel(riskLevel: RiskLevel | undefined): RiskLevel {

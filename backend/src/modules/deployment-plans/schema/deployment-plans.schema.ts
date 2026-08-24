@@ -17,6 +17,7 @@ export interface DeploymentPlanEntity extends IdentifiedEntity {
   requestHash: string;
   policy: DeploymentPlanPolicyDto;
   createdReason: 'MANUAL' | 'AUTO_RENEW' | 'RISK_FIX' | 'ROLLBACK';
+  temporary?: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: string;

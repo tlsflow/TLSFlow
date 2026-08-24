@@ -6,6 +6,7 @@ export interface AutomationExecutorInput {
   target: AutomationRunTargetDto;
   action: AutomationActionDto;
   requireApproval: boolean;
+  approvalId?: string;
 }
 
 export interface AutomationExecutorResult {

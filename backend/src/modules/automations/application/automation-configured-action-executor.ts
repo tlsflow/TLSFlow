@@ -35,14 +35,37 @@ export class AutomationConfiguredActionExecutor implements AutomationActionExecu
         if (!planId) throw new Error('AUTOMATION_DEPLOYMENT_PLAN_MISSING');
         let plan = await this.deployment.getPlan(planId, input.run.tenantId);
         if (plan.status === 'DRAFT') {
-          if (input.action.config.dryRunFirst || input.run.executionOptions?.dryRun === true) {
-            await this.deployment.dryRun({ planId, runId: input.run.id, automationId: input.run.automationId, actorId: input.run.createdBy, tenantId: input.run.tenantId, idempotencyKey: '' });
+          const requireDryRun = input.action.config.dryRunFirst || input.run.executionOptions?.dryRun === true;
+          if (requireDryRun && plan.latestRun?.type !== 'dry_run') {
+            const dryRun = await this.deployment.dryRun({ planId, runId: input.run.id, automationId: input.run.automationId, approvalId: input.approvalId, actorId: input.run.createdBy, tenantId: input.run.tenantId, idempotencyKey: '' }) as { run?: { id?: string } };
+            return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: dryRun.run?.id };
           }
-          plan = await this.deployment.submit({ planId, actorId: input.run.createdBy, tenantId: input.run.tenantId });
+          if (requireDryRun && plan.latestRun?.type === 'dry_run') {
+            if (['PENDING', 'DISPATCHED', 'RUNNING'].includes(plan.latestRun.status)) {
+              return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: plan.latestRun.id };
+            }
+            if (plan.latestRun.status !== 'SUCCESS') {
+              throw Object.assign(new Error(`AUTOMATION_DRY_RUN_${plan.latestRun.status}`), {
+                errorCode: `AUTOMATION_DRY_RUN_${plan.latestRun.status}`,
+                failureStage: 'dry_run' as const,
+              });
+            }
+          }
+          plan = await this.deployment.submit({
+            planId,
+            actorId: input.run.createdBy,
+            tenantId: input.run.tenantId,
+            executionSource: {
+              type: 'automation',
+              automationRunId: input.run.id,
+              automationId: input.run.automationId,
+              approvalId: input.approvalId,
+            },
+          });
         }
         if (plan.status === 'PENDING_APPROVAL') return { status: 'waiting_approval' as const, referenceType: 'deployment_plan' as const, referenceId: plan.id };
         if (plan.status === 'READY') {
-          const execution = await this.deployment.execute({ planId, runId: input.run.id, automationId: input.run.automationId, actorId: input.run.createdBy, tenantId: input.run.tenantId }) as { run?: { id?: string } };
+          const execution = await this.deployment.execute({ planId, runId: input.run.id, automationId: input.run.automationId, approvalId: input.approvalId, actorId: input.run.createdBy, tenantId: input.run.tenantId }) as { run?: { id?: string } };
           return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: execution.run?.id };
         }
         if (plan.status === 'RUNNING') return { status: 'running' as const, referenceType: 'execution_run' as const, referenceId: input.target.executionRunId };

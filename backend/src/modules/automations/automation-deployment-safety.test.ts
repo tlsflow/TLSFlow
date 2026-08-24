@@ -5,7 +5,7 @@ import { AutomationDeploymentActionService } from './application/automation-depl
 test('Dry Run、提交和执行全部复用 DeploymentPlan 端口', async () => {
   const calls: string[] = [];
   const service = new AutomationDeploymentActionService({
-    create: async () => ({ id: 'plan_1' } as never),
+    createFromApplicationAsset: async () => ({ id: 'plan_1' } as never),
     dryRun: async (input) => { calls.push(`dry:${input.planId}`); return { status: 'dry-run' }; },
     submit: async (input) => { calls.push(`submit:${input.planId}`); return { id: input.planId } as never; },
     execute: async (input) => { calls.push(`execute:${input.planId}`); return { status: 'queued' }; },

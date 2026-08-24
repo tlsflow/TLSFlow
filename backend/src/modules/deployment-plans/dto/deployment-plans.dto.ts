@@ -101,6 +101,7 @@ export interface DeploymentPlanDto {
   idempotencyKey: string;
   policy: DeploymentPlanPolicyDto;
   createdReason: 'MANUAL' | 'AUTO_RENEW' | 'RISK_FIX' | 'ROLLBACK';
+  temporary?: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -150,6 +151,7 @@ export interface CreateDeploymentPlanInput {
   planType?: DeploymentPlanType;
   policy?: DeploymentPlanPolicyDto;
   createdReason?: DeploymentPlanDto['createdReason'];
+  temporary?: boolean;
   idempotencyKey: string;
   actorId: string;
   tenantId?: string;
@@ -162,6 +164,14 @@ export interface CreateDeploymentPlanFromApplicationAssetInput {
   selectionMode?: DeploymentPlanSelectionMode;
   planType?: DeploymentPlanType;
   policy?: DeploymentPlanPolicyDto;
+  /**
+   * 自动化创建时禁止复用用户手工草稿，避免不同运行共享可变计划。
+   */
+  reuseDraft?: boolean;
+  /**
+   * 自动化内部使用的临时计划，执行完成后会被清理且不进入计划列表。
+   */
+  temporary?: boolean;
   idempotencyKey: string;
   actorId: string;
   tenantId?: string;
@@ -176,6 +186,7 @@ export interface SubmitDeploymentPlanInput {
   actorId: string;
   tenantId?: string;
   approvalId?: string;
+  executionSource?: ExecutionSourceDto;
 }
 
 export interface ExecuteDeploymentPlanInput {

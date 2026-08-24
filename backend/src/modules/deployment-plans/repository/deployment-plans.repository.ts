@@ -66,6 +66,7 @@ export class DeploymentPlansRepository {
     return (await this.plans.list((plan) => sameTenant(plan.tenantId, tenantId)
       && plan.status === 'DRAFT'
       && plan.createdReason === 'MANUAL'
+      && plan.temporary !== true
       && targetPlanIds.has(plan.id)))
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
   }

@@ -83,6 +83,16 @@ export class DeploymentInputSnapshotsRepository {
     );
     return result.rows.map(toEntity);
   }
+
+  async deleteByPlan(tenantId: string, deploymentPlanId: string): Promise<number> {
+    const result = await this.db.query(
+      `delete from deployment_input_snapshots
+        where tenant_id=$1 and deployment_plan_id=$2
+        returning id`,
+      [tenantId, deploymentPlanId],
+    );
+    return result.rows.length;
+  }
 }
 
 function assertRuntimeSnapshotMatchesAudit(

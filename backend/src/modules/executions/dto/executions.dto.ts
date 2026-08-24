@@ -6,6 +6,10 @@ export interface ExecutionSourceDto {
   type: 'deployment_plan' | 'automation';
   automationRunId?: string;
   automationId?: string;
+  /**
+   * 自动化运行已经消费的运行级审批，不等同于部署计划审批。
+   */
+  approvalId?: string;
 }
 export type ExecutionStepType = 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'RELOAD' | 'VERIFY' | 'ROLLBACK' | 'CUSTOM';
 export type ExecutionFailureCategory = 'transient' | 'unsafe' | 'timeout' | 'cancelled';
