@@ -102,6 +102,7 @@ export class WorkflowTemplatesDomainService {
     const version = this.createVersion(template.id, versionNumber, content, 'draft', input.changeSummary);
     this.versions.set(template.id, [...list, version]);
     template.currentVersionId = version.id;
+    template.status = 'draft';
     template.updatedAt = new Date().toISOString();
     this.templates.set(template.id, template);
     await this.templatesRepository.upsert(template);
@@ -133,14 +134,8 @@ export class WorkflowTemplatesDomainService {
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
     const list = this.versions.get(template.id) ?? [];
-    for (const item of list) {
-      if (item.status === 'published') {
-        item.status = 'disabled';
-        await this.versionsRepository.upsert(item);
-      }
-    }
     version.status = 'published';
-    template.status = 'published';
+    template.status = this.deriveTemplateStatus(list);
     template.currentVersionId = version.id;
     template.updatedAt = new Date().toISOString();
     this.templates.set(template.id, template);
@@ -167,7 +162,7 @@ export class WorkflowTemplatesDomainService {
     await this.ready;
     return [...this.templates.values()]
       .filter((item) => item.status !== 'disabled')
-      .map((item) => ({ ...item }));
+      .map((item) => this.withCurrentVersionSummary(item));
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {
@@ -336,6 +331,23 @@ export class WorkflowTemplatesDomainService {
       if (version) return { template: await this.getTemplateOrThrow(templateId), version };
     }
     throw new AppError('RESOURCE_NOT_FOUND', 'workflow template version not found', { versionId });
+  }
+
+  private withCurrentVersionSummary(template: WorkflowTemplate): WorkflowTemplate {
+    const list = this.versions.get(template.id) ?? [];
+    const current = list.find((item) => item.id === template.currentVersionId);
+    return {
+      ...template,
+      status: template.status === 'disabled' ? 'disabled' : this.deriveTemplateStatus(list),
+      currentVersion: current?.version,
+      currentVersionLabel: current ? `V${current.version}` : undefined,
+    };
+  }
+
+  private deriveTemplateStatus(list: readonly WorkflowTemplateVersion[]): WorkflowTemplate['status'] {
+    const enabled = list.filter((item) => item.status !== 'disabled');
+    if (enabled.some((item) => item.status === 'draft')) return 'draft';
+    return enabled.length > 0 ? 'published' : 'draft';
   }
 
   private createVersion(templateId: string, versionNumber: number, content: WorkflowDslV1, status: WorkflowTemplateVersion['status'], changeSummary?: string): WorkflowTemplateVersion {

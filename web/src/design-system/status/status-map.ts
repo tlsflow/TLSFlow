@@ -7,6 +7,7 @@ export interface StatusMeta {
 
 export const statusDictionary = {
   DRAFT: { label: '草稿', tone: 'muted' },
+  PUBLISHED: { label: '已发布', tone: 'success' },
   PENDING_APPROVAL: { label: '待审批', tone: 'warning' },
   READY: { label: '待执行', tone: 'info' },
   RUNNING: { label: '执行中', tone: 'info' },
@@ -31,5 +32,6 @@ export const statusDictionary = {
 } satisfies Record<string, StatusMeta>
 
 export function resolveStatusMeta(status: string): StatusMeta {
-  return statusDictionary[status as keyof typeof statusDictionary] ?? { label: status, tone: 'muted' }
+  const key = status.toUpperCase() as keyof typeof statusDictionary
+  return statusDictionary[key] ?? { label: status, tone: 'muted' }
 }

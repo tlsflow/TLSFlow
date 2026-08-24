@@ -210,6 +210,8 @@ export interface WorkflowTemplate {
   name: string;
   status: WorkflowTemplateStatus;
   currentVersionId?: string;
+  currentVersion?: number;
+  currentVersionLabel?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -177,6 +177,16 @@ describe('WorkflowTemplates', () => {
     const published = await service.publishVersion(created.version.id);
     assert.equal(published.status, 'published');
     assert.equal((await service.getVersion(version2.id)).status, 'draft');
+    const draftTemplate = (await service.listTemplates()).find((item) => item.id === created.template.id);
+    assert.equal(draftTemplate?.status, 'draft');
+    assert.equal(draftTemplate?.currentVersionLabel, 'V1');
+
+    const switched = await service.publishVersion(version2.id);
+    assert.equal(switched.status, 'published');
+    assert.equal((await service.getVersion(created.version.id)).status, 'published');
+    const publishedTemplate = (await service.listTemplates()).find((item) => item.id === created.template.id);
+    assert.equal(publishedTemplate?.status, 'published');
+    assert.equal(publishedTemplate?.currentVersionLabel, 'V2');
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /duplicate workflow version content/);
   });
 
@@ -279,6 +289,7 @@ describe('WorkflowTemplates', () => {
     const templatePage = templates.body as { items: unknown };
     assert.equal(Array.isArray(templatePage.items), true);
     assert.equal((templatePage.items as Array<{ id: string }>).some((item) => item.id === createdBody.template.id), true);
+    assert.equal((templatePage.items as Array<{ id: string; currentVersionLabel?: string }>).find((item) => item.id === createdBody.template.id)?.currentVersionLabel, 'V1');
 
     const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
     assert.equal(versions.statusCode, 200);

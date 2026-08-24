@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { ApiRecord } from '@/api/modules/common'
 import {
   applyWorkflowTemplateFromFile,
+  compileWorkflowCanvas,
   createWorkflowTemplate,
   createWorkflowTemplateFromFile,
   deleteWorkflowTemplate,
@@ -19,18 +20,16 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import {
-  loadStoredWorkflowCredentials,
-  saveStoredWorkflowCredentials,
+  loadWorkflowCredentials,
+  workflowCredentialMetadata,
   workflowCredentialSummary,
   workflowSecretTypeForCredentialKind,
   type WorkflowCredentialKind as CredentialKind,
-  type WorkflowCredentialSecretType as CredentialSecretType,
   type WorkflowManagedCredential as ManagedCredential,
 } from './workflow-credentials'
 import WorkflowCanvasEditor from './WorkflowCanvasEditor.vue'
 import {
   createDefaultWorkflowCanvas,
-  workflowCanvasToDsl,
   workflowDslToCanvas,
   type WorkflowCanvasDefinition,
   type WorkflowDslV1,
@@ -38,12 +37,15 @@ import {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const detailModalOpen = ref(false)
+const versionManagerModalOpen = ref(false)
 const editorModalOpen = ref(false)
 const detailRow = ref<ViewRow | null>(null)
+const versionManagerRow = ref<ViewRow | null>(null)
 const editorRow = ref<ViewRow | null>(null)
 const versionItems = ref<ApiRecord[]>([])
 const versionLoading = ref(false)
 const versionError = ref('')
+const versionCreating = ref(false)
 const publishLoading = ref(false)
 const publishMessage = ref('')
 const canvasSaving = ref(false)
@@ -60,6 +62,7 @@ const selectedFileTemplateId = ref('')
 const fileTemplateTargetRow = ref<ViewRow | null>(null)
 const credentialManagerOpen = ref(false)
 const credentialItems = ref<ManagedCredential[]>([])
+const credentialLoading = ref(false)
 const credentialSaving = ref(false)
 const credentialMessage = ref('')
 const credentialError = ref('')
@@ -92,13 +95,15 @@ const config: BusinessPageConfig = {
   description: '按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。',
   showHeader: false,
   showMetrics: false,
+  showToolbarDangerHint: false,
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
   primaryActionLabel: '空白新建',
   primaryAction: async () => {
     const canvas = createDefaultWorkflowCanvas('workflow-canvas-draft')
+    const compiled = await compileCanvasOnBackend(canvas)
     await createWorkflowTemplate({
-      content: workflowCanvasToDsl(canvas),
+      content: compiled.content,
       changeSummary: '前端画布创建工作流草稿',
     })
     await pageRef.value?.reload()
@@ -112,7 +117,7 @@ const config: BusinessPageConfig = {
   columns: [
     { key: 'name', title: '工作流名称', candidates: ['name'] },
     { key: 'status', title: '状态', candidates: ['status'] },
-    { key: 'currentVersionId', title: '当前版本', candidates: ['currentVersionId'] },
+    { key: 'currentVersionLabel', title: '当前版本', candidates: ['currentVersionLabel', 'currentVersion'] },
     { key: 'updatedAt', title: '更新时间', candidates: ['updatedAt', 'createdAt'], kind: 'date' },
     { key: 'actions', title: '操作', candidates: [] },
   ],
@@ -155,16 +160,11 @@ const config: BusinessPageConfig = {
       },
     },
     {
-      label: '新增版本',
+      label: '版本管理',
       permission: 'workflow.template.write',
-      reloadAfterRun: true,
+      reloadAfterRun: false,
       run: async (row) => {
-        const canvas = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
-        await createWorkflowTemplateVersion({
-          templateId: readString(row.raw, ['id']),
-          content: workflowCanvasToDsl(canvas),
-          changeSummary: '前端画布创建新版本草稿',
-        })
+        await openVersionManager(row)
       },
     },
     {
@@ -183,8 +183,12 @@ const config: BusinessPageConfig = {
 }
 
 const publishedVersionLabel = computed(() => {
-  const published = versionItems.value.find((item) => readString(item, ['status']) === 'published')
-  return published ? `v${readString(published, ['version'])}` : '—'
+  const currentId = readString(detailRow.value?.raw ?? {}, ['currentVersionId'], '')
+  const published = versionItems.value.find((item) =>
+    readString(item, ['status']) === 'published'
+    && (!currentId || readString(item, ['id']) === currentId),
+  ) ?? versionItems.value.find((item) => readString(item, ['status']) === 'published')
+  return published ? `V${readString(published, ['version'])}` : '—'
 })
 
 const fileTemplateModalTitle = computed(() => fileTemplateMode.value === 'create' ? '从文件模板新建工作流' : '用文件模板覆盖工作流')
@@ -217,11 +221,11 @@ const credentialCreateDisabled = computed(() => {
     || !form.secretValue.trim()
 })
 
-function openCredentialManager() {
-  credentialItems.value = loadStoredWorkflowCredentials()
+async function openCredentialManager() {
   credentialMessage.value = ''
   credentialError.value = ''
   credentialManagerOpen.value = true
+  await reloadCredentials()
 }
 
 function selectCredentialKind(kind: CredentialKind) {
@@ -241,25 +245,25 @@ async function submitCredential() {
   try {
     const form = credentialForm.value
     const secretType = workflowSecretTypeForCredentialKind(form.kind)
-    const created = await createSecret({
-      name: form.name.trim(),
-      type: secretType,
-      scopeType: 'global',
-      plainText: form.secretValue,
-    })
-    if (!created.data?.id) throw new Error('创建凭据未返回有效编号')
     const item: ManagedCredential = {
-      id: created.data.id,
+      id: '',
       name: form.name.trim(),
       username: form.username.trim(),
       kind: form.kind,
       type: secretType,
       apiKeyName: form.kind === 'curl_api_key' ? form.apiKeyName.trim() : undefined,
       apiKeyIn: form.kind === 'curl_api_key' ? form.apiKeyIn : undefined,
-      createdAt: new Date().toISOString(),
+      createdAt: '',
     }
-    credentialItems.value = [item, ...credentialItems.value.filter((credential) => credential.id !== item.id)]
-    saveStoredWorkflowCredentials(credentialItems.value)
+    const created = await createSecret({
+      name: form.name.trim(),
+      type: secretType,
+      scopeType: 'global',
+      plainText: form.secretValue,
+      metadata: workflowCredentialMetadata(item),
+    })
+    if (!created.data?.id) throw new Error('创建凭据未返回有效编号')
+    await reloadCredentials()
     credentialForm.value = {
       ...credentialForm.value,
       name: '',
@@ -273,9 +277,17 @@ async function submitCredential() {
   }
 }
 
-function removeStoredCredential(id: string) {
-  credentialItems.value = credentialItems.value.filter((item) => item.id !== id)
-  saveStoredWorkflowCredentials(credentialItems.value)
+async function reloadCredentials() {
+  credentialLoading.value = true
+  credentialError.value = ''
+  try {
+    credentialItems.value = await loadWorkflowCredentials()
+  } catch (cause) {
+    credentialItems.value = []
+    credentialError.value = cause instanceof Error ? cause.message : '加载后端凭据失败'
+  } finally {
+    credentialLoading.value = false
+  }
 }
 
 function credentialUsageSummary(item: ManagedCredential) {
@@ -284,11 +296,59 @@ function credentialUsageSummary(item: ManagedCredential) {
   return 'HTTP'
 }
 
+function isCurrentWorkflowVersion(item: ApiRecord, row: ViewRow | null = versionManagerRow.value): boolean {
+  if (!row) return false
+  const currentVersionId = readString(row.raw, ['currentVersionId'], '')
+  const versionId = readString(item, ['id'], '')
+  if (currentVersionId && versionId && currentVersionId === versionId) return true
+  const currentVersion = readString(row.raw, ['currentVersion'], '')
+  return Boolean(currentVersion && currentVersion !== '—' && currentVersion === readString(item, ['version'], ''))
+}
+
+function versionStatusLabel(item: ApiRecord): string {
+  if (isCurrentWorkflowVersion(item)) return '当前版本'
+  const status = readString(item, ['status'], 'draft')
+  if (status === 'published') return '已发布'
+  if (status === 'disabled') return '已禁用'
+  return '草稿'
+}
+
+function versionStatusTone(item: ApiRecord): string {
+  if (isCurrentWorkflowVersion(item)) return 'current'
+  const status = readString(item, ['status'], 'draft')
+  if (status === 'published') return 'published'
+  if (status === 'disabled') return 'disabled'
+  return 'draft'
+}
+
+function canRunVersionAction(item: ApiRecord): boolean {
+  if (isCurrentWorkflowVersion(item)) return false
+  return ['draft', 'published'].includes(readString(item, ['status'], 'draft'))
+}
+
+function versionActionLabel(item: ApiRecord): string {
+  return readString(item, ['status'], 'draft') === 'published' ? '切换版本' : '发布版本'
+}
+
+function deriveTemplateStatusFromVersions(items: readonly ApiRecord[]): string {
+  const enabled = items.filter((item) => readString(item, ['status'], 'draft') !== 'disabled')
+  if (enabled.some((item) => readString(item, ['status'], 'draft') === 'draft')) return 'draft'
+  return enabled.length > 0 ? 'published' : 'draft'
+}
+
 async function openDetail(row: ViewRow) {
   detailRow.value = row
   detailModalOpen.value = true
   activeTab.value = 'summary'
   publishMessage.value = ''
+  await loadVersions(row)
+}
+
+async function openVersionManager(row: ViewRow) {
+  versionManagerRow.value = row
+  versionManagerModalOpen.value = true
+  publishMessage.value = ''
+  versionError.value = ''
   await loadVersions(row)
 }
 
@@ -384,14 +444,15 @@ async function submitFileTemplateAction() {
   }
 }
 
-async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition; dsl: WorkflowDslV1 }) {
+async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition }) {
   if (!editorRow.value) return
   canvasSaving.value = true
   canvasMessage.value = ''
   try {
+    const compiled = await compileCanvasOnBackend(payload.canvas)
     await createWorkflowTemplateVersion({
       templateId: readString(editorRow.value.raw, ['id']),
-      content: payload.dsl,
+      content: compiled.content,
       changeSummary: '画布编辑器保存草稿版本',
     })
     canvasMessage.value = '画布草稿已保存为新版本。'
@@ -404,20 +465,123 @@ async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition; dsl:
   }
 }
 
+async function createManagedVersion() {
+  const row = versionManagerRow.value
+  if (!row || versionCreating.value) return
+  versionCreating.value = true
+  publishMessage.value = ''
+  versionError.value = ''
+  try {
+    const canvas = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
+    const compiled = await compileCanvasOnBackend(canvas)
+    const result = await createWorkflowTemplateVersion({
+      templateId: readString(row.raw, ['id']),
+      content: compiled.content,
+      changeSummary: '版本管理创建新版本草稿',
+    })
+    syncCreatedDraftVersion(result.data ?? {})
+    publishMessage.value = '新版本草稿已创建。'
+    await loadVersions(row)
+    await pageRef.value?.reload()
+  } catch (cause) {
+    versionError.value = cause instanceof Error ? cause.message : '创建工作流版本失败'
+  } finally {
+    versionCreating.value = false
+  }
+}
+
+async function compileCanvasOnBackend(canvas: WorkflowCanvasDefinition): Promise<{ content: WorkflowDslV1 }> {
+  const result = await compileWorkflowCanvas({ canvas })
+  const content = result.data?.content
+  if (!content) throw new Error('后端未返回工作流 DSL')
+  return { content: content as WorkflowDslV1 }
+}
+
 async function publishVersion(versionId: string) {
   publishLoading.value = true
   publishMessage.value = ''
   try {
-    await publishWorkflowTemplateVersion(versionId)
-    publishMessage.value = `版本 ${versionId} 已发布。`
+    const beforeAction = versionItems.value.find((item) => readString(item, ['id']) === versionId)
+    const result = await publishWorkflowTemplateVersion(versionId)
+    const changedVersion = {
+      ...(beforeAction ?? {}),
+      ...(result.data ?? {}),
+      id: readString(result.data ?? {}, ['id'], versionId),
+      status: 'published',
+    }
+    syncCurrentVersionRow(changedVersion)
+    const versionNumber = readString(result.data ?? {}, ['version'], '')
+    publishMessage.value = `已切换到 ${versionNumber ? `V${versionNumber}` : versionId}。`
     if (detailRow.value) {
       await loadVersions(detailRow.value)
     }
+    if (versionManagerRow.value) {
+      await loadVersions(versionManagerRow.value)
+    }
+    syncCurrentVersionRow(changedVersion)
     await pageRef.value?.reload()
   } catch (cause) {
     publishMessage.value = cause instanceof Error ? cause.message : '发布工作流版本失败'
   } finally {
     publishLoading.value = false
+  }
+}
+
+function syncCreatedDraftVersion(version: ApiRecord) {
+  const versionId = readString(version, ['id'], '')
+  if (versionId) {
+    versionItems.value = [...versionItems.value, { ...version, status: 'draft' }]
+  }
+  syncTemplateRows({
+    currentVersionId: versionId || undefined,
+    currentVersion: readString(version, ['version'], '') ? Number(readString(version, ['version'])) : undefined,
+    currentVersionLabel: readString(version, ['version'], '') ? `V${readString(version, ['version'])}` : undefined,
+    status: 'draft',
+    updatedAt: new Date().toISOString(),
+  }, readString(version, ['templateId'], ''))
+}
+
+function syncCurrentVersionRow(version: ApiRecord) {
+  const versionId = readString(version, ['id'], '')
+  const versionNumber = readString(version, ['version'], '')
+  if (!versionId) return
+  const templateId = readString(version, ['templateId'], '')
+  versionItems.value = versionItems.value.map((item) =>
+    readString(item, ['id']) === versionId
+      ? { ...item, ...version, status: 'published' }
+      : item,
+  )
+  const patch = {
+    currentVersionId: versionId,
+    currentVersion: versionNumber ? Number(versionNumber) : undefined,
+    currentVersionLabel: versionNumber ? `V${versionNumber}` : undefined,
+    status: deriveTemplateStatusFromVersions(versionItems.value),
+    updatedAt: new Date().toISOString(),
+  }
+  syncTemplateRows(patch, templateId)
+}
+
+function syncTemplateRows(patch: Record<string, unknown>, templateId = '') {
+  if (versionManagerRow.value && (!templateId || readString(versionManagerRow.value.raw, ['id']) === templateId)) {
+    versionManagerRow.value = {
+      ...versionManagerRow.value,
+      currentVersionLabel: typeof patch.currentVersionLabel === 'string' ? patch.currentVersionLabel : versionManagerRow.value.currentVersionLabel,
+      status: typeof patch.status === 'string' ? patch.status : versionManagerRow.value.status,
+      raw: {
+        ...versionManagerRow.value.raw,
+        ...patch,
+      },
+    }
+  }
+  if (detailRow.value && (!templateId || readString(detailRow.value.raw, ['id']) === templateId)) {
+    detailRow.value = {
+      ...detailRow.value,
+      status: typeof patch.status === 'string' ? patch.status : detailRow.value.status,
+      raw: {
+        ...detailRow.value.raw,
+        ...patch,
+      },
+    }
   }
 }
 
@@ -487,13 +651,13 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
               <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
               <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
               <button
-                v-if="readString(item, ['status']) !== 'published'"
+                v-if="canRunVersionAction(item)"
                 class="gc-button"
                 type="button"
                 :disabled="publishLoading"
                 @click="publishVersion(readString(item, ['id']))"
               >
-                {{ publishLoading ? '发布中...' : '发布版本' }}
+                {{ publishLoading ? '处理中...' : versionActionLabel(item) }}
               </button>
             </li>
           </ul>
@@ -503,6 +667,54 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
       <template #actions>
         <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
+      </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="versionManagerModalOpen"
+      :title="versionManagerRow ? `版本管理：${readString(versionManagerRow.raw, ['name'], versionManagerRow.id)}` : '版本管理'"
+      description="这里只管理工作流版本的新建和发布，不修改工作流画布内容。"
+      size="xl"
+      width="min(980px, calc(100vw - 32px))"
+    >
+      <section v-if="versionManagerRow" class="workflow-version-manager">
+        <header class="workflow-version-manager__head">
+          <div>
+            <strong>当前工作流版本</strong>
+            <span>{{ readString(versionManagerRow.raw, ['currentVersionLabel', 'currentVersion'], '—') }}</span>
+          </div>
+          <button class="gc-button gc-button--primary" type="button" :disabled="versionCreating" @click="createManagedVersion">
+            {{ versionCreating ? '创建中...' : '新增版本' }}
+          </button>
+        </header>
+
+        <p v-if="publishMessage" class="workflow-template-detail__message">{{ publishMessage }}</p>
+        <p v-if="versionLoading" class="workflow-template-detail__loading">正在加载版本...</p>
+        <p v-else-if="versionError" class="workflow-template-detail__error">{{ versionError }}</p>
+        <ul v-else-if="versionItems.length" class="workflow-template-detail__list">
+          <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-template-detail__list-item">
+            <div class="workflow-template-detail__list-head">
+              <strong>V{{ readString(item, ['version']) }}</strong>
+              <span class="workflow-version-manager__status" :data-status="versionStatusTone(item)">{{ versionStatusLabel(item) }}</span>
+            </div>
+            <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
+            <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
+            <button
+              v-if="canRunVersionAction(item)"
+              class="gc-button"
+              type="button"
+              :disabled="publishLoading"
+              @click="publishVersion(readString(item, ['id']))"
+            >
+              {{ publishLoading ? '处理中...' : versionActionLabel(item) }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="workflow-template-detail__loading">暂无版本。</p>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" @click="versionManagerModalOpen = false">关闭</button>
       </template>
     </GcModal>
 
@@ -666,9 +878,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <section class="credential-manager__list-section">
           <div class="credential-manager__section-head">
             <strong>已登记凭据</strong>
-            <span>{{ credentialItems.length }} 个</span>
+            <span>{{ credentialLoading ? '加载中...' : `${credentialItems.length} 个` }}</span>
           </div>
-          <ul v-if="credentialItems.length" class="credential-manager__list">
+          <p v-if="credentialLoading" class="credential-manager__empty">正在从后端加载凭据元数据...</p>
+          <ul v-else-if="credentialItems.length" class="credential-manager__list">
             <li v-for="item in credentialItems" :key="item.id" class="credential-manager__item">
               <div class="credential-manager__item-head">
                 <div class="credential-manager__item-meta">
@@ -677,13 +890,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
                 </div>
                 <span class="credential-manager__item-kind">{{ item.kind === 'username_password' ? '通用' : item.kind === 'ssh_key' ? 'SSH' : 'CURL' }}</span>
                 <span class="credential-manager__item-usage">{{ credentialUsageSummary(item) }}</span>
-                <div class="credential-manager__item-actions">
-                  <button class="gc-button" type="button" @click="removeStoredCredential(item.id)">移除记录</button>
-                </div>
               </div>
             </li>
           </ul>
-          <p v-else class="credential-manager__empty">暂无本地登记记录。创建后可直接在变量、SSH 节点和 HTTP 节点里选择。</p>
+          <p v-else class="credential-manager__empty">暂无后端凭据记录。创建后可直接在变量、SSH 节点和 HTTP 节点里选择。</p>
         </section>
       </section>
       <template #actions>
@@ -877,6 +1087,65 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail__error {
   color: var(--gc-color-danger);
+}
+
+.workflow-version-manager {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-version-manager__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.workflow-version-manager__head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.workflow-version-manager__head span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflow-version-manager__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.workflow-version-manager__status[data-status='current'] {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.workflow-version-manager__status[data-status='published'] {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
+}
+
+.workflow-version-manager__status[data-status='draft'],
+.workflow-version-manager__status[data-status='disabled'],
+.workflow-version-manager__status[data-status='muted'] {
+  color: var(--gc-color-muted);
+  background: var(--gc-color-muted-bg);
 }
 
 .workflow-template-editor-shell {

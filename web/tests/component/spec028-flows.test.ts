@@ -297,6 +297,8 @@ describe('spec028 前端闭环', () => {
         name: 'curl-template',
         status: 'draft',
         currentVersionId: 'ver-1',
+        currentVersion: 1,
+        currentVersionLabel: 'V1',
         createdAt: '2026-06-08T00:00:00.000Z',
         updatedAt: '2026-06-08T00:00:00.000Z',
       },

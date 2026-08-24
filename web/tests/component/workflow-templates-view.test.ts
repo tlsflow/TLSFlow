@@ -5,21 +5,24 @@ import WorkflowTemplatesView from '@/views/workflows/WorkflowTemplatesView.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 import {
   applyWorkflowTemplateFromFile,
+  compileWorkflowCanvas,
   createWorkflowTemplate,
   createWorkflowTemplateFromFile,
+  createWorkflowTemplateVersion,
   deleteWorkflowTemplate,
   listWorkflowFileTemplates,
   listWorkflowTemplates,
   listWorkflowTemplateVersions,
   publishWorkflowTemplateVersion,
 } from '@/api/modules/workflow-templates.api'
-import { createSecret } from '@/api/modules/security.api'
+import { createSecret, listSecrets } from '@/api/modules/security.api'
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
   listWorkflowTemplates: vi.fn(),
   listWorkflowFileTemplates: vi.fn(),
   createWorkflowTemplate: vi.fn(),
   createWorkflowTemplateFromFile: vi.fn(),
+  compileWorkflowCanvas: vi.fn(),
   deleteWorkflowTemplate: vi.fn(),
   applyWorkflowTemplateFromFile: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
@@ -29,6 +32,7 @@ vi.mock('@/api/modules/workflow-templates.api', () => ({
 
 vi.mock('@/api/modules/security.api', () => ({
   createSecret: vi.fn(),
+  listSecrets: vi.fn(),
 }))
 
 function okPage(items: readonly Record<string, unknown>[]) {
@@ -64,7 +68,9 @@ describe('WorkflowTemplatesView', () => {
         id: 'tpl-1',
         name: 'existing-workflow',
         status: 'draft',
-        currentVersionId: 'ver-1',
+        currentVersionId: 'wftplv_05ec5c37-18b6-4687-bc90-26e143ebcf62',
+        currentVersion: 1,
+        currentVersionLabel: 'V1',
         createdAt: '2026-07-03T00:00:00.000Z',
         updatedAt: '2026-07-03T00:00:00.000Z',
       },
@@ -92,12 +98,36 @@ describe('WorkflowTemplatesView', () => {
     })
     vi.mocked(createWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-blank-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(createWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'tpl-file-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
+    vi.mocked(compileWorkflowCanvas).mockResolvedValue({
+      data: {
+        content: {
+          apiVersion: 'gcac.workflow/v1',
+          kind: 'CurlSshWorkflow',
+          metadata: { name: 'existing-workflow' },
+          steps: [{ name: 'manual_1', type: 'manual', instruction: '确认' }],
+        },
+        issues: [],
+        stepNames: {},
+      },
+      requestId: 'req_ok',
+      timestamp: '2026-07-03T00:00:00.000Z',
+    })
+    vi.mocked(createWorkflowTemplateVersion).mockResolvedValue({ data: { id: 'ver-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(deleteWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-1', status: 'disabled' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(createSecret).mockResolvedValue({
       data: { id: 'sec-ssh-1', secretRef: 'secret://password/sec-ssh-1#current' },
       requestId: 'req_ok',
       timestamp: '2026-07-03T00:00:00.000Z',
     })
+    vi.mocked(listSecrets).mockImplementation(async () => okPage(
+      vi.mocked(createSecret).mock.calls.map(([payload], index) => ({
+        id: `sec-${index + 1}`,
+        name: payload.name,
+        type: payload.type,
+        metadata: payload.metadata,
+        createdAt: '2026-07-03T00:00:00.000Z',
+      })),
+    ))
     vi.mocked(applyWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'ver-file-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
       data: {
@@ -130,6 +160,9 @@ describe('WorkflowTemplatesView', () => {
     expect(document.body.textContent).not.toContain('待发布草稿')
     expect(document.body.textContent).not.toContain('按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。')
     expect(document.body.textContent).not.toContain('文件模板库')
+    expect(document.body.textContent).not.toContain('高危操作需确认')
+    expect(document.body.textContent).not.toContain('wftplv_05ec5c37-18b6-4687-bc90-26e143ebcf62')
+    expect(document.body.textContent).toContain('V1')
 
     clickBodyButton('模板管理')
     await flushPromises()
@@ -158,6 +191,179 @@ describe('WorkflowTemplatesView', () => {
       templateId: 'tpl-1',
       fileTemplateId: 'apache/apache-8444-cert-switch.json',
     }))
+  })
+
+  it('通过版本管理模态框新增版本和发布版本', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
+      {
+        id: 'tpl-1',
+        name: 'existing-workflow',
+        status: 'draft',
+        currentVersionId: 'ver-2',
+        currentVersion: 2,
+        currentVersionLabel: 'V2',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-03T00:00:00.000Z',
+      },
+    ]))
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    const buttonsBeforeOpen = [...document.body.querySelectorAll('button')].map((item) => item.textContent?.trim())
+    expect(buttonsBeforeOpen).toContain('版本管理')
+    expect(buttonsBeforeOpen).not.toContain('新增版本')
+    clickBodyButton('版本管理')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('版本管理：existing-workflow')
+    expect(listWorkflowTemplateVersions).toHaveBeenCalledWith('tpl-1')
+
+    clickBodyButton('新增版本')
+    await flushPromises()
+
+    expect(createWorkflowTemplateVersion).toHaveBeenCalledWith(expect.objectContaining({
+      templateId: 'tpl-1',
+      changeSummary: '版本管理创建新版本草稿',
+    }))
+
+    clickBodyButton('发布版本')
+    await flushPromises()
+
+    expect(publishWorkflowTemplateVersion).toHaveBeenCalledWith('ver-1')
+    expect(listWorkflowTemplates).toHaveBeenCalledTimes(3)
+  })
+
+  it('版本管理中当前版本不显示动作，已发布非当前版本显示切换版本', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
+      {
+        id: 'tpl-1',
+        name: 'existing-workflow',
+        status: 'published',
+        currentVersionId: 'ver-2',
+        currentVersion: 2,
+        currentVersionLabel: 'V2',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-06T09:01:49.000Z',
+      },
+    ]))
+    vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ver-1',
+            version: '1',
+            status: 'published',
+            changeSummary: '初始版本',
+            createdAt: '2026-07-03T00:00:00.000Z',
+          },
+          {
+            id: 'ver-2',
+            version: '2',
+            status: 'published',
+            changeSummary: '覆盖版本',
+            createdAt: '2026-07-06T09:01:49.000Z',
+          },
+        ],
+      },
+      requestId: 'req_versions',
+      timestamp: '2026-07-06T09:01:49.000Z',
+    })
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('版本管理')
+    await flushPromises()
+
+    const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const currentItem = versionItems.find((item) => item.textContent?.includes('V2'))
+    const currentStatus = currentItem?.querySelector('.workflow-version-manager__status')
+    expect(currentStatus?.textContent).toBe('当前版本')
+    expect(currentStatus?.textContent).not.toBe('draft')
+    expect(currentStatus?.textContent).not.toBe('草稿')
+    expect([...currentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).not.toContain('发布版本')
+    expect([...currentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).not.toContain('切换版本')
+    const publishedItem = versionItems.find((item) => item.textContent?.includes('V1'))
+    expect(publishedItem?.querySelector('.workflow-version-manager__status')?.textContent).toBe('已发布')
+    expect([...publishedItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('切换版本')
+  })
+
+  it('发布草稿版本后立即切换当前版本，并保留已发布状态', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
+      {
+        id: 'tpl-1',
+        name: 'existing-workflow',
+        status: 'draft',
+        currentVersionId: 'ver-1',
+        currentVersion: 1,
+        currentVersionLabel: 'V1',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-06T09:01:49.000Z',
+      },
+    ]))
+    vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ver-1',
+            templateId: 'tpl-1',
+            version: '1',
+            status: 'published',
+            changeSummary: '初始版本',
+            createdAt: '2026-07-03T00:00:00.000Z',
+          },
+          {
+            id: 'ver-2',
+            templateId: 'tpl-1',
+            version: '2',
+            status: 'draft',
+            changeSummary: '覆盖版本',
+            createdAt: '2026-07-06T09:01:49.000Z',
+          },
+        ],
+      },
+      requestId: 'req_versions',
+      timestamp: '2026-07-06T09:01:49.000Z',
+    })
+    vi.mocked(publishWorkflowTemplateVersion).mockResolvedValueOnce({
+      data: {
+        id: 'ver-2',
+        templateId: 'tpl-1',
+        version: 2,
+        status: 'published',
+      },
+      requestId: 'req_publish',
+      timestamp: '2026-07-06T09:01:49.000Z',
+    })
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('版本管理')
+    await flushPromises()
+    const beforeItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    expect(beforeItems.find((item) => item.textContent?.includes('V1'))?.querySelector('.workflow-version-manager__status')?.textContent).toBe('当前版本')
+
+    const v2PublishButton = [...beforeItems.find((item) => item.textContent?.includes('V2'))?.querySelectorAll('button') ?? []]
+      .find((item) => item.textContent?.trim() === '发布版本') as HTMLButtonElement | undefined
+    expect(v2PublishButton).toBeTruthy()
+    v2PublishButton!.click()
+    await flushPromises()
+
+    const afterItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const v1Item = afterItems.find((item) => item.textContent?.includes('V1'))
+    const v2Item = afterItems.find((item) => item.textContent?.includes('V2'))
+    expect(v2Item?.querySelector('.workflow-version-manager__status')?.textContent).toBe('当前版本')
+    expect([...v2Item?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).not.toContain('发布版本')
+    expect(v1Item?.querySelector('.workflow-version-manager__status')?.textContent).toBe('已发布')
+    expect([...v1Item?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('切换版本')
   })
 
   it('支持二次确认后删除工作流记录并刷新列表', async () => {
@@ -213,6 +419,11 @@ describe('WorkflowTemplatesView', () => {
       type: 'password',
       scopeType: 'global',
       plainText: 'secret-password',
+      metadata: expect.objectContaining({
+        workflowCredential: true,
+        workflowCredentialKind: 'username_password',
+        username: 'deploy',
+      }),
     }))
     expect(document.body.textContent).toContain('edge-01 root')
     expect(document.body.textContent).toContain('用户名 + 密码 / deploy')
@@ -254,6 +465,10 @@ describe('WorkflowTemplatesView', () => {
       type: 'api_token',
       scopeType: 'global',
       plainText: 'bearer-token',
+      metadata: expect.objectContaining({
+        workflowCredential: true,
+        workflowCredentialKind: 'curl_bearer',
+      }),
     }))
     expect(document.body.textContent).toContain('curl prod api')
     expect(document.body.textContent).toContain('Bearer Token')
@@ -297,6 +512,12 @@ describe('WorkflowTemplatesView', () => {
       type: 'api_token',
       scopeType: 'global',
       plainText: 'api-key-secret',
+      metadata: expect.objectContaining({
+        workflowCredential: true,
+        workflowCredentialKind: 'curl_api_key',
+        apiKeyName: 'api_key',
+        apiKeyIn: 'query',
+      }),
     }))
     expect(document.body.textContent).toContain('curl api key')
     expect(document.body.textContent).toContain('API Key / api_key / Query')
