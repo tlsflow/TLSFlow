@@ -1,5 +1,7 @@
 import { apiClient } from '@/api/client'
 import type { ApiResult } from '@/api/generated/client-types'
+import type { AppPreferences, ThemeMode } from '@/preferences/app-preferences'
+import type { SupportedLocale } from '@/i18n'
 import { buildListPath, listRecords, toClientPath, type ApiPageResult, type ApiRecord, type BusinessListQuery } from './common'
 
 export interface LoginRequest {
@@ -59,6 +61,13 @@ export function logout(): Promise<ApiResult<{ success: true }>> {
   return apiClient.post<{ success: true }>('/v1/auth/logout')
 }
 
+export function changeCurrentUserPassword(body: {
+  currentPassword: string
+  newPassword: string
+}): Promise<ApiResult<{ success: true }>> {
+  return apiClient.request<{ success: true }>('/v1/auth/password', { method: 'PUT', body })
+}
+
 export function getCurrentUser(): Promise<ApiResult<CurrentUserResponse>> {
   return apiClient.get<CurrentUserResponse>('/v1/auth/me')
 }
@@ -69,6 +78,17 @@ export function getCurrentPermissions(): Promise<ApiResult<{ permissions: readon
 
 export function getPermissionContext(): Promise<ApiResult<ObjectPermissionContextResponse>> {
   return apiClient.get<ObjectPermissionContextResponse>('/v1/auth/permission-context')
+}
+
+export function getCurrentUserPreferences(): Promise<ApiResult<AppPreferences>> {
+  return apiClient.get<AppPreferences>('/v1/auth/preferences')
+}
+
+export function updateCurrentUserPreferences(body: {
+  theme: ThemeMode
+  locale: SupportedLocale
+}): Promise<ApiResult<AppPreferences>> {
+  return apiClient.request<AppPreferences>('/v1/auth/preferences', { method: 'PUT', body })
 }
 
 export function listUsers(query?: BusinessListQuery): Promise<ApiPageResult> {

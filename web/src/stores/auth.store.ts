@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { getAuthProvider, type AuthSession, type LoginCredentials } from '@/providers/auth.provider'
+import { useAppStore } from './app.store'
 
 export interface CurrentUser {
   readonly id: string
@@ -26,12 +27,17 @@ export const useAuthStore = defineStore('auth', {
     async login(credentials: LoginCredentials): Promise<AuthSession> {
       const session = await getAuthProvider().login(credentials)
       this.setSession(session)
+      await useAppStore().loadPreferencesFromBackend()
       return session
     },
     async bootstrapSession(): Promise<void> {
       const session = await getAuthProvider().bootstrapSession()
-      if (session) this.setSession(session)
-      else this.clearSession()
+      if (session) {
+        this.setSession(session)
+        await useAppStore().loadPreferencesFromBackend()
+      } else {
+        this.clearSession()
+      }
     },
     async logout(): Promise<void> {
       try {
