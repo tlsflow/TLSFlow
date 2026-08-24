@@ -155,6 +155,15 @@ export function createWindowsPowerShellInstallSession(payload: ApiBody) {
   )
 }
 
+export function createGatewayEnableSession(payload: ApiBody) {
+  return postAction(
+    `${AGENTS_PATH}/gateway-enable-sessions`,
+    payload,
+    'agent_gateway_enable_session',
+    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
+  )
+}
+
 export function startDiscovery(payload: ApiBody) {
   return postAction(DISCOVERY_RUNS_PATH, payload, 'asset_discovery')
 }
