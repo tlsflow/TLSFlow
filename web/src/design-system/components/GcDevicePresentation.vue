@@ -68,6 +68,7 @@ function display(value: unknown, type: string, sensitive = false): string {
           ...Object.fromEntries(selectedTab.columns.map((column) => [column.key, display(read(row, column.valuePath), column.type)])),
         }))"
         dense
+        pagination
       />
     </div>
   </section>

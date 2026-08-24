@@ -1114,6 +1114,7 @@ async function removeVersion(row: CertificateVersionRow) {
               :columns="assetColumns"
               :rows="visibleAssets"
               :ariaLabel="t('certificates.list.assets.title')"
+              pagination
             >
               <template #cell-domain="{ row }">
                 <button
@@ -1371,7 +1372,7 @@ async function removeVersion(row: CertificateVersionRow) {
             :description="t('certificates.list.versions.emptyForDomainDescription')"
           />
 
-          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" :empty-text="t('certificates.list.versions.empty')" :ariaLabel="t('certificates.list.versions.titleWithDomain', { domain: readAssetName(selectedAsset) })">
+          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" :empty-text="t('certificates.list.versions.empty')" :ariaLabel="t('certificates.list.versions.titleWithDomain', { domain: readAssetName(selectedAsset) })" pagination>
             <template #toolbar>
               <div class="certificate-page__table-toolbar">
                 <div class="certificate-page__table-heading">

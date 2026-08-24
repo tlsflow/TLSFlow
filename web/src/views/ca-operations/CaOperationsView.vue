@@ -295,7 +295,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           </button>
         </nav>
 
-        <GcDataTable :columns="columns" :rows="rows" :loading="loadingRecords" row-key="recordKey" :empty-text="t('caOperations.messages.empty')" dense>
+        <GcDataTable :columns="columns" :rows="rows" :loading="loadingRecords" row-key="recordKey" :empty-text="t('caOperations.messages.empty')" dense pagination>
           <template #toolbar>
             <form class="ca-operations__toolbar" @submit.prevent="loadRecords">
               <input v-model="query" class="ca-operations__search" :placeholder="t('caOperations.filters.searchPlaceholder')" :aria-label="t('caOperations.aria.search')" />

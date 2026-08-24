@@ -919,7 +919,7 @@ onMounted(() => void reloadAll())
 
     <p v-if="pageError" class="roles-view__error">{{ pageError }}</p>
 
-    <GcDataTable :columns="roleColumns" :rows="roleRows" :loading="loading" row-key="id" :empty-text="t('settings.roles.table.emptyRoles')" dense>
+    <GcDataTable :columns="roleColumns" :rows="roleRows" :loading="loading" row-key="id" :empty-text="t('settings.roles.table.emptyRoles')" dense pagination>
       <template #toolbar>
         <div class="roles-view__table-toolbar">
           <strong>{{ t('settings.roles.table.roleRecords') }}</strong>
@@ -946,9 +946,6 @@ onMounted(() => void reloadAll())
           </button>
         </div>
       </template>
-      <template #pagination>
-        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
-      </template>
     </GcDataTable>
 
     <GcModal
@@ -967,27 +964,21 @@ onMounted(() => void reloadAll())
           <div><dt>{{ t('settings.roles.columns.permissions') }}</dt><dd>{{ displayValue(selectedRole, 'permissions') }}</dd></div>
         </dl>
 
-        <GcDataTable :columns="accessGrantColumns" :rows="currentRoleGrants" row-key="rowKey" :empty-text="t('settings.roles.table.emptyGrants')" dense>
+        <GcDataTable :columns="accessGrantColumns" :rows="currentRoleGrants" row-key="rowKey" :empty-text="t('settings.roles.table.emptyGrants')" dense pagination>
           <template #toolbar>
             <div class="roles-view__table-toolbar">
               <strong>{{ t('settings.roles.table.currentPermissions') }}</strong>
               <button class="gc-button" type="button" @click="openGrantRole()">{{ t('settings.roles.actions.grantPermission') }}</button>
             </div>
           </template>
-          <template #pagination>
-            {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
-          </template>
         </GcDataTable>
 
-        <GcDataTable :columns="roleMemberColumns" :rows="currentRoleMembers" row-key="rowKey" :empty-text="t('settings.roles.table.emptyMembers')" dense>
+        <GcDataTable :columns="roleMemberColumns" :rows="currentRoleMembers" row-key="rowKey" :empty-text="t('settings.roles.table.emptyMembers')" dense pagination>
           <template #toolbar>
             <div class="roles-view__table-toolbar">
               <strong>{{ t('settings.roles.table.assignedMembers') }}</strong>
               <button class="gc-button" type="button" @click="openAssignMembersFromRole(selectedRole)">{{ t('settings.roles.actions.assignMembers') }}</button>
             </div>
-          </template>
-          <template #pagination>
-            {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
           </template>
         </GcDataTable>
       </section>

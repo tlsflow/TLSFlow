@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
@@ -80,7 +80,7 @@ onMounted(() => void loadUsages())
     <GcEmptyState v-if="error" :title="t('certificates.usages.loadFailed')" :description="error.message">
       <p>{{ t('businessPage.errorCode', { code: error.errorCode }) }}</p>
     </GcEmptyState>
-    <GcDataTable v-else dense :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.usages.empty')">
+    <GcDataTable v-else dense :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.usages.empty')" pagination>
       <template #toolbar>
         <div class="certificate-usages__table-toolbar">
           <strong>{{ t('certificates.usages.toolbar') }}</strong>

@@ -556,7 +556,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </span>
       </summary>
       <div class="ca-section__body">
-        <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense>
+        <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense pagination>
           <template #toolbar>
             <div class="trust-domain-page__table-toolbar">
               <strong>{{ t('internalCa.trustDomains.recordsTitle') }}</strong>
@@ -584,7 +584,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </span>
       </summary>
       <div class="ca-section__body">
-        <GcDataTable :columns="profileColumns" :rows="profiles" :loading="loading" row-key="id" :empty-text="t('internalCa.profiles.empty')" dense>
+        <GcDataTable :columns="profileColumns" :rows="profiles" :loading="loading" row-key="id" :empty-text="t('internalCa.profiles.empty')" dense pagination>
           <template #toolbar>
             <div class="trust-domain-page__table-toolbar">
               <strong>{{ t('internalCa.profiles.recordsTitle') }}</strong>
@@ -612,7 +612,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </span>
       </summary>
       <div class="ca-section__body">
-        <GcDataTable :columns="requestColumns" :rows="recentRequests" :loading="loading" row-key="id" :empty-text="t('internalCa.requests.empty')" dense>
+        <GcDataTable :columns="requestColumns" :rows="recentRequests" :loading="loading" row-key="id" :empty-text="t('internalCa.requests.empty')" dense pagination>
           <template #toolbar>
             <div class="trust-domain-page__table-toolbar">
               <strong>{{ t('internalCa.requests.recordsTitle') }}</strong>

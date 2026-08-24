@@ -874,7 +874,7 @@ function dateValue(value: unknown): number {
       </article>
     </div>
 
-    <GcDataTable :columns="assetColumns" :rows="managedAssets" :loading="loading" :empty-text="t('acme.list.empty')" :aria-label="t('acme.title')" dense>
+    <GcDataTable :columns="assetColumns" :rows="managedAssets" :loading="loading" :empty-text="t('acme.list.empty')" :aria-label="t('acme.title')" dense pagination>
       <template #cell-name="{ row }">
         <div class="acme-page__certificate-name">
           <strong>{{ text(row.name, text(row.primaryDomain, t('acme.list.notAvailable'))) }}</strong>
@@ -901,7 +901,7 @@ function dateValue(value: unknown): number {
       </template>
     </GcDataTable>
 
-    <GcDataTable :columns="jobColumns" :rows="jobs" :loading="loading" :empty-text="t('acme.jobs.empty')" :aria-label="t('acme.jobs.title')" dense>
+    <GcDataTable :columns="jobColumns" :rows="jobs" :loading="loading" :empty-text="t('acme.jobs.empty')" :aria-label="t('acme.jobs.title')" dense pagination>
       <template #cell-certificateName="{ row }">{{ jobCertificateName(row) }}</template>
       <template #cell-startedAt="{ row }">{{ jobStartedAt(row) }}</template>
       <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" :tone="jobStatusTone(row.status)" /></template>
@@ -913,7 +913,7 @@ function dateValue(value: unknown): number {
       </template>
     </GcDataTable>
 
-    <GcDataTable :columns="orderColumns" :rows="orders.slice(0, 10)" :loading="loading" :empty-text="t('acme.order.empty')" :aria-label="t('acme.order.title')" dense>
+    <GcDataTable :columns="orderColumns" :rows="orders" :loading="loading" :empty-text="t('acme.order.empty')" :aria-label="t('acme.order.title')" dense pagination>
       <template #cell-identifiers="{ row }">{{ orderIdentifiers(row) }}</template>
       <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" /></template>
       <template #cell-updatedAt="{ row }">{{ localTime(row.updatedAt) }}</template>
@@ -964,7 +964,7 @@ function dateValue(value: unknown): number {
           <div><dt>{{ t('acme.detail.renewalWindowDays') }}</dt><dd>{{ renewalWindowDays(selectedAsset) ?? t('acme.list.notAvailable') }}</dd></div>
           <div><dt>{{ t('acme.detail.nextRenewalIn') }}</dt><dd>{{ selectedAsset ? renewalCountdown(selectedAsset) : t('acme.list.notAvailable') }}</dd></div>
         </dl>
-        <GcDataTable :columns="jobColumns" :rows="jobsForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyJobs')" dense>
+        <GcDataTable :columns="jobColumns" :rows="jobsForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyJobs')" dense pagination>
           <template #cell-certificateName="{ row }">{{ jobCertificateName(row) }}</template>
           <template #cell-startedAt="{ row }">{{ jobStartedAt(row) }}</template>
           <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" :tone="jobStatusTone(row.status)" /></template>
@@ -974,7 +974,7 @@ function dateValue(value: unknown): number {
             <GcConfirmAction v-if="cancelableJobStatuses.has(text(row.status))" :action-name="t('acme.actions.cancel')" :disabled="actionPending || cancelingJobId === text(row.id)" :danger="false" @confirm="cancel(row)" />
           </template>
         </GcDataTable>
-        <GcDataTable :columns="orderColumns" :rows="ordersForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyOrders')" dense>
+        <GcDataTable :columns="orderColumns" :rows="ordersForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyOrders')" dense pagination>
           <template #cell-identifiers="{ row }">{{ orderIdentifiers(row) }}</template>
           <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" /></template>
           <template #cell-updatedAt="{ row }">{{ localTime(row.updatedAt) }}</template>

@@ -658,6 +658,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
       :rows="rows"
       :loading="loading"
       :empty-text="t('bindings.empty.text')"
+      pagination
     >
       <template #toolbar>
         <div class="artifact-page__table-toolbar">

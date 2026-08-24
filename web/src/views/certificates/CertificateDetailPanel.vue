@@ -479,7 +479,7 @@ async function loadDetail() {
       </section>
 
       <section v-else class="certificate-detail-panel__tab-panel">
-        <GcDataTable :columns="usageColumns" :rows="currentVersionUsages" :empty-text="detailPanelT('usage.empty')">
+        <GcDataTable :columns="usageColumns" :rows="currentVersionUsages" :empty-text="detailPanelT('usage.empty')" pagination>
           <template #toolbar><strong>{{ detailPanelT('usage.toolbar') }}</strong></template>
           <template #cell-domainName="{ row }">
             {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], detailPanelT('fallbacks.unknownTarget')) }}
