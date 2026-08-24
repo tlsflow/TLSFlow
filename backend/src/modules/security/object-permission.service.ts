@@ -390,6 +390,7 @@ function defaultObjectTypes(): ObjectTypeEntity[] {
     ['gateway', '网关', 'gateways'],
     ['agent', 'Agent', 'agents'],
     ['application_asset', '应用资产', 'service_assets'],
+    ['device_asset', '设备资产', 'device_assets'],
     ['host', '主机资产', 'hosts'],
     ['service_instance', '服务实例', 'service_instances'],
     ['service_asset', '应用资产', 'service_assets'],

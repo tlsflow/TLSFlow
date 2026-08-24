@@ -4,6 +4,7 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { DeviceAssetsApplicationService } from '../application/device-assets.application-service.js';
+import { deviceAuditSummary, type DeviceAssetSecurityPort } from '../application/device-assets.security.js';
 import type { CreateDeviceAssetDto, UpdateDeviceAssetDto } from '../dto/device-assets.dto.js';
 import { deviceAssetSchema } from '../schema/device-assets.schema.js';
 
@@ -11,7 +12,7 @@ const tags = ['Device Assets'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class DeviceAssetsController {
-  constructor(private readonly service: DeviceAssetsApplicationService) {}
+  constructor(private readonly service: DeviceAssetsApplicationService, private readonly security?: DeviceAssetSecurityPort) {}
 
   register(router: Router): void {
     router.get('/api/v1/device-assets', '查询设备资产列表', tags, (request) => this.list(request));
@@ -22,33 +23,54 @@ export class DeviceAssetsController {
     router.post('/api/v1/device-assets/test-connection', '测试设备连接', tags, (request) => this.testConnection(request));
   }
 
-  private list(request: HttpRequest) {
+  private async list(request: HttpRequest) {
+    await this.security?.assertAccess(request, 'read');
     return this.service.list(tenantId(request));
   }
 
-  private get(request: HttpRequest) {
-    return this.service.get(tenantId(request), requiredQuery(request, 'deviceAssetId'));
+  private async get(request: HttpRequest) {
+    const deviceAssetId = requiredQuery(request, 'deviceAssetId');
+    await this.security?.assertAccess(request, 'read', deviceAssetId);
+    return this.service.get(tenantId(request), deviceAssetId);
   }
 
   private async create(request: HttpRequest) {
+    await this.security?.assertAccess(request, 'edit');
     const body = validateObject(request.body, createRules());
-    return { statusCode: 201, body: await this.service.create(tenantId(request), body as unknown as CreateDeviceAssetDto) };
+    const created = await this.service.create(tenantId(request), body as unknown as CreateDeviceAssetDto);
+    await this.security?.audit(request, 'device_asset.created', 'device_asset.create', created.id, deviceAuditSummary(created));
+    return { statusCode: 201, body: created };
   }
 
-  private update(request: HttpRequest) {
+  private async update(request: HttpRequest) {
     const body = validateObject(request.body, { deviceAssetId: { type: 'string', required: true }, ...createRules(false) });
     const { deviceAssetId, ...patch } = body;
-    return this.service.update(tenantId(request), String(deviceAssetId), patch as UpdateDeviceAssetDto);
+    await this.security?.assertAccess(request, 'edit', String(deviceAssetId));
+    const updated = await this.service.update(tenantId(request), String(deviceAssetId), patch as UpdateDeviceAssetDto);
+    await this.security?.audit(request, 'device_asset.updated', 'device_asset.update', updated.id, deviceAuditSummary(updated));
+    return updated;
   }
 
-  private delete(request: HttpRequest) {
+  private async delete(request: HttpRequest) {
     const body = validateObject(request.body, { deviceAssetId: { type: 'string', required: true } });
-    return this.service.delete(tenantId(request), String(body.deviceAssetId));
+    await this.security?.assertAccess(request, 'control', String(body.deviceAssetId));
+    const deleted = await this.service.delete(tenantId(request), String(body.deviceAssetId));
+    await this.security?.audit(request, 'device_asset.deleted', 'device_asset.delete', deleted.id, deviceAuditSummary(deleted));
+    return deleted;
   }
 
-  private testConnection(request: HttpRequest) {
+  private async testConnection(request: HttpRequest) {
     const body = validateObject(request.body, { deviceAssetId: { type: 'string', required: true } });
-    return this.service.testConnection(tenantId(request), String(body.deviceAssetId), request.context.actorId ?? 'system');
+    await this.security?.assertAccess(request, 'control', String(body.deviceAssetId));
+    const result = await this.service.testConnection(tenantId(request), String(body.deviceAssetId), request.context.actorId ?? 'system');
+    await this.security?.audit(request, 'device_asset.connection_tested', 'device_asset.test_connection', String(body.deviceAssetId), {
+      reachable: result.reachable,
+      authenticated: result.authenticated,
+      productMatched: result.productMatched,
+      softwareVersion: result.softwareVersion,
+      errorCode: result.errorCode,
+    });
+    return result;
   }
 }
 

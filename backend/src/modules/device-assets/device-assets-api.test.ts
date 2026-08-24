@@ -4,6 +4,7 @@ import { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { DeviceAssetsApplicationService } from './application/device-assets.application-service.js';
+import type { DeviceAssetSecurityPort } from './application/device-assets.security.js';
 import { DeviceAssetsController } from './controller/device-assets.controller.js';
 import { PgDeviceAssetsRepository } from './repository/device-assets.repository.js';
 
@@ -13,6 +14,23 @@ async function createTestApp() {
   const app = new App();
   new DeviceAssetsController(new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(db))).register(app.router);
   return app;
+}
+
+async function createSecuredTestApp(allowed: boolean) {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  const app = new App();
+  const events: string[] = [];
+  const security: DeviceAssetSecurityPort = {
+    async assertAccess() {
+      if (!allowed) throw new Error('DENIED');
+    },
+    async audit(_request, eventType) {
+      events.push(eventType);
+    },
+  };
+  new DeviceAssetsController(new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(db)), security).register(app.router);
+  return { app, events };
 }
 
 test('设备资产 API 创建、查询和更新不暴露密码', async () => {
@@ -64,4 +82,16 @@ test('未注册 NITRO 测试器时连接测试返回能力缺失', async () => {
   });
   assert.equal(tested.statusCode, 422);
   assert.equal((tested.body as { errorCode?: string }).errorCode, 'CAPABILITY_MISSING');
+});
+
+test('设备资产写操作产生脱敏审计事件', async () => {
+  const { app, events } = await createSecuredTestApp(true);
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/device-assets',
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    body: { displayName: 'ADC', managementAddress: '10.0.0.20', deviceFamily: 'NETSCALER_ADC', credentialId: 'sec_adc' },
+  });
+  assert.equal(created.statusCode, 201);
+  assert.deepEqual(events, ['device_asset.created']);
 });
