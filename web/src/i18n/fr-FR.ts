@@ -41,7 +41,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'Request failed',
+      timeout: 'La requête a dépassé {seconds} secondes et a été annulée.'
     }
   },
   auth: {

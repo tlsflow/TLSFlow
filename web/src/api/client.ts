@@ -62,7 +62,12 @@ export class ApiClient {
   async request<T>(path: string, options: ApiRequestOptions = {}): Promise<ApiResult<T>> {
     const requestId = createRequestId()
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs)
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
     const headers = new Headers(options.headers)
     headers.set('Accept', options.accept ?? 'application/json')
     headers.set('X-Request-Id', requestId)
@@ -99,6 +104,15 @@ export class ApiClient {
         signal: controller.signal
       })
       return await this.parseResponse<T>(response, requestId)
+    } catch (cause) {
+      if (timedOut || (cause instanceof Error && cause.name === 'AbortError')) {
+        throw new ApiClientError(i18n.global.t('api.errors.timeout', { seconds: Math.ceil(timeoutMs / 1000) }), {
+          errorCode: 'REQUEST_TIMEOUT',
+          requestId,
+          status: 408
+        })
+      }
+      throw cause
     } finally {
       clearTimeout(timeout)
     }
@@ -115,7 +129,12 @@ export class ApiClient {
   async download(path: string, options: ApiRequestOptions = {}): Promise<Response> {
     const requestId = createRequestId()
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs)
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
     const headers = new Headers(options.headers)
     headers.set('Accept', options.accept ?? '*/*')
     headers.set('X-Request-Id', requestId)
@@ -155,6 +174,15 @@ export class ApiClient {
         await this.parseResponse(response, requestId)
       }
       return response
+    } catch (cause) {
+      if (timedOut || (cause instanceof Error && cause.name === 'AbortError')) {
+        throw new ApiClientError(i18n.global.t('api.errors.timeout', { seconds: Math.ceil(timeoutMs / 1000) }), {
+          errorCode: 'REQUEST_TIMEOUT',
+          requestId,
+          status: 408
+        })
+      }
+      throw cause
     } finally {
       clearTimeout(timeout)
     }

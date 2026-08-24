@@ -45,7 +45,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: 'Falha na requisição'
+      requestFailed: 'Falha na requisição',
+      timeout: 'A requisição excedeu {seconds} segundos e foi cancelada.'
     }
   },
   auth: {

@@ -40,7 +40,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: '请求失败'
+      requestFailed: '请求失败',
+      timeout: '请求超过 {seconds} 秒，已取消本次操作。'
     }
   },
   auth: {

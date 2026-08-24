@@ -45,7 +45,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: '요청 실패'
+      requestFailed: '요청 실패',
+      timeout: '요청이 {seconds}초를 초과하여 취소되었습니다.'
     }
   },
   auth: {

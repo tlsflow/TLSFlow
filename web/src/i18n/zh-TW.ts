@@ -44,7 +44,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: "請求失敗"
+      requestFailed: "請求失敗",
+      timeout: "請求超過 {seconds} 秒，已取消本次操作。"
     }
   },
   auth: {

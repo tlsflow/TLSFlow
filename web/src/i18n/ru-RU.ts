@@ -45,7 +45,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: 'Запрос не выполнен'
+      requestFailed: 'Запрос не выполнен',
+      timeout: 'Запрос превысил {seconds} секунд и был отменен.'
     }
   },
   auth: {

@@ -45,7 +45,8 @@ export default {
   },
   api: {
     errors: {
-      requestFailed: 'リクエストに失敗しました'
+      requestFailed: 'リクエストに失敗しました',
+      timeout: 'リクエストが {seconds} 秒を超えたためキャンセルされました。'
     }
   },
   auth: {

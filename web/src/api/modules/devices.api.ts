@@ -30,6 +30,7 @@ export function onboardManagedDevice(payload: ApiBody): Promise<ApiRecordResult>
 export function executeManagedDeviceCapability(deviceId: string, capabilityKey: string): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}/actions`, { capabilityKey }, {
     idempotencyKey: createIdempotencyKey('device_capability'),
+    ...(capabilityKey === 'device.discover' ? { timeoutMs: 90_000 } : {}),
   })
 }
 
@@ -44,5 +45,6 @@ export function refreshManagedDeviceDiscovery(deviceId: string): Promise<ApiReco
     capabilityKey: 'device.discover',
   }, {
     idempotencyKey: createIdempotencyKey('managed_device_discovery'),
+    timeoutMs: 90_000,
   })
 }
