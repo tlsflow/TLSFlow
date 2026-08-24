@@ -1,11 +1,6 @@
 import { readApiRequestContext } from '@/api/client'
 import type { TaskRun } from '@/api/modules/tasks.api'
 
-export interface GlobalTaskRefreshDetail {
-  readonly taskId?: string
-  readonly source?: string
-}
-
 export interface TaskRealtimeSnapshotMessage {
   readonly type: 'snapshot'
   readonly activeTasks: readonly TaskRun[]
@@ -39,7 +34,6 @@ export interface DeploymentExecutionOpenDetail {
   readonly summary?: string
 }
 
-const GLOBAL_TASK_REFRESH_EVENT = 'gcac:tasks:refresh'
 const DEPLOYMENT_EXECUTION_OPEN_EVENT = 'gcac:deployment-execution:open'
 const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'])
 const EXECUTION_TASK_TYPES = new Set([
@@ -93,23 +87,6 @@ export function isAutomationApprovalTask(task: TaskRun): boolean {
  */
 export function isQuickTask(task: TaskRun): boolean {
   return isExecutionTask(task) || isAutomationTask(task) || isPendingApprovalTask(task)
-}
-
-export function dispatchGlobalTaskRefresh(detail: GlobalTaskRefreshDetail = {}): void {
-  if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent<GlobalTaskRefreshDetail>(GLOBAL_TASK_REFRESH_EVENT, { detail }))
-}
-
-export function subscribeGlobalTaskRefresh(
-  listener: (detail: GlobalTaskRefreshDetail) => void,
-): () => void {
-  if (typeof window === 'undefined') return () => undefined
-  const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<GlobalTaskRefreshDetail | undefined>
-    listener(customEvent.detail ?? {})
-  }
-  window.addEventListener(GLOBAL_TASK_REFRESH_EVENT, handler as EventListener)
-  return () => window.removeEventListener(GLOBAL_TASK_REFRESH_EVENT, handler as EventListener)
 }
 
 export function dispatchOpenDeploymentExecution(detail: DeploymentExecutionOpenDetail): void {
@@ -248,9 +225,6 @@ function applyRealtimeMessage(message: TaskRealtimeMessage): void {
     activeExecutionTasks.delete(message.task.id)
   }
   realtimeListeners.forEach((listener) => listener(message))
-  if (message.type === 'task.changed') {
-    dispatchGlobalTaskRefresh({ taskId: message.task.id, source: 'websocket' })
-  }
   emitActivity()
 }
 

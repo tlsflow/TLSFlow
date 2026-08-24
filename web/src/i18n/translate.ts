@@ -18,8 +18,16 @@ export function translateDynamic(
   const rawValue = typeof value === 'string' ? value.trim() : String(value ?? '').trim()
   if (!rawValue) return t(fallbackKey)
 
+  // 中文说明：优先保留后端枚举的原始大小写；任务状态等资源使用大写键，不能先转小写后再查找。
+  const exactKey = `${namespace}.${rawValue}${keySuffix}`
+  if (te(exactKey)) return t(exactKey)
+
   const token = rawValue.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  const key = token ? `${namespace}.${token}${keySuffix}` : ''
-  if (key && te(key)) return t(key)
+  const normalizedKeys = token
+    ? [`${namespace}.${token}${keySuffix}`, `${namespace}.${token.toUpperCase()}${keySuffix}`]
+    : []
+  for (const key of normalizedKeys) {
+    if (te(key)) return t(key)
+  }
   return te(unknownKey) ? t(unknownKey, { value: rawValue }) : rawValue
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { getAutomationRun, listAutomationRunTargets, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
 import { decideApproval } from '@/api/modules/audits.api'
 import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } from '@/design-system/components'
@@ -9,17 +9,15 @@ import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { dispatchOpenDeploymentExecution, isAutomationApprovalTask, isExecutionTask, isQuickTask, isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
+import { isAutomationApprovalTask, isExecutionTask, isQuickTask, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const { t, te } = useI18n()
-const route = useRoute()
 const router = useRouter()
 
 const PAGE_SIZE = 100
 const RECENT_COMPLETED_COUNT = 5
-const TASK_FALLBACK_REFRESH_INTERVAL_MS = 15_000
 const QUICK_ACTIVE_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
 const QUICK_COMPLETED_STATUSES: readonly TaskStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED']
 const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(QUICK_ACTIVE_STATUSES)
@@ -65,6 +63,7 @@ const approvalTask = ref<TaskRun | null>(null)
 const approvalLoading = ref(false)
 const approvalLoadError = ref('')
 const keyword = ref('')
+const appliedQuickKeyword = ref('')
 const allTasksModalOpen = ref(false)
 const switchingToAllTasks = ref(false)
 const allTasks = ref<TaskRun[]>([])
@@ -76,15 +75,11 @@ const allTasksHasMore = ref(true)
 const allTasksScroll = ref<HTMLElement | null>(null)
 const allTasksCategory = ref<TaskTabCategory>('EXECUTION')
 const allTasksReloadQueued = ref(false)
-const realtimeConnected = ref(isTaskRealtimeConnected())
 const deploymentPlanNames = ref<Record<string, string>>({})
 const deploymentPlanNameRequests = new Set<string>()
 const deploymentPlanNameMisses = new Set<string>()
 let quickRealtimeVersion = 0
-let taskRefreshTimer: number | undefined
-let disposeGlobalTaskRefresh: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
-let disposeTaskActivity: (() => void) | undefined
 const detailTask = computed(() => detail.value?.task ?? null)
 const allTaskTabs = computed(() => [
   { value: 'EXECUTION', label: t('tasks.tabs.execution') },
@@ -111,10 +106,6 @@ watch(() => props.open, (open) => {
     resetAutomationDetail()
   }
 }, { immediate: true })
-watch([() => props.open, allTasksModalOpen], ([popoverOpen, modalOpen]) => {
-  updateRefreshTimer(popoverOpen || modalOpen)
-  if (popoverOpen || modalOpen) refreshVisibleTasks()
-}, { immediate: true })
 watch(allTasksCategory, () => {
   if (!allTasksModalOpen.value) return
   if (allTasksLoading.value) {
@@ -122,9 +113,6 @@ watch(allTasksCategory, () => {
     return
   }
   void loadAllTasks(true)
-})
-watch(realtimeConnected, () => {
-  updateRefreshTimer(props.open || allTasksModalOpen.value)
 })
 watch(approvalModalOpen, (open) => {
   if (!open) {
@@ -141,28 +129,13 @@ function handleKeydown(event: KeyboardEvent): void {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
-  stopTaskRefresh()
-  disposeGlobalTaskRefresh?.()
   disposeTaskRealtime?.()
-  disposeTaskActivity?.()
-  disposeGlobalTaskRefresh = undefined
   disposeTaskRealtime = undefined
-  disposeTaskActivity = undefined
 })
 
 onMounted(() => {
-  disposeGlobalTaskRefresh = subscribeGlobalTaskRefresh(() => {
-    if (detail.value && detailTask.value?.id) {
-      void refreshTaskDetail(detailTask.value.id)
-      return
-    }
-    refreshVisibleTasks()
-  })
   disposeTaskRealtime = subscribeTaskRealtime((message) => {
-    void handleRealtimeMessage(message)
-  })
-  disposeTaskActivity = subscribeTaskActivity((state) => {
-    realtimeConnected.value = state.connected
+    handleRealtimeMessage(message)
   })
 })
 
@@ -170,11 +143,6 @@ function mergeTasks(existing: readonly TaskRun[], incoming: readonly TaskRun[]):
   const merged = new Map(existing.map((task) => [task.id, task]))
   incoming.forEach((task) => merged.set(task.id, task))
   return sortTasks([...merged.values()])
-}
-
-function prependTasks(incoming: readonly TaskRun[], existing: readonly TaskRun[]): TaskRun[] {
-  const incomingIds = new Set(incoming.map((task) => task.id))
-  return sortTasks([...incoming, ...existing.filter((task) => !incomingIds.has(task.id))])
 }
 
 function taskTabCategory(task: TaskRun): TaskTabCategory {
@@ -217,6 +185,7 @@ async function refreshQuickTasks(): Promise<void> {
     return
   }
   const requestRealtimeVersion = quickRealtimeVersion
+  appliedQuickKeyword.value = keyword.value.trim()
   loading.value = true
   error.value = ''
   try {
@@ -229,7 +198,11 @@ async function refreshQuickTasks(): Promise<void> {
     const recent = sortTasks(completedBatches.flat().filter((task) => COMPLETED_STATUSES.has(task.status) && isQuickTask(task)))
     applyQuickTasksState({
       active: requestRealtimeVersion === quickRealtimeVersion ? mergeTasks([], active) : quickActiveTasks.value,
-      recent: mergeTasks([], recent).slice(0, RECENT_COMPLETED_COUNT),
+      recent: (requestRealtimeVersion === quickRealtimeVersion
+        ? mergeTasks([], recent)
+        : mergeTasks(recent, quickRecentCompleted.value))
+        .filter((task) => COMPLETED_STATUSES.has(task.status) && isQuickTask(task))
+        .slice(0, RECENT_COMPLETED_COUNT),
     })
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
@@ -320,69 +293,6 @@ async function loadAllTasks(reset = false): Promise<void> {
   }
 }
 
-async function refreshAllTasks(): Promise<void> {
-  if (allTasksLoading.value) return
-  allTasksLoading.value = true
-  allTasksError.value = ''
-  const category = allTasksCategory.value
-  try {
-    const result = await listTasks({
-      page: 1,
-      pageSize: PAGE_SIZE,
-      keyword: allTasksKeyword.value.trim() || undefined,
-      filters: allTasksQueryCategory() ? { category: allTasksQueryCategory() } : undefined,
-      includeAll: true,
-    })
-    if (category !== allTasksCategory.value) {
-      allTasksReloadQueued.value = true
-      return
-    }
-    const data = result.data
-    const fetchedItems = (data?.items ?? []).filter((task) => taskTabCategory(task) === category)
-    const merged = prependTasks(fetchedItems, allTasks.value)
-    applyAllTasksState({
-      items: merged,
-      page: allTasksPage.value,
-      hasMore: (data?.total ?? 0) > merged.length,
-    })
-  } catch (cause) {
-    allTasksError.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
-  } finally {
-    allTasksLoading.value = false
-    if (allTasksReloadQueued.value && allTasksModalOpen.value) {
-      allTasksReloadQueued.value = false
-      void loadAllTasks(true)
-    }
-  }
-}
-
-function refreshVisibleTasks(): void {
-  if (allTasksModalOpen.value) {
-    void refreshAllTasks()
-    return
-  }
-  if (props.open) void refreshQuickTasks()
-}
-
-function updateRefreshTimer(shouldRun: boolean): void {
-  if (!shouldRun || realtimeConnected.value) {
-    stopTaskRefresh()
-    return
-  }
-  startTaskRefresh()
-}
-
-function startTaskRefresh(): void {
-  if (taskRefreshTimer !== undefined) return
-  taskRefreshTimer = window.setInterval(refreshVisibleTasks, TASK_FALLBACK_REFRESH_INTERVAL_MS)
-}
-
-function stopTaskRefresh(): void {
-  if (taskRefreshTimer === undefined) return
-  window.clearInterval(taskRefreshTimer)
-  taskRefreshTimer = undefined
-}
-
 function handleAllTasksScroll(event: Event): void {
   const element = event.currentTarget as HTMLElement
   if (element.scrollHeight - element.scrollTop - element.clientHeight < 80) {
@@ -402,10 +312,7 @@ async function openTask(task: TaskRun): Promise<void> {
     resetAutomationDetail()
     allTasksModalOpen.value = false
     emit('close')
-    dispatchOpenDeploymentExecution(executionOpenDetail)
-    if (route.name !== 'deployment.plan.list') {
-      await router.push({ name: 'deployment.plan.list' })
-    }
+    await router.push({ name: 'execution.list', query: { runId: executionOpenDetail.runId } })
     return
   }
   detail.value = null
@@ -482,24 +389,68 @@ function submitAllTasksSearch(): void {
 }
 
 function applyRealtimeTaskSnapshot(message: TaskRealtimeMessage): void {
-  quickRealtimeVersion += 1
-  const incoming = message.type === 'snapshot'
-    ? message.activeTasks
-    : [message.task]
-  const next = message.type === 'snapshot'
-    ? sortTasks(incoming.filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task)))
-    : sortTasks([
-      ...quickActiveTasks.value.filter((task) => task.id !== message.task.id),
-      ...(ACTIVE_STATUSES.has(message.task.status) && isQuickTask(message.task) ? [message.task] : []),
-    ])
-  if (!sameTaskList(quickActiveTasks.value, next)) quickActiveTasks.value = next
-  void resolveDeploymentPlanNames(next)
+  if (message.type === 'snapshot') {
+    quickRealtimeVersion += 1
+    const next = sortTasks(message.activeTasks.filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, appliedQuickKeyword.value)))
+    applyQuickTasksState({ active: next, recent: quickRecentCompleted.value })
+    message.activeTasks.forEach((task) => applyRealtimeTaskToAllTasks(task))
+    return
+  }
+  applyRealtimeTaskChange(message.task)
 }
 
 function handleRealtimeMessage(message: TaskRealtimeMessage): void {
   if (message.type === 'snapshot' || message.type === 'task.changed') {
     applyRealtimeTaskSnapshot(message)
   }
+}
+
+function applyRealtimeTaskChange(task: TaskRun): void {
+  quickRealtimeVersion += 1
+  applyRealtimeTaskToAllTasks(task)
+  if (detailTask.value?.id === task.id && detail.value) {
+    detail.value = { ...detail.value, task }
+  }
+  if (approvalTask.value?.id === task.id) approvalTask.value = task
+  if (!isQuickTask(task) || !matchesTaskKeyword(task, appliedQuickKeyword.value)) {
+    applyQuickTasksState({
+      active: quickActiveTasks.value.filter((item) => item.id !== task.id),
+      recent: quickRecentCompleted.value.filter((item) => item.id !== task.id),
+    })
+    return
+  }
+
+  if (ACTIVE_STATUSES.has(task.status)) {
+    applyQuickTasksState({
+      active: sortTasks([...quickActiveTasks.value.filter((item) => item.id !== task.id), task]),
+      recent: quickRecentCompleted.value.filter((item) => item.id !== task.id),
+    })
+    return
+  }
+  if (COMPLETED_STATUSES.has(task.status)) {
+    applyQuickTasksState({
+      active: quickActiveTasks.value.filter((item) => item.id !== task.id),
+      recent: sortTasks([task, ...quickRecentCompleted.value.filter((item) => item.id !== task.id)]).slice(0, RECENT_COMPLETED_COUNT),
+    })
+  }
+}
+
+function applyRealtimeTaskToAllTasks(task: TaskRun): void {
+  if (!allTasksModalOpen.value) return
+  const next = allTasks.value.filter((item) => item.id !== task.id)
+  if (matchesAllTaskScope(task) && matchesAllTaskKeyword(task)) next.push(task)
+  applyAllTasksState({ items: sortTasks(next), page: allTasksPage.value, hasMore: allTasksHasMore.value })
+}
+
+function matchesAllTaskKeyword(task: TaskRun): boolean {
+  return matchesTaskKeyword(task, allTasksKeyword.value)
+}
+
+function matchesTaskKeyword(task: TaskRun, keywordValue: string): boolean {
+  const query = keywordValue.trim().toLocaleLowerCase()
+  if (!query) return true
+  return [task.id, task.taskType, task.lastErrorMessage ?? '']
+    .some((value) => value.toLocaleLowerCase().includes(query))
 }
 
 function statusTone(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
@@ -669,7 +620,6 @@ async function decideDetailTaskApproval(decision: 'approved' | 'rejected'): Prom
   taskApprovalError.value = ''
   try {
     await decideApproval({ approvalId, decision })
-    await refreshVisibleTasks()
     if (approvalModalOpen.value) {
       closeApprovalModal()
     } else {
@@ -922,6 +872,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                   class="task-drawer__item-progress"
                   :value="taskProgressPercent(detailTask)"
                   :tone="statusTone(detailTask.status)"
+                  captionInside
                   :ariaLabel="taskStatusSummary(detailTask)"
                 >
                   <span class="task-drawer__item-progress-text">{{ taskProgressPercent(detailTask) }}%</span>
@@ -947,8 +898,8 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 <span>{{ automationActionLabel(target.currentAction) }}</span>
                 <p v-if="target.errorMessage">{{ target.errorCode }} · {{ target.errorMessage }}</p>
                 <div class="task-drawer__record-actions">
-                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
-                  <GcButton v-if="target.executionRunId" @click="router.push(`/executions?id=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
+                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/executions?planId=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
+                  <GcButton v-if="target.executionRunId" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
                 </div>
               </div>
             </section>
@@ -1020,6 +971,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                           class="task-drawer__item-progress"
                           :value="taskProgressPercent(task)"
                           :tone="statusTone(task.status)"
+                          captionInside
                           :ariaLabel="taskStatusSummary(task)"
                         >
                           <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
@@ -1051,6 +1003,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                           class="task-drawer__item-progress"
                           :value="taskProgressPercent(task)"
                           :tone="statusTone(task.status)"
+                          captionInside
                           :ariaLabel="taskStatusSummary(task)"
                         >
                           <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
@@ -1061,7 +1014,6 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                   </GcButton>
                 </div>
               </section>
-              <div v-if="loading && hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
             </div>
           </div>
           <GcButton variant="primary" class="task-drawer__view-all" @click="openAllTasks">
@@ -1106,6 +1058,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                   class="task-drawer__item-progress"
                   :value="taskProgressPercent(task)"
                   :tone="statusTone(task.status)"
+                  captionInside
                   :ariaLabel="taskStatusSummary(task)"
                 >
                   <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
@@ -1115,7 +1068,6 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
             <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
           </GcButton>
         </div>
-        <div v-if="allTasksLoading && allTasks.length > 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
       </div>
     </div>
   </GcModal>
@@ -1192,7 +1144,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   z-index: 35;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(var(--gc-size-drawer-default), calc(100vw - var(--gc-space-8)));
+  width: min(var(--gc-size-task-popover), calc(100vw - var(--gc-space-8)));
   max-height: calc(100vh - var(--gc-space-8));
   overflow: visible;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
@@ -1583,15 +1535,20 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 
 .task-drawer__item-type {
   flex: 0 0 auto;
-  padding: var(--gc-space-1) var(--gc-space-2);
+  padding: var(--gc-space-tight) var(--gc-space-compact);
   border-radius: var(--gc-radius-pill);
   color: var(--gc-color-primary);
   background: var(--gc-color-primary-soft);
+  font-size: var(--gc-font-size-caption);
+  line-height: var(--gc-line-height-tight);
+  white-space: nowrap;
 }
 
 .task-drawer__item-title {
   min-width: 0;
   color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-body);
+  line-height: var(--gc-line-height-tight);
 }
 
 .task-drawer__item-summary,
@@ -1610,6 +1567,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   align-items: center;
   gap: var(--gc-space-3);
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .task-drawer__item-meta-row .task-drawer__item-meta {
@@ -1618,21 +1576,25 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 }
 
 .task-drawer__item-progress {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: calc((var(--gc-space-10) * 3) + var(--gc-space-2));
+  white-space: nowrap;
 }
 
 .task-drawer__item-progress :deep(.gc-progress__caption) {
   display: flex;
-  justify-content: flex-end;
-  color: var(--gc-color-text-muted);
+  flex-wrap: nowrap;
+  justify-content: center;
+  color: var(--gc-color-text-inverse);
   font-size: var(--gc-font-size-xs);
   font-weight: var(--gc-font-weight-semibold);
+  white-space: nowrap;
 }
 
 .task-drawer__item-progress-text {
-  min-width: var(--gc-space-9);
-  text-align: right;
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .task-drawer__detail-header {
@@ -1763,7 +1725,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 @media (max-width: 35rem) {
   .task-popover {
     right: calc(var(--gc-space-4) * -1);
-    width: min(var(--gc-size-drawer-default), calc(100vw - var(--gc-space-4)));
+    width: min(var(--gc-size-task-popover), calc(100vw - var(--gc-space-4)));
   }
 
   .task-drawer__facts {

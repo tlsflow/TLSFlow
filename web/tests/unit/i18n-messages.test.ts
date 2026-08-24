@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { ComposerTranslation } from 'vue-i18n'
 import enUS from '@/i18n/en-US'
 import frFR from '@/i18n/fr-FR'
 import jaJP from '@/i18n/ja-JP'
@@ -11,6 +12,7 @@ import zhCN from '@/i18n/zh-CN'
 import zhTW from '@/i18n/zh-TW'
 import { localeLabels, normalizeLocale, supportedLocales, type SupportedLocale } from '@/i18n'
 import { i18n } from '@/i18n'
+import { translateDynamic } from '@/i18n/translate'
 
 function flattenKeys(value: unknown, prefix = ''): string[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [prefix]
@@ -64,6 +66,18 @@ function collectStaticTranslationKeys(): string[] {
 }
 
 describe('i18n 消息字典', () => {
+  it('动态翻译优先匹配后端大写枚举键', () => {
+    const translate = ((key: string, params?: Record<string, string | number>) => String(i18n.global.t(key, params ?? {}))) as unknown as ComposerTranslation
+    const translated = translateDynamic(
+      translate,
+      (key) => i18n.global.te(key),
+      'tasks.status',
+      'SUCCEEDED',
+    )
+    expect(translated).toBe('成功')
+    expect(translated).not.toContain('未知值')
+  })
+
   it('8 个 Locale 文件都能独立加载并提供核心文案', () => {
     const requiredKeys = [
       'app.versionLabel',

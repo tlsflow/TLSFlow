@@ -24,7 +24,7 @@ import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { dispatchGlobalTaskRefresh, subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { useAppStore } from '@/stores/app.store'
@@ -1003,13 +1003,6 @@ function openExecutionModalFromResult(
   activeExecutionSource.value = 'plan'
   executionModalTransitionName.value = 'gc-modal'
   const data = readResponseData(result)
-  const taskId = readString(data, ['jobId'])
-  if (taskId) {
-    dispatchGlobalTaskRefresh({
-      taskId,
-      source: mode === 'dry-run' ? 'deployment.dry-run' : mode === 'rollback' ? 'deployment.rollback' : 'deployment.execute',
-    })
-  }
   const run = readRecord(data, ['run'])
   const runId = readString(run, ['id', 'runId']) || readString(data, ['runId'])
   if (!runId) {
