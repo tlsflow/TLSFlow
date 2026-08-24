@@ -6,6 +6,9 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
+import type { CaOperationsPermissionAction } from '../ca-operations.security.js';
+import type { CaOperationsRecordQueryDto } from '../dto/ca-operations.dto.js';
+import type { CreateCaSyncRunsDto } from '../dto/ca-operations.dto.js';
 import type {
   CreateAuthorityInput,
   CreateCaProviderInput,
@@ -25,6 +28,11 @@ export class InternalCaController {
 
   register(router: Router): void {
     router.get('/api/v1/ca-providers', '查询 CA Provider', tags, (request) => this.listProviders(request));
+    router.get('/api/v1/ca-operations/tree', '查询 CA 运营资源树', tags, (request) => this.listCaOperationsTree(request));
+    router.get('/api/v1/ca-operations/records', '查询 CA 运营记录', tags, (request) => this.listCaOperationsRecords(request));
+    router.get('/api/v1/ca-operations/records/:recordKey', '查询 CA 运营记录详情', tags, (request) => this.getCaOperationsRecord(request));
+    router.post('/api/v1/ca-operations/sync-runs', '创建 CA 历史同步运行', tags, (request) => this.createCaSyncRuns(request));
+    router.get('/api/v1/ca-operations/sync-runs', '查询 CA 历史同步运行', tags, (request) => this.listCaSyncRuns(request));
     router.post('/api/v1/ca-providers', '创建 CA Provider', tags, (request) => this.createProvider(request));
     router.delete('/api/v1/ca-providers/:id', '删除未绑定的 CA Provider', tags, (request) => this.deleteProvider(request));
     router.post('/api/v1/ca-providers/:id/test', '测试 CA Provider', tags, (request) => this.testProvider(request));
@@ -65,6 +73,8 @@ export class InternalCaController {
     router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
     router.post('/api/v1/adcs-agents/install-sessions', '创建 AD CS Agent 一键安装会话', tags, (request) => this.createAdcsAgentInstallSession(request));
     router.post('/api/v1/adcs-agents/providers/:id/update-sessions', '创建 AD CS Agent 更新会话', tags, (request) => this.createAdcsAgentUpdateSession(request));
+    router.post('/api/v1/adcs-agents/providers/:id/inspection-tasks', '创建 AD CS 结构化视图探针任务', tags, (request) => this.createAdcsViewInspectionTask(request));
+    router.get('/api/v1/adcs-agents/inspection-tasks/:id', '查询 AD CS 结构化视图探针任务', tags, (request) => this.getAdcsViewInspectionTask(request));
     router.get('/api/v1/adcs-agents/install.ps1', '下载 AD CS Agent 安装脚本', tags, (request) => this.getAdcsAgentInstallScript(request));
     router.get('/api/v1/adcs-agents/binary', '下载 AD CS Agent 程序', tags, (request) => this.getAdcsAgentBinary(request));
   }
@@ -72,6 +82,74 @@ export class InternalCaController {
   private async listProviders(request: HttpRequest) {
     await this.assertRead(request, 'ca_provider');
     return this.service.listProviders(tenantId(request));
+  }
+
+  private async listCaOperationsTree(request: HttpRequest) {
+    const subject = subjectFromRequest(request);
+    await this.assertCaOperationsRead(request);
+    return this.service.listCaOperationsTree(tenantId(request), async (authority) => {
+      const decision = await this.security.rbac.can(subject, 'ca.operations.read', {
+        type: 'certificate_authority',
+        id: authority.id,
+        scope: {
+          tenantId: request.context.tenantId,
+          trustDomainId: authority.trustDomainId,
+          caId: authority.id,
+          providerId: authority.providerId,
+          resourceType: 'certificate_authority',
+          resourceId: authority.id,
+        },
+      }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+      return decision.allowed;
+    });
+  }
+
+  private async listCaOperationsRecords(request: HttpRequest) {
+    const query = caOperationsRecordQuery(request);
+    const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === query.caId);
+    if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId: query.caId });
+    await this.assertCaOperationsRead(request, authority);
+    return this.service.listCaOperationsRecords(tenantId(request), query);
+  }
+
+  private async getCaOperationsRecord(request: HttpRequest) {
+    const record = await this.service.getCaOperationsRecord(tenantId(request), pathId(request));
+    const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === record.caId);
+    if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId: record.caId });
+    await this.assertCaOperationsRead(request, authority);
+    const provider = (await this.service.listProviders(tenantId(request))).find((item) => item.id === authority.providerId);
+    return { ...record, allowedActions: await this.allowedCaOperationsActions(request, authority, provider?.capabilities, record) };
+  }
+
+  private async createCaSyncRuns(request: HttpRequest) {
+    const body = objectBody(request) as unknown as CreateCaSyncRunsDto;
+    if (!body.providerId || !body.caId || !Array.isArray(body.objectTypes) || !['incremental', 'full'].includes(body.mode)) {
+      throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'CA 同步请求参数无效');
+    }
+    if (body.mode === 'full' && body.confirmed !== true) {
+      throw new AppError('VALIDATION_FAILED', '全量 CA 历史同步必须显式确认');
+    }
+    const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === body.caId);
+    if (!authority || authority.providerId !== body.providerId) throw new AppError('RESOURCE_NOT_FOUND', 'CA 或 Provider 不存在或不匹配');
+    await this.assertCaSync(request, authority, body.mode);
+    const runs = await this.service.createCaSyncRuns({
+      tenantId: tenantId(request), providerId: body.providerId, caId: body.caId, objectTypes: body.objectTypes,
+      mode: body.mode, actor: subjectFromRequest(request),
+      context: { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subjectFromRequest(request) },
+    });
+    return { statusCode: 201, body: { items: runs } };
+  }
+
+  private async listCaSyncRuns(request: HttpRequest) {
+    const caId = queryValue(request, 'caId');
+    if (caId) {
+      const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === caId);
+      if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId });
+      await this.assertCaOperationsRead(request, authority);
+    } else {
+      await this.assertCaOperationsRead(request);
+    }
+    return { items: await this.service.listCaSyncRuns(tenantId(request), caId) };
   }
 
   private async createProvider(request: HttpRequest) {
@@ -173,7 +251,7 @@ export class InternalCaController {
   }
 
   private async approveRequest(request: HttpRequest) {
-    await this.assertApprove(request);
+    await this.assertApprove(request, 'ca.request.approve');
     const body = objectBody(request);
     return this.service.approveRequest(tenantId(request), pathId(request), actorId(request), requiredString(body, 'approvalId'), request.context);
   }
@@ -217,7 +295,7 @@ export class InternalCaController {
   }
 
   private async approveRevocation(request: HttpRequest) {
-    await this.assertApprove(request);
+    await this.assertApprove(request, 'ca.certificate.revoke');
     const body = objectBody(request);
     return this.service.approveRevocation(tenantId(request), pathId(request), requiredString(body, 'approvalId'), actorId(request));
   }
@@ -238,7 +316,7 @@ export class InternalCaController {
   }
 
   private async approveTrustDistribution(request: HttpRequest) {
-    await this.assertApprove(request);
+    await this.assertApprove(request, 'ca.authority.manage');
     return this.service.approveTrustDistribution(tenantId(request), pathId(request), requiredString(objectBody(request), 'approvalId'));
   }
 
@@ -351,6 +429,7 @@ export class InternalCaController {
         const heartbeat = setInterval(() => {
           writeEvent('heartbeat', { emittedAt: new Date().toISOString() });
           void this.service.heartbeatNode(node.tenantId, node.id, { healthStatus: 'online' }).catch(cleanup);
+          void dispatch();
         }, 20_000);
         const cleanup = () => {
           if (closed) return;
@@ -405,6 +484,26 @@ export class InternalCaController {
     };
   }
 
+  private async createAdcsViewInspectionTask(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createAdcsViewInspectionTask(
+        tenantId(request),
+        pathSegmentBefore(request, 'inspection-tasks'),
+        optionalNumber(body, 'limit') ?? 20,
+        actorId(request),
+        request.context,
+      ),
+    };
+  }
+
+  private async getAdcsViewInspectionTask(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return this.service.getAdcsViewInspectionTask(tenantId(request), lastPathSegment(request));
+  }
+
   private async deleteProvider(request: HttpRequest) {
     await this.assertManage(request, 'ca_provider');
     return this.service.deleteProvider(tenantId(request), pathId(request), actorId(request), request.context);
@@ -443,25 +542,87 @@ export class InternalCaController {
   }
 
   private async assertRead(request: HttpRequest, resourceType: string): Promise<void> {
-    await this.assertCanAny(request, ['certificate.read', 'certificate.asset.read'], resourceType);
+    await this.assertCaOperationsAction(request, 'ca.operations.read', resourceType, ['certificate.read', 'certificate.asset.read']);
+  }
+
+  private async assertCaOperationsRead(request: HttpRequest, authority?: { id: string; providerId: string; trustDomainId?: string }): Promise<void> {
+    const subject = subjectFromRequest(request);
+    await this.security.rbac.assertCan(subject, 'ca.operations.read', {
+      type: authority ? 'certificate_authority' : 'caOperation',
+      id: authority?.id,
+      scope: {
+        tenantId: request.context.tenantId,
+        trustDomainId: authority?.trustDomainId,
+        caId: authority?.id,
+        providerId: authority?.providerId,
+        resourceType: authority ? 'certificate_authority' : 'caOperation',
+        resourceId: authority?.id,
+      },
+    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+  }
+
+  private async assertCaSync(
+    request: HttpRequest,
+    authority: { id: string; providerId: string; trustDomainId?: string },
+    mode: 'incremental' | 'full',
+  ): Promise<void> {
+    const subject = subjectFromRequest(request);
+    const action = mode === 'full' ? 'ca.operations.sync.full' : 'ca.operations.sync';
+    await this.security.rbac.assertCan(subject, action, {
+      type: 'certificate_authority', id: authority.id,
+      scope: {
+        tenantId: request.context.tenantId, trustDomainId: authority.trustDomainId, caId: authority.id,
+        providerId: authority.providerId, resourceType: 'certificate_authority', resourceId: authority.id,
+      },
+    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+  }
+
+  private async allowedCaOperationsActions(
+    request: HttpRequest,
+    authority: { id: string; providerId: string; trustDomainId?: string },
+    capabilities: { signCsr: boolean; revokeCertificate: boolean } | undefined,
+    record: { objectType: string; normalizedStatus: string; recordKey: string },
+  ): Promise<string[]> {
+    const candidates: CaOperationsPermissionAction[] = [];
+    if (record.objectType === 'request' && record.normalizedStatus === 'pending' && capabilities?.signCsr) candidates.push('ca.request.approve');
+    if (record.objectType === 'request' && ['rejected', 'failed'].includes(record.normalizedStatus) && capabilities?.signCsr) candidates.push('ca.request.retry');
+    if (record.objectType === 'issuance' && record.normalizedStatus === 'issued' && capabilities?.revokeCertificate) candidates.push('ca.certificate.revoke');
+    const subject = subjectFromRequest(request);
+    const context = { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject };
+    const decisions = await Promise.all(candidates.map(async (action) => ({
+      action,
+      decision: await this.security.rbac.can(subject, action, {
+        type: 'caOperation', id: record.recordKey,
+        scope: {
+          tenantId: request.context.tenantId, trustDomainId: authority.trustDomainId, caId: authority.id,
+          providerId: authority.providerId, resourceType: 'caOperation', resourceId: record.recordKey,
+        },
+      }, context),
+    })));
+    return decisions.filter(({ decision }) => decision.allowed).map(({ action }) => action);
   }
 
   private async assertManage(request: HttpRequest, resourceType: string): Promise<void> {
-    await this.assertCanAny(request, ['certificate.import', 'certificate.asset.update'], resourceType);
+    await this.assertCaOperationsAction(request, actionForManagedResource(resourceType), resourceType, ['certificate.import', 'certificate.asset.update']);
   }
 
-  private async assertApprove(request: HttpRequest): Promise<void> {
-    await this.assertCanAny(request, ['approval.decide', 'certificate.import'], 'certificate_request');
+  private async assertApprove(request: HttpRequest, action: CaOperationsPermissionAction): Promise<void> {
+    await this.assertCaOperationsAction(request, action, 'certificate_request', ['approval.decide', 'certificate.import']);
   }
 
-  private async assertCanAny(request: HttpRequest, actions: string[], resourceType: string): Promise<void> {
+  private async assertCaOperationsAction(
+    request: HttpRequest,
+    action: CaOperationsPermissionAction,
+    resourceType: string,
+    legacyActions: string[],
+  ): Promise<void> {
     const subject = subjectFromRequest(request);
     let lastError: unknown;
-    for (const action of actions) {
+    for (const candidateAction of [action, ...legacyActions]) {
       try {
-        await this.security.rbac.assertCan(subject, action, {
+        await this.security.rbac.assertCan(subject, candidateAction, {
           type: resourceType,
-          scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+          scope: { tenantId: request.context.tenantId, ownerId: subject.id, resourceType },
         }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
         return;
       } catch (error) {
@@ -470,6 +631,14 @@ export class InternalCaController {
     }
     throw lastError;
   }
+}
+
+function actionForManagedResource(resourceType: string): CaOperationsPermissionAction {
+  if (resourceType === 'ca_provider' || resourceType === 'ca_node') return 'ca.provider.manage';
+  if (resourceType === 'certificate_profile') return 'ca.template.mapping.manage';
+  if (resourceType === 'certificate_request') return 'ca.request.retry';
+  if (resourceType === 'certificate_revocation') return 'ca.certificate.revoke';
+  return 'ca.authority.manage';
 }
 
 export function getInternalCaRouteContracts(): RouteContract[] {
@@ -514,6 +683,8 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/:id/result', operationId: 'completeCaNodeTask', summary: '回传 CA Node 任务结果', tags, responseSchema },
     { method: 'POST', path: '/api/v1/adcs-agents/install-sessions', operationId: 'createAdcsAgentInstallSession', summary: '创建 AD CS Agent 一键安装会话', tags, responseSchema },
     { method: 'POST', path: '/api/v1/adcs-agents/providers/:id/update-sessions', operationId: 'createAdcsAgentUpdateSession', summary: '创建 AD CS Agent 更新会话', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/adcs-agents/providers/:id/inspection-tasks', operationId: 'createAdcsViewInspectionTask', summary: '创建 AD CS 结构化视图探针任务', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/adcs-agents/inspection-tasks/:id', operationId: 'getAdcsViewInspectionTask', summary: '查询 AD CS 结构化视图探针任务', tags, responseSchema },
     { method: 'GET', path: '/api/v1/adcs-agents/install.ps1', operationId: 'getAdcsAgentInstallScript', summary: '下载 AD CS Agent 安装脚本', tags, responseSchema },
     { method: 'GET', path: '/api/v1/adcs-agents/binary', operationId: 'getAdcsAgentBinary', summary: '下载 AD CS Agent 程序', tags, responseSchema },
   ];
@@ -539,6 +710,32 @@ function objectBody(request: HttpRequest): Record<string, unknown> {
   return { ...(request.body as Record<string, unknown>) };
 }
 
+function caOperationsRecordQuery(request: HttpRequest): CaOperationsRecordQueryDto {
+  const caId = queryValue(request, 'caId');
+  const view = queryValue(request, 'view');
+  if (!caId || !view) throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'CA 运营查询缺少 caId 或 view');
+  const limitValue = queryValue(request, 'limit');
+  const limit = limitValue === undefined ? undefined : Number(limitValue);
+  if (limitValue !== undefined && !Number.isInteger(limit)) throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'CA 运营分页大小无效');
+  return {
+    caId, view: view as CaOperationsRecordQueryDto['view'], status: queryValues(request, 'status') as CaOperationsRecordQueryDto['status'],
+    source: queryValues(request, 'source') as CaOperationsRecordQueryDto['source'], query: queryValue(request, 'query'),
+    from: queryValue(request, 'from'), to: queryValue(request, 'to'), sort: queryValue(request, 'sort'),
+    cursor: queryValue(request, 'cursor'), limit,
+  };
+}
+
+function queryValue(request: HttpRequest, name: string): string | undefined {
+  const value = request.query[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function queryValues(request: HttpRequest, name: string): string[] | undefined {
+  const value = request.query[name];
+  if (value === undefined) return undefined;
+  return (Array.isArray(value) ? value : [value]).flatMap((item) => item.split(',')).map((item) => item.trim()).filter(Boolean);
+}
+
 export function pathId(request: HttpRequest): string {
   const value = request.query.id;
   const queryId = Array.isArray(value) ? value[0] : value;
@@ -547,6 +744,20 @@ export function pathId(request: HttpRequest): string {
   const id = queryId ?? (actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1));
   if (!id) throw new AppError('VALIDATION_FAILED', 'id 不能为空');
   return id;
+}
+
+function pathSegmentBefore(request: HttpRequest, segment: string): string {
+  const segments = request.path.split('/').filter(Boolean);
+  const index = segments.indexOf(segment);
+  const value = index > 0 ? segments[index - 1] : undefined;
+  if (!value) throw new AppError('VALIDATION_FAILED', '路径参数不能为空', { segment });
+  return value;
+}
+
+function lastPathSegment(request: HttpRequest): string {
+  const value = request.path.split('/').filter(Boolean).at(-1);
+  if (!value) throw new AppError('VALIDATION_FAILED', '路径参数不能为空');
+  return value;
 }
 
 function optionalQuery(request: HttpRequest, name: string): string | undefined {

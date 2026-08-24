@@ -29,6 +29,11 @@ export type CaCapabilityOwnerType = 'provider' | 'node';
 export type CaCapabilityState = 'declared' | 'discovered' | 'verified' | 'unavailable';
 export type CaIssuanceStatus = 'reserved' | 'issued' | 'revoked' | 'expired' | 'failed';
 export type CaIssuanceRecordOrigin = 'native' | 'historical_backfill' | 'external';
+export type CaOperationObjectType = 'request' | 'issuance' | 'revocation' | 'template';
+export type CaOperationNormalizedStatus = 'pending' | 'issued' | 'rejected' | 'revoked' | 'failed' | 'unknown';
+export type CaSyncMode = 'incremental' | 'full';
+export type CaSyncRunStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
+export type CaTemplateMappingStatus = 'active' | 'stale' | 'invalid' | 'disabled';
 
 export interface CaProviderCapabilities {
   discoverHierarchy: boolean;
@@ -82,6 +87,77 @@ export interface CaIssuanceRecordEntity {
   revokedAt?: string;
   invalidityDate?: string;
   observedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalCaObservationEntity {
+  id: string;
+  tenantId: string;
+  providerId: string;
+  caId: string;
+  objectType: CaOperationObjectType;
+  externalObjectId: string;
+  externalParentId?: string;
+  normalizedStatus: CaOperationNormalizedStatus;
+  sourceStatus?: string;
+  sourceRevision?: string;
+  subjectCommonName?: string;
+  serialNumber?: string;
+  templateExternalId?: string;
+  requestedByDisplay?: string;
+  submittedAt?: string;
+  issuedAt?: string;
+  revokedAt?: string;
+  notBefore?: string;
+  notAfter?: string;
+  rawSummary: Record<string, string | number | boolean | null>;
+  observedAt: string;
+  firstObservedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CaSyncRunEntity {
+  id: string;
+  tenantId: string;
+  providerId: string;
+  caId: string;
+  objectType: CaOperationObjectType;
+  mode: CaSyncMode;
+  status: CaSyncRunStatus;
+  cursorBefore?: string;
+  cursorAfter?: string;
+  sourceWatermark?: string;
+  readCount: number;
+  upsertedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  attemptCount?: number;
+  nextAttemptAt?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  requestedBy: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CaTemplateMappingEntity {
+  id: string;
+  tenantId: string;
+  providerId: string;
+  caId: string;
+  profileVersionId: string;
+  externalTemplateId: string;
+  status: CaTemplateMappingStatus;
+  validationSummary: Record<string, string | number | boolean | null>;
+  version: number;
+  createdBy: string;
+  updatedBy: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -182,7 +258,7 @@ export interface CaNodeTaskEntity {
   tenantId: string;
   providerId: string;
   nodeId?: string;
-  taskType: 'discover_adcs' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
+  taskType: 'discover_adcs' | 'inspect_adcs_view' | 'sync_adcs_records' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
   idempotencyKey: string;
   payload: Record<string, unknown>;
   status: 'queued' | 'leased' | 'succeeded' | 'failed';

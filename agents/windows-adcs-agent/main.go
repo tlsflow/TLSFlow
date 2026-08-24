@@ -32,7 +32,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-const version = "0.2.0"
+const version = "0.4.0"
 
 type config struct {
 	ControlPlaneURL string `json:"controlPlaneUrl"`
@@ -96,6 +96,12 @@ func runService(args []string) {
 	if err != nil {
 		fatal(err)
 	}
+	logFile, err := openAgentLog(instance.config.DataDir)
+	if err != nil {
+		fatal(err)
+	}
+	defer logFile.Close()
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
 	if err := svc.Run("gcac-adcs-agent", &serviceHandler{agent: instance}); err != nil {
 		fatal(err)
 	}
@@ -104,6 +110,7 @@ func runService(args []string) {
 func (handler *serviceHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- handler.agent.run(ctx) }()
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
@@ -169,20 +176,23 @@ func (a *agent) run(ctx context.Context) error {
 	if a.config.CAConfig == "" {
 		a.config.CAConfig = fmt.Sprint(discovery["caConfig"])
 	}
-	if a.config.NodeID == "" {
-		if err := a.register(discovery); err != nil {
-			return err
-		}
-	} else if err := a.reportDiscovery(discovery); err != nil {
-		return err
-	}
 	reconnectDelay := time.Second
 	for {
-		err := a.streamTasks(ctx)
+		if a.config.NodeID == "" {
+			err = a.register(discovery)
+		} else {
+			err = a.reportDiscovery(discovery)
+		}
+		if err == nil {
+			err = a.leasePendingTask(ctx)
+		}
+		if err == nil {
+			err = a.streamTasks(ctx)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
-		log.Printf("任务推送通道已断开，将在 %s 后重连：%v", reconnectDelay, err)
+		log.Printf("控制面连接失败，将在 %s 后重试：%v", reconnectDelay, err)
 		timer := time.NewTimer(reconnectDelay)
 		select {
 		case <-ctx.Done():
@@ -194,6 +204,24 @@ func (a *agent) run(ctx context.Context) error {
 			reconnectDelay *= 2
 		}
 	}
+}
+
+func (a *agent) leasePendingTask(ctx context.Context) error {
+	var task map[string]any
+	if err := a.post(ctx, "/api/v1/ca-nodes/tasks/lease", map[string]any{"nodeId": a.config.NodeID}, &task); err != nil {
+		return err
+	}
+	if len(task) == 0 || strings.TrimSpace(fmt.Sprint(task["id"])) == "" {
+		return nil
+	}
+	return a.executeTask(ctx, task)
+}
+
+func openAgentLog(dataDir string) (*os.File, error) {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(dataDir, "gcac-adcs-agent.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 }
 
 func (a *agent) discover(ctx context.Context) (map[string]any, error) {
@@ -351,6 +379,10 @@ func (a *agent) dispatch(ctx context.Context, taskType string, payload map[strin
 	switch taskType {
 	case "health_check", "discover_adcs":
 		return a.discover(ctx)
+	case "inspect_adcs_view":
+		return a.inspectAdcsView(ctx, payload)
+	case "sync_adcs_records":
+		return a.syncAdcsRecords(ctx, payload)
 	case "sign_csr":
 		return a.submitCSR(ctx, payload)
 	case "query_issuance":
@@ -369,6 +401,367 @@ func (a *agent) dispatch(ctx context.Context, taskType string, payload map[strin
 	default:
 		return nil, fmt.Errorf("不支持的 AD CS 任务：%s", taskType)
 	}
+}
+
+func (a *agent) syncAdcsRecords(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	objectType, err := payloadString(payload, "objectType")
+	if err != nil {
+		return nil, err
+	}
+	if objectType != "request" && objectType != "issuance" && objectType != "revocation" && objectType != "template" {
+		return nil, fmt.Errorf("不支持的 AD CS 同步对象类型：%s", objectType)
+	}
+	limit := 500
+	if value, ok := payload["limit"]; ok {
+		limit, err = strconv.Atoi(fmt.Sprint(value))
+		if err != nil || limit < 1 || limit > 500 {
+			return nil, errors.New("limit 必须是 1 到 500 之间的整数")
+		}
+	}
+	cursor := ""
+	if value, ok := payload["cursor"]; ok && value != nil {
+		cursor = strings.TrimSpace(fmt.Sprint(value))
+		if len(cursor) > 2048 {
+			return nil, errors.New("cursor 长度不能超过 2048")
+		}
+	}
+	changedAfter := ""
+	if value, ok := payload["changedAfter"]; ok && value != nil {
+		changedAfter = strings.TrimSpace(fmt.Sprint(value))
+		if changedAfter != "" {
+			if _, err := time.Parse(time.RFC3339, changedAfter); err != nil {
+				return nil, errors.New("changedAfter 必须是 RFC3339 时间")
+			}
+		}
+	}
+	if objectType == "template" {
+		return a.syncAdcsTemplates(ctx, limit, cursor)
+	}
+
+	columns := map[string][]string{
+		"request": {
+			"Request.RequestID", "Request.Disposition", "Request.DispositionMessage", "Request.StatusCode",
+			"Request.RequesterName", "Request.SubmittedWhen", "Request.ResolvedWhen", "Request.RevokedWhen",
+			"Request.RevokedEffectiveWhen", "Request.RevokedReason", "Request.CommonName",
+		},
+		"issuance": {"RequestID", "CertificateTemplate", "SerialNumber", "NotBefore", "NotAfter", "CommonName"},
+		"revocation": {
+			"Request.RequestID", "Request.Disposition", "Request.DispositionMessage", "Request.StatusCode",
+			"Request.SubmittedWhen", "Request.ResolvedWhen", "Request.RevokedWhen", "Request.RevokedEffectiveWhen",
+			"Request.RevokedReason", "Request.CommonName",
+		},
+	}[objectType]
+	output, err := runPowerShellJSON(ctx, 90*time.Second, adcsSyncViewScript(objectType, columns), map[string]string{
+		"GCAC_ADCS_CA_CONFIG":     a.caConfig(payload),
+		"GCAC_ADCS_COLUMNS":       strings.Join(columns, "|"),
+		"GCAC_ADCS_LIMIT":         strconv.Itoa(limit + 1),
+		"GCAC_ADCS_CURSOR":        cursor,
+		"GCAC_ADCS_CHANGED_AFTER": changedAfter,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("无法同步 AD CS %s 记录：%w", objectType, err)
+	}
+	rows, ok := output["rows"].([]any)
+	if !ok {
+		return nil, errors.New("AD CS 同步返回缺少 rows")
+	}
+	records := make([]any, 0, minInt(len(rows), limit))
+	for _, row := range rows {
+		values, ok := row.(map[string]any)
+		if !ok {
+			return nil, errors.New("AD CS 同步返回的行格式无效")
+		}
+		record, ok := normalizeAdcsRecord(objectType, values)
+		if ok {
+			records = append(records, record)
+		}
+		if len(records) == limit {
+			break
+		}
+	}
+	complete := len(rows) <= limit
+	result := map[string]any{
+		"objectType": objectType, "records": records, "complete": complete,
+		"sourceWatermark": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if !complete && len(records) > 0 {
+		result["nextCursor"] = records[len(records)-1].(map[string]any)["cursor"]
+	}
+	return result, nil
+}
+
+func (a *agent) syncAdcsTemplates(ctx context.Context, limit int, cursor string) (map[string]any, error) {
+	output, err := runCommand(ctx, 60*time.Second, "certutil.exe", "-config", a.config.CAConfig, "-CATemplates")
+	if err != nil {
+		return nil, fmt.Errorf("读取 AD CS 模板失败：%w", err)
+	}
+	names := parseTemplateNames(output)
+	start := 0
+	if cursor != "" {
+		start, err = strconv.Atoi(cursor)
+		if err != nil || start < 0 || start > len(names) {
+			return nil, errors.New("模板同步游标无效")
+		}
+	}
+	end := minInt(start+limit+1, len(names))
+	records := make([]any, 0, end-start)
+	for index, name := range names[start:end] {
+		records = append(records, map[string]any{
+			"externalObjectId": "template:" + name,
+			"normalizedStatus": "unknown",
+			"sourceStatus":     name,
+			"rawSummary":       map[string]any{"templateName": name},
+			"cursor":           strconv.Itoa(start + index + 1),
+		})
+	}
+	complete := len(records) <= limit
+	if !complete {
+		records = records[:limit]
+	}
+	result := map[string]any{
+		"objectType": "template", "records": records, "complete": complete,
+		"sourceWatermark": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if !complete && len(records) > 0 {
+		result["nextCursor"] = records[len(records)-1].(map[string]any)["cursor"]
+	}
+	return result, nil
+}
+
+func normalizeAdcsRecord(objectType string, values map[string]any) (map[string]any, bool) {
+	requestID := firstText(values, "Request.RequestID", "RequestID")
+	if requestID == "" {
+		return nil, false
+	}
+	status := "unknown"
+	if objectType == "issuance" {
+		status = "issued"
+	} else if firstText(values, "Request.RevokedWhen") != "" {
+		status = "revoked"
+	} else {
+		disposition := firstInt(values, "Request.Disposition")
+		switch disposition {
+		case 9, 10, 11:
+			status = "pending"
+		case 20:
+			status = "issued"
+		case 30, 31:
+			status = "rejected"
+		}
+	}
+	externalObjectID := objectType + ":" + requestID
+	if objectType == "issuance" {
+		serial := firstText(values, "SerialNumber")
+		externalObjectID += ":" + serial
+	}
+	rawSummary := make(map[string]any, len(values))
+	for key, value := range values {
+		rawSummary[key] = value
+	}
+	record := map[string]any{
+		"externalObjectId": externalObjectID, "externalParentId": requestID,
+		"normalizedStatus": status, "rawSummary": rawSummary, "cursor": requestID,
+	}
+	if value := firstText(values, "Request.Disposition"); value != "" {
+		record["sourceStatus"] = value
+	}
+	if value := firstText(values, "CertificateTemplate"); value != "" {
+		record["templateExternalId"] = value
+	}
+	if value := firstText(values, "SerialNumber"); value != "" {
+		record["serialNumber"] = value
+	}
+	if value := firstText(values, "Request.CommonName", "CommonName"); value != "" {
+		record["subjectCommonName"] = value
+	}
+	if value := firstText(values, "Request.RequesterName"); value != "" {
+		record["requestedByDisplay"] = value
+	}
+	if value := firstText(values, "Request.SubmittedWhen"); value != "" {
+		record["submittedAt"] = value
+	}
+	if value := firstText(values, "NotBefore"); value != "" {
+		record["notBefore"] = value
+	}
+	if value := firstText(values, "NotAfter"); value != "" {
+		record["notAfter"] = value
+	}
+	if value := firstText(values, "Request.RevokedWhen"); value != "" {
+		record["revokedAt"] = value
+	}
+	return record, true
+}
+
+func adcsSyncViewScript(objectType string, columns []string) string {
+	return fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+$view = New-Object -ComObject CertificateAuthority.View
+$view.OpenConnection($env:GCAC_ADCS_CA_CONFIG)
+$columns = $env:GCAC_ADCS_COLUMNS.Split('|')
+$selected = @()
+foreach ($name in $columns) {
+  $index = $view.GetColumnIndex($false, $name)
+  if ($index -lt 0) { throw "AD CS 固定列不存在：$name" }
+  $selected += [ordered]@{ name = $name; index = [int]$index }
+}
+$view.SetResultColumnCount($selected.Count)
+foreach ($column in $selected) { $view.SetResultColumn([int]$column.index) }
+$cursor = $env:GCAC_ADCS_CURSOR
+$changedAfter = $env:GCAC_ADCS_CHANGED_AFTER
+if ($cursor -ne '') {
+  $requestColumnName = $(if ('%s' -eq 'issuance') { 'RequestID' } else { 'Request.RequestID' })
+  $requestColumn = $selected | Where-Object { $_.name -eq $requestColumnName } | Select-Object -First 1
+  if ($null -eq $requestColumn) { throw 'AD CS 固定查询缺少 Request ID 列' }
+  if ($cursor -notmatch '^\d+$') { throw 'AD CS Request ID 游标无效' }
+  $view.SetRestriction([int]$requestColumn.index, 0x10, 0x1, [int]$cursor)
+}
+$rows = $view.OpenView()
+$output = @()
+$maxRows = [int]$env:GCAC_ADCS_LIMIT
+$rowIndex = $rows.Next()
+while ($rowIndex -ne -1 -and $output.Count -lt $maxRows) {
+  $values = [ordered]@{}
+  $rowColumns = $rows.EnumCertViewColumn()
+  $columnIndex = $rowColumns.Next()
+  while ($columnIndex -ne -1) {
+    $name = $rowColumns.GetName()
+    $value = $rowColumns.GetValue(0)
+    if ($value -is [byte[]]) { $value = [Convert]::ToBase64String($value) }
+    elseif ($value -is [DateTime]) { $value = ([DateTimeOffset]$value).ToUniversalTime().ToString('O') }
+    elseif ($null -ne $value -and ([string]$value).Length -gt 512) { $value = ([string]$value).Substring(0, 512) + '[truncated]' }
+    $values[$name] = $value
+    $columnIndex = $rowColumns.Next()
+  }
+  $include = $true
+  if ($changedAfter -ne '') {
+    $changedAt = $null
+    foreach ($candidate in @('Request.RevokedWhen', 'Request.ResolvedWhen', 'Request.SubmittedWhen', 'NotBefore')) {
+      if ($values.Contains($candidate) -and $null -ne $values[$candidate] -and [string]$values[$candidate] -ne '') {
+        try { $candidateDate = [DateTimeOffset]::Parse([string]$values[$candidate]) } catch { continue }
+        if ($null -eq $changedAt -or $candidateDate -gt $changedAt) { $changedAt = $candidateDate }
+      }
+    }
+    if ($null -eq $changedAt -or $changedAt -le [DateTimeOffset]::Parse($changedAfter)) { $include = $false }
+  }
+  if ($include) { $output += $values }
+  $rowIndex = $rows.Next()
+}
+[ordered]@{ rows = $output; objectType = '%s' } | ConvertTo-Json -Depth 8 -Compress`, objectType, objectType)
+}
+
+func firstText(values map[string]any, names ...string) string {
+	for _, name := range names {
+		if value, ok := values[name]; ok && value != nil && strings.TrimSpace(fmt.Sprint(value)) != "" {
+			return strings.TrimSpace(fmt.Sprint(value))
+		}
+	}
+	return ""
+}
+
+func firstInt(values map[string]any, name string) int {
+	value := firstText(values, name)
+	parsed, _ := strconv.Atoi(value)
+	return parsed
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func (a *agent) inspectAdcsView(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	limit := 20
+	if value, ok := payload["limit"]; ok {
+		parsed, err := strconv.Atoi(fmt.Sprint(value))
+		if err != nil || parsed < 1 || parsed > 20 {
+			return nil, errors.New("limit 必须是 1 到 20 之间的整数")
+		}
+		limit = parsed
+	}
+
+	script := `$ErrorActionPreference = 'Stop'
+$view = New-Object -ComObject CertificateAuthority.View
+$view.OpenConnection($env:GCAC_ADCS_CA_CONFIG)
+$columnEnumerator = $view.EnumCertViewColumn(0)
+$columns = @()
+$columnIndex = $columnEnumerator.Next()
+while ($columnIndex -ne -1) {
+  $columns += [ordered]@{
+    index = $columnIndex
+    name = $columnEnumerator.GetName()
+    type = $columnEnumerator.GetType()
+    maxLength = $columnEnumerator.GetMaxLength()
+  }
+  $columnIndex = $columnEnumerator.Next()
+}
+$selectedNames = @('RequestID', 'Request.Disposition', 'Request.RequesterName', 'Request.SubmittedWhen', 'CommonName', 'CertificateTemplate', 'SerialNumber', 'NotBefore', 'NotAfter', 'Request.RevokedWhen', 'Request.RevokedReason')
+$selected = @()
+foreach ($name in $selectedNames) {
+  try {
+    $index = $view.GetColumnIndex($false, $name)
+    if ($index -ge 0) { $selected += [ordered]@{ name = $name; index = $index } }
+  } catch {}
+}
+$rowsOutput = @()
+if ($selected.Count -gt 0) {
+  $view.SetResultColumnCount($selected.Count)
+  foreach ($column in $selected) { $view.SetResultColumn($column.index) }
+  $rows = $view.OpenView()
+  while ($rowsOutput.Count -lt [int]$env:GCAC_ADCS_LIMIT -and $rows.Next() -ne -1) {
+    $values = [ordered]@{}
+    $rowColumns = $rows.EnumCertViewColumn()
+    while ($rowColumns.Next() -ne -1) {
+      $name = $rowColumns.GetName()
+      $value = $rowColumns.GetValue(0)
+      if ($value -is [byte[]]) { $value = [Convert]::ToBase64String($value) }
+      elseif ($value -is [DateTime]) { $value = ([DateTimeOffset]$value).ToUniversalTime().ToString('O') }
+      $values[$name] = $value
+    }
+    $rowsOutput += $values
+  }
+}
+[ordered]@{
+  caConfig = $env:GCAC_ADCS_CA_CONFIG
+  collectedAt = [DateTimeOffset]::UtcNow.ToString('O')
+  uiCulture = [Globalization.CultureInfo]::CurrentUICulture.Name
+  columnCount = $columns.Count
+  columns = $columns
+  selectedColumns = $selected
+  sampleRows = $rowsOutput
+} | ConvertTo-Json -Depth 8 -Compress`
+
+	output, err := runPowerShellJSON(ctx, 60*time.Second, script, map[string]string{
+		"GCAC_ADCS_CA_CONFIG": a.caConfig(payload),
+		"GCAC_ADCS_LIMIT":     strconv.Itoa(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("无法读取 AD CS 结构化视图：%w", err)
+	}
+	return output, nil
+}
+
+func runPowerShellJSON(parent context.Context, timeout time.Duration, script string, environment map[string]string) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
+	command.Env = os.Environ()
+	for key, value := range environment {
+		command.Env = append(command.Env, key+"="+value)
+	}
+	output, err := command.CombinedOutput()
+	decoded := decodeCommandOutput(output)
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, errors.New("PowerShell 查询超时")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("PowerShell 查询失败：%s", strings.TrimSpace(decoded))
+	}
+	result := map[string]any{}
+	if err := json.Unmarshal([]byte(decoded), &result); err != nil {
+		return nil, fmt.Errorf("PowerShell 返回的 JSON 无效：%w", err)
+	}
+	return result, nil
 }
 
 func (a *agent) submitCSR(ctx context.Context, payload map[string]any) (map[string]any, error) {

@@ -11,6 +11,11 @@ import { CaProviderRegistry, createDefaultCaProviderRegistry, type CaIssuanceRes
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
+import { CaOperationsQueryService } from './ca-operations-query.service.js';
+import { CaSyncCoordinator, type CreateCaSyncRunsInput } from './ca-sync-coordinator.js';
+import type { CaOperationsRecordQueryDto, CaOperationRecordDetailDto, CaOperationRecordPageDto, CaOperationsTreeDto } from '../dto/ca-operations.dto.js';
+import { CaOperationsAdapterRegistry } from '../providers/ca-operations.js';
+import { MicrosoftAdcsOperationsAdapter } from '../providers/microsoft-adcs-operations.adapter.js';
 import type {
   CaCapabilityRecordEntity,
   CaIssuanceRecordEntity,
@@ -20,6 +25,7 @@ import type {
   CaProviderType,
   CaRiskPreview,
   CaRuntimePlatform,
+  CaSyncRunEntity,
   CaTrustDomainEntity,
   CaTrustDomainIsolationLevel,
   CaTrustDomainStatus,
@@ -133,6 +139,8 @@ export class InternalCaApplicationService {
   private readonly providers: CaProviderRegistry;
   private readonly openssl: OpenSslCa;
   private readonly nodeTaskChannel: CaNodeTaskChannel;
+  private readonly operationsQuery: CaOperationsQueryService;
+  private readonly syncCoordinator: CaSyncCoordinator;
 
   constructor(private readonly dependencies: {
     db: DatabasePort;
@@ -144,11 +152,48 @@ export class InternalCaApplicationService {
     providers?: CaProviderRegistry;
     openssl?: OpenSslCa;
     nodeTaskChannel?: CaNodeTaskChannel;
+    operationsAdapters?: CaOperationsAdapterRegistry;
   }) {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
     this.openssl = dependencies.openssl ?? new OpenSslCa();
     this.nodeTaskChannel = dependencies.nodeTaskChannel ?? new CaNodeTaskChannel();
+    const operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
+    if (!dependencies.operationsAdapters) {
+      operationsAdapters.register('microsoft_adcs', new MicrosoftAdcsOperationsAdapter({
+        enqueue: (input) => this.enqueueNodeTask(input.tenantId, input.providerId, input.taskType, input.payload, input.idempotencyKey),
+        waitForResult: (tenantId, taskId) => this.waitForNodeTaskResult(tenantId, taskId),
+      }));
+    }
+    this.operationsQuery = new CaOperationsQueryService(dependencies.db, operationsAdapters, undefined, this.repository);
+    this.syncCoordinator = new CaSyncCoordinator(dependencies.db, operationsAdapters, dependencies.audit, undefined, this.repository);
+  }
+
+  listCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
+    return this.operationsQuery.records(tenantId, query);
+  }
+
+  listCaOperationsTree(
+    tenantId: string,
+    canRead: (authority: CertificateAuthorityEntity) => Promise<boolean>,
+  ): Promise<CaOperationsTreeDto> {
+    return this.operationsQuery.tree(tenantId, canRead);
+  }
+
+  getCaOperationsRecord(tenantId: string, recordKey: string): Promise<CaOperationRecordDetailDto> {
+    return this.operationsQuery.record(tenantId, recordKey);
+  }
+
+  createCaSyncRuns(input: CreateCaSyncRunsInput): Promise<CaSyncRunEntity[]> {
+    return this.syncCoordinator.createRuns(input);
+  }
+
+  listCaSyncRuns(tenantId: string, caId?: string): Promise<CaSyncRunEntity[]> {
+    return this.syncCoordinator.listRuns(tenantId, caId);
+  }
+
+  processNextCaSyncBatch(tenantId: string, runId: string, workerId: string, now?: Date): Promise<CaSyncRunEntity> {
+    return this.syncCoordinator.processNextBatch(tenantId, runId, workerId, now);
   }
 
   getRepository(): InternalCaRepository {
@@ -1046,6 +1091,49 @@ export class InternalCaApplicationService {
     };
   }
 
+  async createAdcsViewInspectionTask(
+    tenantId: string,
+    providerId: string,
+    limit: number,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CaNodeTaskEntity> {
+    const provider = await this.requireProvider(tenantId, providerId);
+    if (provider.type !== 'microsoft_adcs') {
+      throw new AppError('CA_TOPOLOGY_INVALID', '只有 Microsoft AD CS Provider 支持结构化视图探针');
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+      throw new AppError('VALIDATION_FAILED', 'limit 必须是 1 到 20 之间的整数', { limit });
+    }
+    const onlineNode = (await this.repository.listNodes(tenantId, providerId))
+      .find((node) => node.healthStatus === 'online' && node.role !== 'standby');
+    if (!onlineNode) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 不在线');
+    const discovered = asObject(provider.configuration.discovered);
+    const caConfig = textValue(discovered.caConfig);
+    if (!caConfig) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 尚未发现 CA Config');
+    const task = await this.enqueueNodeTask(
+      tenantId,
+      providerId,
+      'inspect_adcs_view',
+      { caConfig, limit },
+      `inspect-adcs-view:${providerId}:${Date.now()}`,
+    );
+    await this.audit('internal_ca.adcs_view_inspection.started', actorId, 'ca_provider.inspect', 'ca_provider', providerId, 'high', context, {
+      taskId: task.id,
+      nodeId: onlineNode.id,
+      limit,
+    });
+    return task;
+  }
+
+  async getAdcsViewInspectionTask(tenantId: string, taskId: string): Promise<CaNodeTaskEntity> {
+    const task = await this.repository.getNodeTask(tenantId, taskId);
+    if (!task || task.taskType !== 'inspect_adcs_view') {
+      throw new AppError('RESOURCE_NOT_FOUND', 'AD CS 结构化视图探针任务不存在', { taskId });
+    }
+    return task;
+  }
+
   async getAdcsAgentInstallContext(token: string): Promise<{ providerId: string; tenantId: string; token: string }> {
     const enrollment = await this.repository.findActiveNodeEnrollmentToken(
       createHash('sha256').update(requiredText(token, 'token')).digest('hex'),
@@ -1210,6 +1298,16 @@ export class InternalCaApplicationService {
     return this.repository.leaseNodeTask(tenantId, node.providerId, node.id, new Date(Date.now() + 60_000).toISOString());
   }
 
+  async waitForNodeTaskResult(tenantId: string, taskId: string, timeoutMs = 90_000): Promise<CaNodeTaskEntity> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const task = await this.repository.getNodeTask(tenantId, taskId);
+      if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 同步任务不存在', { taskId });
+      if (task.status === 'succeeded' || task.status === 'failed') return task;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new AppError('CA_SYNC_SOURCE_UNAVAILABLE', 'Microsoft AD CS Agent 同步任务超时', { taskId, timeoutMs });
+  }
   async completeNodeTask(tenantId: string, nodeId: string, taskId: string, input: { success: boolean; result?: Record<string, unknown>; errorCode?: string; errorMessage?: string }): Promise<CaNodeTaskEntity> {
     const task = await this.repository.getNodeTask(tenantId, taskId);
     if (!task || task.nodeId !== nodeId || task.status !== 'leased') throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA Node 任务租约无效');

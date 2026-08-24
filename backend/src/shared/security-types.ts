@@ -21,6 +21,11 @@ export type SecretVersionStatus = 'active' | 'disabled' | 'revoked';
 
 export interface ResourceScope {
   tenantId?: string;
+  trustDomainId?: string;
+  caId?: string;
+  providerId?: string;
+  resourceType?: string;
+  resourceId?: string;
   teamId?: string;
   environment?: 'dev' | 'test' | 'staging' | 'prod' | string;
   zoneId?: string;
