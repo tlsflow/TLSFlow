@@ -413,7 +413,7 @@ function navigateUserFlow(stepId: string) {
     void router.push({ name: 'asset.list' })
     return
   }
-  void router.push({ name: 'deployment.plan.list' })
+  void router.push({ name: 'asset.list' })
 }
 
 async function openEditDialog(row: ViewRow) {

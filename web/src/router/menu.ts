@@ -39,16 +39,15 @@ export const mainMenuItems: MenuItem[] = [
   },
   {
     titleKey: 'nav.deployments',
-    path: '/deployment-plans',
+    path: '/automations',
     module: 'certificate-deployment',
-    permissions: ['deployment.plan.read', 'workflow.read', 'automation.read', 'execution.run.read'],
+    permissions: ['workflow.read', 'automation.read', 'execution.run.read'],
     activePaths: ['/deployment-plans', '/workflows', '/automations', '/automation-runs', '/executions'],
     icon: 'rocket',
     descriptionKey: 'nav.deploymentsDesc',
     children: [
-      { titleKey: 'nav.deploymentPlans', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', descriptionKey: 'nav.deploymentPlansDesc' },
-      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.read', descriptionKey: 'nav.workflowTemplatesDesc' },
       { titleKey: 'nav.automations', path: '/automations', module: 'automation', permission: 'automation.read', descriptionKey: 'nav.automationsDesc' },
+      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.read', descriptionKey: 'nav.workflowTemplatesDesc' },
       { titleKey: 'nav.executions', path: '/executions', module: 'execution', permission: 'execution.run.read', descriptionKey: 'nav.executionsDesc' }
     ]
   },

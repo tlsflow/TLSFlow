@@ -182,17 +182,24 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/deployment-plans',
     name: 'deployment.plan.list',
-    component: () => import('@/views/deployments/DeploymentPlansView.vue'),
+    redirect: (to) => {
+      const query = to.query ?? {}
+      const planId = typeof query.planId === 'string' ? query.planId : typeof query.id === 'string' ? query.id : ''
+      const runId = typeof query.runId === 'string' ? query.runId : ''
+      if (runId) return { path: '/executions', query: { ...query, runId }, hash: to.hash }
+      if (planId) return { path: '/executions', query: { ...query, planId }, hash: to.hash }
+      return { path: '/assets', query, hash: to.hash }
+    },
     meta: {
-      title: 'Deployment Plans',
-      titleKey: 'nav.deploymentPlans',
+      title: 'Application Assets',
+      titleKey: 'nav.assetManagement',
       heroTitle: true,
-      module: 'deployment',
+      module: 'asset',
       requiresAuth: true,
-      permission: 'deployment.plan.read',
-      resourceType: 'deploymentPlan',
-      riskLevel: 'high',
-      breadcrumbKeys: ['nav.deployments', 'nav.deploymentPlans'],
+      permission: 'service_asset.read',
+      resourceType: 'service_asset',
+      riskLevel: 'low',
+      breadcrumbKeys: ['nav.assets'],
       keepAlive: true
     }
   },

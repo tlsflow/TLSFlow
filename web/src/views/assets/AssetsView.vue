@@ -4,16 +4,18 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
-import { rollbackExecution } from '@/api/modules/executions.api'
+import { listExecutionStepsByRunId, listExecutionsByPlanId, rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
-import { listCertificateFormats } from '@/api/modules/certificates.api'
+import { listCertificateFormats, listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
+import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlansByApplicationAsset, submitDeploymentPlan } from '@/api/modules/deployments.api'
 import { projectApplicationAssetPluginInputs, projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCompatiblePluginSelector, GcConfirmAction, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCompatiblePluginSelector, GcConfirmAction, GcDeploymentWizard, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
@@ -45,17 +47,15 @@ type ManagedExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
-type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
+type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid' | 'updateAvailable'
 
 const ASSET_WORKSPACE_PAGE_SIZE = 20
 
 interface AssetCardCertificate {
   readonly name: string
-  readonly expiresAt: string
   readonly lifecycle: AssetCertificateLifecycle
   readonly lifecycleLabel: string
   readonly remainingLabel: string
-  readonly progress: number
   readonly tone: StatusTone
 }
 
@@ -63,11 +63,6 @@ interface AssetOverviewCard {
   readonly id: string
   readonly asset: ApiRecord
   readonly name: string
-  readonly address: string
-  readonly device: string
-  readonly framework: string
-  readonly site: string
-  readonly deploymentTarget: string
   readonly status: string
   readonly certificate: AssetCardCertificate
 }
@@ -126,6 +121,8 @@ const assetOverviewCards = computed<AssetOverviewCard[]>(() =>
 const assetOverviewPageCount = computed(() =>
   Math.max(1, Math.ceil(assetOverviewTotal.value / assetOverviewPageSize.value)),
 )
+const selectedAssetIds = ref<Set<string>>(new Set())
+const selectedAssetCount = computed(() => selectedAssetIds.value.size)
 const canLoadPreviousAssetOverviewPage = computed(() => assetOverviewPage.value > 1)
 const canLoadNextAssetOverviewPage = computed(() => assetOverviewPage.value < assetOverviewPageCount.value)
 const canManageAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
@@ -180,6 +177,20 @@ const snapshotError = ref('')
 const rollbackSubmitting = ref(false)
 const rollbackError = ref('')
 const rollbackRequestId = ref('')
+const deploymentDialogOpen = ref(false)
+const deploymentLoading = ref(false)
+const deploymentError = ref('')
+const deploymentInfo = ref('')
+const deploymentPlanId = ref('')
+const deploymentRequestId = ref('')
+const deploymentDryRunChecks = ref<ApiRecord[]>([])
+const deploymentCertificateItems = ref<ApiRecord[]>([])
+const deploymentCertificateVersionItems = ref<ApiRecord[]>([])
+const deploymentCertificateFormatItems = ref<ApiRecord[]>([])
+const deploymentRecords = ref<ApiRecord[]>([])
+const deploymentRecordsLoading = ref(false)
+const deploymentRecordsError = ref('')
+const deploymentWizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const assetWizardStep = ref<AssetWizardStep>(1)
 const workflowListLoading = ref(false)
 const workflowVersionListLoading = ref(false)
@@ -286,6 +297,28 @@ const bindingRelations = computed<ApiRecord[]>(() => {
   const items = readNested(selectedAssetDetail.value, ['targetBindingDetail', 'certificateBindings'])
   return Array.isArray(items) ? items as ApiRecord[] : []
 })
+
+const selectedApplicationAssetId = computed(() =>
+  String(selectedServiceAsset.value?.raw?.id ?? selectedServiceAsset.value?.id ?? ''),
+)
+
+const deploymentTarget = computed<ApiRecord[]>(() => {
+  const asset = selectedAssetDetail.value ?? selectedServiceAsset.value?.raw
+  const applicationAssetId = selectedApplicationAssetId.value
+  if (!asset || !applicationAssetId) return []
+  return [{
+    id: applicationAssetId,
+    applicationAssetId,
+    name: String(asset.displayName ?? asset.address ?? asset.domainName ?? applicationAssetId),
+    displayName: String(asset.displayName ?? asset.address ?? asset.domainName ?? applicationAssetId),
+    targetSourceLabel: String(readNested(asset, ['targetBinding', 'managedTargetLabel']) ?? readNested(asset, ['targetBinding', 'frameworkType']) ?? ''),
+    certificateFormatLabel: String(readNested(asset, ['deploymentStrategy', 'managedTarget', 'certificateFormatId']) ?? asset.certificateFormatId ?? ''),
+  }]
+})
+
+const deploymentRecordsForDisplay = computed(() =>
+  [...deploymentRecords.value].sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))),
+)
 
 const canRollbackFromSnapshot = computed(() =>
   Boolean(latestSnapshotExecutionRunId.value) && !rollbackSubmitting.value,
@@ -600,15 +633,184 @@ const createDisabled = computed(() => {
 
 const isEditMode = computed(() => Boolean(editingServiceAssetId.value))
 
-async function openDetailModal(row: ViewRow) {
+async function loadAssetContext(row: ViewRow) {
   selectedServiceAsset.value = row
-  detailModalOpen.value = true
   activeDetailTab.value = 'overview'
   rollbackError.value = ''
   rollbackRequestId.value = ''
+  deploymentRecords.value = []
+  deploymentRecordsError.value = ''
   await Promise.all([
     refreshAssetDetail(String(row.raw?.id ?? row.id ?? '')),
+    loadDeploymentRecords(String(row.raw?.id ?? row.id ?? '')),
   ])
+}
+
+async function openDetailModal(row: ViewRow) {
+  detailModalOpen.value = true
+  await loadAssetContext(row)
+}
+
+async function openDeploymentDialog(row?: ViewRow) {
+  if (row) await loadAssetContext(row)
+  const applicationAssetId = selectedApplicationAssetId.value
+  if (!applicationAssetId) return
+  deploymentDialogOpen.value = true
+  deploymentError.value = ''
+  deploymentInfo.value = ''
+  deploymentPlanId.value = ''
+  deploymentRequestId.value = ''
+  deploymentDryRunChecks.value = []
+  deploymentWizardInitialPlan.value = { applicationAssetId }
+  await loadDeploymentDialogOptions()
+}
+
+function closeDeploymentDialog() {
+  if (deploymentLoading.value) return
+  deploymentDialogOpen.value = false
+}
+
+async function loadDeploymentDialogOptions() {
+  deploymentLoading.value = true
+  deploymentError.value = ''
+  try {
+    const [certificates, certificateVersions, certificateFormats] = await Promise.all([
+      listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      fetchAllRecords((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
+      fetchAllRecords((page, pageSize) => listCertificateFormats({ page, pageSize, sort: 'createdAt:desc' })),
+    ])
+    deploymentCertificateItems.value = [...(certificates.data?.items ?? [])]
+    deploymentCertificateVersionItems.value = certificateVersions
+    deploymentCertificateFormatItems.value = certificateFormats
+  } catch (cause) {
+    deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.loadOptionsFailed')
+  } finally {
+    deploymentLoading.value = false
+  }
+}
+
+async function ensureDeploymentPlan(plan: DeploymentWizardPlan): Promise<string> {
+  if (deploymentPlanId.value) return deploymentPlanId.value
+  const applicationAssetId = selectedApplicationAssetId.value
+  if (!applicationAssetId || plan.applicationAssetId !== applicationAssetId) {
+    throw new Error(t('assets.deployment.errors.missingApplicationAssetId'))
+  }
+  const created = await createDeploymentPlanFromApplicationAsset({
+    applicationAssetId,
+    selectionMode: plan.selectionMode,
+    targetCertificateVersionId: plan.certificateVersionId || undefined,
+    certificateFormatId: plan.certificateFormatId || undefined,
+    reuseDraft: false,
+  })
+  const planId = String(created.data?.id ?? '')
+  if (!planId) throw new Error(t('assets.deployment.errors.createPlanMissingId'))
+  deploymentPlanId.value = planId
+  return planId
+}
+
+async function deployCertificateVersion(plan: DeploymentWizardPlan) {
+  deploymentLoading.value = true
+  deploymentError.value = ''
+  deploymentInfo.value = ''
+  try {
+    const planId = await ensureDeploymentPlan(plan)
+    const dryRun = await dryRunDeploymentPlan({ planId })
+    deploymentRequestId.value = dryRun.requestId
+    deploymentDryRunChecks.value = extractDeploymentDryRunChecks(dryRun.data)
+    deploymentInfo.value = t('assets.deployment.feedback.preflightRunning')
+    const dryRunRun = await waitForDeploymentDryRun(planId, String(readNested(dryRun.data, ['run', 'id']) ?? ''))
+    if (String(dryRunRun.status ?? '') !== 'SUCCESS') {
+      throw new Error(String(dryRunRun.errorMessage ?? t('assets.deployment.errors.preflightFailed')))
+    }
+    const completedChecks = await loadDeploymentDryRunChecks(String(dryRunRun.id ?? ''))
+    if (completedChecks.length > 0) deploymentDryRunChecks.value = completedChecks
+    const submitted = await submitDeploymentPlan(planId)
+    const submittedPlan = submitted.data ?? {}
+    const status = String(submittedPlan.status ?? '')
+    if (status === 'PENDING_APPROVAL') {
+      deploymentInfo.value = t('assets.deployment.feedback.pendingApproval')
+      await loadDeploymentRecords(selectedApplicationAssetId.value)
+      return
+    }
+    const executed = await executeDeploymentPlan(planId)
+    deploymentRequestId.value = executed.requestId
+    deploymentInfo.value = t('assets.deployment.feedback.executionStarted')
+    await loadDeploymentRecords(selectedApplicationAssetId.value)
+  } catch (cause) {
+    deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed')
+  } finally {
+    deploymentLoading.value = false
+  }
+}
+
+async function waitForDeploymentDryRun(planId: string, runId: string): Promise<ApiRecord> {
+  const timeoutAt = Date.now() + 60_000
+  while (Date.now() < timeoutAt) {
+    const result = await listExecutionsByPlanId(planId, { page: 1, pageSize: 50, sort: 'createdAt:desc' })
+    const run = (result.data?.items ?? []).find((item) => String(item.id ?? '') === runId)
+      ?? (result.data?.items ?? []).find((item) => String(item.type ?? '') === 'dry_run')
+    if (run) {
+      const status = String(run.status ?? '')
+      if (['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(status)) return run
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+  }
+  throw new Error(t('assets.deployment.errors.preflightTimeout'))
+}
+
+async function loadDeploymentDryRunChecks(runId: string): Promise<ApiRecord[]> {
+  if (!runId) return []
+  const result = await listExecutionStepsByRunId(runId, { page: 1, pageSize: 200, sort: 'stepNo:asc' })
+  return extractDeploymentDryRunChecks({ steps: [...(result.data?.items ?? [])] })
+}
+
+async function loadDeploymentRecords(applicationAssetId: string) {
+  if (!applicationAssetId) return
+  deploymentRecordsLoading.value = true
+  deploymentRecordsError.value = ''
+  try {
+    const result = await listDeploymentPlansByApplicationAsset(applicationAssetId)
+    deploymentRecords.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    deploymentRecords.value = []
+    deploymentRecordsError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.loadRecordsFailed')
+  } finally {
+    deploymentRecordsLoading.value = false
+  }
+}
+
+function extractDeploymentDryRunChecks(data: ApiRecord | undefined): ApiRecord[] {
+  if (!data) return []
+  const steps = Array.isArray(data.steps) ? data.steps as ApiRecord[] : []
+  for (const step of steps) {
+    const resultDetail = readNested(step, ['inputSnapshot', 'resultDetail'])
+    const checks = readNested(resultDetail, ['dryRunChecks'])
+    if (Array.isArray(checks)) return checks as ApiRecord[]
+  }
+  return []
+}
+
+function deploymentRecordRunStatus(record: ApiRecord): string {
+  const run = readNested(record, ['latestRun'])
+  return String(readNested(run, ['status']) ?? record.status ?? 'UNKNOWN')
+}
+
+function deploymentRecordRunType(record: ApiRecord): string {
+  const run = readNested(record, ['latestRun'])
+  return String(readNested(run, ['type']) ?? '')
+}
+
+function deploymentRecordApprovalStatus(record: ApiRecord): string {
+  return String(record.approvalStatus ?? readNested(record, ['approval', 'status']) ?? 'NOT_REQUIRED')
+}
+
+function deploymentRecordPreflightCheckCount(record: ApiRecord): number {
+  const checks = readNested(record, ['latestPreflight', 'checks'])
+  return Array.isArray(checks) ? checks.length : 0
+}
+
+function deploymentRecordTime(record: ApiRecord): string {
+  return renderValue(record.updatedAt ?? record.createdAt)
 }
 
 async function openCreateDialog() {
@@ -631,7 +833,7 @@ function navigateUserFlow(stepId: string) {
     return
   }
   if (stepId === 'applications') return
-  void router.push({ name: 'deployment.plan.list' })
+  void router.push({ name: 'asset.list' })
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -1371,37 +1573,57 @@ function userAssetTarget(asset: ApiRecord) {
   )
 }
 
+function userAssetRow(asset: ApiRecord): ViewRow {
+  const id = String(asset.id ?? asset.applicationAssetId ?? '')
+  return {
+    id,
+    name: userAssetName(asset),
+    status: String(asset.status ?? 'ACTIVE'),
+    risk: 'MEDIUM',
+    raw: asset,
+  }
+}
+
+function isAssetSelected(assetId: string): boolean {
+  return selectedAssetIds.value.has(assetId)
+}
+
+function toggleAssetSelection(assetId: string, selected: boolean): void {
+  const next = new Set(selectedAssetIds.value)
+  if (selected) next.add(assetId)
+  else next.delete(assetId)
+  selectedAssetIds.value = next
+}
+
 function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
   const name = userAssetName(asset)
   return {
     id: firstAssetText(asset, ['id', 'address', 'displayName']) || name,
     asset,
     name,
-    address: userAssetAddress(asset),
-    device: firstAssetText(asset, ['targetBinding.deviceDisplayName', 'deviceDisplayName']) || t('assets.empty.notSet'),
-    framework: firstAssetText(asset, ['targetBinding.frameworkDisplayName', 'frameworkDisplayName', 'targetBinding.frameworkType', 'frameworkType']) || t('assets.empty.notSet'),
-    site: firstAssetText(asset, ['targetBinding.siteName', 'siteDisplayName']) || t('assets.empty.notSet'),
-    deploymentTarget: assetOverviewDeploymentTarget(asset),
     status: firstAssetText(asset, ['status', 'state']) || 'UNKNOWN',
     certificate: assetOverviewCertificate(asset),
   }
 }
 
-function assetOverviewDeploymentTarget(asset: ApiRecord): string {
-  return firstAssetText(asset, [
-    'targetBinding.managedTargetLabel',
-    'targetBinding.siteName',
-    'siteDisplayName',
-    'targetBinding.bindingKey',
-    'targetBinding.targetKey',
-    'deploymentStrategy.workflow.target.siteName',
-    'metadata.workflowTarget.siteName',
-  ]) || t('assets.empty.notSet')
+function assetCardUrl(asset: ApiRecord): string {
+  const protocol = firstAssetText(asset, ['protocol']) || 'HTTPS'
+  const address = firstAssetText(asset, ['address', 'domainName', 'displayName'])
+  if (address) {
+    const normalizedProtocol = protocol.toLowerCase()
+    const port = firstAssetText(asset, ['port'])
+    const defaultPort = normalizedProtocol === 'https' ? '443' : normalizedProtocol === 'http' ? '80' : ''
+    const portSuffix = port && port !== defaultPort ? `:${port}` : ''
+    return `${normalizedProtocol}://${address}${portSuffix}`
+  }
+
+  return firstAssetText(asset, ['verifyUrl', 'metadata.verifyUrl']) || t('assets.empty.notSet')
 }
 
 function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
   const expiresAt = firstAssetText(asset, [
     'currentCertificate.notAfter',
+    'metadata.currentCertificate.notAfter',
     'currentVersion.notAfter',
     'certificate.notAfter',
     'certificate.expiresAt',
@@ -1419,6 +1641,11 @@ function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
       'currentCertificate.commonName',
       'currentCertificate.subject.commonName',
       'currentCertificate.name',
+      'currentCertificate.fingerprintSha256',
+      'metadata.currentCertificate.commonName',
+      'metadata.currentCertificate.subject.commonName',
+      'metadata.currentCertificate.name',
+      'metadata.currentCertificate.fingerprintSha256',
       'currentVersion.commonName',
       'certificate.commonName',
       'certificate.subject.commonName',
@@ -1431,11 +1658,9 @@ function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
       'certificateDomain',
       'certificateVersionId',
     ]) || t('assets.empty.notSet'),
-    expiresAt: expiresAt ? formatMaybeLocalTime(expiresAt, t('dashboard.days.notRecorded')) : t('dashboard.days.notRecorded'),
     lifecycle,
     lifecycleLabel: t(`dashboard.certificateState.${lifecycle}`),
     remainingLabel: assetCertificateRemainingLabel(lifecycle, countdown),
-    progress: assetCertificateLifecycleProgress(asset, expiresAt, lifecycle),
     tone: assetCertificateLifecycleTone(lifecycle),
   }
 }
@@ -1450,8 +1675,15 @@ function firstAssetText(asset: ApiRecord, candidates: readonly string[]): string
 }
 
 function resolveAssetCertificateLifecycle(asset: ApiRecord, expiresAt: string): AssetCertificateLifecycle {
+  const updateAvailable = [
+    readNested(asset, ['currentCertificate', 'updateAvailable']),
+    readNested(asset, ['metadata', 'currentCertificate', 'updateAvailable']),
+  ].some((value) => value === true)
+  if (updateAvailable) return 'updateAvailable'
+
   const status = firstAssetText(asset, [
     'currentCertificate.status',
+    'metadata.currentCertificate.status',
     'currentVersion.status',
     'certificate.status',
     'certificateBinding.status',
@@ -1475,35 +1707,16 @@ function assetCertificateRemainingLabel(lifecycle: AssetCertificateLifecycle, co
   return t('dashboard.days.remaining', { days: countdown.days })
 }
 
-function assetCertificateLifecycleProgress(
-  asset: ApiRecord,
-  expiresAt: string,
-  lifecycle: AssetCertificateLifecycle,
-): number {
-  if (lifecycle === 'unknown' || lifecycle === 'expired') return 0
-  const notBefore = firstAssetText(asset, [
-    'currentCertificate.notBefore',
-    'currentVersion.notBefore',
-    'certificate.notBefore',
-    'certificateBinding.notBefore',
-    'targetBinding.certificateBinding.notBefore',
-    'notBefore',
-    'certificateNotBefore',
-  ])
-  const startTime = Date.parse(notBefore)
-  const endTime = Date.parse(expiresAt)
-  if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
-    const remainingRatio = (endTime - Date.now()) / (endTime - startTime)
-    return Math.round(Math.min(1, Math.max(0, remainingRatio)) * 100)
-  }
-  return lifecycle === 'expiringSoon' ? 50 : 100
-}
-
 function assetCertificateLifecycleTone(lifecycle: AssetCertificateLifecycle): StatusTone {
+  if (lifecycle === 'updateAvailable') return 'warning'
   if (lifecycle === 'valid') return 'success'
   if (lifecycle === 'expiringSoon') return 'warning'
   if (lifecycle === 'expired') return 'danger'
   return 'muted'
+}
+
+function assetCertificateNeedsUpdate(certificate: AssetCardCertificate): boolean {
+  return certificate.lifecycle === 'updateAvailable' || certificate.lifecycle === 'expired'
 }
 
 function assetOverviewCardRow(card: AssetOverviewCard): ViewRow {
@@ -1909,6 +2122,7 @@ async function clearAssetOverviewFilters(): Promise<void> {
 
 async function deleteAssetOverviewCard(card: AssetOverviewCard): Promise<void> {
   await deleteServiceAsset(card.id)
+  toggleAssetSelection(card.id, false)
   await loadAssetOverviewPage(assetOverviewPage.value)
 }
 
@@ -2216,9 +2430,6 @@ function managedTargetLabel(target: ApiRecord): string {
         <section class="asset-user-view__content">
           <header class="asset-user-view__section-head">
             <h3>{{ t('assets.userView.listTitle') }}</h3>
-            <RouterLink class="gc-button gc-button--primary" to="/deployment-plans">
-              {{ t('assets.userView.continueToDeployment') }}
-            </RouterLink>
           </header>
 
           <GcEmptyState
@@ -2254,6 +2465,16 @@ function managedTargetLabel(target: ApiRecord): string {
                 <span>{{ t('assets.userView.deploymentLocation') }}</span>
                 <strong>{{ userAssetTarget(asset) }}</strong>
               </div>
+              <div class="asset-user-view__actions">
+                <GcPermissionButton
+                  class="gc-button gc-button--primary"
+                  :data-testid="`user-asset-card-deploy-${String(asset.id)}`"
+                  permission="deployment.plan.execute"
+                  @click="openDeploymentDialog(userAssetRow(asset))"
+                >
+                  {{ t('assets.actions.deployCertificate') }}
+                </GcPermissionButton>
+              </div>
             </article>
           </div>
         </section>
@@ -2269,6 +2490,9 @@ function managedTargetLabel(target: ApiRecord): string {
             </span>
             <span class="asset-page__workspace-selection">
               {{ t('businessPage.total', { count: assetOverviewTotal }) }}
+            </span>
+            <span v-if="selectedAssetCount > 0" class="asset-page__workspace-selected-count">
+              {{ t('assets.selection.selectedCount', { count: selectedAssetCount, total: assetOverviewTotal }) }}
             </span>
           </div>
           <div class="asset-page__workspace-actions">
@@ -2338,6 +2562,7 @@ function managedTargetLabel(target: ApiRecord): string {
               :key="card.id"
               as="article"
               class="asset-page__card"
+              :selected="isAssetSelected(card.id)"
               :aria-label="card.name"
               data-testid="asset-professional-card"
             >
@@ -2347,78 +2572,91 @@ function managedTargetLabel(target: ApiRecord): string {
                 </span>
                 <div class="asset-page__card-heading">
                   <h3>{{ card.name }}</h3>
-                  <p>{{ card.address }}</p>
+                  <p class="asset-page__card-url" :title="assetCardUrl(card.asset)">{{ assetCardUrl(card.asset) }}</p>
                 </div>
-                <GcStatusTag :status="card.status" />
+                <input
+                  :checked="isAssetSelected(card.id)"
+                  class="asset-page__card-select"
+                  type="checkbox"
+                  :aria-label="t('assets.aria.selectCard', { name: card.name })"
+                  :data-testid="`asset-card-select-${card.id}`"
+                  @click.stop
+                  @change="toggleAssetSelection(card.id, ($event.target as HTMLInputElement).checked)"
+                >
               </template>
 
               <template #body>
                 <dl class="asset-page__card-facts">
                   <div>
                     <dt>{{ t('assets.fields.currentCertificate') }}</dt>
-                    <dd>{{ card.certificate.name }}</dd>
-                  </div>
-                </dl>
-
-                <section class="asset-page__card-lifecycle" :aria-label="t('assets.fields.currentCertificate')">
-                  <div class="asset-page__card-lifecycle-head">
-                    <div>
-                      <span>{{ t('assets.fields.currentCertificate') }}</span>
-                      <strong>{{ card.certificate.remainingLabel }}</strong>
-                    </div>
-                    <GcStatusTag
-                      :status="card.certificate.lifecycle"
-                      :label="card.certificate.lifecycleLabel"
-                      :tone="card.certificate.tone"
-                    />
-                  </div>
-                  <GcProgressBar
-                    :value="card.certificate.progress"
-                    :tone="card.certificate.tone"
-                    :ariaLabel="t('assets.fields.currentCertificate')"
-                  />
-                </section>
-
-                <dl class="asset-page__card-meta">
-                  <div>
-                    <dt>{{ t('devices.unifiedDetail.nodeEyebrow') }}</dt>
-                    <dd>{{ card.device }}</dd>
+                    <dd class="asset-page__card-fact-value asset-page__card-certificate-name">{{ card.certificate.name }}</dd>
                   </div>
                   <div>
-                    <dt>{{ t('assets.columns.framework') }}</dt>
-                    <dd>{{ card.framework }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('assets.columns.site') }}</dt>
-                    <dd>{{ card.site }}</dd>
+                    <dt>{{ t('assets.fields.remainingValidity') }}</dt>
+                    <dd class="asset-page__card-fact-value asset-page__card-certificate-status">
+                      <strong class="asset-page__card-certificate-remaining">{{ card.certificate.remainingLabel }}</strong>
+                      <GcStatusTag
+                        class="asset-page__card-certificate-state"
+                        :status="card.certificate.lifecycle"
+                        :label="card.certificate.lifecycleLabel"
+                        :tone="card.certificate.tone"
+                      />
+                    </dd>
                   </div>
                 </dl>
               </template>
 
               <template #footer>
                 <GcPermissionButton
-                  class="gc-button gc-button--primary"
-                  :data-testid="`asset-card-detail-${card.id}`"
-                  permission="service_asset.read"
-                  @click="openDetailModal(assetOverviewCardRow(card))"
+                  class="asset-page__card-deploy-button gc-button"
+                  :class="assetCertificateNeedsUpdate(card.certificate)
+                    ? 'asset-page__card-deploy-button--update'
+                    : 'gc-button--primary'"
+                  :data-testid="`asset-card-deploy-${card.id}`"
+                  permission="deployment.plan.execute"
+                  @click="openDeploymentDialog(assetOverviewCardRow(card))"
                 >
-                  {{ t('assets.actions.detail') }}
+                  {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.actions.updateCertificate' : 'assets.actions.deployCertificate') }}
                 </GcPermissionButton>
                 <GcPermissionButton
+                  class="asset-page__card-icon-action"
+                  :data-testid="`asset-card-detail-${card.id}`"
+                  permission="service_asset.read"
+                  :aria-label="t('assets.aria.detailCard', { name: card.name })"
+                  :title="t('assets.actions.detail')"
+                  @click="openDetailModal(assetOverviewCardRow(card))"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5" /></svg>
+                  <span class="asset-page__icon-action-label">{{ t('assets.actions.detail') }}</span>
+                </GcPermissionButton>
+                <GcPermissionButton
+                  class="asset-page__card-icon-action"
                   :data-testid="`asset-card-edit-${card.id}`"
                   permission="service_asset.manage"
+                  :aria-label="t('assets.aria.editCard', { name: card.name })"
+                  :title="t('assets.actions.edit')"
                   @click="openEditDialog(assetOverviewCardRow(card))"
                 >
-                  {{ t('assets.actions.edit') }}
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16-.8 4.8L8 20l11.2-11.2a2.8 2.8 0 0 0-4-4L4 16Zm9.8-8.8 3 3" /></svg>
+                  <span class="asset-page__icon-action-label">{{ t('assets.actions.edit') }}</span>
                 </GcPermissionButton>
                 <span v-if="canManageAssets" class="asset-page__card-delete" :data-testid="`asset-card-delete-${card.id}`">
                   <GcConfirmAction
+                    class="asset-page__card-icon-action"
+                    trigger-variant="icon"
+                    :trigger-aria-label="t('assets.aria.deleteCard', { name: card.name })"
+                    :trigger-title="t('assets.actions.delete')"
                     :action-name="t('assets.actions.delete')"
                     :impact-count="1"
                     :risk-text="t('assets.actions.deleteRisk')"
                     :confirm-text="t('assets.actions.delete')"
                     @confirm="deleteAssetOverviewCard(card)"
-                  />
+                  >
+                    <template #trigger-icon>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M8 7l1-2h6l1 2m-9 0 1 13h8l1-13" /></svg>
+                      <span class="asset-page__icon-action-label">{{ t('assets.actions.delete') }}</span>
+                    </template>
+                  </GcConfirmAction>
                 </span>
               </template>
             </GcCard>
@@ -2576,6 +2814,55 @@ function managedTargetLabel(target: ApiRecord): string {
               </li>
             </ul>
           </article>
+
+          <article class="asset-detail-modal__section">
+            <div class="asset-detail-modal__section-head">
+              <h3>{{ t('assets.deployment.title') }}</h3>
+              <p>{{ t('assets.deployment.description') }}</p>
+            </div>
+            <div class="asset-deployment__actions">
+              <GcPermissionButton
+                class="gc-button gc-button--primary"
+                permission="deployment.plan.execute"
+                @click="openDeploymentDialog()"
+              >
+                {{ t('assets.actions.deployCertificate') }}
+              </GcPermissionButton>
+            </div>
+            <p v-if="deploymentRecordsLoading" class="asset-summary__loading">{{ t('assets.deployment.loadingRecords') }}</p>
+            <p v-else-if="deploymentRecordsError" class="asset-summary__error">{{ deploymentRecordsError }}</p>
+            <p v-else-if="!deploymentRecordsForDisplay.length" class="asset-summary__loading">{{ t('assets.deployment.emptyRecords') }}</p>
+            <ul v-else class="asset-binding-relations">
+              <li v-for="record in deploymentRecordsForDisplay" :key="String(record.id ?? '')" class="asset-binding-relations__item">
+                <div class="asset-binding-relations__grid">
+                  <div>
+                    <span>{{ t('assets.deployment.fields.status') }}</span>
+                    <GcStatusTag :status="String(record.status ?? 'UNKNOWN')" />
+                  </div>
+                  <div>
+                    <span>{{ t('assets.deployment.fields.approval') }}</span>
+                    <GcStatusTag :status="deploymentRecordApprovalStatus(record)" />
+                  </div>
+                  <div>
+                    <span>{{ t('assets.deployment.fields.latestRun') }}</span>
+                    <strong>{{ deploymentRecordRunType(record) || t('common.notAvailable') }} / {{ deploymentRecordRunStatus(record) }}</strong>
+                  </div>
+                  <div>
+                    <span>{{ t('assets.deployment.fields.preflight') }}</span>
+                    <strong>{{ record.latestPreflight ? t('assets.deployment.preflightAvailable', { count: deploymentRecordPreflightCheckCount(record) }) : t('assets.deployment.preflightUnavailable') }}</strong>
+                  </div>
+                  <div>
+                    <span>{{ t('assets.deployment.fields.rollback') }}</span>
+                    <strong>{{ record.latestRollback ? deploymentRecordRunStatus({ latestRun: record.latestRollback }) : t('assets.deployment.rollbackUnavailable') }}</strong>
+                  </div>
+                  <div>
+                    <span>{{ t('assets.deployment.fields.updatedAt') }}</span>
+                    <strong>{{ deploymentRecordTime(record) }}</strong>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </article>
         </section>
 
         <section v-else class="asset-detail-modal__sections">
@@ -2627,6 +2914,30 @@ function managedTargetLabel(target: ApiRecord): string {
           </article>
         </section>
       </section>
+    </GcModal>
+
+    <GcModal
+      v-model:open="deploymentDialogOpen"
+      :title="t('assets.deployment.dialogTitle')"
+      :description="t('assets.deployment.dialogDescription')"
+      size="xxl"
+      width="min(100%, var(--gc-size-modal-wide))"
+      frameless
+    >
+      <p v-if="deploymentError" class="asset-summary__error">{{ deploymentError }}</p>
+      <p v-else-if="deploymentInfo" class="asset-form__request">{{ deploymentInfo }}</p>
+      <GcDeploymentWizard
+        :certificates="deploymentCertificateItems"
+        :certificate-versions="deploymentCertificateVersionItems"
+        :certificate-formats="deploymentCertificateFormatItems"
+        :targets="deploymentTarget"
+        :loading="deploymentLoading"
+        :initial-plan="deploymentWizardInitialPlan"
+        :dry-run-checks="deploymentDryRunChecks"
+        :primary-action-label="t('assets.deployment.deployThisVersion')"
+        @deploy="deployCertificateVersion"
+        @cancel="closeDeploymentDialog"
+      />
     </GcModal>
 
     <GcModal
@@ -3184,10 +3495,15 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-page__workspace-selection,
+.asset-page__workspace-selected-count,
 .asset-page__card-state {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: var(--gc-font-weight-semibold);
+}
+
+.asset-page__workspace-selected-count {
+  color: var(--gc-color-primary);
 }
 
 .asset-page__card-state {
@@ -3252,7 +3568,7 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--gc-size-card-min) + var(--gc-space-10)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--gc-size-certificate-card-min), 1fr));
   gap: var(--gc-space-4);
   align-content: start;
 }
@@ -3294,16 +3610,80 @@ function managedTargetLabel(target: ApiRecord): string {
   background: var(--gc-color-primary-soft);
 }
 
+.asset-page__card-select {
+  width: var(--gc-size-icon-sm);
+  height: var(--gc-size-icon-sm);
+  margin: 0;
+  accent-color: var(--gc-color-primary);
+  cursor: pointer;
+}
+
+.asset-page__card-select:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.asset-page__card-icon-action svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.asset-page__card-icon-action,
+.asset-page__card :deep(.asset-page__card-delete .gc-icon-button) {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 var(--gc-control-height-card-action);
+  width: var(--gc-control-height-card-action);
+  min-width: var(--gc-control-height-card-action);
+  height: var(--gc-control-height-card-action);
+  min-height: var(--gc-control-height-card-action);
+  gap: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.asset-page__card-icon-action svg,
+.asset-page__card :deep(.asset-page__card-delete .gc-icon-button svg) {
+  width: var(--gc-size-icon-sm);
+  height: var(--gc-size-icon-sm);
+}
+
+.asset-page__icon-action-label,
+.asset-page :deep(.asset-page__icon-action-label) {
+  display: none;
+}
+
+.asset-page__icon-action-label {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .asset-page__card-heading {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
 }
 
-.asset-page__card-heading h3,
-.asset-page__card-heading p {
+.asset-page__card-heading h3 {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.asset-page__card-url {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-page__card-heading h3 {
@@ -3311,30 +3691,24 @@ function managedTargetLabel(target: ApiRecord): string {
   font-size: var(--gc-font-size-sm);
 }
 
-.asset-page__card-heading p {
-  color: var(--gc-color-text-muted);
-  font-family: var(--gc-font-family-mono);
-  font-size: var(--gc-font-size-caption);
-}
-
 .asset-page__card-facts {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-2);
   margin: 0;
-  padding: var(--gc-space-3);
-  border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface-muted);
+  padding: 0;
 }
 
 .asset-page__card-facts div {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-muted);
 }
 
-.asset-page__card-facts dt,
-.asset-page__card-lifecycle-head span {
+.asset-page__card-facts dt {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-overline);
   font-weight: var(--gc-font-weight-semibold);
@@ -3350,70 +3724,62 @@ function managedTargetLabel(target: ApiRecord): string {
   overflow-wrap: anywhere;
 }
 
-.asset-page__card-lifecycle {
-  display: grid;
-  gap: var(--gc-space-2);
-  padding-top: var(--gc-space-3);
-}
-
-.asset-page__card-lifecycle-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-}
-
-.asset-page__card-lifecycle-head > div {
-  display: grid;
-  gap: var(--gc-space-1);
+.asset-page__card-fact-value {
   min-width: 0;
 }
 
-.asset-page__card-lifecycle-head strong {
-  color: var(--gc-color-success);
-  font-size: var(--gc-font-size-xs);
-  overflow-wrap: anywhere;
-}
-
-.asset-page__card-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-  margin: 0;
-}
-
-.asset-page__card-meta div {
-  display: grid;
-  gap: var(--gc-space-1);
+.asset-page__card-certificate-name {
   min-width: 0;
-}
-
-.asset-page__card-meta dt {
-  color: var(--gc-color-text-soft);
-  font-size: var(--gc-font-size-overline);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.asset-page__card-meta dd {
-  margin: 0;
   overflow: hidden;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.asset-page__card :deep(.gc-pro-card__footer) {
-  align-items: stretch;
+.asset-page__card-certificate-status {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2);
 }
 
-.asset-page__card :deep(.gc-pro-card__footer > .gc-button--primary) {
-  flex: 1 1 auto;
+.asset-page__card-certificate-remaining {
+  color: var(--gc-color-success);
+  font-size: var(--gc-font-size-xs);
+}
+
+.asset-page__card :deep(.gc-pro-card__footer) {
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: var(--gc-space-2);
+}
+
+.asset-page__card-deploy-button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--gc-control-height-card-action);
+  min-height: var(--gc-control-height-card-action);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-radius: var(--gc-radius-control);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.asset-page__card-deploy-button--update {
+  border-color: var(--gc-color-success);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-success);
+  box-shadow: var(--gc-shadow-sm);
+}
+
+.asset-page__card-deploy-button--update:hover:not(:disabled) {
+  border-color: var(--gc-color-success);
+  background: var(--gc-color-success);
+  box-shadow: var(--gc-shadow-hover);
 }
 
 .asset-page__card-delete {
-  display: inline-flex;
+  display: contents;
 }
 
 .asset-page__pagination {
@@ -3441,10 +3807,6 @@ function managedTargetLabel(target: ApiRecord): string {
   }
 
   .asset-page__card-facts {
-    grid-template-columns: 1fr;
-  }
-
-  .asset-page__card-meta {
     grid-template-columns: 1fr;
   }
 }
@@ -3499,9 +3861,9 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .asset-user-view__card header {
@@ -3589,6 +3951,13 @@ function managedTargetLabel(target: ApiRecord): string {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
   overflow-wrap: anywhere;
+}
+
+.asset-user-view__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .asset-user-form__header {
@@ -3741,7 +4110,7 @@ function managedTargetLabel(target: ApiRecord): string {
   padding: var(--gc-space-3);
   border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .asset-detail-modal__item dt {
@@ -3876,7 +4245,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-form__field textarea:focus {
   border-color: var(--gc-color-focus);
   box-shadow: var(--gc-shadow-focus);
-  background: var(--gc-color-surface-glass);
+  background: var(--gc-color-surface-solid);
 }
 .asset-form__field textarea {
   min-height: calc(var(--gc-space-12) * 3);
@@ -4066,7 +4435,7 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-4);
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
   background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
@@ -4165,7 +4534,7 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-1);
   min-height: calc(var(--gc-space-9) * 2);
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
   border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-subtle);
 }

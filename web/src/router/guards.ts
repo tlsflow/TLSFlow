@@ -64,6 +64,6 @@ export function registerRouterGuards(router: Router): void {
       : typeof to.meta.title === 'string'
         ? to.meta.title
         : i18n.global.t('app.defaultBreadcrumb')
-    document.title = `${title} - ${i18n.global.t('app.platform')}`
+    document.title = `${title} - ${i18n.global.t('app.brand')}`
   })
 }
