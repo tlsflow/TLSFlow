@@ -21,6 +21,7 @@ import { AgentExecutorAdapter } from '../executions/application/executors.js';
 import { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
+import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 
 const userHeaders = { 'x-actor-id': 'user_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_test' };
 const approverHeaders = { 'x-actor-id': 'approver_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_approve' };
@@ -371,21 +372,7 @@ describe('部署计划与执行编排 API', () => {
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
     const fixture = await seedWorkflowStrategyFixture(app);
-    const createdWorkflow = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      headers: userHeaders,
-      body: { content: workflowTemplateFixture('应用资产工作流部署') },
-    });
-    assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
-    const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
-    const published = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-template-versions/publish',
-      headers: userHeaders,
-      body: { versionId: workflow.version.id },
-    });
-    assert.equal(published.statusCode, 200, JSON.stringify(published.body));
+    const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流部署'));
 
     const strategy = await app.inject({
       method: 'PATCH',
@@ -443,21 +430,7 @@ describe('部署计划与执行编排 API', () => {
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
     const fixture = await seedWorkflowStrategyFixture(app);
-    const createdWorkflow = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      headers: userHeaders,
-      body: { content: workflowTemplateFixture('应用资产工作流实时版本') },
-    });
-    assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
-    const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
-    const publishedV1 = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-template-versions/publish',
-      headers: userHeaders,
-      body: { versionId: workflow.version.id },
-    });
-    assert.equal(publishedV1.statusCode, 200, JSON.stringify(publishedV1.body));
+    const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流实时版本'));
 
     const strategy = await app.inject({
       method: 'PATCH',
@@ -540,21 +513,7 @@ describe('部署计划与执行编排 API', () => {
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
     const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
-    const createdWorkflow = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      headers: userHeaders,
-      body: { content: workflowHttpCertificateFixture('无 Agent 绑定工作流') },
-    });
-    assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
-    const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
-    const published = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-template-versions/publish',
-      headers: userHeaders,
-      body: { versionId: workflow.version.id },
-    });
-    assert.equal(published.statusCode, 200, JSON.stringify(published.body));
+    const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
 
     const asset = await app.inject({
       method: 'POST',
@@ -568,25 +527,34 @@ describe('部署计划与执行编排 API', () => {
         platform: 'LINUX',
         verifyUrl: 'https://workflow-only.example.com:8443',
         displayName: 'Workflow Only Asset',
-        deploymentStrategy: {
-          type: 'WORKFLOW',
-          workflow: {
-            workflowId: workflow.template.id,
-            workflowVersionId: workflow.version.id,
-            runner: 'CONTROL_PLANE',
-            variableBindings: { callbackUrl: 'https://workflow-only.example.com:8443/verify' },
-            certificateArtifactBindings: {
-              serverCert: {
-                certificateFormatId: certificate.certificateFormatId,
-                outputBindings: { bundle: 'bundle' },
-              },
+      },
+    });
+    assert.equal(asset.statusCode, 201, JSON.stringify(asset.body));
+    const applicationAssetId = (asset.body as { id: string }).id;
+    const savedWorkflow = await app.inject({
+      method: 'PUT',
+      path: `/api/v1/application-assets/${applicationAssetId}/standalone-workflow`,
+      headers: userHeaders,
+      body: {
+        workflowExecution: {
+          tenantId: 'tenant_1',
+          workflowTemplateId: workflow.template.id,
+          workflowVersionSelection: 'PINNED',
+          workflowVersionId: workflow.version.id,
+          runner: 'CONTROL_PLANE',
+          connectionBindings: {},
+          variableBindings: { callbackUrl: 'https://workflow-only.example.com:8443/verify' },
+          credentialBindings: {},
+          certificateArtifactBindings: {
+            serverCert: {
+              certificateFormatId: certificate.certificateFormatId,
+              outputBindings: { bundle: 'bundle' },
             },
           },
         },
       },
     });
-    assert.equal(asset.statusCode, 201, JSON.stringify(asset.body));
-    const applicationAssetId = (asset.body as { id: string }).id;
+    assert.equal(savedWorkflow.statusCode, 200, JSON.stringify(savedWorkflow.body));
 
     const created = await app.inject({
       method: 'POST',
@@ -609,6 +577,30 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets[0].siteAssetId, undefined);
     assert.equal(plan.targets[0].executionTargetId, applicationAssetId);
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.applicationAssetId, applicationAssetId);
+    assert.deepEqual(plan.targets[0].strategyPayload.certificateVerification, {
+      capabilityKey: 'certificate.verify',
+      schemaVersion: '1.0',
+      connectHost: 'workflow-only.example.com',
+      serverName: 'workflow-only.example.com',
+      port: 8443,
+      expectedDomains: ['workflow-only.example.com'],
+      source: 'APPLICATION_ASSET',
+    });
+
+    const dryRun = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: (created.body as { id: string }).id, idempotencyKey: 'idem_workflow_only_asset_dry_run' },
+    });
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
+    const dryRunSteps = (dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> }).steps;
+    const workflowStep = dryRunSteps.find((step) => step.stepType === 'INSTALL');
+    const verifyStep = dryRunSteps.find((step) => step.stepType === 'VERIFY');
+    assert.equal(workflowStep?.inputSnapshot.workflowRequest.applicationAssetId, applicationAssetId);
+    assert.equal(verifyStep?.inputSnapshot.certificateVerification.connectHost, 'workflow-only.example.com');
+    assert.equal(verifyStep?.inputSnapshot.certificateVerification.serverName, 'workflow-only.example.com');
+    assert.equal(verifyStep?.inputSnapshot.certificateVerification.port, 8443);
   });
 
   it('应用资产 WORKFLOW 策略经真实 HTTP 工作流执行后会回写绑定和资产状态', async () => {
@@ -631,21 +623,7 @@ describe('部署计划与执行编排 API', () => {
       const address = verifyServer.address();
       assert.ok(address && typeof address === 'object');
       const workflowUrl = `http://127.0.0.1:${address.port}/verify`;
-      const createdWorkflow = await app.inject({
-        method: 'POST',
-        path: '/api/v1/workflow-templates',
-        headers: userHeaders,
-        body: { content: workflowHttpCertificateFixture('应用资产工作流真实 HTTP 验收') },
-      });
-      assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
-      const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
-      const published = await app.inject({
-        method: 'POST',
-        path: '/api/v1/workflow-template-versions/publish',
-        headers: userHeaders,
-        body: { versionId: workflow.version.id },
-      });
-      assert.equal(published.statusCode, 200, JSON.stringify(published.body));
+      const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('应用资产工作流真实 HTTP 验收'));
 
       const strategy = await app.inject({
         method: 'PATCH',
@@ -2364,6 +2342,13 @@ function grantWildcardPolicy(security: ReturnType<typeof createSecurityServices>
     resourceTypes: ['*'],
     scope: { tenantId },
   });
+}
+
+async function createPublishedWorkflow(app: ReturnType<typeof createApp>, content: WorkflowDslV1) {
+  const workflowTemplates = app.getResource('workflowTemplatesService') as WorkflowTemplatesApplicationService;
+  const workflow = await workflowTemplates.createWorkflow({ content });
+  await workflowTemplates.publishVersion(workflow.version.id);
+  return workflow;
 }
 
 function workflowTemplateFixture(name: string): WorkflowDslV1 {

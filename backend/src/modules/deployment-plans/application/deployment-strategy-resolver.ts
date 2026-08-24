@@ -111,6 +111,7 @@ export class DeploymentStrategyResolver {
       gatewayRoute,
       payload: {
         deploymentStrategy: strategy,
+        certificateVerification: workflowCertificateVerification(input),
         workflowRequest: {
           workflowId: workflow.workflowId,
           workflowVersionSelection: workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED'),
@@ -133,4 +134,27 @@ export class DeploymentStrategyResolver {
       },
     };
   }
+}
+
+function workflowCertificateVerification(input: DeploymentStrategyResolutionInput): Record<string, unknown> {
+  const connectHost = input.managedTargetContext?.host.primaryIp ?? input.applicationAsset.address;
+  const serverName = input.applicationAsset.sniName ?? input.applicationAsset.address;
+  const port = input.applicationAsset.port;
+  if (!connectHost || !serverName || !port) {
+    throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署策略缺少证书验证目标', {
+      applicationAssetId: input.applicationAsset.id,
+      connectHost,
+      serverName,
+      port,
+    });
+  }
+  return {
+    capabilityKey: 'certificate.verify',
+    schemaVersion: '1.0',
+    connectHost,
+    serverName,
+    port,
+    expectedDomains: [serverName],
+    source: input.managedTargetContext ? 'MANAGED_HOST' : 'APPLICATION_ASSET',
+  };
 }

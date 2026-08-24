@@ -1467,9 +1467,9 @@ export class DeploymentPlansApplicationService {
       const artifact = deploymentArtifactByTargetId?.get(target.id)
         ?? await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId);
       if (!artifact) continue;
-	      const payload = await this.buildAgentPayloadForTarget(target, artifact, plan.tenantId);
-	      const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
-	      if (payload || Object.keys(strategyPayload).length > 0) output.set(target.id, { ...strategyPayload, ...(payload ?? {}) });
+      const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
+      const payload = await this.buildAgentPayloadForTarget({ ...target, strategyPayload }, artifact, plan.tenantId);
+      if (payload || Object.keys(strategyPayload).length > 0) output.set(target.id, { ...strategyPayload, ...(payload ?? {}) });
     }
     return output;
   }
@@ -1733,6 +1733,7 @@ export class DeploymentPlansApplicationService {
     if (!resolvedTenantId) return undefined;
     const strategyPayload = target.strategyPayload ?? {};
     const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
+    const workflowRequest = readRecord(strategyPayload.workflowRequest);
     const verification = readRecord(strategyPayload.certificateVerification);
     const capabilityKey = readOptionalString(verification?.capabilityKey);
     const schemaVersion = readOptionalString(verification?.schemaVersion);
@@ -1749,6 +1750,9 @@ export class DeploymentPlansApplicationService {
       ...verification,
       expectedFingerprintSha256: artifact.expectedFingerprintSha256,
     };
+    if (!runtimeCapability && target.executorType === 'WORKFLOW' && workflowRequest) {
+      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+    }
     if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_ATOMIC') {
       const pluginBindingId = readOptionalString(runtimeCapability?.pluginBindingId);
       if (!pluginBindingId) {
