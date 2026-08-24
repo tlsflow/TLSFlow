@@ -4,6 +4,7 @@ import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import { ExecutorRegistry, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import { ExecutionGrantService } from './execution-grant.service.js';
 import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 class TrackingExecutor implements Executor {
@@ -61,10 +62,12 @@ test('Apply 与 Dry-run 共用五阶段和一秒间隔，Agent v2 执行器覆�
 });
 
 test('Apply 在目标宿主缺少根信任时先插入独立根信任阶段', async () => {
+  const executionGrants = new ExecutionGrantService();
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     tasks: testTaskEnqueuer(),
+    executionGrants,
   });
   const targetId = 'target_trust_stage';
   const created = await service.createApplyRun({
@@ -78,6 +81,18 @@ test('Apply 在目标宿主缺少根信任时先插入独立根信任阶段', as
     agentPayloadByTargetId: new Map([[targetId, withTestDeploymentInputSnapshot('plan_trust_stage', targetId, {
       actionType: 'agent.plan.execute',
       pluginRuntimeCapability: { runtime: 'AGENT_V2' },
+      plan: {
+        planId: 'agent-plan-trust-stage',
+        pluginId: 'fixture.certificate',
+        pluginVersionId: 'plugin-version-trust-stage',
+        capability: 'certificate.deploy',
+        planDigest: 'f'.repeat(64),
+      },
+      executionAuthorization: {
+        planId: 'plan_trust_stage',
+        actions: ['certificate.trust.install', 'certificate.deploy'],
+        lifetimeSeconds: 60,
+      },
       certificateVerification: { connectHost: '127.0.0.1', serverName: 'example.test', port: 443 },
       certificateTrustPlan: {
         apiVersion: 'gcac.certificate-trust-plan/v1',
