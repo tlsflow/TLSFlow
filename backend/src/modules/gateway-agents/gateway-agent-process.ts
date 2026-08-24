@@ -34,6 +34,12 @@ export class GatewayAgentProcess {
   private readonly v2Forwarding = new GatewayV2ForwardingService();
 
   constructor(private readonly options: GatewayAgentProcessOptions) {
+    if (!options.gatewayTasks.hasDurablePersistence) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Gateway Agent v2 进程缺少持久化 GatewayTask 仓储，拒绝启动', {
+        reason: 'GATEWAY_V2_TASK_PERSISTENCE_REQUIRED',
+        fallback: false,
+      });
+    }
     this.leaseFactory = options.leaseFactory ?? (() => newId('gw_lease'));
     this.grants = options.grants ?? new ForwardingGrantService();
     this.forwarder = options.forwarder ?? new FailClosedGatewayAgentV2Forwarder();

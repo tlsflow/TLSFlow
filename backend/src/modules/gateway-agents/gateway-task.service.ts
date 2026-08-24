@@ -79,7 +79,7 @@ export class GatewayTaskService {
   }
 
   get hasDurablePersistence(): boolean {
-    return Boolean(this.repositories);
+    return Boolean(this.repositories && typeof this.repositories.flush === 'function');
   }
 
   dispatch(input: GatewayDelegatedTaskInput): GatewayTask {
@@ -337,7 +337,7 @@ export class GatewayTaskService {
   }
 
   private assertDurableV2NonceStore(): void {
-    if (!this.repositories) {
+    if (!this.hasDurablePersistence) {
       throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Gateway v2 Nonce 持久化仓储未装配，拒绝执行', {
         reason: 'GATEWAY_V2_NONCE_STORE_UNAVAILABLE',
         fallback: false,
