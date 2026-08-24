@@ -1,7 +1,9 @@
 export * from './schema/internal-ca.schema.js';
+export * from './schema/acme.schema.js';
 export * from './repository/internal-ca.repository.js';
 export * from './providers/openssl-ca.js';
 export * from './providers/ca-provider.js';
+export * from './providers/acme-provider.js';
 export * from './providers/ca-operations.js';
 export * from './providers/microsoft-adcs-operations.adapter.js';
 export * from './repository/ca-operations.repository.js';
@@ -13,4 +15,6 @@ export * from './application/ca-sync-worker.js';
 export * from './application/ca-auto-sync-scheduler.js';
 export * from './dto/ca-operations.dto.js';
 export * from './application/internal-ca.application-service.js';
+export * from './domain/acme.domain-service.js';
+export * from './dto/acme.dto.js';
 export * from './controller/internal-ca.controller.js';

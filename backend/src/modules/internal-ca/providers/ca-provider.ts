@@ -6,6 +6,7 @@ import type {
   CertificateAuthorityEntity,
   CertificateProfileRules,
 } from '../schema/internal-ca.schema.js';
+import { AcmeProviderAdapter } from './acme-provider.js';
 import { OpenSslCa, type IssuedCertificateMaterial } from './openssl-ca.js';
 
 export interface SignCsrCommand {
@@ -54,7 +55,7 @@ export function createDefaultCaProviderRegistry(secrets: SecretService): CaProvi
   registry.register('gcac_builtin', new BuiltinCaProvider(openssl, secrets));
   registry.register('gcac_managed_node', new JsonProtocolCaProvider(secrets, managedNodeCapabilities(), managedNodeContract));
   registry.register('microsoft_adcs', new JsonProtocolCaProvider(secrets, adcsCapabilities(), adcsContract));
-  registry.register('acme', new JsonProtocolCaProvider(secrets, acmeCapabilities(), acmeContract));
+  registry.register('acme', new AcmeProviderAdapter(secrets));
   registry.register('est', new JsonProtocolCaProvider(secrets, estCapabilities(), estContract));
   registry.register('scep', new JsonProtocolCaProvider(secrets, scepCapabilities(), scepContract));
   registry.register('product_adapter', new JsonProtocolCaProvider(secrets, externalCapabilities(), productAdapterContract));
