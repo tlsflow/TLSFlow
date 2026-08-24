@@ -16,7 +16,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   const tenantId = 'tenant-managed-plugin-query';
   const device = await new PgDeviceAssetsRepository(db).create(tenantId, {
     displayName: 'Fixture ADC', managementAddress: '10.33.44.10', managementPort: 443,
-    deviceFamily: 'NETSCALER_ADC', authMode: 'AUTO', tlsVerify: true,
+    deviceFamily: 'citrix.netscaler-adc', authMode: 'AUTO', tlsVerify: true,
   });
   const assets = new PgAssetsRepository(db);
   const framework = await assets.createFrameworkInstance(tenantId, {

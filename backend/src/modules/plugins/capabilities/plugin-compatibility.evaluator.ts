@@ -58,12 +58,5 @@ function check(
 }
 
 function normalizeProductFamily(value: string): string {
-  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return PRODUCT_FAMILY_ALIASES.get(normalized) ?? normalized;
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
-
-// 历史设备资产与统一插件协议使用过不同的 Citrix ADC 产品族标识，兼容性判断必须收敛到同一稳定身份。
-const PRODUCT_FAMILY_ALIASES = new Map<string, string>([
-  ['CITRIX_ADC', 'CITRIX_NETSCALER_ADC'],
-  ['NETSCALER_ADC', 'CITRIX_NETSCALER_ADC'],
-]);

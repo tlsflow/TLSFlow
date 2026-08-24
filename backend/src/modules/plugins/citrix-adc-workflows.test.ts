@@ -151,6 +151,7 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   });
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
   const validated = new DeviceDiscoverySchemaService().validate(discovery);
+  assert.equal(validated.device.productFamily, 'citrix.netscaler-adc');
   assert.deepEqual(validated.frameworks, [{ stableKey: 'framework:nitro', frameworkType: 'adc.load-balancer', displayName: 'NITRO' }]);
   assert.equal(validated.device.metadata?.managementProtocol, 'NITRO API');
   assert.deepEqual(validated.sites.map((site) => site.stableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
@@ -331,8 +332,8 @@ test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接
       },
     },
     bindingLayers: {
-      deviceDefault: { pluginVersionId: 'citrix.netscaler-adc:1.1.18', inputBindings: deviceBinding },
-      assetOverride: { pluginVersionId: 'citrix.netscaler-adc:1.1.18', inputBindings: assetBinding },
+      deviceDefault: { pluginVersionId: 'citrix.netscaler-adc:1.1.19', inputBindings: deviceBinding },
+      assetOverride: { pluginVersionId: 'citrix.netscaler-adc:1.1.19', inputBindings: assetBinding },
     },
     credentialSnapshots: {
       credential: {

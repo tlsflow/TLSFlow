@@ -20,6 +20,7 @@
     "check:builtin-plugin-versions": "node ../scripts/check-builtin-plugin-versions.mjs && node --test ../scripts/check-builtin-plugin-versions.test.mjs && tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts && tsx --test src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.test.ts",
     "update:builtin-plugin-package-ledger": "tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts --update",
     "audit:managed-target-baseline": "node ../scripts/audit-unified-managed-target-baseline.mjs",
+    "audit:plugin-product-families": "node ../scripts/audit-plugin-product-families.mjs",
     "migrate": "tsx src/database/migrate.ts",
     "migrate:prod": "node dist/database/migrate.js",
     "dev": "tsx watch src/main.ts",

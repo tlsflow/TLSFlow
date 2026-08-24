@@ -160,6 +160,11 @@
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.2.1",
       "packageSha256": "sha256:c6303ed7d6a69d4dce838f1f312b4966d8f915b091c5365fa5bbb9408d6baf14"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.19",
+      "packageSha256": "sha256:efb79027db12c57f5f3078342a982c1a5f102a08269f6a644e053d83f8ae0dd1"
     }
   ]
 }

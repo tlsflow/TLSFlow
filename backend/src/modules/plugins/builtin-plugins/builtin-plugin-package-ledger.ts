@@ -32,7 +32,7 @@ export async function loadBuiltinPluginPackageSnapshots(
       version: manifest.version,
       packageSha256: sha256(pluginPackage.packageContent),
     };
-  }).filter((snapshot) => snapshot.pluginId.startsWith('builtin.')).sort(compareSnapshots);
+  }).sort(compareSnapshots);
 }
 
 export function validateBuiltinPluginPackageLedger(
