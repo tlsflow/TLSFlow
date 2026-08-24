@@ -170,6 +170,7 @@ function allTasksQueryCategory(): TaskCategory | undefined {
 function applyQuickTasksState(next: { active: TaskRun[]; recent: TaskRun[] }): void {
   if (!sameTaskList(quickActiveTasks.value, next.active)) quickActiveTasks.value = next.active
   if (!sameTaskList(quickRecentCompleted.value, next.recent)) quickRecentCompleted.value = next.recent
+  resolveTaskPresentations([...next.active, ...next.recent])
 }
 
 function applyQuickTaskActivity(state: TaskActivityState): void {
@@ -201,8 +202,7 @@ function applyAllTasksState(next: {
   if (!sameTaskList(allTasks.value, next.items)) allTasks.value = next.items
   allTasksPage.value = next.page
   allTasksHasMore.value = next.hasMore
-  void resolveDeploymentPlanNames(next.items)
-  void resolveAcmeRenewalTaskPresentations(next.items)
+  resolveTaskPresentations(next.items)
 }
 
 async function requestAllTasksPage(page: number): Promise<{
@@ -289,8 +289,7 @@ async function openTask(task: TaskRun): Promise<void> {
   try {
     const loadedDetail = await refreshTaskDetail(task.id)
     if (loadedDetail?.task) {
-      void resolveDeploymentPlanNames([loadedDetail.task])
-      void resolveAcmeRenewalTaskPresentations([loadedDetail.task])
+      resolveTaskPresentations([loadedDetail.task])
     }
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : t('tasks.messages.detailFailed')
@@ -477,9 +476,24 @@ function taskOverview(task: TaskRun): string {
 }
 
 function taskStatusSummary(task: TaskRun): string {
+  if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') return acmeRenewalTaskSummary(task)
   const status = taskStatusLabel(task)
   const overview = taskOverview(task)
   return overview === status ? overview : `${status} · ${overview}`
+}
+
+function acmeRenewalTaskSummary(task: TaskRun): string {
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+    return firstNonEmptyString(
+      task.lastErrorMessage,
+      stringFromRecord(task.progress, 'errorMessage'),
+    ) ?? acmeAttemptLabel(task.status === 'FAILED' ? 'failed' : 'cancelled')
+  }
+  if (task.status === 'QUEUED') return acmeAttemptLabel('queued')
+  if (task.status === 'RUNNING') return acmeAttemptLabel('running')
+  if (task.status === 'RETRY_WAITING') return acmeAttemptLabel('retryWaiting')
+  if (task.status === 'SUCCEEDED') return acmeAttemptLabel('succeeded')
+  return taskStatusLabel(task)
 }
 
 function acmeAttemptLabel(state: AcmeTaskAttemptState): string {
@@ -776,6 +790,11 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
     .filter((planId) => !resolved[planId])
     .forEach((planId) => deploymentPlanNameMisses.add(planId))
   if (Object.keys(resolved).length > 0) deploymentPlanNames.value = { ...deploymentPlanNames.value, ...resolved }
+}
+
+function resolveTaskPresentations(tasks: readonly TaskRun[]): void {
+  void resolveDeploymentPlanNames(tasks)
+  void resolveAcmeRenewalTaskPresentations(tasks)
 }
 
 async function resolveAcmeRenewalTaskPresentations(tasks: readonly TaskRun[]): Promise<void> {
