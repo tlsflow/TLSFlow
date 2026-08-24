@@ -85,8 +85,30 @@ describe('Cloud Security Pro 共享组件', () => {
     expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('证书趋势')
     expect(wrapper.classes()).toContain('gc-trend-chart--warning')
     expect(wrapper.findAll('.gc-trend-chart__point')).toHaveLength(3)
+    expect(wrapper.findAll('.gc-trend-chart__point').every((point) => point.element.tagName === 'SPAN')).toBe(true)
+    expect(wrapper.findAll('.gc-trend-chart__point').every((point) => point.attributes('aria-hidden') === 'true')).toBe(true)
     expect(wrapper.findAll('.gc-trend-chart__line')).toHaveLength(1)
+    expect(wrapper.findAll('.gc-trend-chart__area')).toHaveLength(1)
     expect(wrapper.html()).not.toContain('NaN')
+  })
+
+  it('GcTrendChart 提供平滑曲线与键盘可访问的数值提示', async () => {
+    const wrapper = mount(GcTrendChart, {
+      props: {
+        data: [{ value: 12 }, { value: 24 }, { value: 18 }],
+        ariaLabel: '证书趋势',
+        emptyLabel: '暂无趋势数据',
+      },
+    })
+
+    expect(wrapper.find('.gc-trend-chart__line').attributes('d')).toContain('C ')
+    await wrapper.get('[role="img"]').trigger('focus')
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('12')
+    await wrapper.get('[role="img"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('24')
+    await wrapper.findAll('.gc-trend-chart__point')[2].trigger('pointerenter')
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('18')
+    expect(wrapper.findAll('.gc-trend-chart__point')[2].classes()).toContain('gc-trend-chart__point--active')
   })
 
   it('GcTrendChart 在无有效数据时显示调用方提供的空态文案', () => {

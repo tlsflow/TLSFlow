@@ -6,6 +6,8 @@ const layout = readFileSync(resolve(process.cwd(), 'src/design-system/patterns/l
 const buttonComponent = readFileSync(resolve(process.cwd(), 'src/design-system/components/GcButton.vue'), 'utf8')
 const dataTableComponent = readFileSync(resolve(process.cwd(), 'src/design-system/components/GcDataTable.vue'), 'utf8')
 const emptyStateComponent = readFileSync(resolve(process.cwd(), 'src/design-system/components/GcEmptyState.vue'), 'utf8')
+const dashboardView = readFileSync(resolve(process.cwd(), 'src/views/dashboard/DashboardView.vue'), 'utf8')
+const tokens = readFileSync(resolve(process.cwd(), 'src/design-system/tokens/index.css'), 'utf8')
 
 function cssBlocks(selector: string): string[] {
   return [...layout.matchAll(new RegExp(`${selector}\\s*\\{([^}]*)\\}`, 'g'))].map((match) => match[1])
@@ -48,5 +50,29 @@ describe('按钮和卡片样式收口合同', () => {
     const emptyStateBlocks = cssBlocks('section\\.gc-card\\.gc-empty-state')
     expect(emptyStateBlocks).toHaveLength(1)
     expect(emptyStateBlocks[0]).toContain('border-radius: var(--gc-radius-card);')
+  })
+
+  it('默认卡片和通用表格使用无滤镜的轻玻璃表面', () => {
+    const cardBlocks = cssBlocks('\\.gc-card')
+
+    expect(cardBlocks[0]).toContain('background: var(--gc-color-surface-glass);')
+    expect(cardBlocks[0]).toContain('border: var(--gc-border-width-default) solid var(--gc-color-border-soft);')
+    expect(cardBlocks[0]).not.toContain('backdrop-filter')
+    expect(dataTableComponent).toContain('background: var(--gc-color-surface-glass);')
+    expect(dataTableComponent).not.toContain('backdrop-filter')
+  })
+
+  it('轻玻璃表面保留可见的工作区透出层次', () => {
+    expect(tokens).toContain('--gc-color-surface-glass: rgb(255 255 255 / 68%);')
+    expect(tokens).toContain('--gc-color-surface-workspace-glass: rgb(255 255 255 / 58%);')
+    expect(tokens).toContain('--gc-gradient-workspace: linear-gradient(118deg, var(--gc-color-workspace-primary) 0%, var(--gc-color-workspace-soft) 42%, var(--gc-color-workspace-accent) 100%);')
+  })
+
+  it('仅工作台壳层与仪表盘概览面板保留模糊', () => {
+    for (const selector of ['\\.gc-workbench__sidebar', '\\.gc-workbench__topbar']) {
+      expect(cssBlocks(selector).some((block) => block.includes('backdrop-filter: blur('))).toBe(true)
+    }
+
+    expect(dashboardView).toContain('backdrop-filter: blur(var(--gc-space-4));')
   })
 })
