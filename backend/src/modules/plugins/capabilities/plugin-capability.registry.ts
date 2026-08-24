@@ -4,6 +4,10 @@ import type { UnifiedPluginCapabilityDescriptor } from '../dto/unified-plugins.d
 export type PluginCapabilityRisk = 'LOW' | 'MEDIUM' | 'HIGH';
 export type PluginCapabilityIdempotency = 'READ_ONLY' | 'IDEMPOTENT_WRITE' | 'NON_IDEMPOTENT_WRITE';
 
+/** credential.acquire 的输入/输出合同 ID，Manifest 校验与能力注册表共用同一来源。 */
+export const CREDENTIAL_ACQUIRE_INPUT_SCHEMA_ID = 'gcac.credential-acquire-input/v1' as const;
+export const CREDENTIAL_OUTPUT_SCHEMA_ID = 'gcac.credential-output/v1' as const;
+
 export interface PluginCapabilityContract {
   key: string;
   contractVersion: string;
@@ -43,8 +47,8 @@ const contracts: PluginCapabilityContract[] = [
     riskLevel: 'HIGH',
     idempotency: 'READ_ONLY',
     permission: 'credential.create',
-    inputSchemaId: 'gcac.credential-acquire-input/v1',
-    outputSchemaId: 'gcac.credential-output/v1',
+    inputSchemaId: CREDENTIAL_ACQUIRE_INPUT_SCHEMA_ID,
+    outputSchemaId: CREDENTIAL_OUTPUT_SCHEMA_ID,
     resourceLock: 'NONE',
     executionLocations: ['CONTROL_PLANE'],
   },

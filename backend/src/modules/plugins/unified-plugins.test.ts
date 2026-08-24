@@ -212,6 +212,60 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   );
 });
 
+test('credential.acquire 必须使用注册表定义的输入和输出 Schema ID', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  const base = workflowPluginInput();
+  const manifest = {
+    ...base.manifest,
+    pluginId: 'test.browser.credential',
+    capabilities: [{
+      key: 'credential.acquire',
+      contractVersion: 'v1',
+      actionContractId: 'credential.acquire.v1',
+      riskLevel: 'HIGH',
+      executionLocations: ['CONTROL_PLANE'],
+    }],
+    resources: { workflows: { 'credential.acquire': 'workflows/acquire.json' } },
+    credentialAcquire: {
+      inputContractVersion: 'gcac.deployment-input/v1',
+      loginUrl: 'https://login.example.test/sign-in',
+      allowedOrigins: ['https://login.example.test'],
+      output: {
+        version: 'credential.output/v1',
+        parameters: {
+          sessionId: { secretType: 'session_id', required: true, delivery: { location: 'cookie', name: 'session_id' } },
+        },
+      },
+    },
+  };
+
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...base,
+      packageContent: 'invalid-credential-schema-ids',
+      manifest,
+      resources: { ...base.resources, 'workflows/acquire.json': '{}' },
+    }),
+    /必须是 gcac\.credential-acquire-input\/v1/,
+  );
+
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...base,
+      packageContent: 'invalid-credential-output-schema-id',
+      manifest: {
+        ...manifest,
+        credentialAcquire: {
+          ...manifest.credentialAcquire,
+          inputContractVersion: 'gcac.credential-acquire-input/v1',
+        },
+      },
+      resources: { ...base.resources, 'workflows/acquire.json': '{}' },
+    }),
+    /必须是 gcac\.credential-output\/v1/,
+  );
+});
+
 test('统一插件接受声明式 inputContracts 资源', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const base = workflowPluginInput();

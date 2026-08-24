@@ -506,11 +506,11 @@ class FakePluginVersions implements PluginVersionReader {
           executionLocations: ['CONTROL_PLANE'],
         }],
         credentialAcquire: {
-          inputContractVersion: 'gcac.deployment-input/v1',
+          inputContractVersion: 'gcac.credential-acquire-input/v1',
           loginUrl: 'https://asset.example.test/login',
           allowedOrigins: ['https://asset.example.test'],
           output: {
-            version: 'credential.output/v1',
+            version: 'gcac.credential-output/v1',
             parameters: {
               token: { secretType: 'api_token', required: true, delivery: { location: 'header', name: 'Authorization' } },
               sid: { secretType: 'session_id', required: true, delivery: { location: 'cookie', name: 'sid' } },

@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { isSemVerRange, normalizeMinimumGcacVersion } from '../../../common/version.js';
+import { CREDENTIAL_ACQUIRE_INPUT_SCHEMA_ID, CREDENTIAL_OUTPUT_SCHEMA_ID } from '../capabilities/plugin-capability.registry.js';
 import type {
   CredentialAcquireContract,
   UnifiedPluginCapabilityDescriptor,
@@ -114,6 +115,9 @@ function validateCredentialAcquire(input: unknown, capabilities: UnifiedPluginCa
   const value = requireRecord(input, 'credentialAcquire');
   assertKnownKeys(value, new Set(['inputContractVersion', 'loginUrl', 'allowedOrigins', 'output']), 'credentialAcquire');
   const inputContractVersion = requireString(value.inputContractVersion, 'credentialAcquire.inputContractVersion');
+  if (inputContractVersion !== CREDENTIAL_ACQUIRE_INPUT_SCHEMA_ID) {
+    fail('credentialAcquire.inputContractVersion', `必须是 ${CREDENTIAL_ACQUIRE_INPUT_SCHEMA_ID}`);
+  }
   const loginUrl = requireString(value.loginUrl, 'credentialAcquire.loginUrl');
   if (!/^https?:\/\//i.test(loginUrl)) fail('credentialAcquire.loginUrl', '必须是 HTTP(S) URL');
   const allowedOrigins = requireStringArray(value.allowedOrigins, 'credentialAcquire.allowedOrigins');
@@ -123,6 +127,9 @@ function validateCredentialAcquire(input: unknown, capabilities: UnifiedPluginCa
   const output = requireRecord(value.output, 'credentialAcquire.output');
   assertKnownKeys(output, new Set(['version', 'parameters']), 'credentialAcquire.output');
   const outputVersion = requireString(output.version, 'credentialAcquire.output.version');
+  if (outputVersion !== CREDENTIAL_OUTPUT_SCHEMA_ID) {
+    fail('credentialAcquire.output.version', `必须是 ${CREDENTIAL_OUTPUT_SCHEMA_ID}`);
+  }
   const parameters = requireRecord(output.parameters, 'credentialAcquire.output.parameters');
   const normalizedParameters: CredentialAcquireContract['output']['parameters'] = {};
   for (const [name, raw] of Object.entries(parameters)) {
