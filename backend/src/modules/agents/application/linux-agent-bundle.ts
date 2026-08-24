@@ -23,7 +23,7 @@ const sourceDir = resolve(rootDir, 'agents/linux-go-full-agent');
 
 export function getLinuxAgentBundleFiles(): LinuxBundleFile[] {
   return [
-    loadFile('gcac-linux-agent', 0o755),
+    loadBinaryFile('gcac-linux-agent', 0o755, assertLinuxExecutable),
     loadFile('build.sh', 0o755),
     loadFile('service-control.sh', 0o755),
     loadFile('config/agent.config.template.json', 0o644),
@@ -75,6 +75,34 @@ function loadFile(relativePath: string, mode: number): LinuxBundleFile {
       cause: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+function loadBinaryFile(relativePath: string, mode: number, validator: (content: Buffer, fullPath: string) => void): LinuxBundleFile {
+  const file = loadFile(relativePath, mode);
+  validator(file.content, resolve(sourceDir, relativePath));
+  return file;
+}
+
+function assertLinuxExecutable(content: Buffer, fullPath: string): void {
+  if (content.length < 4) {
+    throw new AppError('VALIDATION_FAILED', 'Linux Agent bundle 二进制文件过小，无法识别格式', {
+      fullPath,
+      size: content.length,
+    });
+  }
+  if (content[0] === 0x7f && content[1] === 0x45 && content[2] === 0x4c && content[3] === 0x46) {
+    return;
+  }
+  if (content[0] === 0x4d && content[1] === 0x5a) {
+    throw new AppError('VALIDATION_FAILED', 'Linux Agent bundle 产物错误：检测到 Windows PE 可执行文件，不能下发到 Linux', {
+      fullPath,
+      detectedFormat: 'pe',
+    });
+  }
+  throw new AppError('VALIDATION_FAILED', 'Linux Agent bundle 产物错误：gcac-linux-agent 不是 ELF 可执行文件', {
+    fullPath,
+    headerHex: content.subarray(0, 8).toString('hex'),
+  });
 }
 
 function buildTarHeader(file: LinuxBundleFile): Buffer {
