@@ -162,6 +162,12 @@ export class UnifiedDeploymentInputResolver {
     if (port !== undefined) connection.port = port as number;
     if (username !== undefined) connection.username = username as string;
 
+    // 管理连接必须是主机名或 IP。纯数字单标签（例如历史表单误写入的“1”）
+    // 会被部分 HTTP 客户端当作无效目标或错误解析，不能进入已密封的执行快照。
+    if (host !== undefined && !isValidConnectionHost(host)) {
+      issues.push(issue('CONNECTION', 'DEPLOYMENT_INPUT_TYPE_INVALID', name, `connections.${name}.host`, provenance[`connections.${name}.host`]?.bindingLayer));
+    }
+
     if (definition.tls) {
       const verifyPeer = this.resolveConnectionField(request, name, 'tls.verifyPeer', definition.tls.verifyPeer, execution?.tls?.verifyPeer, binding?.tls?.verifyPeer, provenance, issues);
       const serverName = definition.tls.serverName
@@ -358,6 +364,13 @@ function matchesVariableType(definition: DeploymentVariableDefinitionV1, value: 
 
 function matchesScalarType(type: DeploymentConnectionFieldV1['type'], value: unknown): boolean {
   return typeof value === type && (type !== 'number' || Number.isFinite(value));
+}
+
+function isValidConnectionHost(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const host = value.trim();
+  if (!host || /^\d+$/.test(host) || /\s|\//.test(host) || /^(?:https?|ssh):\/\//i.test(host)) return false;
+  return /^[a-z0-9][a-z0-9._:-]*$/i.test(host);
 }
 
 function stableJson(value: unknown): string {

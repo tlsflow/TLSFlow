@@ -35,11 +35,13 @@ export class PluginBindingsApplicationService {
       version: binding.version + 1,
       updatedAt: new Date().toISOString(),
     };
-    return this.repository.saveBinding(next);
+    return this.repository.updateBinding(next, input.expectedVersion);
   }
 
   async createBinding(tenantId: string, input: CreatePluginBindingInput): Promise<PluginBindingV1> {
-    if (input.mode === 'MANAGED' && !input.managedContext?.hostId) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId');
+    if (input.mode === 'MANAGED' && !hasManagedContextOwner(input.managedContext)) {
+      throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId 或 cloudAccountAssetId');
+    }
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
     assertManagedContext(input.managedContext);
     for (const [slot, value] of Object.entries(input.inputBindings.credentials)) {
@@ -52,6 +54,12 @@ export class PluginBindingsApplicationService {
   async assignCapability(tenantId: string, input: Omit<CapabilityAssignmentV1, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt'>): Promise<CapabilityAssignmentV1> {
     const binding = await this.repository.getBinding(input.pluginBindingId);
     if (!binding || binding.tenantId !== tenantId || binding.pluginVersionId !== input.pluginVersionId) throw new AppError('VALIDATION_FAILED', 'Capability Assignment 与 Binding 不一致');
+    if (input.ownerType === 'CLOUD_ACCOUNT_ASSET' && binding.managedContext?.cloudAccountAssetId !== input.ownerId) {
+      throw new AppError('VALIDATION_FAILED', '云账号 Capability Assignment 必须绑定同一 CloudAccountAsset', {
+        ownerId: input.ownerId,
+        cloudAccountAssetId: binding.managedContext?.cloudAccountAssetId,
+      });
+    }
     const now = new Date().toISOString();
     return this.repository.saveAssignment({ ...input, id: newId('capa'), tenantId, status: 'ACTIVE', createdAt: now, updatedAt: now });
   }
@@ -60,24 +68,33 @@ export class PluginBindingsApplicationService {
     await this.repository.disableAssignment(tenantId, input.ownerType, input.ownerId, input.capabilityKey, new Date().toISOString());
   }
 
-  async listAssignmentCandidates(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1[]> {
+  async listAssignmentCandidates(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1[]> {
     const assignments = await this.repository.listAssignments(tenantId, capabilityKey);
     return [
       assignments.find((item) => item.ownerType === 'APPLICATION_ASSET' && item.ownerId === owners.applicationAssetId),
+      assignments.find((item) => item.ownerType === 'CLOUD_ACCOUNT_ASSET' && item.ownerId === owners.cloudAccountAssetId),
       assignments.find((item) => item.ownerType === 'MANAGED_TARGET' && item.ownerId === owners.managedTargetId),
       assignments.find((item) => item.ownerType === 'DEVICE' && item.ownerId === owners.deviceId),
     ].filter((item): item is CapabilityAssignmentV1 => Boolean(item));
   }
 
-  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
+  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
     return (await this.listAssignmentCandidates(tenantId, capabilityKey, owners))[0];
   }
 }
 
 function assertManagedContext(context: PluginBindingV1['managedContext'] | undefined): void {
   if (!context) return;
-  const unknownFields = Object.keys(context).filter((key) => key !== 'hostId' && key !== 'managedTargetId');
+  const unknownFields = Object.keys(context).filter((key) => key !== 'hostId' && key !== 'managedTargetId' && key !== 'cloudAccountAssetId');
   if (unknownFields.length > 0) {
-    throw new AppError('VALIDATION_FAILED', 'Managed Binding 只允许保存 Host 和 ManagedTarget 身份', { unknownFields });
+    throw new AppError('VALIDATION_FAILED', 'Managed Binding 只允许保存 Host、ManagedTarget 或 CloudAccountAsset 身份', { unknownFields });
   }
+  if (!hasManagedContextOwner(context)) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须包含一个所有者上下文');
+  if (context.cloudAccountAssetId && (context.hostId || context.managedTargetId)) {
+    throw new AppError('VALIDATION_FAILED', 'CloudAccountAsset Binding 不能同时携带 Host 或 ManagedTarget');
+  }
+}
+
+function hasManagedContextOwner(context: PluginBindingV1['managedContext'] | undefined): boolean {
+  return Boolean(context?.hostId || context?.cloudAccountAssetId);
 }

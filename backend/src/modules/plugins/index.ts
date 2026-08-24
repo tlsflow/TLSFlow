@@ -17,6 +17,4 @@ export * from './promotion/plugin-promotion.dto.js';
 export * from './promotion/plugin-promotion.repository.js';
 export * from './promotion/plugin-promotion.service.js';
 export * from './runtime/plugin-runtime-guard.service.js';
-export * from './builtin-plugins/builtin-plugin-registry.js';
-export * from './builtin-plugins/builtin-plugin-policy.js';
 export * from './onboarding/application-onboarding-recipe.dto.js';

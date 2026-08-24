@@ -102,6 +102,7 @@ export class PluginWorkflowCapabilityExecutorAdapter implements PluginWorkflowCa
       allowedActions: pluginRunnerGrantActions(input.hostPermissions),
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
+    const boundInput = bindGeneratedGrant(input.input, grant.id);
     const binding = {
       apiVersion: pluginRunnerBindingApiVersion,
       tenantId: input.tenantId,
@@ -119,7 +120,7 @@ export class PluginWorkflowCapabilityExecutorAdapter implements PluginWorkflowCa
       planDigest,
       writeEffect: input.writeEffect,
       hostPermissions: [...input.hostPermissions],
-      input: structuredClone(input.input),
+      input: boundInput,
     } satisfies PluginRunnerExecutionBindingV1;
     const now = new Date().toISOString();
     const step: ExecutionStepEntity = {
@@ -144,6 +145,22 @@ export class PluginWorkflowCapabilityExecutorAdapter implements PluginWorkflowCa
     const result = await this.executor.executeStep({ step, runType: 'apply', dryRun: false });
     return { ...result, executionId, executionStepId };
   }
+}
+
+/** 中文说明：Capability 任务直到执行前才知道 Grant ID，内部占位符在此处一次性绑定。 */
+function bindGeneratedGrant(input: Record<string, unknown>, grantId: string): Record<string, unknown> {
+  const output = structuredClone(input);
+  const credential = output.credential;
+  if (credential && typeof credential === 'object' && !Array.isArray(credential)) {
+    const record = credential as Record<string, unknown>;
+    if (record.grantId === '__AUTO_GRANT__') record.grantId = grantId;
+  }
+  const security = output.security;
+  if (security && typeof security === 'object' && !Array.isArray(security)) {
+    const record = security as Record<string, unknown>;
+    if (record.grantRef === '__AUTO_GRANT__') record.grantRef = grantId;
+  }
+  return output;
 }
 
 /**
@@ -426,6 +443,12 @@ async function resolveBuiltinPackage(
     throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '执行绑定摘要与固定内置插件包不一致', {
       pluginId: binding.pluginId,
       pluginVersion: binding.pluginVersion,
+      expectedPackageSha256: binding.packageHash,
+      actualPackageSha256: entry.packageSha256,
+      expectedManifestSha256: binding.manifestHash,
+      actualManifestSha256: entry.manifestSha256,
+      expectedResourceHash: binding.resourceHash,
+      actualResourceHash: entry.resourceHash,
     });
   }
   return entry;

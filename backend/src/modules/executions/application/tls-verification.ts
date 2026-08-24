@@ -131,9 +131,12 @@ export async function probeTlsCertificate(target: TlsVerifyTarget): Promise<TlsV
         const certificateSha256 = createHash('sha256').update(raw).digest('hex').toLowerCase();
         const x509 = new X509Certificate(raw);
         const dnsNames = extractDnsNames(x509.subjectAltName ?? '');
+        // Node 22 的 X509Certificate.subject/issuer 是 DN 字符串，不是旧版
+        // PeerCertificate 对象。不能对字符串使用 Object.entries，否则审计日志
+        // 会变成“0=C, 1==, 2=U...”这种不可读且无法再次解析的内容。
         const commonName = readCertificateCommonName(peer.subject);
-        const subject = peer.subject ? Object.entries(peer.subject).map(([key, value]) => `${key}=${String(value)}`).join(', ') : '';
-        const issuer = peer.issuer ? Object.entries(peer.issuer).map(([key, value]) => `${key}=${String(value)}`).join(', ') : '';
+        const subject = formatCertificateName(peer.subject);
+        const issuer = formatCertificateName(peer.issuer);
         cleanup();
         resolve({
           target: target.target,
@@ -198,11 +201,24 @@ function normalizeCertificateFingerprint(value: string | undefined): string | un
   return normalized || undefined;
 }
 
-function readCertificateCommonName(subject: unknown): string | undefined {
+export function readCertificateCommonName(subject: unknown): string | undefined {
+  if (typeof subject === 'string') {
+    // X509Certificate.subject 使用换行分隔 DN 属性；兼容逗号分隔及大小写差异。
+    const match = /(?:^|[,\n])\s*CN\s*=\s*([^,\n]+)/i.exec(subject);
+    return match?.[1]?.trim() || undefined;
+  }
   if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return undefined;
   const value = (subject as Record<string, unknown>).CN;
   if (Array.isArray(value)) return value.find((item): item is string => typeof item === 'string' && item.trim().length > 0)?.trim();
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function formatCertificateName(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, item]) => `${key}=${String(item)}`)
+    .join(', ');
 }
 
 function readOptionalString(value: unknown): string | undefined {

@@ -2079,6 +2079,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/execution-runs/recover:
+    post:
+      operationId: "recoverExecutionRun"
+      summary: "核验未知执行结果"
+      tags:
+        - "Executions"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/assets:
     get:
       operationId: "listAssets"
@@ -3535,6 +3555,17 @@ paths:
       summary: "创建云账号资产"
       tags:
         - "Cloud Service"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required:
+                - "displayName"
+                - "providerKey"
+                - "credentialRef"
+              additionalProperties: true
       responses:
         200:
           description: "成功"
@@ -3554,6 +3585,16 @@ paths:
       summary: "更新云账号资产"
       tags:
         - "Cloud Service"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required:
+                - "id"
+                - "expectedVersion"
+              additionalProperties: false
       responses:
         200:
           description: "成功"
@@ -3594,6 +3635,33 @@ paths:
       summary: "删除云账号资产"
       tags:
         - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/actions/:action:
+    post:
+      operationId: "enqueueCloudCapabilityAction"
+      summary: "执行云账号 Capability 任务"
+      tags:
+        - "Cloud Service"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
       responses:
         200:
           description: "成功"
@@ -4175,6 +4243,35 @@ paths:
                                     type: "string"
                                   status:
                                     type: "string"
+                              observedCertificate:
+                                type: "object"
+                                additionalProperties: false
+                                properties:
+                                  certificateAssetId:
+                                    type: "string"
+                                  certificateVersionId:
+                                    type: "string"
+                                  name:
+                                    type: "string"
+                                  subject:
+                                    type: "string"
+                                  issuer:
+                                    type: "string"
+                                  notBefore:
+                                    type: "string"
+                                    format: "date-time"
+                                  notAfter:
+                                    type: "string"
+                                    format: "date-time"
+                                  fingerprintSha256:
+                                    type: "string"
+                                  status:
+                                    type: "string"
+                              driftStatus:
+                                type: "string"
+                              deploymentTarget:
+                                type: "object"
+                                additionalProperties: true
                               replacement:
                                 type: "object"
                                 additionalProperties: false
@@ -11025,6 +11122,9 @@ paths:
                     managedTargetId:
                       type: "string"
                       pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    cloudAccountAssetId:
+                      type: "string"
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                   additionalProperties: false
               required:
                 - "pluginVersionId"
@@ -11088,6 +11188,9 @@ paths:
                         type: "string"
                         pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                       managedTargetId:
+                        type: "string"
+                        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      cloudAccountAssetId:
                         type: "string"
                         pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                     additionalProperties: false
@@ -11182,6 +11285,9 @@ paths:
                       managedTargetId:
                         type: "string"
                         pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      cloudAccountAssetId:
+                        type: "string"
+                        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                     additionalProperties: false
                   status:
                     type: "string"
@@ -11264,6 +11370,9 @@ paths:
                     managedTargetId:
                       type: "string"
                       pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    cloudAccountAssetId:
+                      type: "string"
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                   additionalProperties: false
                 status:
                   type: "string"
@@ -11335,6 +11444,9 @@ paths:
                       managedTargetId:
                         type: "string"
                         pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      cloudAccountAssetId:
+                        type: "string"
+                        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                     additionalProperties: false
                   status:
                     type: "string"
@@ -11363,6 +11475,71 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/capability-binding:
+    post:
+      operationId: "createCloudAccountCapabilityBinding"
+      summary: "固定云账号插件能力绑定"
+      tags:
+        - "Plugins"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              properties:
+                pluginVersionId:
+                  type: "string"
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                capabilityKey:
+                  type: "string"
+                inputBindings:
+                  type: "object"
+                  properties:
+                    apiVersion:
+                      type: "string"
+                    variables:
+                      type: "object"
+                      additionalProperties:
+{}
+                    connections:
+                      type: "object"
+                      additionalProperties:
+{}
+                    credentials:
+                      type: "object"
+                      additionalProperties:
+{}
+                    artifacts:
+                      type: "object"
+                      additionalProperties:
+{}
+                  required:
+                    - "apiVersion"
+                    - "variables"
+                    - "connections"
+                    - "credentials"
+                    - "artifacts"
+                  additionalProperties: false
+              required:
+                - "pluginVersionId"
+                - "capabilityKey"
+                - "inputBindings"
+              additionalProperties: false
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/capability-assignments:
     post:
       operationId: "assignPluginCapability"
@@ -11382,6 +11559,7 @@ paths:
                     - "DEVICE"
                     - "MANAGED_TARGET"
                     - "APPLICATION_ASSET"
+                    - "CLOUD_ACCOUNT_ASSET"
                 ownerId:
                   type: "string"
                   pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -11427,6 +11605,7 @@ paths:
                       - "DEVICE"
                       - "MANAGED_TARGET"
                       - "APPLICATION_ASSET"
+                      - "CLOUD_ACCOUNT_ASSET"
                   ownerId:
                     type: "string"
                     pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -11495,6 +11674,9 @@ paths:
                 applicationAssetId:
                   type: "string"
                   pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                cloudAccountAssetId:
+                  type: "string"
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
               required:
                 - "capabilityKey"
               additionalProperties: false
@@ -11518,6 +11700,7 @@ paths:
                       - "DEVICE"
                       - "MANAGED_TARGET"
                       - "APPLICATION_ASSET"
+                      - "CLOUD_ACCOUNT_ASSET"
                   ownerId:
                     type: "string"
                     pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -14623,4 +14806,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-14T17:41:03.836Z"
+x-generatedAt: "2026-08-16T18:27:16.163Z"

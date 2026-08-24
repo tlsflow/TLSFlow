@@ -101,7 +101,7 @@ const userWorkflowPathPattern = /(?:^|\/)data\/workflows(?:\/|$)/;
 const workflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${pluginWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
 const hostWorkflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
 const agentPathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|windows-compat-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
-const agentCorePathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)|^agents\/windows-compat-full-agent\/(?!agent-side-plugins(?:\/|$))/;
+const agentCorePathPattern = /^agents\/(?:linux-go-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)|^agents\/(?:windows-go-full-agent|windows-compat-full-agent)\/(?!agent-side-plugins(?:\/|$))/;
 const caNodePathPattern = /^agents\/(?:go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
 const compatibilityContractPathPattern = /(?:^|\/)(?:compatibility|legacy-agents)(?:\/|$)/;
 const testPathPattern = /(?:^|\/)(?:tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$|_test\.go$/;
@@ -642,6 +642,16 @@ function isControlledPluginEnvironmentAccess(path, source, offset) {
 }
 
 function hasPluginPackageResourceBoundary(source) {
+  return hasFixedManifestResourceBoundary(source)
+    || hasPathPluginPackageResourceBoundary(source);
+}
+
+/** 固定相对 URL 只读取插件包自己的 Manifest，不接受运行时输入路径。 */
+function hasFixedManifestResourceBoundary(source) {
+  return /\breadFileSync\s*\(\s*(?:new\s+URL\(\s*["']\.\.\/manifest\.json["']\s*,\s*import\.meta\.url\s*\)|join\(\s*packageDirectory\s*,\s*["']manifest\.json["']\s*\))/.test(source);
+}
+
+function hasPathPluginPackageResourceBoundary(source) {
   return /\bconst\s+runtimeDirectory\s*=\s*dirname\s*\(\s*fileURLToPath\s*\(\s*import\.meta\.url\s*\)\s*\)/.test(source)
     && /\bconst\s+packageDirectory\s*=\s*resolve\s*\(\s*runtimeDirectory\s*,\s*["']\.\.["']\s*\)/.test(source)
     && /\brelative\s*\(\s*packageDirectory\s*,\s*absolute\s*\)/.test(source)
@@ -649,8 +659,12 @@ function hasPluginPackageResourceBoundary(source) {
     && /\breadFileSync\s*\(/.test(source);
 }
 
-function isControlledPluginPackageResourceAccess(path, source) {
-  return pluginRunnerRuntimePathPattern.test(normalizePath(path)) && hasPluginPackageResourceBoundary(source);
+function isControlledPluginPackageResourceAccess(path, source, offset) {
+  if (!pluginRunnerRuntimePathPattern.test(normalizePath(path))) return false;
+  const line = sourceLineAt(source, offset);
+  if (/\breadFileSync\s*\(\s*(?:new\s+URL\(\s*["']\.\.\/manifest\.json["']\s*,\s*import\.meta\.url\s*\)|join\(\s*packageDirectory\s*,\s*["']manifest\.json["']\s*\))/.test(line)) return true;
+  return hasPathPluginPackageResourceBoundary(source)
+    && /\breadFileSync\s*\(\s*(?:absolute|path|join\s*\(\s*packageDirectory\s*,\s*relativePath\s*\))/.test(line);
 }
 
 function isRejectedRunnerKeyContext(source, offset) {
@@ -729,12 +743,21 @@ function scanTextArchitectureRules(path, source) {
       'PLUGIN_DIRECT_HOST_ACCESS',
       normalizedPath,
       source,
-      /\b(?:process\.env|process\.cwd|node:(?:fs|child_process)|require\s*\(\s*['"](?:fs|child_process)['"]|\b(?:Database|Repository)\b|\.(?:query|execute)\s*\()/g,
+      /\b(?:process\.env|process\.cwd|node:(?:fs|child_process)|require\s*\(\s*['"](?:fs|child_process)['"]|readFileSync\s*\(|\b(?:Database|Repository)\b|\.(?:query|execute)\s*\()/g,
       '插件不得直接访问宿主环境变量、文件、进程、数据库或 Repository',
       '<text>',
       (value, offset, match) => {
         if (/\bprocess\.env/.test(match)) return !isControlledPluginEnvironmentAccess(normalizedPath, source, offset);
-        if (/\bnode:fs\b|require\s*\(\s*['"]fs['"]/.test(match)) return !isControlledPluginPackageResourceAccess(normalizedPath, source);
+        if (/\breadFileSync\s*\(/.test(match)) {
+          return !isControlledPluginPackageResourceAccess(normalizedPath, source, offset);
+        }
+        if (/\bnode:fs\b|require\s*\(\s*['"]fs['"]/.test(match)) {
+          const line = sourceLineAt(source, offset);
+          const isImport = /\b(?:import|require)\b/.test(line);
+          return isImport
+            ? !hasPluginPackageResourceBoundary(source)
+            : !isControlledPluginPackageResourceAccess(normalizedPath, source, offset);
+        }
         return true;
       },
     );

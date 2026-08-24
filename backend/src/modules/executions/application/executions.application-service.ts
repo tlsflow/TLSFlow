@@ -12,7 +12,7 @@ import type { CreateExecutionRunInput, ExecutionRunDto, ExecutionSourceDto, Exec
 import { ExecutionsDomainService } from '../domain/executions.domain-service.js';
 import { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
-import { ExecutorRegistry } from './executors.js';
+import { ControlPlaneTlsExecutor, ExecutorRegistry } from './executors.js';
 import type { ExecutionResultSyncService } from './execution-result-sync.service.js';
 import { FailurePolicyEngine } from './failure-policy-engine.js';
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
@@ -25,9 +25,11 @@ import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inpu
 import { canonicalize } from '../../../shared/canonical-json.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
+import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
+type ExecutionPendingState = 'WAITING_RESULT' | 'AWAITING_CONFIRMATION';
 
 export interface ExecutionsApplicationDependencies {
   repository?: ExecutionsRepository;
@@ -44,7 +46,23 @@ export interface ExecutionsApplicationDependencies {
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
   /** Agent v2 步骤必须使用绑定当前运行和步骤的 Execution Grant。 */
   executionGrants?: ExecutionGrantService;
+  /** Agent 任务结果由控制面主动读取，避免只依赖 Agent 回调。 */
+  agentTasks?: Pick<AgentsRepository, 'getTask'>;
   tasks?: TaskEnqueuer;
+  /** 未知写结果核验完成后，收敛对应的统一任务状态。 */
+  taskControl?: {
+    resolveWaitingExecutionTask(input: {
+      tenantId: string;
+      taskId: string;
+      success: boolean;
+      actorId?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      detail?: Record<string, unknown>;
+    }): Promise<unknown>;
+  };
+  /** 只读证书状态核验器；生产使用控制面 TLS，测试可注入确定性实现。 */
+  unknownResultVerifier?: Pick<ControlPlaneTlsExecutor, 'executeStep'>;
 }
 
 export class ExecutionsApplicationService {
@@ -63,7 +81,10 @@ export class ExecutionsApplicationService {
   private readonly delay: (milliseconds: number) => Promise<void>;
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
   private readonly executionGrants?: ExecutionGrantService;
+  private readonly agentTasks?: Pick<AgentsRepository, 'getTask'>;
   private readonly tasks?: TaskEnqueuer;
+  private readonly taskControl?: ExecutionsApplicationDependencies['taskControl'];
+  private readonly unknownResultVerifier: Pick<ControlPlaneTlsExecutor, 'executeStep'>;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -81,7 +102,10 @@ export class ExecutionsApplicationService {
     this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots;
     this.executionGrants = dependencies.executionGrants;
+    this.agentTasks = dependencies.agentTasks;
     this.tasks = dependencies.tasks;
+    this.taskControl = dependencies.taskControl;
+    this.unknownResultVerifier = dependencies.unknownResultVerifier ?? new ControlPlaneTlsExecutor();
   }
 
   async listRuns(input: { tenantId?: string; deploymentPlanId?: string } = {}): Promise<any> {
@@ -241,7 +265,17 @@ export class ExecutionsApplicationService {
   async runDispatchedExecution(runId: string, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry = this.executorRegistry): Promise<any> {
     let run = await this.repository.getRunOrThrow(runId, tenantId);
     const persistedSteps = await this.repository.listSteps(tenantId, run.id);
+    // 统一任务可能在 Agent 回调、未知结果恢复或另一个 Worker 中先收敛运行。
+    // 此时重复唤醒必须返回已有终态，不能把幂等竞态伪装成执行器异常。
     if (run.status === 'CANCELLED') return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: '执行运行已取消' };
+    if (isTerminalRunStatus(run.status)) {
+      return {
+        success: run.status === 'SUCCESS' || run.status === 'ROLLBACK_SUCCESS',
+        ...(run.status === 'SUCCESS' || run.status === 'ROLLBACK_SUCCESS'
+          ? {}
+          : { errorCode: run.errorCode ?? 'EXECUTION_FAILED', errorMessage: run.errorMessage ?? '执行运行已结束' }),
+      };
+    }
     if (!['DISPATCHED', 'RUNNING'].includes(run.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DISPATCHED 或 RUNNING 运行允许调度执行', { runId: run.id, status: run.status });
     }
@@ -270,7 +304,13 @@ export class ExecutionsApplicationService {
         return await this.finishFailedRun(currentRun, actorId, tenantId, policy, failedStep.lastErrorCode ?? 'STEP_FAILED', failedStep.lastErrorMessage ?? '执行步骤失败', failedStep.status === 'TIMEOUT');
       }
       if (graphState.runnable.length === 0 && graphState.running.length > 0) {
-        return { success: true, pending: true };
+        // Agent 任务采用出站拉取模型。Worker 每次被唤醒时主动读取控制面已落账的
+        // Agent 结果，不能把“没有回调”误判成“只能继续等待”。
+        if (await this.pollPendingAgentResults(currentRun, steps, actorId, tenantId)) continue;
+        // Plugin Runner 没有 Agent taskId，未知写结果必须由控制面主动做只读证书核验。
+        // 该路径绝不重新执行 INSTALL，只在证书指纹确认后继续后续步骤。
+        if (await this.pollPendingUnknownResults(currentRun, steps, actorId, tenantId, registry)) continue;
+        return { success: true, pending: true, ...pendingResultForRunningSteps(steps) };
       }
       if (graphState.runnable.length === 0 && graphState.running.length === 0) {
         if (failedStep) {
@@ -291,7 +331,16 @@ export class ExecutionsApplicationService {
 
       const batchResults = await Promise.all(pick.selected.map(async (step) => this.executeSingleStep(step.id, currentRun, actorId, tenantId, registry)));
       if (batchResults.some((item) => item.asyncPending)) {
-        return { success: true, pending: true };
+        const unconfirmed = batchResults.find((item) => item.pendingState === 'AWAITING_CONFIRMATION');
+        return {
+          success: true,
+          pending: true,
+          pendingState: unconfirmed ? 'AWAITING_CONFIRMATION' : 'WAITING_RESULT',
+          ...(unconfirmed ? {
+            errorCode: unconfirmed.errorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+            errorMessage: unconfirmed.errorMessage ?? '写入结果无法确认，系统已停止自动重放',
+          } : {}),
+        };
       }
       const failures = batchResults.filter((item) => !item.success);
       if (failures.length && policy === 'continue') {
@@ -306,6 +355,271 @@ export class ExecutionsApplicationService {
         return await this.finishFailedRun(refreshedRun, actorId, tenantId, policy, firstFailure.errorCode ?? 'STEP_FAILED', firstFailure.errorMessage ?? '执行步骤失败');
       }
     }
+  }
+
+  /**
+   * 对 Plugin Runner/Agent 写操作的 UNKNOWN 结果做只读证书核验。
+   *
+   * 这里绝不重放原 INSTALL：只有控制面 TLS 观测到目标证书指纹匹配时，
+   * 才把原步骤收敛为成功并继续后续 RELOAD/VERIFY；核验失败则明确失败，
+   * 目标不可达或缺少验证材料则继续保持待确认并留下完整核验记录。
+   */
+  async recoverUnknownResult(input: {
+    runId: string;
+    stepId?: string;
+    actorId: string;
+    tenantId: string;
+    registry?: ExecutorRegistry;
+    /** Worker 自动轮询时使用 WAITING_RESULT；人工触发仍保持 AWAITING_CONFIRMATION。 */
+    automatic?: boolean;
+  }): Promise<any> {
+    const run = await this.repository.getRunOrThrow(input.runId, input.tenantId);
+    if (run.status !== 'RUNNING') {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有运行中的执行才能核验未知结果', { runId: run.id, status: run.status });
+    }
+    const steps = await this.repository.listSteps(input.tenantId, run.id);
+    const candidates = steps.filter((step) => step.status === 'RUNNING'
+      && hasUnknownExecutionResult(step)
+      && (!input.stepId || step.id === input.stepId));
+    if (candidates.length === 0) {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '没有可核验的未知写入步骤', { runId: run.id, stepId: input.stepId });
+    }
+
+    const recoveries: Array<Record<string, unknown>> = [];
+    for (const step of candidates) {
+      const attemptedAt = new Date().toISOString();
+      const certificateVerification = readRecord(step.inputSnapshot.certificateVerification) ?? {};
+      const expectedFingerprintSha256 = readExpectedCertificateFingerprint(step.inputSnapshot);
+      const verificationStep: ExecutionStepEntity = {
+        ...step,
+        stepType: 'VERIFY',
+        inputSnapshot: {
+          ...step.inputSnapshot,
+          executorType: 'CONTROL_PLANE_TLS',
+          dryRun: false,
+          certificateVerification: {
+            ...certificateVerification,
+            ...(expectedFingerprintSha256 ? { expectedFingerprintSha256 } : {}),
+          },
+        },
+      };
+      let result: Awaited<ReturnType<ControlPlaneTlsExecutor['executeStep']>>;
+      try {
+        result = await this.unknownResultVerifier.executeStep({
+          step: verificationStep,
+          runType: run.type,
+          dryRun: false,
+        });
+      } catch (error) {
+        result = {
+          success: false,
+          errorCode: 'TLS_VERIFY_FAILED',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          detail: { mode: 'control_plane_tls_recovery_failed' },
+        };
+      }
+
+      const detail = result.detail ?? {};
+      const verification = readRecord(detail.certificateVerification) ?? {};
+      const verify = readRecord(detail.verify) ?? readRecord(detail.target) ?? {};
+      const recovery = {
+        mode: 'CONTROL_PLANE_TLS',
+        attemptedAt,
+        actorId: input.actorId,
+        status: result.success ? 'CONFIRMED' : isDefinitiveTlsMismatch(result.errorCode) ? 'MISMATCH' : 'UNAVAILABLE',
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+        target: readString(verify.target) ?? readString(verify.address),
+        expectedFingerprintSha256: readString(verification.expectedFingerprintSha256)
+          ?? expectedFingerprintSha256,
+        remoteCertificateSha256: readString(verification.remoteCertificateSha256)
+          ?? readString(verify.remoteCertificateSha256),
+        detail: sanitizeExecutionErrorDetails(detail),
+      } satisfies Record<string, unknown>;
+      recoveries.push({ stepId: step.id, ...recovery });
+
+      const previousDetail = readRecord(step.inputSnapshot.resultDetail) ?? {};
+      const history = Array.isArray(previousDetail.recoveryHistory)
+        ? previousDetail.recoveryHistory.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        : [];
+      const nextDetail = {
+        ...previousDetail,
+        ...(detail ?? {}),
+        recoveryHistory: [...history, recovery],
+        recovery: recovery,
+      };
+
+      if (result.success) {
+        await this.transitionStepEntity(step, 'SUCCESS', input.actorId, 'step.recovery.confirmed', {
+          inputSnapshot: { ...step.inputSnapshot, resultDetail: { ...nextDetail, executionStatus: 'SUCCESS' } },
+          lastErrorCode: undefined,
+          lastErrorMessage: undefined,
+          lastErrorDetails: undefined,
+        });
+        continue;
+      }
+
+      if (isDefinitiveTlsMismatch(result.errorCode)) {
+        await this.transitionStepEntity(step, 'FAILED', input.actorId, 'step.recovery.mismatch', {
+          inputSnapshot: { ...step.inputSnapshot, resultDetail: { ...nextDetail, executionStatus: 'FAILED' } },
+          lastFailureCategory: 'unsafe',
+          lastErrorCode: result.errorCode ?? 'TLS_VERIFY_FAILED',
+          lastErrorMessage: result.errorMessage ?? '只读证书核验未通过',
+          lastErrorDetails: sanitizeExecutionErrorDetails(detail),
+        });
+        continue;
+      }
+
+      await this.repository.updateStep(step.id, {
+        inputSnapshot: { ...step.inputSnapshot, resultDetail: { ...nextDetail, executionStatus: 'UNKNOWN' } },
+        lastErrorCode: result.errorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+        lastErrorMessage: result.errorMessage ?? '只读证书核验暂不可用，仍需人工确认',
+        lastErrorDetails: sanitizeExecutionErrorDetails(detail),
+        updatedAt: new Date().toISOString(),
+        updatedBy: input.actorId,
+      });
+      this.detailStream?.publishStep(await this.repository.getStepOrThrow(step.id, input.tenantId));
+    }
+
+    let refreshedRun = await this.repository.getRunOrThrow(run.id, input.tenantId);
+    const refreshedSteps = await this.repository.listSteps(input.tenantId, run.id);
+    const remainingUnknown = refreshedSteps.some((step) => step.status === 'RUNNING' && hasUnknownExecutionResult(step));
+    const summary: Record<string, unknown> = {
+      ...refreshedRun.summary,
+      recovery: { attemptedAt: new Date().toISOString(), recoveries },
+    };
+    if (remainingUnknown) {
+      summary.executionStatus = 'UNKNOWN';
+      summary.unknownReason = recoveries.find((item) => item.status === 'UNAVAILABLE')?.errorMessage ?? '证书写入结果仍待确认';
+    } else {
+      delete summary.executionStatus;
+      delete summary.unknownReason;
+    }
+    refreshedRun = await this.repository.updateRun(run.id, {
+      summary,
+      updatedAt: new Date().toISOString(),
+      updatedBy: input.actorId,
+    });
+    this.detailStream?.publishRun(refreshedRun);
+
+    if (!remainingUnknown) {
+      const continuation = await this.runDispatchedExecution(run.id, input.actorId, input.tenantId, input.registry ?? this.executorRegistry);
+      refreshedRun = await this.repository.getRunOrThrow(run.id, input.tenantId);
+      if (isTerminalRunStatus(refreshedRun.status) && refreshedRun.externalRunId && this.taskControl) {
+        await this.taskControl.resolveWaitingExecutionTask({
+          tenantId: input.tenantId,
+          taskId: refreshedRun.externalRunId,
+          success: refreshedRun.status === 'SUCCESS',
+          actorId: input.actorId,
+          errorCode: refreshedRun.errorCode,
+          errorMessage: refreshedRun.errorMessage,
+          detail: { runId: refreshedRun.id, source: 'execution.unknown_result.recovery' },
+        });
+      }
+      return {
+        success: continuation.success === true,
+        pending: continuation.pending === true,
+        pendingState: continuation.pendingState,
+        run: this.toRunDto(refreshedRun),
+        steps: (await this.repository.listSteps(input.tenantId, run.id)).map((step) => this.toStepDto(step)),
+        recoveries,
+      };
+    }
+
+    return {
+      success: false,
+      pending: true,
+      pendingState: input.automatic ? 'WAITING_RESULT' : 'AWAITING_CONFIRMATION',
+      errorCode: recoveries.find((item) => item.status === 'UNAVAILABLE')?.errorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+      errorMessage: recoveries.find((item) => item.status === 'UNAVAILABLE')?.errorMessage ?? '证书写入结果仍待确认',
+      run: this.toRunDto(refreshedRun),
+      steps: refreshedSteps.map((step) => this.toStepDto(step)),
+      recoveries,
+    };
+  }
+
+  /**
+   * 主动读取已完成的 Agent 任务并复用统一结果同步器。
+   *
+   * Agent 是出站轮询控制面，不要求控制面反向连入 Agent；这里读取的是
+   * Agent 结果账本，而不是重新执行任务，因此不会产生重复写入。
+   */
+  private async pollPendingAgentResults(
+    run: ExecutionRunEntity,
+    steps: ExecutionStepEntity[],
+    actorId: string,
+    tenantId?: string,
+  ): Promise<boolean> {
+    if (!this.agentTasks || !this.resultSync || !tenantId) return false;
+    let advanced = false;
+    for (const step of steps) {
+      if (step.status !== 'RUNNING') continue;
+      const executorType = String(step.inputSnapshot.executorType ?? '').toUpperCase();
+      if (executorType !== 'AGENT' && executorType !== 'GATEWAY_FORWARD') continue;
+      const dispatchDetail = readRecord(step.inputSnapshot.dispatchDetail);
+      const resultDetail = readRecord(step.inputSnapshot.resultDetail);
+      // 直连 Agent 使用 taskId，Gateway 转发使用 agentTaskId；两者都指向
+      // 控制面 Agent 任务账本，读取结果不会重新执行远端写操作。
+      const taskId = readString(dispatchDetail?.taskId)
+        ?? readString(dispatchDetail?.agentTaskId)
+        ?? readString(resultDetail?.taskId)
+        ?? readString(resultDetail?.agentTaskId);
+      if (!taskId) continue;
+      const task = await this.agentTasks.getTask(tenantId, taskId);
+      if (!task || !['succeeded', 'failed', 'rejected'].includes(String(task.status).toLowerCase())) continue;
+      const taskResult = readRecord(task.result) ?? {};
+      const detail = readRecord(taskResult.detail) ?? {};
+      const status = normalizeAgentSecurityStatus(taskResult.status ?? detail.executionStatus ?? detail.status);
+      const success = taskResult.success === true && status !== 'FAILED' && status !== 'UNKNOWN';
+      await this.resultSync.applyAgentTaskResult({
+        tenantId,
+        executionRunId: run.id,
+        executionStepId: step.id,
+        success,
+        status,
+        errorCode: readString(taskResult.errorCode),
+        errorMessage: readString(taskResult.errorMessage),
+        detail,
+        actorId,
+      });
+      const refreshed = await this.repository.getStepOrThrow(step.id, tenantId);
+      if (refreshed.status !== 'RUNNING') advanced = true;
+    }
+    return advanced;
+  }
+
+  /**
+   * 自动核验具备证书指纹材料的未知写步骤。
+   *
+   * Plugin Runner 的写请求可能在设备已经落地后才断开，控制面没有 Agent taskId
+   * 可以读取。此时只能通过只读 TLS 事实判断是否已经生效，不能重放原写请求。
+   */
+  private async pollPendingUnknownResults(
+    run: ExecutionRunEntity,
+    steps: ExecutionStepEntity[],
+    actorId: string,
+    tenantId: string | undefined,
+    registry: ExecutorRegistry,
+  ): Promise<boolean> {
+    if (!tenantId) return false;
+    const candidates = steps.filter((step) => step.status === 'RUNNING'
+      && hasUnknownExecutionResult(step)
+      && hasAutomaticUnknownRecoverySource(step));
+    if (candidates.length === 0) return false;
+
+    await this.recoverUnknownResult({
+      runId: run.id,
+      actorId,
+      tenantId,
+      registry,
+      automatic: true,
+    });
+
+    const refreshedSteps = await this.repository.listSteps(tenantId, run.id);
+    return candidates.some((candidate) => {
+      const refreshed = refreshedSteps.find((step) => step.id === candidate.id);
+      return refreshed !== undefined && refreshed.status !== 'RUNNING';
+    });
   }
 
   async markFailedForTest(runId: string, actorId: string, tenantId?: string): Promise<any> {
@@ -709,6 +1023,7 @@ export class ExecutionsApplicationService {
 
     if (run.status === 'SUCCESS') {
       await this.markTargets(targetIds, 'COMPLETED', actorId, tenantId);
+      await this.markExecutionStatuses(plan, targetIds, 'SUCCESS', actorId, tenantId);
       if (plan.status === 'RUNNING') await this.transitionDeploymentPlan(plan, 'SUCCESS', actorId, 'execution.success');
       await this.resultSync?.probeSuccessfulDeploymentPlanTargets({ tenantId, deploymentPlanId: run.deploymentPlanId });
       return;
@@ -725,6 +1040,13 @@ export class ExecutionsApplicationService {
         .filter((id): id is string => Boolean(id)));
       await this.markTargets([...successfulTargetIds], 'COMPLETED', actorId, tenantId);
       await this.markTargets([...failedTargetIds], 'FAILED', actorId, tenantId);
+      await this.markExecutionStatuses(plan, [...successfulTargetIds], 'SUCCESS', actorId, tenantId);
+      await this.markExecutionStatuses(plan, [...failedTargetIds], 'FAILED', actorId, tenantId);
+      await this.deploymentPlansRepository.updatePlan(plan.id, {
+        executionStatus: 'FAILED',
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      });
       if (plan.status === 'RUNNING') {
         await this.transitionDeploymentPlan(plan, successfulTargetIds.size > 0 ? 'PARTIAL_SUCCESS' : 'FAILED', actorId, 'execution.failed');
       }
@@ -737,6 +1059,35 @@ export class ExecutionsApplicationService {
       if (!target || target.status === status) continue;
       await this.deploymentPlansRepository.updateTarget(target.id, {
         status,
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      });
+    }
+  }
+
+  /** 中文说明：执行运行终态确定后，才更新计划/目标的安全执行结果，避免核验通过但后续步骤仍未完成时提前显示成功。 */
+  private async markExecutionStatuses(
+    plan: Awaited<ReturnType<DeploymentPlansRepository['getPlanOrThrow']>>,
+    targetIds: string[],
+    executionStatus: 'SUCCESS' | 'FAILED',
+    actorId: string,
+    tenantId?: string,
+  ): Promise<void> {
+    await this.deploymentPlansRepository.updatePlan(plan.id, {
+      executionStatus,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorId,
+    });
+    for (const targetId of [...new Set(targetIds)]) {
+      const target = await this.deploymentPlansRepository.getTarget(targetId, tenantId);
+      if (!target) continue;
+      await this.deploymentPlansRepository.updateTarget(target.id, {
+        executionStatus,
+        strategyPayload: {
+          ...(target.strategyPayload ?? {}),
+          executionStatus,
+          ...(executionStatus === 'SUCCESS' ? { unknownReason: undefined } : {}),
+        },
         updatedAt: new Date().toISOString(),
         updatedBy: actorId,
       });
@@ -823,7 +1174,7 @@ export class ExecutionsApplicationService {
     });
   }
 
-  private async executeSingleStep(stepId: string, run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry): Promise<{ success: boolean; asyncPending?: boolean; errorCode?: string; errorMessage?: string; deploymentPlanTargetId?: string }> {
+  private async executeSingleStep(stepId: string, run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry): Promise<{ success: boolean; asyncPending?: boolean; pendingState?: ExecutionPendingState; errorCode?: string; errorMessage?: string; deploymentPlanTargetId?: string }> {
     let current = await this.repository.getStepOrThrow(stepId, tenantId);
     if (current.status !== 'PENDING') {
       return { success: true, deploymentPlanTargetId: current.deploymentPlanTargetId };
@@ -893,9 +1244,13 @@ export class ExecutionsApplicationService {
           ...(currentRun.status === 'CANCELLED' ? { cancellationRace: true } : {}),
         },
       });
+      const pendingState = hasAutomaticUnknownRecoverySource(latestStep)
+        ? 'WAITING_RESULT'
+        : 'AWAITING_CONFIRMATION';
       return {
         success: true,
         asyncPending: true,
+        pendingState,
         errorCode: result.errorCode ?? 'AGENT_EXECUTION_UNKNOWN',
         errorMessage: result.errorMessage ?? '执行结果不明，禁止自动重放或回退',
         deploymentPlanTargetId: latestStep.deploymentPlanTargetId,
@@ -912,7 +1267,12 @@ export class ExecutionsApplicationService {
         updatedBy: actorId,
       });
       this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
-      return { success: true, asyncPending: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
+      return {
+        success: true,
+        asyncPending: true,
+        pendingState: 'WAITING_RESULT',
+        deploymentPlanTargetId: runningStep.deploymentPlanTargetId,
+      };
     }
     if (this.resultSync && shouldSyncExecutorResult(executorType, run.type)) {
       const stepTenantId = tenantId ?? runningStep.tenantId;
@@ -1515,6 +1875,14 @@ function resolveExecutionStatus(
   return result.success ? 'SUCCESS' : 'FAILED';
 }
 
+/** 中文说明：Agent 任务结果缺少合法状态时按失败处理，避免把不完整回执当成成功。 */
+function normalizeAgentSecurityStatus(value: unknown): AgentSecurityStatus {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized === 'SUCCESS' || normalized === 'FAILED' || normalized === 'UNKNOWN' || normalized === 'CANCELLED'
+    ? normalized
+    : 'FAILED';
+}
+
 function isPotentiallyUnknownWriteStep(step: ExecutionStepEntity): boolean {
   const actionType = readString(step.inputSnapshot.actionType)?.toLowerCase();
   const plan = readRecord(step.inputSnapshot.plan);
@@ -1524,6 +1892,67 @@ function isPotentiallyUnknownWriteStep(step: ExecutionStepEntity): boolean {
     || plan?.writeEffect === true
     || pluginRunnerBinding?.writeEffect === true
     || actionType === 'agent.plan.execute';
+}
+
+/**
+ * 已可靠下发的异步执行可以由任务 Worker 再次读取控制面状态；
+ * 写操作已返回 UNKNOWN 时没有新的可信结果来源，绝不能把它伪装成可重试等待。
+ */
+function pendingResultForRunningSteps(steps: ExecutionStepEntity[]): {
+  pendingState: ExecutionPendingState;
+  errorCode?: string;
+  errorMessage?: string;
+} {
+  const unconfirmed = steps.find((step) => step.status === 'RUNNING' && hasUnknownExecutionResult(step));
+  if (!unconfirmed) return { pendingState: 'WAITING_RESULT' };
+  if (hasAutomaticUnknownRecoverySource(unconfirmed)) {
+    return {
+      pendingState: 'WAITING_RESULT',
+      errorCode: unconfirmed.lastErrorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+      errorMessage: '写入结果待确认，控制面将主动核验目标证书状态，不会重放安装步骤',
+    };
+  }
+  return {
+    pendingState: 'AWAITING_CONFIRMATION',
+    errorCode: unconfirmed.lastErrorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+    errorMessage: unconfirmed.lastErrorMessage ?? '写入结果无法确认，系统已停止自动重放',
+  };
+}
+
+function hasUnknownExecutionResult(step: ExecutionStepEntity): boolean {
+  const resultDetail = readRecord(step.inputSnapshot.resultDetail);
+  return resultDetail?.executionStatus === 'UNKNOWN'
+    || resultDetail?.mayBeUnknown === true
+    || step.lastErrorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE';
+}
+
+/** 中文说明：只有固定目标证书指纹的部署步骤才允许自动做只读核验。 */
+function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
+  if (step.inputSnapshot.dryRun === true) return false;
+  const verification = readRecord(step.inputSnapshot.certificateVerification);
+  return verification?.capabilityKey === 'certificate.verify'
+    && verification?.schemaVersion === '1.0'
+    && Boolean(readExpectedCertificateFingerprint(step.inputSnapshot));
+}
+
+/**
+ * 兼容早期执行快照：部分版本把目标指纹只写入部署产物或运行时快照，
+ * 但未知写结果恢复需要把它作为证书核验的固定预期值使用。
+ */
+function readExpectedCertificateFingerprint(inputSnapshot: Record<string, unknown>): string | undefined {
+  const verification = readRecord(inputSnapshot.certificateVerification);
+  const artifact = readRecord(inputSnapshot.deploymentArtifact) ?? readRecord(inputSnapshot.artifact);
+  const runtimeSnapshot = readRecord(inputSnapshot.executionRuntimeSnapshot);
+  const runtimeArtifact = readRecord(runtimeSnapshot?.deploymentArtifact);
+  return [
+    verification?.expectedFingerprintSha256,
+    artifact?.expectedFingerprintSha256,
+    runtimeArtifact?.expectedFingerprintSha256,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
+}
+
+function isDefinitiveTlsMismatch(errorCode: string | undefined): boolean {
+  return errorCode === 'TLS_VERIFY_FINGERPRINT_MISMATCH' || errorCode === 'TLS_VERIFY_DOMAIN_MISMATCH';
 }
 
 function isTerminalRunStatus(status: ExecutionRunEntity['status']): boolean {

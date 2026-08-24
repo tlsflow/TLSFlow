@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateTlsVerification, type TlsVerifyReport } from './tls-verification.js';
+import { evaluateTlsVerification, readCertificateCommonName, type TlsVerifyReport } from './tls-verification.js';
 
 const currentReport: TlsVerifyReport = {
   remoteCertificateSha256: 'a'.repeat(64),
@@ -32,4 +32,14 @@ test('缺少目标证书指纹时 dry-run 也必须失败', () => {
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING');
+});
+
+test('从 Node X509Certificate DN 字符串读取 CN，不把字符串展开成字符索引', () => {
+  assert.equal(readCertificateCommonName('C=US\nO=Let\'s Encrypt\nCN=*.jacksonz.cn'), '*.jacksonz.cn');
+  assert.equal(readCertificateCommonName('CN=api.example.com, O=Example'), 'api.example.com');
+});
+
+test('证书对象 CN 兼容旧版 PeerCertificate 结构', () => {
+  assert.equal(readCertificateCommonName({ CN: ['first.example.com', 'second.example.com'] }), 'first.example.com');
+  assert.equal(readCertificateCommonName({ CN: 'api.example.com' }), 'api.example.com');
 });

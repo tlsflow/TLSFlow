@@ -131,6 +131,16 @@ test('内置包只兼容可由当前资源精确重算的历史数组摘要', as
   const rejected = await adapter.executeStep(stepInput({ pluginRunnerBinding: binding({ resourceHash: `sha256:${'e'.repeat(64)}` }) }));
   assert.equal(rejected.success, false);
   assert.equal(rejected.errorCode, 'PLUGIN_RUNNER_VERSION_MISMATCH');
+  assert.deepEqual(rejected.detail, {
+    pluginId: 'test.echo',
+    pluginVersion: '1.0.0',
+    expectedPackageSha256: hash,
+    actualPackageSha256: hash,
+    expectedManifestSha256: hash,
+    actualManifestSha256: hash,
+    expectedResourceHash: `sha256:${'e'.repeat(64)}`,
+    actualResourceHash: canonicalResourceHash,
+  });
 });
 
 test('内置多能力插件启动时传递 Manifest 的完整原始能力顺序', async () => {

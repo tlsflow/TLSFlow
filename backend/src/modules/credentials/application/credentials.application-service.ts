@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AuditLogEntity } from '../../../persistence/entities/audit-log.entity.js';
-import type { CredentialProfileEntity } from '../../../persistence/entities/credential-profile.entity.js';
+import type { CredentialKind, CredentialProfileEntity } from '../../../persistence/entities/credential-profile.entity.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import { newId } from '../../../shared/id.js';
 import type { RequestContext, SecretType } from '../../../shared/security-types.js';
@@ -10,8 +10,21 @@ import { AuditService } from '../../audits/audit.service.js';
 import { parseSecretRef } from '../../secrets/secret-ref.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { CreateCredentialProfileRequestDto, CredentialSecretValueInput, RotateCredentialProfileRequestDto, UpdateCredentialProfileRequestDto } from '../dto/credentials.dto.js';
-import { CredentialsDomainService, getCredentialSlotRules } from '../domain/credentials.domain-service.js';
+import { CredentialsDomainService, getCredentialSlotRules, type CloudCredentialContract } from '../domain/credentials.domain-service.js';
 import { CredentialsRepository } from '../repository/credentials.repository.js';
+
+export interface CloudCredentialContractResolution {
+  providerKey: string;
+  pluginVersionId: string;
+  contract: CloudCredentialContract;
+}
+
+export interface CloudCredentialContractResolver {
+  resolve(
+    tenantId: string,
+    selector: { providerKey?: string; pluginVersionId?: string; contract?: unknown },
+  ): Promise<CloudCredentialContractResolution>;
+}
 
 export class CredentialsApplicationService {
   constructor(
@@ -20,7 +33,13 @@ export class CredentialsApplicationService {
     private readonly db: DatabasePort = new PgliteDatabase(),
     private readonly secrets?: SecretService,
     private readonly audit?: AuditService,
+    private cloudContractResolver?: CloudCredentialContractResolver,
   ) {}
+
+  /** 中文说明：应用装配完成插件目录后注入解析器，避免凭据域维护厂商分派表。 */
+  setCloudCredentialContractResolver(resolver: CloudCredentialContractResolver): void {
+    this.cloudContractResolver = resolver;
+  }
 
   async list(tenantId: string, filters: { kind?: string; scopeType?: string; status?: string; search?: string } = {}) {
     const search = filters.search?.trim().toLowerCase();
@@ -41,10 +60,11 @@ export class CredentialsApplicationService {
 
   async create(tenantId: string, createdBy: string, input: CreateCredentialProfileRequestDto, context: RequestContext = {}) {
     const secrets = this.requireSecrets();
+    const metadata = await this.resolveMetadata(tenantId, input.kind, input.metadata);
     try {
       return await this.db.transaction(async (tx) => {
-      const secretSlots = await this.createSecretSlots(tx, secrets, tenantId, createdBy, input, context);
-      const entity = this.domain.normalizeCreate(tenantId, createdBy, { ...input, secretSlots }, {
+      const secretSlots = await this.createSecretSlots(tx, secrets, tenantId, createdBy, { ...input, metadata }, context);
+      const entity = this.domain.normalizeCreate(tenantId, createdBy, { ...input, metadata, secretSlots }, {
         id: newId('cred'),
         now: new Date().toISOString(),
       });
@@ -70,8 +90,9 @@ export class CredentialsApplicationService {
       const current = await repository.get(tenantId, credentialId);
       if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
       if (current.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'CredentialProfile 版本冲突', { credentialId, expectedVersion: input.expectedVersion, actualVersion: current.version });
-      const secretSlots = await this.updateSecretSlots(tx, secrets, current, actorId, input.secretValues, context);
-      const updated = await repository.save(this.domain.normalizeUpdate(current, { secretSlots, expectedVersion: input.expectedVersion }, new Date().toISOString()));
+      const metadata = await this.resolveMetadata(tenantId, current.kind, current.metadata);
+      const secretSlots = await this.updateSecretSlots(tx, secrets, current, actorId, input.secretValues, context, metadata);
+      const updated = await repository.save(this.domain.normalizeUpdate(current, { secretSlots, metadata, expectedVersion: input.expectedVersion }, new Date().toISOString()));
       await credentialAudit(tx, this.audit).write({
         eventType: 'credential.rotated', actorType: 'user', actorId,
         action: 'credential.rotate', resourceType: 'credential', resourceId: credentialId,
@@ -90,6 +111,7 @@ export class CredentialsApplicationService {
         if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
         const secretValues = input.secretValues ?? {};
         const secretChanged = Object.keys(secretValues).length > 0;
+        const metadata = await this.resolveMetadata(tenantId, current.kind, input.metadata ?? current.metadata);
         const secretSlots = secretChanged
           ? await this.updateSecretSlots(
             tx,
@@ -98,13 +120,14 @@ export class CredentialsApplicationService {
             actorId,
             secretValues,
             context,
-            input.metadata ?? current.metadata,
+            metadata,
           )
           : current.secretSlots;
         const recoveredStatus = current.status === 'error' && input.status === undefined ? 'disabled' : input.status;
         const updated = await repository.save(this.domain.normalizeUpdate(current, {
           ...input,
           secretSlots,
+          metadata,
           status: recoveredStatus,
         }, new Date().toISOString()));
         const statusChanged = current.status !== updated.status;
@@ -222,6 +245,44 @@ export class CredentialsApplicationService {
     }
     return secretSlots;
   }
+
+  private async resolveMetadata(
+    tenantId: string,
+    kind: CredentialKind,
+    metadata: Record<string, unknown> | undefined,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (kind !== 'CLOUD_PROVIDER') return metadata;
+    const selector = {
+      providerKey: typeof metadata?.providerKey === 'string' ? metadata.providerKey : undefined,
+      pluginVersionId: typeof metadata?.pluginVersionId === 'string' ? metadata.pluginVersionId : undefined,
+      contract: metadata?.credentialContract,
+    };
+    if (!this.cloudContractResolver) {
+      if (selector.contract === undefined) {
+        throw new AppError('VALIDATION_FAILED', 'CLOUD_PROVIDER 凭据必须绑定插件 Form credentialContract');
+      }
+      return metadata;
+    }
+    const resolved = await this.cloudContractResolver.resolve(tenantId, selector);
+    if (selector.providerKey && selector.providerKey !== resolved.providerKey) {
+      throw new AppError('VALIDATION_FAILED', '凭据 Provider 与插件 Manifest 不一致', {
+        providerKey: selector.providerKey,
+        manifestProviderKey: resolved.providerKey,
+      });
+    }
+    if (selector.pluginVersionId && selector.pluginVersionId !== resolved.pluginVersionId) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '凭据绑定的 PluginVersion 已变化', {
+        expectedPluginVersionId: selector.pluginVersionId,
+        actualPluginVersionId: resolved.pluginVersionId,
+      });
+    }
+    return {
+      ...(metadata ?? {}),
+      providerKey: resolved.providerKey,
+      pluginVersionId: resolved.pluginVersionId,
+      credentialContract: resolved.contract,
+    };
+  }
 }
 
 function selectSecretType(input: CredentialSecretValueInput, allowedTypes: readonly SecretType[], slot: string): SecretType {
@@ -236,7 +297,7 @@ function requirePlainText(input: CredentialSecretValueInput, slot: string): stri
 }
 
 function credentialAudit(db: DatabasePort, audit?: AuditService): AuditService {
-  return audit?.forDatabase(db) ?? new AuditService(new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'));
+  return audit?.forDatabase(db) ?? new AuditService(new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'), undefined, undefined, db);
 }
 
 function isUniqueViolation(error: unknown): boolean {

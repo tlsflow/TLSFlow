@@ -80,7 +80,7 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
           resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update'),
           resource('deployment_plan', 'edit', 'application.deployment.read', 'application.deployment.update', 'application.deployment.create', 'application.deployment.submit', 'application.deployment.execute', 'application.deployment.rollback', 'deployment.plan.read', 'deployment.plan.create', 'deployment.plan.update', 'deployment.plan.submit', 'deployment.plan.execute', 'deployment.plan.rollback'),
           resource('workflow', 'control', 'application.workflow.read', 'application.workflow.update', 'application.workflow.create', 'workflow.read', 'workflow.create', 'workflow.update', 'workflow.publish', 'workflow.test'),
-          resource('execution_run', 'control', 'application.execution.read', 'application.execution.update', 'application.execution.execute', 'application.execution.rollback', 'execution.run.read', 'execution.run.retry', 'execution.run.rollback', 'execution.read', 'execution.update', 'execution.rollback'),
+          resource('execution_run', 'control', 'application.execution.read', 'application.execution.update', 'application.execution.execute', 'application.execution.rollback', 'execution.run.read', 'execution.run.retry', 'execution.run.rollback', 'execution.run.recover', 'execution.read', 'execution.update', 'execution.rollback'),
           resource('execution_step', 'read', 'execution.step.read'),
         ],
         forbiddenCapabilities: ['permission.delegate', 'secret.resolve', 'certificate.private_key.export'],

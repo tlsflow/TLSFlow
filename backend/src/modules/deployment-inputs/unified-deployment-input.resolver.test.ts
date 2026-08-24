@@ -113,6 +113,23 @@ describe('UnifiedDeploymentInputResolver', () => {
     assert.equal(resolved.executable, false);
   });
 
+  it('拒绝纯数字管理地址，避免历史表单值“1”进入执行快照', () => {
+    const request = requestFixture();
+    request.contract.connections.management.host = {
+      ...request.contract.connections.management.host,
+      source: { kind: 'binding' },
+      bindingPolicy: 'required_binding',
+    };
+    request.effectiveBinding.inputBindings.connections.management = { host: '1' };
+    request.effectiveBinding.provenance['connections.management.host'] = 'DEVICE';
+
+    const resolved = resolver.resolve(request);
+
+    assert.equal(resolved.executable, false);
+    assert.equal(resolved.connections.management?.host, '1');
+    assert.equal(resolved.issues.some((item) => item.code === 'DEPLOYMENT_INPUT_TYPE_INVALID' && item.path === 'connections.management.host'), true);
+  });
+
   it('configure/preflight 延迟运行时值，execute 注入 system 和 step_output', () => {
     const configure = resolver.resolve({ ...requestFixture(), phase: 'configure' });
     const preflight = resolver.resolve({ ...requestFixture(), phase: 'preflight' });

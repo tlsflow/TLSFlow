@@ -1016,7 +1016,7 @@ describe('部署计划与执行编排 API', () => {
       body: createPlanBody(fixture, 'idem_edit_draft', 'low'),
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { id: string; certificateVersionId: string; certificateFormatId: string; targets: Array<{ certificateBindingId: string }> };
+    const plan = created.body as { id: string; version: number; certificateVersionId: string; certificateFormatId: string; targets: Array<{ certificateBindingId: string }> };
     assert.equal(plan.certificateVersionId, fixture.certificateVersionId);
     assert.equal(plan.certificateFormatId, fixture.certificateFormatId);
     assert.equal(plan.targets[0].certificateBindingId, fixture.target_1.bindingId);
@@ -1034,6 +1034,7 @@ describe('部署计划与执行编排 API', () => {
       headers: userHeaders,
       body: {
         planId: plan.id,
+        expectedVersion: plan.version,
         applicationAssetId: fixture.target_1.applicationAssetId,
         targetCertificateVersionId: secondFixture.certificateVersionId,
         certificateFormatId: secondFixture.certificateFormatId,
@@ -1070,6 +1071,7 @@ describe('部署计划与执行编排 API', () => {
       headers: userHeaders,
       body: {
         planId: ready.id,
+        expectedVersion: ready.version,
         applicationAssetId: fixture.target_1.applicationAssetId,
         targetCertificateVersionId: secondFixture.certificateVersionId,
         certificateFormatId: secondFixture.certificateFormatId,

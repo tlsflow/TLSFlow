@@ -604,18 +604,9 @@ const secretPurposeLabels: Record<string, string> = {
   'certificate.format.export.password': '证书导出密码',
   'ssh.authentication': 'SSH 登录凭据',
   'secret.provider_operation': 'Secret 提供方操作凭据',
-  'acme.lego.dns_credentials': 'ACME DNS 验证凭据',
-  'acme.certbot.dns_credentials': 'ACME DNS 验证凭据',
-  'acme.account.protocol': 'ACME 账号凭据',
-  'acme.account.validate': 'ACME 账号验证凭据',
   'ldap.bind': 'LDAP 绑定凭据',
   'http.form.passwd': 'HTTP 表单密码',
-  'netscaler.nitro.authenticate': 'NetScaler 管理凭据',
-  'netscaler.certificate.deploy': 'NetScaler 证书部署凭据',
-  'diagnose.netscaler.login': 'NetScaler 诊断登录凭据',
-  'diagnose.netscaler.discovery': 'NetScaler 诊断发现凭据',
   'debug.secret.check': 'Secret 检查凭据',
-  'debug.nitro': 'NetScaler 调试凭据',
 };
 
 const permissionActionLabels: Record<string, string> = {
@@ -736,12 +727,6 @@ const auditEventActionOverrides: Record<string, string> = {
   'service_asset.deployment_strategy.updated': '更新应用资产部署策略',
   'service_instance.created': '创建服务实例',
   'site_asset.created': '创建站点资产',
-  'internal_ca.authority.connected': '接入证书颁发机构',
-  'internal_ca.authority.created': '创建证书颁发机构',
-  'internal_ca.trust_domain.created': '创建 CA 信任域',
-  'internal_ca.adcs_view_inspection.started': '开始检查 AD CS 视图',
-  'internal_ca.acme_provider.default_changed': '切换默认 ACME 提供方',
-  'internal_ca.acme_provider.initialized': '初始化 ACME 提供方',
 };
 
 const auditEventTitles: Record<string, string> = {
@@ -794,9 +779,6 @@ const auditEventTitles: Record<string, string> = {
   'internal_ca.request.created': '创建证书申请',
   'internal_ca.request.issued': '签发证书申请',
   'internal_ca.trust_domain.created': '创建 CA 信任域',
-  'internal_ca.adcs_view_inspection.started': '开始检查 AD CS 视图',
-  'internal_ca.acme_provider.initialized': '初始化 ACME 提供方',
-  'internal_ca.acme_provider.default_changed': '切换默认 ACME 提供方',
   'security.user.created': '创建用户',
   'security.user.updated': '更新用户',
   'security.user.deleted': '删除用户',

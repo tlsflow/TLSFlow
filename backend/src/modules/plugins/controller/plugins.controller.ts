@@ -24,6 +24,7 @@ import {
   type RouteSecurityContext,
 } from '../../security/security-route-helpers.js';
 import { unifiedPluginVersionOwnerType } from '../application/unified-plugins.application-service.js';
+import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<{
@@ -51,6 +52,7 @@ export class PluginsController {
     private readonly builtinCatalogRefresher?: BuiltinPluginCatalogRefresher,
     private readonly tasks?: TaskEnqueuer,
     private readonly security?: SecurityServices,
+    private readonly cloudAccounts?: CloudAccountAssetsApplicationService,
   ) {}
 
   register(router: Router): void {
@@ -71,6 +73,7 @@ export class PluginsController {
     router.post('/api/v1/plugin-bindings', '创建统一插件绑定', tags, (request) => this.createPluginBinding(request));
     router.get('/api/v1/plugin-bindings', '查询统一插件绑定', tags, (request) => this.getPluginBinding(request));
     router.patch('/api/v1/plugin-bindings', '更新统一插件绑定', tags, (request) => this.updatePluginBinding(request));
+    router.post('/api/v1/cloud-account-assets/:id/capability-binding', '固定云账号插件能力绑定', tags, (request) => this.createCloudAccountCapabilityBinding(request));
     router.post('/api/v1/capability-assignments', '设置插件能力指派', tags, (request) => this.assignPluginCapability(request));
     router.post('/api/v1/capability-assignments/resolve', '解析插件能力来源', tags, (request) => this.resolvePluginCapability(request));
     router.post('/api/v1/plugin-promotions/preview', '预览 Standalone 目标归集', tags, (request) => this.previewPromotion(request));
@@ -238,6 +241,46 @@ export class PluginsController {
     });
   }
 
+  private async createCloudAccountCapabilityBinding(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.manage', 'plugin');
+    if (!this.cloudAccounts) throw new Error('云账号资产服务未接入插件绑定控制面');
+    const assetId = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/capability-binding$/)?.[1];
+    if (!assetId) throw new Error('云账号能力绑定路径无效');
+    const resolvedAssetId = decodeURIComponent(assetId);
+    const asset = await this.cloudAccounts.get(security.tenantId, resolvedAssetId);
+    await assertRouteObjectAccess(security, 'edit', {
+      objectType: 'cloud_account_asset',
+      objectId: asset.id,
+      tenantId: asset.tenantId,
+    });
+    const body = validateObject(request.body, {
+      pluginVersionId: { type: 'string', required: true },
+      capabilityKey: { type: 'string', required: true },
+      inputBindings: { type: 'object', required: true },
+    });
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
+    const capabilityKey = String(body.capabilityKey);
+    if (!version.manifest.capabilities.some((item) => item.key === capabilityKey)) {
+      throw new AppError('VALIDATION_FAILED', '插件版本未声明该 Capability', { pluginVersionId: version.id, capabilityKey });
+    }
+    const binding = await this.pluginBindings.createBinding(security.tenantId, {
+      pluginVersionId: version.id,
+      mode: 'MANAGED',
+      inputBindings: body.inputBindings as never,
+      managedContext: { cloudAccountAssetId: asset.id },
+    });
+    const assignment = await this.pluginBindings.assignCapability(security.tenantId, {
+      ownerType: 'CLOUD_ACCOUNT_ASSET',
+      ownerId: asset.id,
+      capabilityKey,
+      pluginVersionId: version.id,
+      pluginBindingId: binding.id,
+      precedence: 'ASSET_OVERRIDE',
+    });
+    return { binding, assignment };
+  }
+
   private async getPluginBinding(request: HttpRequest) {
     const security = this.securityContext(request);
     await assertRouteAction(security, 'plugin.read', 'plugin');
@@ -291,17 +334,19 @@ export class PluginsController {
     const security = this.securityContext(request);
     await assertRouteAction(security, 'plugin.read', 'plugin');
     const body = validateObject(request.body, {
-      capabilityKey: { type: 'string', required: true }, deviceId: { type: 'string' }, managedTargetId: { type: 'string' }, applicationAssetId: { type: 'string' },
+      capabilityKey: { type: 'string', required: true }, deviceId: { type: 'string' }, managedTargetId: { type: 'string' }, applicationAssetId: { type: 'string' }, cloudAccountAssetId: { type: 'string' },
     });
     const owners = {
       deviceId: typeof body.deviceId === 'string' ? body.deviceId : undefined,
       managedTargetId: typeof body.managedTargetId === 'string' ? body.managedTargetId : undefined,
       applicationAssetId: typeof body.applicationAssetId === 'string' ? body.applicationAssetId : undefined,
+      cloudAccountAssetId: typeof body.cloudAccountAssetId === 'string' ? body.cloudAccountAssetId : undefined,
     };
     for (const [ownerType, ownerId] of [
       ['DEVICE', owners.deviceId],
       ['MANAGED_TARGET', owners.managedTargetId],
       ['APPLICATION_ASSET', owners.applicationAssetId],
+      ['CLOUD_ACCOUNT_ASSET', owners.cloudAccountAssetId],
     ] as const) {
       if (ownerId) await this.assertObjectReadForOwner(security, ownerType, ownerId);
     }
@@ -573,8 +618,10 @@ export class PluginsController {
       ? 'device_asset'
       : ownerType === 'MANAGED_TARGET'
         ? 'managed_target'
-        : ownerType === 'APPLICATION_ASSET'
+      : ownerType === 'APPLICATION_ASSET'
           ? 'application_asset'
+          : ownerType === 'CLOUD_ACCOUNT_ASSET'
+            ? 'cloud_account_asset'
           : undefined;
     if (!objectType) throw new Error(`不支持的插件能力所有者类型: ${ownerType}`);
     await this.assertObjectRead(security, objectType, ownerId);
@@ -637,6 +684,7 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-bindings', operationId: 'createPluginBinding', summary: '创建统一插件绑定', tags, requestSchema: createBindingSchema(), responseSchema: pluginBindingSchema() },
     { method: 'GET', path: '/api/v1/plugin-bindings', operationId: 'getPluginBinding', summary: '查询统一插件绑定', tags, responseSchema: pluginBindingSchema() },
     { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, requestSchema: updateBindingSchema(), responseSchema: pluginBindingSchema() },
+    { method: 'POST', path: '/api/v1/cloud-account-assets/:id/capability-binding', operationId: 'createCloudAccountCapabilityBinding', summary: '固定云账号插件能力绑定', tags, requestSchema: cloudAccountCapabilityBindingSchema(), responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, requestSchema: capabilityAssignmentInputSchema(), responseSchema: capabilityAssignmentSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, requestSchema: resolveCapabilitySchema(), responseSchema: capabilityAssignmentSchema() },
     { method: 'POST', path: '/api/v1/plugin-promotions/preview', operationId: 'previewPluginPromotion', summary: '预览 Standalone 目标归集', tags, requestSchema: promotionPreviewInputSchema(), responseSchema: promotionPreviewSchema() },
@@ -772,14 +820,15 @@ function inputBindingsSchema(): OpenApiSchema {
 }
 
 function pluginBindingSchema(): OpenApiSchema {
-  return strictSchema({ id: idSchema(), tenantId: idSchema(), pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }), status: { type: 'string' }, version: { type: 'number' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'pluginVersionId', 'mode', 'inputBindings', 'status', 'version', 'createdAt', 'updatedAt']);
+  return strictSchema({ id: idSchema(), tenantId: idSchema(), pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema(), cloudAccountAssetId: idSchema() }), status: { type: 'string' }, version: { type: 'number' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'pluginVersionId', 'mode', 'inputBindings', 'status', 'version', 'createdAt', 'updatedAt']);
 }
 
-function createBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }) }, ['pluginVersionId', 'mode', 'inputBindings']); }
-function updateBindingSchema(): OpenApiSchema { return strictSchema({ bindingId: idSchema(), expectedVersion: { type: 'number' }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }), status: { type: 'string', enum: ['ACTIVE', 'DISABLED', 'MIGRATING', 'ERROR'] } }, ['bindingId', 'expectedVersion']); }
-function capabilityAssignmentInputSchema(): OpenApiSchema { return strictSchema({ ownerType: { type: 'string', enum: ['DEVICE', 'MANAGED_TARGET', 'APPLICATION_ASSET'] }, ownerId: idSchema(), capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), pluginBindingId: idSchema(), precedence: { type: 'string', enum: ['DEVICE_DEFAULT', 'TARGET_OVERRIDE', 'ASSET_OVERRIDE'] } }, ['ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence']); }
+function createBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema(), cloudAccountAssetId: idSchema() }) }, ['pluginVersionId', 'mode', 'inputBindings']); }
+function updateBindingSchema(): OpenApiSchema { return strictSchema({ bindingId: idSchema(), expectedVersion: { type: 'number' }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema(), cloudAccountAssetId: idSchema() }), status: { type: 'string', enum: ['ACTIVE', 'DISABLED', 'MIGRATING', 'ERROR'] } }, ['bindingId', 'expectedVersion']); }
+function capabilityAssignmentInputSchema(): OpenApiSchema { return strictSchema({ ownerType: { type: 'string', enum: ['DEVICE', 'MANAGED_TARGET', 'APPLICATION_ASSET', 'CLOUD_ACCOUNT_ASSET'] }, ownerId: idSchema(), capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), pluginBindingId: idSchema(), precedence: { type: 'string', enum: ['DEVICE_DEFAULT', 'TARGET_OVERRIDE', 'ASSET_OVERRIDE'] } }, ['ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence']); }
 function capabilityAssignmentSchema(): OpenApiSchema { return strictSchema({ id: idSchema(), tenantId: idSchema(), ...capabilityAssignmentInputSchema().properties, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence', 'status', 'createdAt', 'updatedAt']); }
-function resolveCapabilitySchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, deviceId: idSchema(), managedTargetId: idSchema(), applicationAssetId: idSchema() }, ['capabilityKey']); }
+function resolveCapabilitySchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, deviceId: idSchema(), managedTargetId: idSchema(), applicationAssetId: idSchema(), cloudAccountAssetId: idSchema() }, ['capabilityKey']); }
+function cloudAccountCapabilityBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), capabilityKey: { type: 'string' }, inputBindings: inputBindingsSchema() }, ['pluginVersionId', 'capabilityKey', 'inputBindings']); }
 function promotionActionSchema(): OpenApiSchema { return strictSchema({ promotionId: idSchema() }, ['promotionId']); }
 function promotionPreviewInputSchema(): OpenApiSchema { return strictSchema({ sourcePluginBindingId: idSchema(), displayName: { type: 'string' }, deviceFamily: { type: 'string' }, managementAddress: { type: 'string' }, managementPort: { type: 'number' }, authMode: { type: 'string' }, tlsVerify: { type: 'boolean' }, gatewayId: idSchema(), applicationAssetId: idSchema(), discovery: jsonObjectSchema() }, ['sourcePluginBindingId', 'displayName', 'deviceFamily', 'managementAddress', 'managementPort', 'authMode', 'tlsVerify', 'discovery']); }
 function promotionPreviewSchema(): OpenApiSchema { return strictSchema({ promotionId: idSchema(), status: { type: 'string', enum: ['PREVIEWED', 'CONFLICT'] }, sourcePluginBindingId: idSchema(), pluginVersionId: idSchema(), mappings: jsonObjectSchema(), conflicts: { type: 'array', items: jsonObjectSchema() } }, ['promotionId', 'status', 'sourcePluginBindingId', 'pluginVersionId', 'mappings', 'conflicts']); }

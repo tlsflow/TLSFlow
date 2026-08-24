@@ -5,15 +5,25 @@ export const taskStatuses = [
   'QUEUED',
   'RUNNING',
   'RETRY_WAITING',
+  'WAITING_RESULT',
+  'AWAITING_CONFIRMATION',
   'CANCELLING',
   'SUCCEEDED',
   'FAILED',
   'CANCELLED',
 ] as const;
 export type TaskStatus = typeof taskStatuses[number];
-const ACTIVE_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']);
+export type TaskWaitingStatus = Extract<TaskStatus, 'WAITING_RESULT' | 'AWAITING_CONFIRMATION'>;
+const ACTIVE_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  'QUEUED',
+  'RUNNING',
+  'RETRY_WAITING',
+  'WAITING_RESULT',
+  'AWAITING_CONFIRMATION',
+  'CANCELLING',
+]);
 
-export const taskAttemptStatuses = ['RUNNING', 'SUCCEEDED', 'FAILED', 'EXPIRED', 'CANCELLED'] as const;
+export const taskAttemptStatuses = ['RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED', 'EXPIRED', 'CANCELLED'] as const;
 export type TaskAttemptStatus = typeof taskAttemptStatuses[number];
 
 export type TaskEventType =
@@ -24,6 +34,8 @@ export type TaskEventType =
   | 'PROGRESS'
   | 'LOG'
   | 'RETRY_SCHEDULED'
+  | 'WAITING_RESULT'
+  | 'AWAITING_CONFIRMATION'
   | 'CANCEL_REQUESTED'
   | 'SUCCEEDED'
   | 'FAILED'
@@ -64,6 +76,12 @@ export interface TaskEnqueueInput {
   resourceSummary?: Record<string, unknown>;
   resourceRefs?: readonly TaskResourceRef[];
   idempotencyKey?: string;
+  /** 中文说明：把统一任务映射到业务动作和资源，供共用幂等记录确定作用域。 */
+  idempotencyScope?: {
+    actionType: string;
+    resourceType: string;
+    resourceId: string;
+  };
   parentTaskId?: string;
   definitionVersion?: number;
   availableAt?: string;
@@ -208,9 +226,20 @@ export interface MonitoringProbePage {
 export interface TaskExecutionResult {
   success: boolean;
   /**
-   * 中文说明：外部系统尚未完成时保留任务在重试队列，不能伪造成功或消耗完固定失败次数。
+   * 中文说明：明确禁止统一任务层再次重试当前动作。执行运行已经进入终态时，
+   * 任务层只能收敛到失败，不能再次调用已结束的执行运行。
+   */
+  retryable?: boolean;
+  /**
+   * 中文说明：真正的可重试失败才进入重试队列；不能再把外部执行等待误报为重试。
    */
   defer?: boolean;
+  /**
+   * 中文说明：外部动作已被可靠下发时等待其结果，或写操作结果不明时冻结在待确认状态。
+   * WAITING_RESULT 会按 nextAttemptAt/retryAfterSeconds 轮询控制面已落账的结果；
+   * AWAITING_CONFIRMATION 不会自动重放写操作。
+   */
+  waitingStatus?: TaskWaitingStatus;
   /**
    * 中文说明：由数据库基于自身时钟计算下一次执行时间，避免应用节点与数据库时钟偏差导致立即重试。
    */

@@ -8,7 +8,11 @@ import { PluginPresentationSchemaService } from '../presentations/plugin-present
 export interface CloudPluginFormResourceV1 {
   apiVersion: 'gcac.plugin-form/v1';
   pluginId: string;
-  fields: Array<{ key: string; type: 'objectRef' | 'secretRef' | 'string' | 'artifactRef'; required: boolean }>;
+  fields: Array<{ key: string; type: 'objectRef' | 'secretRef' | 'string' | 'artifactRef'; required: boolean; labelKey?: string; descriptionKey?: string; placeholderKey?: string }>;
+  credentialContract?: {
+    kind: 'CLOUD_PROVIDER';
+    slots: Array<{ name: string; secretType: 'password' | 'api_token' | 'private_key'; required: boolean; labelKey: string }>;
+  };
 }
 
 export interface ApplicationPresentationResourceV1 {
@@ -85,20 +89,45 @@ export class PluginPackageResourceSchemaService {
 
 function validateCloudForm(input: unknown, pluginId: string): CloudPluginFormResourceV1 {
   const value = record(input, 'form');
+  assertKnownFields(value, new Set(['apiVersion', 'pluginId', 'fields', 'credentialContract']), 'form');
   if (value.apiVersion !== 'gcac.plugin-form/v1') fail('form.apiVersion', '不支持的 P2 表单资源版本');
   assertPluginId(value.pluginId, pluginId, 'form.pluginId');
   const fields = array(value.fields, 'form.fields').map((item, index) => {
     const field = record(item, `form.fields.${index}`);
+    assertKnownFields(field, new Set(['key', 'type', 'required', 'labelKey', 'descriptionKey', 'placeholderKey']), `form.fields.${index}`);
     const type = enumValue(field.type, ['objectRef', 'secretRef', 'string', 'artifactRef'] as const, `form.fields.${index}.type`);
     return {
       key: identifier(field.key, `form.fields.${index}.key`),
       type,
       required: booleanValue(field.required, `form.fields.${index}.required`),
+      ...(field.labelKey === undefined ? {} : { labelKey: localeKey(field.labelKey, `form.fields.${index}.labelKey`) }),
+      ...(field.descriptionKey === undefined ? {} : { descriptionKey: localeKey(field.descriptionKey, `form.fields.${index}.descriptionKey`) }),
+      ...(field.placeholderKey === undefined ? {} : { placeholderKey: localeKey(field.placeholderKey, `form.fields.${index}.placeholderKey`) }),
     };
   });
   if (fields.length === 0) fail('form.fields', 'P2 表单至少声明一个字段');
   assertUnique(fields.map((field) => field.key), 'form.fields');
-  return { apiVersion: 'gcac.plugin-form/v1', pluginId, fields };
+  const credentialContract = value.credentialContract === undefined ? undefined : validateCredentialContract(value.credentialContract);
+  return { apiVersion: 'gcac.plugin-form/v1', pluginId, fields, ...(credentialContract ? { credentialContract } : {}) };
+}
+
+function validateCredentialContract(input: unknown): CloudPluginFormResourceV1['credentialContract'] {
+  const value = record(input, 'form.credentialContract');
+  assertKnownFields(value, new Set(['kind', 'slots']), 'form.credentialContract');
+  if (value.kind !== 'CLOUD_PROVIDER') fail('form.credentialContract.kind', '只支持 CLOUD_PROVIDER');
+  const slots = array(value.slots, 'form.credentialContract.slots').map((item, index) => {
+    const slot = record(item, `form.credentialContract.slots.${index}`);
+    assertKnownFields(slot, new Set(['name', 'secretType', 'required', 'labelKey']), `form.credentialContract.slots.${index}`);
+    return {
+      name: identifier(slot.name, `form.credentialContract.slots.${index}.name`),
+      secretType: enumValue(slot.secretType, ['password', 'api_token', 'private_key'] as const, `form.credentialContract.slots.${index}.secretType`),
+      required: booleanValue(slot.required, `form.credentialContract.slots.${index}.required`),
+      labelKey: localeKey(slot.labelKey, `form.credentialContract.slots.${index}.labelKey`),
+    };
+  });
+  if (slots.length === 0) fail('form.credentialContract.slots', '至少声明一个凭据槽位');
+  assertUnique(slots.map((slot) => slot.name), 'form.credentialContract.slots');
+  return { kind: 'CLOUD_PROVIDER', slots };
 }
 
 function validateApplicationPresentation(input: Record<string, unknown>, capabilityKeys: string[]): ApplicationPresentationResourceV1 {
@@ -221,6 +250,11 @@ function enumValue<T extends string>(input: unknown, values: readonly T[], path:
 
 function assertUnique(values: string[], path: string): void {
   if (new Set(values).size !== values.length) fail(path, '不能包含重复值');
+}
+
+function assertKnownFields(recordValue: Record<string, unknown>, allowed: Set<string>, path: string): void {
+  const unknown = Object.keys(recordValue).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) fail(path, '包含未知字段', { unknown });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

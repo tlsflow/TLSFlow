@@ -31,6 +31,7 @@ export class ExecutionsController {
     router.get('/api/v1/execution-workflow-recovery', '查询工作流恢复账本', ['Executions'], (request) => this.getWorkflowRecovery(request));
     router.post('/api/v1/execution-runs/retry', '重试执行运行', ['Executions'], (request) => this.retry(request));
     router.post('/api/v1/execution-runs/rollback', '回滚执行运行', ['Executions'], (request) => this.rollback(request));
+    router.post('/api/v1/execution-runs/recover', '核验未知执行结果', ['Executions'], (request) => this.recover(request));
   }
 
   private async listRuns(request: HttpRequest) {
@@ -97,6 +98,23 @@ export class ExecutionsController {
       actorId: security.subject.id,
       tenantId: security.tenantId,
     }, requestSecurityContext(security));
+  }
+
+  private async recover(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    const body = validateObject(request.body, {
+      runId: { type: 'string', required: true },
+      stepId: { type: 'string' },
+    });
+    const run = await this.service.getRun(String(body.runId), security.tenantId);
+    await assertRouteAction(security, 'execution.run.recover', 'execution_run', { resourceId: run.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'execution_run', objectId: run.id, tenantId: security.tenantId });
+    return this.service.recoverUnknownResult({
+      runId: run.id,
+      stepId: body.stepId === undefined ? undefined : String(body.stepId),
+      actorId: security.subject.id,
+      tenantId: security.tenantId,
+    });
   }
 
   private async streamDetail(request: HttpRequest) {
@@ -187,5 +205,6 @@ export function getExecutionRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/execution-workflow-recovery', operationId: 'getExecutionWorkflowRecovery', summary: '查询工作流恢复账本', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/retry', operationId: 'retryExecutionRun', summary: '重试执行运行', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/rollback', operationId: 'rollbackExecutionRun', summary: '回滚执行运行', tags: ['Executions'], responseSchema: schema },
+    { method: 'POST', path: '/api/v1/execution-runs/recover', operationId: 'recoverExecutionRun', summary: '核验未知执行结果', tags: ['Executions'], responseSchema: schema },
   ];
 }

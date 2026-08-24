@@ -1,0 +1,7 @@
+{
+  "apiVersion": "gcac.plugin-presentation/v1",
+  "pluginId": "fixture.cloud-extension",
+  "resourceType": "cloud",
+  "displayNameKey": "plugin.fixture.cloudExtension.name",
+  "summaryKey": "plugin.fixture.cloudExtension.description"
+}

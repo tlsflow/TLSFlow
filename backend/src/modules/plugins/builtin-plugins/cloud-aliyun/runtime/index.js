@@ -1,7 +1,11 @@
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+const packageDirectory = resolve(runtimeDirectory, '..');
+const packageManifest = JSON.parse(readPackageResource('manifest.json'));
 const PLUGIN_ID = packageManifest.pluginId;
 const PLUGIN_VERSION = packageManifest.version;
 const PROVIDER = 'aliyun';
@@ -12,9 +16,21 @@ const OPERATION_BY_CAPABILITY = Object.freeze({
   'cloud.service.connection-test': 'connection-test',
   'cloud.service.discover': 'discover',
   'certificate.deploy': 'deploy',
+  'certificate.verify': 'verify',
   'certificate.rollback': 'rollback',
 });
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+function readPackageResource(resourcePath) {
+  const normalized = String(resourcePath).replaceAll('\\', '/');
+  const absolute = resolve(packageDirectory, normalized);
+  const relativePath = relative(packageDirectory, absolute).replaceAll('\\', '/');
+  if (!normalized || normalized.startsWith('/') || normalized.includes(String.fromCharCode(0))
+    || relativePath === '..' || relativePath.startsWith('../')) {
+    throw new Error('插件包资源路径越界');
+  }
+  return readFileSync(join(packageDirectory, relativePath), 'utf8');
+}
 
 /**
  * Runner 只从环境接收适配器已经校验过的不可变身份和摘要。
@@ -61,7 +77,7 @@ async function execute(context, hostApi, descriptor) {
     }
     const request = signRequest(service, secret, requestInput, body, security, operation);
     const response = await hostHttpRequest(hostApi, request, grantRefs);
-    if (operation === 'connection-test') return readResult('connection-test', response);
+    if (operation === 'connection-test' || operation === 'verify') return readResult(operation, response);
     if (operation === 'discover') return discoverResult(response, descriptor);
     return await writeResult(operation, service, secret, requestInput, security, response, grantRefs, hostApi, descriptor);
   } catch (error) {

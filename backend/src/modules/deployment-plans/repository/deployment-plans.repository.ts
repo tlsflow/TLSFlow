@@ -32,9 +32,18 @@ export class DeploymentPlansRepository {
     return this.plans.create(plan);
   }
 
-  async updatePlan(id: string, patch: Partial<DeploymentPlanEntity>): Promise<DeploymentPlanEntity> {
+  async updatePlan(id: string, patch: Partial<DeploymentPlanEntity>, expectedVersion?: number): Promise<DeploymentPlanEntity> {
     const current = await this.plans.getOrThrow(id);
-    return this.plans.update(id, { ...patch, version: (current.version ?? 1) + 1 });
+    const next = { ...patch, version: (current.version ?? 1) + 1 } as Partial<DeploymentPlanEntity>;
+    if (expectedVersion === undefined) return this.plans.update(id, next);
+    if (current.version !== expectedVersion) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '部署计划版本冲突', { planId: id, expectedVersion, actualVersion: current.version });
+    }
+    const updated = { ...current, ...structuredClone(next), id } as DeploymentPlanEntity;
+    if (!await this.plans.compareAndSwap(id, expectedVersion, updated)) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '部署计划版本冲突', { planId: id, expectedVersion });
+    }
+    return updated;
   }
 
   async deletePlan(id: string): Promise<void> {

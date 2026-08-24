@@ -1,0 +1,38 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "fixture.cloud-extension",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.fixture.cloudExtension.name",
+  "descriptionKey": "plugin.fixture.cloudExtension.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC Fixture",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "BOTH",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    { "key": "cloud.service.connection-test", "contractVersion": "v1", "actionContractId": "cloud.service.connection-test.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "cloud.service.discover", "contractVersion": "v1", "actionContractId": "cloud.service.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "certificate.verify", "contractVersion": "v1", "actionContractId": "certificate.verify.v1", "riskLevel": "MEDIUM", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] }
+  ],
+  "permissions": ["secret.resolve", "artifact.read", "network.http", "cloud.service.get", "execution.progress.write", "audit.append"],
+  "compatibility": { "productFamilies": ["fixture.cloud.resource"], "managementMethods": ["PLUGIN"], "executionLocations": ["CONTROL_PLANE"], "artifactContracts": ["certificate.deploy.v1"] },
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "workflows": {
+      "cloud.service.connection-test": "workflows/connection-test.json",
+      "cloud.service.discover": "workflows/discover.json",
+      "certificate.deploy": "workflows/deploy.json",
+      "certificate.verify": "workflows/verify.json",
+      "certificate.rollback": "workflows/rollback.json"
+    },
+    "forms": { "cloud": "forms/cloud.json" },
+    "presentations": { "cloud": "presentations/cloud.json" },
+    "discoveryMappings": { "fixture.cloud.resource": "discovery/cloud-resource.json" },
+    "locales": { "zh-CN": "locales/zh-CN.json", "en-US": "locales/en-US.json" }
+  }
+}

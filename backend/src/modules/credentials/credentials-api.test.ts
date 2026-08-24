@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createAppAsync } from '../../app.module.js';
 import { App } from '../../common/http/app.js';
 import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { runMigrations } from '../../database/migration-runner.js';
@@ -172,7 +173,17 @@ test('全局凭据 API 支持创建 Cloud Provider 配置', async () => {
       name: '阿里云生产账号',
       kind: 'CLOUD_PROVIDER',
       scopeType: 'global',
-      metadata: { providerKey: 'cloud.aliyun' },
+      metadata: {
+        providerKey: 'cloud.aliyun',
+        pluginVersionId: 'plugin-version-cloud.aliyun',
+        credentialContract: {
+          kind: 'CLOUD_PROVIDER',
+          slots: [
+            { name: 'accessKeyId', secretType: 'api_token', required: true, labelKey: 'plugin.cloud.aliyun.accessKeyId' },
+            { name: 'accessKeySecret', secretType: 'api_token', required: true, labelKey: 'plugin.cloud.aliyun.accessKeySecret' },
+          ],
+        },
+      },
       secretValues: {
         accessKeyId: { plainText: 'access-key-id', type: 'api_token' },
         accessKeySecret: { plainText: 'access-key-secret', type: 'api_token' },
@@ -192,6 +203,43 @@ test('全局凭据 API 支持创建 Cloud Provider 配置', async () => {
     [credential.id],
   );
   assert.equal(stored.rows[0]?.kind, 'CLOUD_PROVIDER');
+});
+
+test('应用装配从启用插件 Form 解析 Cloud Provider 凭据合同', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const app = await createAppAsync({ db: database });
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-cloud-manifest' }));
+  const security = app.getResource<any>('securityServices');
+  await security.rbac.createPolicy({
+    subjectType: 'user', subjectId: 'user_admin', effect: 'allow',
+    actions: ['*'], resourceTypes: ['*'], scope: { tenantId: '*' },
+  });
+  await security.auth.currentSession('user_admin');
+
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { authorization: 'Bearer cloud-manifest' },
+    body: {
+      name: 'Manifest 驱动云账号',
+      kind: 'CLOUD_PROVIDER',
+      scopeType: 'global',
+      metadata: { providerKey: 'cloud.aliyun' },
+      secretValues: {
+        accessKeyId: { plainText: 'access-key-id', type: 'api_token' },
+        accessKeySecret: { plainText: 'access-key-secret', type: 'api_token' },
+      },
+    },
+  });
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+  const metadata = (created.body as { metadata: Record<string, unknown> }).metadata;
+  assert.equal(metadata.providerKey, 'cloud.aliyun');
+  assert.ok(String(metadata.pluginVersionId).length > 0);
+  assert.deepEqual((metadata.credentialContract as { slots: Array<{ name: string }> }).slots.map((slot) => slot.name), [
+    'accessKeyId',
+    'accessKeySecret',
+  ]);
 });
 
 test('全局凭据 API 支持创建待浏览器获取的 BROWSER_SESSION', async () => {

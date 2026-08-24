@@ -150,6 +150,9 @@ import {
 } from './modules/tasks/index.js';
 import {
   CloudAccountAssetsApplicationService,
+  CloudAccountAssetBindingProvisioner,
+  CloudCapabilityTaskService,
+  CloudResourceProjectionService,
   ProvidersController,
   ProviderCatalogApplicationService,
   getCloudAccountRouteContracts,
@@ -324,6 +327,36 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     new PluginWorkflowBindingsRepository(appDb),
   );
+  credentialsService.setCloudCredentialContractResolver({
+    resolve: async (tenantId, selector) => {
+      const providerKey = typeof selector.providerKey === 'string' && selector.providerKey.trim()
+        ? selector.providerKey.trim()
+        : undefined;
+      const version = selector.pluginVersionId
+        ? await unifiedPluginsService.getVersionForTenant(tenantId, selector.pluginVersionId)
+        : await resolveCloudPluginVersion(unifiedPluginsService, tenantId, providerKey);
+      if (version.status !== 'ENABLED') {
+        throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', 'Cloud Provider 插件版本未启用', {
+          pluginVersionId: version.id,
+          status: version.status,
+        });
+      }
+      if (providerKey && version.pluginId !== providerKey) {
+        throw new AppError('VALIDATION_FAILED', 'Cloud Provider 与插件 Manifest 不一致', {
+          providerKey,
+          manifestProviderKey: version.pluginId,
+          pluginVersionId: version.id,
+        });
+      }
+      if (!version.manifest.capabilities.some((capability) => capability.key === 'cloud.service.connection-test')) {
+        throw new AppError('VALIDATION_FAILED', '插件版本未声明 Cloud Provider 连接能力', { pluginVersionId: version.id });
+      }
+      const ui = await unifiedPluginsService.getUiResources(version.id, 'zh-CN');
+      const form = (ui.forms as Record<string, unknown>).cloud;
+      const contract = readCloudCredentialContract(form, version.pluginId, version.id);
+      return { providerKey: version.pluginId, pluginVersionId: version.id, contract };
+    },
+  });
   const pluginRunnerConfig = resolvePluginRunnerConfig(process.env);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
@@ -367,6 +400,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ProvidersController(
     cloudAccountAssetsService,
     security,
+    tasksService,
   ).register(app.router);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
@@ -425,11 +459,21 @@ export function createApp(dependencies: AppDependencies = {}): App {
       )
     : undefined;
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
+  cloudAccountAssetsService.setBindingProvisioner(new CloudAccountAssetBindingProvisioner(unifiedPluginsService));
+  const cloudResourceProjectionService = new CloudResourceProjectionService(appDb);
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(
     workflowTemplatesService,
     new PluginWorkflowBindingsRepository(appDb),
     new PluginWorkflowVersionStore(appDb),
     (pluginId, version) => builtinPluginRegistry.getDeclaredWorkflowDeclarations(pluginId, version),
+  );
+  const cloudCapabilityTaskService = new CloudCapabilityTaskService(
+    cloudAccountAssetsService,
+    pluginBindingsService,
+    unifiedPluginsService,
+    pluginWorkflowPublisher,
+    pluginWorkflowCapabilityExecutor,
+    cloudResourceProjectionService,
   );
   const directWorkflowOnboarding = new PublishedDirectWorkflowOnboardingAdapter(
     assetsService.getRepository(),
@@ -477,6 +521,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     app.setResource('browserCredentialSessionService', browserCredentialSessionService);
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
+  app.setResource('cloudCapabilityTaskService', cloudCapabilityTaskService);
+  app.setResource('cloudResourceProjectionService', cloudResourceProjectionService);
   app.setResource('certificateServices', certificateServices);
   const globalSearchService = new GlobalSearchApplicationService({
     certificates: certificateServices.certificates,
@@ -570,7 +616,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
       detailStream: executionDetailStream,
       deploymentInputSnapshots,
       executionGrants: security.grants,
+      agentTasks: agentsService.getRepository(),
       tasks: tasksService,
+      taskControl: tasksService,
     }),
     approval: security.approvals,
     audit: security.audit,
@@ -761,6 +809,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     app.setResource('browserCredentialSessionController', browserCredentialSessionController);
   }
   const executionsService = deploymentPlans.getExecutionsService();
+  tasksService.setExecutionCancellationHandler({
+    cancelRun: (runId, actorId, tenantId) => executionsService.cancelRun(runId, actorId, tenantId),
+  });
   app.setResource('deploymentPlansController', deploymentPlans);
   app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());
   app.setResource('gatewaysService', gatewaysService);
@@ -1054,6 +1105,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     builtinCatalogRefresher,
     tasksService,
     security,
+    cloudAccountAssetsService,
   ).register(app.router);
   new GlobalSearchController(globalSearchService, security).register(app.router);
   new WorkflowTemplatesController(
@@ -1120,6 +1172,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     reports: reportExportService,
     agents: agentsService,
     pluginCatalog: builtinCatalogRefresher,
+    cloudCapability: cloudCapabilityTaskService,
   }, tasksService.registry.list().map((definition) => definition.executorKey));
   const taskWorkerSupervisor = new TaskWorkerSupervisor(
     tasksService,
@@ -1374,6 +1427,54 @@ function createPluginFactPipeline(
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+async function resolveCloudPluginVersion(
+  plugins: Pick<UnifiedPluginsApplicationService, 'listCatalog' | 'getVersionForTenant'>,
+  tenantId: string,
+  providerKey: string | undefined,
+): Promise<UnifiedPluginVersionRecord> {
+  if (!providerKey) throw new AppError('VALIDATION_FAILED', 'CLOUD_PROVIDER 凭据必须指定 providerKey 或 pluginVersionId');
+  const catalog = await plugins.listCatalog(tenantId, 'zh-CN');
+  const candidate = catalog.find((item) => item.pluginId === providerKey
+    && item.status === 'ENABLED'
+    && item.capabilities.some((capability) => capability.key === 'cloud.service.connection-test'));
+  if (!candidate) {
+    throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '没有找到已启用且声明 Cloud Provider 连接能力的插件版本', { providerKey });
+  }
+  return plugins.getVersionForTenant(tenantId, candidate.pluginVersionId);
+}
+
+function readCloudCredentialContract(
+  form: unknown,
+  pluginId: string,
+  pluginVersionId: string,
+): { kind: 'CLOUD_PROVIDER'; slots: Array<{ name: string; secretType: 'password' | 'api_token' | 'private_key'; required: boolean; labelKey?: string }> } {
+  if (!isRecordValue(form) || !isRecordValue(form.credentialContract)) {
+    throw new AppError('VALIDATION_FAILED', '插件 Form 未声明 Cloud credentialContract', { pluginId, pluginVersionId });
+  }
+  const contract = form.credentialContract;
+  if (contract.kind !== 'CLOUD_PROVIDER' || !Array.isArray(contract.slots) || contract.slots.length === 0) {
+    throw new AppError('VALIDATION_FAILED', '插件 Form 的 Cloud credentialContract 无效', { pluginId, pluginVersionId });
+  }
+  const slots = contract.slots.map((item, index) => {
+    if (!isRecordValue(item)
+      || typeof item.name !== 'string'
+      || !['password', 'api_token', 'private_key'].includes(String(item.secretType))) {
+      throw new AppError('VALIDATION_FAILED', '插件 Form 的 Cloud credentialContract 槽位无效', { pluginId, pluginVersionId, index });
+    }
+    return {
+      name: item.name,
+      secretType: item.secretType as 'password' | 'api_token' | 'private_key',
+      required: item.required !== false,
+      ...(typeof item.labelKey === 'string' ? { labelKey: item.labelKey } : {}),
+    };
+  });
+  return { kind: 'CLOUD_PROVIDER', slots };
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function getRouteContracts(

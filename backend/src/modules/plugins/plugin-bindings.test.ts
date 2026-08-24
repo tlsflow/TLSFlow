@@ -23,7 +23,7 @@ test('Managed 与 Standalone Binding 使用同一数据模型并保护上下文�
   await assert.rejects(() => service.createBinding('tenant-1', {
     pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings(),
     managedContext: { hostId: 'host-1', agentId: 'agent-1' } as never,
-  }), /只允许保存 Host 和 ManagedTarget 身份/);
+  }), /只允许保存 Host、ManagedTarget 或 CloudAccountAsset 身份/);
 });
 
 test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖', async () => {

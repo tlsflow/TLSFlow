@@ -1,4 +1,10 @@
 {
   "plugin.cloud.volcengine.name": "Volcengine",
-  "plugin.cloud.volcengine.description": "Volcengine control-plane plugin"
+  "plugin.cloud.volcengine.description": "Volcengine control-plane plugin",
+  "plugin.cloud.volcengine.cloudService": "Cloud service object",
+  "plugin.cloud.volcengine.credential": "Cloud account credential",
+  "plugin.cloud.volcengine.region": "Region",
+  "plugin.cloud.volcengine.certificateArtifact": "Certificate artifact",
+  "plugin.cloud.volcengine.accessKey": "Access Key",
+  "plugin.cloud.volcengine.secretKey": "Secret Key"
 }

@@ -509,7 +509,7 @@ export class DeploymentPlansApplicationService {
     if (input.reuseDraft !== false) {
       const reusableDraft = await this.repository.findLatestManualDraftByApplicationAsset(input.tenantId, input.applicationAssetId);
       if (reusableDraft) {
-        return this.updateDraftFromApplicationAsset({ ...input, planId: reusableDraft.id }, context);
+        return this.updateDraftFromApplicationAsset({ ...input, planId: reusableDraft.id, expectedVersion: reusableDraft.version }, context);
       }
     }
     const draft = await this.buildCreateInputFromApplicationAsset(input);
@@ -644,7 +644,7 @@ export class DeploymentPlansApplicationService {
       policy,
       updatedAt: now,
       updatedBy: draft.actorId,
-    });
+    }, input.expectedVersion);
 
     await this.repository.deleteTargetsByPlan(plan.id, draft.tenantId);
     const inputSnapshotRefs: DeploymentInputSnapshotRefV1[] = [];

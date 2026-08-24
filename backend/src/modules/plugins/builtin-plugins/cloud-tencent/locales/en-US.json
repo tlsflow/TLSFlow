@@ -1,4 +1,10 @@
 {
   "plugin.cloud.tencent.name": "Tencent Cloud",
-  "plugin.cloud.tencent.description": "Tencent Cloud control-plane plugin"
+  "plugin.cloud.tencent.description": "Tencent Cloud control-plane plugin",
+  "plugin.cloud.tencent.cloudService": "Cloud service object",
+  "plugin.cloud.tencent.credential": "Cloud account credential",
+  "plugin.cloud.tencent.region": "Region",
+  "plugin.cloud.tencent.certificateArtifact": "Certificate artifact",
+  "plugin.cloud.tencent.secretId": "SecretId",
+  "plugin.cloud.tencent.secretKey": "SecretKey"
 }

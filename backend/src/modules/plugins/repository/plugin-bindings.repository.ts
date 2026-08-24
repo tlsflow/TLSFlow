@@ -1,5 +1,6 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityAssignmentV1, PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
 
 export class PluginBindingsRepository {
@@ -14,6 +15,18 @@ export class PluginBindingsRepository {
       record.id, record.tenantId, record.pluginVersionId, record.mode, JSON.stringify(record.inputBindings),
       record.managedContext ? JSON.stringify(record.managedContext) : null, record.status, record.version, record.createdAt, record.updatedAt,
     ]);
+    return record;
+  }
+
+  async updateBinding(record: PluginBindingV1, expectedVersion: number): Promise<PluginBindingV1> {
+    const result = await this.db.query<{ id: string }>(`update unified_plugin_bindings
+      set input_bindings=$3::jsonb, managed_context=$4::jsonb, status=$5, version=$6, updated_at=$7
+      where tenant_id=$1 and id=$2 and version=$8
+      returning id`, [
+      record.tenantId, record.id, JSON.stringify(record.inputBindings), record.managedContext ? JSON.stringify(record.managedContext) : null,
+      record.status, record.version, record.updatedAt, expectedVersion,
+    ]);
+    if (result.rows.length === 0) throw new AppError('RESOURCE_VERSION_CONFLICT', 'PluginBinding 版本冲突', { bindingId: record.id, expectedVersion });
     return record;
   }
 

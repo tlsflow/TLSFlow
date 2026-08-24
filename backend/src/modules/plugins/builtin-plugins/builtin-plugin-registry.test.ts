@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { BuiltinPluginRegistry } from './builtin-plugin-registry.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-unified-plugin-loader.js';
+import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 
 test('Registry 直接从 Manifest 派生版本和 Runner 入口，不加载插件模块', async () => {
   const root = await createPackageRoot();
@@ -76,6 +77,14 @@ test('同一插件版本且摘要相同的重复扫描保持幂等', async () =>
 
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.packageSha256, `sha256:${sha256(pluginPackage.packageContent)}`);
+});
+
+test('Registry resourceHash 与 Cloud Capability Runner 使用同一排序摘要合同', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const [entry] = await new BuiltinPluginRegistry(loader).refresh();
+  assert.ok(entry);
+  assert.equal(entry.resourceHash, canonicalResourceHash(entry.resourceSha256));
 });
 
 test('同一插件版本摘要不同只跳过冲突插件', async () => {

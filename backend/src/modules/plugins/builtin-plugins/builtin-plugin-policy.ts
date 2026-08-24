@@ -19,7 +19,6 @@ export const forbiddenBuiltinPluginPermissions = [
   ...forbiddenHostApiMethods,
   'agent.execute',
   'runtime.execute_unknown_code',
-  'runtime.trusted_js',
 ] as const;
 
 /**

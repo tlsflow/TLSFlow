@@ -1,8 +1,10 @@
 import { AppError } from '../../common/errors/app-error.js';
+import { structuredLogger } from '../../common/logging/structured-logger.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
 import { TaskRegistry } from './task.registry.js';
-import { TaskRepository } from './task.repository.js';
+import { isUniqueViolation, assertSameRequest } from '../../shared/idempotency.js';
+import { TaskRepository, taskRequestHash } from './task.repository.js';
 import type { TaskRealtimePublisher } from './task-realtime-stream.js';
 import type {
   MonitoringProbePage,
@@ -26,10 +28,15 @@ export interface TaskControlPlaneLifecycle {
   };
 }
 
+export interface TaskExecutionCancellationHandler {
+  cancelRun(runId: string, actorId: string, tenantId: string): Promise<unknown>;
+}
+
 export class TasksApplicationService {
   readonly registry: TaskRegistry;
   private lifecycle: TaskControlPlaneLifecycle = { status: 'MIGRATION_PENDING' };
   private initializationPromise?: Promise<void>;
+  private executionCancellationHandler?: TaskExecutionCancellationHandler;
 
   constructor(
     private readonly repository: TaskRepository,
@@ -46,12 +53,17 @@ export class TasksApplicationService {
       : { status: this.lifecycle.status };
   }
 
+  /** 中文说明：强制结束统一任务时同步收敛关联执行运行，避免留下 RUNNING 孤儿。 */
+  setExecutionCancellationHandler(handler: TaskExecutionCancellationHandler): void {
+    this.executionCancellationHandler = handler;
+  }
+
   async initialize(): Promise<void> {
     if (this.lifecycle.status === 'READY') return;
     if (this.initializationPromise) return this.initializationPromise;
 
     this.lifecycle = { status: 'INITIALIZING' };
-    const initialization = this.repository.ensureDefinitions(this.registry.list())
+    const initialization = this.repository.ensureControlPlaneSchema(this.registry.list())
       .then(() => {
         this.lifecycle = { status: 'READY' };
       })
@@ -76,15 +88,33 @@ export class TasksApplicationService {
   async enqueue(input: TaskEnqueueInput, actor?: SecuritySubject): Promise<TaskRun> {
     await this.initialize();
     const definition = this.registry.get(input.taskType, input.definitionVersion);
+    const idempotencyScope = input.idempotencyScope ?? {
+      actionType: `task.enqueue.${input.taskType}`,
+      resourceType: 'task',
+      resourceId: input.taskType,
+    };
+    const hash = input.idempotencyKey ? taskRequestHash(input, definition.version) : undefined;
     if (input.parentTaskId) {
       const parent = await this.repository.getById(input.tenantId, input.parentTaskId);
       if (!parent) throw new AppError('RESOURCE_NOT_FOUND', '父任务不存在', { parentTaskId: input.parentTaskId });
     }
     if (input.idempotencyKey) {
-      const existing = await this.repository.findActiveByIdempotency(input.tenantId, input.taskType, input.idempotencyKey);
-      if (existing) return existing;
+      const existing = await this.repository.findByIdempotency(input.tenantId, input.taskType, input.idempotencyKey, idempotencyScope);
+      if (existing) {
+        if (hash) assertSameRequest(existing.record, hash, input.idempotencyKey);
+        return existing.task;
+      }
     }
-    const task = await this.repository.create(input, definition);
+    let task: TaskRun;
+    try {
+      task = await this.repository.create({ ...input, idempotencyScope }, definition);
+    } catch (error) {
+      if (!input.idempotencyKey || !hash || !isUniqueViolation(error)) throw error;
+      const raced = await this.repository.findByIdempotency(input.tenantId, input.taskType, input.idempotencyKey, idempotencyScope);
+      if (!raced) throw error;
+      assertSameRequest(raced.record, hash, input.idempotencyKey);
+      return raced.task;
+    }
     if (shouldWriteTaskAudit(task)) {
       await this.audit?.write({
         eventType: 'task.created',
@@ -111,6 +141,21 @@ export class TasksApplicationService {
     const detail = await this.repository.detail(tenantId, id);
     if (!detail) throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
     return detail;
+  }
+
+  /** 中文说明：恢复流程确认远端写入事实后，显式结束冻结的统一任务。 */
+  async resolveWaitingExecutionTask(input: {
+    tenantId: string;
+    taskId: string;
+    success: boolean;
+    actorId?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    detail?: Record<string, unknown>;
+  }): Promise<TaskRun | undefined> {
+    const task = await this.repository.resolveWaitingExecutionTask(input);
+    if (task) this.realtime?.publishTask(task);
+    return task;
   }
 
   async listActiveExecutionTasks(tenantId: string, requestedBy?: string, includePendingApprovals = false): Promise<TaskRun[]> {
@@ -147,7 +192,9 @@ export class TasksApplicationService {
 
   async forceCancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
     try {
+      const current = await this.repository.getById(tenantId, id);
       const task = await this.repository.forceCancel(tenantId, id, actorId, reason);
+      await this.cancelLinkedExecution(current ?? task, actorId ?? 'system');
       if (shouldWriteTaskAudit(task)) {
         await this.audit?.write({
           eventType: 'task.cancelled',
@@ -230,6 +277,9 @@ export class TasksApplicationService {
   }
 
   async runNext(workerId: string, executor: TaskExecutor, tenantId?: string): Promise<TaskRun | undefined> {
+    // 兼容已在旧版本中进入 AWAITING_CONFIRMATION 的证书部署任务，先恢复到
+    // 只读证书状态轮询队列；没有核验材料的未知写操作不会被提升。
+    await this.repository.promoteRecoverableExecutionTasks(tenantId);
     const claimed = await this.repository.claimNext(tenantId, workerId, 60);
     if (!claimed) return undefined;
     const { task, attempt } = claimed;
@@ -242,13 +292,28 @@ export class TasksApplicationService {
     }
     const definition = this.registry.get(task.taskType, task.definitionVersion);
     try {
+      if (result.waitingStatus) {
+        const nextAttemptAt = result.waitingStatus === 'WAITING_RESULT' ? result.nextAttemptAt : undefined;
+        const retryAfterSeconds = result.waitingStatus === 'WAITING_RESULT' && !nextAttemptAt
+          ? result.retryAfterSeconds ?? definition.retryPolicy.backoffSeconds
+          : undefined;
+        await this.repository.finish(task, attempt, workerId, result.waitingStatus, {
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+          detail: result.detail,
+        }, nextAttemptAt, retryAfterSeconds);
+        const waiting = await this.repository.getById(task.tenantId, task.id) as TaskRun;
+        this.realtime?.publishTask(waiting);
+        return waiting;
+      }
       if (result.success) {
         await this.repository.finish(task, attempt, workerId, 'SUCCEEDED', { detail: result.detail });
         const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
         this.realtime?.publishTask(finished);
         return finished;
       }
-      const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
+      const shouldRetry = result.retryable !== false
+        && (result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts);
       const nextAttemptAt = shouldRetry && result.nextAttemptAt ? result.nextAttemptAt : undefined;
       const retryAfterSeconds = shouldRetry && !nextAttemptAt
         ? result.retryAfterSeconds
@@ -274,6 +339,25 @@ export class TasksApplicationService {
   async listMonitoringProbes(query: MonitoringProbeQuery): Promise<MonitoringProbePage> {
     return this.repository.listMonitoringProbes(query);
   }
+
+  private async cancelLinkedExecution(task: TaskRun, actorId: string): Promise<void> {
+    if (!this.executionCancellationHandler) return;
+    if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(task.status)) return;
+    if (!['CERTIFICATE_DEPLOY', 'CERTIFICATE_DRY_RUN', 'CERTIFICATE_VERIFY', 'CERTIFICATE_ROLLBACK'].includes(task.taskType)) return;
+    const runId = readRunId(task.payload) ?? readRunId(task.resourceSummary);
+    if (!runId) return;
+    try {
+      await this.executionCancellationHandler.cancelRun(runId, actorId, task.tenantId);
+    } catch (error) {
+      // 统一任务已明确结束，不能因为历史执行运行缺失而把取消接口变成 500；记录证据供运维处理。
+      structuredLogger.warn('强制结束任务后收敛执行运行失败', {
+        taskId: task.id,
+        runId,
+        taskType: task.taskType,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'task-control-plane', resourceType: 'task', resourceId: task.id, tenantId: task.tenantId });
+    }
+  }
 }
 
 /**
@@ -282,4 +366,9 @@ export class TasksApplicationService {
  */
 function shouldWriteTaskAudit(task: Pick<TaskRun, 'category'>): boolean {
   return task.category !== 'MONITORING';
+}
+
+function readRunId(value: Record<string, unknown> | undefined): string | undefined {
+  const runId = value?.runId;
+  return typeof runId === 'string' && runId.trim() ? runId.trim() : undefined;
 }

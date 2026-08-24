@@ -15,6 +15,7 @@ import type { ReportExportService } from '../reports/application/report-export.s
 import { buildAutomationTaskProgress } from '../automations/application/automation-task-progress.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
+import type { CloudCapabilityTaskService } from '../providers/application/cloud-capability-task.service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<{
@@ -44,6 +45,7 @@ export interface TaskWorkerAdapterDependencies {
   reports?: Pick<ReportExportService, 'executeTask'>;
   agents?: Pick<AgentsApplicationService, 'getRepository'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
+  cloudCapability?: Pick<CloudCapabilityTaskService, 'execute'>;
 }
 
 /**
@@ -94,17 +96,33 @@ export function createTaskExecutorRegistry(
       dependencies.executionRegistry,
     );
     if (result?.pending === true) {
+      const waitingStatus = result.pendingState === 'AWAITING_CONFIRMATION'
+        ? 'AWAITING_CONFIRMATION'
+        : 'WAITING_RESULT';
+      const errorCode = typeof result.errorCode === 'string' && result.errorCode.trim()
+        ? result.errorCode
+        : waitingStatus === 'AWAITING_CONFIRMATION'
+          ? 'EXECUTION_RESULT_UNCONFIRMED'
+          : 'EXECUTION_PENDING';
+      const errorMessage = typeof result.errorMessage === 'string' && result.errorMessage.trim()
+        ? result.errorMessage
+        : waitingStatus === 'AWAITING_CONFIRMATION'
+          ? '写入结果无法确认，系统已停止自动重放；请在执行详情中核验目标证书状态'
+          : '执行运行仍在等待外部执行结果，控制面将继续查询运行状态';
       return {
         success: false,
-        defer: true,
-        errorCode: 'EXECUTION_PENDING',
-        errorMessage: '执行运行仍在等待 Agent 或异步步骤完成',
-        detail: { runId, pending: true },
+        waitingStatus,
+        ...(waitingStatus === 'WAITING_RESULT' ? { retryAfterSeconds: 10 } : {}),
+        errorCode,
+        errorMessage,
+        detail: { runId, pending: true, waitingStatus, errorCode, errorMessage },
       };
     }
     return {
       success: result?.success === true,
       ...(result?.success === true ? {} : {
+        // ExecutionRun 自己拥有步骤级重试和终态；统一任务层不能再次调用已结束的 Run。
+        retryable: false,
         errorCode: result?.errorCode ?? 'EXECUTION_FAILED',
         errorMessage: result?.errorMessage ?? '执行运行失败',
       }),
@@ -115,6 +133,10 @@ export function createTaskExecutorRegistry(
   registry.register('certificate.deploy', execution);
   registry.register('certificate.verify', execution);
   registry.register('certificate.rollback', execution);
+
+  registry.register('cloud.capability-action', dependencyExecutor('Cloud Capability Worker', dependencies.cloudCapability, async (task) => {
+    return dependencies.cloudCapability!.execute(task);
+  }));
 
   registry.register('agent.install', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'install'));
 

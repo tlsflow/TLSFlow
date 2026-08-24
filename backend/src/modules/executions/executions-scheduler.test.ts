@@ -652,6 +652,62 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     }
   });
 
+  it('Worker 会主动读取 Gateway 的 agentTaskId 结果账本，不依赖 Agent 回调', async () => {
+    let application: ExecutionsApplicationService | undefined;
+    let lookedUpTaskId = '';
+    const resultSync = {
+      applyAgentTaskResult: async (input: { executionStepId: string; tenantId: string }) => {
+        const step = await application!.getStep(input.executionStepId, input.tenantId);
+        await application!.updateStepForTest(input.executionStepId, {
+          status: 'SUCCESS',
+          inputSnapshot: { ...step.inputSnapshot, resultDetail: { mode: 'gateway_agent_process', executionStatus: 'SUCCESS' } },
+          finishedAt: new Date().toISOString(),
+        }, input.tenantId);
+      },
+    };
+    application = createService({
+      agentTasks: {
+        getTask: async (_tenantId: string, taskId: string) => {
+          lookedUpTaskId = taskId;
+          return {
+            id: taskId,
+            status: 'succeeded',
+            result: { success: true, status: 'SUCCESS', detail: { mode: 'gateway_agent_process' } },
+          };
+        },
+      },
+      resultSync: resultSync as never,
+    });
+    const created = await createRun(application, {
+      idempotencyKey: 'idem_gateway_agent_task_poll',
+      targetIds: ['target_gateway_agent_task_poll'],
+    });
+    const steps = (await application.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }))
+      .sort((left, right) => left.stepNo - right.stepNo);
+    const install = steps.find((step) => step.stepType === 'INSTALL');
+    assert.ok(install);
+    await application.updateRunForTest(created.run.id, { status: 'RUNNING' }, 'tenant_1');
+    for (const step of steps) {
+      if (step.id === install!.id) continue;
+      await application.updateStepForTest(step.id, { status: 'SUCCESS', finishedAt: new Date().toISOString() }, 'tenant_1');
+    }
+    await application.updateStepForTest(install!.id, {
+      status: 'RUNNING',
+      inputSnapshot: {
+        ...install!.inputSnapshot,
+        executorType: 'GATEWAY_FORWARD',
+        dispatchDetail: { mode: 'gateway_v2_control_plane_queue', agentTaskId: 'agent-task-gateway-poll' },
+      },
+    }, 'tenant_1');
+
+    const result = await application.runDispatchedExecution(created.run.id, 'task-worker', 'tenant_1');
+
+    assert.equal(result.success, true);
+    assert.equal(lookedUpTaskId, 'agent-task-gateway-poll');
+    assert.equal((await application.getStep(install!.id, 'tenant_1')).status, 'SUCCESS');
+    assert.equal((await application.getRun(created.run.id, 'tenant_1')).status, 'SUCCESS');
+  });
+
   it('WORKFLOW 执行目标生成统一五阶段，dry-run 可预览，apply 失败关闭', async () => {
     const service = createService();
     const workflows = new WorkflowTemplatesApplicationService();
@@ -1046,6 +1102,22 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(calls, 1);
   });
 
+  it('重复唤醒已进入失败终态的运行时返回已有结果，不抛出非法状态错误', async () => {
+    const service = createService();
+    const created = await createRun(service, { idempotencyKey: 'idem_terminal_wakeup', targetIds: ['target_terminal'] });
+    await service.updateRunForTest(created.run.id, {
+      status: 'FAILED',
+      errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH',
+      errorMessage: '宿主证书验证发现远端 TLS 证书与目标证书不一致',
+    }, 'tenant_1');
+
+    const result = await service.runDispatchedExecution(created.run.id, 'task-worker', 'tenant_1');
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'TLS_VERIFY_FINGERPRINT_MISMATCH');
+    assert.equal(result.errorMessage, '宿主证书验证发现远端 TLS 证书与目标证书不一致');
+  });
+
   it('未知 executor 被拒绝，不再静默 fallback 到 MockExecutor', async () => {
     const service = createService();
     const created = await createRun(service, { idempotencyKey: 'idem_unknown_executor', targetIds: ['target_x'], executorType: 'NO_SUCH_EXECUTOR' });
@@ -1114,6 +1186,87 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(verify?.inputSnapshot.gatewayId, 'gateway-1');
     assert.equal((verify?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
     assert.equal((verify?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
+  });
+
+  it('证书写入结果未知但已有目标指纹时主动核验并继续，不重放 INSTALL', async () => {
+    const expectedFingerprint = 'b'.repeat(64);
+    let recoveryCalls = 0;
+    const service = createService({
+      unknownResultVerifier: {
+        async executeStep(input) {
+          recoveryCalls += 1;
+          assert.equal(
+            (input.step.inputSnapshot.certificateVerification as Record<string, unknown>)?.expectedFingerprintSha256,
+            expectedFingerprint,
+          );
+          return {
+            success: true,
+            detail: {
+              certificateVerification: {
+                capabilityKey: 'certificate.verify',
+                schemaVersion: '1.0',
+                expectedFingerprintSha256: expectedFingerprint,
+                remoteCertificateSha256: expectedFingerprint,
+              },
+              verify: { target: 'https://example.test:443', remoteCertificateSha256: expectedFingerprint },
+            },
+          };
+        },
+      },
+    });
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_unknown_certificate_recovery',
+      targetIds: ['target_unknown_certificate'],
+      executorType: 'AGENT',
+      agentPayloads: new Map([['target_unknown_certificate', {
+        certificateVerification: {
+          capabilityKey: 'certificate.verify',
+          schemaVersion: '1.0',
+          connectHost: '127.0.0.1',
+          serverName: 'example.test',
+          port: 443,
+          expectedFingerprintSha256: expectedFingerprint,
+        },
+      }]]),
+    });
+    const persistedInstall = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }))
+      .find((step) => step.stepType === 'INSTALL');
+    assert.equal((persistedInstall?.inputSnapshot.certificateVerification as Record<string, unknown>)?.expectedFingerprintSha256, expectedFingerprint);
+    assert.ok(persistedInstall);
+    await service.updateStepForTest(persistedInstall.id, {
+      inputSnapshot: {
+        ...persistedInstall.inputSnapshot,
+        certificateVerification: {
+          ...(persistedInstall.inputSnapshot.certificateVerification as Record<string, unknown>),
+          expectedFingerprintSha256: undefined,
+        },
+        deploymentArtifact: { expectedFingerprintSha256: expectedFingerprint },
+      },
+    }, 'tenant_1');
+    const installCalls: string[] = [];
+    const executor = new TrackingExecutor(async (input) => {
+      if (input.step.stepType === 'INSTALL') {
+        installCalls.push(input.step.id);
+        return {
+          success: false,
+          errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+          errorMessage: 'Plugin Runner 返回结果不明',
+          detail: { executionStatus: 'UNKNOWN', mayBeUnknown: true },
+        };
+      }
+      return { success: true };
+    });
+    const first = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
+    assert.equal(first.pending, true);
+    assert.equal(first.pendingState, 'WAITING_RESULT');
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+
+    assert.equal(result.success, true);
+    assert.equal(installCalls.length, 1);
+    assert.equal(recoveryCalls, 1);
+    assert.equal(steps.find((step) => step.stepType === 'INSTALL')?.status, 'SUCCESS');
+    assert.equal(steps.every((step) => step.status === 'SUCCESS'), true);
   });
 
   it('Workflow 证书部署统一追加宿主 VERIFY，默认由平台后端执行', async () => {

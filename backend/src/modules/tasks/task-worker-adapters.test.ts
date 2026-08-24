@@ -50,7 +50,7 @@ test('宿主 ACME 签发和续签执行器恢复，独立 Challenge 与 Provider
   assert.equal(registry.has('acme.renewal'), true);
 });
 
-test('执行任务遇到异步步骤时延后，不提前完成统一任务', async () => {
+test('执行任务遇到异步步骤时等待控制面结果，不进入重试队列', async () => {
   const registry = createTaskExecutorRegistry({
     executions: {
       runDispatchedExecution: async () => ({ success: true, pending: true }),
@@ -61,8 +61,53 @@ test('执行任务遇到异步步骤时延后，不提前完成统一任务', as
     attempt,
   );
   assert.equal(result.success, false);
-  assert.equal(result.defer, true);
+  assert.equal(result.waitingStatus, 'WAITING_RESULT');
+  assert.equal(result.defer, undefined);
+  assert.equal(result.retryAfterSeconds, 10);
   assert.equal(result.errorCode, 'EXECUTION_PENDING');
+});
+
+test('执行任务写入结果不明时冻结待确认，不允许自动重放', async () => {
+  const registry = createTaskExecutorRegistry({
+    executions: {
+      runDispatchedExecution: async () => ({
+        success: true,
+        pending: true,
+        pendingState: 'AWAITING_CONFIRMATION',
+        errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+        errorMessage: 'Plugin Runner 返回结果不明',
+      }),
+    },
+  });
+  const result = await registry.get('certificate.deploy')(
+    task('CERTIFICATE_DEPLOY', { runId: 'execution-run-unknown' }),
+    attempt,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.waitingStatus, 'AWAITING_CONFIRMATION');
+  assert.equal(result.retryAfterSeconds, undefined);
+  assert.equal(result.errorCode, 'PLUGIN_OPERATION_UNKNOWN_STATE');
+  assert.equal(result.errorMessage, 'Plugin Runner 返回结果不明');
+});
+
+test('执行运行进入终态失败后不再由统一任务层重试', async () => {
+  const registry = createTaskExecutorRegistry({
+    executions: {
+      runDispatchedExecution: async () => ({
+        success: false,
+        errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH',
+        errorMessage: '宿主证书验证发现远端 TLS 证书与目标证书不一致',
+      }),
+    },
+  });
+  const result = await registry.get('certificate.deploy')(
+    task('CERTIFICATE_DEPLOY', { runId: 'execution-run-failed' }),
+    attempt,
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.retryable, false);
+  assert.equal(result.errorCode, 'TLS_VERIFY_FINGERPRINT_MISMATCH');
 });
 
 test('自动化运行等待审批时使用相对退避，不生成应用侧绝对时间', async () => {

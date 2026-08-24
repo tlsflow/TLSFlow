@@ -914,7 +914,10 @@ function buildAgentFailureWithoutDetails(
   detail: Record<string, unknown>,
 ): { errorCode: string; errorMessage: string; detail: Record<string, unknown> } | undefined {
   if (input.success || input.errorCode || input.errorMessage) return undefined;
-  const taskId = readString(detail, 'taskId') ?? readString(step.inputSnapshot, 'dispatchDetail.taskId');
+  const taskId = readString(detail, 'taskId')
+    ?? readString(detail, 'agentTaskId')
+    ?? readString(step.inputSnapshot, 'dispatchDetail.taskId')
+    ?? readString(step.inputSnapshot, 'dispatchDetail.agentTaskId');
   const mode = readString(detail, 'mode');
   const executor = readString(detail, 'executor');
   return {
@@ -1055,7 +1058,10 @@ function buildDryRunExecutionFailureCheck(
   step: ExecutionStepEntity,
   detail: Record<string, unknown>,
 ): Record<string, unknown> {
-  const taskId = readString(detail, 'taskId') ?? readString(step.inputSnapshot, 'dispatchDetail.taskId');
+  const taskId = readString(detail, 'taskId')
+    ?? readString(detail, 'agentTaskId')
+    ?? readString(step.inputSnapshot, 'dispatchDetail.taskId')
+    ?? readString(step.inputSnapshot, 'dispatchDetail.agentTaskId');
   return {
     key: readString(step.inputSnapshot, 'actionType') ?? 'agent.plan.validate',
     label: 'Agent v2 预检结果',

@@ -2,9 +2,16 @@
   "apiVersion": "gcac.plugin-form/v1",
   "pluginId": "cloud.aliyun",
   "fields": [
-    { "key": "cloudServiceRef", "type": "objectRef", "required": true },
-    { "key": "credential.secretRef", "type": "secretRef", "required": true },
-    { "key": "region", "type": "string", "required": true },
-    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false }
-  ]
+    { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.aliyun.cloudService" },
+    { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.aliyun.credential" },
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.aliyun.region" },
+    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.cloud.aliyun.certificateArtifact" }
+  ],
+  "credentialContract": {
+    "kind": "CLOUD_PROVIDER",
+    "slots": [
+      { "name": "accessKeyId", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.aliyun.accessKeyId" },
+      { "name": "accessKeySecret", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.aliyun.accessKeySecret" }
+    ]
+  }
 }

@@ -167,6 +167,7 @@ export class DeploymentPlansController {
   private async updateFromApplicationAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
+      expectedVersion: { type: 'number', required: true },
       applicationAssetId: { type: 'string', required: true },
       targetCertificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
@@ -179,6 +180,7 @@ export class DeploymentPlansController {
     const actorId = this.actorId(request);
     return this.service.updateDraftFromApplicationAsset({
       planId: String(body.planId),
+      expectedVersion: Number(body.expectedVersion),
       applicationAssetId: String(body.applicationAssetId),
       targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
       certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),

@@ -15,6 +15,8 @@ interface SystemResourceOptions {
   readonly readDarwinVmStat?: () => string;
 }
 
+const DARWIN_PLATFORMS = new Set<NodeJS.Platform>(['darwin']);
+
 // 模块初始化即记录一次基线，通常可在首个总览请求时得到有效采样窗口。
 let previousCpuSnapshot = readCpuSnapshot();
 
@@ -40,7 +42,7 @@ export function readDashboardSystemResources(options: SystemResourceOptions = {}
 }
 
 function readAvailableMemory(totalMemory: number, options: SystemResourceOptions): number {
-  if ((options.platform ?? os.platform)() === 'darwin') {
+  if (DARWIN_PLATFORMS.has((options.platform ?? os.platform)())) {
     try {
       const rawOutput = (options.readDarwinVmStat ?? readDarwinVmStat)();
       const reusableMemory = parseDarwinReusableMemoryBytes(rawOutput);

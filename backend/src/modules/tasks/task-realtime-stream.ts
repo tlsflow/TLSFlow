@@ -8,7 +8,14 @@ import type { TasksApplicationService } from './task.application-service.js';
 import { isPendingApprovalTask, type TaskRun } from './task.types.js';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']);
+const ACTIVE_TASK_STATUSES = new Set([
+  'QUEUED',
+  'RUNNING',
+  'RETRY_WAITING',
+  'WAITING_RESULT',
+  'AWAITING_CONFIRMATION',
+  'CANCELLING',
+]);
 
 export interface TaskRealtimeMessageSnapshot {
   type: 'snapshot';

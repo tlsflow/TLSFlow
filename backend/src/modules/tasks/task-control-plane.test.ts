@@ -46,6 +46,23 @@ test('数据库迁移前初始化错误向调用方传播并标记任务控制�
   }
 });
 
+test('幂等记录迁移缺失时任务控制面在启动前失败', async () => {
+  const db = new PgliteDatabase();
+  try {
+    await runMigrations(db);
+    await db.exec('drop table idempotency_records');
+    const service = new TasksApplicationService(new TaskRepository(db));
+
+    await assert.rejects(
+      service.initialize(),
+      /idempotency_records.*20260816000400_idempotency_records/,
+    );
+    assert.equal(service.getLifecycle().status, 'FAILED');
+  } finally {
+    await db.close();
+  }
+});
+
 test('任务入列按租户和类型执行幂等', async () => {
   const { service } = await createFixture();
   const input = {
@@ -60,6 +77,41 @@ test('任务入列按租户和类型执行幂等', async () => {
   const second = await service.enqueue(input);
   assert.equal(first.id, second.id);
   assert.equal((await service.list({ tenantId: input.tenantId, page: 1, pageSize: 20 })).total, 1);
+});
+
+test('持久化幂等记录支持完成任务重放、同键不同请求体冲突和并发收敛', async () => {
+  const { db, service } = await createFixture();
+  const input = {
+    tenantId: 'tenant-task-idempotency',
+    taskType: 'CLOUD_DISCOVER',
+    requestedBy: 'user-idempotency',
+    triggerSource: 'test',
+    idempotencyKey: 'cloud-discover-idempotency',
+    idempotencyScope: {
+      actionType: 'cloud-account-asset.discover',
+      resourceType: 'cloudAccountAsset',
+      resourceId: 'caa-idempotency',
+    },
+    payload: { action: 'discover', cloudAccountAssetId: 'caa-idempotency', input: { region: 'cn-hangzhou' } },
+  } as const;
+  const concurrent = await Promise.all([service.enqueue(input), service.enqueue(input)]);
+  assert.equal(concurrent[0].id, concurrent[1].id);
+  await db.query(`update task_runs set status='SUCCEEDED', finished_at=now() where id=$1`, [concurrent[0].id]);
+  const replay = await service.enqueue(input);
+  assert.equal(replay.id, concurrent[0].id);
+  assert.equal(replay.status, 'SUCCEEDED');
+  const record = await db.query<{ request_hash: string; status_code: number; resource_id: string }>(
+    `select request_hash, status_code, resource_id from idempotency_records
+     where tenant_id=$1 and action_type=$2 and resource_type=$3 and resource_id=$4 and idempotency_key=$5`,
+    [input.tenantId, input.idempotencyScope.actionType, input.idempotencyScope.resourceType, input.idempotencyScope.resourceId, input.idempotencyKey],
+  );
+  assert.equal(record.rows.length, 1);
+  assert.equal(record.rows[0]?.status_code, 202);
+  assert.equal(record.rows[0]?.resource_id, input.idempotencyScope.resourceId);
+  await assert.rejects(
+    () => service.enqueue({ ...input, payload: { ...input.payload, input: { region: 'cn-shenzhen' } } }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'IDEMPOTENCY_CONFLICT',
+  );
 });
 
 test('并发 Claim 不会重复领取同一个任务', async () => {
@@ -205,6 +257,29 @@ test('执行器失败会按注册策略进入重试并最终失败', async () =>
   assert.equal(first?.status, 'RETRY_WAITING');
 });
 
+test('执行运行终态失败会直接结束统一任务，不再次领取已结束 Run', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-terminal-execution-failure',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+  });
+  const first = await service.runNext(
+    'worker-terminal-execution-failure',
+    async () => ({
+      success: false,
+      retryable: false,
+      errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH',
+      errorMessage: '宿主证书验证发现远端 TLS 证书与目标证书不一致',
+    }),
+    task.tenantId,
+  );
+
+  assert.equal(first?.status, 'FAILED');
+  assert.equal(first?.lastErrorCode, 'TLS_VERIFY_FINGERPRINT_MISMATCH');
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-must-not-retry-terminal-run', 60), undefined);
+});
+
 test('外部异步任务使用 defer 时不会伪造成功或提前进入终态', async () => {
   const { service } = await createFixture();
   const task = await service.enqueue({
@@ -226,6 +301,143 @@ test('外部异步任务使用 defer 时不会伪造成功或提前进入终态'
   assert.equal(first?.status, 'RETRY_WAITING');
   assert.equal(Date.parse(first?.nextAttemptAt ?? ''), Date.parse('2099-01-01T00:00:00.000Z'));
   assert.equal(first?.finishedAt, undefined);
+});
+
+test('等待外部结果的任务可再次领取以主动读取控制面状态，不消耗失败重试', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-waiting-result',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+  });
+  const waiting = await service.runNext(
+    'worker-wait-result',
+    async () => ({
+      success: false,
+      waitingStatus: 'WAITING_RESULT',
+      nextAttemptAt: '2000-01-01T00:00:00.000Z',
+      errorCode: 'EXECUTION_PENDING',
+      errorMessage: '执行运行仍在等待外部结果',
+    }),
+    task.tenantId,
+  );
+
+  assert.equal(waiting?.status, 'WAITING_RESULT');
+  assert.equal(waiting?.finishedAt, undefined);
+  const detail = await service.detail(task.tenantId, task.id);
+  assert.equal(detail.attempts[0]?.status, 'WAITING');
+  assert.equal(detail.events.some((event) => event.eventType === 'WAITING_RESULT'), true);
+
+  const polled = await repository.claimNext(task.tenantId, 'worker-poll-control-plane', 60);
+  assert.equal(polled?.task.id, task.id);
+  assert.equal(polled?.attempt.attemptNo, 2);
+});
+
+test('写入结果待确认的任务不能再次领取或自动重放', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-awaiting-confirmation',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+  });
+  const waiting = await service.runNext(
+    'worker-await-confirmation',
+    async () => ({
+      success: false,
+      waitingStatus: 'AWAITING_CONFIRMATION',
+      errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+      errorMessage: 'Plugin Runner 返回结果不明',
+    }),
+    task.tenantId,
+  );
+
+  assert.equal(waiting?.status, 'AWAITING_CONFIRMATION');
+  assert.equal(waiting?.nextAttemptAt, undefined);
+  const detail = await service.detail(task.tenantId, task.id);
+  assert.equal(detail.attempts[0]?.status, 'WAITING');
+  assert.equal(detail.events.some((event) => event.eventType === 'AWAITING_CONFIRMATION'), true);
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-must-not-replay', 60), undefined);
+});
+
+test('证书未知写结果具备指纹核验材料时会提升为主动轮询任务', async () => {
+  const { db, repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-promote-recovery',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+    payload: { runId: 'run-promote-recovery' },
+  });
+  const waiting = await service.runNext(
+    'worker-promote-initial',
+    async () => ({
+      success: false,
+      waitingStatus: 'AWAITING_CONFIRMATION',
+      errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+      errorMessage: 'Plugin Runner 返回结果不明',
+    }),
+    task.tenantId,
+  );
+  assert.equal(waiting?.status, 'AWAITING_CONFIRMATION');
+
+  await db.query(
+    `insert into pg_documents (namespace, document_id, payload)
+     values ('executions:steps', 'step-promote-recovery', $1::jsonb)`,
+    [JSON.stringify({
+      id: 'step-promote-recovery',
+      executionRunId: 'run-promote-recovery',
+      status: 'RUNNING',
+      lastErrorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+      inputSnapshot: {
+        resultDetail: { executionStatus: 'UNKNOWN' },
+        certificateVerification: {
+          capabilityKey: 'certificate.verify',
+          schemaVersion: '1.0',
+        },
+        deploymentArtifact: { expectedFingerprintSha256: 'a'.repeat(64) },
+      },
+    })],
+  );
+
+  assert.equal(await repository.promoteRecoverableExecutionTasks(task.tenantId), 1);
+  const promoted = await repository.getById(task.tenantId, task.id);
+  assert.equal(promoted?.status, 'WAITING_RESULT');
+  assert.equal(promoted?.progress?.automaticRecovery, true);
+  assert.equal((await service.detail(task.tenantId, task.id)).events.some((event) => event.eventType === 'WAITING_RESULT'), true);
+  assert.equal((await repository.claimNext(task.tenantId, 'worker-promote-recovery', 60))?.task.id, task.id);
+});
+
+test('旧 RETRY_WAITING 未知写结果没有核验材料时会转为人工确认', async () => {
+  const { db, repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-promote-confirmation',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+    payload: { runId: 'run-promote-confirmation' },
+  });
+  const retried = await service.runNext(
+    'worker-promote-confirmation-initial',
+    async () => ({ success: false, errorCode: 'EXECUTION_PENDING', errorMessage: '执行结果待确认' }),
+    task.tenantId,
+  );
+  assert.equal(retried?.status, 'RETRY_WAITING');
+
+  await db.query(
+    `insert into pg_documents (namespace, document_id, payload)
+     values ('executions:steps', 'step-promote-confirmation', $1::jsonb)`,
+    [JSON.stringify({
+      id: 'step-promote-confirmation',
+      executionRunId: 'run-promote-confirmation',
+      status: 'RUNNING',
+      lastErrorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+      inputSnapshot: { resultDetail: { executionStatus: 'UNKNOWN' } },
+    })],
+  );
+
+  assert.equal(await repository.promoteRecoverableExecutionTasks(task.tenantId), 1);
+  const promoted = await repository.getById(task.tenantId, task.id);
+  assert.equal(promoted?.status, 'AWAITING_CONFIRMATION');
+  assert.equal(promoted?.progress?.automaticRecovery, false);
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-must-not-replay-unknown', 60), undefined);
 });
 
 test('审批决定后会唤醒自动化任务并清除等待审批摘要', async () => {
@@ -342,11 +554,18 @@ test('取消原因写入任务事件并保留操作者上下文', async () => {
 
 test('强制结束会清理运行租约并吞掉旧 Worker 的完成回写', async () => {
   const { repository, service } = await createFixture();
+  const cancelledRuns: string[] = [];
+  service.setExecutionCancellationHandler({
+    cancelRun: async (runId, actorId, tenantId) => {
+      cancelledRuns.push(`${runId}:${actorId}:${tenantId}`);
+    },
+  });
   const task = await service.enqueue({
     tenantId: 'tenant-force-cancel',
     taskType: 'CERTIFICATE_DEPLOY',
     requestedBy: 'user-deploy',
     triggerSource: 'deployment.manual',
+    payload: { runId: 'run-force-cancel' },
   });
 
   const finished = await service.runNext(
@@ -367,6 +586,7 @@ test('强制结束会清理运行租约并吞掉旧 Worker 的完成回写', asy
   const persisted = await repository.getById(task.tenantId, task.id);
   assert.equal(persisted?.leaseOwner, undefined);
   assert.equal(persisted?.leaseExpiresAt, undefined);
+  assert.deepEqual(cancelledRuns, ['run-force-cancel:admin-force:tenant-force-cancel']);
 });
 
 test('部署审批占位任务只在审批决策后收敛，不会被 Worker 抢占', async () => {

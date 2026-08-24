@@ -481,6 +481,22 @@ test('插件只允许 Runner 固定环境和包内资源边界，普通宿主访
   assert.ok(fileFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'));
 });
 
+test('插件固定读取包内 Manifest 不应被误判为宿主文件访问', () => {
+  const findings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/builtin-plugins/sample/runtime/index.js',
+    "import { readFileSync } from 'node:fs';\nconst manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));",
+  );
+  assert.equal(findings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'), false);
+});
+
+test('固定 Manifest 读取不能放行同文件中的任意路径读取', () => {
+  const findings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/builtin-plugins/sample/runtime/index.js',
+    "import { readFileSync } from 'node:fs';\nconst manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));\nconst secret = readFileSync('/etc/passwd', 'utf8');",
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'));
+});
+
 test('Runner 资源拒绝清单中的字符串不等于实际命令合同或插件对象调用', () => {
   const rejectionFindings = scanPluginArchitectureSource(
     'backend/src/modules/plugins/schema/plugin-workflow.schema.ts',

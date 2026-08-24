@@ -9,6 +9,7 @@ import { validateBuiltinPluginPolicy } from './builtin-plugin-policy.js';
 import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage } from './builtin-unified-plugin-loader.js';
 import type { PluginWorkflowDeclaration } from '../application/plugin-workflow-declaration-resolver.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
+import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 
 export interface BuiltinPluginRegistryEntry {
   pluginId: CanonicalPluginId;
@@ -221,7 +222,7 @@ function buildRegistryEntry(
     packageSha256,
     manifestSha256: sha256(stableJson(pluginPackage.manifest)),
     resourceSha256,
-    resourceHash: sha256(JSON.stringify(resourceSha256)),
+    resourceHash: canonicalResourceHash(resourceSha256),
   };
 }
 

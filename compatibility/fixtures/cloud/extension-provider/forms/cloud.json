@@ -1,0 +1,17 @@
+{
+  "apiVersion": "gcac.plugin-form/v1",
+  "pluginId": "fixture.cloud-extension",
+  "fields": [
+    { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.fixture.cloudExtension.cloudService" },
+    { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.fixture.cloudExtension.credential" },
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.fixture.cloudExtension.region" },
+    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.fixture.cloudExtension.certificateArtifact" }
+  ],
+  "credentialContract": {
+    "kind": "CLOUD_PROVIDER",
+    "slots": [
+      { "name": "clientId", "secretType": "api_token", "required": true, "labelKey": "plugin.fixture.cloudExtension.clientId" },
+      { "name": "clientSecret", "secretType": "api_token", "required": true, "labelKey": "plugin.fixture.cloudExtension.clientSecret" }
+    ]
+  }
+}

@@ -2,9 +2,16 @@
   "apiVersion": "gcac.plugin-form/v1",
   "pluginId": "cloud.volcengine",
   "fields": [
-    { "key": "cloudServiceRef", "type": "objectRef", "required": true },
-    { "key": "credential.secretRef", "type": "secretRef", "required": true },
-    { "key": "region", "type": "string", "required": true },
-    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false }
-  ]
+    { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.volcengine.cloudService" },
+    { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.volcengine.credential" },
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.volcengine.region" },
+    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.cloud.volcengine.certificateArtifact" }
+  ],
+  "credentialContract": {
+    "kind": "CLOUD_PROVIDER",
+    "slots": [
+      { "name": "accessKey", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.volcengine.accessKey" },
+      { "name": "secretKey", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.volcengine.secretKey" }
+    ]
+  }
 }

@@ -1,0 +1,8 @@
+{
+  "provider": "fixture.cloud-extension",
+  "productFamily": "fixture.cloud.resource",
+  "readOnly": true,
+  "standardObject": "CloudResource",
+  "identityFields": ["resourceId", "resourceType", "region"],
+  "responseFields": { "resources": "resources", "resourceId": "id", "resourceType": "type", "region": "region" }
+}

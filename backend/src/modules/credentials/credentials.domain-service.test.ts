@@ -58,23 +58,33 @@ test('API Key 必须声明投递位置和名称', () => {
   assert.deepEqual(entity.delivery, { location: 'header', name: 'X-API-Key' });
 });
 
-test('CLOUD_PROVIDER 按 Provider 固定校验密钥槽位', () => {
+test('CLOUD_PROVIDER 按插件 Form credentialContract 校验密钥槽位', () => {
   const domain = new CredentialsDomainService();
   const entity = domain.normalizeCreate('tenant-1', 'user-1', {
     name: '厂商凭据', kind: 'CLOUD_PROVIDER', scopeType: 'global',
-    metadata: { providerKey: 'cloud.aliyun' },
+    metadata: {
+      providerKey: 'cloud.example',
+      pluginVersionId: 'plugin-version-example',
+      credentialContract: {
+        kind: 'CLOUD_PROVIDER',
+        slots: [
+          { name: 'clientId', secretType: 'api_token', required: true, labelKey: 'plugin.cloud.example.clientId' },
+          { name: 'clientSecret', secretType: 'private_key', required: true, labelKey: 'plugin.cloud.example.clientSecret' },
+        ],
+      },
+    },
     secretSlots: {
-      accessKeyId: 'secret://api_token/sec-1#current',
-      accessKeySecret: 'secret://api_token/sec-2#current',
+      clientId: 'secret://api_token/sec-1#current',
+      clientSecret: 'secret://private_key/sec-2#current',
     },
   }, { id: 'cred-1', now: '2026-08-06T00:00:00.000Z' });
-  assert.deepEqual(Object.keys(entity.secretSlots).sort(), ['accessKeyId', 'accessKeySecret']);
+  assert.deepEqual(Object.keys(entity.secretSlots).sort(), ['clientId', 'clientSecret']);
   assert.throws(() => domain.normalizeCreate('tenant-1', 'user-1', {
     name: '非法厂商凭据', kind: 'CLOUD_PROVIDER', scopeType: 'global',
     metadata: { providerKey: 'cloud.example' },
     secretSlots: {
-      accessKeyId: 'secret://api_token/sec-1#current',
-      accessKeySecret: 'secret://api_token/sec-2#current',
+      clientId: 'secret://api_token/sec-1#current',
+      clientSecret: 'secret://private_key/sec-2#current',
     },
   }, { id: 'cred-2', now: '2026-08-06T00:00:00.000Z' }), (error: any) => error.errorCode === 'VALIDATION_FAILED');
 });

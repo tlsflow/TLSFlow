@@ -219,6 +219,7 @@ export interface CreateDeploymentPlanFromApplicationAssetInput {
 
 export interface UpdateDeploymentPlanFromApplicationAssetInput extends CreateDeploymentPlanFromApplicationAssetInput {
   planId: string;
+  expectedVersion: number;
 }
 
 export interface SubmitDeploymentPlanInput {

@@ -64,6 +64,7 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     assert.equal(cloudResource?.provider, provider);
     assert.equal(Object.hasOwn(cloudResource ?? {}, 'objectType'), false);
     assert.equal(result.deploy.status, 'SUCCESS');
+    assert.equal(result.verify.status, 'SUCCESS');
     assert.equal(result.authorizationDenied.success, false, `${pluginId} 缺失 Receipt 不得成功`);
     assert.equal(result.authorizationDenied.status, 'FAILED', `${pluginId} 缺失 Receipt 必须失败关闭`);
     assert.equal(result.authorizationDenied.error?.code, 'CLOUD_CONTRACT_DENIED', `${pluginId} 缺失 Grant 必须拒绝执行合同`);
@@ -118,6 +119,7 @@ async function runChild({ packageDirectory, manifest, pluginId, provider, digest
   const authorizationDenied = await execute('cloud.service.connection-test', { method: 'POST', uri: '/fixture/connection', action: 'DescribeService', timestamp: '2026-08-11T00:00:00Z', body: {} }, false, `${provider}-missing-grant`, {}, []);
   const discovery = await execute('cloud.service.discover', { method: 'POST', uri: '/fixture/discover', action: 'ListResources', timestamp: '2026-08-11T00:00:00Z', body: {} }, false, `${provider}-discover`);
   const deploy = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/deploy', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-deploy`, { certificateArtifactRef: `artifact://fixture/${provider}` });
+  const verify = await execute('certificate.verify', { method: 'POST', uri: '/fixture/verify', action: 'VerifyCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, false, `${provider}-verify`);
   const deployUnknown = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/unknown', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-unknown`, { certificateArtifactRef: `artifact://fixture/${provider}` });
   const deployFailure = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/deploy-failure', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-failure`, { certificateArtifactRef: `artifact://fixture/${provider}` });
   const rollback = await execute('certificate.rollback', { method: 'POST', uri: '/fixture/rollback', action: 'RollbackCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-rollback`, { certificateArtifactRef: `artifact://fixture/${provider}` });
@@ -126,7 +128,7 @@ async function runChild({ packageDirectory, manifest, pluginId, provider, digest
   child.stdin.end();
   const exit = await new Promise((resolveExit) => child.once('close', (code) => resolveExit(code)));
   assert.equal(exit, 0, `${pluginId} Fixture Runner stderr: ${reader.stderr()}`);
-  return { hello, connection, authorizationDenied, discovery, deploy, deployUnknown, deployFailure, rollback };
+  return { hello, connection, authorizationDenied, discovery, deploy, verify, deployUnknown, deployFailure, rollback };
 }
 
 function packageDigest(packageDirectory, manifest) {

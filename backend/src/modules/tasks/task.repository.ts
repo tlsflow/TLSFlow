@@ -1,5 +1,12 @@
 import type { DatabasePort } from '../../database/database-port.js';
 import { newId } from '../../shared/id.js';
+import {
+  findIdempotencyRecord,
+  requestHash,
+  saveIdempotencyRecord,
+  type IdempotencyRecord,
+  type IdempotencyScope,
+} from '../../shared/idempotency.js';
 import type {
   MonitoringProbe,
   MonitoringProbePage,
@@ -44,6 +51,11 @@ interface TaskRunRow extends Record<string, unknown> {
 export class TaskRepository {
   constructor(private readonly db: DatabasePort) {}
 
+  async ensureControlPlaneSchema(definitions: readonly TaskDefinition[]): Promise<void> {
+    await this.ensureDefinitions(definitions);
+    await this.assertIdempotencyRecordsSchema();
+  }
+
   async ensureDefinitions(definitions: readonly TaskDefinition[]): Promise<void> {
     for (const definition of definitions) {
       await this.db.query(
@@ -76,6 +88,37 @@ export class TaskRepository {
     }
   }
 
+  private async assertIdempotencyRecordsSchema(): Promise<void> {
+    const requiredColumns = [
+      'id',
+      'tenant_id',
+      'action_type',
+      'resource_type',
+      'resource_id',
+      'idempotency_key',
+      'request_hash',
+      'status_code',
+      'response_summary',
+      'created_at',
+      'expires_at',
+    ];
+    const result = await this.db.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = $1
+          and column_name = any($2::text[])`,
+      ['idempotency_records', requiredColumns],
+    );
+    const availableColumns = new Set(result.rows.map((row) => row.column_name));
+    const missingColumns = requiredColumns.filter((column) => !availableColumns.has(column));
+    if (missingColumns.length === 0) return;
+
+    throw new Error(
+      `任务控制面依赖的幂等记录表不完整：idempotency_records 缺少 ${missingColumns.join(', ')}；请先执行迁移 20260816000400_idempotency_records.sql`,
+    );
+  }
+
   async findActiveByIdempotency(tenantId: string, taskType: string, idempotencyKey: string): Promise<TaskRun | undefined> {
     const result = await this.db.query<TaskRunRow>(
       `select * from task_runs
@@ -85,6 +128,19 @@ export class TaskRepository {
       [tenantId, taskType, idempotencyKey],
     );
     return result.rows[0] ? mapTaskRun(result.rows[0]) : undefined;
+  }
+
+  async findByIdempotency(
+    tenantId: string,
+    taskType: string,
+    idempotencyKey: string,
+    scope: IdempotencyScope,
+  ): Promise<{ task: TaskRun; record: IdempotencyRecord } | undefined> {
+    const record = await findIdempotencyRecord(this.db, tenantId, scope, idempotencyKey);
+    if (!record) return undefined;
+    const taskId = typeof record.responseSummary.id === 'string' ? record.responseSummary.id : record.resourceId;
+    const task = await this.getById(tenantId, taskId);
+    return task && task.taskType === taskType ? { task, record } : undefined;
   }
 
   async create(input: TaskEnqueueInput, definition: TaskDefinition): Promise<TaskRun> {
@@ -125,7 +181,18 @@ export class TaskRepository {
         category: definition.category,
         triggerSource: input.triggerSource,
       }, input.requestedBy);
-      return this.getByIdWithDb(tx, input.tenantId, id);
+      const created = await this.getByIdWithDb(tx, input.tenantId, id);
+      if (created && input.idempotencyKey) {
+        await saveIdempotencyRecord(tx, {
+          tenantId: input.tenantId,
+          scope: input.idempotencyScope ?? defaultTaskIdempotencyScope(input.taskType),
+          idempotencyKey: input.idempotencyKey,
+          requestHash: taskRequestHash(input, definition.version),
+          statusCode: 202,
+          responseSummary: redactRecord(created as unknown as Record<string, unknown>),
+        });
+      }
+      return created;
     });
     if (!task) throw new Error('任务创建后无法读取');
     return task;
@@ -133,6 +200,177 @@ export class TaskRepository {
 
   async getById(tenantId: string, id: string): Promise<TaskRun | undefined> {
     return this.getByIdWithDb(this.db, tenantId, id);
+  }
+
+  /**
+   * 将历史上被错误写成重试等待的证书部署任务归一化到正确的等待状态。
+   *
+   * 任务只要仍关联 RUNNING 的未知写入步骤，就不能再次执行原步骤：有固定目标
+   * 证书指纹时进入只读核验轮询，没有可信核验材料时进入人工确认。
+   */
+  async promoteRecoverableExecutionTasks(tenantId?: string): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const params: unknown[] = [];
+      const tenantSql = tenantId ? `and task.tenant_id = $${params.push(tenantId)}` : '';
+      const promoted = await tx.query<{ id: string; status: TaskStatus }>(
+        `with candidates as (
+           select task.id,
+             exists (
+               select 1
+                 from pg_documents step
+                where step.namespace = 'executions:steps'
+                  and step.payload->>'executionRunId' = coalesce(
+                    task.payload->>'runId',
+                    task.resource_summary->>'runId',
+                    task.progress->>'runId'
+                  )
+                  and step.payload->>'status' = 'RUNNING'
+                  and (
+                    step.payload->'inputSnapshot'->'resultDetail'->>'executionStatus' = 'UNKNOWN'
+                    or step.payload->'inputSnapshot'->'resultDetail'->>'mayBeUnknown' = 'true'
+                    or step.payload->>'lastErrorCode' = 'PLUGIN_OPERATION_UNKNOWN_STATE'
+                  )
+                  and step.payload->'inputSnapshot'->'certificateVerification'->>'capabilityKey' = 'certificate.verify'
+                  and step.payload->'inputSnapshot'->'certificateVerification'->>'schemaVersion' = '1.0'
+                  and nullif(trim(coalesce(
+                    step.payload->'inputSnapshot'->'certificateVerification'->>'expectedFingerprintSha256',
+                    step.payload->'inputSnapshot'->'deploymentArtifact'->>'expectedFingerprintSha256',
+                    step.payload->'inputSnapshot'->'artifact'->>'expectedFingerprintSha256',
+                    step.payload->'inputSnapshot'->'executionRuntimeSnapshot'->'deploymentArtifact'->>'expectedFingerprintSha256'
+                  )), '') is not null
+             ) as automatic_recovery
+             from task_runs task
+            where task.status in ('RETRY_WAITING', 'AWAITING_CONFIRMATION')
+              and task.task_type = 'CERTIFICATE_DEPLOY'
+              and task.lease_owner is null
+              ${tenantSql}
+              and exists (
+                select 1
+                  from pg_documents step
+                 where step.namespace = 'executions:steps'
+                   and step.payload->>'executionRunId' = coalesce(
+                     task.payload->>'runId',
+                     task.resource_summary->>'runId',
+                     task.progress->>'runId'
+                   )
+                   and step.payload->>'status' = 'RUNNING'
+                   and (
+                     step.payload->'inputSnapshot'->'resultDetail'->>'executionStatus' = 'UNKNOWN'
+                     or step.payload->'inputSnapshot'->'resultDetail'->>'mayBeUnknown' = 'true'
+                     or step.payload->>'lastErrorCode' = 'PLUGIN_OPERATION_UNKNOWN_STATE'
+                   )
+              )
+         )
+         update task_runs task
+            set status = case when candidates.automatic_recovery then 'WAITING_RESULT' else 'AWAITING_CONFIRMATION' end,
+                next_attempt_at = case when candidates.automatic_recovery then now() else null end,
+                last_error_code = coalesce(task.last_error_code, 'EXECUTION_RESULT_UNCONFIRMED'),
+                last_error_message = case
+                  when candidates.automatic_recovery then '写入结果待确认，控制面将主动核验目标证书状态'
+                  else coalesce(task.last_error_message, '写入结果无法确认，系统已停止自动重放；请在执行详情中核验目标证书状态')
+                end,
+                progress = coalesce(task.progress, '{}'::jsonb) || jsonb_build_object(
+                  'pending', true,
+                  'waitingStatus', case when candidates.automatic_recovery then 'WAITING_RESULT' else 'AWAITING_CONFIRMATION' end,
+                  'automaticRecovery', candidates.automatic_recovery
+                )
+           from candidates
+          where task.id = candidates.id
+            and (task.status = 'RETRY_WAITING' or candidates.automatic_recovery)
+        returning task.id, task.status`,
+        params,
+      );
+      for (const row of promoted.rows) {
+        await tx.query(
+          `update task_attempts
+              set status = 'WAITING'
+            where task_run_id = $1
+              and status = 'FAILED'
+              and error_code in ('EXECUTION_PENDING', 'PLUGIN_OPERATION_UNKNOWN_STATE', 'TASK_LEASE_EXPIRED')`,
+          [row.id],
+        );
+        await appendEvent(tx, row.id, row.status, {
+          waitingStatus: row.status,
+          automaticRecovery: row.status === 'WAITING_RESULT',
+          source: 'task.recovery.promote_unknown_certificate_execution',
+        });
+      }
+      return promoted.rows.length;
+    });
+  }
+
+  /**
+   * 将人工核验后的证书执行任务收敛到终态。
+   *
+   * AWAITING_CONFIRMATION 不能被 Worker 自动领取，因此只能由恢复流程在
+   * 确认远端事实后显式结束。状态条件保证重复点击不会重复写入任务历史。
+   */
+  async resolveWaitingExecutionTask(input: {
+    tenantId: string;
+    taskId: string;
+    success: boolean;
+    actorId?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    detail?: Record<string, unknown>;
+  }): Promise<TaskRun | undefined> {
+    return this.db.transaction(async (tx) => {
+      const current = await this.getByIdWithDb(tx, input.tenantId, input.taskId);
+      if (!current) return undefined;
+      if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(current.status)) return current;
+      if (current.status !== 'AWAITING_CONFIRMATION') return current;
+
+      const nextStatus = input.success ? 'SUCCEEDED' : 'FAILED';
+      const updated = await tx.query(
+        `update task_runs
+            set status = $3,
+                lease_owner = null,
+                lease_expires_at = null,
+                next_attempt_at = null,
+                finished_at = now(),
+                last_error_code = $4,
+                last_error_message = $5,
+                progress = coalesce($6::jsonb, progress)
+          where id = $1 and tenant_id = $2 and status = 'AWAITING_CONFIRMATION'
+          returning id`,
+        [
+          input.taskId,
+          input.tenantId,
+          nextStatus,
+          input.success ? null : input.errorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+          input.success ? null : input.errorMessage ?? '证书执行结果核验失败',
+          input.detail ? JSON.stringify(input.detail) : null,
+        ],
+      );
+      if (updated.rows.length === 0) return this.getByIdWithDb(tx, input.tenantId, input.taskId);
+
+      await tx.query(
+        `update task_attempts
+            set status = $2,
+                error_code = $3,
+                error_summary = $4,
+                finished_at = coalesce(finished_at, now())
+          where id = (
+            select id from task_attempts
+             where task_run_id = $1 and status = 'WAITING'
+             order by attempt_no desc
+             limit 1
+          )`,
+        [
+          input.taskId,
+          input.success ? 'SUCCEEDED' : 'FAILED',
+          input.success ? null : input.errorCode ?? 'EXECUTION_RESULT_UNCONFIRMED',
+          input.success ? null : input.errorMessage ?? '证书执行结果核验失败',
+        ],
+      );
+      await appendEvent(tx, input.taskId, nextStatus, {
+        source: 'execution.unknown_result.recovery',
+        ...(input.detail ?? {}),
+        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+      }, input.actorId);
+      return this.getByIdWithDb(tx, input.tenantId, input.taskId);
+    });
   }
 
   async list(query: TaskQuery): Promise<TaskPage> {
@@ -153,7 +391,7 @@ export class TaskRepository {
       const requestedBySql = `requested_by = ${requestedByPlaceholder}`;
       if (query.includePendingApprovals) {
         where.push(`(${requestedBySql} or (
-          status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')
+          status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING')
           and nullif(coalesce(progress->>'approvalId', resource_summary->>'approvalId'), '') is not null
           and (
             progress->>'status' = 'waiting_approval'
@@ -202,12 +440,12 @@ export class TaskRepository {
     const params: unknown[] = [tenantId];
     const where = [
       'tenant_id = $1',
-      `status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')`,
+      `status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING')`,
     ];
     if (requestedBy && includePendingApprovals) {
       params.push(requestedBy);
       where.push(`(requested_by = $${params.length} or (
-        status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')
+        status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING')
         and nullif(coalesce(progress->>'approvalId', resource_summary->>'approvalId'), '') is not null
         and (
           progress->>'status' = 'waiting_approval'
@@ -254,7 +492,7 @@ export class TaskRepository {
       const tenantSql = tenantId ? `and tenant_id = $${params.push(tenantId)}` : '';
       const selected = await tx.query<TaskRunRow>(
         `select * from task_runs
-          where status in ('QUEUED', 'RETRY_WAITING')
+          where status in ('QUEUED', 'RETRY_WAITING', 'WAITING_RESULT')
             and available_at <= now()
             and (next_attempt_at is null or next_attempt_at <= now())
             and (lease_expires_at is null or lease_expires_at <= now())
@@ -321,13 +559,13 @@ export class TaskRepository {
     task: TaskRun,
     attempt: TaskAttempt,
     workerId: string,
-    status: Extract<TaskStatus, 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'RETRY_WAITING'>,
+    status: Extract<TaskStatus, 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'RETRY_WAITING' | 'WAITING_RESULT' | 'AWAITING_CONFIRMATION'>,
     result: { errorCode?: string; errorMessage?: string; detail?: Record<string, unknown> },
     nextAttemptAt?: string,
     retryAfterSeconds?: number,
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const nextStatus = status === 'RETRY_WAITING' ? 'RETRY_WAITING' : status;
+      const nextStatus = status;
       const updated = await tx.query(
         `update task_runs set status = $4, lease_owner = null, lease_expires_at = null,
             next_attempt_at = case
@@ -354,7 +592,18 @@ export class TaskRepository {
       await tx.query(
         `update task_attempts set status = $2, finished_at = now(), error_code = $3, error_summary = $4
           where id = $1 and status = 'RUNNING'`,
-        [attempt.id, status === 'SUCCEEDED' ? 'SUCCEEDED' : status === 'CANCELLED' ? 'CANCELLED' : status === 'RETRY_WAITING' ? 'FAILED' : 'FAILED', result.errorCode ?? null, result.errorMessage ?? null],
+        [
+          attempt.id,
+          status === 'SUCCEEDED'
+            ? 'SUCCEEDED'
+            : status === 'CANCELLED'
+              ? 'CANCELLED'
+              : status === 'WAITING_RESULT' || status === 'AWAITING_CONFIRMATION'
+                ? 'WAITING'
+                : 'FAILED',
+          result.errorCode ?? null,
+          result.errorMessage ?? null,
+        ],
       );
       await appendEvent(tx, task.id, eventForStatus(nextStatus), result.detail ?? { errorCode: result.errorCode, errorMessage: result.errorMessage }, undefined, attempt.id);
     });
@@ -430,7 +679,7 @@ export class TaskRepository {
           where task_runs.tenant_id = $1
             and refs.resource_type = $2
             and refs.resource_id = $3
-            and task_runs.status in ('QUEUED', 'RETRY_WAITING', 'RUNNING', 'CANCELLING')
+            and task_runs.status in ('QUEUED', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'RUNNING', 'CANCELLING')
             and (
               task_runs.task_type = 'DEPLOYMENT_APPROVAL'
               or coalesce(task_runs.payload->>'executionType', task_runs.resource_summary->>'executionType') = 'approval'
@@ -603,6 +852,32 @@ export class TaskRepository {
   }
 }
 
+export function taskRequestHash(input: TaskEnqueueInput, definitionVersion: number): string {
+  return requestHash({
+    tenantId: input.tenantId,
+    taskType: input.taskType,
+    definitionVersion,
+    requestedBy: input.requestedBy ?? null,
+    triggerSource: input.triggerSource,
+    payload: input.payload ?? {},
+    resourceSummary: input.resourceSummary ?? {},
+    resourceRefs: uniqueRefs(input.resourceRefs ?? []).map((ref) => ({
+      resourceType: ref.resourceType,
+      resourceId: ref.resourceId,
+      displayKey: ref.displayKey ?? null,
+    })),
+    parentTaskId: input.parentTaskId ?? null,
+    availableAt: input.availableAt ?? null,
+    initialStatus: input.initialStatus ?? 'QUEUED',
+    initialProgress: input.initialProgress ?? null,
+    idempotencyScope: input.idempotencyScope ?? defaultTaskIdempotencyScope(input.taskType),
+  });
+}
+
+function defaultTaskIdempotencyScope(taskType: string): IdempotencyScope {
+  return { actionType: `task.enqueue.${taskType}`, resourceType: 'task', resourceId: taskType };
+}
+
 async function recoverExpiredLeases(db: DatabasePort): Promise<void> {
   const expired = await db.query<{ id: string; tenant_id: string; attempt_id: string }>(
     `select task_runs.id, task_runs.tenant_id, task_attempts.id as attempt_id
@@ -662,6 +937,8 @@ function eventForStatus(status: TaskStatus): string {
   if (status === 'SUCCEEDED') return 'SUCCEEDED';
   if (status === 'FAILED') return 'FAILED';
   if (status === 'CANCELLED') return 'CANCELLED';
+  if (status === 'WAITING_RESULT') return 'WAITING_RESULT';
+  if (status === 'AWAITING_CONFIRMATION') return 'AWAITING_CONFIRMATION';
   return 'RETRY_SCHEDULED';
 }
 

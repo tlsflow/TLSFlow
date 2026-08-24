@@ -7,6 +7,8 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
   let runStatus = 'DISPATCHED';
   let stepStatus = 'PENDING';
   let stepAttemptCount = 0;
+  let stepLastErrorCode: string | undefined;
+  let stepLastErrorMessage: string | undefined;
   let runtimeAvailable = true;
   const now = () => new Date().toISOString();
   const resolvedSha256 = 'a'.repeat(64);
@@ -21,6 +23,8 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
       resolvedSha256,
     },
   };
+  let currentInputSnapshot: Record<string, unknown> = structuredClone(persistedInputSnapshot);
+  let executionResult: Record<string, unknown> = { success: true };
 
   const service = new ExecutionsApplicationService({
     repository: {
@@ -52,8 +56,10 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
           idempotent: true,
           attemptCount: stepAttemptCount,
           maxAttempts: 1,
-          inputSnapshot: persistedInputSnapshot,
+          inputSnapshot: currentInputSnapshot,
           status: stepStatus,
+          lastErrorCode: stepLastErrorCode,
+          lastErrorMessage: stepLastErrorMessage,
           createdAt: now(),
           updatedAt: now(),
           createdBy: 'user_1',
@@ -84,6 +90,11 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
         if (typeof patch.attemptCount === 'number') {
           stepAttemptCount = patch.attemptCount;
         }
+        if (patch.inputSnapshot && typeof patch.inputSnapshot === 'object' && !Array.isArray(patch.inputSnapshot)) {
+          currentInputSnapshot = patch.inputSnapshot as Record<string, unknown>;
+        }
+        stepLastErrorCode = typeof patch.lastErrorCode === 'string' ? patch.lastErrorCode : stepLastErrorCode;
+        stepLastErrorMessage = typeof patch.lastErrorMessage === 'string' ? patch.lastErrorMessage : stepLastErrorMessage;
         return {
         id: 'stp_registry_1',
         tenantId: 'tenant_1',
@@ -96,8 +107,10 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
         idempotent: true,
         attemptCount: stepAttemptCount,
         maxAttempts: 1,
-        inputSnapshot: persistedInputSnapshot,
+        inputSnapshot: currentInputSnapshot,
         status: stepStatus,
+        lastErrorCode: stepLastErrorCode,
+        lastErrorMessage: stepLastErrorMessage,
         createdAt: now(),
         updatedAt: now(),
         createdBy: 'user_1',
@@ -121,8 +134,10 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
         idempotent: true,
         attemptCount: stepAttemptCount,
         maxAttempts: 1,
-        inputSnapshot: persistedInputSnapshot,
+        inputSnapshot: currentInputSnapshot,
         status: stepStatus,
+        lastErrorCode: stepLastErrorCode,
+        lastErrorMessage: stepLastErrorMessage,
         createdAt: now(),
         updatedAt: now(),
         createdBy: 'user_1',
@@ -131,6 +146,7 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
     } as any,
     deploymentPlansRepository: {
       createTransition: async () => undefined,
+      getPlan: async () => undefined,
     } as any,
     deploymentInputSnapshots: {
       get: async () => ({
@@ -170,7 +186,7 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
             assert.equal(input.step.inputSnapshot.resolvedDeploymentInput.variables.immutableValue, 'snapshot-value');
             assert.equal(input.step.inputSnapshot.deploymentArtifact.privateKeyPem, 'runtime-private-key');
             assert.equal(JSON.stringify(persistedInputSnapshot).includes('runtime-private-key'), false);
-            return { success: true };
+            return executionResult;
           },
         };
       },
@@ -184,10 +200,41 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
   runStatus = 'DISPATCHED';
   stepStatus = 'PENDING';
   stepAttemptCount = 0;
+  stepLastErrorCode = undefined;
+  stepLastErrorMessage = undefined;
+  currentInputSnapshot = structuredClone(persistedInputSnapshot);
   runtimeAvailable = false;
   executorCalled = false;
   const failed = await service.runDispatchedExecution('run_registry_1', 'user_1', 'tenant_1');
   assert.equal(failed.success, false);
   assert.equal(stepStatus, 'FAILED');
+  assert.equal(executorCalled, false);
+
+  runStatus = 'DISPATCHED';
+  stepStatus = 'PENDING';
+  stepAttemptCount = 0;
+  stepLastErrorCode = undefined;
+  stepLastErrorMessage = undefined;
+  currentInputSnapshot = structuredClone(persistedInputSnapshot);
+  runtimeAvailable = true;
+  executionResult = {
+    success: false,
+    errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+    errorMessage: 'Plugin Runner 返回结果不明',
+    detail: { executionStatus: 'UNKNOWN', mayBeUnknown: true },
+  };
+  executorCalled = false;
+  const unknown = await service.runDispatchedExecution('run_registry_1', 'user_1', 'tenant_1');
+  assert.equal(unknown.pending, true);
+  assert.equal(unknown.pendingState, 'AWAITING_CONFIRMATION');
+  assert.equal(unknown.errorCode, 'PLUGIN_OPERATION_UNKNOWN_STATE');
+  assert.equal(stepStatus, 'RUNNING');
+  assert.equal((currentInputSnapshot.resultDetail as Record<string, unknown>).executionStatus, 'UNKNOWN');
+
+  executorCalled = false;
+  const repeated = await service.runDispatchedExecution('run_registry_1', 'user_1', 'tenant_1');
+  assert.equal(repeated.pending, true);
+  assert.equal(repeated.pendingState, 'AWAITING_CONFIRMATION');
+  assert.equal(repeated.errorCode, 'PLUGIN_OPERATION_UNKNOWN_STATE');
   assert.equal(executorCalled, false);
 });

@@ -15,6 +15,18 @@ export interface CredentialSlotRule {
   allowedTypes: readonly SecretType[];
 }
 
+export interface CloudCredentialContractSlot {
+  name: string;
+  secretType: 'password' | 'api_token' | 'private_key';
+  required: boolean;
+  labelKey?: string;
+}
+
+export interface CloudCredentialContract {
+  kind: 'CLOUD_PROVIDER';
+  slots: CloudCredentialContractSlot[];
+}
+
 const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
   USERNAME_PASSWORD: {
     password: { required: true, allowedTypes: ['password'] },
@@ -212,20 +224,49 @@ function requiresUsername(kind: CredentialKind): boolean {
 function cloudProviderSlotRules(metadata?: Record<string, unknown>): Record<string, CredentialSlotRule> {
   const providerKey = optionalText(metadata?.providerKey);
   if (!providerKey) throw validation('CLOUD_PROVIDER 凭据必须指定 providerKey');
-  const slotNames = CLOUD_PROVIDER_SLOTS[providerKey];
-  if (!slotNames) throw validation('CLOUD_PROVIDER 凭据的 providerKey 不受支持', { providerKey });
-  return Object.fromEntries(slotNames.map((slot) => [
-    slot,
-    { required: true, allowedTypes: ['api_token'] as const },
+  const contract = readCloudCredentialContract(metadata?.credentialContract, providerKey);
+  return Object.fromEntries(contract.slots.map((slot) => [
+    slot.name,
+    { required: slot.required, allowedTypes: [secretTypeToSecretType(slot.secretType)] as const },
   ]));
 }
 
-const CLOUD_PROVIDER_SLOTS: Record<string, readonly [string, string]> = {
-  'cloud.aliyun': ['accessKeyId', 'accessKeySecret'],
-  'cloud.tencent': ['secretId', 'secretKey'],
-  'cloud.huawei': ['accessKey', 'secretKey'],
-  'cloud.volcengine': ['accessKeyId', 'secretAccessKey'],
-};
+function readCloudCredentialContract(value: unknown, providerKey: string): CloudCredentialContract {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw validation('CLOUD_PROVIDER 凭据缺少插件资源 credentialContract', { providerKey });
+  }
+  const contract = value as Record<string, unknown>;
+  if (contract.kind !== 'CLOUD_PROVIDER' || !Array.isArray(contract.slots) || contract.slots.length === 0) {
+    throw validation('CLOUD_PROVIDER 凭据的 credentialContract 无效', { providerKey });
+  }
+  const slots = contract.slots.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw validation('CLOUD_PROVIDER 凭据槽位合同无效', { providerKey, index });
+    }
+    const slot = item as Record<string, unknown>;
+    const name = optionalText(slot.name);
+    const secretType = slot.secretType;
+    if (!name || !['password', 'api_token', 'private_key'].includes(String(secretType))) {
+      throw validation('CLOUD_PROVIDER 凭据槽位合同无效', { providerKey, index, slot: name, secretType });
+    }
+    return {
+      name,
+      secretType: secretType as CloudCredentialContractSlot['secretType'],
+      required: slot.required !== false,
+      ...(typeof slot.labelKey === 'string' ? { labelKey: slot.labelKey } : {}),
+    };
+  });
+  const names = new Set<string>();
+  for (const slot of slots) {
+    if (names.has(slot.name)) throw validation('CLOUD_PROVIDER 凭据槽位名称重复', { providerKey, slot: slot.name });
+    names.add(slot.name);
+  }
+  return { kind: 'CLOUD_PROVIDER', slots };
+}
+
+function secretTypeToSecretType(value: CloudCredentialContractSlot['secretType']): SecretType {
+  return value;
+}
 
 function requiredText(value: unknown, field: string): string {
   const normalized = optionalText(value);
