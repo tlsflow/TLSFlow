@@ -5,6 +5,7 @@ import {
   validateAgentCapabilityToken,
   validateAgentLocalPolicy,
   validateAgentPlan,
+  computeAgentPlanDigest,
   validatePolicyAuthorityDecision,
   type AgentCapabilityTokenV1,
   type AgentPlanV1,
@@ -18,6 +19,10 @@ import {
 import type {
   UnifiedAgentPlanAuthorizationDependenciesV1,
 } from './unified-agent-plan-authorization.port.js';
+import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
+import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
+import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
+import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
 
 export interface AgentV2PlanExecutionEnvelopeV1 {
   actionType: 'agent.plan.validate' | 'agent.plan.execute';
@@ -107,6 +112,31 @@ export class UnifiedAgentPlanCompilerService {
         pluginId: plan.pluginId,
         pluginVersionId: input.pluginVersionId,
       });
+    }
+    if (certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+      const contractPath = plugin.manifest.resources.inputContracts?.[plan.capability];
+      const contractText = contractPath ? plugin.resources[contractPath] : undefined;
+      if (!contractText) failClosed(input, '证书更新插件缺少固定输入合同资源');
+      let rawContract: unknown;
+      try {
+        rawContract = JSON.parse(contractText);
+      } catch (error) {
+        failClosed(input, '证书更新输入合同 JSON 无效', error);
+      }
+      const contract = validateCertificateUpdateInputContract(rawContract);
+      if (contract.pluginId !== plan.pluginId) failClosed(input, '证书更新输入合同与计划 Plugin ID 不一致');
+      const snapshot = resolveCertificateUpdateSnapshot(input.resolvedInput, contract, {
+        pluginVersionId: input.pluginVersionId,
+        resourceHash: canonicalResourceHash(plugin.resourceSha256),
+      });
+      assertCertificateUpdatePlanBinding(plan, snapshot);
+      if (actionType === 'agent.plan.execute' && !plan.writeEffect) failClosed(input, 'Apply 计划必须声明 writeEffect=true');
+      if (actionType === 'agent.plan.validate' && plan.writeEffect) {
+        // dry-run 复用同一份计划结构，但明确把副作用标志切换为 false，
+        // Agent 只能执行 validate，不得把预演误当成写操作。
+        plan = { ...plan, writeEffect: false, planDigest: '' };
+        plan.planDigest = computeAgentPlanDigest(plan);
+      }
     }
     const authorization = readAuthorizationRequest(request.authorization, input);
     const cacheKey = sha256Digest({

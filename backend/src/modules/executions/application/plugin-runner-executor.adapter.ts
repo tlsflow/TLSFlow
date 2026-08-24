@@ -355,6 +355,11 @@ function buildLaunchSpec(
   packageEntry: BuiltinPluginRegistryEntry | undefined,
 ): PluginRunnerLaunchSpec {
   if (!packageEntry) throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Plugin Action 缺少固定内置插件包快照');
+  if (!packageEntry.runtimeEntrypointPath || packageEntry.executionMode !== 'DSL_STEP_ACTION') {
+    throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '声明式 Agent Plan 插件不得进入 Plugin Runner', {
+      pluginId: binding.pluginId,
+    });
+  }
   const permissions = [...binding.hostPermissions];
   if (permissions.some((permission) => !packageEntry.manifest.permissions.includes(permission))) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'plugin.action 请求了未在固定 PluginVersion 声明的 Host API 权限', {

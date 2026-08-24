@@ -22,7 +22,11 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       on conflict (plugin_version_id,capability_key,workflow_key) do update set
         owner_type=excluded.owner_type,
-        owner_id=excluded.owner_id`, [
+        owner_id=excluded.owner_id,
+        workflow_resource_path=excluded.workflow_resource_path,
+        workflow_template_id=excluded.workflow_template_id,
+        workflow_version_id=excluded.workflow_version_id,
+        workflow_content_sha256=excluded.workflow_content_sha256`, [
       record.pluginVersionId, record.ownerType ?? 'SYSTEM', record.ownerId ?? null, record.capabilityKey, record.workflowKey,
       record.workflowResourcePath, record.workflowTemplateId, record.workflowVersionId, record.workflowContentSha256, record.createdAt,
     ]);

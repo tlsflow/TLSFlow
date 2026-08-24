@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { sep } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AppError } from '../../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
@@ -1335,7 +1336,14 @@ async function evaluateJsonata(
 }
 
 function createJsonataWorker(workerData: { expression: string; input: Record<string, unknown> }): Worker {
-  const compiledWorkerUrl = new URL('./jsonata-transform.worker.js', import.meta.url);
+  const colocatedWorkerUrl = new URL('./jsonata-transform.worker.js', import.meta.url);
+  const modulePath = fileURLToPath(import.meta.url);
+  const distModulePath = modulePath
+    .replace(`${sep}src${sep}`, `${sep}dist${sep}`)
+    .replace(/\.ts$/, '.js');
+  const compiledWorkerUrl = existsSync(fileURLToPath(colocatedWorkerUrl))
+    ? colocatedWorkerUrl
+    : pathToFileURL(distModulePath.replace(/[^/\\]+\.js$/, 'jsonata-transform.worker.js'));
   if (!existsSync(fileURLToPath(compiledWorkerUrl))) {
     throw new AppError('SYSTEM_INTERNAL_ERROR', 'JSONata Worker 编译产物缺失，拒绝动态加载源码');
   }

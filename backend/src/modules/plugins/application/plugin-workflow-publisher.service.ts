@@ -15,6 +15,7 @@ import {
   type PluginWorkflowDeclaration,
   type PluginWorkflowDeclarationResolver,
 } from './plugin-workflow-declaration-resolver.js';
+import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
 
 export class PluginWorkflowPublisherService {
   constructor(
@@ -37,8 +38,21 @@ export class PluginWorkflowPublisherService {
       const parsed = this.parseWorkflow(record, capabilityKey, contentText);
       const contentSha256 = computeWorkflowContentHash(parsed.content);
       if (existing) {
+        const repaired = await this.repairStaleBinding(
+          record,
+          capabilityKey,
+          workflowKey,
+          resourcePath,
+          parsed.content,
+          contentSha256,
+          existing,
+        );
+        if (repaired) {
+          output.push(repaired);
+          continue;
+        }
         this.assertSameResource(record.id, capabilityKey, workflowKey, resourcePath, contentSha256, existing);
-        await this.assertPublishedBinding(existing);
+        await this.assertPublishedBinding(existing, record.id, capabilityKey, record.version);
         output.push(existing);
         continue;
       }
@@ -46,8 +60,21 @@ export class PluginWorkflowPublisherService {
         ? undefined
         : await this.repository.findByResource(record.id, resourcePath);
       if (shared) {
+        const repaired = await this.repairStaleBinding(
+          record,
+          capabilityKey,
+          workflowKey,
+          resourcePath,
+          parsed.content,
+          contentSha256,
+          shared,
+        );
+        if (repaired) {
+          output.push(repaired);
+          continue;
+        }
         this.assertSameResource(record.id, capabilityKey, workflowKey, resourcePath, contentSha256, shared);
-        await this.assertPublishedBinding(shared);
+        await this.assertPublishedBinding(shared, record.id, capabilityKey, record.version);
         output.push(await this.repository.save({ ...shared, capabilityKey, workflowKey, ownerType: ownerTypeOf(record), ownerId: ownerIdOf(record) }));
         continue;
       }
@@ -59,7 +86,7 @@ export class PluginWorkflowPublisherService {
         workflowKey,
       );
       const published = previous?.workflowContentSha256 === contentSha256
-        ? await this.reusePublishedBinding(previous, record.id, capabilityKey)
+        ? await this.reusePublishedBinding(previous, record.id, capabilityKey, record.version)
         : await this.publishWorkflowVersion(record, parsed.content, previous);
       output.push(await this.repository.save({
         pluginVersionId: record.id,
@@ -151,8 +178,9 @@ export class PluginWorkflowPublisherService {
     binding: PluginWorkflowBindingRecord,
     pluginVersionId: string,
     capabilityKey: string,
+    expectedWorkflowVersion: string,
   ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
-    await this.assertPublishedBinding(binding, pluginVersionId, capabilityKey);
+    await this.assertPublishedBinding(binding, pluginVersionId, capabilityKey, expectedWorkflowVersion);
     return {
       templateId: binding.workflowTemplateId,
       versionId: binding.workflowVersionId,
@@ -160,11 +188,64 @@ export class PluginWorkflowPublisherService {
     };
   }
 
+  /**
+   * 修复历史上“插件版本已升级、绑定仍指向旧 DSL 版本”的派生记录。
+   * 只有绑定资源路径一致且目标版本本身可核验时才允许自动修复；其他
+   * 摘要或目标完整性问题仍然走冲突保护，避免把损坏数据静默覆盖。
+   */
+  private async repairStaleBinding(
+    record: UnifiedPluginVersionRecord,
+    capabilityKey: string,
+    workflowKey: string,
+    resourcePath: string,
+    content: WorkflowDslV1,
+    contentSha256: string,
+    binding: PluginWorkflowBindingRecord,
+  ): Promise<PluginWorkflowBindingRecord | undefined> {
+    if (binding.workflowResourcePath !== resourcePath) return undefined;
+    const version = await this.getPublishedBinding(binding, record.id, capabilityKey);
+    if (version.content.metadata.version === record.version) return undefined;
+
+    const published = await this.publishWorkflowVersion(record, content, binding);
+    return this.repository.save({
+      ...binding,
+      pluginVersionId: record.id,
+      capabilityKey,
+      workflowKey,
+      workflowResourcePath: resourcePath,
+      workflowTemplateId: published.templateId,
+      workflowVersionId: published.versionId,
+      workflowContentSha256: contentSha256,
+      ownerType: ownerTypeOf(record),
+      ownerId: ownerIdOf(record),
+      createdAt: binding.createdAt,
+    });
+  }
+
   private async assertPublishedBinding(
     binding: PluginWorkflowBindingRecord,
     pluginVersionId?: string,
     capabilityKey?: string,
+    expectedWorkflowVersion?: string,
   ): Promise<void> {
+    const version = await this.getPublishedBinding(binding, pluginVersionId, capabilityKey);
+    if (expectedWorkflowVersion !== undefined && version.content.metadata.version !== expectedWorkflowVersion) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '已发布 Workflow 绑定的 DSL 版本与插件版本不一致', {
+        code: 'PLUGIN_WORKFLOW_BINDING_VERSION_MISMATCH',
+        pluginVersionId,
+        capabilityKey,
+        pluginVersion: expectedWorkflowVersion,
+        workflowVersion: version.content.metadata.version,
+        workflowVersionId: binding.workflowVersionId,
+      });
+    }
+  }
+
+  private async getPublishedBinding(
+    binding: PluginWorkflowBindingRecord,
+    pluginVersionId?: string,
+    capabilityKey?: string,
+  ): Promise<WorkflowTemplateVersion> {
     try {
       const version = await this.workflows.getVersion(binding.workflowVersionId);
       if (version.templateId !== binding.workflowTemplateId
@@ -176,6 +257,7 @@ export class PluginWorkflowPublisherService {
           workflowVersionId: binding.workflowVersionId,
         });
       }
+      return version;
     } catch (error) {
       if (error instanceof AppError && error.errorCode === 'RESOURCE_VERSION_CONFLICT') throw error;
       throw new AppError('RESOURCE_VERSION_CONFLICT', '已发布 Workflow 绑定目标不存在或不可执行', {
@@ -188,6 +270,10 @@ export class PluginWorkflowPublisherService {
   }
 
   private assertSharedBranchResource(record: UnifiedPluginVersionRecord): void {
+    // 六个 Agent Plan 证书包各自发布 deploy/rollback Workflow；旧 DSL 包才要求共享
+    // 带 rollback 分支的 deploy 资源。边界必须按固定 Canonical ID 判断，不能按
+    // “没有 Runner 入口”猜测，否则新包会被误判为历史格式。
+    if (certificateUpdatePluginIds.includes(record.pluginId as (typeof certificateUpdatePluginIds)[number])) return;
     if (record.manifest.resources.runtimeEntrypoint === 'runtime/index.js') return;
     const deployPath = record.manifest.resources.workflows?.['certificate.deploy'];
     const rollbackPath = record.manifest.resources.workflows?.['certificate.rollback'];

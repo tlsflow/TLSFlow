@@ -1,15 +1,21 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CreateWorkflowExecutionBindingInput, UpdateWorkflowExecutionBindingInput } from '../dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository, type WorkflowExecutionBindingChain } from '../repository/workflow-execution-bindings.repository.js';
+import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export class WorkflowExecutionBindingsService {
   constructor(private readonly repository: WorkflowExecutionBindingsRepository) {}
-  async create(input: CreateWorkflowExecutionBindingInput) { await validate(this.repository, input); return this.repository.create(input); }
+  async create(input: CreateWorkflowExecutionBindingInput) {
+    const normalized = normalizeInputBindingInput(input);
+    await validate(this.repository, normalized);
+    return this.repository.create(normalized);
+  }
   async get(tenantId:string,id:string) {
     const binding=await this.repository.find(tenantId,id);
     if(!binding) throw new AppError('RESOURCE_NOT_FOUND','工作流执行绑定不存在',{id});
-    await validate(this.repository, binding);
-    return binding;
+    const normalized = normalizeInputBindingInput(binding);
+    await validate(this.repository, normalized);
+    return normalized;
   }
   async getExecutionIdentity(tenantId: string, id: string): Promise<{ binding: Awaited<ReturnType<WorkflowExecutionBindingsRepository['find']>> extends infer T ? Exclude<T, undefined> : never; chain: WorkflowExecutionBindingChain }> {
     const binding = await this.get(tenantId, id);
@@ -20,7 +26,7 @@ export class WorkflowExecutionBindingsService {
   async update(tenantId:string,id:string,input:UpdateWorkflowExecutionBindingInput) {
     const current=await this.get(tenantId,id);
     const normalized=normalizeUpdate(current,input);
-    const merged={...current,...normalized,tenantId};
+    const merged=normalizeInputBindingInput({...current,...normalized,tenantId});
     await validate(this.repository, merged);
     const updated=await this.repository.update(tenantId,id,normalized);
     if(!updated) throw new AppError('RESOURCE_VERSION_CONFLICT','工作流执行绑定版本冲突',{id,expectedVersion:input.expectedVersion});
@@ -46,13 +52,37 @@ async function validate(repository: WorkflowExecutionBindingsRepository, input: 
   }
   if (input.runner === 'GATEWAY' && !input.gatewayId) throw new AppError('VALIDATION_FAILED','GATEWAY Runner 必须指定 Gateway');
   if (input.runner === 'CONTROL_PLANE' && input.gatewayId) throw new AppError('VALIDATION_FAILED','CONTROL_PLANE Runner 不得指定 Gateway');
-  for (const [slot, binding] of Object.entries(input.inputBindings.credentials)) {
+  const inputBindings = input.inputBindings ?? emptyInputBindingsV1();
+  for (const [slot, binding] of Object.entries(inputBindings.credentials)) {
     if (!slot.trim() || !binding?.credentialId?.trim()) throw new AppError('VALIDATION_FAILED', 'Credential Binding 必须使用非空 credentialId');
   }
-  rejectPlainSecrets(input.inputBindings.connections, []);
-  rejectPlainSecrets(input.inputBindings.variables, []);
+  rejectPlainSecrets(inputBindings.connections, []);
+  rejectPlainSecrets(inputBindings.variables, []);
   const chain = await repository.findFixedWorkflowChain(input);
   assertFixedWorkflowChain(input, chain);
+}
+
+function normalizeInputBindingInput<T extends CreateWorkflowExecutionBindingInput>(input: T): T {
+  return {
+    ...input,
+    inputBindings: normalizeInputBindings(input.inputBindings),
+  } as T;
+}
+
+function normalizeInputBindings(value: InputBindingsV1 | null | undefined): InputBindingsV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyInputBindingsV1();
+  const record = value as unknown as Record<string, unknown>;
+  return {
+    apiVersion: typeof record.apiVersion === 'string' ? record.apiVersion as InputBindingsV1['apiVersion'] : INPUT_BINDINGS_API_VERSION,
+    variables: isRecord(record.variables) ? record.variables : {},
+    connections: isRecord(record.connections) ? record.connections as InputBindingsV1['connections'] : {},
+    credentials: isRecord(record.credentials) ? record.credentials as InputBindingsV1['credentials'] : {},
+    artifacts: isRecord(record.artifacts) ? record.artifacts as InputBindingsV1['artifacts'] : {},
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, chain: WorkflowExecutionBindingChain | undefined): asserts chain is WorkflowExecutionBindingChain {

@@ -5,9 +5,17 @@ import type { DeploymentInputProjectionV1 } from '@/design-system/components/Dep
 const DEPLOYMENT_INPUT_PROJECTION_PATH = '/api/v1/deployment-inputs/projection'
 const MANAGED_TARGET_PLUGIN_INPUT_PROJECTION_PATH = '/api/v1/managed-targets'
 
-export function projectDeploymentInputs(applicationAssetId: string) {
+export interface WorkflowDeploymentInputProjectionOverride {
+  workflowTemplateId: string
+  workflowVersionId: string
+  pluginVersionId?: string
+  inputBindings?: unknown
+}
+
+export function projectDeploymentInputs(applicationAssetId: string, workflow?: WorkflowDeploymentInputProjectionOverride) {
   return apiClient.post<DeploymentInputProjectionV1>(toClientPath(DEPLOYMENT_INPUT_PROJECTION_PATH), {
     applicationAssetId,
+    ...(workflow ? { workflow } : {}),
   })
 }
 
@@ -19,6 +27,7 @@ export function projectApplicationAssetPluginInputs(managedTargetId: string, pay
     id: string
     address: string
     sniName?: string
+    verifyUrl?: string
     port: number
     protocol: string
     displayName?: string

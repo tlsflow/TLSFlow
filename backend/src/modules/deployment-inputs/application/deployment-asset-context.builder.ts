@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetTopology } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
@@ -14,9 +15,11 @@ export interface BuildDeploymentAssetContextInput {
     id: string;
     address: string;
     sniName?: string;
+    verifyUrl?: string;
     port: number;
     protocol: string;
     displayName?: string;
+    metadata?: Record<string, unknown>;
   };
   managedTargetContext?: ResolvedManagedTargetTopology;
 }
@@ -42,10 +45,15 @@ export class DeploymentAssetContextBuilder {
     const site = topology?.siteAsset;
     const managedTarget = topology?.managedTarget;
     const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
+    const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
     const certificateLocation = managedTargetMetadata
       ? readCertificateLocation(managedTargetMetadata, managedTarget?.updatedAt || new Date(0).toISOString())
       : undefined;
-    const deploymentTargetName = site?.siteName ?? managedTarget?.targetKey ?? input.applicationAsset.displayName ?? application.serverName;
+    const deploymentTargetName = site?.siteName
+      ?? managedTarget?.targetKey
+      ?? workflowTargetSiteName
+      ?? input.applicationAsset.displayName
+      ?? application.serverName;
     const deploymentServerName = site?.hostHeader ?? application.serverName;
 
     return validateDeploymentAssetContextV1({
@@ -128,10 +136,19 @@ export const deploymentAssetContextBuilder = new DeploymentAssetContextBuilder()
 function buildApplication(
   applicationAsset: BuildDeploymentAssetContextInput['applicationAsset'],
 ): DeploymentAssetContextV1['application'] {
+  const configuredServerName = applicationAsset.sniName?.trim();
+  const accessDomain = applicationAsset.address.trim();
+  // 旧版表单未填写 SNI 时会把连接 IP 持久化为 sniName；访问域名才是资产的证书身份。
+  const legacyAddressSni = configuredServerName
+    && isIP(configuredServerName) !== 0
+    && isIP(accessDomain) === 0;
+  const serverName = legacyAddressSni
+    ? accessDomain
+    : configuredServerName || accessDomain;
   return {
     id: applicationAsset.id,
     address: applicationAsset.address,
-    serverName: applicationAsset.sniName?.trim() || applicationAsset.address,
+    serverName,
     port: applicationAsset.port,
     protocol: applicationAsset.protocol,
   };
@@ -142,4 +159,13 @@ function buildCertificateResourceName(serverName: string): string {
   const slug = normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'application';
   const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 10);
   return `certificate-${slug}-${digest}`;
+}
+
+function readWorkflowTargetSiteName(metadata: Record<string, unknown> | undefined): string | undefined {
+  const target = metadata?.workflowTarget;
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return undefined;
+  const siteName = (target as Record<string, unknown>).siteName;
+  if (typeof siteName !== 'string') return undefined;
+  const normalized = siteName.trim();
+  return normalized || undefined;
 }

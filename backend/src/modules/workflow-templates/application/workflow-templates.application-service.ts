@@ -14,6 +14,7 @@ import type {
   WorkflowListItem,
   WorkflowTemplate,
   WorkflowTemplateVersion,
+  WorkflowPluginSource,
 } from '../dto/workflow-templates.dto.js';
 
 export interface WorkflowTemplatesApplicationServiceOptions {
@@ -108,7 +109,10 @@ export class WorkflowTemplatesApplicationService {
     const versions = await Promise.all(templateIds.map((id) => this.domain.listVersions(id)));
     const flattened = versions.flat();
     if (selected?.origin === 'plugin_internal') {
-      return deduplicatePluginInternalVersions(flattened).sort(comparePluginInternalVersions);
+      // 历史内置 WorkflowVersion 未必持久化了 pluginSource。来源事实在
+      // unified_plugin_workflow_bindings 中，读取时补齐仅供选择器提交固定绑定身份。
+      const sourced = await this.attachPluginSources(flattened);
+      return deduplicatePluginInternalVersions(sourced).sort(comparePluginInternalVersions);
     }
     return flattened.sort((left, right) => left.version - right.version || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
   }
@@ -191,6 +195,33 @@ export class WorkflowTemplatesApplicationService {
     return [templateId];
   }
 
+  private async attachPluginSources(versions: WorkflowTemplateVersion[]): Promise<WorkflowTemplateVersion[]> {
+    const bindings = await this.workflowBindingsRepository.listAll();
+    const sourceByVersionId = new Map<string, PluginWorkflowBindingSource>();
+    for (const binding of bindings) {
+      const pluginId = binding.pluginId;
+      if (!pluginId || !isPluginCapability(binding.capabilityKey)) continue;
+      const source: PluginWorkflowBindingSource = {
+        pluginId,
+        pluginVersionId: binding.pluginVersionId,
+        capabilityKey: binding.capabilityKey,
+        workflowVersionId: binding.workflowVersionId,
+        workflowContentSha256: binding.workflowContentSha256,
+        createdAt: binding.createdAt,
+      };
+      const current = sourceByVersionId.get(binding.workflowVersionId);
+      if (!current || comparePluginBindingSources(source, current) < 0) {
+        sourceByVersionId.set(binding.workflowVersionId, source);
+      }
+    }
+    return versions.map((version) => {
+      if (version.pluginSource) return version;
+      const binding = sourceByVersionId.get(version.id);
+      if (!binding) return version;
+      return { ...version, pluginSource: pluginSourceFromBinding(binding) };
+    });
+  }
+
   private async buildPluginInternalGroups(templates: WorkflowTemplate[]): Promise<Map<string, WorkflowTemplate[]>> {
     const bindings = await this.workflowBindingsRepository.listAll();
     const sourceKeyByTemplateId = new Map<string, string>();
@@ -216,6 +247,38 @@ export class WorkflowTemplatesApplicationService {
     }
     return groups;
   }
+}
+
+type PluginWorkflowBindingSource = {
+  pluginId: string;
+  pluginVersionId: string;
+  capabilityKey: string;
+  workflowVersionId: string;
+  workflowContentSha256: string;
+  createdAt: string;
+};
+
+function isPluginCapability(value: string): value is WorkflowPluginSource['capabilityKey'] {
+  return value === 'certificate.deploy' || value === 'certificate.rollback';
+}
+
+function comparePluginBindingSources(left: PluginWorkflowBindingSource, right: PluginWorkflowBindingSource): number {
+  const capabilityOrder = (value: string) => value === 'certificate.deploy' ? 0 : 1;
+  return capabilityOrder(left.capabilityKey) - capabilityOrder(right.capabilityKey)
+    || right.createdAt.localeCompare(left.createdAt)
+    || right.pluginVersionId.localeCompare(left.pluginVersionId);
+}
+
+function pluginSourceFromBinding(binding: PluginWorkflowBindingSource): WorkflowPluginSource {
+  return {
+    sourceType: 'PLUGIN_CAPABILITY',
+    pluginId: binding.pluginId,
+    pluginVersionId: binding.pluginVersionId,
+    capabilityKey: binding.capabilityKey as WorkflowPluginSource['capabilityKey'],
+    sourceWorkflowVersionId: binding.workflowVersionId,
+    sourceContentHash: binding.workflowContentSha256,
+    createdAt: binding.createdAt,
+  };
 }
 
 function templateCapabilities(template: WorkflowTemplate): string[] {

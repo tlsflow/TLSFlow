@@ -9,7 +9,7 @@ import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats, listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
 import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlansByApplicationAsset, submitDeploymentPlan } from '@/api/modules/deployments.api'
-import { projectApplicationAssetPluginInputs, projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
+import { projectApplicationAssetPluginInputs, projectDeploymentInputs, type WorkflowDeploymentInputProjectionOverride } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
@@ -35,6 +35,7 @@ import {
   credentialProfileSummary,
   type CredentialProfileOption,
 } from '@/views/workflows/credential-profiles'
+import { filterCertificateDeploymentWorkflows } from '@/views/workflows/workflow-template-selection'
 import {
   createInputBindingsV1,
   readInputBindingsV1,
@@ -89,6 +90,9 @@ interface AssetDraft {
   environment: string
   tagsText: string
   workflowId: string
+  workflowPluginVersionId: string
+  workflowCapabilityKey: string
+  workflowKey: string
   pluginOverrideVersionId: string
   workflowExecutionBindingId: string
   workflowExecutionBindingVersion: number
@@ -271,6 +275,9 @@ const assetDraft = reactive<AssetDraft>({
   environment: '',
   tagsText: '',
   workflowId: '',
+  workflowPluginVersionId: '',
+  workflowCapabilityKey: '',
+  workflowKey: '',
   pluginOverrideVersionId: '',
   workflowExecutionBindingId: '',
   workflowExecutionBindingVersion: 0,
@@ -1075,6 +1082,9 @@ async function openEditDialog(row: ViewRow) {
       assetDraft.workflowTargetSniName = workflowTarget.sniName ?? ''
     }
     assetDraft.workflowId = String(readNested(deploymentStrategy, ['workflow', 'workflowId']) ?? '')
+    assetDraft.workflowPluginVersionId = String(readNested(deploymentStrategy, ['workflow', 'pluginVersionId']) ?? '')
+    assetDraft.workflowCapabilityKey = String(readNested(deploymentStrategy, ['workflow', 'capabilityKey']) ?? '')
+    assetDraft.workflowKey = String(readNested(deploymentStrategy, ['workflow', 'workflowKey']) ?? '')
     pluginBindingId.value = String(readNested(deploymentStrategy, ['workflow', 'pluginBindingId']) ?? '')
     assetDraft.workflowVersionSelection = readWorkflowVersionSelection(deploymentStrategy)
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
@@ -1113,11 +1123,16 @@ async function openEditDialog(row: ViewRow) {
         && assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
         && cause instanceof ApiClientError
         && cause.errorCode === 'RESOURCE_NOT_FOUND'
-      if (!canFallbackToPlugin) throw cause
-      // 工作流绑定已被历史清理时，受管目标仍可回到插件执行，避免脏 ID 阻塞资产编辑。
-      assetDraft.managedExecutionMode = 'PLUGIN'
+      const canRecreateStandaloneBinding = assetDraft.managementMode === 'WORKFLOW'
+        && cause instanceof ApiClientError
+        && cause.errorCode === 'RESOURCE_NOT_FOUND'
+      if (!canFallbackToPlugin && !canRecreateStandaloneBinding) throw cause
       assetDraft.workflowExecutionBindingId = ''
       assetDraft.workflowExecutionBindingVersion = 0
+      if (canFallbackToPlugin) {
+        // 工作流绑定已被历史清理时，受管目标仍可回到插件执行，避免脏 ID 阻塞资产编辑。
+        assetDraft.managedExecutionMode = 'PLUGIN'
+      }
     }
   }
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
@@ -1137,7 +1152,9 @@ async function loadWorkflowTemplates() {
   workflowListError.value = ''
   try {
     const result = await listWorkflowTemplates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
-    workflowItems.value = [...(result.data?.items ?? [])]
+    workflowItems.value = filterCertificateDeploymentWorkflows(result.data?.items ?? [], {
+      preserveWorkflowId: assetDraft.workflowId,
+    })
   } catch (cause) {
     workflowItems.value = []
     workflowListError.value = cause instanceof ApiClientError
@@ -1191,8 +1208,12 @@ async function loadExistingWorkflowExecutionBinding(bindingId: string) {
   const binding = readRecord(result.data) ?? {}
   assetDraft.workflowExecutionBindingId = String(binding.id ?? bindingId)
   assetDraft.workflowExecutionBindingVersion = Number(binding.version ?? 0)
+  assetDraft.workflowPluginVersionId = String(binding.pluginVersionId ?? '')
+  assetDraft.workflowCapabilityKey = String(binding.capabilityKey ?? '')
+  assetDraft.workflowKey = String(binding.workflowKey ?? '')
   assetDraft.workflowId = String(binding.workflowTemplateId ?? '')
-  assetDraft.workflowVersionSelection = String(binding.workflowVersionSelection ?? 'PINNED') as WorkflowVersionSelection
+  // 后端绑定只保存 FIXED；编辑器用 PINNED 表示同一件事。
+  assetDraft.workflowVersionSelection = 'PINNED'
   assetDraft.workflowVersionId = String(binding.workflowVersionId ?? '')
   assetDraft.workflowRunner = String(binding.runner ?? 'CONTROL_PLANE') as WorkflowRunnerType
   assetDraft.workflowGatewayId = String(binding.gatewayId ?? '')
@@ -1252,6 +1273,13 @@ async function refreshWorkflowBindingProjection(options: { preserveRenderedForm?
     workflowProjectionRefreshing.value = false
     return
   }
+  const workflowOverride = shouldProjectWorkflow ? buildWorkflowProjectionOverride() : undefined
+  if (shouldProjectWorkflow && !workflowOverride) {
+    // 工作流版本尚未加载完成时不回退到数据库旧策略，避免旧绑定阻塞当前编辑状态。
+    workflowProjectionLoading.value = false
+    workflowProjectionRefreshing.value = false
+    return
+  }
   workflowProjectionLoading.value = true
   try {
     const result = shouldProjectPlugin
@@ -1263,13 +1291,14 @@ async function refreshWorkflowBindingProjection(options: { preserveRenderedForm?
           id: editingServiceAssetId.value || 'draft',
           address: assetDraft.address.trim(),
           sniName: assetDraft.workflowTargetSniName.trim() || undefined,
+          verifyUrl: assetDraft.verifyUrl.trim() || effectiveVerifyUrl.value || undefined,
           port: Number(assetDraft.port),
           protocol: assetDraft.protocol,
           displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
         },
         inputBindings: deploymentInputBindings.value,
       })
-      : await projectDeploymentInputs(editingServiceAssetId.value)
+      : await projectDeploymentInputs(editingServiceAssetId.value, workflowOverride)
     if (sequence !== workflowProjectionRequestSequence) return
     workflowBindingProjection.value = result.data ?? null
     if (workflowBindingProjection.value) {
@@ -1286,6 +1315,20 @@ async function refreshWorkflowBindingProjection(options: { preserveRenderedForm?
       workflowProjectionLoading.value = false
       workflowProjectionRefreshing.value = false
     }
+  }
+}
+
+function buildWorkflowProjectionOverride(): WorkflowDeploymentInputProjectionOverride | undefined {
+  const workflowTemplateId = assetDraft.workflowId.trim()
+  const workflowVersionId = String(selectedWorkflowVersion.value?.id ?? assetDraft.workflowVersionId).trim()
+  if (!workflowTemplateId || !workflowVersionId) return undefined
+  const pluginSource = readRecord(readNested(selectedWorkflowVersion.value, ['pluginSource']))
+  const pluginVersionId = String(pluginSource?.pluginVersionId ?? assetDraft.workflowPluginVersionId).trim()
+  return {
+    workflowTemplateId,
+    workflowVersionId,
+    ...(pluginVersionId ? { pluginVersionId } : {}),
+    inputBindings: deploymentInputBindings.value,
   }
 }
 
@@ -1681,11 +1724,17 @@ async function saveStandaloneWorkflowConfiguration(applicationAssetId: string): 
 }
 
 function buildWorkflowExecutionInput(): Record<string, unknown> {
+  const identity = resolveWorkflowExecutionIdentity()
+  const workflowVersionId = String(selectedWorkflowVersion.value?.id ?? assetDraft.workflowVersionId).trim()
   return {
     tenantId: authStore.user?.tenantId ?? tenantStore.currentTenantId,
+    ...(identity.pluginVersionId ? { pluginVersionId: identity.pluginVersionId } : {}),
+    ...(identity.capabilityKey ? { capabilityKey: identity.capabilityKey } : {}),
+    ...(identity.workflowKey ? { workflowKey: identity.workflowKey } : {}),
     workflowTemplateId: assetDraft.workflowId.trim(),
-    workflowVersionSelection: assetDraft.workflowVersionSelection,
-    ...(assetDraft.workflowVersionSelection === 'PINNED' ? { workflowVersionId: assetDraft.workflowVersionId.trim() } : {}),
+    // 执行绑定只接受固定版本；“最新已发布”在保存前解析为当前选中的发布版本。
+    workflowVersionSelection: 'FIXED',
+    workflowVersionId,
     runner: assetDraft.workflowRunner,
     ...(assetDraft.workflowRunner === 'GATEWAY' ? { gatewayId: assetDraft.workflowGatewayId.trim() } : {}),
     inputBindings: deploymentInputBindings.value,
@@ -1694,6 +1743,19 @@ function buildWorkflowExecutionInput(): Record<string, unknown> {
       expectedVersion: assetDraft.workflowExecutionBindingVersion,
     } : {}),
   }
+}
+
+function resolveWorkflowExecutionIdentity(): { pluginVersionId: string; capabilityKey: string; workflowKey: string } {
+  const pluginSource = readRecord(readNested(selectedWorkflowVersion.value, ['pluginSource']))
+  const capabilities = Array.isArray(selectedWorkflowTemplate.value?.capabilities)
+    ? selectedWorkflowTemplate.value?.capabilities.filter((item): item is string => typeof item === 'string')
+    : []
+  const preferredCapability = capabilities.includes('certificate.deploy') ? 'certificate.deploy' : ''
+  const capabilityKey = (preferredCapability
+    || String(pluginSource?.capabilityKey ?? assetDraft.workflowCapabilityKey).trim())
+  const pluginVersionId = String(pluginSource?.pluginVersionId ?? assetDraft.workflowPluginVersionId).trim()
+  const workflowKey = String(assetDraft.workflowKey || capabilityKey).trim()
+  return { pluginVersionId, capabilityKey, workflowKey }
 }
 
 function resetDraft() {
@@ -1717,6 +1779,9 @@ function resetDraft() {
   assetDraft.environment = ''
   assetDraft.tagsText = ''
   assetDraft.workflowId = ''
+  assetDraft.workflowPluginVersionId = ''
+  assetDraft.workflowCapabilityKey = ''
+  assetDraft.workflowKey = ''
   assetDraft.pluginOverrideVersionId = ''
   assetDraft.workflowExecutionBindingId = ''
   assetDraft.workflowExecutionBindingVersion = 0
@@ -2087,15 +2152,17 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     const gatewayId = assetDraft.workflowRunner === 'GATEWAY'
       ? assetDraft.workflowGatewayId.trim()
       : undefined
+    const identity = resolveWorkflowExecutionIdentity()
+    const workflowVersionId = String(selectedWorkflowVersion.value?.id ?? assetDraft.workflowVersionId).trim()
     return {
       type: 'WORKFLOW',
       workflow: {
         pluginBindingId: pluginBindingId.value || undefined,
+        pluginVersionId: identity.pluginVersionId || undefined,
+        capabilityKey: identity.capabilityKey || undefined,
         workflowId: assetDraft.workflowId.trim(),
-        workflowVersionSelection: assetDraft.workflowVersionSelection,
-        ...(assetDraft.workflowVersionSelection === 'PINNED'
-          ? { workflowVersionId: assetDraft.workflowVersionId.trim() }
-          : {}),
+        workflowVersionSelection: 'FIXED',
+        workflowVersionId,
         runner: assetDraft.workflowRunner,
         gatewayId,
         target: workflowTarget,
@@ -2607,6 +2674,13 @@ watch(
   async (workflowId, previousWorkflowId) => {
     if (previousWorkflowId && workflowId !== previousWorkflowId) {
       assetDraft.workflowVersionId = ''
+      assetDraft.workflowExecutionBindingId = ''
+      assetDraft.workflowExecutionBindingVersion = 0
+      assetDraft.workflowPluginVersionId = ''
+      assetDraft.workflowCapabilityKey = ''
+      assetDraft.workflowKey = ''
+      pluginBindingId.value = ''
+      pluginBindingVersion.value = 0
     }
     if (!workflowExecutionEnabled.value) return
     await loadWorkflowVersions(workflowId)
@@ -2615,7 +2689,16 @@ watch(
 
 watch(
   () => assetDraft.workflowVersionId,
-  async () => {
+  async (workflowVersionId, previousWorkflowVersionId) => {
+    if (previousWorkflowVersionId && workflowVersionId !== previousWorkflowVersionId) {
+      assetDraft.workflowExecutionBindingId = ''
+      assetDraft.workflowExecutionBindingVersion = 0
+      assetDraft.workflowPluginVersionId = ''
+      assetDraft.workflowCapabilityKey = ''
+      assetDraft.workflowKey = ''
+      pluginBindingId.value = ''
+      pluginBindingVersion.value = 0
+    }
     if (!workflowExecutionEnabled.value) return
     await refreshWorkflowBindingProjection()
   },

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { CreateWorkflowExecutionBindingInput, UpdateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../dto/workflow-execution-bindings.dto.js';
+import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export interface WorkflowExecutionBindingChain {
   pluginVersionId: string;
@@ -150,12 +151,28 @@ function map(row: BindingRow): WorkflowExecutionBinding {
     workflowVersionId: row.workflow_version_id,
     runner: row.runner,
     gatewayId: row.gateway_id ?? undefined,
-    inputBindings: row.input_bindings,
+    inputBindings: normalizeInputBindings(row.input_bindings),
     status: row.status,
     version: row.version,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
+}
+
+function normalizeInputBindings(value: WorkflowExecutionBinding['inputBindings'] | null | undefined): InputBindingsV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyInputBindingsV1();
+  const record = value as unknown as Record<string, unknown>;
+  return {
+    apiVersion: typeof record.apiVersion === 'string' ? record.apiVersion as InputBindingsV1['apiVersion'] : INPUT_BINDINGS_API_VERSION,
+    variables: isRecord(record.variables) ? record.variables : {},
+    connections: isRecord(record.connections) ? record.connections as InputBindingsV1['connections'] : {},
+    credentials: isRecord(record.credentials) ? record.credentials as InputBindingsV1['credentials'] : {},
+    artifacts: isRecord(record.artifacts) ? record.artifacts as InputBindingsV1['artifacts'] : {},
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function mapChain(row: WorkflowExecutionBindingChainRow): WorkflowExecutionBindingChain {

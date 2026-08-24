@@ -93,11 +93,12 @@ export class DeploymentStrategyResolver {
         workflowVersionId: workflow.workflowVersionId,
       });
     }
+    const managedTargetId = input.bindingTarget?.managedTargetId;
     const gatewayRoute = workflow.runner === 'GATEWAY'
       ? {
           gatewayId: workflow.gatewayId,
           adapter: 'ssh' as const,
-          delegatedTargetId: input.bindingTarget?.managedTargetId ?? input.applicationAsset.id,
+          delegatedTargetId: managedTargetId ?? input.applicationAsset.id,
           blockedReason: workflow.gatewayId ? undefined : 'runner=GATEWAY 但未配置 gatewayId',
         }
       : undefined;
@@ -108,10 +109,11 @@ export class DeploymentStrategyResolver {
         workflowVersionId: workflow.workflowVersionId,
       });
     }
+    const target = workflow.target ?? readWorkflowTarget(input.applicationAsset.metadata);
     return {
       strategyType: 'WORKFLOW',
       executorType: 'WORKFLOW',
-      executionTargetId: input.bindingTarget?.managedTargetId ?? input.applicationAsset.id,
+      executionTargetId: managedTargetId ?? input.applicationAsset.id,
       requiredCapabilities: workflow.runner === 'GATEWAY' ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
       gatewayRoute,
       payload: {
@@ -125,19 +127,49 @@ export class DeploymentStrategyResolver {
           capabilityKey: workflow.capabilityKey,
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,
-          target: workflow.target,
+          target,
           inputBindings: workflow.inputBindings ?? emptyInputBindingsV1(),
           credentials: workflow.credentials ?? {},
           executionBranch: workflow.executionBranch ?? 'deploy',
           rollbackWorkflowVersionId: workflow.rollbackWorkflowVersionId,
           applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBinding?.id,
-          managedTargetId: input.bindingTarget?.managedTargetId,
+          managedTargetId,
+          // 新计划显式固定 Standalone 资源锁身份，避免执行时依赖插件自定义字段。
+          ...(managedTargetId ? {} : { standaloneStableKey: input.applicationAsset.id }),
           siteAssetId: input.managedTargetContext?.siteAsset?.id,
         },
       },
     };
   }
+}
+
+function readWorkflowTarget(metadata: Record<string, unknown>): NonNullable<NonNullable<DeploymentStrategyDto['workflow']>['target']> | undefined {
+  const value = metadata.workflowTarget;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const target = {
+    frameworkType: readOptionalString(record.frameworkType),
+    siteName: readOptionalString(record.siteName),
+    bindingInformation: readOptionalString(record.bindingInformation),
+    hostHeader: readOptionalString(record.hostHeader),
+    port: readOptionalPort(record.port),
+    protocol: readOptionalString(record.protocol),
+    verifyUrl: readOptionalString(record.verifyUrl),
+    sniName: readOptionalString(record.sniName),
+  };
+  return Object.values(target).some((item) => item !== undefined) ? target : undefined;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function readOptionalPort(value: unknown): number | undefined {
+  const port = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : undefined;
+  return Number.isInteger(port) && port! > 0 && port! <= 65535 ? port : undefined;
 }
 
 function workflowCertificateVerification(input: DeploymentStrategyResolutionInput): Record<string, unknown> {

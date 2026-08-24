@@ -30,6 +30,10 @@ import {
   type WorkflowCanvasDefinition,
   type WorkflowDslV1,
 } from './workflow-canvas.model'
+import {
+  filterCertificateDeploymentWorkflows,
+  normalizeWorkflowTemplateOrigin,
+} from './workflow-template-selection'
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, te, locale } = useI18n()
@@ -94,7 +98,7 @@ const config: BusinessPageConfig = {
       key: 'origin',
       title: t('workflows.templates.fields.origin'),
       candidates: ['origin'],
-      format: (record) => translateDynamic(t, te, 'workflows.templates.origins', normalizeWorkflowOrigin(readString(record, ['origin'], 'user'))),
+      format: (record) => translateDynamic(t, te, 'workflows.templates.origins', normalizeWorkflowTemplateOrigin(readString(record, ['origin'], 'user'))),
     },
     { key: 'status', title: t('workflows.templates.fields.status'), candidates: ['status'] },
     { key: 'currentVersionLabel', title: t('workflows.templates.fields.currentVersion'), candidates: ['currentVersionLabel', 'currentVersion'] },
@@ -121,7 +125,9 @@ const config: BusinessPageConfig = {
   load: async () => {
     const result = await listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' })
     if (!result.data) return result
-    const items = result.data.items.filter((item) => shouldShowWorkflow(item))
+    const items = showNonDeploymentWorkflows.value
+      ? result.data.items
+      : filterCertificateDeploymentWorkflows(result.data.items)
     return {
       ...result,
       data: {
@@ -213,23 +219,7 @@ function isUserOwnedWorkflow(row: ViewRow): boolean {
 }
 
 function workflowOrigin(row: ViewRow): string {
-  return normalizeWorkflowOrigin(readString(row.raw, ['origin'], 'user'))
-}
-
-function normalizeWorkflowOrigin(origin: string): 'plugin_internal' | 'user' {
-  const normalized = origin.trim().toLowerCase().replace(/-/g, '_')
-  return normalized === 'plugin_internal' ? 'plugin_internal' : 'user'
-}
-
-function workflowCapabilities(record: ApiRecord): string[] {
-  const capabilities = record.capabilities
-  return Array.isArray(capabilities) ? capabilities.map((capability) => String(capability)) : []
-}
-
-function shouldShowWorkflow(record: ApiRecord): boolean {
-  if (normalizeWorkflowOrigin(readString(record, ['origin'], 'user')) === 'user') return true
-  if (showNonDeploymentWorkflows.value) return true
-  return workflowCapabilities(record).includes('certificate.deploy')
+  return normalizeWorkflowTemplateOrigin(readString(row.raw, ['origin'], 'user'))
 }
 
 function pluginSourceId(item: ApiRecord): string {

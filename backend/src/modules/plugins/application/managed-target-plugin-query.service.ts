@@ -305,6 +305,7 @@ export class ManagedTargetPluginQueryService {
       id: string;
       address: string;
       sniName?: string;
+      verifyUrl?: string;
       port: number;
       protocol: string;
       displayName?: string;

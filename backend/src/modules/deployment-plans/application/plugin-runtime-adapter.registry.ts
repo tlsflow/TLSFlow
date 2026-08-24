@@ -6,6 +6,9 @@ import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/reso
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import { buildCertificateVerificationTarget } from './certificate-verification-target.js';
 import { computeAgentPlanDigest, type AgentPlanV1 } from '../../agents/security/agent-security.contract.js';
+import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
+import { resolveCertificateUpdateSnapshot } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
+import { compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
 
 export interface RuntimeCompileInput {
   tenantId?: string;
@@ -69,10 +72,19 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
   readonly runtime = 'WORKFLOW_DSL' as const;
 
   supports(capability: ResolvedDeploymentCapability): boolean {
-    return capability.pluginRuntime === this.runtime && capability.executionLocation !== 'AGENT';
+    return capability.pluginRuntime === this.runtime
+      && (capability.executionLocation !== 'AGENT'
+        || Boolean(capability.plugin.manifest.resources.agentPlans?.[capability.assignment.capabilityKey]));
   }
 
   async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    const agentPlanPath = input.capability.plugin.manifest.resources.agentPlans?.[input.capability.assignment.capabilityKey];
+    if (input.capability.executionLocation === 'AGENT' && agentPlanPath) {
+      return this.compileAgentPlanResource(input, agentPlanPath);
+    }
+    if (input.capability.executionLocation === 'AGENT') {
+      throw new AppError('CAPABILITY_MISSING', 'Agent 执行位置缺少 Agent Plan 资源');
+    }
     if (!input.workflow) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Workflow DSL Runtime 缺少已发布工作流快照');
     if (input.workflow.executionMode === 'PLUGIN_RUNNER') {
       throw new AppError('VALIDATION_FAILED', '包级 PLUGIN_RUNNER Workflow 请求已禁止，Runner 只能由 plugin.action 步骤调用', {
@@ -107,6 +119,63 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
           managedTargetId: input.context.managedTarget.id,
           siteAssetId: input.context.siteAsset?.id,
         },
+      },
+    };
+  }
+
+  private compileAgentPlanResource(input: RuntimeCompileInput, templatePath: string): RuntimeExecutionRequest {
+    const agentId = input.context.agent?.id;
+    const tenantId = input.tenantId;
+    if (!agentId || !tenantId) throw new AppError('CAPABILITY_MISSING', 'Agent Plan Runtime 缺少 Agent 或租户上下文');
+    const contractPath = input.capability.plugin.manifest.resources.inputContracts?.[input.capability.assignment.capabilityKey];
+    const contractText = contractPath ? input.capability.plugin.resources[contractPath] : undefined;
+    const templateText = input.capability.plugin.resources[templatePath];
+    if (!contractText || !templateText) throw new AppError('CAPABILITY_MISSING', '双资源插件缺少输入合同或 Agent Plan 模板');
+    let contract: unknown;
+    try {
+      contract = JSON.parse(contractText);
+    } catch (error) {
+      throw new AppError('VALIDATION_FAILED', '证书更新输入合同不是有效 JSON', { cause: error instanceof Error ? error.message : String(error) });
+    }
+    const certificateContract = validateCertificateUpdateInputContract(contract);
+    if (certificateContract.pluginId !== input.capability.plugin.manifest.pluginId) {
+      throw new AppError('VALIDATION_FAILED', '证书更新输入合同与 PluginVersion 身份不一致');
+    }
+    const resourceHash = resourceAggregateHash(input.capability.plugin.resourceSha256);
+    const snapshot = resolveCertificateUpdateSnapshot(input.resolvedInput, certificateContract, {
+      pluginVersionId: input.capability.pluginVersionId,
+      resourceHash,
+    });
+    const compiled = compileCertificateUpdatePlanTemplate({
+      templateText,
+      snapshot,
+      pluginVersionId: input.capability.pluginVersionId,
+      agentId,
+      tenantId,
+      workflowVersionId: input.workflow?.workflowVersionId,
+      resourceHash,
+    });
+    return {
+      executorType: 'AGENT',
+      executionTargetId: agentId,
+      requiredCapabilities: ['agent.plan.execute'],
+      payload: {
+        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        certificateVerification: hostCertificateVerification(input),
+        resolvedDeploymentInput: input.resolvedInput,
+        certificateUpdateSnapshot: snapshot,
+        actionType: 'agent.plan.execute',
+        plan: compiled.plan,
+        executionAuthorization: compiled.authorization,
+        workflowRequest: input.workflow ? {
+          workflowId: input.workflow.workflowId,
+          workflowVersionSelection: 'FIXED',
+          workflowVersionId: input.workflow.workflowVersionId,
+          pluginVersionId: input.capability.pluginVersionId,
+          pluginBindingId: input.capability.binding.id,
+          capabilityKey: input.capability.assignment.capabilityKey,
+          executionLocation: 'AGENT',
+        } : undefined,
       },
     };
   }

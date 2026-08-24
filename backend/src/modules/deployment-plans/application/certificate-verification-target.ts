@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { isIP } from 'node:net';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 
@@ -14,7 +15,15 @@ export function buildCertificateVerificationTarget(input: CertificateVerificatio
   const connectHost = endpoint?.host
     ?? usableEndpointHost(input.managedTargetContext?.host.primaryIp)
     ?? usableEndpointHost(input.applicationAsset.address);
-  const serverName = nonEmptyString(input.applicationAsset.sniName) ?? endpoint?.serverName ?? nonEmptyString(input.applicationAsset.address);
+  const configuredServerName = nonEmptyString(input.applicationAsset.sniName);
+  const accessDomain = nonEmptyString(input.applicationAsset.address);
+  const legacyAddressSni = configuredServerName
+    && isIP(configuredServerName) !== 0
+    && accessDomain
+    && isIP(accessDomain) === 0;
+  const serverName = legacyAddressSni
+    ? accessDomain
+    : configuredServerName ?? accessDomain ?? endpoint?.serverName;
   const port = endpoint?.port ?? input.applicationAsset.port;
   if (!connectHost || !serverName || !port) {
     throw new AppError('VALIDATION_FAILED', '部署 Runtime 缺少证书验证目标', {

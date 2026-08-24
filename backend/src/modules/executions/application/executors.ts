@@ -356,6 +356,7 @@ function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: St
   return {
     action: actionType,
     actionType,
+    mutating: actionType === 'agent.plan.execute',
     actionSchemaVersion: stringFromSnapshot(snapshot.actionSchemaVersion) ?? '1.0',
     requestId: stringFromSnapshot(snapshot.requestId) ?? `execution:${input.step.executionRunId}:${input.step.id}`,
     agentId,
@@ -558,10 +559,14 @@ export class WorkflowExecutorAdapter implements Executor {
     const hostId = assetContext.host?.id;
     const managedTargetId = assetContext.target?.id;
     const standaloneKey = stringFromSnapshot(request.standaloneStableKey);
+    const applicationAssetId = stringFromSnapshot(assetContext.application.id);
+    const isStandaloneRequest = !stringFromSnapshot(request.managedTargetId);
     const resourceKey = stringFromSnapshot(requested.key)
       ?? (hostId ? `tenant:${tenantId}:device:${hostId}` : undefined)
       ?? (managedTargetId ? `tenant:${tenantId}:managed-target:${managedTargetId}` : undefined)
-      ?? (standaloneKey ? `tenant:${tenantId}:standalone:${standaloneKey}` : undefined);
+      ?? (standaloneKey ? `tenant:${tenantId}:standalone:${standaloneKey}` : undefined)
+      // 历史部署计划没有 standaloneStableKey 时，标准上下文中的应用资产 ID 仍然稳定。
+      ?? (isStandaloneRequest && applicationAssetId ? `tenant:${tenantId}:standalone:${applicationAssetId}` : undefined);
     if (!resourceKey) throw new AppError('VALIDATION_FAILED', '插件工作流缺少稳定资源锁键，Standalone 写操作拒绝并发执行');
     return await this.resourceLocks.acquire({
       tenantId,

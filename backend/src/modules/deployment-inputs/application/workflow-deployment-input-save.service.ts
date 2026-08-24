@@ -6,6 +6,7 @@ import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { CreateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import type { WorkflowTemplate, WorkflowTemplateVersion } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import { WorkflowTemplatesDomainService } from '../../workflow-templates/domain/workflow-templates.domain-service.js';
+import { emptyInputBindingsV1 } from '../dto/input-bindings.dto.js';
 import { deploymentAssetContextBuilder } from './deployment-asset-context.builder.js';
 import { DeploymentInputBindingSaveService } from './deployment-input-binding-save.service.js';
 import { DeploymentInputContractLoader } from './deployment-input-contract-loader.js';
@@ -38,7 +39,7 @@ export class WorkflowDeploymentInputSaveService {
       contract: this.contracts.fromWorkflowVersion(version),
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.managedTargetContext }),
       currentAssetOverride,
-      submitted: input.workflowExecution.inputBindings,
+      submitted: input.workflowExecution.inputBindings ?? emptyInputBindingsV1(),
     });
   }
 

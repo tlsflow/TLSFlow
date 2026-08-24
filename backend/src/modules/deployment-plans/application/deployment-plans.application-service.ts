@@ -55,7 +55,7 @@ import { deploymentAssetContextBuilder, requireManagedTargetMetadata } from '../
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { ResolveDeploymentInputPhase, ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
-import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
+import { emptyInputBindingsV1, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import type { EffectiveInputBindingV1 } from '../../deployment-inputs/domain/deployment-input-provenance.js';
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
@@ -96,6 +96,14 @@ interface ResolvedDeploymentInputMaterial {
   contract: DeploymentInputContractV1;
   effectiveBinding: EffectiveInputBindingV1;
   resolvedInput: ResolvedDeploymentInputV1;
+}
+
+/** 编辑应用资产时用于生成输入投影的临时工作流身份，不会创建执行绑定。 */
+export interface DeploymentInputProjectionWorkflowOverride {
+  workflowTemplateId: string;
+  workflowVersionId: string;
+  pluginVersionId?: string;
+  inputBindings?: InputBindingsV1;
 }
 
 interface ResolvedCreatePlanInput {
@@ -518,12 +526,15 @@ export class DeploymentPlansApplicationService {
     return this.create(draft, context);
   }
 
-  async resolveProjectionSource(input: Pick<CreateDeploymentPlanFromApplicationAssetInput, 'applicationAssetId' | 'tenantId'>): Promise<{
-    contract: ReturnType<DeploymentInputContractLoader['fromPlugin']>;
+  async resolveProjectionSource(input: Pick<CreateDeploymentPlanFromApplicationAssetInput, 'applicationAssetId' | 'tenantId'> & {
+    workflow?: DeploymentInputProjectionWorkflowOverride;
+  }): Promise<{
+    contract: DeploymentInputContractV1;
     resolvedInput: ResolvedDeploymentInputV1;
     effectiveBinding?: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1;
   }> {
     if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    if (input.workflow) return this.resolveWorkflowProjectionSource({ ...input, workflow: input.workflow });
     const draft = await this.buildCreateInputFromApplicationAsset({
       applicationAssetId: input.applicationAssetId,
       tenantId: input.tenantId,
@@ -548,6 +559,59 @@ export class DeploymentPlansApplicationService {
     if (!workflowVersionId || !this.workflows) throw new AppError('VALIDATION_FAILED', 'Workflow Projection 缺少版本化输入身份');
     const version = await this.workflows.getVersion(workflowVersionId);
     return { contract: new DeploymentInputContractLoader().fromWorkflowVersion(version), resolvedInput, effectiveBinding: effectiveBindingFromPayload(payload) };
+  }
+
+  /**
+   * 投影阶段允许使用编辑器尚未保存的工作流版本。
+   * 这里只解析输入契约和当前草稿绑定，正式部署仍然必须经过 WorkflowExecutionBinding。
+   */
+  private async resolveWorkflowProjectionSource(input: Pick<CreateDeploymentPlanFromApplicationAssetInput, 'applicationAssetId' | 'tenantId'> & {
+    workflow: DeploymentInputProjectionWorkflowOverride;
+  }): Promise<{
+    contract: DeploymentInputContractV1;
+    resolvedInput: ResolvedDeploymentInputV1;
+    effectiveBinding?: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1;
+  }> {
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
+    const applicationAsset = await this.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
+    if (!applicationAsset) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
+    }
+    const workflowTemplateId = input.workflow.workflowTemplateId.trim();
+    const workflowVersionId = input.workflow.workflowVersionId.trim();
+    if (!workflowTemplateId || !workflowVersionId) {
+      throw new AppError('VALIDATION_FAILED', '工作流投影缺少 WorkflowTemplate 或 WorkflowVersion');
+    }
+    const version = await this.workflows.getVersion(workflowVersionId);
+    if (version.templateId !== workflowTemplateId) {
+      throw new AppError('VALIDATION_FAILED', '工作流投影的 Template 与 Version 不匹配', {
+        workflowTemplateId,
+        workflowVersionId,
+        actualTemplateId: version.templateId,
+      });
+    }
+    const inputBindings = input.workflow.inputBindings ?? emptyInputBindingsV1();
+    const managedTargetId = applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+      ? applicationAsset.deploymentStrategy.managedTarget?.managedTargetId
+      : undefined;
+    const managedTargetContext = managedTargetId
+      ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
+      : undefined;
+    const contract = new DeploymentInputContractLoader().fromWorkflowVersion(version);
+    const projection = this.deploymentInputResolver.resolveProjectionResult({
+      phase: 'configure',
+      contract,
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext }),
+      bindingLayers: {
+        assetOverride: {
+          pluginVersionId: input.workflow.pluginVersionId?.trim() || `workflow-preview:${workflowVersionId}`,
+          inputBindings,
+        },
+      },
+      credentialSnapshots: await this.snapshotCredentials(input.tenantId, inputBindings.credentials),
+    });
+    return { contract, ...projection };
   }
 
   async updateDraftFromApplicationAsset(input: UpdateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -2409,6 +2473,7 @@ export class DeploymentPlansApplicationService {
       privateKeyPem: generated.privateKeyPem,
       pfxBase64: generated.pfxBase64,
       pfxPassword: generated.pfxPassword,
+      jksBase64: generated.jksBase64,
       files: generated.files.map((file) => ({ ...file, name: file.key })),
       expectedFingerprintSha256: version.fingerprintSha256,
       warnings: generated.warnings,
@@ -2471,6 +2536,7 @@ export class DeploymentPlansApplicationService {
         pfx: generated.pfxBase64,
         pfxBase64: generated.pfxBase64,
         pfxPassword: generated.pfxPassword,
+        jksBase64: generated.jksBase64,
         files,
       });
       const outputs: Record<string, unknown> = {};
@@ -2507,6 +2573,7 @@ export class DeploymentPlansApplicationService {
         privateKeyPem: generated.privateKeyPem,
         pfxBase64: generated.pfxBase64,
         pfxPassword: generated.pfxPassword,
+        jksBase64: generated.jksBase64,
         files,
         expectedFingerprintSha256: version.fingerprintSha256,
         warnings: [],
@@ -3833,6 +3900,7 @@ export function resolveStandardCertificateOutput(
     fingerprintSha256: { sourceKey: 'fingerprintSha256', role: 'fingerprint_sha256', format: 'hex' },
     pfxBase64: { sourceKey: 'pfxBase64', role: 'pkcs12_bundle', format: 'base64' },
     pfxPassword: { sourceKey: 'pfxPassword', role: 'pkcs12_password', format: 'text' },
+    jksBase64: { sourceKey: 'jksBase64', role: 'keystore', format: 'base64' },
   };
   const definition = definitions[outputKey];
   if (!definition) return undefined;
@@ -3859,6 +3927,7 @@ const canonicalCertificateOutputKeys = new Set([
   'orderedIntermediates',
   'pfxBase64',
   'pfxPassword',
+  'jksBase64',
 ]);
 
 export function resolveBoundCertificateOutput(
@@ -4029,14 +4098,48 @@ function readStringMap(value: unknown): Record<string, string> | undefined {
 function artifactSnapshotsFromDeploymentArtifact(
   artifact: DeploymentArtifactSnapshotDto,
 ): Record<string, ResolvedArtifactV1> {
-  return Object.fromEntries(Object.entries(artifact.workflowCertificateMaterials ?? {}).map(([slot, material]) => [slot, {
-    ...material,
-    artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
-    certificateVersionId: artifact.certificateVersionId,
-    certificateFormatId: artifact.certificateFormatId,
-    format: artifact.format,
-    outputs: readRecord(material.outputs) ?? {},
-  }]));
+  const workflowMaterials = Object.entries(artifact.workflowCertificateMaterials ?? {});
+  if (workflowMaterials.length > 0) {
+    return Object.fromEntries(workflowMaterials.map(([slot, material]) => [slot, {
+      ...material,
+      artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
+      certificateVersionId: artifact.certificateVersionId,
+      certificateFormatId: artifact.certificateFormatId,
+      format: artifact.format,
+      outputs: readRecord(material.outputs) ?? {},
+    }]));
+  }
+
+  // 直接证书产物也要进入固定 certificateArtifact 槽位；否则普通六插件
+  // 工作流在没有 workflowCertificateMaterials 时会丢失 JKS/PEM/PFX 输出。
+  const enriched = enrichWorkflowCertificateMaterial({
+    ...artifact,
+    files: artifact.files ?? [],
+  });
+  const outputs: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({
+    leafPem: enriched.leafPem,
+    certificatePem: enriched.certificatePem,
+    privateKeyPem: enriched.privateKeyPem,
+    orderedChainPem: enriched.orderedChainPem,
+    pfxBase64: artifact.pfxBase64,
+    pfxPassword: artifact.pfxPassword,
+    jksBase64: artifact.jksBase64,
+  })) {
+    if (value !== undefined) outputs[key] = value;
+  }
+  if (artifact.files?.length) outputs.files = structuredClone(artifact.files);
+  return {
+    certificateArtifact: {
+      artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
+      artifactRef: artifact.artifactRef,
+      artifactSha256: artifact.artifactSha256,
+      format: artifact.format,
+      containsPrivateKey: artifact.containsPrivateKey,
+      expectedFingerprintSha256: artifact.expectedFingerprintSha256,
+      outputs,
+    },
+  };
 }
 
 function readDeploymentArtifactRuntimeSnapshot(

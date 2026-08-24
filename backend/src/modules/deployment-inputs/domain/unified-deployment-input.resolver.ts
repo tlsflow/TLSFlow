@@ -33,6 +33,7 @@ export class UnifiedDeploymentInputResolver {
       endpoint_url: endpointUrl,
       authority: authority,
       binding_information: bindingInformation,
+      deployment_target_name: deploymentTargetName,
       certificate_resource_name: (context) => context.deployment.certificateResourceName,
       ...derivedResolvers,
     };
@@ -333,6 +334,15 @@ function issue(
 }
 
 function readPath(input: unknown, path: string): unknown {
+  // 旧 DSM 1.0.8 使用 deployment.target；当前上下文统一为 targets 数组。
+  // 这里按单目标资产的既有名称提供只读兼容，不让历史版本阻塞保存。
+  if (path === 'deployment.target' && isRecord(input)) {
+    const deployment = input.deployment;
+    if (isRecord(deployment) && Array.isArray(deployment.targets)) {
+      const first = deployment.targets[0];
+      return isRecord(first) ? first.name : undefined;
+    }
+  }
   return path.split('.').reduce<unknown>((current, segment) => isRecord(current) ? current[segment] : undefined, input);
 }
 
@@ -351,6 +361,10 @@ function bindingInformation(context: DeploymentAssetContextV1): string {
   return context.site?.bindingInformation
     ?? context.target?.bindingKey
     ?? `${context.site?.listenIp ?? '*'}:${context.site?.port ?? context.application.port}:${context.site?.hostHeader ?? context.application.serverName}`;
+}
+
+function deploymentTargetName(context: DeploymentAssetContextV1): string | undefined {
+  return context.deployment.targets[0]?.name;
 }
 
 function matchesVariableType(definition: DeploymentVariableDefinitionV1, value: unknown): boolean {
