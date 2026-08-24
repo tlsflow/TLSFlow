@@ -2633,6 +2633,7 @@ function artifactSnapshotsFromDeploymentArtifact(
   artifact: DeploymentArtifactSnapshotDto,
 ): Record<string, ResolvedArtifactV1> {
   return Object.fromEntries(Object.entries(artifact.workflowCertificateMaterials ?? {}).map(([slot, material]) => [slot, {
+    ...material,
     artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
     certificateVersionId: artifact.certificateVersionId,
     certificateFormatId: artifact.certificateFormatId,
