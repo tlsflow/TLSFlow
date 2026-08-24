@@ -7,37 +7,15 @@ import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 
 const apiMocks = vi.hoisted(() => ({
-  getCertificateVersionDetail: vi.fn(),
-  listAssets: vi.fn(),
-  listCertificates: vi.fn(),
-  listCertificateTrustRoots: vi.fn(),
-  listCertificateVersions: vi.fn(),
-  listCloudAccountAssets: vi.fn(),
-  listManagedDevices: vi.fn(),
-  listPluginCatalog: vi.fn(),
+  searchGlobal: vi.fn(),
 }))
 
 const routerMock = vi.hoisted(() => ({
   push: vi.fn(),
 }))
 
-vi.mock('@/api/modules/assets.api', () => ({
-  listAssets: apiMocks.listAssets,
-}))
-vi.mock('@/api/modules/certificates.api', () => ({
-  getCertificateVersionDetail: apiMocks.getCertificateVersionDetail,
-  listCertificates: apiMocks.listCertificates,
-  listCertificateTrustRoots: apiMocks.listCertificateTrustRoots,
-  listCertificateVersions: apiMocks.listCertificateVersions,
-}))
-vi.mock('@/api/modules/devices.api', () => ({
-  listManagedDevices: apiMocks.listManagedDevices,
-}))
-vi.mock('@/api/modules/providers.api', () => ({
-  listCloudAccountAssets: apiMocks.listCloudAccountAssets,
-}))
-vi.mock('@/api/modules/plugins.api', () => ({
-  listPluginCatalog: apiMocks.listPluginCatalog,
+vi.mock('@/api/modules/global-search.api', () => ({
+  searchGlobal: apiMocks.searchGlobal,
 }))
 vi.mock('vue-router', () => ({
   useRouter: () => routerMock,
@@ -77,7 +55,8 @@ function mountSearch() {
 describe('GlobalSearchModal', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    usePermissionStore().setPermissions([
+    const permissionStore = usePermissionStore()
+    permissionStore.setPermissions([
       'certificate.asset.read',
       'service_asset.read',
       'host.read',
@@ -91,72 +70,25 @@ describe('GlobalSearchModal', () => {
       'security.identity_source.read',
     ])
 
-    apiMocks.listCertificates.mockResolvedValue(page([{
-      id: 'certificate-1',
-      name: 'api.example.com',
-      primaryDomain: 'api.example.com',
-      currentVersionId: 'version-1',
-      sourceType: 'manual',
-    }]))
-    apiMocks.listCertificateVersions.mockResolvedValue(page([{
-      id: 'version-1',
-      certificateAssetId: 'certificate-1',
-      commonName: 'api.example.com',
-      fingerprintSha256: 'leaf-fingerprint',
-      serialNumber: 'leaf-serial',
-      sans: ['api.example.com'],
-    }]))
-    apiMocks.getCertificateVersionDetail.mockResolvedValue({
-      data: {
-        chainCertificates: [
-          {
-            fingerprintSha256: 'intermediate-fingerprint',
-            displayName: 'Intermediate CA',
-            commonName: 'Intermediate CA',
-            role: 'intermediate',
-            subject: { commonName: 'Intermediate CA' },
-            issuer: { commonName: 'Root CA' },
-            serialNumber: 'intermediate-serial',
-          },
-          {
-            fingerprintSha256: 'root-chain-fingerprint',
-            displayName: 'Root CA',
-            commonName: 'Root CA',
-            role: 'root',
-          },
-        ],
-      },
+    apiMocks.searchGlobal.mockImplementation(async (query: string) => {
+      const all = [
+        { id: 'certificate-asset:1', title: 'api.example.com', type: 'serverCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['api.example.com'] },
+        { id: 'certificate-intermediate:1', title: 'Intermediate CA', type: 'intermediateCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['Intermediate CA', 'intermediate-fingerprint'] },
+        { id: 'certificate-root:1', title: 'Root CA', type: 'rootCertificate', category: 'certificates', path: '/certificates', query: { rootId: 'root-1' }, keywords: ['root-fingerprint'] },
+        { id: 'device:1', title: 'search-device', type: 'device', category: 'assets', path: '/assets/devices', query: { detailModal: '1', deviceId: 'device-1' }, keywords: ['search-device'] },
+        { id: 'application:1', title: 'search-app', type: 'application', category: 'assets', path: '/assets', query: { detailModal: '1', assetId: 'application-1' }, keywords: ['search-app'] },
+        { id: 'plugin:1', title: 'search-plugin', type: 'plugin', category: 'plugins', path: '/plugins', query: { detailModal: '1', pluginVersionId: 'plugin-version-1' }, keywords: ['search-plugin'] },
+      ]
+      const needle = query.toLowerCase()
+      const visible = all.filter((item) => {
+        if (item.type === 'application' && !permissionStore.hasPermission('service_asset.read')) return false
+        if (item.type === 'device' && !permissionStore.hasPermission('host.read')) return false
+        if (item.type === 'plugin' && !permissionStore.hasPermission('plugin.read')) return false
+        if (item.type === 'serverCertificate' && !permissionStore.hasPermission('certificate.asset.read')) return false
+        return true
+      })
+      return { data: { items: visible.filter((item) => [item.title, ...item.keywords].some((value) => value.toLowerCase().includes(needle))) } }
     })
-    apiMocks.listCertificateTrustRoots.mockResolvedValue(page([{
-      id: 'root-1',
-      fingerprintSha256: 'root-fingerprint',
-      subject: { commonName: 'Root CA' },
-      issuer: { commonName: 'Root CA' },
-      serialNumber: 'root-serial',
-      validationStatus: 'verified',
-    }]))
-    apiMocks.listAssets.mockResolvedValue(page([{
-      id: 'application-1',
-      displayName: 'search-app',
-      address: 'app.example.com',
-    }]))
-    apiMocks.listManagedDevices.mockResolvedValue(page([{
-      id: 'device-1',
-      displayName: 'search-device',
-      hostname: 'device.example.com',
-    }]))
-    apiMocks.listCloudAccountAssets.mockResolvedValue(page([{
-      id: 'cloud-1',
-      displayName: 'search-cloud',
-      providerKey: 'aliyun',
-    }]))
-    apiMocks.listPluginCatalog.mockResolvedValue(page([{
-      id: 'plugin-1',
-      pluginVersionId: 'plugin-version-1',
-      pluginId: 'search-plugin',
-      displayName: 'search-plugin',
-      version: '1.0.0',
-    }]))
     routerMock.push.mockReset()
   })
 
@@ -213,7 +145,7 @@ describe('GlobalSearchModal', () => {
     await wrapper.get('input').setValue('search-app')
     await settle()
     expect(wrapper.text()).not.toContain('search-app')
-    expect(apiMocks.listAssets).toHaveBeenCalledTimes(2)
+    expect(apiMocks.searchGlobal).toHaveBeenCalledTimes(3)
   })
 
   it('只通过当前可见菜单搜索系统设置', async () => {
@@ -224,11 +156,7 @@ describe('GlobalSearchModal', () => {
     await settle()
     expect(wrapper.text()).toContain('系统设置')
     expect(wrapper.text()).toContain('系统设置')
-    expect(apiMocks.listCertificates).not.toHaveBeenCalled()
-    expect(apiMocks.listAssets).not.toHaveBeenCalled()
-    expect(apiMocks.listManagedDevices).not.toHaveBeenCalled()
-    expect(apiMocks.listCloudAccountAssets).not.toHaveBeenCalled()
-    expect(apiMocks.listPluginCatalog).not.toHaveBeenCalled()
+    expect(apiMocks.searchGlobal).toHaveBeenCalledTimes(1)
   })
 
   it('点击根证书和中间证书结果时携带正确的路由参数', async () => {
@@ -248,8 +176,8 @@ describe('GlobalSearchModal', () => {
     await settle()
     await wrapper.find('.global-search__result').trigger('click')
     expect(routerMock.push).toHaveBeenLastCalledWith({
-      path: '/certificates/certificate-1',
-      query: { versionId: 'version-1' },
+      path: '/certificates',
+      query: { versionsModal: '1', assetId: 'certificate-1' },
     })
   })
 })

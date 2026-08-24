@@ -21,7 +21,7 @@ interface PluginChip {
 }
 
 const { t, te, locale } = useI18n()
-const route = useRoute()
+const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const loading = ref(false)
 const loadError = ref('')
 const plugins = ref<PluginRecord[]>([])

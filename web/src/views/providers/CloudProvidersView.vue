@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
   createCloudAccountAsset,
@@ -19,6 +20,7 @@ type AccountWizardStep = 1 | 2
 
 const credentialKinds: CredentialKind[] = ['CLOUD_PROVIDER']
 const { t } = useI18n()
+const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const requestError = ref('')
 const notice = ref('')
 const accountFormOpen = ref(false)
@@ -28,6 +30,8 @@ const reloadKey = ref(0)
 const accountFormStep = ref<AccountWizardStep>(1)
 const accountError = ref('')
 const providerKeys = ref<string[]>([])
+const cloudDetailOpen = ref(false)
+const selectedCloudAsset = ref<ApiRecord | null>(null)
 
 const accountDraft = reactive({
   displayName: '',
@@ -119,6 +123,20 @@ const config = computed<BusinessPageConfig>(() => ({
     },
   ],
 }))
+
+onMounted(async () => {
+  const cloudAssetId = typeof route.query.cloudAssetId === 'string' ? route.query.cloudAssetId : ''
+  if (route.query.detailModal !== '1' || !cloudAssetId) return
+  try {
+    const result = await listCloudAccountAssets()
+    const asset = result.data?.items?.find((item) => String(item.id ?? '') === cloudAssetId)
+    if (!asset) return
+    selectedCloudAsset.value = asset
+    cloudDetailOpen.value = true
+  } catch {
+    // 列表页自身负责展示加载错误，搜索跳转不重复弹出提示。
+  }
+})
 
 function openAccountForm(): void {
   editingAccountId.value = ''
@@ -276,6 +294,21 @@ function errorMessage(cause: unknown, fallback: string): string {
     <p v-if="notice" class="provider-message provider-message--success">{{ notice }}</p>
     <BusinessResourcePage :key="reloadKey" :config="config" />
 
+    <GcModal
+      v-model:open="cloudDetailOpen"
+      :title="selectedCloudAsset ? (stringValue(selectedCloudAsset.displayName) || t('providers.detail.title')) : t('providers.detail.title')"
+      :description="t('providers.detail.description')"
+      size="lg"
+    >
+      <dl v-if="selectedCloudAsset" class="provider-detail">
+        <div><dt>{{ t('providers.fields.provider') }}</dt><dd>{{ selectedCloudAsset.providerKey }}</dd></div>
+        <div><dt>{{ t('providers.fields.accountId') }}</dt><dd>{{ selectedCloudAsset.accountId || t('common.notAvailable') }}</dd></div>
+        <div><dt>{{ t('providers.fields.status') }}</dt><dd>{{ selectedCloudAsset.status }}</dd></div>
+        <div><dt>{{ t('providers.fields.scope') }}</dt><dd>{{ scopeLabel(selectedCloudAsset.scope) }}</dd></div>
+        <div><dt>{{ t('providers.fields.updatedAt') }}</dt><dd>{{ selectedCloudAsset.updatedAt || t('common.notAvailable') }}</dd></div>
+      </dl>
+    </GcModal>
+
     <GcModal v-model:open="accountFormOpen" :title="accountFormTitle" :description="accountFormDescription" size="xl" :close-on-backdrop="false">
       <div class="provider-wizard">
         <ol class="provider-wizard__steps" :aria-label="t('providers.wizard.ariaLabel')">
@@ -339,6 +372,10 @@ function errorMessage(cause: unknown, fallback: string): string {
 
 <style scoped>
 .provider-page { display: grid; gap: var(--gc-space-3); }
+.provider-detail { display: grid; gap: var(--gc-space-3); margin: 0; }
+.provider-detail div { display: grid; grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr); gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); }
+.provider-detail dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 800; }
+.provider-detail dd { margin: 0; color: var(--gc-color-text); overflow-wrap: anywhere; }
 .provider-message { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: var(--gc-space-3); color: var(--gc-color-text-muted); }
 .provider-message--error { color: var(--gc-color-danger); border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-bg); }
 .provider-message--success { color: var(--gc-color-success); border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }

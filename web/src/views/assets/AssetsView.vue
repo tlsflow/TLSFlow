@@ -110,7 +110,7 @@ interface WorkflowTargetInfo {
 }
 
 const { t, locale } = useI18n()
-const route = useRoute()
+const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()

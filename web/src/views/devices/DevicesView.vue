@@ -11,7 +11,7 @@ import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 
 const { t } = useI18n()
-const route = useRoute()
+const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const filters = ref<Record<string, string>>({})
 const onboardingOpen = ref(false)
 const reloadKey = ref(0)

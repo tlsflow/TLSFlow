@@ -113,6 +113,10 @@ const english = {
     accountForm: 'Cloud account asset form',
     operationForm: 'Opaque Provider operation form',
   },
+  detail: {
+    title: 'Cloud service details',
+    description: 'Read-only details for the selected cloud service.',
+  },
 } as const
 
 export const providersEnUS = english
@@ -147,6 +151,7 @@ export const providersZhCN = {
   providerNames: { aliyun: '阿里云', tencent: '腾讯云', huawei: '华为云', volcengine: '火山引擎' },
   providerMarks: { unknown: 'CLD' },
   aria: { accountForm: '云账号资产表单', operationForm: 'Opaque Provider 操作表单' },
+  detail: { title: '云服务详情', description: '查看选中云服务的只读详情。' },
 } as const
 
 export const providersZhTW = providersZhCN
