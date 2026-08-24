@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
@@ -9,6 +9,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
 import {
   createLinuxGoInstallSession,
+  createWindowsCompatibilityInstallSession,
   createWindowsPowerShellInstallSession,
   deleteAgent,
   disableAgent,
@@ -20,7 +21,19 @@ import {
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 
-type InstallPlatform = 'linux_go_systemd' | 'windows_powershell_service'
+type InstallPlatform = 'linux_go_systemd' | 'windows_powershell_service' | 'windows_compatibility_service'
+
+interface InstallPlatformOption {
+  readonly value: InstallPlatform
+  readonly label: string
+  readonly details: readonly string[]
+}
+
+interface InstallPlatformGroup {
+  readonly id: 'windows' | 'linux'
+  readonly label: string
+  readonly options: readonly InstallPlatformOption[]
+}
 
 interface InstallSessionView {
   readonly platform: InstallPlatform
@@ -187,18 +200,49 @@ const versionOptions = computed(() => [
   { value: '1.1.0', label: '1.1.0' },
 ] as const)
 
-const platformOptions = computed<Array<{ value: InstallPlatform; label: string; description: string }>>(() => [
+const platformGroups = computed<readonly InstallPlatformGroup[]>(() => [
   {
-    value: 'linux_go_systemd',
-    label: 'Linux systemd',
-    description: t('agents.install.platformLinuxDescription'),
+    id: 'windows',
+    label: t('agents.install.windowsGroupTitle'),
+    options: [
+      {
+        value: 'windows_powershell_service',
+        label: t('agents.install.windowsModernTitle'),
+        details: [
+          t('agents.install.windowsModernServer'),
+          t('agents.install.windowsModernDesktop'),
+        ],
+      },
+      {
+        value: 'windows_compatibility_service',
+        label: t('agents.install.windowsCompatibilityTitle'),
+        details: [
+          t('agents.install.windowsCompatibility2008'),
+          t('agents.install.windowsCompatibility2012'),
+        ],
+      },
+    ],
   },
   {
-    value: 'windows_powershell_service',
-    label: 'Windows Go Service',
-    description: t('agents.install.platformWindowsDescription'),
+    id: 'linux',
+    label: t('agents.install.linuxGroupTitle'),
+    options: [
+      {
+        value: 'linux_go_systemd',
+        label: t('agents.install.linuxGeneralTitle'),
+        details: [t('agents.install.platformLinuxDescription')],
+      },
+    ],
   },
 ])
+
+const platformLabels = computed<Record<InstallPlatform, string>>(() => ({
+  linux_go_systemd: t('agents.install.linuxGeneralTitle'),
+  windows_powershell_service: t('agents.install.windowsModernTitle'),
+  windows_compatibility_service: t('agents.install.windowsCompatibilityTitle'),
+}))
+
+const selectedPlatformLabel = computed(() => platformLabels.value[selectedPlatform.value])
 
 const installCommand = computed(() => installSession.value?.installCommand ?? '')
 const expiresAtMs = computed(() => (installSession.value?.expiresAt ? Date.parse(installSession.value.expiresAt) : 0))
@@ -1207,13 +1251,20 @@ async function generateInstallCommand() {
   installError.value = ''
 
   try {
-    const result = selectedPlatform.value === 'linux_go_systemd'
-      ? await createLinuxGoInstallSession({ zone: 'default', version: selectedVersion.value })
-      : await createWindowsPowerShellInstallSession({
-          zone: 'default',
-          startAfterInstall: true,
-          version: selectedVersion.value,
-        })
+    const installSessionCreators: Record<InstallPlatform, () => Promise<Awaited<ReturnType<typeof createLinuxGoInstallSession>>>> = {
+      linux_go_systemd: () => createLinuxGoInstallSession({ zone: 'default', version: selectedVersion.value }),
+      windows_powershell_service: () => createWindowsPowerShellInstallSession({
+        zone: 'default',
+        startAfterInstall: true,
+        version: selectedVersion.value,
+      }),
+      windows_compatibility_service: () => createWindowsCompatibilityInstallSession({
+        zone: 'default',
+        startAfterInstall: true,
+        version: selectedVersion.value,
+      }),
+    }
+    const result = await installSessionCreators[selectedPlatform.value]()
 
     const data = result.data
     if (!data || typeof data.installCommand !== 'string') {
@@ -1289,11 +1340,19 @@ function rewriteInstallUrlWithBrowserOrigin(rawUrl: string): string {
 }
 
 function buildInstallCommand(platform: InstallPlatform, bootstrapUrl: string, fallbackCommand: string): string {
-  if (!bootstrapUrl) return fallbackCommand
-  if (platform === 'linux_go_systemd') {
-    return `curl -fsSL '${bootstrapUrl}' | sudo bash`
+  const commandBuilders: Record<InstallPlatform, (url: string, fallback: string) => string> = {
+    linux_go_systemd: (url, fallback) => url ? `curl -fsSL '${url}' | sudo bash` : fallback,
+    windows_powershell_service: (url, fallback) => url ? `irm '${url}' | iex` : fallback,
+    windows_compatibility_service: (url, fallback) => url ? `(New-Object Net.WebClient).DownloadString('${url}') | Invoke-Expression` : fallback,
   }
-  return `irm '${bootstrapUrl}' | iex`
+  return commandBuilders[platform](bootstrapUrl, fallbackCommand)
+}
+
+function selectInstallPlatform(platform: InstallPlatform) {
+  selectedPlatform.value = platform
+  installSession.value = null
+  installError.value = ''
+  copiedText.value = null
 }
 
 async function openDetailModal(row: ViewRow) {
@@ -1879,40 +1938,65 @@ const config = computed<BusinessPageConfig>(() => ({
       width="58vw"
     >
       <section class="agent-install-modal">
-        <div class="agent-install-modal__field">
-          <p class="agent-install-modal__label">{{ t('agents.install.platform') }}</p>
-          <div class="agent-install-modal__platforms">
-            <button
-              v-for="option in platformOptions"
-              :key="option.value"
-              class="agent-install-modal__platform"
-              :data-active="selectedPlatform === option.value"
-              type="button"
-              @click="selectedPlatform = option.value"
-            >
-              <strong>{{ option.label }}</strong>
-              <span>{{ option.description }}</span>
-            </button>
+        <section class="agent-install-modal__step agent-install-modal__step--selection">
+          <header class="agent-install-modal__step-header">
+            <span class="agent-install-modal__step-number">1</span>
+            <div>
+              <strong>{{ t('agents.install.selectionStepTitle') }}</strong>
+            </div>
+          </header>
+          <div class="agent-install-modal__selector">
+            <section v-for="group in platformGroups" :key="group.id" class="agent-install-modal__group">
+              <header class="agent-install-modal__group-header">
+                <strong>{{ group.label }}</strong>
+              </header>
+              <div class="agent-install-modal__platforms">
+                <button
+                  v-for="option in group.options"
+                  :key="option.value"
+                  class="agent-install-modal__platform"
+                  :data-active="selectedPlatform === option.value"
+                  type="button"
+                  @click="selectInstallPlatform(option.value)"
+                >
+                  <strong>{{ option.label }}</strong>
+                  <span v-for="detail in option.details" :key="detail">{{ detail }}</span>
+                </button>
+              </div>
+            </section>
           </div>
-        </div>
+        </section>
 
-        <div class="agent-install-modal__field">
-          <label class="agent-install-modal__label" for="agent-version">{{ t('agents.install.version') }}</label>
-          <select id="agent-version" v-model="selectedVersion">
-            <option v-for="option in versionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </div>
-
-        <div class="agent-install-modal__actions-top">
-          <button
-            class="gc-button agent-install-modal__primary"
-            type="button"
-            :disabled="installPending"
-            @click="generateInstallCommand"
-          >
-            {{ installPending ? t('agents.install.generating') : t('agents.install.generateCommand') }}
-          </button>
-        </div>
+        <section class="agent-install-modal__step agent-install-modal__step--command">
+          <header class="agent-install-modal__step-header">
+            <span class="agent-install-modal__step-number">2</span>
+            <div>
+              <strong>{{ t('agents.install.commandStepTitle') }}</strong>
+            </div>
+          </header>
+          <div class="agent-install-modal__command-panel">
+            <div class="agent-install-modal__selected-agent">
+              <span>{{ t('agents.install.selectedAgent') }}</span>
+              <strong>{{ selectedPlatformLabel }}</strong>
+            </div>
+            <div class="agent-install-modal__command-controls">
+              <label class="agent-install-modal__field" for="agent-version">
+                <span class="agent-install-modal__label">{{ t('agents.install.version') }}</span>
+                <select id="agent-version" v-model="selectedVersion">
+                  <option v-for="option in versionOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <button
+                class="gc-button agent-install-modal__primary"
+                type="button"
+                :disabled="installPending"
+                @click="generateInstallCommand"
+              >
+                {{ installPending ? t('agents.install.generating') : t('agents.install.generateCommand') }}
+              </button>
+            </div>
+          </div>
+        </section>
 
         <p v-if="installError" class="agent-install-modal__error">{{ installError }}</p>
 
@@ -1920,7 +2004,7 @@ const config = computed<BusinessPageConfig>(() => ({
           <dl class="agent-install-modal__meta">
             <div>
               <dt>{{ t('agents.install.platform') }}</dt>
-              <dd>{{ installSession.platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows Go Service' }}</dd>
+              <dd>{{ platformLabels[installSession.platform] }}</dd>
             </div>
             <div>
               <dt>{{ t('agents.install.bootstrapToken') }}</dt>
@@ -2631,16 +2715,80 @@ const config = computed<BusinessPageConfig>(() => ({
 .agent-install-modal__platforms {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-2);
+}
+
+.agent-install-modal__step {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border: 1px solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-subtle);
+}
+
+.agent-install-modal__step + .agent-install-modal__step {
+  margin-top: var(--gc-space-3);
+}
+
+.agent-install-modal__step-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gc-space-2);
+}
+
+.agent-install-modal__step-number {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--gc-space-5);
+  height: var(--gc-space-5);
+  border-radius: var(--gc-radius-xl);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-focus);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+}
+
+.agent-install-modal__step-header > div,
+.agent-install-modal__group-header {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.agent-install-modal__step-header strong,
+.agent-install-modal__group-header strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+
+.agent-install-modal__step-header span,
+.agent-install-modal__group-header span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.agent-install-modal__selector {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-2);
+  border: 1px solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-solid);
+}
+
+.agent-install-modal__group + .agent-install-modal__group {
+  padding-top: var(--gc-space-3);
+  border-top: 1px solid var(--gc-color-border);
 }
 
 .agent-install-modal__platform {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   text-align: left;
   border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-2) var(--gc-space-3);
   background: var(--gc-color-surface-solid);
   cursor: pointer;
 }
@@ -2661,6 +2809,42 @@ const config = computed<BusinessPageConfig>(() => ({
   font-size: 12px;
   line-height: 1.45;
   font-weight: 650;
+}
+
+.agent-install-modal__command-panel {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border: 1px solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-solid);
+}
+
+.agent-install-modal__selected-agent {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.agent-install-modal__selected-agent span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.agent-install-modal__selected-agent strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+
+.agent-install-modal__command-controls {
+  display: flex;
+  align-items: end;
+  gap: var(--gc-space-3);
+}
+
+.agent-install-modal__command-controls .agent-install-modal__field {
+  flex: 1;
 }
 
 .agent-install-modal__field select,

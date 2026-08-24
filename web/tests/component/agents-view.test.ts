@@ -1,13 +1,15 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import AgentsView from '@/views/agents/AgentsView.vue'
+import { i18n } from '@/i18n'
 import { usePermissionStore } from '@/stores/permission.store'
 
 const apiMocks = vi.hoisted(() => ({
   listAgents: vi.fn(),
   getAgentDetail: vi.fn(),
   createLinuxGoInstallSession: vi.fn(),
+  createWindowsCompatibilityInstallSession: vi.fn(),
   createWindowsPowerShellInstallSession: vi.fn(),
   requestAgentCapabilityRescan: vi.fn(),
   disableAgent: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('@/api/modules/assets.api', () => ({
   listAgents: apiMocks.listAgents,
   getAgentDetail: apiMocks.getAgentDetail,
   createLinuxGoInstallSession: apiMocks.createLinuxGoInstallSession,
+  createWindowsCompatibilityInstallSession: apiMocks.createWindowsCompatibilityInstallSession,
   createWindowsPowerShellInstallSession: apiMocks.createWindowsPowerShellInstallSession,
   requestAgentCapabilityRescan: apiMocks.requestAgentCapabilityRescan,
   disableAgent: apiMocks.disableAgent,
@@ -39,9 +42,10 @@ vi.mock('@/api/modules/certificates.api', () => ({
 
 const mountOptions = {
   global: {
+    plugins: [i18n],
     stubs: { teleport: true, Teleport: true },
   },
-} as const
+}
 
 function okPage(items: readonly Record<string, unknown>[]) {
   return {
@@ -344,8 +348,16 @@ describe('AgentsView', () => {
     await flushPromises()
 
     expect(apiMocks.createLinuxGoInstallSession).not.toHaveBeenCalled()
+    expect(apiMocks.createWindowsCompatibilityInstallSession).not.toHaveBeenCalled()
     expect(apiMocks.createWindowsPowerShellInstallSession).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('生成安装命令')
+    expect(wrapper.text()).toContain('Windows Modern Agent')
+    expect(wrapper.text()).toContain('Windows Server 2016 及以上')
+    expect(wrapper.text()).toContain('Windows Compatibility Agent')
+    expect(wrapper.text()).toContain('Windows Server 2008 R2 SP1')
+    expect(wrapper.text()).toContain('Windows Server 2012 / 2012 R2')
+    expect(wrapper.text()).not.toContain('需要 .NET Framework 4.8')
+    expect(wrapper.text()).toContain('Linux 通用 Agent')
   })
 
   it('默认 Linux + latest 生成安装命令时，会把 URL 重写为浏览器 origin', async () => {
@@ -369,7 +381,7 @@ describe('AgentsView', () => {
     )
   })
 
-  it('切换到 Windows 平台并指定版本后，生成 Go Agent 极简安装命令', async () => {
+  it('切换到 Windows Modern Agent 并指定版本后，生成 Go Agent 极简安装命令', async () => {
     const wrapper = mount(AgentsView, mountOptions)
     await flushPromises()
 
@@ -377,7 +389,7 @@ describe('AgentsView', () => {
     await primaryButton!.trigger('click')
     await flushPromises()
 
-    const windowsButton = wrapper.findAll('button').find((button) => button.text().includes('Windows Go Service'))
+    const windowsButton = wrapper.findAll('button').find((button) => button.text().includes('Windows Modern Agent'))
     await windowsButton!.trigger('click')
 
     const versionSelect = wrapper.find('select#agent-version')
@@ -396,6 +408,44 @@ describe('AgentsView', () => {
     const textarea = wrapper.find('textarea')
     expect((textarea.element as HTMLTextAreaElement).value).toBe(
       `irm 'https://portal.example.com/api/v1/agents/install/windows/bootstrap.ps1?token=abc' | iex`,
+    )
+  })
+
+  it('选择 Windows Compatibility Agent 时生成独立的兼容版安装命令', async () => {
+    apiMocks.createWindowsCompatibilityInstallSession.mockResolvedValue({
+      data: {
+        platform: 'windows_compatibility_service',
+        bootstrapTokenPreview: 'compat-token',
+        zone: 'default',
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        bootstrapUrl: 'http://backend.internal/api/v1/agents/install/windows/bootstrap.ps1?token=compat',
+        installCommand: 'fallback-compat-command',
+      },
+    })
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const primaryButton = wrapper.findAll('button').find((button) => button.text().includes('安装Agent'))
+    await primaryButton!.trigger('click')
+    await flushPromises()
+
+    const compatibilityButton = wrapper.findAll('button').find((button) => button.text().includes('Windows Compatibility Agent'))
+    expect(compatibilityButton).toBeTruthy()
+    await compatibilityButton!.trigger('click')
+
+    const generateButton = wrapper.findAll('button').find((button) => button.text().includes('生成安装命令'))
+    await generateButton!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.createLinuxGoInstallSession).not.toHaveBeenCalled()
+    expect(apiMocks.createWindowsPowerShellInstallSession).not.toHaveBeenCalled()
+    expect(apiMocks.createWindowsCompatibilityInstallSession).toHaveBeenCalledWith({
+      zone: 'default',
+      startAfterInstall: true,
+      version: 'latest',
+    })
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe(
+      `(New-Object Net.WebClient).DownloadString('https://portal.example.com/api/v1/agents/install/windows/bootstrap.ps1?token=compat') | Invoke-Expression`,
     )
   })
 
