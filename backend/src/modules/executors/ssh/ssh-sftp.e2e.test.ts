@@ -14,7 +14,7 @@ const requiredEnv = [
 
 const missingEnv = requiredEnv.filter((key) => !process.env[key]?.trim());
 
-test('真实 SSH/SFTP 目标闭环：执行命令并通过 SFTP 上传校验文件', { skip: missingEnv.length > 0 ? `缺少真实目标环境变量：${missingEnv.join(', ')}` : false }, async () => {
+test('真实 SSH/SFTP 目标闭环：执行结构化服务动作并通过 SFTP 上传校验文件', { skip: missingEnv.length > 0 ? `缺少真实目标环境变量：${missingEnv.join(', ')}` : false }, async () => {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const remoteDir = process.env.GCAC_E2E_SFTP_REMOTE_DIR!.replace(/\/+$/, '');
   const remotePath = `${remoteDir}/gcac-e2e-${suffix}.txt`;
@@ -36,8 +36,11 @@ test('真实 SSH/SFTP 目标闭环：执行命令并通过 SFTP 上传校验文�
       platform: 'LINUX',
       connectTimeoutMs: 10_000,
     },
-    command: `test -d ${shellQuote(remoteDir)} && printf gcac-e2e-ok`,
+    program: 'systemctl',
+    args: ['service-main'],
+    argumentTemplate: 'systemctl.reload',
     timeoutMs: 10_000,
+    backup: [{ remotePath, backupRef: `${remoteDir}/.gcac-e2e-${suffix}.backup` }],
     sftp: [{
       direction: 'upload',
       localPath: `/tmp/gcac-e2e-${suffix}.txt`,
@@ -49,11 +52,13 @@ test('真实 SSH/SFTP 目标闭环：执行命令并通过 SFTP 上传校验文�
   });
 
   assert.equal(result.success, true, JSON.stringify(result));
-  assert.equal(result.commandResult?.stdout.trim(), 'gcac-e2e-ok');
+  assert.equal(result.commandResult?.audit?.program, 'systemctl');
+  assert.equal(result.commandResult?.audit?.argumentTemplate, 'systemctl.reload');
   assert.equal(result.transferResults?.[0]?.protocol, 'sftp');
   assert.equal(result.transferResults?.[0]?.remotePath, remotePath);
+  assert.ok(result.generatedBackupManifest);
 
-  await executor.execute({
+  const cleanup = await executor.execute({
     idempotencyKey: `ssh-sftp-e2e-cleanup-${suffix}`,
     connection: {
       host: process.env.GCAC_E2E_SSH_HOST!,
@@ -64,11 +69,10 @@ test('真实 SSH/SFTP 目标闭环：执行命令并通过 SFTP 上传校验文�
       platform: 'LINUX',
       connectTimeoutMs: 10_000,
     },
-    command: `rm -f ${shellQuote(remotePath)}`,
     timeoutMs: 10_000,
+    backupManifest: result.generatedBackupManifest,
+    rollback: [{ backupRef: result.generatedBackupManifest.items[0]!.backupRef, remotePath }],
   });
+  assert.equal(cleanup.success, true, JSON.stringify(cleanup));
+  assert.equal(cleanup.rollbackResult?.items[0]?.action, 'deleted_new_file');
 });
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
