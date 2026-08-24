@@ -334,6 +334,7 @@ async function createAcmeCertificate(): Promise<void> {
 
   actionPending.value = true
   error.value = ''
+  let taskStarted = false
   try {
     await internalCaApi.createAcmeCertificate({
       name: createDraft.name.trim() || undefined,
@@ -349,10 +350,18 @@ async function createAcmeCertificate(): Promise<void> {
       renewalWindowDays: createDraft.renewalWindowDays,
       termsOfServiceAgreed: createDraft.termsOfServiceAgreed,
     })
+    taskStarted = true
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: { message: t('acme.messages.issueTaskStarted'), tone: 'info' },
+    }))
     createDialogOpen.value = false
     await loadAll()
-    window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message: t('acme.messages.created'), tone: 'success' } }))
   } catch (caught) {
+    if (!taskStarted) {
+      window.dispatchEvent(new CustomEvent('gcac:toast', {
+        detail: { message: t('acme.messages.issueTaskFailed'), tone: 'danger' },
+      }))
+    }
     error.value = caught instanceof ApiClientError ? caught.message : caught instanceof Error ? caught.message : t('acme.messages.actionFailed')
   } finally {
     actionPending.value = false
