@@ -6,28 +6,28 @@ describe('GcPluginLogo', () => {
   it('详情和接入向导优先使用方形 Logo', () => {
     const wrapper = mount(GcPluginLogo, {
       props: {
-        logoUrl: '/plugin-logos/example.svg',
-        squareLogoUrl: '/plugin-logos/example-square.svg',
+        logoUrl: '/api/v1/plugin-versions/plugin-version-example/resources/logos/horizontal',
+        squareLogoUrl: '/api/v1/plugin-versions/plugin-version-example/resources/logos/square',
         fallbackText: 'E',
         alt: 'Example',
         size: 'detail',
       },
     })
 
-    expect(wrapper.find('img').attributes('src')).toBe('/plugin-logos/example-square.svg')
+    expect(wrapper.find('img').attributes('src')).toBe('/api/v1/plugin-versions/plugin-version-example/resources/logos/square')
   })
 
   it('缺少方形 Logo 时由 48 × 48 接入槽位回退横向 Logo', () => {
     const wrapper = mount(GcPluginLogo, {
       props: {
-        logoUrl: '/plugin-logos/example.svg',
+        logoUrl: '/api/v1/plugin-versions/plugin-version-example/resources/logos/horizontal',
         fallbackText: 'E',
         alt: 'Example',
         size: 'onboarding',
       },
     })
 
-    expect(wrapper.find('img').attributes('src')).toBe('/plugin-logos/example.svg')
+    expect(wrapper.find('img').attributes('src')).toBe('/api/v1/plugin-versions/plugin-version-example/resources/logos/horizontal')
     expect(wrapper.classes()).toContain('plugin-logo--onboarding')
   })
 })

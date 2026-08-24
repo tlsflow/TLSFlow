@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 88" role="img" aria-labelledby="title">
-  <title id="title">NGINX</title>
-  <path d="M44 8 75 26v36L44 80 13 62V26z" fill="#009639"/>
-  <path d="M30 61V27h9l19 22V27h10v34h-9L40 39v22z" fill="#FFFFFF"/>
-  <text x="91" y="57" fill="#0B6B36" font-family="Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="1">NGINX</text>
-</svg>

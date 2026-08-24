@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 88" role="img" aria-labelledby="title">
-  <title id="title">RabbitMQ</title>
-  <rect x="10" y="10" width="68" height="68" rx="16" fill="#FF6600"/>
-  <path d="M23 23h12v30h18V23h12v42H23z" fill="#FFFFFF"/>
-  <path d="M39 23h11v23H39z" fill="#FFFFFF"/>
-  <circle cx="44" cy="58" r="4" fill="#FF6600"/>
-  <text x="92" y="55" fill="#DB5700" font-family="Arial, sans-serif" font-size="30" font-weight="700">RabbitMQ</text>
-</svg>

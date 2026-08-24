@@ -13,7 +13,7 @@ const catalogItem: PluginCatalogItem = {
   descriptionKey: 'plugins.web.nginx.description',
   displayName: 'Nginx',
   description: '通用 Web 插件',
-  logoSquareUrl: '/plugin-logos/nginx-square.svg',
+  logoSquareUrl: '/api/v1/plugin-versions/plugin-version-1/resources/logos/square',
   tags: ['web'],
   platforms: ['LINUX'],
   stepCount: 2,
@@ -93,7 +93,7 @@ describe('插件目录身份归一化', () => {
       manifestSha256: 'manifest-digest',
       resourceSha256: { 'manifest.json': 'resource-digest' },
       permissions: ['artifact.read'],
-      metadata: { logoSquareUrl: '/plugin-logos/nginx-square.svg' },
+      metadata: { logoSquareUrl: '/api/v1/plugin-versions/plugin-version-1/resources/logos/square' },
     })
     expect(result).not.toHaveProperty('providerKey')
     expect(result).not.toHaveProperty('supportedProducts')
