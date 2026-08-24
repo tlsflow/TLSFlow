@@ -35,7 +35,18 @@ describe('Agent direct control api', () => {
     const second = await agentsService.register(tenantId, input, 'req_register_after_restart');
 
     assert.equal(second.id, first.id);
-    assert.equal(second.status, 'ONLINE');
+    assert.equal(first.status, 'OFFLINE');
+    assert.equal(second.status, 'OFFLINE');
+    const detailBeforeHeartbeat = await agentsService.getAgentDetail(tenantId, first.id);
+    assert.equal(detailBeforeHeartbeat.latestHeartbeat, undefined);
+    assert.equal(detailBeforeHeartbeat.health.lastHeartbeatAt, undefined);
+
+    await agentsService.heartbeat(tenantId, {
+      agentId: first.id,
+      version: input.version,
+      status: 'ONLINE',
+    }, 'req_register_first_heartbeat');
+    assert.equal((await agentsService.getAgentDetail(tenantId, first.id)).agent.status, 'ONLINE');
   });
 
   it('Agent 离线时健康状态必须覆盖历史健康心跳', async () => {

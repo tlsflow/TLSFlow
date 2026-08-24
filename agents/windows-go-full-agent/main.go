@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.0"
+	agentVersion      = "0.1.1"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll   = 60
@@ -108,21 +108,22 @@ type runtimeRegistration struct {
 }
 
 type registerRequest struct {
-	AgentKey        string   `json:"agentKey"`
-	MachineID       string   `json:"machineId,omitempty"`
-	Hostname        string   `json:"hostname"`
-	Version         string   `json:"version"`
-	OSType          string   `json:"osType"`
-	Arch            string   `json:"arch,omitempty"`
-	IPAddress       string   `json:"ipAddress,omitempty"`
-	OSVersion       string   `json:"osVersion,omitempty"`
-	Labels          []string `json:"labels,omitempty"`
-	EnrollmentToken string   `json:"enrollmentToken,omitempty"`
-	Role            string   `json:"role,omitempty"`
-	Zone            string   `json:"zone,omitempty"`
-	ZoneIDs         []string `json:"zoneIds,omitempty"`
-	Adapters        []string `json:"adapters,omitempty"`
-	Capabilities    []string `json:"capabilities,omitempty"`
+	AgentKey        string              `json:"agentKey"`
+	MachineID       string              `json:"machineId,omitempty"`
+	Hostname        string              `json:"hostname"`
+	Version         string              `json:"version"`
+	OSType          string              `json:"osType"`
+	Arch            string              `json:"arch,omitempty"`
+	IPAddress       string              `json:"ipAddress,omitempty"`
+	OSVersion       string              `json:"osVersion,omitempty"`
+	Labels          []string            `json:"labels,omitempty"`
+	EnrollmentToken string              `json:"enrollmentToken,omitempty"`
+	Role            string              `json:"role,omitempty"`
+	Zone            string              `json:"zone,omitempty"`
+	ZoneIDs         []string            `json:"zoneIds,omitempty"`
+	Adapters        []string            `json:"adapters,omitempty"`
+	Capabilities    []string            `json:"capabilities,omitempty"`
+	DirectControl   *directControlState `json:"directControl,omitempty"`
 }
 
 type registerResponse struct {
@@ -639,10 +640,7 @@ func runForeground(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	heartbeat := config.Heartbeat
-	if heartbeat <= 0 {
-		heartbeat = 30
-	}
+	heartbeat := effectiveHeartbeatSeconds(config)
 	taskPollSeconds := effectiveTaskPollSeconds(config)
 	healthCheckSeconds := effectiveHealthCheckSeconds(config)
 
@@ -2009,6 +2007,7 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 			"agent.task.receive",
 			"agent.log.report",
 		},
+		DirectControl: newDirectControlState(config),
 	}
 	if config.DirectControlEnabled {
 		request.Capabilities = append(request.Capabilities, "agent.direct_control.health")

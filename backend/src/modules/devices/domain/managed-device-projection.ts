@@ -60,9 +60,7 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
     const descriptor = asRecord(payload.descriptor);
     const sourceStatus = stringValue(payload.status) ?? source.hostStatus;
     const lastContactAt = source.agent?.lastHeartbeatAt
-      ?? stringValue(asRecord(payload.gateway).lastHeartbeatAt)
-      ?? stringValue(payload.updatedAt)
-      ?? source.lastDiscoveredAt;
+      ?? stringValue(asRecord(payload.gateway).lastHeartbeatAt);
     const osType = (stringValue(descriptor.osType) ?? source.osType).toUpperCase();
     const healthStatus = mapAgentHealth(sourceStatus, lastContactAt);
     const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['HEARTBEAT', 'MANAGEMENT_TCP']);

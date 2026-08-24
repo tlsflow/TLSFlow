@@ -74,7 +74,7 @@ export class AgentsApplicationService {
     if (existing) {
       const updated = await this.repository.updateRegistration(existing.id, {
         descriptor,
-        status: existing.status === 'DISABLED' ? 'DISABLED' : 'ONLINE',
+        status: existing.status === 'DISABLED' ? 'DISABLED' : 'OFFLINE',
         role: input.role ?? existing.role,
         zone: gateway?.zoneIds[0] ?? input.zone ?? existing.zone,
         gateway: existing.status === 'DISABLED' && gateway ? { ...gateway, status: 'disabled' } : gateway,
@@ -100,7 +100,7 @@ export class AgentsApplicationService {
       enrollmentTokenId,
       certificateFingerprint: input.certificateFingerprint ? normalizeFingerprint(input.certificateFingerprint) : undefined,
       certificateExpiresAt: input.certificateExpiresAt,
-      status: 'ONLINE',
+      status: 'OFFLINE',
       registeredAt: now,
       updatedAt: now,
       lastRequestId: requestId,
@@ -1182,7 +1182,7 @@ export class AgentsApplicationService {
   private toHealthProjection(agent: AgentRegistration, latestHeartbeat?: AgentHeartbeat): AgentHealthProjection {
     const offlineTimeoutSeconds = this.getOfflineTimeoutSeconds();
     const runtimeHealth = latestHeartbeat?.runtimeHealth;
-    const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt ?? agent.updatedAt;
+    const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt;
     const heartbeatAgeSeconds = safeAgeSeconds(lastHeartbeatAt);
     const offline = agent.status === 'OFFLINE'
       || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds);

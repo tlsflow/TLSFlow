@@ -142,6 +142,23 @@ test('Agent 注册状态在线但心跳过期时统一投影为不可达', () =>
   assert.equal(result, 'UNREACHABLE');
 });
 
+test('Agent 注册更新时间不能冒充最后心跳', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    agent: {
+      payload: {
+        status: 'ONLINE',
+        updatedAt: new Date().toISOString(),
+        descriptor: { osType: 'WINDOWS', version: '0.1.1' },
+      },
+      capabilitySnapshot: {},
+    },
+  });
+
+  assert.equal(result.lastContactAt, undefined);
+  assert.equal(result.healthStatus, 'UNKNOWN');
+});
+
 test('插件设备只有过期历史发现记录时不再伪装为健康', () => {
   const result = mapNetworkDeviceHealth(
     'ACTIVE',

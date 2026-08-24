@@ -2,6 +2,17 @@ package main
 
 import "testing"
 
+func TestDefaultHeartbeatAndDirectControlState(t *testing.T) {
+	config := &AgentConfig{DirectControlEnabled: true}
+	if actual := effectiveHeartbeatSeconds(config); actual != 10 {
+		t.Fatalf("默认心跳周期错误，期望 10，实际 %d", actual)
+	}
+	state := newDirectControlState(config)
+	if !state.Enabled || state.ListenAddress == "" {
+		t.Fatalf("注册前未生成 Direct Control 端点：%+v", state)
+	}
+}
+
 func TestFormatWindowsSystemVersion(t *testing.T) {
 	tests := []struct {
 		name     string

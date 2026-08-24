@@ -786,7 +786,7 @@ function renderWindowsModernBootstrapScript(manifest: WindowsBootstrapManifest):
     "}",
     "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
     "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
-    '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; DataDir = [string]$manifest.dataDir; LogDir = [string]$manifest.logDir }',
+    '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; DataDir = [string]$manifest.dataDir; LogDir = [string]$manifest.logDir; StartAfterInstall = [bool]$manifest.startAfterInstall }',
     '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
     "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
     "$selfCheckOutput = & $binaryPath self-check --config=$actualConfigPath 2>&1 | Out-String",
