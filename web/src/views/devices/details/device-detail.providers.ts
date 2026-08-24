@@ -4,7 +4,7 @@ import DeviceLogsTab from './tabs/DeviceLogsTab.vue'
 import DeviceOverviewTab from './tabs/DeviceOverviewTab.vue'
 import DeviceSitesTab from './tabs/DeviceSitesTab.vue'
 import { DeviceDetailTabRegistry } from './device-detail.registry'
-import type { DeviceDetailTabDescriptor } from './device-detail.model'
+import type { DeviceDetailContext, DeviceDetailTabDescriptor, DeviceSiteView } from './device-detail.model'
 
 const overview: DeviceDetailTabDescriptor = {
   key: 'overview', labelKey: 'devices.unifiedDetail.tabs.overview', order: 100, component: DeviceOverviewTab,
@@ -24,12 +24,6 @@ const frameworks: DeviceDetailTabDescriptor = {
   buildProps: context => ({ frameworks: context.frameworks }),
 }
 
-const sites: DeviceDetailTabDescriptor = {
-  key: 'sites', labelKey: 'devices.unifiedDetail.tabs.sites', order: 300, component: DeviceSitesTab,
-  isVisible: context => context.sites.length > 0,
-  buildProps: context => ({ sites: context.sites }),
-}
-
 const certificates: DeviceDetailTabDescriptor = {
   key: 'certificates', labelKey: 'devices.unifiedDetail.tabs.certificates', order: 800, component: DeviceCertificatesTab,
   isVisible: context => context.certificates.length > 0,
@@ -43,5 +37,31 @@ export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
   getTabs: () => [frameworks, certificates],
 }, {
   key: 'sites', supports: context => context.sites.length > 0,
-  getTabs: () => [sites],
+  getTabs: context => buildSiteTabs(context),
 }])
+
+function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {
+  const groups = new Map<string, { label: string; sites: DeviceSiteView[] }>()
+  for (const site of context.sites) {
+    const groupKey = site.presentation?.groupKey || site.kind
+    const current = groups.get(groupKey)
+    groups.set(groupKey, {
+      label: site.presentation?.groupLabel || presentationTypeLabel(groupKey),
+      sites: [...(current?.sites ?? []), site],
+    })
+  }
+  return [...groups.entries()].map(([groupKey, group], index) => ({
+    key: 'sites:' + groupKey,
+    labelKey: 'devices.unifiedDetail.tabs.sites',
+    label: group.label,
+    order: 300 + index,
+    component: DeviceSitesTab,
+    isVisible: () => group.sites.length > 0,
+    buildProps: () => ({ sites: group.sites }),
+  }))
+}
+
+function presentationTypeLabel(value: string): string {
+  const segment = value.split('.').at(-1) ?? value
+  return segment.replace(/[-_]+/g, ' ').trim().toUpperCase()
+}

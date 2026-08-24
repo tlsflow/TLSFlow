@@ -21,12 +21,12 @@ function selectCertificate(certificate: DeviceBoundCertificateView, site: Device
       <div class="agent-detail-modal__site-head-main">
         <p class="agent-detail-modal__site-name">{{ site.name }}</p>
         <p class="agent-detail-modal__site-path">
-          {{ site.endpoint?.protocol || site.kind }} · {{ site.endpoint?.address || site.endpoint?.hostName || t('devices.unifiedDetail.values.empty') }}
+          {{ site.endpoint?.protocol || site.presentation?.typeLabel || site.kind }} · {{ site.endpoint?.address || site.endpoint?.hostName || t('devices.unifiedDetail.values.empty') }}
         </p>
       </div>
       <div class="agent-detail-modal__site-meta">
         <GcStatusTag v-if="site.status" :status="site.status" />
-        <strong>{{ site.kind }}</strong>
+        <strong>{{ site.presentation?.typeLabel || site.kind }}</strong>
       </div>
     </header>
     <dl class="agent-detail-modal__endpoint-grid">

@@ -108,6 +108,11 @@ export interface ManagedDeviceSiteDto {
     protocol?: string;
   };
   configPath?: string;
+  presentation?: {
+    groupKey: string;
+    groupLabel: string;
+    typeLabel: string;
+  };
   bindings: ManagedDeviceSiteBindingDto[];
   metadata: Record<string, unknown>;
 }

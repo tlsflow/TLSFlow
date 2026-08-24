@@ -269,7 +269,7 @@ defineExpose({ open })
             :data-active="activeTab === tab.key"
             @click="activeTab = tab.key"
           >
-            {{ t(tab.labelKey) }}
+            {{ tab.label || t(tab.labelKey) }}
           </button>
         </nav>
         <component

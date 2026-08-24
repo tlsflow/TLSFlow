@@ -75,6 +75,16 @@ const siteSchema: OpenApiSchema = {
       },
     },
     configPath: { type: 'string' },
+    presentation: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['groupKey', 'groupLabel', 'typeLabel'],
+      properties: {
+        groupKey: { type: 'string' },
+        groupLabel: { type: 'string' },
+        typeLabel: { type: 'string' },
+      },
+    },
     bindings: { type: 'array', items: siteBindingSchema },
     metadata: { type: 'object', additionalProperties: true },
   },

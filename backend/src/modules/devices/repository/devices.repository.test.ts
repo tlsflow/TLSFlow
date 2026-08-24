@@ -52,6 +52,10 @@ test('设备详情按标准 site_type 往返未知插件分类且不读取 Provi
   const detail = await new PgDevicesRepository(database).get(tenantId, host.id);
 
   assert.deepEqual(detail?.sites.map((site) => site.kind), kinds);
+  assert.deepEqual(detail?.sites.map((site) => site.presentation), [
+    { groupKey: 'kubernetes.cluster', groupLabel: 'Cluster Main', typeLabel: 'Cluster Main' },
+    { groupKey: 'kubernetes.cluster', groupLabel: 'Cluster Main', typeLabel: 'Cluster Main' },
+  ]);
   assert.deepEqual(detail?.sites.map((site) => site.metadata), [
     { addresses: [], extension: { source: 'test.plugin' } },
     { addresses: [], extension: { source: 'test.plugin' } },

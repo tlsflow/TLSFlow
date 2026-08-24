@@ -49,7 +49,7 @@ describe('统一设备详情动作边界', () => {
     expect(context.certificates[0]?.certificateAssetId).toBe('asset_1')
     expect(context.certificates[0]?.certificateVersionId).toBe('version_1')
     expect(context.frameworks[0]).toMatchObject({ id: 'framework:nitro', name: 'NITRO', type: 'ADC' })
-    expect(context.frameworks[1]).toMatchObject({ id: 'framework:kubernetes', name: 'Ingress Controller', type: 'kubernetes.controller' })
+    expect(context.frameworks[1]).toMatchObject({ id: 'framework:kubernetes', name: 'Ingress Controller', type: 'CONTROLLER' })
   })
 
   it('站点绑定证书可使用指纹作为稳定身份', () => {
@@ -116,15 +116,31 @@ describe('统一设备详情动作边界', () => {
       extension: { type: 'CITRIX_ADC' },
     })
     adc.frameworks = []
-    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'sites', 'certificates', 'logs'])
+    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'sites:network.virtual-server', 'certificates', 'logs'])
   })
 
   it('标准站点分类和未知插件分类均由通用标签完整保留', () => {
     const context = new DeviceDetailAdapterRegistry().buildContext({
       informationSections: [],
       sites: [
-        { id: 'web_1', siteAssetId: 'web_1', kind: 'web.site', name: 'Web', bindings: [], metadata: {} },
-        { id: 'k8s_1', siteAssetId: 'k8s_1', kind: 'kubernetes.ingress', name: 'Ingress', bindings: [], metadata: {} },
+        {
+          id: 'web_1',
+          siteAssetId: 'web_1',
+          kind: 'web.site',
+          name: 'Web',
+          presentation: { groupKey: 'web.nginx', groupLabel: 'NGINX', typeLabel: 'NGINX' },
+          bindings: [],
+          metadata: {},
+        },
+        {
+          id: 'k8s_1',
+          siteAssetId: 'k8s_1',
+          kind: 'kubernetes.ingress',
+          name: 'Ingress',
+          presentation: { groupKey: 'kubernetes.cluster', groupLabel: 'Kubernetes', typeLabel: 'Ingress' },
+          bindings: [],
+          metadata: {},
+        },
       ],
       certificates: [],
       logs: [],
@@ -132,8 +148,9 @@ describe('统一设备详情动作边界', () => {
 
     expect(context.sites.map(site => site.kind)).toEqual(['web.site', 'kubernetes.ingress'])
     const tabs = deviceDetailTabRegistry.resolve(context)
-    expect(tabs.map(tab => tab.key)).toEqual(['overview', 'sites', 'logs'])
-    expect(tabs.find(tab => tab.key === 'sites')?.buildProps?.(context)).toEqual({ sites: context.sites })
+    expect(tabs.map(tab => tab.key)).toEqual(['overview', 'sites:web.nginx', 'sites:kubernetes.cluster', 'logs'])
+    expect(tabs.find(tab => tab.key === 'sites:web.nginx')?.label).toBe('NGINX')
+    expect(tabs.find(tab => tab.key === 'sites:web.nginx')?.buildProps?.(context)).toEqual({ sites: [context.sites[0]] })
   })
 
   it('设备列表区分设备版本和控制版本', () => {

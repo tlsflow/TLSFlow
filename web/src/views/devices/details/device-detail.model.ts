@@ -65,6 +65,11 @@ export interface DeviceSiteView {
     protocol?: string
   }
   configPath?: string
+  presentation?: {
+    groupKey: string
+    groupLabel: string
+    typeLabel: string
+  }
   bindings: readonly DeviceSiteBindingView[]
   metadata: Readonly<Record<string, unknown>>
 }
@@ -109,6 +114,7 @@ export interface DeviceDetailAdapter {
 export interface DeviceDetailTabDescriptor {
   key: string
   labelKey: string
+  label?: string
   order: number
   component: Component
   isVisible(context: DeviceDetailContext): boolean

@@ -59,7 +59,7 @@ function readFramework(value: unknown): DeviceFrameworkView | undefined {
   return {
     id,
     name,
-    type: readString(record.frameworkType) || readString(record.type) || undefined,
+    type: presentationTypeLabel(readString(record.frameworkType) || readString(record.type)) || undefined,
     version: readString(record.version) || undefined,
     status: readString(record.status) || undefined,
     metadata: readRecord(record.metadata),
@@ -99,6 +99,10 @@ function readSite(value: unknown): DeviceSiteView | undefined {
   const name = readString(record.name)
   if (!id || !siteAssetId || !name || !DEVICE_SITE_KIND_PATTERN.test(kind)) return undefined
   const endpoint = readRecord(record.endpoint)
+  const presentation = readRecord(record.presentation)
+  const groupKey = readString(presentation.groupKey)
+  const groupLabel = readString(presentation.groupLabel)
+  const typeLabel = readString(presentation.typeLabel)
   return {
     id,
     siteAssetId,
@@ -113,9 +117,15 @@ function readSite(value: unknown): DeviceSiteView | undefined {
       protocol: readString(endpoint.protocol) || undefined,
     } : undefined,
     configPath: readString(record.configPath) || undefined,
+    presentation: groupKey && groupLabel && typeLabel ? { groupKey, groupLabel, typeLabel } : undefined,
     bindings: readList(record.bindings).map(readBinding).filter(isDefined),
     metadata: readRecord(record.metadata),
   }
+}
+
+function presentationTypeLabel(value: string): string {
+  const segment = value.split('.').at(-1) ?? ''
+  return segment.replace(/[-_]+/g, ' ').trim().toUpperCase()
 }
 
 function readBinding(value: unknown): DeviceSiteBindingView | undefined {
