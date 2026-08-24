@@ -203,6 +203,14 @@
   font-weight: 650;
 }
 
+.gc-shell__user-menu-version {
+  padding: var(--gc-space-1) var(--gc-space-2);
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 550;
+  text-align: center;
+}
+
 .gc-shell__user-menu-list {
   display: grid;
   gap: 2px;

@@ -8,7 +8,8 @@ export default {
     brand: 'GCAC 콘솔',
     platform: '기업 SSL 인증서 수명 주기 관리 플랫폼',
     defaultBreadcrumb: '콘솔',
-    dashboard: '대시보드'
+    dashboard: '대시보드',
+    versionLabel: '버전 {version}'
   },
   common: {
     refresh: '새로고침',
@@ -1679,6 +1680,12 @@ export default {
   },
   settings: {
     securityLabel: '출입구 안전 설치',
+    version: {
+      title: '버전 정보',
+      description: '현재 실행 중인 GCAC 버전을 확인합니다.',
+      currentVersion: '현재 버전',
+      product: '제품'
+    },
     permissionPolicies: {
       resourceName: '권한 정책',
       actions: {

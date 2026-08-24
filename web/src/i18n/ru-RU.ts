@@ -8,7 +8,8 @@ export default {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',
     defaultBreadcrumb: 'Консоль',
-    dashboard: 'Панель мониторинга'
+    dashboard: 'Панель мониторинга',
+    versionLabel: 'Версия {version}'
   },
   common: {
     refresh: 'Обновить',
@@ -1679,6 +1680,12 @@ export default {
   },
   settings: {
     securityLabel: 'Вход в настройки безопасности',
+    version: {
+      title: 'Информация о версии',
+      description: 'Просмотр текущей запущенной версии GCAC.',
+      currentVersion: 'Текущая версия',
+      product: 'Продукт'
+    },
     permissionPolicies: {
       resourceName: 'Политика прав',
       actions: {

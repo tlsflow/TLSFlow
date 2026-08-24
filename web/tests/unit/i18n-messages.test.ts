@@ -20,6 +20,15 @@ describe('i18n 消息字典', () => {
     }
   })
 
+  it('8 个 Locale 都提供 GCAC 版本文案', () => {
+    for (const locale of supportedLocales) {
+      expect(messages[locale].app.versionLabel).toContain('{version}')
+      expect(messages[locale].settings.version.title).toBeTruthy()
+      expect(messages[locale].settings.version.description).toBeTruthy()
+      expect(messages[locale].settings.version.currentVersion).toBeTruthy()
+    }
+  })
+
   it('用户菜单和偏好入口具备所有目标语言', () => {
     for (const locale of supportedLocales) {
       expect(messages[locale].preferences.language).toBeTruthy()

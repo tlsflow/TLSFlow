@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
+import { gcacVersion } from '@/version'
 
 const route = useRoute()
 const router = useRouter()
@@ -278,6 +279,10 @@ onBeforeUnmount(() => {
               </span>
               <span>{{ t('userMenu.logout') }}</span>
             </button>
+
+            <div class="gc-shell__user-menu-version">
+              {{ t('app.versionLabel', { version: gcacVersion }) }}
+            </div>
           </div>
         </div>
       </div>

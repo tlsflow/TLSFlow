@@ -8,7 +8,8 @@ export default {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',
     defaultBreadcrumb: 'Console',
-    dashboard: 'Painel'
+    dashboard: 'Painel',
+    versionLabel: 'Versão {version}'
   },
   common: {
     refresh: 'Atualizar',
@@ -1679,6 +1680,12 @@ export default {
   },
   settings: {
     securityLabel: 'Entrada de configurações de segurança',
+    version: {
+      title: 'Informações da versão',
+      description: 'Visualize a versão do GCAC em execução.',
+      currentVersion: 'Versão atual',
+      product: 'Produto'
+    },
     permissionPolicies: {
       resourceName: 'Política de permissão',
       actions: {

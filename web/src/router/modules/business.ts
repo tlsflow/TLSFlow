@@ -362,6 +362,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/settings/version',
+    name: 'settings.version',
+    component: () => import('@/views/settings/VersionView.vue'),
+    meta: {
+      title: 'settings.version.title',
+      titleKey: 'settings.version.title',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'settings.read',
+      resourceType: 'settings',
+      riskLevel: 'low',
+      breadcrumbKeys: ['nav.systemSettings', 'settings.version.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/settings/notifications',
     name: 'settings.notifications',
     component: () => import('@/views/settings/NotificationsView.vue'),

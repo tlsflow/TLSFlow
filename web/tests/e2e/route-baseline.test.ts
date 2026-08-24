@@ -8,7 +8,7 @@ describe('核心路由基线', () => {
     expect(paths).toEqual(expect.arrayContaining([
       '/dashboard', '/certificates', '/assets', '/bindings', '/deployment-plans', '/executions',
       '/agents', '/gateways', '/plugins', '/workflow-templates', '/monitors', '/audits', '/settings',
-      '/settings/notifications',
+      '/settings/version', '/settings/notifications',
       '/reports/incident-window', '/reports/risk-response', '/reports/automation-effectiveness'
     ]))
   })

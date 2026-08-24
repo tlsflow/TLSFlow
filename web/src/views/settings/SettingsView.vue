@@ -6,6 +6,7 @@ import { GcLocaleSelect, GcThemeToggle } from '@/design-system/components'
 const { t } = useI18n()
 
 const cards = [
+  { titleKey: 'settings.version.title', path: '/settings/version', descriptionKey: 'settings.version.description' },
   { titleKey: 'notifications.title', path: '/settings/notifications', descriptionKey: 'notifications.description' },
   { titleKey: 'nav.users', path: '/settings/users', descriptionKey: 'nav.usersDesc' },
   { titleKey: 'nav.roles', path: '/settings/roles', descriptionKey: 'nav.rolesDesc' },

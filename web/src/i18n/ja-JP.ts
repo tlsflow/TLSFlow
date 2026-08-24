@@ -8,7 +8,8 @@ export default {
     brand: 'GCAC コンソール',
     platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',
     defaultBreadcrumb: 'コンソール',
-    dashboard: 'ダッシュボード'
+    dashboard: 'ダッシュボード',
+    versionLabel: 'バージョン {version}'
   },
   common: {
     refresh: '更新',
@@ -1705,6 +1706,12 @@ export default {
   },
   settings: {
     securityLabel: 'セキュリティ設定への導線',
+    version: {
+      title: 'バージョン情報',
+      description: '現在実行中の GCAC バージョンを表示します。',
+      currentVersion: '現在のバージョン',
+      product: '製品'
+    },
     permissionPolicies: {
       resourceName: '権限ポリシー',
       actions: {

@@ -7,6 +7,7 @@ import { GcLocaleSelect, GcThemeToggle } from '@/design-system/components'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { gcacVersion } from '@/version'
 
 const route = useRoute()
 const router = useRouter()
@@ -129,6 +130,7 @@ async function submit() {
         <footer class="login-card__footer">
           <span>{{ t('login.policy') }}</span>
           <span>{{ t('login.audit') }}</span>
+          <span>{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
         </footer>
       </form>
     </section>

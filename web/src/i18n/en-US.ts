@@ -1787,6 +1787,12 @@ export default {
   },
   settings: {
     securityLabel: 'Security settings entry',
+    version: {
+      title: 'Version information',
+      description: 'View the currently running GCAC version.',
+      currentVersion: 'Current version',
+      product: 'Product'
+    },
     permissionPolicies: {
       resourceName: 'Permission policy',
       actions: {

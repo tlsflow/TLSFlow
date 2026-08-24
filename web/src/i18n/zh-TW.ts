@@ -1705,6 +1705,12 @@ export default {
   },
   settings: {
     securityLabel: "安全設定入口",
+    version: {
+      title: "版本資訊",
+      description: "查看目前執行中的 GCAC 版本。",
+      currentVersion: "目前版本",
+      product: "產品"
+    },
     permissionPolicies: {
       resourceName: "權限策略",
       actions: {

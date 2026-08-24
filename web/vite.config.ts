@@ -1,9 +1,15 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 
+const gcacVersion = readFileSync(fileURLToPath(new URL('../version', import.meta.url)), 'utf8').trim()
+
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    __GCAC_VERSION__: JSON.stringify(gcacVersion)
+  },
   server: {
     host: '0.0.0.0',
     port: 5172,

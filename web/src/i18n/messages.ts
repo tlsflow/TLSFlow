@@ -5,7 +5,8 @@ const zhCN = {
     brand: 'GCAC 控制台',
     platform: '企业 SSL 证书生命周期管理平台',
     defaultBreadcrumb: '控制台',
-    dashboard: '仪表盘'
+    dashboard: '仪表盘',
+    versionLabel: '版本 {version}'
   },
   common: {
     refresh: '刷新',
@@ -1831,6 +1832,12 @@ const zhCN = {
   },
   settings: {
     securityLabel: '安全设置入口',
+    version: {
+      title: '版本信息',
+      description: '查看当前运行的 GCAC 版本。',
+      currentVersion: '当前版本',
+      product: '产品'
+    },
     permissionPolicies: {
       resourceName: '权限策略',
       actions: {
@@ -3287,7 +3294,7 @@ const zhCN = {
 
 const zhTW = {
   ...zhCN,
-  app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板' },
+  app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板', versionLabel: '版本 {version}' },
   common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', cancel: '取消', save: '儲存', edit: '編輯', delete: '刪除', notAvailable: '暫無', unknownError: '未知錯誤', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
   notifications: {
     ...zhCN.notifications,
@@ -3403,7 +3410,7 @@ const zhTW = {
 
 const enUS = {
   ...zhCN,
-  app: { brand: 'GCAC Console', platform: 'Enterprise SSL Certificate Lifecycle Platform', defaultBreadcrumb: 'Console', dashboard: 'Dashboard' },
+  app: { brand: 'GCAC Console', platform: 'Enterprise SSL Certificate Lifecycle Platform', defaultBreadcrumb: 'Console', dashboard: 'Dashboard', versionLabel: 'Version {version}' },
   common: { refresh: 'Refresh', logout: 'Sign out', enter: 'Open', loading: 'Loading', userFallback: 'Guest user', tenantFallback: 'Default tenant' },
   notifications: {
     title: 'Notification Management',
@@ -4929,6 +4936,12 @@ const enUS = {
   },
   settings: {
     securityLabel: 'Security settings entry',
+    version: {
+      title: 'Version information',
+      description: 'View the currently running GCAC version.',
+      currentVersion: 'Current version',
+      product: 'Product'
+    },
     permissionPolicies: {
       resourceName: 'Permission policy',
       actions: {
@@ -6347,7 +6360,7 @@ const enUS = {
 
 const jaJP = {
   ...zhCN,
-  app: { brand: 'GCAC コンソール', platform: '企業向け SSL 証明書ライフサイクル管理平台', defaultBreadcrumb: 'コンソール', dashboard: 'ダッシュボード' },
+  app: { brand: 'GCAC コンソール', platform: '企業向け SSL 証明書ライフサイクル管理平台', defaultBreadcrumb: 'コンソール', dashboard: 'ダッシュボード', versionLabel: 'バージョン {version}' },
   common: { ...enUS.common, refresh: '更新', logout: 'ログアウト', enter: '開く' },
   designSystem: {
     ...zhCN.designSystem,
@@ -6397,7 +6410,7 @@ const jaJP = {
 
 const frFR = {
   ...zhCN,
-  app: { brand: 'Console GCAC', platform: 'Plateforme de cycle de vie des certificats SSL', defaultBreadcrumb: 'Console', dashboard: 'Tableau de bord' },
+  app: { brand: 'Console GCAC', platform: 'Plateforme de cycle de vie des certificats SSL', defaultBreadcrumb: 'Console', dashboard: 'Tableau de bord', versionLabel: 'Version {version}' },
   common: { ...enUS.common, refresh: 'Actualiser', logout: 'Déconnexion', enter: 'Ouvrir' },
   designSystem: {
     ...zhCN.designSystem,
@@ -6447,7 +6460,7 @@ const frFR = {
 
 const ruRU = {
   ...zhCN,
-  app: { brand: 'Консоль GCAC', platform: 'Платформа управления жизненным циклом SSL-сертификатов', defaultBreadcrumb: 'Консоль', dashboard: 'Панель' },
+  app: { brand: 'Консоль GCAC', platform: 'Платформа управления жизненным циклом SSL-сертификатов', defaultBreadcrumb: 'Консоль', dashboard: 'Панель', versionLabel: 'Версия {version}' },
   common: { ...enUS.common, refresh: 'Обновить', logout: 'Выйти', enter: 'Открыть' },
   designSystem: {
     ...zhCN.designSystem,
@@ -6497,7 +6510,7 @@ const ruRU = {
 
 const ptBR = {
   ...zhCN,
-  app: { brand: 'Console GCAC', platform: 'Plataforma de ciclo de vida de certificados SSL corporativos', defaultBreadcrumb: 'Console', dashboard: 'Painel' },
+  app: { brand: 'Console GCAC', platform: 'Plataforma de ciclo de vida de certificados SSL corporativos', defaultBreadcrumb: 'Console', dashboard: 'Painel', versionLabel: 'Versão {version}' },
   common: { ...enUS.common, refresh: 'Atualizar', logout: 'Sair', enter: 'Abrir' },
   designSystem: {
     ...zhCN.designSystem,
@@ -6547,7 +6560,7 @@ const ptBR = {
 
 const koKR = {
   ...zhCN,
-  app: { brand: 'GCAC 콘솔', platform: '엔터프라이즈 SSL 인증서 수명 주기 관리 플랫폼', defaultBreadcrumb: '콘솔', dashboard: '대시보드' },
+  app: { brand: 'GCAC 콘솔', platform: '엔터프라이즈 SSL 인증서 수명 주기 관리 플랫폼', defaultBreadcrumb: '콘솔', dashboard: '대시보드', versionLabel: '버전 {version}' },
   common: { ...enUS.common, refresh: '새로고침', logout: '로그아웃', enter: '열기' },
   designSystem: {
     ...zhCN.designSystem,

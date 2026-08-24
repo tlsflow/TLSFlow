@@ -29,6 +29,7 @@ describe('权限 Store', () => {
       '/settings'
     ])
     const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
+    expect(settings?.children?.map((item) => item.path)).toContain('/settings/version')
     expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
   })
 

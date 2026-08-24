@@ -1801,6 +1801,12 @@ export default {
   },
   settings: {
     securityLabel: '安全设置入口',
+    version: {
+      title: '版本信息',
+      description: '查看当前运行的 GCAC 版本。',
+      currentVersion: '当前版本',
+      product: '产品'
+    },
     permissionPolicies: {
       resourceName: '权限策略',
       actions: {
