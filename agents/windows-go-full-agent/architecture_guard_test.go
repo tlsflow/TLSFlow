@@ -11,7 +11,6 @@ func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
 	forbidden := []string{
 		"agent.atomic_plan.execute",
 		"exec --shell",
-		"powershell.exe",
 		"gcac-development-agent-plan-key",
 		"wingo.mid.change-me",
 		"legacybinarysource",
@@ -19,10 +18,6 @@ func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
 		"legacyselectors",
 		"actionaliasselector",
 		"matchlegacyselectors",
-		"nginx",
-		"apache",
-		"tomcat",
-		"iis",
 	}
 	err := filepath.WalkDir(".", func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -48,6 +43,29 @@ func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("架构守卫扫描失败: %v", err)
+	}
+}
+
+func TestMatureWindowsIISScannerUsesBindingInsteadOfPortProbe(t *testing.T) {
+	content, err := os.ReadFile("windows_runtime_iis.go")
+	if err != nil {
+		t.Fatalf("读取 IIS 成熟扫描器源码失败: %v", err)
+	}
+	lower := strings.ToLower(string(content))
+	for _, required := range []string{
+		"microsoft.web.administration.servermanager",
+		"binding.certificatehash",
+		"convert-certsummary",
+		"cert:\\localmachine",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Errorf("IIS 成熟扫描器缺少实际 Binding 合同 %q", required)
+		}
+	}
+	for _, forbidden := range []string{"get-webbinding", "netsh http show sslcert", "local-tls-handshake"} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("IIS 扫描器不能使用端口或握手猜测 %q", forbidden)
+		}
 	}
 }
 

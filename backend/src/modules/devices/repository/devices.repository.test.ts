@@ -86,3 +86,52 @@ test('设备详情 OpenAPI 使用开放命名空间约束而不是产品枚举',
   assert.match('nas.share', new RegExp(MANAGED_DEVICE_SITE_KIND_PATTERN));
   assert.doesNotMatch('IIS', new RegExp(MANAGED_DEVICE_SITE_KIND_PATTERN));
 });
+
+test('设备详情以配置证书为主并单独返回运行证书和漂移状态', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const assets = new PgAssetsRepository(database);
+  const tenantId = 'tenant_listener_certificate_precedence';
+  const host = await assets.createHost(tenantId, {
+    hostname: 'windows-web.example.test',
+    displayName: 'Windows Web',
+    osType: 'WINDOWS',
+    managementMode: 'AGENT',
+    agentId: 'agent-listener-certificate',
+  });
+  const projector = new StandardDeviceDiscoveryProjector(database);
+  const base = {
+    apiVersion: 'gcac.device-discovery/v2' as const,
+    device: { stableKey: 'agent-host:listener-certificate', displayName: 'Windows Web', productFamily: 'AGENT_HOST' },
+    capabilities: [],
+    frameworks: [{ stableKey: 'framework:web.nginx', frameworkType: 'web.nginx', displayName: 'Nginx' }],
+    sites: [{ stableKey: 'site:nginx.test.local', frameworkStableKey: 'framework:web.nginx', siteType: 'web.site', displayName: 'nginx.test.local', addresses: ['nginx.test.local'], port: 8443, protocol: 'HTTPS', metadata: { listeners: [{ port: 8443, protocol: 'HTTPS', host: 'nginx.test.local' }] } }],
+    warnings: [],
+  };
+  await projector.project({ tenantId, hostId: host.id, discoveryProviderKey: 'agent:new', discoverySource: 'AGENT' }, {
+    ...base,
+    managedTargets: [{ stableKey: 'target:new', frameworkStableKey: 'framework:web.nginx', siteStableKey: 'site:nginx.test.local', targetType: 'tls.binding', targetKey: 'new', supportedCapabilities: ['certificate.deploy', 'certificate.verify'], executionLocations: ['AGENT'], metadata: { listener: { port: 8443, protocol: 'HTTPS', host: 'nginx.test.local' }, certificateLocation: { storageKind: 'PEM_FILES', certificatePath: 'D:/nginx/conf/site.crt' } } }],
+    certificates: [
+      { stableKey: `CERT:${'A'.repeat(64)}`, sha256Fingerprint: 'A'.repeat(64), subject: 'CN=configured', issuer: 'CN=CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z', metadata: { path: 'D:/nginx/conf/site.crt' } },
+      { stableKey: `CERT:${'B'.repeat(64)}`, sha256Fingerprint: 'B'.repeat(64), subject: 'CN=actual-listener', issuer: 'CN=CA', notBefore: '2026-02-01T00:00:00Z', notAfter: '2027-02-01T00:00:00Z', metadata: { path: 'windows-tls://127.0.0.1/8443/BBBB' } },
+    ],
+    certificateBindings: [{
+      stableKey: 'binding:new',
+      managedTargetStableKey: 'target:new',
+      certificateStableKey: `CERT:${'A'.repeat(64)}`,
+      configuredCertificateStableKey: `CERT:${'A'.repeat(64)}`,
+      observedCertificateStableKey: `CERT:${'B'.repeat(64)}`,
+      deploymentTarget: { storageKind: 'PEM_FILES', certificatePath: 'D:/nginx/conf/site.crt', sourceConfigPath: 'D:/nginx/conf/nginx.conf' },
+      bindingName: 'nginx.test.local',
+      metadata: { listenerHost: 'nginx.test.local', listenerPort: 8443, listenerProtocol: 'HTTPS' },
+    }],
+  });
+
+  const detail = await new PgDevicesRepository(database).get(tenantId, host.id);
+  const bindings = detail?.sites.find((site) => site.name === 'nginx.test.local')?.bindings ?? [];
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0]?.certificate?.fingerprintSha256, 'A'.repeat(64));
+  assert.equal(bindings[0]?.observedCertificate?.fingerprintSha256, 'B'.repeat(64));
+  assert.equal(bindings[0]?.driftStatus, 'DRIFTED');
+  assert.equal(bindings[0]?.bindingType, 'FILE_PATH');
+});

@@ -40,6 +40,9 @@ const siteBindingSchema: OpenApiSchema = {
     hostName: { type: 'string' },
     status: { type: 'string' },
     certificate: boundCertificateSchema,
+    observedCertificate: boundCertificateSchema,
+    driftStatus: { type: 'string' },
+    deploymentTarget: { type: 'object', additionalProperties: true },
     replacement: {
       type: 'object',
       additionalProperties: false,

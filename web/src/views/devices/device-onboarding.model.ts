@@ -7,6 +7,7 @@ export interface DeviceOnboardingField {
 /** 应用接入向导传入的设备向导预选入口，来源必须是已加载插件配方。 */
 export type DeviceOnboardingInitialSelection =
   | { readonly kind: 'AGENT_INSTALL'; readonly platformKey: string }
+  | { readonly kind: 'AGENT_INSTALL'; readonly platformKeys: readonly string[] }
   | { readonly kind: 'PLUGIN_MANAGED'; readonly pluginId: string }
 
 export interface DeviceOnboardingPlatform {

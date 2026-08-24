@@ -39,6 +39,7 @@
         443
       ],
       "frameworkType": "web.iis",
+      "parserKind": "iis",
       "defaultPort": 443
     }
   ]

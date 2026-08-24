@@ -40,3 +40,14 @@ test('PostgreSQL Date 类型的受管目标更新时间会规范化为 observedA
 
   assert.equal(location?.observedAt, '2026-08-01T13:31:13.224Z');
 });
+
+test('TLS 握手观测 URI 不能成为部署位置', () => {
+  assert.throws(
+    () => readCertificateLocation({ certificatePath: 'windows-tls://127.0.0.1/8443/ABCDEF' }, '2026-08-01T00:00:00.000Z'),
+    /TLS 握手观测结果不能作为部署位置/,
+  );
+  assert.throws(
+    () => readCertificateLocation({ certificateLocation: { storageKind: 'KEYSTORE', keystorePath: 'windows-tls://127.0.0.1/8445/ABCDEF' } }, '2026-08-01T00:00:00.000Z'),
+    /TLS 握手观测结果不能作为部署位置/,
+  );
+});

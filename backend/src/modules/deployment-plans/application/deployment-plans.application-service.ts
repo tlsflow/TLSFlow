@@ -75,6 +75,7 @@ import { readCertificateLocation } from '../../deployment-inputs/dto/certificate
 import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
 import { CertificateTrustPlanService, type CertificateTrustPlanSnapshot } from '../../certificates/trust-roots/application/certificate-trust-plan.service.js';
+import { computeAgentPlanDigest, validateAgentPlan, type AgentPlanV1 } from '../../agents/security/agent-security.contract.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -1467,7 +1468,6 @@ export class DeploymentPlansApplicationService {
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
     await this.assertLatestDryRunPassed(plan, input.tenantId);
-    const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
@@ -1499,6 +1499,9 @@ export class DeploymentPlansApplicationService {
         },
       });
     }
+    // 所有动态安全材料都必须在状态切换前完成校验。否则绑定证明缺失时，
+    // 计划会被错误地留在 RUNNING，用户既不能执行也不能重新生成。
+    const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1816,9 +1819,15 @@ export class DeploymentPlansApplicationService {
         resolvedInput,
       );
       const safeStrategyPayload = sanitizeDeploymentInputPersistencePayload(target.strategyPayload ?? {});
+      const bindingProof = isAgentPlanWebBindingTarget(target)
+        ? requirePreDeployBindingProof(target.binding)
+        : undefined;
+      const strategyPayloadWithBindingProof = bindingProof
+        ? { ...safeStrategyPayload, preDeployBindingProof: bindingProof }
+        : safeStrategyPayload;
       target.deploymentInputSnapshotDraft = this.deploymentInputSnapshotService.build(
         resolvedInput,
-        deploymentInputSnapshotIdentity(safeStrategyPayload),
+        deploymentInputSnapshotIdentity(strategyPayloadWithBindingProof),
         now,
       );
       target.deploymentInputRuntimeSnapshotDraft = {
@@ -1829,7 +1838,7 @@ export class DeploymentPlansApplicationService {
         deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
       };
       target.strategyPayload = {
-        ...safeStrategyPayload,
+        ...strategyPayloadWithBindingProof,
         deploymentInputPreflight: {
           apiVersion: resolvedInput.apiVersion,
           contractVersion: resolvedInput.contractVersion,
@@ -2498,20 +2507,51 @@ export class DeploymentPlansApplicationService {
       ...verification,
       expectedFingerprintSha256: artifact.expectedFingerprintSha256,
     };
+    const isAgentPlan = readOptionalString(runtimeCapability?.runtime) === 'AGENT_PLAN';
+    const bindingProof = isAgentPlan
+      ? await this.resolveCurrentPreDeployBindingProof(target, resolvedTenantId)
+      : undefined;
+    const payloadWithBindingProof = bindingProof
+      ? attachPreDeployBindingProofToAgentPlan({ ...strategyPayload, certificateVerification }, bindingProof)
+      : { ...strategyPayload, certificateVerification };
     if (!runtimeCapability && target.executorType === 'WORKFLOW' && workflowRequest) {
-      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+      return { ...payloadWithBindingProof, deploymentArtifact: artifact };
     }
     if (readOptionalString(runtimeCapability?.runtime) === 'WORKFLOW_DSL') {
-      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+      return { ...payloadWithBindingProof, deploymentArtifact: artifact };
     }
     if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_PLAN') {
-      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+      return { ...payloadWithBindingProof, deploymentArtifact: artifact };
     }
     throw new AppError('VALIDATION_FAILED', '受管目标缺少可执行的插件运行能力', {
       deploymentPlanTargetId: target.id,
       executionTargetId: target.executionTargetId,
       runtime: readOptionalString(runtimeCapability?.runtime),
     });
+  }
+
+  /**
+   * 执行前重新读取当前绑定，但只允许刷新运行态指纹和采集时间。
+   * 绑定、端口或 SNI 已变化时必须重新生成计划，不能把旧计划悄悄改投到新目标。
+   */
+  private async resolveCurrentPreDeployBindingProof(
+    target: DeploymentPlanTargetEntity,
+    tenantId: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (!target.certificateBindingId) return undefined;
+    const currentBinding = await this.tryGetBinding(tenantId, target.certificateBindingId);
+    if (!isAgentManagedTlsBinding(currentBinding)) return undefined;
+    const sealedProof = readRecord(target.strategyPayload?.preDeployBindingProof);
+    if (!sealedProof) {
+      throw new AppError('VALIDATION_FAILED', 'Agent Web 部署目标缺少创建时固定的本机 TLS 证书证明，请重新生成部署计划', {
+        code: 'PRE_DEPLOY_TLS_PROOF_MISSING',
+        deploymentPlanTargetId: target.id,
+        certificateBindingId: target.certificateBindingId,
+      });
+    }
+    const currentProof = requirePreDeployBindingProof(currentBinding);
+    assertSamePreDeployBindingIdentity(sealedProof, currentProof, target.id);
+    return currentProof;
   }
 
   private async attachInitialDryRunChecks(
@@ -2641,8 +2681,8 @@ export class DeploymentPlansApplicationService {
       checks.push({
         key: 'binding_target_fingerprint_drift',
         label: '绑定目标证书与计划目标不一致',
-        status: 'warning',
-        detail: '绑定记录里的目标指纹与本次计划目标证书不一致，dry-run 结论应结合绑定规则重新确认。',
+        status: 'failed',
+        detail: '绑定记录里的目标指纹与本次计划目标证书不一致，已阻止部署，避免替换错误证书。',
         evidence: {
           bindingId: binding.id,
           targetFingerprintSha256: targetFingerprint,
@@ -3640,6 +3680,170 @@ function normalizeSha256(value: string | undefined): string | undefined {
 function normalizeThumbprint(value: string | undefined): string | undefined {
   const normalized = value?.replaceAll(':', '').replaceAll(' ', '').trim().toUpperCase();
   return normalized || undefined;
+}
+
+function isAgentPlanDeploymentPayload(payload: Record<string, unknown> | undefined): boolean {
+  return readOptionalString(readRecord(payload?.pluginRuntimeCapability)?.runtime) === 'AGENT_PLAN';
+}
+
+function isAgentPlanWebBindingTarget(target: ResolvedCreateTarget): boolean {
+  const protocol = target.binding?.protocol?.trim().toUpperCase();
+  return Boolean(
+    target.binding
+      && isAgentPlanDeploymentPayload(target.strategyPayload)
+      && (protocol === 'HTTPS' || protocol === 'TLS'),
+  );
+}
+
+function isAgentManagedTlsBinding(binding: CertificateBindingDto | undefined): binding is CertificateBindingDto {
+  const protocol = binding?.protocol?.trim().toUpperCase();
+  return Boolean(
+    binding
+      && binding.discoverySource === 'AGENT'
+      && (protocol === 'HTTPS' || protocol === 'TLS'),
+  );
+}
+
+/**
+ * 把发现快照里的本机 TLS 指纹固定成部署前证明。
+ * 握手只证明端口当前运行的证书，部署位置必须另行来自配置路径、KeyStore 或 Windows Store。
+ */
+function requirePreDeployBindingProof(binding?: CertificateBindingDto): Record<string, unknown> {
+  const metadata = readRecord(binding?.metadata);
+  if (!binding) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Web 部署目标缺少 CertificateBinding，禁止创建或执行部署计划', {
+      code: 'PRE_DEPLOY_TLS_BINDING_MISSING',
+    });
+  }
+  if (binding.status === 'ERROR' || binding.status === 'IGNORED') {
+    throw new AppError('VALIDATION_FAILED', '当前证书绑定状态不可用于部署', { certificateBindingId: binding.id, status: binding.status });
+  }
+  const observedFingerprintSha256 = normalizeSha256(binding.observedFingerprintSha256);
+  const remoteEndpointFingerprint = normalizeSha256(binding.remoteEndpointFingerprint);
+  const observedCertificate = readRecord(metadata?.observedCertificate);
+  const metadataFingerprint = normalizeSha256(readOptionalString(observedCertificate?.fingerprintSha256));
+  const expected = observedFingerprintSha256;
+  if (!expected || !remoteEndpointFingerprint || !metadataFingerprint
+    || expected !== remoteEndpointFingerprint || expected !== metadataFingerprint) {
+    throw new AppError('VALIDATION_FAILED', '当前绑定缺少一致的本机 TLS 证书证明，禁止创建部署计划', {
+      certificateBindingId: binding.id,
+      observedFingerprintSha256,
+      remoteEndpointFingerprint,
+      metadataFingerprint,
+      source: 'tlsCertificateObservations',
+    });
+  }
+  const port = binding.port ?? readOptionalNumber(metadata?.listenerPort);
+  const checkedAt = normalizeIsoDateTime(binding.checkedAt);
+  if (!port || port < 1 || port > 65535 || !checkedAt) {
+    throw new AppError('VALIDATION_FAILED', '当前绑定缺少可重放的监听端点证明，禁止创建部署计划', {
+      certificateBindingId: binding.id,
+      port,
+      checkedAt,
+    });
+  }
+  const serverName = readOptionalString(metadata?.listenerHost)
+    ?? normalizeDomain(binding.domainName ?? binding.domain);
+  return {
+    apiVersion: 'gcac.pre-deploy-binding-proof/v1',
+    bindingId: binding.id,
+    bindingKey: agentSafeBindingKey(binding.bindingKey),
+    connectHost: '127.0.0.1',
+    ...(serverName ? { serverName } : {}),
+    port,
+    expectedFingerprintSha256: expected,
+    checkedAt,
+    source: 'agent-tls-observation',
+  };
+}
+
+function normalizeIsoDateTime(value: unknown): string | undefined {
+  const milliseconds = value instanceof Date
+    ? value.getTime()
+    : typeof value === 'string'
+      ? Date.parse(value)
+      : Number.NaN;
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : undefined;
+}
+
+function agentSafeBindingKey(bindingKey: string): string {
+  const normalized = bindingKey.trim();
+  if (/^[A-Za-z0-9._:-]{1,256}$/.test(normalized)) return normalized;
+  return `binding:${createHash('sha256').update(normalized, 'utf8').digest('hex')}`;
+}
+
+function assertSamePreDeployBindingIdentity(
+  sealedProof: Record<string, unknown>,
+  currentProof: Record<string, unknown>,
+  deploymentPlanTargetId: string,
+): void {
+  const identityKeys = ['apiVersion', 'bindingId', 'bindingKey', 'connectHost', 'port', 'serverName'] as const;
+  const changed = identityKeys.filter((key) => {
+    const sealedValue = key === 'serverName' ? readOptionalString(sealedProof[key])?.toLowerCase() : sealedProof[key];
+    const currentValue = key === 'serverName' ? readOptionalString(currentProof[key])?.toLowerCase() : currentProof[key];
+    return sealedValue !== currentValue;
+  });
+  const sealedCheckedAt = Date.parse(readOptionalString(sealedProof.checkedAt) ?? '');
+  const currentCheckedAt = Date.parse(readOptionalString(currentProof.checkedAt) ?? '');
+  if (changed.length === 0 && Number.isFinite(sealedCheckedAt) && currentCheckedAt >= sealedCheckedAt) return;
+  throw new AppError('VALIDATION_FAILED', 'Agent Web 绑定端点或发现快照已变化，请重新生成部署计划', {
+    code: 'PRE_DEPLOY_TLS_BINDING_CHANGED',
+    deploymentPlanTargetId,
+    changed,
+    sealedCheckedAt: sealedProof.checkedAt,
+    currentCheckedAt: currentProof.checkedAt,
+  });
+}
+
+function attachPreDeployBindingProofToAgentPlan(
+  payload: Record<string, unknown>,
+  proof: Record<string, unknown>,
+): Record<string, unknown> {
+  const rawPlan = readRecord(payload.plan);
+  if (!rawPlan || !Array.isArray(rawPlan.operations) || rawPlan.operations.length === 0) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 operations，无法插入部署前 TLS 校验', {
+      code: 'AGENT_PLAN_OPERATIONS_REQUIRED',
+    });
+  }
+  const authorization = readRecord(payload.executionAuthorization);
+  if (!authorization || !Array.isArray(authorization.actions)) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Plan 缺少有效 executionAuthorization.actions', {
+      code: 'AGENT_PLAN_AUTHORIZATION_REQUIRED',
+    });
+  }
+  const plan = structuredClone(rawPlan) as unknown as AgentPlanV1;
+  const operationId = `predeploy-tls-${String(proof.bindingId).replace(/[^A-Za-z0-9_.:-]/g, '-')}`;
+  const verifyOperation = {
+    operationId,
+    operationType: 'certificate.tls.verify' as const,
+    stage: 'prepare' as const,
+    input: {
+      connectHost: proof.connectHost,
+      ...(typeof proof.serverName === 'string' ? { serverName: proof.serverName } : {}),
+      port: proof.port,
+      expectedFingerprintSha256: proof.expectedFingerprintSha256,
+      bindingId: proof.bindingId,
+      bindingKey: proof.bindingKey,
+      checkedAt: proof.checkedAt,
+    },
+    dependsOn: [],
+    idempotencyKey: `predeploy-tls-${String(proof.bindingId).replace(/[^A-Za-z0-9_.:-]/g, '-')}`,
+    timeoutSeconds: 10,
+  };
+  plan.operations = [
+    verifyOperation,
+    ...plan.operations.filter((operation) => operation.operationType !== 'certificate.tls.verify'),
+  ] as AgentPlanV1['operations'];
+  plan.planDigest = computeAgentPlanDigest(plan);
+  const validatedPlan = validateAgentPlan(plan);
+  return {
+    ...payload,
+    plan: validatedPlan,
+    executionAuthorization: {
+      ...authorization,
+      actions: [...new Set(validatedPlan.operations.map((operation) => operation.operationType))],
+    },
+  };
 }
 
 function summarizeDryRunChecks(checks: readonly DeploymentPlanDryRunCheckDto[]): { passed: number; failed: number; warning: number; unknown: number } {

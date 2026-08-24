@@ -44,6 +44,7 @@ export interface DeviceSiteBindingView {
   hostName?: string
   status: string
   certificate?: DeviceBoundCertificateView
+  deploymentTarget?: Readonly<Record<string, unknown>>
   replacement: {
     allowed: boolean
     managedTargetId?: string

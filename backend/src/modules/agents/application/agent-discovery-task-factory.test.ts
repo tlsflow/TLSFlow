@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { WINDOWS_WEB_DISCOVERY_PATHS } from '../agent-discovery-paths.js';
@@ -36,8 +37,7 @@ test('Web 重新发现只创建一条已授权的 Agent 直连请求，不回退
   assert.equal(payload?.requestedBy, 'user-1');
   assert.equal('action' in (payload ?? {}), false);
   assert.equal('pluginFactBinding' in (payload ?? {}), false);
-  const discoverySpec = payload?.discoverySpec as { profiles?: Array<{ pluginId: string; processNames: string[] }> } | undefined;
-  assert.ok(discoverySpec?.profiles?.some((profile) => profile.pluginId === 'web.nginx' && profile.processNames.includes('nginx')));
+  assert.equal('discoverySpec' in (payload ?? {}), false);
   assert.equal(payload?.planDigest, digest({
     actionType: 'agent.fact.collect',
     agentId: 'agent-1',
@@ -46,7 +46,6 @@ test('Web 重新发现只创建一条已授权的 Agent 直连请求，不回退
     pluginVersionId: 'web.apache-version-1',
     capability: 'application.discover',
     paths: payload?.paths,
-    discoverySpec: payload?.discoverySpec,
     refreshWebInventory: true,
   }));
 });
@@ -109,7 +108,7 @@ test('授权拒绝会保留 Policy Authority 的诊断原因', async () => {
   );
 });
 
-test('用户插件即使声明 Web 发现能力也不会进入单轮扫描 profile', async () => {
+test('Windows 发现请求不会从插件注入扫描 profile', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [
       plugin('web.nginx', { source: 'USER', trust: 'UNSIGNED' }),
@@ -131,12 +130,11 @@ test('用户插件即使声明 Web 发现能力也不会进入单轮扫描 profi
     requestId: 'request-1',
   } as never);
 
-  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
-  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['web.apache']);
+  assert.equal('discoverySpec' in request.payload, false);
   assert.equal(request.payload.pluginId, 'web.apache');
 });
 
-test('新增官方内置发现插件不需要修改宿主产品白名单', async () => {
+test('Windows 成熟扫描器不依赖某个框架插件的 profile', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [plugin('app.java-keystore')] },
     policyAuthority: {
@@ -155,12 +153,11 @@ test('新增官方内置发现插件不需要修改宿主产品白名单', async
     requestId: 'request-custom',
   } as never);
 
-  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
-  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['app.java-keystore']);
+  assert.equal('discoverySpec' in request.payload, false);
   assert.equal(request.payload.pluginId, 'app.java-keystore');
 });
 
-test('非 Canonical 内置插件不能成为 Agent 发现授权锚点或扫描 profile', async () => {
+test('非 Canonical 内置插件不能成为 Agent 发现授权锚点', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [plugin('builtin.windows.iis.pfx'), plugin('web.iis')] },
     policyAuthority: {
@@ -179,12 +176,57 @@ test('非 Canonical 内置插件不能成为 Agent 发现授权锚点或扫描 p
     requestId: 'request-canonical-only',
   } as never);
 
-  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
-  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['web.iis']);
+  assert.equal('discoverySpec' in request.payload, false);
   assert.equal(request.payload.pluginId, 'web.iis');
 });
 
-function plugin(pluginId: string, overrides: Partial<{ source: 'BUILTIN' | 'USER'; trust: 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED' }> = {}) {
+test('Windows 不下发插件 profile，Linux 保留既有 profile 合同', async () => {
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: {
+      listAccessibleVersions: async () => [
+        builtinPlugin('web.apache', 'web-apache'),
+        builtinPlugin('web.nginx', 'web-nginx'),
+        builtinPlugin('app.tomcat', 'app-tomcat'),
+      ],
+    },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  const request = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-windows', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'user-1',
+    requestId: 'request-windows-web-apps',
+  } as never);
+  assert.equal('discoverySpec' in request.payload, false);
+
+  const linuxRequest = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-linux', descriptor: { osType: 'LINUX' } },
+    requestedBy: 'user-1',
+    requestId: 'request-linux-web-apps',
+  } as never);
+  const linuxProfiles = (linuxRequest.payload.discoverySpec as { profiles: Array<{ pluginId: string; processNames: string[] }> }).profiles;
+  const linuxByPlugin = new Map(linuxProfiles.map((profile) => [profile.pluginId, profile]));
+  assert.ok(linuxByPlugin.get('web.apache')?.processNames.includes('apache2'));
+  assert.ok(!linuxByPlugin.get('web.apache')?.processNames.includes('httpd.exe'));
+  assert.ok(linuxByPlugin.get('web.nginx')?.processNames.includes('nginx'));
+  assert.ok(!linuxByPlugin.get('web.nginx')?.processNames.includes('nginx.exe'));
+  assert.ok(linuxByPlugin.get('app.tomcat')?.processNames.includes('java'));
+  assert.ok(!linuxByPlugin.get('app.tomcat')?.processNames.includes('java.exe'));
+});
+
+function plugin(pluginId: string, overrides: Partial<{
+  source: 'BUILTIN' | 'USER';
+  trust: 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED';
+  discoveryProfiles: string;
+}> = {}) {
   const source = overrides.source ?? 'BUILTIN';
   const trust = overrides.trust ?? 'OFFICIAL_SIGNED';
   return {
@@ -200,7 +242,7 @@ function plugin(pluginId: string, overrides: Partial<{ source: 'BUILTIN' | 'USER
       resources: { discoveryMappings: { profiles: 'discovery/profiles.json' } },
     },
     resources: {
-      'discovery/profiles.json': JSON.stringify({
+      'discovery/profiles.json': overrides.discoveryProfiles ?? JSON.stringify({
         profiles: [{
           sources: ['windows'],
           frameworkType: pluginId,
@@ -216,6 +258,11 @@ function plugin(pluginId: string, overrides: Partial<{ source: 'BUILTIN' | 'USER
       }),
     },
   };
+}
+
+function builtinPlugin(pluginId: string, packageDirectory: string) {
+  const resourceUrl = new URL(`../../plugins/builtin-plugins/${packageDirectory}/discovery/profiles.json`, import.meta.url);
+  return plugin(pluginId, { discoveryProfiles: readFileSync(resourceUrl, 'utf8') });
 }
 
 function digest(value: unknown): string {

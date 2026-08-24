@@ -40,6 +40,16 @@ const missingFields = computed(() => {
 })
 const canSubmit = computed(() => Boolean(selected.value) && missingFields.value.length === 0 && !pending.value)
 const isAgentInstall = computed(() => selected.value?.onboardingKind === 'AGENT_INSTALL')
+const initialAgentPlatformKeys = computed<readonly string[] | undefined>(() => {
+  const initialSelection = props.initialSelection
+  if (!initialSelection || initialSelection.kind !== 'AGENT_INSTALL') return undefined
+  return 'platformKeys' in initialSelection ? initialSelection.platformKeys : [initialSelection.platformKey]
+})
+const visiblePlatforms = computed(() => {
+  const allowed = initialAgentPlatformKeys.value
+  if (!allowed) return platforms.value
+  return platforms.value.filter((platform) => allowed.includes(platform.key))
+})
 const platformGroupDefinitions = [
   { key: 'windows', platformGroup: 'WINDOWS', titleKey: 'devices.onboarding.groups.windows' },
   { key: 'other', platformGroup: 'OTHER', titleKey: 'devices.onboarding.groups.other' },
@@ -48,7 +58,7 @@ const platformGroups = computed(() => [
   ...platformGroupDefinitions.map((definition) => ({
     key: definition.key,
     title: t(definition.titleKey),
-    platforms: platforms.value.filter((platform) => platform.group === definition.platformGroup),
+    platforms: visiblePlatforms.value.filter((platform) => platform.group === definition.platformGroup),
   })),
 ].filter((group) => group.platforms.length > 0))
 
@@ -67,6 +77,11 @@ async function initializeWizard(): Promise<void> {
   error.value = ''
   await loadPlatforms()
   if (!props.open || !props.initialSelection) return
+  if (props.initialSelection.kind === 'AGENT_INSTALL' && 'platformKeys' in props.initialSelection && props.initialSelection.platformKeys.length > 1) {
+    const available = props.initialSelection.platformKeys.filter((key) => platforms.value.some((platform) => platform.key === key))
+    if (available.length === 0) error.value = t('devices.onboarding.unsupported')
+    return
+  }
   const platformKey = resolveInitialPlatformKey(props.initialSelection)
   if (!platformKey) {
     error.value = t('devices.onboarding.unsupported')
@@ -107,7 +122,8 @@ async function loadPlatforms(): Promise<void> {
 
 function resolveInitialPlatformKey(initialSelection: DeviceOnboardingInitialSelection): string | undefined {
   if (initialSelection.kind === 'AGENT_INSTALL') {
-    return platforms.value.find((platform) => platform.onboardingKind === 'AGENT_INSTALL' && platform.key === initialSelection.platformKey)?.key
+    const keys = 'platformKeys' in initialSelection ? initialSelection.platformKeys : [initialSelection.platformKey]
+    return platforms.value.find((platform) => platform.onboardingKind === 'AGENT_INSTALL' && keys.includes(platform.key))?.key
   }
   return platforms.value.find((platform) => platform.pluginId === initialSelection.pluginId)?.key
 }
@@ -295,7 +311,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 <template>
   <GcModal
-    :open="open"
+    :open="props.open"
     :title="t('devices.onboarding.title')"
     :description="t('devices.onboarding.description')"
     size="xxl"

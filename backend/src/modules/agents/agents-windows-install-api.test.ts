@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createApp } from '../../app.module.js';
 import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -60,10 +62,11 @@ describe('Agent 一键安装会话', () => {
 	assert.match(script, /authorizationTrustKeySet/);
 	assert.match(script, /agent-trust-material\.json/);
 	assert.match(script, /Go Agent policy directory ACL configuration failed/);
-	assert.match(script, /S-1-5-18/);
+    assert.match(script, /S-1-5-18/);
     assert.ok(script.indexOf('Remove-GoAgentLegacyFirewallRules') < script.indexOf('Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930'));
     assert.ok(script.indexOf('foreach ($serviceName in $serviceNames) { Remove-GoAgentService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
+    assertWindowsGoBootstrapUsesLatestAmd64Artifact(readWindowsBootstrapManifest(script));
   });
 
   it('Windows Go bootstrap 将安装固定的授权 KeySet 写入 manifest', async () => {
@@ -293,6 +296,27 @@ function readWindowsBootstrapManifest(script: string): Record<string, unknown> {
   const matched = script.match(/\$manifest = @'\r?\n([\s\S]*?)\r?\n'@ \| ConvertFrom-Json/);
   assert.ok(matched?.[1], 'Windows bootstrap 必须包含 JSON manifest');
   return JSON.parse(matched[1]) as Record<string, unknown>;
+}
+
+function assertWindowsGoBootstrapUsesLatestAmd64Artifact(manifest: Record<string, unknown>): void {
+  const artifacts = manifest.artifacts;
+  assert.ok(Array.isArray(artifacts), 'Windows bootstrap 必须包含安装文件');
+  const agentArtifact = artifacts.find((artifact): artifact is Record<string, unknown> => {
+    return Boolean(artifact)
+      && typeof artifact === 'object'
+      && (artifact as Record<string, unknown>).path === 'gcac-agent.exe';
+  });
+  assert.ok(agentArtifact, 'Windows bootstrap 缺少 Go Agent 可执行文件');
+  assert.equal(agentArtifact.encoding, 'base64');
+  assert.equal(typeof agentArtifact.content, 'string');
+
+  const expectedPath = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../agents/windows-go-full-agent/dist/gcac-agent.windows-amd64.exe',
+  );
+  const expectedHash = createHash('sha256').update(readFileSync(expectedPath)).digest('hex');
+  const actualHash = createHash('sha256').update(Buffer.from(agentArtifact.content as string, 'base64')).digest('hex');
+  assert.equal(actualHash, expectedHash, 'Windows bootstrap 必须分发当前 amd64 发布物');
 }
 
 async function createTestApp() {

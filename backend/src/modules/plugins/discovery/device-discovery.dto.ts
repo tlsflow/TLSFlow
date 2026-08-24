@@ -50,6 +50,21 @@ export interface StandardDeviceDiscoveryV2 {
     stableKey: string;
     managedTargetStableKey: string;
     certificateStableKey: string;
+    configuredCertificateStableKey?: string;
+    observedCertificateStableKey?: string;
+    deploymentTarget?: {
+      storageKind: 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE';
+      certificatePath?: string;
+      privateKeyPath?: string;
+      chainPath?: string;
+      keystorePath?: string;
+      keystoreType?: string;
+      keyAlias?: string;
+      storeName?: string;
+      storeLocation?: string;
+      storeThumbprint?: string;
+      sourceConfigPath?: string;
+    };
     bindingName?: string;
     metadata?: Record<string, unknown>;
   }>;

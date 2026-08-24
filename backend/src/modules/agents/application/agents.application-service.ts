@@ -137,10 +137,10 @@ const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatib
   windows_go: Object.freeze({
     platform: 'windows_go',
     arch: 'amd64',
-    artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe',
-    version: '0.1.9',
-    digest: 'e6681b0aad44fc13fd268adac9692d2bd69d111c66fb7eb8609f629081ee4c7c',
-    signature: 'artifact://gcac/signatures/agents/windows-go-full-agent/0.1.9/windows-amd64.sig',
+    artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.27/windows-amd64/gcac-agent.exe',
+    version: '0.1.27',
+    digest: '7aabda5632fa0a28fd69edb6d8cf1fff5531c1878eae660954558a3b8979887d',
+    signature: 'artifact://gcac/signatures/agents/windows-go-full-agent/0.1.27/windows-amd64.sig',
     signatureAlgorithm: 'Ed25519',
     signingKeyId: AGENT_RELEASE_SIGNING_KEY_ID,
   }),
@@ -453,10 +453,10 @@ export class AgentsApplicationService {
   }
 
   /**
-   * 内置插件发现映射发生变化后，重放每个 Agent 的最新事实快照。
+   * 内置插件发现映射发生变化后，重放每个 Agent 的最新完整 Web 事实快照。
    *
-   * Agent capability snapshot 是事实来源，插件映射是投影规则。
-   * 只刷新插件注册表而不重放快照，会让历史 IIS 投影继续占据设备详情。
+   * 周期快照只有运行态，不能作为 Web 投影输入。只刷新插件注册表而不重放
+   * 最后一次完整发现，会让历史 Web 投影继续占据设备详情。
    */
   async reprojectLatestCapabilitySnapshots(tenantId?: string): Promise<{
     attempted: number;
@@ -477,7 +477,7 @@ export class AgentsApplicationService {
 
     for (const agent of await this.repository.listAllRegistrations()) {
       if (tenantId && agent.tenantId !== tenantId) continue;
-      const snapshot = await this.repository.getLatestCapabilitySnapshot(agent.tenantId, agent.id);
+      const snapshot = await this.repository.getLatestFullWebInventorySnapshot(agent.tenantId, agent.id);
       if (!snapshot) {
         summary.skipped += 1;
         continue;
@@ -551,7 +551,7 @@ export class AgentsApplicationService {
     }
     const directRequest = await this.discoveryRequestFactory.createForAgent({ tenantId, agent, requestedBy, requestId });
     const response = await this.directAgentClient.refreshWebInventory(agent, directRequest);
-    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    const snapshot = await this.repository.getLatestFullWebInventorySnapshot(tenantId, agentId);
     return {
       mode: 'direct',
       requestId: directRequest.requestId,
@@ -785,7 +785,7 @@ export class AgentsApplicationService {
 
   private async projectLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<void> {
     if (!this.capabilityDiscoveryProjector) return;
-    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    const snapshot = await this.repository.getLatestFullWebInventorySnapshot(tenantId, agentId);
     if (!snapshot) return;
     try {
       const agent = await this.requireAgent(tenantId, agentId);
@@ -1828,6 +1828,7 @@ function sha256(value: string): string {
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
 const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
+const windowsGoAgentAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
 const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'bin', 'Release');
 const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
@@ -1867,7 +1868,7 @@ function requireInstallPlatform<T extends readonly AgentInstallSession['platform
 }
 
 async function ensureWindowsGoBundleAvailable(): Promise<void> {
-  if (!existsSync(path.join(windowsGoAgentRoot, 'gcac-agent.exe'))) {
+  if (!existsSync(windowsGoAgentAmd64Artifact)) {
     throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent 可执行文件未构建，不能生成一键安装命令');
   }
 }
@@ -1875,13 +1876,18 @@ async function ensureWindowsGoBundleAvailable(): Promise<void> {
 async function loadWindowsGoAgentArtifacts() {
   await ensureWindowsGoBundleAvailable();
   const artifacts = await walkWindowsAgentArtifacts(windowsGoAgentRoot, [
-    'gcac-agent.exe',
     'install-service.ps1',
     'service-control.ps1',
     'uninstall-service.ps1',
     'config/agent.config.template.json',
     'release/verify-signature.ps1',
   ]);
+  // 安装器只分发本次构建生成的 amd64 发布物，根目录遗留的本地二进制不能参与打包。
+  artifacts.push({
+    path: 'gcac-agent.exe',
+    content: (await readFile(windowsGoAgentAmd64Artifact)).toString('base64'),
+    encoding: 'base64',
+  });
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 

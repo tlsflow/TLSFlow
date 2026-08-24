@@ -108,7 +108,9 @@ export class StandardDeviceDiscoveryProjector {
           );
         }
 
-        const fallbackServiceId = discovery.frameworks.length === 0
+        // 空 Web 快照表示本轮没有拿到可解析事实，不是设备上只剩一个通用框架。
+        // 保留历史资产时绝不能重新激活 device.generic，否则设备名会变成伪框架标签。
+        const fallbackServiceId = discovery.frameworks.length === 0 && !context.preserveEmptyWeb
           ? await upsertFallbackFramework(tx, context, discoveryProviderKey, discovery, discoveredAt)
           : undefined;
         const siteIds = new Map<string, string>();
@@ -123,15 +125,15 @@ export class StandardDeviceDiscoveryProjector {
           await tx.query(
              `insert into pg_site_assets (
                id, tenant_id, framework_instance_id, device_id, discovery_provider_key, site_type, site_name, site_key,
-               binding_information, host_header, listen_ip, port, protocol, discovery_source, last_discovered_at, status, metadata,
+               binding_information, host_header, listen_ip, port, protocol, config_path, discovery_source, last_discovered_at, status, metadata,
                created_at, updated_at, version
-             ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'ACTIVE',$16::jsonb,$15,$15,1)
+             ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'ACTIVE',$17::jsonb,$16,$16,1)
              on conflict (id) do update set framework_instance_id=excluded.framework_instance_id, site_name=excluded.site_name,
                binding_information=excluded.binding_information, host_header=excluded.host_header, listen_ip=excluded.listen_ip, port=excluded.port,
-               protocol=excluded.protocol, last_discovered_at=excluded.last_discovered_at, status='ACTIVE',
+               protocol=excluded.protocol, config_path=excluded.config_path, last_discovered_at=excluded.last_discovered_at, status='ACTIVE',
                metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_site_assets.version+1`,
              [siteId, context.tenantId, serviceInstanceId, context.hostId, discoveryProviderKey, site.siteType, site.displayName, site.stableKey,
-               bindingInformation(site), siteHostHeader(site), siteListenIp(site), site.port ?? null, normalizeProtocol(site.protocol),
+               bindingInformation(site), siteHostHeader(site), siteListenIp(site), site.port ?? null, normalizeProtocol(site.protocol), siteConfigPath(site),
                context.discoverySource ?? 'PROVIDER', discoveredAt, JSON.stringify({ ...(site.metadata ?? {}), addresses: site.addresses })],
           );
         }
@@ -186,18 +188,54 @@ export class StandardDeviceDiscoveryProjector {
         }
         for (const binding of discovery.certificateBindings) {
           const target = discovery.managedTargets.find((item) => item.stableKey === binding.managedTargetStableKey)!;
-          const certificate = discovery.certificates.find((item) => item.stableKey === binding.certificateStableKey)!;
+          const configuredCertificateKey = binding.configuredCertificateStableKey ?? binding.certificateStableKey;
+          const observedCertificateKey = binding.observedCertificateStableKey;
+          const certificate = discovery.certificates.find((item) => item.stableKey === configuredCertificateKey)!;
+          const observedCertificate = observedCertificateKey
+            ? discovery.certificates.find((item) => item.stableKey === observedCertificateKey)
+            : undefined;
           const site = target.siteStableKey ? discovery.sites.find((item) => item.stableKey === target.siteStableKey) : undefined;
           const siteId = target.siteStableKey ? siteIds.get(target.siteStableKey) : undefined;
           const serviceInstanceId = target.frameworkStableKey
             ? frameworkIds.get(target.frameworkStableKey)
             : target.siteStableKey ? siteServiceInstanceIds.get(target.siteStableKey) : undefined;
           const managedTargetId = targetIds.get(binding.managedTargetStableKey);
-          const certificateId = certificateIds.get(binding.certificateStableKey);
+          const certificateId = certificateIds.get(configuredCertificateKey);
           if (!serviceInstanceId || !managedTargetId || !certificateId) throw new Error(`certificate binding relation missing: ${binding.stableKey}`);
           const bindingId = stableId('pcb', projectionRootId, binding.stableKey);
           const formalBindingId = stableId('bnd', projectionRootId, binding.stableKey);
-          const fingerprint = certificateFingerprints.get(binding.certificateStableKey) ?? null;
+          const configuredFingerprint = certificateFingerprints.get(configuredCertificateKey) ?? null;
+          const observedFingerprint = observedCertificate
+            ? certificateFingerprints.get(observedCertificate.stableKey) ?? normalizeFingerprint(observedCertificate.sha256Fingerprint)
+            : null;
+          const deploymentTarget = binding.deploymentTarget;
+          const bindingType = deploymentTarget ? deploymentBindingType(deploymentTarget.storageKind) : 'CUSTOM';
+          const driftStatus = configuredFingerprint && observedFingerprint
+            ? configuredFingerprint.toUpperCase() === observedFingerprint.toUpperCase() ? 'SYNCED' : 'DRIFTED'
+            : 'UNKNOWN';
+          const deploymentMetadata = deploymentTarget ? {
+            certificateLocation: deploymentTarget,
+            deploymentTarget,
+          } : {};
+          const bindingMetadata = {
+            ...(binding.metadata ?? {}),
+            ...deploymentMetadata,
+            configuredCertificateStableKey: configuredCertificateKey,
+            ...(observedCertificateKey ? { observedCertificateStableKey: observedCertificateKey } : {}),
+            configuredCertificate: certificateMetadataForProjection(certificate),
+            ...(observedCertificate ? { observedCertificate: certificateMetadataForProjection(observedCertificate) } : {}),
+            driftStatus,
+            formalBindingId,
+            pluginDiscoveryStableKey: binding.stableKey,
+            pluginCertificateStableKey: configuredCertificateKey,
+            pluginDeviceAssetId: context.deviceAssetId,
+            pluginVersionId: context.pluginVersionId,
+            pluginBindingId: context.pluginBindingId,
+            projectionDeviceId: context.hostId,
+            discoveryProviderKey,
+            discoverySource: context.discoverySource ?? 'PROVIDER',
+            discoveryStatus: 'ACTIVE',
+          };
           if (context.deviceAssetId) await tx.query(
              `insert into plugin_discovered_certificate_bindings (
                 id, tenant_id, device_asset_id, stable_key, site_asset_id, managed_target_id, discovered_certificate_id,
@@ -205,11 +243,11 @@ export class StandardDeviceDiscoveryProjector {
                drift_state, status, last_discovered_at, created_at, updated_at
              ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,
                (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($10::text) limit 1),
-               $10::text, case
-                 when $10 is null then 'INCOMPLETE'
-                 when exists (select 1 from pg_certificate_versions where upper(fingerprint_sha256)=upper($10::text)) then 'SYNCED'
-                 else 'UNMANAGED'
-               end,'ACTIVE',$11,$11,$11)
+               $11::text, case
+                 when $10 is null or $11 is null then 'UNKNOWN'
+                 when upper($10::text)=upper($11::text) then 'SYNCED'
+                 else 'DRIFTED'
+               end,'ACTIVE',$12,$12,$12)
               on conflict (tenant_id, device_asset_id, stable_key) do update set site_asset_id=excluded.site_asset_id,
                 managed_target_id=excluded.managed_target_id, discovered_certificate_id=excluded.discovered_certificate_id, binding_name=excluded.binding_name,
                metadata=excluded.metadata, current_certificate_version_id=excluded.current_certificate_version_id,
@@ -217,57 +255,53 @@ export class StandardDeviceDiscoveryProjector {
                status='ACTIVE', last_discovered_at=excluded.last_discovered_at,
                 updated_at=excluded.updated_at`,
             [bindingId, context.tenantId, context.deviceAssetId, binding.stableKey, siteId ?? null, managedTargetId, certificateId,
-               binding.bindingName ?? null, JSON.stringify({ ...(binding.metadata ?? {}), formalBindingId }), fingerprint, discoveredAt],
+               binding.bindingName ?? null, JSON.stringify(bindingMetadata), configuredFingerprint, observedFingerprint, discoveredAt],
           );
-          const domain = bindingDomain(site, target);
+          const domain = bindingDomain(site, target, binding);
           await tx.query(
             `insert into pg_certificate_bindings (
                id, tenant_id, service_instance_id, site_asset_id, managed_target_id, host_id,
                domain_name, domain, port, protocol, binding_key, binding_type,
-               certificate_version_id, observed_fingerprint_sha256, remote_endpoint_fingerprint,
+               certificate_version_id, target_certificate_version_id, local_certificate_version_id,
+               observed_fingerprint_sha256, desired_fingerprint_sha256, target_fingerprint_sha256,
+               cert_path, key_path, chain_path, keystore_path, keystore_type,
+               store_location, store_name, store_thumbprint, local_config_path, remote_endpoint_fingerprint,
                discovery_source, verify_method, remote_status, checked_at, drift_status, status, metadata,
                created_at, updated_at, version
              ) values (
-               $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$12,
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($11::text) limit 1),$11::text,$11::text,
-               $13,'TLS_CONNECT','reachable',$14,'UNKNOWN','DISCOVERED',$15::jsonb,$14,$14,1
+               $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,
+               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($12::text) limit 1),
+               null,
+               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($12::text) limit 1),
+               $13,null,null,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+               $24,$25,$26,$27,$28,$29,$30::jsonb,$27,$27,1
              )
              on conflict (id) do update set service_instance_id=excluded.service_instance_id,
                site_asset_id=excluded.site_asset_id, managed_target_id=excluded.managed_target_id,
                domain_name=excluded.domain_name, domain=excluded.domain, port=excluded.port, protocol=excluded.protocol,
-               binding_key=excluded.binding_key, certificate_version_id=excluded.certificate_version_id,
+               binding_key=excluded.binding_key, binding_type=excluded.binding_type,
+               certificate_version_id=excluded.certificate_version_id,
+               local_certificate_version_id=excluded.local_certificate_version_id,
                observed_fingerprint_sha256=excluded.observed_fingerprint_sha256,
-               remote_endpoint_fingerprint=excluded.remote_endpoint_fingerprint, remote_status='reachable',
-               checked_at=excluded.checked_at, drift_status=case
-                 when pg_certificate_bindings.target_fingerprint_sha256 is null then 'UNKNOWN'
-                 when upper(pg_certificate_bindings.target_fingerprint_sha256)=upper(excluded.observed_fingerprint_sha256) then 'SYNCED'
-                 else 'DRIFTED'
-               end,
+               cert_path=excluded.cert_path, key_path=excluded.key_path, chain_path=excluded.chain_path,
+               keystore_path=excluded.keystore_path, keystore_type=excluded.keystore_type,
+               store_location=excluded.store_location, store_name=excluded.store_name, store_thumbprint=excluded.store_thumbprint,
+               local_config_path=excluded.local_config_path,
+               remote_endpoint_fingerprint=excluded.remote_endpoint_fingerprint, remote_status=excluded.remote_status,
+               checked_at=excluded.checked_at, drift_status=excluded.drift_status,
                status=case when pg_certificate_bindings.status='MANAGED' then 'MANAGED' else 'DISCOVERED' end,
                metadata=pg_certificate_bindings.metadata || excluded.metadata,
                deleted_at=null, updated_at=excluded.updated_at, version=pg_certificate_bindings.version+1`,
             [formalBindingId, context.tenantId, serviceInstanceId, siteId ?? null, managedTargetId, context.hostId,
-              domain, site?.port ?? null, normalizeProtocol(site?.protocol), binding.stableKey,
-              fingerprint, context.deviceAssetId ? 'DEVICE_API' : 'CUSTOM', context.deviceAssetId ? 'PLUGIN' : 'AGENT', discoveredAt, JSON.stringify({
-                ...(binding.metadata ?? {}),
-                pluginDiscoveryStableKey: binding.stableKey,
-                pluginCertificateStableKey: binding.certificateStableKey,
-                pluginDeviceAssetId: context.deviceAssetId,
-                pluginVersionId: context.pluginVersionId,
-                pluginBindingId: context.pluginBindingId,
-                projectionDeviceId: context.hostId,
-                discoveryProviderKey,
-                discoverySource: context.discoverySource ?? 'PROVIDER',
-                discoveryStatus: 'ACTIVE',
-                observedCertificate: {
-                  name: certificate.metadata?.name,
-                  subject: certificate.subject,
-                  issuer: certificate.issuer,
-                  notBefore: certificate.notBefore,
-                  notAfter: certificate.notAfter,
-                  fingerprintSha256: fingerprint,
-                },
-              })],
+              domain, bindingPort(binding, site), bindingProtocol(binding, site), binding.stableKey,
+              bindingType, configuredFingerprint, observedFingerprint,
+              deploymentTarget?.certificatePath ?? null, deploymentTarget?.privateKeyPath ?? null,
+              deploymentTarget?.chainPath ?? null, deploymentTarget?.keystorePath ?? null,
+              deploymentTarget?.keystoreType ?? null, deploymentTarget?.storeLocation ?? null,
+              deploymentTarget?.storeName ?? null, deploymentTarget?.storeThumbprint ?? null,
+              deploymentTarget?.sourceConfigPath ?? null, observedFingerprint,
+              context.discoverySource ?? 'AGENT', 'AGENT_CONFIG', observedCertificate ? 'reachable' : 'unknown', discoveredAt,
+              driftStatus, 'DISCOVERED', JSON.stringify(bindingMetadata)],
           );
         }
         await insertSnapshot(tx, snapshotId, context, discoveryProviderKey, normalizedSha256, normalizedPayload, summary, 'SUCCEEDED', undefined, discoveredAt);
@@ -444,6 +478,15 @@ function siteListenIp(site: StandardDeviceDiscoveryV2['sites'][number]): string 
   return site.addresses.find((address) => address === '*' || address === '::' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) ?? null;
 }
 
+function siteConfigPath(site: StandardDeviceDiscoveryV2['sites'][number]): string | null {
+  const listeners = site.metadata?.listeners;
+  if (!Array.isArray(listeners)) return null;
+  const path = listeners
+    .map((listener) => listener && typeof listener === 'object' && !Array.isArray(listener) ? (listener as Record<string, unknown>).sourceConfigPath : undefined)
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  return path?.trim() ?? null;
+}
+
 function normalizeProtocol(value: string | undefined): 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | null {
   const normalized = value?.toUpperCase();
   return normalized === 'HTTPS' || normalized === 'TLS' || normalized === 'STARTTLS' || normalized === 'HTTP' ? normalized : null;
@@ -452,9 +495,38 @@ function normalizeProtocol(value: string | undefined): 'HTTPS' | 'TLS' | 'STARTT
 function bindingDomain(
   site: StandardDeviceDiscoveryV2['sites'][number] | undefined,
   target: StandardDeviceDiscoveryV2['managedTargets'][number],
+  binding?: StandardDeviceDiscoveryV2['certificateBindings'][number],
 ): string {
+  const listenerHost = typeof binding?.metadata?.listenerHost === 'string' ? binding.metadata.listenerHost.trim() : '';
   const hostHeader = site ? siteHostHeader(site) : null;
-  return (hostHeader ?? site?.displayName ?? target.targetKey).trim().toLowerCase();
+  return (listenerHost || hostHeader || site?.displayName || target.targetKey).trim().toLowerCase();
+}
+
+function bindingPort(binding: StandardDeviceDiscoveryV2['certificateBindings'][number], site: StandardDeviceDiscoveryV2['sites'][number] | undefined): number | null {
+  const value = binding.metadata?.listenerPort;
+  return typeof value === 'number' && Number.isInteger(value) ? value : site?.port ?? null;
+}
+
+function bindingProtocol(binding: StandardDeviceDiscoveryV2['certificateBindings'][number], site: StandardDeviceDiscoveryV2['sites'][number] | undefined): 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | null {
+  const value = binding.metadata?.listenerProtocol;
+  return normalizeProtocol(typeof value === 'string' ? value : site?.protocol);
+}
+
+function deploymentBindingType(storageKind: NonNullable<StandardDeviceDiscoveryV2['certificateBindings'][number]['deploymentTarget']>['storageKind']): 'FILE_PATH' | 'KEYSTORE' | 'WINDOWS_CERT_STORE' {
+  if (storageKind === 'KEYSTORE') return 'KEYSTORE';
+  if (storageKind === 'WINDOWS_CERTIFICATE_STORE') return 'WINDOWS_CERT_STORE';
+  return 'FILE_PATH';
+}
+
+function certificateMetadataForProjection(certificate: StandardDeviceDiscoveryV2['certificates'][number]): Record<string, unknown> {
+  return {
+    ...(certificate.metadata ?? {}),
+    ...(certificate.sha256Fingerprint ? { fingerprintSha256: certificate.sha256Fingerprint } : {}),
+    ...(certificate.subject ? { subject: certificate.subject } : {}),
+    ...(certificate.issuer ? { issuer: certificate.issuer } : {}),
+    ...(certificate.notBefore ? { notBefore: certificate.notBefore } : {}),
+    ...(certificate.notAfter ? { notAfter: certificate.notAfter } : {}),
+  };
 }
 
 function normalizeFingerprint(value: string | undefined) {

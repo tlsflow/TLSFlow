@@ -59,6 +59,7 @@
         8443
       ],
       "frameworkType": "app.tomcat",
+      "parserKind": "tomcat",
       "defaultPort": 8443
     },
     {
@@ -122,6 +123,7 @@
         8443
       ],
       "frameworkType": "app.tomcat",
+      "parserKind": "tomcat",
       "defaultPort": 8443
     }
   ]

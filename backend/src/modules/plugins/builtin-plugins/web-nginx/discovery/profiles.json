@@ -49,6 +49,7 @@
         443
       ],
       "frameworkType": "web.nginx",
+      "parserKind": "nginx",
       "defaultPort": 443
     },
     {
@@ -97,6 +98,7 @@
         443
       ],
       "frameworkType": "web.nginx",
+      "parserKind": "nginx",
       "defaultPort": 443
     }
   ]

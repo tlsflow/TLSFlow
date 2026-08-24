@@ -5,6 +5,7 @@ const limits = { capabilities: 100, frameworks: 200, sites: 5000, managedTargets
 const forbiddenKeyPattern = /(password|secret|token|private[_-]?key|authorization|cookie)/i;
 const allowedPathKeys = new Set(['privateKeyPath']);
 const executionLocations = new Set(['AGENT', 'CONTROL_PLANE', 'GATEWAY']);
+const deploymentStorageKinds = new Set(['PEM_FILES', 'KEYSTORE', 'WINDOWS_CERTIFICATE_STORE']);
 
 export class DeviceDiscoverySchemaService {
   validate(value: unknown): StandardDeviceDiscoveryV2 {
@@ -44,6 +45,9 @@ export class DeviceDiscoverySchemaService {
     for (const binding of result.certificateBindings) {
       if (!targetKeys.has(binding.managedTargetStableKey)) invalidRelation('binding.managedTargetStableKey', binding.managedTargetStableKey);
       if (!certificateKeys.has(binding.certificateStableKey)) invalidRelation('binding.certificateStableKey', binding.certificateStableKey);
+      if (binding.configuredCertificateStableKey && !certificateKeys.has(binding.configuredCertificateStableKey)) invalidRelation('binding.configuredCertificateStableKey', binding.configuredCertificateStableKey);
+      if (binding.observedCertificateStableKey && !certificateKeys.has(binding.observedCertificateStableKey)) invalidRelation('binding.observedCertificateStableKey', binding.observedCertificateStableKey);
+      if (binding.deploymentTarget) assertDeploymentTarget(binding.deploymentTarget, `certificateBindings[${binding.stableKey}].deploymentTarget`);
     }
     assertNoSecrets(result);
     return structuredClone(result);
@@ -64,6 +68,17 @@ function invalidRelation(path: string, stableKey: string): never {
 }
 function invalidSchema(): never { throw new AppError('VALIDATION_FAILED', '设备发现结果 Schema 不合法', { code: 'DISCOVERY_SCHEMA_INVALID' }); }
 function invalidField(path: string): never { throw new AppError('VALIDATION_FAILED', '设备发现字段不合法', { code: 'DISCOVERY_SCHEMA_INVALID', path }); }
+
+function assertDeploymentTarget(value: unknown, path: string): void {
+  if (!isRecord(value) || typeof value.storageKind !== 'string' || !deploymentStorageKinds.has(value.storageKind)) invalidField(`${path}.storageKind`);
+  for (const key of ['certificatePath', 'privateKeyPath', 'chainPath', 'keystorePath', 'sourceConfigPath']) {
+    const child = value[key];
+    if (child !== undefined && (typeof child !== 'string' || !child.trim() || /[\r\n]/.test(child) || /^windows-tls:\/\//i.test(child.trim()))) invalidField(`${path}.${key}`);
+  }
+  if (value.storageKind === 'PEM_FILES' && typeof value.certificatePath !== 'string' && typeof value.privateKeyPath !== 'string') invalidField(`${path}.certificatePath`);
+  if (value.storageKind === 'KEYSTORE' && typeof value.keystorePath !== 'string') invalidField(`${path}.keystorePath`);
+  if (value.storageKind === 'WINDOWS_CERTIFICATE_STORE' && (typeof value.storeName !== 'string' || typeof value.storeLocation !== 'string' || typeof value.storeThumbprint !== 'string')) invalidField(`${path}.storeThumbprint`);
+}
 function assertNoSecrets(value: unknown, path = '$') {
   if (Array.isArray(value)) return value.forEach((item, index) => assertNoSecrets(item, `${path}[${index}]`));
   if (!isRecord(value)) return;

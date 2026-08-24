@@ -8,7 +8,7 @@ test('Web 配置事实解析出 Nginx 全部 server', () => {
   assert.deepEqual(result.sites.map((site) => site.name), ['a.example.test', 'secure.example.test']);
   assert.deepEqual(result.sites[0]?.addresses, ['a.example.test', 'b.example.test']);
   assert.equal(result.sites[1]?.protocol, 'HTTPS');
-  assert.deepEqual((result.sites[1]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: '/etc/cert.pem' }]);
+  assert.deepEqual((result.sites[1]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: '/etc/cert.pem', sourceConfigPath: '/etc/service/main.conf' }]);
 });
 
 test('Nginx 一个 server 的多个 listen 都保留为监听事实', () => {
@@ -35,7 +35,31 @@ test('Apache 无 VirtualHost 时仍识别 Listen 和证书配置', () => {
   const result = discoverWebConfigs([{ path: 'C:/Apache24/conf/httpd.conf', content: `Listen 443\nServerName app.example.test\nSSLEngine on\nSSLCertificateFile conf/app.crt\nSSLCertificateKeyFile conf/app.key` }]);
   assert.equal(result.sites[0]?.name, 'app.example.test');
   assert.equal(result.sites[0]?.protocol, 'HTTPS');
-  assert.deepEqual((result.sites[0]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: 'conf/app.crt', certificateKeyPath: 'conf/app.key' }]);
+  assert.deepEqual((result.sites[0]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: 'conf/app.crt', certificateKeyPath: 'conf/app.key', sourceConfigPath: 'C:/Apache24/conf/httpd.conf' }]);
+});
+
+test('引号包裹的证书路径会标准化后参与证书关联', () => {
+  const apache = discoverWebConfigs([{ path: 'D:/runtime/Apache/conf/httpd.conf', content: `Listen 8443\nServerName apache.example.test\nSSLEngine on\nSSLCertificateFile "conf/certs/apache.crt.pem"` }]);
+  const apacheListeners = (apache.sites[0]?.metadata as { listeners?: Array<{ certificatePath?: string }> }).listeners ?? [];
+  assert.equal(apacheListeners[0]?.certificatePath, 'conf/certs/apache.crt.pem');
+
+  const nginx = discoverWebConfigs([{ path: 'E:/runtime/nginx/conf/nginx.conf', content: `server { listen 9443 ssl; server_name nginx.example.test; ssl_certificate "certs/nginx.crt.pem"; }` }]);
+  const nginxListeners = (nginx.sites[0]?.metadata as { listeners?: Array<{ certificatePath?: string }> }).listeners ?? [];
+  assert.equal(nginxListeners[0]?.certificatePath, 'certs/nginx.crt.pem');
+});
+
+test('Nginx 注释中的证书示例不会生成站点证书', () => {
+  const result = discoverWebConfigs([{
+    path: 'C:/runtime/nginx/conf/nginx.conf',
+    content: `# server { listen 443 ssl; server_name comment.example.test; ssl_certificate cert.pem; }
+server { listen 443 ssl; server_name live.example.test; # ssl_certificate cert.pem;
+  ssl_certificate "../certs/live.pem";
+}`,
+  }]);
+  assert.deepEqual(result.sites.map((site) => site.name), ['live.example.test']);
+  const listeners = (result.sites[0]?.metadata as { listeners?: Array<{ certificatePath?: string }> }).listeners ?? [];
+  assert.equal(listeners[0]?.certificatePath, '../certs/live.pem');
+  assert.equal(listeners.some((listener) => listener.certificatePath === 'cert.pem'), false);
 });
 
 test('Windows 自定义安装目录按配置文件名和内容识别 Apache', () => {
@@ -61,7 +85,14 @@ test('Web 配置事实解析 IIS applicationHost.config 的站点和 HTTPS 绑�
   assert.deepEqual(result.sites[0]?.addresses, ['portal.example.test']);
   assert.deepEqual((result.sites[0]?.metadata as { listeners?: Array<{ port: number; protocol: string }> }).listeners, [
     { port: 80, protocol: 'HTTP', bindingInformation: '*:80:' },
-    { port: 443, protocol: 'HTTPS', bindingInformation: '*:443:portal.example.test', host: 'portal.example.test' },
+    {
+      port: 443,
+      protocol: 'HTTPS',
+      bindingStorageKind: 'WINDOWS_CERTIFICATE_STORE',
+      bindingInformation: '*:443:portal.example.test',
+      host: 'portal.example.test',
+      sourceConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+    },
   ]);
 });
 
@@ -74,10 +105,12 @@ test('IIS HTTPS binding 保留 Windows 证书库 Thumbprint 和存储区', () =>
   assert.deepEqual(listeners[0], {
     port: 443,
     protocol: 'HTTPS',
+    bindingStorageKind: 'WINDOWS_CERTIFICATE_STORE',
     bindingInformation: '*:443:portal.example.test',
     host: 'portal.example.test',
     certificateThumbprint: 'A1B2C3D4E5F60708',
     certificateStoreName: 'My',
+    sourceConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
   });
 });
 
@@ -92,19 +125,28 @@ test('IIS applicationHost.config 的 Base64 certificateHash 转为 SHA-1 Thumbpr
   assert.equal(listeners[0]?.certificateStoreName, 'My');
 });
 
-test('Web 配置事实把 Tomcat Connector 和 SSLHostConfig keystore 作为 HTTPS 证书路径', () => {
+test('Web 配置事实把 Tomcat KeyStore 与 PEM 位置分开保存', () => {
   const result = discoverWebConfigs([{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateKeystoreFile="localhost-rsa.p12" certificateKeystorePassword="changeit" /></SSLHostConfig></Connector><Host name="localhost" />` }]);
   const site = result.sites.find((item) => item.name === 'localhost');
   assert.equal(site?.protocol, 'HTTPS');
   assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, 'localhost-rsa.p12');
-  assert.deepEqual((site?.metadata as { listeners?: Array<{ certificatePath?: string }> } | undefined)?.listeners, [{ port: 8445, protocol: 'HTTPS', certificatePath: 'localhost-rsa.p12' }]);
+  assert.deepEqual((site?.metadata as { listeners?: Array<Record<string, unknown>> } | undefined)?.listeners, [{ port: 8445, protocol: 'HTTPS', keystorePath: 'localhost-rsa.p12', keystoreType: 'PKCS12', sourceConfigPath: '/opt/tomcat/conf/server.xml' }]);
 });
 
 test('Web 配置事实支持 Tomcat SSLHostConfig 的 PEM certificateFile', () => {
   const result = discoverWebConfigs([{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateFile="/opt/tomcat/conf/localhost.pem" /></SSLHostConfig></Connector>` }]);
   const site = result.sites.find((item) => item.name === 'localhost');
-  assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, '/opt/tomcat/conf/localhost.pem');
-  assert.equal((site?.metadata as { listeners?: Array<{ certificatePath?: string }> } | undefined)?.listeners?.[0]?.certificatePath, '/opt/tomcat/conf/localhost.pem');
+  assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, undefined);
+  assert.deepEqual((site?.metadata as { listeners?: Array<{ certificatePath?: string }> } | undefined)?.listeners?.[0], { port: 8445, protocol: 'HTTPS', certificatePath: '/opt/tomcat/conf/localhost.pem', sourceConfigPath: '/opt/tomcat/conf/server.xml' });
+});
+
+test('Tomcat KeyStore 保留类型和 Alias，不能伪装成 PEM certificatePath', () => {
+  const result = discoverWebConfigs([{ path: 'C:/GCAC-Lab/Tomcat/conf/server.xml', content: `<Connector port="8445" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="conf/site.jks" certificateKeystoreType="JKS" certificateKeyAlias="server" /></SSLHostConfig></Connector><Host name="tomcat.test.local" />` }]);
+  const listener = ((result.sites[0]?.metadata as { listeners?: Array<Record<string, unknown>> } | undefined)?.listeners ?? [])[0];
+  assert.equal(listener?.certificatePath, undefined);
+  assert.equal(listener?.keystorePath, 'conf/site.jks');
+  assert.equal(listener?.keystoreType, 'JKS');
+  assert.equal(listener?.keyAlias, 'server');
 });
 
 test('Web 配置事实忽略 Tomcat server.xml 注释中的示例 Connector', () => {

@@ -17,7 +17,6 @@ import { normalizeDeploymentStrategy } from '../assets/application/deployment-st
 import { PgBindingsRepository } from '../bindings/repository/bindings.repository.js';
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
 import { createCertificateServices } from '../certificates/controller/certificates.controller.js';
-import { CertificateFormatExporter } from '../certificates/application/certificate-format-exporter.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { DeploymentInputSnapshotsRepository } from '../deployment-inputs/repository/deployment-input-snapshots.repository.js';
@@ -72,9 +71,9 @@ type DeploymentFixture = {
   certificateVersionId: string;
   certificateFormatId: string;
   certificateFingerprintSha256: string;
-  target_1: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string };
-  binding_ok: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string };
-  binding_blocked: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string };
+  target_1: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string; observedFingerprintSha256: string };
+  binding_ok: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string; observedFingerprintSha256: string };
+  binding_blocked: { applicationAssetId: string; siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string; observedFingerprintSha256: string };
 };
 
 async function createMigratedTestApp(options: { security?: ReturnType<typeof createSecurityServices> } = {}) {
@@ -112,7 +111,7 @@ async function createMigratedDeploymentService(options: {
 }
 
 function createDeploymentTestApp(db: PgliteDatabase, security: ReturnType<typeof createSecurityServices>) {
-  const certificates = createCertificateServices(security, { db, pfxExporter: new PfxPluginRunnerFixture() });
+  const certificates = createCertificateServices(security, { db });
   // 本文件只验证部署插件的 v2 执行合同；旧领域信任计划由独立测试覆盖，不能把已退役的动作带入本 Fixture。
   Object.defineProperty(certificates.certificates, 'getTrustRoots', { value: undefined });
   return configureTestAuth(createApp({
@@ -197,7 +196,7 @@ function createDeploymentAgentPlanAuthorizationFixture(security: ReturnType<type
         policyVersion: 'gcac.agent-security/v1',
         agentId,
         authorityKeyIds: ['gcac-policy-signing-2026'],
-        allowedActions: ['certificate.store.inspect'],
+        allowedActions: ['certificate.store.inspect', 'certificate.tls.verify'],
         pathRules: [],
         serviceRules: [],
         commandRules: [],
@@ -250,20 +249,6 @@ function createDeploymentPluginRunnerFixture(): PluginRunnerExecutionDependencie
   };
 }
 
-class PfxPluginRunnerFixture extends CertificateFormatExporter {
-  override generate(format: string, input: Record<string, unknown>) {
-    if (format !== 'pfx') return super.generate(format, input as never);
-    const content = Buffer.from(`pfx-plugin-runner:${String((input.version as { id?: string })?.id ?? 'fixture')}`, 'utf8');
-    return {
-      format: 'pfx',
-      content,
-      contentType: 'application/x-pkcs12',
-      warnings: [],
-      files: [{ key: 'bundle', role: 'bundle', format: 'pfx', contentBase64: content.toString('base64'), contentEncoding: 'base64' }],
-    };
-  }
-}
-
 function configureDeploymentLicenseFixture(app: ReturnType<typeof createApp>): void {
   const licensing = app.getResource('licensingService');
   assert.ok(licensing);
@@ -310,6 +295,18 @@ async function createReadyLowRiskPlan(app: ReturnType<typeof createApp>, fixture
   const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
   assert.equal(submitted.statusCode, 200);
   return submitted.body as { id: string; status: string };
+}
+
+async function clearBindingTlsProof(database: PgliteDatabase, bindingId: string): Promise<void> {
+  await database.query(
+    `update pg_certificate_bindings
+       set observed_fingerprint_sha256 = null,
+           remote_endpoint_fingerprint = null,
+           checked_at = null,
+           metadata = metadata - 'observedCertificate'
+     where id = $1`,
+    [bindingId],
+  );
 }
 
 async function createApprovedHighRiskPlan(app: ReturnType<typeof createApp>, fixture: DeploymentFixture, idempotencyKey = 'idem_plan_high') {
@@ -1509,6 +1506,113 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
+  it('配置证书与运行证书不同时保留 DRIFTED，并把运行指纹作为 Agent Plan 第一项校验', async () => {
+    const { app, fixture } = await createMigratedTestApp();
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_tls_proof_drifted');
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_agent_tls_proof_drifted_dry_run' },
+    });
+
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const body = response.body as {
+      steps: Array<{
+        inputSnapshot: {
+          plan?: { planDigest: string; operations: Array<{ operationType: string; input: Record<string, unknown> }> };
+          executionAuthorization?: { actions?: string[] };
+        };
+      }>;
+    };
+    const snapshot = body.steps.map((step) => step.inputSnapshot).find((item) => item.plan);
+    assert.ok(snapshot?.plan, JSON.stringify(body));
+    assert.equal(snapshot.plan.operations[0]?.operationType, 'certificate.tls.verify');
+    assert.equal(
+      snapshot.plan.operations[0]?.input.expectedFingerprintSha256,
+      fixture.target_1.observedFingerprintSha256,
+    );
+    assert.notEqual(
+      snapshot.plan.operations[0]?.input.expectedFingerprintSha256,
+      fixture.certificateFingerprintSha256,
+    );
+    assert.equal(snapshot.executionAuthorization?.actions?.includes('certificate.tls.verify'), true);
+    assert.equal(snapshot.plan.planDigest, computeAgentPlanDigest(snapshot.plan as never));
+  });
+
+  it('Agent Web 绑定没有完整运行态证明时禁止创建部署计划', async () => {
+    const { app, db, fixture } = await createMigratedTestApp();
+    await clearBindingTlsProof(db, fixture.target_1.bindingId);
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId: fixture.target_1.applicationAssetId,
+        targetCertificateVersionId: fixture.certificateVersionId,
+        certificateFormatId: fixture.certificateFormatId,
+        selectionMode: 'EXPLICIT',
+        idempotencyKey: 'idem_agent_tls_proof_missing_create',
+        policy: { riskLevel: 'low', approvalRequired: false, failurePolicy: 'rollback' },
+      },
+    });
+
+    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
+    assert.equal((response.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
+    assert.match(JSON.stringify(response.body), /TLS|运行态证明/);
+  });
+
+  it('Agent Plan 有绑定证明但 operations 为空时必须失败关闭', async () => {
+    const { app, service, fixture } = await createMigratedDeploymentService();
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_plan_operations_missing');
+    const targets = await service.getRepository().listTargetsByPlan(plan.id, 'tenant_1');
+    const target = targets[0];
+    assert.ok(target);
+    const strategyPayload = structuredClone(target.strategyPayload ?? {});
+    const agentPlan = strategyPayload.plan as Record<string, unknown>;
+    strategyPayload.plan = { ...agentPlan, operations: [] };
+    await service.getRepository().updateTarget(target.id, {
+      strategyPayload,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'test_agent_plan_operations_missing',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_agent_plan_operations_missing_dry_run' },
+    });
+
+    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
+    assert.match(JSON.stringify(response.body), /operations/);
+  });
+
+  it('执行前当前绑定证明丢失时拒绝执行，并保持计划为 READY', async () => {
+    const { app, db, service, fixture } = await createMigratedDeploymentService();
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_tls_proof_missing_execute');
+    await completeAgentDryRun(app, {
+      planId: plan.id,
+      agentId: fixture.agentId,
+      idempotencyKey: 'idem_agent_tls_proof_missing_execute_dry_run',
+    });
+    await clearBindingTlsProof(db, fixture.target_1.bindingId);
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/execute',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_agent_tls_proof_missing_execute_run' },
+    });
+
+    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
+    assert.match(JSON.stringify(response.body), /TLS|运行态证明/);
+    const persisted = await service.getRepository().getPlanOrThrow(plan.id, 'tenant_1');
+    assert.equal(persisted.status, 'READY');
+  });
+
   it('dry-run 返回后可立即从统一任务列表查询到对应任务', async () => {
     const security = createSecurityServices();
     await grantDeploymentFixturePolicies(security, 'tenant_1');
@@ -1564,8 +1668,13 @@ describe('部署计划与执行编排 API', () => {
     const { app, service: deploymentService, fixture, bindings } = await createMigratedDeploymentService();
     await bindings.updateCertificateBinding('tenant_1', fixture.target_1.bindingId, {
       observedFingerprintSha256: fixture.certificateFingerprintSha256,
+      remoteEndpointFingerprint: fixture.certificateFingerprintSha256,
+      checkedAt: new Date().toISOString(),
       metadata: {
         currentThumbprint: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        observedCertificate: {
+          fingerprintSha256: fixture.certificateFingerprintSha256,
+        },
       },
     });
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_warning_plan');
@@ -3695,8 +3804,46 @@ async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId
       throw new Error(`seedDeploymentFixture 创建 CertificateBinding 失败：${binding.statusCode} ${JSON.stringify(binding.body)}`);
     }
     const bindingId = (binding.body as { id: string }).id;
+    const observedFingerprintSha256 = createHash('sha256')
+      .update(`${tenantId}:${item.key}:runtime-tls`, 'utf8')
+      .digest('hex');
+    assert.notEqual(observedFingerprintSha256, importedBody.version.fingerprintSha256);
+    const checkedAt = new Date().toISOString();
+    const proof = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        id: bindingId,
+        observedFingerprintSha256,
+        remoteEndpointFingerprint: observedFingerprintSha256,
+        remoteStatus: 'reachable',
+        checkedAt,
+        driftStatus: 'DRIFTED',
+        metadata: {
+          observedCertificate: {
+            fingerprintSha256: observedFingerprintSha256,
+            subject: `CN=runtime-${item.domain}`,
+            issuer: 'CN=GCAC Runtime Fixture CA',
+          },
+          configuredCertificate: {
+            fingerprintSha256: importedBody.version.fingerprintSha256,
+          },
+          driftStatus: 'DRIFTED',
+        },
+      },
+    });
+    assert.equal(proof.statusCode, 200, JSON.stringify(proof.body));
 
-    seededTargets[item.key] = { applicationAssetId, siteAssetId, managedTargetId, bindingId, bindingKey, domain: item.domain };
+    seededTargets[item.key] = {
+      applicationAssetId,
+      siteAssetId,
+      managedTargetId,
+      bindingId,
+      bindingKey,
+      domain: item.domain,
+      observedFingerprintSha256,
+    };
   }
 
   return {

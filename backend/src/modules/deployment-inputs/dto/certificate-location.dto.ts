@@ -1,3 +1,5 @@
+import { AppError } from '../../../common/errors/app-error.js';
+
 export const CERTIFICATE_LOCATION_API_VERSION = 'gcac.certificate-location/v1' as const;
 
 export type CertificateStorageKind = 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE';
@@ -34,6 +36,7 @@ export function readCertificateLocation(metadata: Record<string, unknown>, obser
   const privateKeyPath = readString(metadata.keyPath, metadata.privateKeyPath, metadata.certificateKeyPath);
   const keystorePath = readString(metadata.keystorePath);
   const storeThumbprint = readString(metadata.storeThumbprint);
+  rejectRuntimePaths([certificatePath, privateKeyPath, readString(metadata.chainPath), keystorePath], 'certificateLocation');
   if (!certificatePath && !privateKeyPath && !keystorePath && !storeThumbprint) return undefined;
 
   return compactLocation({
@@ -64,6 +67,7 @@ function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFall
   const privateKeyPath = readString(value.privateKeyPath);
   const keystorePath = readString(value.keystorePath);
   const storeThumbprint = readString(value.storeThumbprint);
+  rejectRuntimePaths([certificatePath, privateKeyPath, readString(value.chainPath), keystorePath], 'certificateLocation');
   if (!certificatePath && !privateKeyPath && !keystorePath && !storeThumbprint) return undefined;
 
   const storageKind = readString(value.storageKind);
@@ -89,6 +93,13 @@ function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFall
     observedAt: readString(value.observedAt) ?? normalizeObservedAt(observedAtFallback),
     warnings: readStrings(value.warnings),
   });
+}
+
+function rejectRuntimePaths(paths: Array<string | undefined>, path: string): void {
+  const runtimePath = paths.find((value) => value?.trim().toLowerCase().startsWith('windows-tls://'));
+  if (runtimePath) {
+    throw new AppError('VALIDATION_FAILED', 'TLS 握手观测结果不能作为部署位置', { path, value: runtimePath });
+  }
 }
 
 function compactLocation(value: CertificateLocationV1): CertificateLocationV1 {

@@ -17,10 +17,21 @@ Agent 只注册以下四个动作：
 
 ## 构建与运维
 
-```powershell
-go build -trimpath -o gcac-agent.exe .
-go test ./...
+Windows Go Full Agent 的唯一安装发布物是 `dist/gcac-agent.windows-amd64.exe`。一键安装接口只会打包该文件，不会读取根目录中可能遗留的 `gcac-agent.exe`。构建时会同步根目录二进制，仅用于兼容尚未重启的旧后端安装器。
+
+macOS、Linux 或 Git Bash：
+
+```bash
+./build.sh
 ```
+
+Windows PowerShell：
+
+```powershell
+.\build.ps1
+```
+
+Windows 原生构建会先执行测试；macOS、Linux 和 Git Bash 会先交叉编译两种 Windows 测试二进制。随后均生成 `amd64` 和 `arm64` 发布物及其 SHA-256。
 
 Windows 服务安装、卸载和状态检查脚本属于部署运维入口；Agent 进程本身不会启动脚本解释器。配置模板和服务安装路径位于当前目录下的 `config` 与安装脚本中。
 

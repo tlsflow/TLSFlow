@@ -179,7 +179,6 @@ func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
 
 func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
-	fixture.Request["refreshWebInventory"] = true
 	fixture.Request["requestedBy"] = "user-1"
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("调度元数据必须在严格合同前剥离: success=%v code=%s", success, code)
@@ -187,6 +186,14 @@ func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *te
 	fixture.Request["unexpected"] = true
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_MESSAGE_INVALID" {
 		t.Fatalf("未声明字段仍必须被严格合同拒绝: success=%v code=%s", success, code)
+	}
+}
+
+func TestV2AllowsFullWebDiscoveryWithoutPluginDiscoverySpec(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["refreshWebInventory"] = true
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("完整 Web 发现不应依赖插件 discoverySpec: success=%v code=%s", success, code)
 	}
 }
 
@@ -382,6 +389,42 @@ func TestV2NonceIsConsumedOnlyByPlanExecute(t *testing.T) {
 	}
 }
 
+func TestWindowsWebWritePlanRequiresLocalTLSBindingProofBeforeAnyWrite(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	plan := fixture.Plan
+	plan.PluginID = "custom.windows.web"
+	plan.Capability = "certificate.deploy"
+	digest, err := computeAgentPlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+	token := fixture.Token
+	token.PluginID = plan.PluginID
+	token.Capability = plan.Capability
+	token.PlanDigest = plan.PlanDigest
+
+	success, code, message, _ := executeAuthorizedAgentPlan(context.Background(), plan, token)
+	if success || code != "AGENT_PLAN_INVALID" || !strings.Contains(message, "TLS") {
+		t.Fatalf("Windows Web 写计划缺少部署前 TLS 证明必须失败关闭: success=%v code=%s message=%s", success, code, message)
+	}
+}
+
+func TestPreDeployTLSVerificationRejectsNonLocalEndpoint(t *testing.T) {
+	err := validatePreDeployTLSVerificationInput(map[string]any{
+		"connectHost":               "10.255.0.83",
+		"serverName":                "portal.example.test",
+		"port":                      443,
+		"expectedFingerprintSha256": strings.Repeat("a", 64),
+		"bindingId":                 "bnd_test",
+		"bindingKey":                "binding-test",
+		"checkedAt":                 time.Now().UTC().Format(time.RFC3339),
+	})
+	if err == nil {
+		t.Fatal("部署前 TLS 验证不得允许连接非本机地址")
+	}
+}
+
 func TestV2ReceiptRejectsTamperedDigestAndSignature(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	fixture.Request["action"] = agentPlanExecute
@@ -462,7 +505,6 @@ func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
 func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	fixture.Request["action"] = agentFactCollect
-	fixture.Request["refreshWebInventory"] = true
 	fixture.Request["requestedBy"] = "user-1"
 	if success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("事实采集应成功: success=%v code=%s", success, code)
@@ -472,13 +514,10 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 			t.Fatalf("事实采集必须返回 factEnvelope: %#v", detail)
 		}
 		facts := factEnvelope["facts"].([]map[string]any)
-		seen := map[string]bool{}
 		for _, fact := range facts {
-			seen[fact["kind"].(string)] = true
-		}
-		for _, kind := range []string{"process", "service", "privilege", "certificate_store"} {
-			if !seen[kind] {
-				t.Fatalf("事实采集缺少最低合同类别: %s", kind)
+			switch fact["kind"] {
+			case "file_content", "certificate_file", "certificate_store", "ssl_certificate_binding":
+				t.Fatalf("非完整 Web 发现不得采集 Web 配置或证书事实: %#v", fact)
 			}
 		}
 		diagnostics, ok := factEnvelope["diagnostics"].(map[string]any)
@@ -492,39 +531,6 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	}
 }
 
-func TestParseCertificateStoreOutputKeepsEachWindowsCertificate(t *testing.T) {
-	output := `================ Certificate 0 ================
-Subject: CN=one.example.test
-Cert Hash(sha1): 11 22 33 44 55 66 77 88 99 00 AA BB CC DD EE FF 00 11 22 33
-================ Certificate 1 ================
-Subject: CN=two.example.test
-Cert Hash(sha1): AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD`
-	records := parseCertificateStoreOutput(output, "My")
-	if len(records) != 2 {
-		t.Fatalf("证书库输出应保留两个证书记录: %#v", records)
-	}
-	if records[0]["thumbprint"] != "11223344556677889900AABBCCDDEEFF00112233" || records[1]["thumbprint"] != "AABBCCDDEEFF00112233445566778899AABBCCDD" {
-		t.Fatalf("证书库 Thumbprint 解析错误: %#v", records)
-	}
-}
-
-func TestParseCertificateStoreOutputSupportsLocalizedCertutilLabels(t *testing.T) {
-	output := `================ Certificate 0 ================
-主题: CN=portal.example.test
-证书哈希(sha1): 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF 00 11 22 33
-证书哈希(sha256): AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA`
-	records := parseCertificateStoreOutput(output, "My")
-	if len(records) != 1 {
-		t.Fatalf("本地化 certutil 输出应保留证书记录: %#v", records)
-	}
-	if records[0]["thumbprint"] != "00112233445566778899AABBCCDDEEFF00112233" {
-		t.Fatalf("本地化 certutil Thumbprint 解析错误: %#v", records)
-	}
-	if records[0]["sha256Fingerprint"] != strings.Repeat("AA", 32) {
-		t.Fatalf("本地化 certutil SHA-256 解析错误: %#v", records)
-	}
-}
-
 func TestParseWindowsListeningPortsKeepsPIDFromNetstatO(t *testing.T) {
 	output := []byte(`
   Proto  Local Address          Foreign Address        State           PID
@@ -534,24 +540,5 @@ func TestParseWindowsListeningPortsKeepsPIDFromNetstatO(t *testing.T) {
 	ports := parseWindowsListeningPorts(output)
 	if len(ports) != 2 || intFromMap(ports[0], "pid") != 4321 || intFromMap(ports[1], "pid") != 9876 {
 		t.Fatalf("netstat -o PID 解析错误: %#v", ports)
-	}
-}
-
-func TestParseWindowsSSLCertificateBindings(t *testing.T) {
-	output := `
-IP:port                      : 0.0.0.0:443
-Certificate Hash              : 11 22 33 44 55 66 77 88 99 00 AA BB CC DD EE FF 00 11 22 33
-Certificate Store Name        : MY
-
-Hostname:port                : portal.example.test:443
-Certificate Hash              : AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD
-Certificate Store Name        : MY
-`
-	bindings := parseWindowsSSLCertificateBindings(output)
-	if len(bindings) != 2 {
-		t.Fatalf("HTTP.sys SSL 绑定数量错误: %#v", bindings)
-	}
-	if bindings[0]["thumbprint"] != "11223344556677889900AABBCCDDEEFF00112233" || bindings[1]["address"] != "portal.example.test" {
-		t.Fatalf("HTTP.sys SSL 绑定解析错误: %#v", bindings)
 	}
 }

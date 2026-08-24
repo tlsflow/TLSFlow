@@ -39,11 +39,15 @@ function snapshot(capabilities: AgentCapabilitySnapshot['capabilities']): AgentC
     tenantId: 'tenant-1',
     agentId: 'agent-1',
     reportedAt: '2026-08-09T00:00:00.000Z',
-    capabilities,
+    capabilities: capabilities.map((capability) => {
+      if (capability.capabilityKey !== 'web.inventory' || !capability.value || typeof capability.value !== 'object' || Array.isArray(capability.value)) return capability;
+      const value = capability.value as Record<string, unknown>;
+      return value.scope ? capability : { ...capability, value: { scope: 'FULL_WEB_DISCOVERY', ...value } };
+    }),
   } as AgentCapabilitySnapshot;
 }
 
-test('Agent 快照只投影通用主机事实，不生成产品对象', async () => {
+test('周期运行态快照不触发 Web 投影', async () => {
   const fixture = createFixture();
 
   await fixture.service.project(agent(), snapshot([
@@ -51,40 +55,19 @@ test('Agent 快照只投影通用主机事实，不生成产品对象', async ()
     { capabilityKey: 'service.list', confidence: 0.9, value: { count: 3 } },
   ]));
 
-  const projected = fixture.projected() as {
-    device: { productFamily: string };
-    capabilities: Array<{ key: string; available: boolean; metadata?: Record<string, unknown> }>;
-    frameworks: unknown[];
-    sites: unknown[];
-    managedTargets: unknown[];
-    certificates: unknown[];
-    certificateBindings: unknown[];
-  };
-  assert.equal(projected.device.productFamily, 'AGENT_HOST');
-  assert.deepEqual(projected.capabilities, [
-    { key: 'process.list', available: true, metadata: { confidence: 1 } },
-    { key: 'service.list', available: true, metadata: { confidence: 0.9 } },
-  ]);
-  assert.equal(projected.frameworks.length, 0);
-  assert.equal(projected.sites.length, 0);
-  assert.equal(projected.managedTargets.length, 0);
-  assert.equal(projected.certificates.length, 0);
-  assert.equal(projected.certificateBindings.length, 0);
+  assert.equal(fixture.projected(), undefined);
+  assert.equal(fixture.queries().length, 0);
 });
 
-test('Agent 能力值为 false 或 null 时只表示不可用，不被解释为产品未安装', async () => {
+test('非完整 Web scope 的库存不能触发投影', async () => {
   const fixture = createFixture();
 
   await fixture.service.project(agent(), snapshot([
-    { capabilityKey: 'filesystem.read', confidence: 1, value: false },
-    { capabilityKey: 'service.status', confidence: 1, value: null },
+    { capabilityKey: 'web.inventory', confidence: 1, value: { scope: 'RUNTIME_TELEMETRY', configFiles: [{ path: '/etc/nginx/nginx.conf', content: 'server { listen 443 ssl; }' }] } },
   ]));
 
-  const projected = fixture.projected() as { capabilities: Array<{ key: string; available: boolean }> };
-  assert.deepEqual(projected.capabilities, [
-    { key: 'filesystem.read', available: false, metadata: { confidence: 1 } },
-    { key: 'service.status', available: false, metadata: { confidence: 1 } },
-  ]);
+  assert.equal(fixture.projected(), undefined);
+  assert.equal(fixture.queries().length, 0);
 });
 
 test('缺少统一 Host 资产锚点时失败关闭', async () => {
@@ -93,12 +76,12 @@ test('缺少统一 Host 资产锚点时失败关闭', async () => {
   const service = new AgentCapabilityDiscoveryProjector(database, projector);
 
   await assert.rejects(
-    () => service.project(agent(), snapshot([])),
+    () => service.project(agent(), snapshot([{ capabilityKey: 'web.inventory', confidence: 1, value: { scope: 'FULL_WEB_DISCOVERY', configFiles: [] } }])),
     (error: unknown) => error instanceof Error && error.message.includes('统一 Host 资产锚点'),
   );
 });
 
-test('Agent 快照中的产品能力字段不会被宿主当作站点识别结果', async () => {
+test('产品能力字段不会被宿主当作站点识别结果', async () => {
   const fixture = createFixture();
 
   await fixture.service.project(agent(), snapshot([
@@ -118,17 +101,10 @@ test('Agent 快照中的产品能力字段不会被宿主当作站点识别结�
     ] } },
   ]));
 
-  const projected = fixture.projected() as {
-    frameworks: Array<{ frameworkType: string }>;
-    sites: Array<{ stableKey: string }>;
-    managedTargets: Array<{ siteStableKey: string }>;
-  };
-  assert.equal(projected.frameworks.length, 0);
-  assert.equal(projected.sites.length, 0);
-  assert.equal(projected.managedTargets.length, 0);
+  assert.equal(fixture.projected(), undefined);
 });
 
-test('通用 Web inventory 已带框架和站点时完整保留，不退化为单端口猜测', async () => {
+test('成熟 Agent Web 快照直接投影框架、站点和配置绑定证书', async () => {
   const fixture = createFixture();
 
   await fixture.service.project(agent(), snapshot([
@@ -136,15 +112,24 @@ test('通用 Web inventory 已带框架和站点时完整保留，不退化为�
       capabilityKey: 'web.inventory',
       confidence: 0.95,
       value: {
-        processExecutables: ['/usr/sbin/nginx', '/usr/sbin/httpd'],
-        listeningPorts: [{ port: 80, address: '0.0.0.0', protocol: 'tcp' }],
+        scope: 'FULL_WEB_DISCOVERY',
         frameworks: [
-          { frameworkType: 'web.nginx', executable: '/usr/sbin/nginx' },
-          { frameworkType: 'web.apache', executable: '/usr/sbin/httpd' },
+          { frameworkType: 'web.iis', displayName: 'IIS', version: '10.0' },
+          { frameworkType: 'web.nginx', displayName: 'Nginx', version: '1.24' },
+          { frameworkType: 'web.apache', displayName: 'Apache', version: '2.4' },
+          { frameworkType: 'app.tomcat', displayName: 'Tomcat', version: '10.1' },
         ],
         sites: [
-          { name: 'public.example.test', frameworkType: 'web.nginx', port: 80, protocol: 'HTTP', address: 'public.example.test' },
-          { name: 'admin.example.test', frameworkType: 'web.apache', port: 80, protocol: 'HTTP', address: 'admin.example.test' },
+          { name: 'IIS Portal', frameworkType: 'web.iis', serverNames: ['iis.example.test'], port: 443, protocol: 'HTTPS', metadata: { siteId: 'iis:1', configPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config', listeners: [{ address: '*', port: 443, protocol: 'HTTPS', host: 'iis.example.test', certificateThumbprint: '00112233445566778899AABBCCDDEEFF00112233', certificateStoreName: 'My', certificateStoreLocation: 'LocalMachine' }] } },
+          { name: 'Nginx Live', frameworkType: 'web.nginx', serverNames: ['nginx.example.test'], port: 8443, protocol: 'HTTPS', metadata: { siteId: 'nginx:1', configPath: 'D:/nginx/conf/nginx.conf', listeners: [{ address: '*', port: 80, protocol: 'HTTP', host: 'nginx.example.test' }, { address: '*', port: 8443, protocol: 'HTTPS', host: 'nginx.example.test', certificatePath: 'D:/nginx/certs/live.pem', sourceConfigPath: 'D:/nginx/conf/nginx.conf' }] } },
+          { name: 'Apache Live', frameworkType: 'web.apache', serverNames: ['apache.example.test'], port: 9443, protocol: 'HTTPS', metadata: { siteId: 'apache:1', configPath: 'E:/Apache/conf/httpd.conf', listeners: [{ address: '*', port: 9443, protocol: 'HTTPS', host: 'apache.example.test', certificatePath: 'E:/Apache/certs/live.pem', sourceConfigPath: 'E:/Apache/conf/httpd.conf' }] } },
+          { name: 'Tomcat Live', frameworkType: 'app.tomcat', serverNames: ['tomcat.example.test'], port: 10443, protocol: 'HTTPS', metadata: { siteId: 'tomcat:1', configPath: 'F:/Tomcat/conf/server.xml', listeners: [{ address: '*', port: 10443, protocol: 'HTTPS', host: 'tomcat.example.test', keystorePath: 'F:/Tomcat/conf/live.p12', keystoreType: 'PKCS12', sourceConfigPath: 'F:/Tomcat/conf/server.xml' }] } },
+        ],
+        certificateFiles: [
+          { path: 'windows-certstore://LocalMachine/My/00112233445566778899AABBCCDDEEFF00112233', thumbprint: '00112233445566778899AABBCCDDEEFF00112233', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=iis.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z', store: 'My', storeLocation: 'LocalMachine' },
+          { path: 'D:/nginx/certs/live.pem', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=nginx.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
+          { path: 'E:/Apache/certs/live.pem', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=apache.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
+          { path: 'F:/Tomcat/conf/live.p12', sha256Fingerprint: 'd'.repeat(64), subject: 'CN=tomcat.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
         ],
       },
     },
@@ -152,11 +137,20 @@ test('通用 Web inventory 已带框架和站点时完整保留，不退化为�
 
   const projected = fixture.projected() as {
     frameworks: Array<{ frameworkType: string }>;
-    sites: Array<{ displayName: string; frameworkStableKey: string }>;
+    sites: Array<{ displayName: string; metadata?: { listeners?: Array<{ protocol?: string }> } }>;
+    certificateBindings: Array<{ certificateStableKey: string; observedCertificateStableKey?: string }>;
   };
-  assert.deepEqual(projected.frameworks.map((item) => item.frameworkType), ['web.nginx', 'web.apache']);
-  assert.deepEqual(projected.sites.map((item) => item.displayName), ['public.example.test', 'admin.example.test']);
-  assert.deepEqual(projected.sites.map((item) => item.frameworkStableKey), ['framework:web.nginx', 'framework:web.apache']);
+  assert.deepEqual(projected.frameworks.map((item) => item.frameworkType), ['web.iis', 'web.nginx', 'web.apache', 'app.tomcat']);
+  assert.deepEqual(projected.sites.map((item) => item.displayName), ['IIS Portal', 'Nginx Live', 'Apache Live', 'Tomcat Live']);
+  assert.equal(projected.sites[1]?.metadata?.listeners?.filter((item) => item.protocol === 'HTTP').length, 1);
+  assert.deepEqual(projected.certificateBindings.map((item) => item.certificateStableKey), [
+    `CERT:${'A'.repeat(64)}`,
+    `CERT:${'B'.repeat(64)}`,
+    `CERT:${'C'.repeat(64)}`,
+    `CERT:${'D'.repeat(64)}`,
+  ]);
+  assert.ok(projected.certificateBindings.every((item) => item.observedCertificateStableKey === undefined));
+  assert.equal(fixture.projectionContext()?.preserveEmptyWeb, false);
 });
 
 test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报的证书元数据', async () => {
@@ -187,60 +181,143 @@ test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报�
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
 });
 
-test('IIS binding Thumbprint 可关联 Windows 证书库事实', async () => {
+test('TLS 握手证书不会进入 Agent 配置绑定投影', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'C:/GCAC-Lab/nginx/conf/nginx-gcac.conf', content: 'server { listen 8443 ssl; server_name nginx.test.local; ssl_certificate C:/GCAC-Lab/certs/config.pem; }' }],
+      certificateFiles: [{ path: 'C:/GCAC-Lab/certs/config.pem', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=nginx.test.local', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T02:29:03Z', notAfter: '2028-11-06T02:29:03Z' }],
+      tlsCertificateObservations: [{ source: 'local-tls-handshake', frameworkType: 'web.nginx', address: '0.0.0.0', port: 8443, hostname: 'nginx.test.local', sni: 'nginx.test.local', thumbprint: 'B'.repeat(40), path: 'windows-tls://127.0.0.1/8443', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=nginx.test.local', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T10:17:16Z', notAfter: '2028-11-06T10:17:16Z' }],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    sites: Array<{ metadata?: { listeners?: Array<Record<string, unknown>> } }>;
+    certificates: Array<{ stableKey: string; sha256Fingerprint?: string }>;
+    certificateBindings: Array<{ certificateStableKey: string }>;
+  };
+  const listener = projected.sites[0]?.metadata?.listeners?.find((item) => item.protocol === 'HTTPS');
+  assert.equal(listener?.certificatePath, 'C:/GCAC-Lab/certs/config.pem');
+  assert.equal(listener?.certificateThumbprint, undefined);
+  assert.ok(!projected.certificates.some((item) => item.sha256Fingerprint === 'B'.repeat(64)));
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
+  assert.equal((projected.certificateBindings[0] as any)?.observedCertificateStableKey, undefined);
+});
+
+test('有 DNS 主机名的 Apache 站点不能采用无 SNI 的默认 TLS 证书', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf', content: 'Listen 8444\nServerName apache.test.local:8444\nSSLEngine on\n' }],
+      tlsCertificateObservations: [{ source: 'local-tls-handshake', frameworkType: 'web.apache', address: '0.0.0.0', port: 8444, hostname: '', sni: '', thumbprint: 'B'.repeat(40), path: 'windows-tls://127.0.0.1/8444/default', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=default.test.local', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T10:17:16Z', notAfter: '2028-11-06T10:17:16Z' }],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    sites: Array<{ displayName: string; metadata?: { listeners?: Array<Record<string, unknown>> } }>;
+    certificateBindings: unknown[];
+  };
+  const https = projected.sites[0]?.metadata?.listeners?.find((item) => item.protocol === 'HTTPS');
+  assert.equal(https?.certificateThumbprint, undefined);
+  assert.equal(projected.certificateBindings.length, 0);
+});
+
+test('没有 TLS 观测时仍保留真实配置证书绑定', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'C:/GCAC-Lab/nginx/conf/nginx-gcac.conf', content: 'server { listen 8443 ssl; server_name nginx.test.local; ssl_certificate C:/GCAC-Lab/certs/config.pem; }' }],
+      certificateFiles: [{ path: 'C:/GCAC-Lab/certs/config.pem', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=config.local', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T02:29:03Z', notAfter: '2028-11-06T02:29:03Z' }],
+    },
+  }]));
+  const projected = fixture.projected() as { sites: unknown[]; certificates: unknown[]; certificateBindings: unknown[] };
+  assert.equal(projected.sites.length, 1);
+  assert.equal(projected.certificates.length, 1);
+  assert.equal(projected.certificateBindings.length, 1);
+});
+
+test('Windows Full Agent 的 IIS Binding 只投影实际关联的证书', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{
+        path: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+        content: '<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>',
+      }],
+      certificateFiles: [
+        { path: 'windows-certstore://LocalMachine/My/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', thumbprint: 'A'.repeat(40), sha256Fingerprint: 'a'.repeat(64), subject: 'CN=portal.example.test', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T02:29:03Z', notAfter: '2028-11-06T02:29:03Z', store: 'My', storeLocation: 'LocalMachine' },
+      ],
+      sslCertificateBindings: [{ source: 'web-administration', frameworkType: 'web.iis', address: '0.0.0.0', port: 443, hostname: 'portal.example.test', thumbprint: 'A'.repeat(40), store: 'My' }],
+      tlsCertificateObservations: [{ source: 'local-tls-handshake', frameworkType: 'web.iis', address: '0.0.0.0', port: 443, hostname: 'portal.example.test', sni: 'portal.example.test', thumbprint: 'B'.repeat(40), path: 'windows-tls://127.0.0.1/443/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=portal.example.test', issuer: 'CN=GCAC Lab Root CA', notBefore: '2026-08-04T10:17:16Z', notAfter: '2028-11-06T10:17:16Z' }],
+    },
+  }]));
+  const projected = fixture.projected() as {
+    certificateBindings: Array<{ certificateStableKey: string; observedCertificateStableKey?: string; metadata?: Record<string, unknown> }>;
+  };
+  assert.equal(projected.certificateBindings.length, 1);
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
+  assert.equal(projected.certificateBindings[0]?.observedCertificateStableKey, undefined);
+  assert.equal(projected.certificateBindings[0]?.metadata?.driftStatus, undefined);
+});
+
+test('IIS binding Thumbprint 只关联完整的 Windows 证书库事实', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory', confidence: 0.95, value: {
       configFiles: [{ path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: `<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="a1 b2 c3 d4 e5 f6 07 08" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>` }],
-      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', subject: 'CN=portal.example.test', issuer: 'CN=GCAC Test CA', notAfter: '2027-08-01T00:00:00Z', store: 'My', storeLocation: 'LocalMachine' }],
+      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=portal.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z', store: 'My', storeLocation: 'LocalMachine' }],
     },
   }]));
   const projected = fixture.projected() as {
     certificates: Array<{ stableKey: string; subject?: string; sha256Fingerprint?: string; metadata?: Record<string, unknown> }>;
     certificateBindings: Array<{ certificateStableKey: string; metadata?: Record<string, unknown> }>;
   };
-  assert.equal(projected.certificates[0]?.stableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  assert.equal(projected.certificates[0]?.stableKey, `CERT:${'A'.repeat(64)}`);
   assert.equal(projected.certificates[0]?.subject, 'CN=portal.example.test');
-  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
   assert.equal(projected.certificateBindings[0]?.metadata?.certificateThumbprint, 'A1B2C3D4E5F60708');
-  assert.deepEqual(projected.certificateBindings[0]?.metadata?.observedCertificate, {
+  assert.deepEqual(projected.certificateBindings[0]?.metadata?.configuredCertificate, {
+    path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708',
+    fingerprintSha256: 'A'.repeat(64),
     subject: 'CN=portal.example.test',
     issuer: 'CN=GCAC Test CA',
+    notBefore: '2026-08-01T00:00:00.000Z',
     notAfter: '2027-08-01T00:00:00.000Z',
     thumbprint: 'A1B2C3D4E5F60708',
   });
 });
 
-test('HTTP.sys SSL 绑定事实可补回没有 certificateHash 的 IIS 配置', async () => {
+test('HTTP.sys 同端口绑定不能补回 IIS 缺失的证书关联', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory', confidence: 0.95, value: {
       configFiles: [{ path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: '<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" /></bindings></site></sites></system.applicationHost></configuration>' }],
       sslCertificateBindings: [{ address: '0.0.0.0', port: 443, protocol: 'https', thumbprint: 'A1B2C3D4E5F60708', store: 'MY' }],
-      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', subject: 'CN=portal.example.test', store: 'My', storeLocation: 'LocalMachine' }],
+      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=portal.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z', store: 'My', storeLocation: 'LocalMachine' }],
     },
   }]));
   const projected = fixture.projected() as {
     certificateBindings: Array<{ certificateStableKey: string; metadata?: Record<string, unknown> }>;
   };
-  assert.equal(projected.certificateBindings.length, 1);
-  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
-  assert.equal(projected.certificateBindings[0]?.metadata?.certificateThumbprint, 'A1B2C3D4E5F60708');
+  assert.equal(projected.certificateBindings.length, 0);
 });
 
-test('IIS 证书库暂不可读时仍保留 Thumbprint 绑定，而不是丢失站点关系', async () => {
+test('IIS 证书库暂不可读时保留站点和监听器，但不伪造证书绑定', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory', confidence: 0.95, value: {
-      sites: [{ name: 'Portal', frameworkType: 'web.iis', addresses: ['portal.example.test'], port: 443, protocol: 'HTTPS', metadata: { listeners: [{ port: 443, protocol: 'HTTPS', certificateThumbprint: 'A1B2C3D4E5F60708' }] } }],
+      configFiles: [{ path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: '<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="A1B2C3D4E5F60708" /></bindings></site></sites></system.applicationHost></configuration>' }],
+      certificateFiles: [],
     },
   }]));
-  const projected = fixture.projected() as { certificates: Array<{ stableKey: string }>; certificateBindings: Array<{ certificateStableKey: string }> };
-  assert.deepEqual(projected.certificates, [{ stableKey: 'CERT:SHA1:A1B2C3D4E5F60708', metadata: { name: 'A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', source: 'iis-binding' } }]);
-  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  const projected = fixture.projected() as { sites: unknown[]; managedTargets: unknown[]; certificates: unknown[]; certificateBindings: unknown[] };
+  assert.equal(projected.sites.length, 1);
+  assert.equal(projected.managedTargets.length, 1);
+  assert.equal(projected.certificates.length, 0);
+  assert.equal(projected.certificateBindings.length, 0);
 });
 
-test('非 IIS 配置引用证书路径但证书摘要暂不可读时仍保留绑定路径', async () => {
+test('非 IIS 配置引用证书路径但证书未真实解析时不生成伪绑定', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory', confidence: 0.95, value: {
@@ -248,15 +325,11 @@ test('非 IIS 配置引用证书路径但证书摘要暂不可读时仍保留绑
       certificateFiles: [],
     },
   }]));
-  const projected = fixture.projected() as {
-    certificates: Array<{ stableKey: string; metadata?: Record<string, unknown> }>;
-    certificateBindings: Array<{ certificateStableKey: string; metadata?: { certificatePath?: string } }>;
-  };
-  assert.equal(projected.certificates.length, 1);
-  assert.match(projected.certificates[0]?.stableKey ?? '', /^CERT:PATH:/);
-  assert.deepEqual(projected.certificates[0]?.metadata, { path: 'conf/localhost-rsa.p12', name: 'localhost-rsa.p12', source: 'configured-certificate-path' });
-  assert.equal(projected.certificateBindings[0]?.certificateStableKey, projected.certificates[0]?.stableKey);
-  assert.equal(projected.certificateBindings[0]?.metadata?.certificatePath, 'conf/localhost-rsa.p12');
+  const projected = fixture.projected() as { sites: unknown[]; managedTargets: unknown[]; certificates: unknown[]; certificateBindings: unknown[] };
+  assert.equal(projected.sites.length, 1);
+  assert.equal(projected.managedTargets.length, 1);
+  assert.equal(projected.certificates.length, 0);
+  assert.equal(projected.certificateBindings.length, 0);
 });
 
 test('Windows 原始库存可同时投影 IIS、Nginx、Apache、Tomcat 及其证书绑定', async () => {
@@ -270,10 +343,10 @@ test('Windows 原始库存可同时投影 IIS、Nginx、Apache、Tomcat 及其�
         { path: 'F:/runtime/Tomcat/conf/server.xml', content: `<Server><Service><Connector port="10443" scheme="https"><SSLHostConfig><Certificate certificateFile="F:/runtime/Tomcat/conf/tomcat.crt" /></SSLHostConfig></Connector></Service><Host name="tomcat.example.test" /></Server>` },
       ],
       certificateFiles: [
-        { path: 'windows-certstore://LocalMachine/My/00112233445566778899AABBCCDDEEFF00112233', thumbprint: '00112233445566778899AABBCCDDEEFF00112233', store: 'My', storeLocation: 'LocalMachine', subject: 'CN=iis.example.test' },
-        { path: 'D:/services/nginx/conf/nginx.crt', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=nginx.example.test' },
-        { path: 'E:/apps/Apache2.4/conf/apache.crt', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=apache.example.test' },
-        { path: 'F:/runtime/Tomcat/conf/tomcat.crt', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=tomcat.example.test' },
+        { path: 'windows-certstore://LocalMachine/My/00112233445566778899AABBCCDDEEFF00112233', thumbprint: '00112233445566778899AABBCCDDEEFF00112233', sha256Fingerprint: 'd'.repeat(64), store: 'My', storeLocation: 'LocalMachine', subject: 'CN=iis.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
+        { path: 'D:/services/nginx/conf/nginx.crt', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=nginx.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
+        { path: 'E:/apps/Apache2.4/conf/apache.crt', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=apache.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
+        { path: 'F:/runtime/Tomcat/conf/tomcat.crt', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=tomcat.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' },
       ],
     },
   }]));
@@ -286,10 +359,54 @@ test('Windows 原始库存可同时投影 IIS、Nginx、Apache、Tomcat 及其�
   assert.deepEqual(projected.frameworks.map((item) => item.frameworkType), ['web.iis', 'web.nginx', 'web.apache', 'app.tomcat']);
   assert.deepEqual(projected.sites.map((item) => item.displayName), ['IIS Portal', 'nginx.example.test', 'apache.example.test', 'tomcat.example.test']);
   assert.deepEqual(projected.certificateBindings.map((item) => item.certificateStableKey), [
-    'CERT:SHA1:00112233445566778899AABBCCDDEEFF00112233',
+    `CERT:${'D'.repeat(64)}`,
     `CERT:${'A'.repeat(64)}`,
     `CERT:${'B'.repeat(64)}`,
     `CERT:${'C'.repeat(64)}`,
+  ]);
+});
+
+test('Windows Nginx、Apache、Tomcat 保留旧扫描器的完整部署位置语义', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [
+        { path: 'D:/runtime/nginx/conf/nginx.conf', content: 'server { listen 8443 ssl; server_name nginx.test.local; ssl_certificate conf/certs/nginx.crt; ssl_certificate_key conf/certs/nginx.key; }' },
+        { path: 'E:/runtime/Apache24/conf/httpd.conf', content: '<VirtualHost *:8444>\nServerName apache.test.local\nSSLEngine on\nSSLCertificateFile conf/certs/apache.crt\nSSLCertificateKeyFile conf/certs/apache.key\nSSLCertificateChainFile conf/certs/apache-chain.crt\n</VirtualHost>' },
+        { path: 'F:/runtime/Tomcat/conf/server.xml', content: '<Connector port="8445" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="conf/tomcat.p12" certificateKeystoreType="PKCS12" certificateKeyAlias="server" /></SSLHostConfig></Connector><Host name="tomcat.test.local" />' },
+      ],
+      certificateFiles: [
+        { path: 'D:/runtime/nginx/conf/certs/nginx.crt', configuredPaths: ['conf/certs/nginx.crt'], sha256Fingerprint: 'a'.repeat(64), subject: 'CN=nginx.test.local', issuer: 'CN=CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z' },
+        { path: 'E:/runtime/Apache24/conf/certs/apache.crt', configuredPaths: ['conf/certs/apache.crt'], sha256Fingerprint: 'b'.repeat(64), subject: 'CN=apache.test.local', issuer: 'CN=CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z' },
+        { path: 'F:/runtime/Tomcat/conf/tomcat.p12', configuredPaths: ['conf/tomcat.p12'], sha256Fingerprint: 'c'.repeat(64), subject: 'CN=tomcat.test.local', issuer: 'CN=CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z' },
+      ],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    certificateBindings: Array<{ deploymentTarget?: Record<string, unknown> }>;
+  };
+  assert.deepEqual(projected.certificateBindings.map((binding) => binding.deploymentTarget), [
+    {
+      storageKind: 'PEM_FILES',
+      certificatePath: 'D:/runtime/nginx/conf/certs/nginx.crt',
+      privateKeyPath: 'D:/runtime/nginx/conf/certs/nginx.key',
+      sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
+    },
+    {
+      storageKind: 'PEM_FILES',
+      certificatePath: 'E:/runtime/Apache24/conf/certs/apache.crt',
+      privateKeyPath: 'E:/runtime/Apache24/conf/certs/apache.key',
+      chainPath: 'E:/runtime/Apache24/conf/certs/apache-chain.crt',
+      sourceConfigPath: 'E:/runtime/Apache24/conf/httpd.conf',
+    },
+    {
+      storageKind: 'KEYSTORE',
+      keystorePath: 'F:/runtime/Tomcat/conf/tomcat.p12',
+      keystoreType: 'PKCS12',
+      keyAlias: 'server',
+      sourceConfigPath: 'F:/runtime/Tomcat/conf/server.xml',
+    },
   ]);
 });
 
@@ -318,7 +435,7 @@ test('Tomcat 的相对 keystore 配置路径可关联 Agent 读取到的绝对�
     metadata: {
       connectorProtocol: undefined,
       keystoreFile: 'localhost-rsa.p12',
-      listeners: [{ port: 8445, protocol: 'HTTPS', certificatePath: 'localhost-rsa.p12' }],
+      listeners: [{ port: 8445, protocol: 'HTTPS', keystorePath: 'localhost-rsa.p12', keystoreType: 'PKCS12', sourceConfigPath: '/opt/tomcat/conf/server.xml' }],
     },
   }]);
   assert.equal(projected.certificates[0]?.sha256Fingerprint, 'B'.repeat(64));
@@ -329,23 +446,23 @@ test('Tomcat 多 listener 中会选择已上报证书路径，而不是注释示
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory', confidence: 0.95, value: {
-      sites: [{ name: 'localhost', frameworkType: 'app.tomcat', port: 8443, protocol: 'HTTPS', addresses: ['localhost'], metadata: { listeners: [
-        { port: 8443, protocol: 'HTTPS', certificatePath: 'conf/localhost-rsa-cert.pem' },
-        { port: 8445, protocol: 'HTTPS', certificatePath: '/etc/gcac-test/certs/test.p12' },
-      ] } }],
+      configFiles: [{ path: '/opt/tomcat/conf/server.xml', content: `<Server><Service>
+        <Connector port="8443" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="conf/localhost-rsa-cert.pem" /></SSLHostConfig></Connector>
+        <Connector port="8445" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="/etc/gcac-test/certs/test.p12" /></SSLHostConfig></Connector>
+      </Service><Host name="localhost" /></Server>` }],
       certificateFiles: [{ path: '/etc/gcac-test/certs/test.p12', name: 'test.local', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=test.local', issuer: 'CN=Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' }],
     },
   }]));
-  const projected = fixture.projected() as { certificateBindings: Array<{ certificateStableKey: string; metadata?: { certificatePath?: string } }> };
+  const projected = fixture.projected() as { certificateBindings: Array<{ certificateStableKey: string; metadata?: { keystorePath?: string; certificatePath?: string } }> };
   assert.equal(projected.certificateBindings.length, 1);
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'C'.repeat(64)}`);
-  assert.equal(projected.certificateBindings[0]?.metadata?.certificatePath, '/etc/gcac-test/certs/test.p12');
+  assert.equal(projected.certificateBindings[0]?.metadata?.keystorePath, '/etc/gcac-test/certs/test.p12');
 });
 
 test('权威 web.inventory 投影成功后只淘汰旧 Agent Web 插件资产', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
-    capabilityKey: 'web.inventory', confidence: 0.9, value: { frameworks: [{ frameworkType: 'web.nginx' }], sites: [{ name: 'current.example.test', frameworkType: 'web.nginx', addresses: ['current.example.test'], port: 443, protocol: 'HTTPS' }] },
+    capabilityKey: 'web.inventory', confidence: 0.9, value: { configFiles: [{ path: '/etc/nginx/conf.d/current.conf', content: 'server { listen 443 ssl; server_name current.example.test; }' }] },
   }]));
 
   const cleanupSql = fixture.queries().slice(1).join('\n');

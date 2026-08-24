@@ -128,6 +128,7 @@ export class PgDevicesRepository implements DevicesRepository {
         `select id, framework_key, framework_type, display_name, version_text, status, raw_facts
          from pg_framework_instances
          where tenant_id=$1 and device_id=$2 and status='ACTIVE' and deleted_at is null
+           and framework_type <> 'device.generic'
          order by display_name, framework_key`,
         [tenantId, deviceId],
       ) : Promise.resolve({ rows: [] as FrameworkRow[] }),
@@ -184,12 +185,37 @@ export class PgDevicesRepository implements DevicesRepository {
 
   private async getManagedSites(tenantId: string, deviceId: string, frameworkInstanceId?: string): Promise<ManagedDeviceSiteDto[]> {
     const rows = (await this.db.query<ManagedSiteRow>(
-      `select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
+      `with active_bindings as (
+         select binding.*,
+                row_number() over (
+                  partition by binding.tenant_id,
+                    coalesce(binding.site_asset_id, target.site_id, binding.managed_target_id, binding.id),
+                    lower(coalesce(
+                      nullif(binding.domain_name, ''),
+                      nullif(binding.domain, ''),
+                      nullif(binding.metadata->>'listenerHost', ''),
+                      nullif(binding.metadata->>'certificateSni', ''),
+                      ''
+                    )),
+                    coalesce(binding.port, 0),
+                    upper(coalesce(binding.protocol, ''))
+                  order by binding.checked_at desc nulls last, binding.updated_at desc, binding.id desc
+                ) as discovery_rank
+         from pg_certificate_bindings binding
+         left join pg_managed_targets target
+           on target.tenant_id=binding.tenant_id and target.id=binding.managed_target_id and target.deleted_at is null
+         where binding.deleted_at is null
+           and coalesce(binding.status, '') <> 'STALE'
+           and binding.metadata->>'discoveryStatus' = 'ACTIVE'
+       )
+       select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
               framework.id as framework_instance_id, framework.framework_type,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
               binding.status as binding_status, binding.certificate_version_id, binding.observed_fingerprint_sha256,
+              binding.drift_status, binding.cert_path, binding.key_path, binding.chain_path, binding.keystore_path,
+              binding.keystore_type, binding.store_location, binding.store_name, binding.store_thumbprint, binding.local_config_path,
               binding.metadata as binding_metadata,
                version.common_name, version.subject as certificate_subject, version.issuer as certificate_issuer,
                version.not_before, version.not_after, version.fingerprint_sha256, version.status as certificate_status,
@@ -199,9 +225,8 @@ export class PgDevicesRepository implements DevicesRepository {
          on framework.tenant_id=site.tenant_id and framework.id=site.framework_instance_id and framework.deleted_at is null
        left join pg_managed_targets target
          on target.tenant_id=site.tenant_id and target.site_id=site.id and target.deleted_at is null
-       left join pg_certificate_bindings binding
-         on binding.tenant_id=site.tenant_id and binding.deleted_at is null
-        and coalesce(binding.metadata->>'discoveryStatus', 'ACTIVE') <> 'STALE'
+       left join active_bindings binding
+         on binding.tenant_id=site.tenant_id and binding.discovery_rank=1
         and (binding.site_asset_id=site.id or (target.id is not null and binding.managed_target_id=target.id))
        left join pg_certificate_versions version on version.id=binding.certificate_version_id
        left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
@@ -234,7 +259,10 @@ export class PgDevicesRepository implements DevicesRepository {
       if (row.binding_id && !existing.bindings.some((binding) => binding.id === row.binding_id)) {
         const observedCertificate = asRecord(asRecord(row.binding_metadata).observedCertificate);
         const observedFingerprint = row.observed_fingerprint_sha256 ?? optionalString(observedCertificate.fingerprintSha256);
-        const hasCertificate = Boolean(row.certificate_version_id || observedFingerprint || Object.keys(observedCertificate).length);
+        const configuredCertificate = asRecord(asRecord(row.binding_metadata).configuredCertificate);
+        const configuredFingerprint = row.fingerprint_sha256 ?? optionalString(configuredCertificate.fingerprintSha256);
+        const hasCertificate = Boolean(row.certificate_version_id || configuredFingerprint || Object.keys(configuredCertificate).length);
+        const deploymentTarget = certificateLocationFromRow(row);
         existing.bindings.push({
           id: row.binding_id,
           bindingKey: row.binding_key ?? row.target_binding_key ?? row.binding_id,
@@ -244,14 +272,25 @@ export class PgDevicesRepository implements DevicesRepository {
           certificate: hasCertificate ? {
             certificateAssetId: row.certificate_asset_id ?? undefined,
             certificateVersionId: row.certificate_version_id ?? undefined,
-            name: row.certificate_name ?? row.common_name ?? optionalString(observedCertificate.name) ?? undefined,
-            subject: distinguishedName(row.certificate_subject) ?? optionalString(observedCertificate.subject),
-            issuer: distinguishedName(row.certificate_issuer) ?? optionalString(observedCertificate.issuer),
-            notBefore: optionalTimestamp(row.not_before ?? observedCertificate.notBefore),
-            notAfter: optionalTimestamp(row.not_after ?? observedCertificate.notAfter),
-            fingerprintSha256: row.fingerprint_sha256 ?? observedFingerprint ?? undefined,
+            name: row.certificate_name ?? row.common_name ?? optionalString(configuredCertificate.name),
+            subject: distinguishedName(row.certificate_subject) ?? optionalString(configuredCertificate.subject),
+            issuer: distinguishedName(row.certificate_issuer) ?? optionalString(configuredCertificate.issuer),
+            notBefore: optionalTimestamp(row.not_before ?? configuredCertificate.notBefore),
+            notAfter: optionalTimestamp(row.not_after ?? configuredCertificate.notAfter),
+            fingerprintSha256: configuredFingerprint ?? undefined,
             status: row.certificate_status ?? row.binding_status ?? undefined,
           } : undefined,
+          observedCertificate: observedFingerprint || Object.keys(observedCertificate).length ? {
+            name: optionalString(observedCertificate.name),
+            subject: optionalString(observedCertificate.subject),
+            issuer: optionalString(observedCertificate.issuer),
+            notBefore: optionalTimestamp(observedCertificate.notBefore),
+            notAfter: optionalTimestamp(observedCertificate.notAfter),
+            fingerprintSha256: observedFingerprint ?? undefined,
+            status: row.drift_status ?? row.binding_status ?? undefined,
+          } : undefined,
+          driftStatus: row.drift_status ?? optionalString(asRecord(row.binding_metadata).driftStatus) ?? 'UNKNOWN',
+          deploymentTarget,
           replacement: row.managed_target_id && row.target_status === 'ACTIVE'
             ? { allowed: true, managedTargetId: row.managed_target_id }
             : { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
@@ -563,6 +602,16 @@ interface ManagedSiteRow extends Record<string, unknown> {
   binding_status: string | null;
   certificate_version_id: string | null;
   observed_fingerprint_sha256: string | null;
+  drift_status: string | null;
+  cert_path: string | null;
+  key_path: string | null;
+  chain_path: string | null;
+  keystore_path: string | null;
+  keystore_type: string | null;
+  store_location: string | null;
+  store_name: string | null;
+  store_thumbprint: string | null;
+  local_config_path: string | null;
   binding_metadata: Record<string, unknown> | null;
   certificate_asset_id: string | null;
   common_name: string | null;
@@ -573,6 +622,33 @@ interface ManagedSiteRow extends Record<string, unknown> {
   fingerprint_sha256: string | null;
   certificate_status: string | null;
   certificate_name: string | null;
+}
+
+function certificateLocationFromRow(row: ManagedSiteRow): Record<string, unknown> | undefined {
+  const metadata = asRecord(row.binding_metadata);
+  const nested = asRecord(metadata.certificateLocation) ?? asRecord(metadata.deploymentTarget);
+  if (nested) return nested;
+  if (row.keystore_path) return {
+    storageKind: 'KEYSTORE',
+    keystorePath: row.keystore_path,
+    ...(row.keystore_type ? { keystoreType: row.keystore_type } : {}),
+    ...(row.local_config_path ? { sourceConfigPath: row.local_config_path } : {}),
+  };
+  if (row.store_thumbprint) return {
+    storageKind: 'WINDOWS_CERTIFICATE_STORE',
+    storeThumbprint: row.store_thumbprint,
+    ...(row.store_name ? { storeName: row.store_name } : {}),
+    ...(row.store_location ? { storeLocation: row.store_location } : {}),
+    ...(row.local_config_path ? { sourceConfigPath: row.local_config_path } : {}),
+  };
+  if (row.cert_path || row.key_path || row.chain_path) return {
+    storageKind: 'PEM_FILES',
+    ...(row.cert_path ? { certificatePath: row.cert_path } : {}),
+    ...(row.key_path ? { privateKeyPath: row.key_path } : {}),
+    ...(row.chain_path ? { chainPath: row.chain_path } : {}),
+    ...(row.local_config_path ? { sourceConfigPath: row.local_config_path } : {}),
+  };
+  return undefined;
 }
 
 function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSource {

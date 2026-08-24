@@ -5,7 +5,6 @@ import type { UnifiedPluginsApplicationService } from '../../plugins/application
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { canonicalPluginIds } from '../../plugins/canonical-plugin-id/canonical-plugin-id.registry.js';
 import type { AgentRegistration } from '../schema/agents.schema.js';
-import { selectWebDiscoveryPaths } from '../agent-discovery-paths.js';
 
 const DISCOVERY_SPEC_VERSION = 'gcac.agent-web-discovery/v1';
 const DEFAULT_CERTIFICATE_FILE_EXTENSIONS = ['.cer', '.crt', '.der', '.pem'];
@@ -13,11 +12,13 @@ const DEFAULT_CERTIFICATE_FILE_EXTENSIONS = ['.cer', '.crt', '.der', '.pem'];
 interface AgentWebDiscoverySpecProfile {
   pluginId: string;
   frameworkType: string;
+  parserKind: string;
   processNames: string[];
   serviceNames: string[];
   commandLineContains: string[];
   configArgKeys: string[];
   rootArgKeys: string[];
+  /** 仅保留旧 Agent 签名合同形状；重新发现永远不下发绝对路径提示。 */
   configPathHints: string[];
   targetPathHints: string[];
   defaultConfigRelativePaths: string[];
@@ -71,7 +72,10 @@ async function createDiscoveryRequest(
   if (!anchor) throw new AppError('CAPABILITY_MISSING', '没有启用且支持 Agent 发现授权的 Canonical 插件版本');
 
   const paths = discoveryPathsFor(input.agent);
-  const discoverySpec = buildAgentWebDiscoverySpec(versions, input.agent.descriptor.osType);
+  const isWindows = input.agent.descriptor.osType.toLowerCase().includes('windows');
+  // Windows Full Agent 已内置成熟扫描器；插件 Profile 不能再决定扫描入口、默认
+  // 配置路径或站点证书关联。Linux 仍沿用既有合同，避免扩大这次修复的影响范围。
+  const discoverySpec = isWindows ? undefined : buildAgentWebDiscoverySpec(versions, input.agent.descriptor.osType);
   const planDigest = digest({
     actionType: 'agent.fact.collect',
     agentId: input.agent.id,
@@ -80,7 +84,7 @@ async function createDiscoveryRequest(
     pluginVersionId: anchor.id,
     capability: 'application.discover',
     paths,
-    discoverySpec,
+    ...(discoverySpec ? { discoverySpec } : {}),
     refreshWebInventory: true,
   });
   dependencies.policyAuthority.assertReady();
@@ -124,7 +128,7 @@ async function createDiscoveryRequest(
       planDigest,
       token: authorization.token,
       policyDecision: authorization.decision,
-      discoverySpec,
+      ...(discoverySpec ? { discoverySpec } : {}),
       refreshWebInventory: true,
       requestedBy: input.requestedBy,
     },
@@ -142,7 +146,10 @@ function selectAuthorizationAnchor(versions: UnifiedPluginVersionRecord[]): Unif
 }
 
 function discoveryPathsFor(agent: AgentRegistration): string[] {
-  return [...selectWebDiscoveryPaths(agent.descriptor.osType)];
+	// 路径白名单不是发现入口。Agent 只读由实际进程、服务和命令行推导出的
+	// 精确文件，因此合同中不再夹带产品安装目录或全局扫描根。
+	void agent;
+	return [];
 }
 
 function buildAgentWebDiscoverySpec(versions: UnifiedPluginVersionRecord[], osType: string): AgentWebDiscoverySpec {
@@ -178,9 +185,16 @@ function discoveryProfilesForVersion(version: UnifiedPluginVersionRecord, source
   const raw = resourcePath ? version.resources?.[resourcePath] : undefined;
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw) as { profiles?: unknown[] };
-    return Array.isArray(parsed.profiles)
-      ? parsed.profiles.flatMap((profile) => normalizeDiscoveryProfile(version.pluginId, profile, source))
+    const parsed = JSON.parse(raw) as unknown;
+    // 早期 profile 资源是数组根节点，IIS 等新资源使用 { profiles: [] }。
+    // 两种格式都属于同一份声明式合同，不能因为宿主只认一种形状而丢弃真实插件。
+    const profiles = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray((parsed as { profiles?: unknown }).profiles)
+        ? (parsed as { profiles: unknown[] }).profiles
+        : undefined;
+    return profiles
+      ? profiles.flatMap((profile) => normalizeDiscoveryProfile(version.pluginId, profile, source))
       : [];
   } catch {
     // 插件发现资源坏了不能扩大扫描范围。
@@ -196,13 +210,14 @@ function normalizeDiscoveryProfile(pluginId: string, raw: unknown, source: 'wind
   return [{
     pluginId,
     frameworkType: safeIdentifier(stringValue(profile.frameworkType) ?? pluginId) ?? pluginId,
+    parserKind: safeParserKind(stringValue(profile.parserKind)),
     processNames: basenames(stringArray(profile.processExecutables)),
     serviceNames: safeStrings(stringArray(profile.serviceNames), 32),
     commandLineContains: safeStrings(stringArray(profile.commandLineContains), 16),
     configArgKeys: safeStrings(stringArray(profile.configArgKeys), 16),
     rootArgKeys: safeStrings(stringArray(profile.rootArgKeys), 16),
-    configPathHints: safePaths(stringArray(profile.configPaths), source),
-    targetPathHints: safePaths(stringArray(profile.targetPaths), source),
+    configPathHints: [],
+    targetPathHints: [],
     defaultConfigRelativePaths: safeRelativePaths(stringArray(profile.defaultConfigRelativePaths)),
     configFileNames: safeStrings(stringArray(profile.configFileNames), 32),
     certificateFileExtensions: unique([
@@ -220,13 +235,14 @@ function mergeDiscoveryProfile(
   if (!fallback) return current;
   return {
     ...current,
+    parserKind: current.parserKind || fallback.parserKind,
     processNames: unique([...fallback.processNames, ...current.processNames]),
     serviceNames: unique([...fallback.serviceNames, ...current.serviceNames]),
     commandLineContains: unique([...fallback.commandLineContains, ...current.commandLineContains]),
     configArgKeys: unique([...fallback.configArgKeys, ...current.configArgKeys]),
     rootArgKeys: unique([...fallback.rootArgKeys, ...current.rootArgKeys]),
-    configPathHints: unique([...fallback.configPathHints, ...current.configPathHints]),
-    targetPathHints: unique([...fallback.targetPathHints, ...current.targetPathHints]),
+    configPathHints: [],
+    targetPathHints: [],
     defaultConfigRelativePaths: unique([...fallback.defaultConfigRelativePaths, ...current.defaultConfigRelativePaths]),
     configFileNames: unique([...fallback.configFileNames, ...current.configFileNames]),
     certificateFileExtensions: unique([...fallback.certificateFileExtensions, ...current.certificateFileExtensions]),
@@ -247,10 +263,6 @@ function basenames(paths: string[]): string[] {
   return unique(paths.map((item) => item.replaceAll('\\', '/').split('/').pop() ?? '').filter(Boolean));
 }
 
-function safePaths(paths: string[], source: 'windows' | 'linux'): string[] {
-  return unique(paths.filter((item) => source === 'windows' ? /^[A-Za-z]:[\\/]/.test(item) : item.startsWith('/')).slice(0, 32));
-}
-
 function safeRelativePaths(paths: string[]): string[] {
   return unique(paths.filter((item) => item.length <= 260 && !/^[A-Za-z]:[\\/]/.test(item) && !item.startsWith('/') && !item.replaceAll('\\', '/').split('/').includes('..')).slice(0, 16));
 }
@@ -261,6 +273,13 @@ function safeStrings(values: string[], limit: number): string[] {
 
 function safeIdentifier(value: string | undefined): string | undefined {
   return value && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : undefined;
+}
+
+function safeParserKind(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'iis' || normalized === 'nginx' || normalized === 'apache' || normalized === 'tomcat'
+    ? normalized
+    : '';
 }
 
 function stringArray(value: unknown): string[] {

@@ -33,7 +33,10 @@ const expiryCountdown = computed(() => {
     @keydown.space.prevent="emit('select', certificate)"
   >
     <header class="agent-detail-modal__certificate-head">
-      <strong>{{ certificate.name || certificate.subject || t('devices.unifiedDetail.values.unknownCertificate') }}</strong>
+      <div class="agent-detail-modal__certificate-title">
+        <span v-if="variant === 'binding'" class="agent-detail-modal__certificate-label">{{ t('devices.unifiedDetail.certificateDetail.deviceResource') }}</span>
+        <strong>{{ certificate.name || certificate.subject || t('devices.unifiedDetail.values.unknownCertificate') }}</strong>
+      </div>
       <GcStatusTag v-if="certificate.status" :status="certificate.status" />
     </header>
     <dl class="agent-detail-modal__certificate-grid">
@@ -64,7 +67,10 @@ const expiryCountdown = computed(() => {
 .agent-detail-modal__certificate-card[data-variant='binding'] { border-color: transparent; background: var(--gc-color-text); color: var(--gc-color-surface-solid); }
 .agent-detail-modal__certificate-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-2); }
 .agent-detail-modal__certificate-head strong { color: var(--gc-color-text); font-size: var(--gc-font-size-sm); overflow-wrap: anywhere; }
+.agent-detail-modal__certificate-title { display: grid; min-width: 0; gap: var(--gc-space-hairline); }
+.agent-detail-modal__certificate-label { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }
 .agent-detail-modal__certificate-card[data-variant='binding'] .agent-detail-modal__certificate-head strong { color: var(--gc-color-surface-solid); }
+.agent-detail-modal__certificate-card[data-variant='binding'] .agent-detail-modal__certificate-label { color: var(--gc-color-text-inverse-muted); }
 .agent-detail-modal__certificate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-1) var(--gc-space-2); margin: 0; }
 .agent-detail-modal__certificate-grid div { min-width: 0; }
 .agent-detail-modal__certificate-grid dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }

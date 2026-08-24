@@ -37,12 +37,13 @@ function selectCertificate(certificate: DeviceBoundCertificateView, site: Device
     </dl>
     <div v-if="site.bindings.length" class="agent-detail-modal__site-bindings">
       <template v-for="binding in site.bindings" :key="binding.id">
-        <DeviceCertificateCard
-          v-if="binding.certificate"
-          variant="binding"
-          :certificate="binding.certificate"
-          @select="certificate => selectCertificate(certificate, site, binding)"
-        />
+        <template v-if="binding.certificate">
+          <DeviceCertificateCard
+            variant="binding"
+            :certificate="binding.certificate"
+            @select="certificate => selectCertificate(certificate, site, binding)"
+          />
+        </template>
         <div v-else class="agent-detail-modal__binding-empty">
           {{ t('devices.unifiedDetail.values.unbound') }}
         </div>

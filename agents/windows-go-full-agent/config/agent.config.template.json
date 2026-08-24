@@ -18,8 +18,7 @@
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",
       "dataDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\data",
-      "logDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\logs",
-      "inventoryPaths": []
+      "logDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\logs"
     }
   },
   "service": {

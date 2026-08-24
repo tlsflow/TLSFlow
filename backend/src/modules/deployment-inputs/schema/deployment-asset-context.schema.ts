@@ -136,6 +136,11 @@ function validateCertificateLocation(input: unknown, path: string): CertificateL
   const privateKeyPath = optionalString(location.privateKeyPath, `${path}.privateKeyPath`);
   const keystorePath = optionalString(location.keystorePath, `${path}.keystorePath`);
   const storeThumbprint = optionalString(location.storeThumbprint, `${path}.storeThumbprint`);
+  for (const [key, value] of [['certificatePath', certificatePath], ['privateKeyPath', privateKeyPath], ['chainPath', location.chainPath], ['keystorePath', keystorePath]] as const) {
+    if (typeof value === 'string' && value.trim().toLowerCase().startsWith('windows-tls://')) {
+      throw validationError(`${path}.${key} 不能使用 TLS 握手观测路径`, { path: `${path}.${key}` });
+    }
+  }
   if (!certificatePath && !privateKeyPath && !keystorePath && !storeThumbprint) {
     throw validationError(`${path} 缺少证书位置字段`, { path });
   }

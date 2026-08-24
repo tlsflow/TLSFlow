@@ -19,7 +19,7 @@ export function discoverWebConfigs(files: readonly Record<string, unknown>[], fa
     if (!path || !content) continue;
     const parser = parserFor(path, content);
     if (!parser) continue;
-    const result = parser(content, fallbackAddress);
+    const result = withSourceConfigPath(parser(content, fallbackAddress), path);
     for (const framework of result.frameworks) {
       const key = String(framework.frameworkType);
       if (seenFrameworks.has(key)) continue;
@@ -37,6 +37,23 @@ export function discoverWebConfigs(files: readonly Record<string, unknown>[], fa
     }
   }
   return { frameworks, sites };
+}
+
+function withSourceConfigPath(result: WebConfigDiscoveryResult, path: string): WebConfigDiscoveryResult {
+  const sourceConfigPath = normalizeConfigPath(path);
+  return {
+    ...result,
+    sites: result.sites.map((site) => {
+      const metadata = isRecord(site.metadata) ? site.metadata : {};
+      const listeners = Array.isArray(metadata.listeners)
+        ? metadata.listeners.map((listener) => {
+          if (!isRecord(listener) || (!text(listener.certificatePath) && !text(listener.keystorePath) && !text(listener.certificateThumbprint) && !text(listener.bindingStorageKind))) return listener;
+          return { ...listener, sourceConfigPath };
+        })
+        : metadata.listeners;
+      return listeners === metadata.listeners ? site : { ...site, metadata: { ...metadata, listeners } };
+    }),
+  };
 }
 
 function siteIdentity(site: Record<string, unknown>): string {
@@ -74,13 +91,14 @@ type Parser = (content: string, fallbackAddress?: string) => WebConfigDiscoveryR
 function parserFor(path: string, content: string): Parser | undefined {
   const normalized = path.replaceAll('\\', '/').toLowerCase();
   const basename = normalized.split('/').at(-1) ?? normalized;
-  if (normalized.endsWith('/inetsrv/config/applicationhost.config') || /<configuration>\s*<configsections\b|<sites>\s*<site\b/i.test(content)) return parseIis;
+  const activeContent = stripHashComments(content).replace(/<!--[\s\S]*?-->/g, '');
+  if (normalized.endsWith('/inetsrv/config/applicationhost.config') || /<configuration>\s*<configsections\b|<sites>\s*<site\b/i.test(activeContent)) return parseIis;
   if (basename === 'nginx.conf' || normalized.includes('/nginx/') || normalized.includes('/nginx-')) return parseNginx;
   if (basename === 'httpd.conf' || basename === 'apache2.conf' || basename.startsWith('httpd-') || normalized.includes('/apache') || normalized.includes('/sites-enabled/') || normalized.includes('/conf-enabled/')) return parseApache;
   if (basename === 'server.xml' && (normalized.includes('tomcat') || normalized.includes('catalina'))) return parseTomcat;
-  if (/\bserver\s*\{|\bserver_name\s+/i.test(content)) return parseNginx;
-  if (/<VirtualHost\b|\bSSLCertificateFile\s+/i.test(content)) return parseApache;
-  if (/<Connector\b|<Context\b|<Host\b/i.test(content)) return parseTomcat;
+  if (/\bserver\s*\{|\bserver_name\s+/i.test(activeContent)) return parseNginx;
+  if (/<VirtualHost\b|\bSSLCertificateFile\s+/i.test(activeContent)) return parseApache;
+  if (/<Connector\b|<Context\b|<Host\b/i.test(activeContent)) return parseTomcat;
   return undefined;
 }
 
@@ -106,6 +124,7 @@ function parseIis(content: string, fallbackAddress?: string): WebConfigDiscovery
       listeners.push({
         port,
         protocol,
+        ...(protocol === 'HTTPS' ? { bindingStorageKind: 'WINDOWS_CERTIFICATE_STORE' } : {}),
         bindingInformation: bindingAttributes.bindingInformation ?? '',
         ...(host ? { host } : {}),
         ...(certificateHash ? { certificateThumbprint: certificateHash } : {}),
@@ -126,8 +145,9 @@ function parseIis(content: string, fallbackAddress?: string): WebConfigDiscovery
 }
 
 function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const activeContent = stripHashComments(content);
   const sites: Array<Record<string, unknown>> = [];
-  const blocks = content.match(/server\s*\{([\s\S]*?)\}/gi) ?? [];
+  const blocks = activeContent.match(/server\s*\{([\s\S]*?)\}/gi) ?? [];
   for (const block of blocks) {
     const body = block.replace(/^server\s*\{/, '').replace(/\}\s*$/, '');
     const names = words(body, /server_name\s+([^;]+);/i).flatMap((value) => value.split(/\s+/)).filter(Boolean);
@@ -148,8 +168,9 @@ function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscove
 }
 
 function parseApache(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const activeContent = stripHashComments(content);
   const sites: Array<Record<string, unknown>> = [];
-  const blocks = content.match(/<VirtualHost\s+([^>]+)>([\s\S]*?)<\/VirtualHost>/gi) ?? [];
+  const blocks = activeContent.match(/<VirtualHost\s+([^>]+)>([\s\S]*?)<\/VirtualHost>/gi) ?? [];
   for (const block of blocks) {
     const header = match(block, /<VirtualHost\s+([^>]+)>/i) ?? '*:80';
     const names = words(block, /ServerName\s+([^\s#]+)|ServerAlias\s+([^\s#]+)/gi);
@@ -167,7 +188,7 @@ function parseApache(content: string, fallbackAddress?: string): WebConfigDiscov
     sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port: preferred.port, protocol: preferred.protocol, metadata: { listeners } });
   }
   // 没有 VirtualHost 时，httpd.conf 仍可能通过 Listen/ServerName 提供一个可管理站点。
-  if (sites.length === 0) sites.push(parseApacheFallback(content, fallbackAddress));
+  if (sites.length === 0) sites.push(parseApacheFallback(activeContent, fallbackAddress));
   return { frameworks: [{ frameworkType: 'web.apache', displayName: 'Apache' }], sites };
 }
 
@@ -201,18 +222,54 @@ function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscov
     const port = Number(attrs.port ?? 8080);
     const certificateAttributes = [...connectorBody.matchAll(/<Certificate\b([^>]*?)(?:\/>|>)/gi)]
       .map((item) => attributes(item[1] ?? '')).find(Boolean) ?? {};
-    const certificatePath = attrs.certificateKeystoreFile
-      ?? attrs.keystoreFile
-      ?? attrs.certificateFile
-      ?? certificateAttributes.certificateKeystoreFile
+    const certificatePath = normalizeConfigPathValue(
+      certificateAttributes.certificateFile ?? attrs.certificateFile,
+    );
+    const keystorePath = normalizeConfigPathValue(
+      certificateAttributes.certificateKeystoreFile
       ?? certificateAttributes.keystoreFile
-      ?? certificateAttributes.certificateFile;
-    const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' || Boolean(certificatePath) ? 'HTTPS' : 'HTTP';
+      ?? attrs.certificateKeystoreFile
+      ?? attrs.keystoreFile,
+    );
+    const keystoreType = normalizeKeystoreType(
+      certificateAttributes.certificateKeystoreType
+      ?? certificateAttributes.keystoreType
+      ?? attrs.certificateKeystoreType
+      ?? attrs.keystoreType,
+      keystorePath,
+    );
+    const keyAlias = text(
+      certificateAttributes.certificateKeyAlias
+      ?? certificateAttributes.keyAlias
+      ?? attrs.certificateKeyAlias
+      ?? attrs.keyAlias,
+    );
+    const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' || Boolean(certificatePath || keystorePath) ? 'HTTPS' : 'HTTP';
     const hosts = [...activeContent.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
     const names = hosts.length ? hosts : [fallbackAddress ?? 'localhost'];
-    const certificateKeyPath = attrs.certificateKeyFile ?? certificateAttributes.certificateKeyFile;
-    const certificateChainPath = attrs.certificateChainFile ?? certificateAttributes.certificateChainFile;
-    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: certificatePath, listeners: [{ port, protocol, ...(certificatePath ? { certificatePath } : {}), ...(certificateKeyPath ? { certificateKeyPath } : {}), ...(certificateChainPath ? { certificateChainPath } : {}) }] } });
+    const certificateKeyPath = normalizeConfigPathValue(attrs.certificateKeyFile ?? certificateAttributes.certificateKeyFile);
+    const certificateChainPath = normalizeConfigPathValue(attrs.certificateChainFile ?? certificateAttributes.certificateChainFile);
+    for (const name of names) sites.push({
+      frameworkType: 'app.tomcat',
+      name,
+      addresses: [name],
+      port,
+      protocol,
+      metadata: {
+        connectorProtocol: attrs.protocol,
+        ...(keystorePath ? { keystoreFile: keystorePath } : {}),
+        listeners: [{
+          port,
+          protocol,
+          ...(certificatePath ? { certificatePath } : {}),
+          ...(certificateKeyPath ? { certificateKeyPath } : {}),
+          ...(certificateChainPath ? { certificateChainPath } : {}),
+          ...(keystorePath ? { keystorePath } : {}),
+          ...(keystoreType ? { keystoreType } : {}),
+          ...(keyAlias ? { keyAlias } : {}),
+        }],
+      },
+    });
   }
   const contexts = [...activeContent.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
   for (const context of contexts) sites.push({ frameworkType: 'app.tomcat', name: context, addresses: [fallbackAddress ?? 'localhost'], metadata: { contextPath: context } });
@@ -236,7 +293,72 @@ function directiveValues(value: string, pattern: RegExp): string[] {
 }
 
 function match(value: string, pattern: RegExp): string | undefined {
-  return pattern.exec(value)?.[1]?.trim();
+  const matched = pattern.exec(value)?.[1]?.trim();
+  if (!matched) return undefined;
+  return unquoteConfigValue(matched);
+}
+
+function unquoteConfigValue(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const first = trimmed.at(0);
+  const last = trimmed.at(-1);
+  if ((first === '"' || first === "'") && first === last && trimmed.length >= 2) {
+    return normalizeConfigPathValue(trimmed.slice(1, -1));
+  }
+  return normalizeConfigPathValue(trimmed.replace(/^["']+|["']+$/g, ''));
+}
+
+function normalizeConfigPathValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().replaceAll('\\', '/');
+  return normalized || undefined;
+}
+
+function normalizeKeystoreType(value: string | undefined, path: string | undefined): 'JKS' | 'PKCS12' | 'PEM' | 'UNKNOWN' | undefined {
+  const normalized = value?.trim().toUpperCase().replaceAll('-', '');
+  if (normalized === 'JKS') return 'JKS';
+  if (normalized === 'PKCS12' || normalized === 'PKCS#12') return 'PKCS12';
+  if (normalized === 'PEM') return 'PEM';
+  const extension = path?.toLowerCase().match(/\.([^.\\/]+)$/)?.[1];
+  if (extension === 'p12' || extension === 'pfx') return 'PKCS12';
+  if (extension === 'jks' || extension === 'keystore') return 'JKS';
+  return value || path ? 'UNKNOWN' : undefined;
+}
+
+function normalizeConfigPath(value: string): string {
+  return value.trim().replaceAll('\\', '/').replace(/\/{2,}/g, '/');
+}
+
+function stripHashComments(content: string): string {
+  let quote: '"' | "'" | undefined;
+  let inComment = false;
+  let result = '';
+  for (const character of content) {
+    if (inComment) {
+      if (character === '\n' || character === '\r') {
+        inComment = false;
+        result += character;
+      }
+      continue;
+    }
+    if (quote) {
+      result += character;
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      result += character;
+      continue;
+    }
+    if (character === '#') {
+      inComment = true;
+      continue;
+    }
+    result += character;
+  }
+  return result;
 }
 
 function parsePort(value: string): number | undefined {
@@ -266,4 +388,8 @@ function text(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }

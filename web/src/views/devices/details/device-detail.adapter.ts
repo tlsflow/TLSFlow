@@ -66,12 +66,15 @@ function readFramework(value: unknown): DeviceFrameworkView | undefined {
   const record = readRecord(value)
   const id = readString(record.id) || readString(record.stableKey)
   const name = readString(record.displayName) || readString(record.name)
+  const frameworkType = readString(record.frameworkType)
   if (!id || !name) return undefined
+  // device.generic 是旧空快照的设备占位，不是可展示或可操作的 Web 框架。
+  if (frameworkType === 'device.generic') return undefined
   const presentation = readRecord(record.presentation)
   return {
     id,
     name,
-    type: readString(presentation.typeLabel) || readString(record.frameworkType) || readString(record.type) || undefined,
+    type: readString(presentation.typeLabel) || frameworkType || readString(record.type) || undefined,
     version: readString(record.version) || undefined,
     status: readString(record.status) || undefined,
     metadata: readRecord(record.metadata),
@@ -156,6 +159,7 @@ function readBinding(value: unknown): DeviceSiteBindingView | undefined {
     hostName: readString(record.hostName) || undefined,
     status: readString(record.status) || 'UNKNOWN',
     certificate,
+    deploymentTarget: readRecord(record.deploymentTarget),
     replacement: {
       allowed: replacement.allowed === true,
       managedTargetId: readString(replacement.managedTargetId) || undefined,

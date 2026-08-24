@@ -33,6 +33,8 @@ export const allowedAgentOperationTypes = [
   'filesystem.restore',
   'certificate.material.validate',
   'certificate.store.inspect',
+  // Windows Full Agent 部署写入前的本机真实 TLS 握手。
+  'certificate.tls.verify',
   'service.start',
   'service.stop',
   'service.reload',
@@ -602,6 +604,17 @@ function validatePlanOperation(input: unknown, path: string): AgentPlanOperation
 function validateOperationInput(operationType: AgentOperationType, input: Record<string, unknown>, path: string): void {
   if (['filesystem.stat', 'filesystem.read', 'filesystem.backup', 'filesystem.atomic_replace', 'filesystem.restore'].includes(operationType)) normalizeAbsolutePath(input.path, `${path}.path`);
   if (['service.status', 'service.start', 'service.stop', 'service.reload'].includes(operationType)) identifier(input.serviceName, `${path}.serviceName`);
+  if (operationType === 'certificate.tls.verify') {
+    exactKeys(input, ['connectHost', 'serverName', 'port', 'expectedFingerprintSha256', 'bindingId', 'bindingKey', 'checkedAt'], path);
+    nonEmptyString(input.connectHost, `${path}.connectHost`);
+    if (input.serverName !== undefined) nonEmptyString(input.serverName, `${path}.serverName`);
+    integerRange(input.port, 1, 65535, `${path}.port`);
+    digest(input.expectedFingerprintSha256, `${path}.expectedFingerprintSha256`);
+    identifier(input.bindingId, `${path}.bindingId`);
+    identifier(input.bindingKey, `${path}.bindingKey`);
+    dateTime(input.checkedAt, `${path}.checkedAt`);
+    if (input.connectHost !== '127.0.0.1' && input.connectHost !== '::1') fail(`${path}.connectHost`, '部署前 TLS 验证只能连接 Agent 本机回环地址');
+  }
   if (operationType === 'command.execute_allowlisted') {
     exactKeys(input, ['executablePath', 'executableSha256', 'args', 'argumentTemplate', 'environmentAllowlist', 'workingDirectory', 'networkScopes', 'childProcessPolicy', 'timeoutSeconds', 'outputLimitBytes', 'artifactDigest'], path);
     normalizeAbsolutePath(input.executablePath, `${path}.executablePath`); digest(input.executableSha256, `${path}.executableSha256`); const args = input.args; if (!Array.isArray(args) || args.length > 100) fail(`${path}.args`, 'command.execute_allowlisted 必须使用数量受限参数数组'); args.forEach((item, index) => nonEmptyString(item, `${path}.args.${index}`)); const argsTemplate = input.argumentTemplate; if (!Array.isArray(argsTemplate) || argsTemplate.length > 100) fail(`${path}.argumentTemplate`, '必须是数量受限固定参数模板数组'); if (argsTemplate.length !== args.length) fail(`${path}.argumentTemplate`, '参数数量必须与模板一致'); argsTemplate.forEach((item, index) => { nonEmptyString(item, `${path}.argumentTemplate.${index}`); if (!/^\{[A-Za-z0-9_.:-]+\}$/.test(item) && item !== args[index]) fail(`${path}.args.${index}`, '参数不符合固定模板'); }); const env = input.environmentAllowlist; if (!Array.isArray(env)) fail(`${path}.environmentAllowlist`, '必须是环境变量白名单数组'); env.forEach((item, index) => identifier(item, `${path}.environmentAllowlist.${index}`)); normalizeAbsolutePath(input.workingDirectory, `${path}.workingDirectory`); integerRange(input.timeoutSeconds, 1, 3600, `${path}.timeoutSeconds`); integerRange(input.outputLimitBytes, 1, 16 * 1024 * 1024, `${path}.outputLimitBytes`); enumValue(input.childProcessPolicy, ['deny', 'allow-listed'], `${path}.childProcessPolicy`); const networkScopes = input.networkScopes; if (!Array.isArray(networkScopes) || networkScopes.length > 100) fail(`${path}.networkScopes`, '必须是数量受限网络范围数组'); networkScopes.forEach((item, index) => nonEmptyString(item, `${path}.networkScopes.${index}`)); if (input.artifactDigest !== undefined) digest(input.artifactDigest, `${path}.artifactDigest`); rejectInterpreter(input.executablePath as string, path);

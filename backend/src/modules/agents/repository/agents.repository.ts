@@ -53,6 +53,7 @@ export interface AgentsRepository {
   getLatestHeartbeat(tenantId: string, agentId: string): Promise<AgentHeartbeat | undefined>;
   saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): Promise<AgentCapabilitySnapshot>;
   getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
+  getLatestFullWebInventorySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
   createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope>;
   updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope>;
   claimQueuedTask(taskId: string, agentId: string, leaseId: string, ackedAt: string): Promise<AgentTaskEnvelope | undefined>;
@@ -101,6 +102,16 @@ function logCursorKey(tenantId: string, agentId: string, taskId: string): string
 
 function heartbeatKey(tenantId: string, agentId: string): string {
   return `${tenantId}:${agentId}`;
+}
+
+function hasFullWebInventory(snapshot: AgentCapabilitySnapshot): boolean {
+  return snapshot.capabilities.some((capability) => {
+    if (capability.capabilityKey !== 'web.inventory') return false;
+    return Boolean(capability.value)
+      && typeof capability.value === 'object'
+      && !Array.isArray(capability.value)
+      && (capability.value as Record<string, unknown>).scope === 'FULL_WEB_DISCOVERY';
+  });
 }
 
 function compareVersions(left: string, right: string): number {
@@ -297,6 +308,11 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined> {
     return (await this.snapshots.list((item) => item.tenantId === tenantId && item.agentId === agentId))
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
+  }
+
+  async getLatestFullWebInventorySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined> {
+    return (await this.snapshots.list((item) => item.tenantId === tenantId && item.agentId === agentId && hasFullWebInventory(item)))
       .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
   }
 

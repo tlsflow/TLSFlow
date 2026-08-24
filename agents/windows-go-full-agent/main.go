@@ -4,15 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -39,17 +36,15 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                  = "0.1.17"
-	defaultConfigPath             = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
-	defaultMetadata               = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
-	defaultTaskPoll               = 60
-	defaultHealthPoll             = 30
-	defaultOfflineTTL             = 180
-	defaultManagementPort         = 18930
-	directWebDiscoveryTimeout     = 90 * time.Second
-	windowsDiscoveryScanTimeout   = 75 * time.Second
-	windowsDiscoveryVisitLimit    = 5000
-	windowsDiscoveryReadFileLimit = 256
+	agentVersion                = "0.1.27"
+	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
+	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
+	defaultTaskPoll             = 60
+	defaultHealthPoll           = 30
+	defaultOfflineTTL           = 180
+	defaultManagementPort       = 18930
+	directWebDiscoveryTimeout   = 90 * time.Second
+	windowsDiscoveryScanTimeout = 30 * time.Second
 )
 
 type AgentConfig struct {
@@ -71,10 +66,9 @@ type AgentConfig struct {
 	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
 	Paths                      struct {
 		Windows struct {
-			ConfigPath     string   `json:"configPath"`
-			DataDir        string   `json:"dataDir"`
-			LogDir         string   `json:"logDir"`
-			InventoryPaths []string `json:"inventoryPaths"`
+			ConfigPath string `json:"configPath"`
+			DataDir    string `json:"dataDir"`
+			LogDir     string `json:"logDir"`
 		} `json:"windows"`
 	} `json:"paths"`
 	Service struct {
@@ -297,6 +291,25 @@ func (controller *directDiscoveryController) execute(ctx context.Context, run fu
 	}
 	controller.mu.Unlock()
 	return result
+}
+
+// executeBackground 与管理端直连发现共用同一把扫描锁。周期上报宁可跳过一轮，
+// 也不能和完整发现并发读取同一批进程、服务和证书库。
+func (controller *directDiscoveryController) executeBackground(run func()) bool {
+	controller.mu.Lock()
+	if controller.active {
+		controller.mu.Unlock()
+		return false
+	}
+	controller.active = true
+	controller.mu.Unlock()
+	defer func() {
+		controller.mu.Lock()
+		controller.active = false
+		controller.mu.Unlock()
+	}()
+	run()
+	return true
 }
 
 type ackTaskRequest struct {
@@ -585,7 +598,7 @@ func handleRegisterOnce(args []string) error {
 		return errors.New("agentKey 不能为空，Windows Go Agent 无法完成注册")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), directWebDiscoveryTimeout)
 	defer cancel()
 
 	identity := collectRuntimeIdentity(config.ControlPlane)
@@ -743,7 +756,7 @@ func runForeground(ctx context.Context, configPath string) error {
 	defer taskTicker.Stop()
 	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
 	defer healthTicker.Stop()
-	startCapabilityReportWorker(ctx, client, config, registration, identity, maxInt(taskPollSeconds, 60), logger)
+	startCapabilityReportWorker(ctx, client, config, registration, identity, maxInt(taskPollSeconds, 60), logger, directDiscovery)
 
 	if err := postHeartbeat(ctx, client, config, registration, counters, &status); err != nil {
 		logger.Warn("first heartbeat failed: %v", err)
@@ -859,24 +872,34 @@ func startCapabilityReportWorker(
 	identity runtimeIdentity,
 	intervalSeconds int,
 	logger *runtimeLogger,
+	discovery *directDiscoveryController,
 ) {
 	go func() {
 		runCapabilityReport := func(phase string) {
-			requestCtx, cancel := context.WithTimeout(ctx, directWebDiscoveryTimeout)
-			defer cancel()
-			if err := reportCapabilitiesWithScanLog(requestCtx, client, config, registration, identity, logger); err != nil {
-				logger.Warn("%s capability report failed: %v", phase, err)
-				_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
-					AgentID:   registration.AgentID,
-					Category:  "capability_report",
-					Level:     "error",
-					Summary:   phase + " capability report failed",
-					Detail:    map[string]any{"error": err.Error(), "phase": phase},
-					EmittedAt: time.Now().Format(time.RFC3339),
-				})
+			report := func() {
+				requestCtx, cancel := context.WithTimeout(ctx, directWebDiscoveryTimeout)
+				defer cancel()
+				if err := reportCapabilitiesWithScanLog(requestCtx, client, config, registration, identity, logger); err != nil {
+					logger.Warn("%s capability report failed: %v", phase, err)
+					_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+						AgentID:   registration.AgentID,
+						Category:  "capability_report",
+						Level:     "error",
+						Summary:   phase + " capability report failed",
+						Detail:    map[string]any{"error": err.Error(), "phase": phase},
+						EmittedAt: time.Now().Format(time.RFC3339),
+					})
+					return
+				}
+				logger.Info("%s capability report ok agentId=%s", phase, registration.AgentID)
+			}
+			if discovery == nil {
+				report()
 				return
 			}
-			logger.Info("%s capability report ok agentId=%s", phase, registration.AgentID)
+			if !discovery.executeBackground(report) {
+				logger.Info("%s capability report skipped because web discovery is running", phase)
+			}
 		}
 
 		runCapabilityReport("initial")
@@ -1664,19 +1687,24 @@ func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 	}
 }
 
+const fullWebDiscoveryScope = "FULL_WEB_DISCOVERY"
+
+// collectCapabilityReports 只构造不会改变 Web 资产的基础运行态能力。
+// 完整 Web 发现必须显式传入带 scope 的快照，不能通过默认参数悄悄触发。
 func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
-	return collectCapabilityReportsWithConfiguredInventory(identity, nil, nil)
+	return collectCapabilityReportsWithFacts(identity, nil, nil)
+}
+
+func collectRuntimeCapabilityReports(identity runtimeIdentity, runtimeFacts map[string]any) []reportedCapability {
+	return collectCapabilityReportsWithFacts(identity, runtimeFacts, nil)
 }
 
 func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory map[string]any) []reportedCapability {
-	return collectCapabilityReportsWithConfiguredInventory(identity, nil, inventory)
+	return collectCapabilityReportsWithFacts(identity, nil, inventory)
 }
 
-func collectCapabilityReportsWithConfiguredInventory(identity runtimeIdentity, config *AgentConfig, inventory map[string]any) []reportedCapability {
-	if inventory == nil {
-		inventory = collectWindowsWebInventory(context.Background(), config)
-	}
-	return []reportedCapability{
+func collectCapabilityReportsWithFacts(identity runtimeIdentity, runtimeFacts map[string]any, inventory map[string]any) []reportedCapability {
+	capabilities := []reportedCapability{
 		{
 			CapabilityKey: "windows.os.detail",
 			Value: map[string]any{
@@ -1690,533 +1718,66 @@ func collectCapabilityReportsWithConfiguredInventory(identity runtimeIdentity, c
 			CapabilityKey: "windows.network.adapters", Value: identity.NetworkInterfaces,
 			Confidence: 0.92, Evidence: map[string]any{"source": "runtime-inspection"},
 		},
-		{
+	}
+	if runtimeFacts != nil {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "windows.runtime.inventory",
+			Value:         runtimeFacts,
+			Confidence:    0.8,
+			Evidence:      map[string]any{"source": "runtime-inspection", "scope": "RUNTIME_TELEMETRY"},
+		})
+	}
+	if inventory != nil && stringFromMap(inventory, "scope") == fullWebDiscoveryScope {
+		capabilities = append(capabilities, reportedCapability{
 			CapabilityKey: "web.inventory",
 			Value:         inventory,
-			Confidence:    0.8, Evidence: map[string]any{"source": "agent-v2-generic-inventory"},
-		},
+			Confidence:    0.9,
+			Evidence:      map[string]any{"source": "agent-v2-generic-inventory", "scope": fullWebDiscoveryScope},
+		})
 	}
+	return capabilities
 }
 
-func collectWindowsWebInventory(ctx context.Context, config *AgentConfig, discoverySpecs ...agentDiscoverySpecV1) map[string]any {
-	return collectWindowsWebInventoryWithLogger(ctx, config, nil, discoverySpecs...)
+func collectWindowsRuntimeInventory(ctx context.Context, logger *runtimeLogger) map[string]any {
+	return collectWindowsRuntimeInventoryWithLogger(ctx, logger)
 }
 
-// 周期库存只做受控事实刷新。完整产品语法解析由宿主插件完成，Agent 不再扫全局目录。
-func collectWindowsWebInventoryWithLogger(ctx context.Context, config *AgentConfig, logger *runtimeLogger, discoverySpecs ...agentDiscoverySpecV1) map[string]any {
+// 周期上报只刷新运行态事实。完整配置、证书库和 SSL 绑定只能由管理端直连
+// 的完整 Web 发现请求读取，避免轻量快照覆盖完整发现结果。
+func collectWindowsRuntimeInventoryWithLogger(ctx context.Context, logger *runtimeLogger) map[string]any {
 	started := time.Now()
 	scanCtx, cancel := context.WithTimeout(ctx, windowsDiscoveryScanTimeout)
 	defer cancel()
-	budget := newWindowsDiscoveryBudget(scanCtx, windowsDiscoveryVisitLimit)
 	phaseDurations := map[string]int64{}
 	timed := func(phase string, run func()) {
 		phaseStarted := time.Now()
 		run()
 		phaseDurations[phase] = time.Since(phaseStarted).Milliseconds()
 	}
-
-	discoverySpec := agentDiscoverySpecV1{}
-	if len(discoverySpecs) > 0 {
-		discoverySpec = sanitizeAgentDiscoverySpec(discoverySpecs[0])
-	}
-	roots := configuredWindowsInventoryRoots(config)
 	listeningPorts := []map[string]any{}
 	processFacts := []map[string]any{}
-	serviceFacts := []map[string]any{}
-	configFiles := []map[string]any{}
-	certificateFiles := []map[string]any{}
-	sslBindings := []map[string]any{}
-
 	timed("ports", func() {
 		listeningPorts = collectWindowsListeningPorts(scanCtx)
 	})
 	timed("processes", func() {
 		processFacts = collectWindowsProcesses(scanCtx, listeningPorts)
 	})
-	timed("services", func() {
-		serviceFacts = collectWindowsDiscoveryServices(scanCtx, discoverySpec)
-	})
-	timed("config", func() {
-		configFiles = collectWindowsWebConfigFiles(scanCtx, budget, roots)
-		configFiles = append(configFiles, collectWindowsProcessConfigFiles(scanCtx, budget, processFacts)...)
-		configFiles = append(configFiles, collectWindowsDiscoveryConfigFiles(scanCtx, discoverySpec, processFacts, serviceFacts)...)
-	})
-	timed("certificates", func() {
-		certificateFiles = collectWindowsCertificateFiles(scanCtx, budget, roots)
-		certificateFiles = append(certificateFiles, collectWindowsProcessCertificateFiles(scanCtx, budget, processFacts)...)
-		certificateFiles = append(certificateFiles, collectWindowsDiscoveryCertificateFiles(scanCtx, discoverySpec, processFacts, serviceFacts)...)
-		certificateFiles = append(certificateFiles, collectWindowsCertificateFilesFromConfigFiles(discoverySpec, configFiles)...)
-		sslBindings = collectWindowsSSLCertificateBindings(scanCtx)
-	})
 	if logger != nil {
 		logger.Info(
-			"web inventory scan completed totalMs=%d portsMs=%d processesMs=%d servicesMs=%d configMs=%d certificatesMs=%d roots=%d visited=%d stopped=%t stopReason=%s processes=%d services=%d configFiles=%d certificateFiles=%d sslBindings=%d",
+			"runtime inventory telemetry completed totalMs=%d portsMs=%d processesMs=%d mode=lightweight processes=%d listeningPorts=%d",
 			time.Since(started).Milliseconds(),
 			phaseDurations["ports"],
 			phaseDurations["processes"],
-			phaseDurations["services"],
-			phaseDurations["config"],
-			phaseDurations["certificates"],
-			len(roots),
-			budget.visitedCount(),
-			budget.stopped(),
-			budget.stopReason(),
 			len(processFacts),
-			len(serviceFacts),
-			len(configFiles),
-			len(certificateFiles),
-			len(sslBindings),
+			len(listeningPorts),
 		)
 	}
 	return map[string]any{
-		"processes":              processFacts,
-		"processExecutables":     processExecutablePaths(processFacts),
-		"services":               serviceFacts,
-		"listeningPorts":         listeningPorts,
-		"sslCertificateBindings": sslBindings,
-		"configFiles":            configFiles,
-		"certificateFiles":       certificateFiles,
+		"scope":              "RUNTIME_TELEMETRY",
+		"processes":          processFacts,
+		"processExecutables": processExecutablePaths(processFacts),
+		"listeningPorts":     listeningPorts,
 	}
-}
-
-func configuredWindowsInventoryRoots(config *AgentConfig) []string {
-	paths := []string{}
-	if config != nil {
-		paths = append(paths, config.Paths.Windows.InventoryPaths...)
-	}
-	seen := map[string]struct{}{}
-	result := make([]string, 0, len(paths))
-	for _, path := range paths {
-		path = strings.TrimSpace(path)
-		if path == "" || isBlockedWindowsInventoryRoot(path) {
-			continue
-		}
-		key := strings.ToLower(filepath.Clean(path))
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, path)
-	}
-	return result
-}
-
-func isBlockedWindowsInventoryRoot(path string) bool {
-	normalized := strings.TrimRight(strings.ToLower(filepath.Clean(path)), `\/`)
-	blocked := []string{
-		`c:\programdata`,
-		`c:\program files`,
-		`c:\program files (x86)`,
-		`c:\windows`,
-		`c:\`,
-	}
-	for _, item := range blocked {
-		if normalized == strings.TrimRight(strings.ToLower(filepath.Clean(item)), `\/`) {
-			return true
-		}
-	}
-	return false
-}
-
-type windowsDiscoveryBudget struct {
-	ctx       context.Context
-	maxVisits int
-	mu        sync.Mutex
-	visits    int
-	stop      bool
-	reason    string
-}
-
-func newWindowsDiscoveryBudget(ctx context.Context, maxVisits int) *windowsDiscoveryBudget {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if maxVisits <= 0 {
-		maxVisits = windowsDiscoveryVisitLimit
-	}
-	return &windowsDiscoveryBudget{ctx: ctx, maxVisits: maxVisits}
-}
-
-func (budget *windowsDiscoveryBudget) visit() error {
-	if budget == nil {
-		return nil
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if err := budget.ctx.Err(); err != nil {
-		budget.stop = true
-		if budget.reason == "" {
-			if errors.Is(err, context.DeadlineExceeded) {
-				budget.reason = "扫描超过期限"
-			} else {
-				budget.reason = "请求已取消"
-			}
-		}
-		return err
-	}
-	if budget.visits >= budget.maxVisits {
-		budget.stop = true
-		if budget.reason == "" {
-			budget.reason = "扫描访问条目超过上限"
-		}
-		return filepath.SkipAll
-	}
-	budget.visits++
-	return nil
-}
-
-func (budget *windowsDiscoveryBudget) stopped() bool {
-	if budget == nil {
-		return false
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if err := budget.ctx.Err(); err != nil {
-		budget.stop = true
-		if budget.reason == "" {
-			if errors.Is(err, context.DeadlineExceeded) {
-				budget.reason = "扫描超过期限"
-			} else {
-				budget.reason = "请求已取消"
-			}
-		}
-	}
-	return budget.stop
-}
-
-func (budget *windowsDiscoveryBudget) stopReason() string {
-	if budget == nil {
-		return ""
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	return budget.reason
-}
-
-func (budget *windowsDiscoveryBudget) visitedCount() int {
-	if budget == nil {
-		return 0
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	return budget.visits
-}
-
-func discoveryBudgetStopped(ctx context.Context, budget *windowsDiscoveryBudget) bool {
-	if ctx != nil && ctx.Err() != nil {
-		if budget != nil {
-			_ = budget.visit()
-		}
-		return true
-	}
-	return budget != nil && budget.stopped()
-}
-
-// 只读取配置声明的受控目录中的原始配置；控制面会再次校验并完成最终资产投影。
-func collectWindowsWebConfigFiles(ctx context.Context, budget *windowsDiscoveryBudget, roots []string) []map[string]any {
-	files := make([]map[string]any, 0, 128)
-	seen := make(map[string]struct{})
-	for _, root := range roots {
-		if discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-		if _, exists := seen[strings.ToLower(root)]; exists {
-			continue
-		}
-		seen[strings.ToLower(root)] = struct{}{}
-		if info, err := os.Stat(root); err == nil && !info.IsDir() {
-			if item := collectWebConfigFile(root); item != nil {
-				files = append(files, item)
-			}
-			continue
-		}
-		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
-				return filepath.SkipAll
-			}
-			if budget != nil {
-				if err := budget.visit(); err != nil {
-					return filepath.SkipAll
-				}
-			}
-			if walkErr != nil || entry == nil || entry.IsDir() {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
-				return nil
-			}
-			info, err := entry.Info()
-			if err != nil || info.Size() > 256*1024 {
-				return nil
-			}
-			if item := collectWebConfigFile(path); item != nil {
-				files = append(files, item)
-			}
-			return nil
-		})
-		if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-	}
-	return files
-}
-
-// 从监听端口关联到进程镜像后，只在镜像目录附近读取有限数量的配置文件。
-// 这里不解析产品语法，也不按端口号猜测框架；宿主插件仍是唯一解析入口。
-func collectWindowsProcessConfigFiles(ctx context.Context, budget *windowsDiscoveryBudget, processFacts []map[string]any) []map[string]any {
-	files := make([]map[string]any, 0, 64)
-	seen := make(map[string]struct{})
-	for _, process := range processFacts {
-		if discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-		for _, root := range windowsProcessDiscoveryRoots(ctx, process) {
-			for depth := 0; depth < 3 && root != ""; depth++ {
-				for _, candidateRoot := range []string{root, filepath.Join(root, "conf"), filepath.Join(root, "config"), filepath.Join(root, "..", "conf"), filepath.Join(root, "..", "config")} {
-					if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
-						return files
-					}
-					info, err := os.Stat(candidateRoot)
-					if err != nil || !info.IsDir() {
-						continue
-					}
-					_ = filepath.WalkDir(candidateRoot, func(candidate string, entry os.DirEntry, walkErr error) error {
-						if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
-							return filepath.SkipAll
-						}
-						if budget != nil {
-							if err := budget.visit(); err != nil {
-								return filepath.SkipAll
-							}
-						}
-						if walkErr != nil || entry == nil {
-							return nil
-						}
-						if entry.IsDir() {
-							if strings.Count(strings.TrimPrefix(candidate, candidateRoot), string(os.PathSeparator)) > 2 {
-								return filepath.SkipDir
-							}
-							return nil
-						}
-						ext := strings.ToLower(filepath.Ext(candidate))
-						if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
-							return nil
-						}
-						key := strings.ToLower(filepath.Clean(candidate))
-						if _, exists := seen[key]; exists {
-							return nil
-						}
-						if item := collectWebConfigFile(candidate); item != nil {
-							seen[key] = struct{}{}
-							files = append(files, item)
-						}
-						return nil
-					})
-				}
-				parent := filepath.Dir(root)
-				if strings.EqualFold(parent, root) {
-					break
-				}
-				root = parent
-			}
-		}
-	}
-	return files
-}
-
-func collectWindowsProcessCertificateFiles(ctx context.Context, budget *windowsDiscoveryBudget, processFacts []map[string]any) []map[string]any {
-	files := make([]map[string]any, 0, 64)
-	seen := make(map[string]struct{})
-	for _, process := range processFacts {
-		if discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-		for _, root := range windowsProcessDiscoveryRoots(ctx, process) {
-			for depth := 0; depth < 3 && root != ""; depth++ {
-				for _, candidateRoot := range []string{root, filepath.Join(root, "conf"), filepath.Join(root, "config"), filepath.Join(root, "..", "conf"), filepath.Join(root, "..", "config")} {
-					if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
-						return files
-					}
-					info, err := os.Stat(candidateRoot)
-					if err != nil || !info.IsDir() {
-						continue
-					}
-					_ = filepath.WalkDir(candidateRoot, func(candidate string, entry os.DirEntry, walkErr error) error {
-						if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
-							return filepath.SkipAll
-						}
-						if budget != nil {
-							if err := budget.visit(); err != nil {
-								return filepath.SkipAll
-							}
-						}
-						if walkErr != nil || entry == nil {
-							return nil
-						}
-						if entry.IsDir() {
-							if strings.Count(strings.TrimPrefix(candidate, candidateRoot), string(os.PathSeparator)) > 2 {
-								return filepath.SkipDir
-							}
-							return nil
-						}
-						ext := strings.ToLower(filepath.Ext(candidate))
-						if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".der" {
-							return nil
-						}
-						key := strings.ToLower(filepath.Clean(candidate))
-						if _, exists := seen[key]; exists {
-							return nil
-						}
-						if item := collectWindowsCertificateFile(candidate); item != nil {
-							seen[key] = struct{}{}
-							files = append(files, item)
-						}
-						return nil
-					})
-				}
-				parent := filepath.Dir(root)
-				if strings.EqualFold(parent, root) {
-					break
-				}
-				root = parent
-			}
-		}
-	}
-	return files
-}
-
-func collectWindowsDiscoveryConfigFiles(ctx context.Context, spec agentDiscoverySpecV1, processFacts []map[string]any, serviceFacts []map[string]any) []map[string]any {
-	if len(spec.Profiles) == 0 {
-		return []map[string]any{}
-	}
-	files := make([]map[string]any, 0, 32)
-	seen := make(map[string]struct{})
-	for _, path := range windowsDiscoveryCandidatePaths(ctx, spec, processFacts, serviceFacts) {
-		if len(files) >= 128 {
-			break
-		}
-		if !isWindowsDiscoveryConfigPath(spec, path) {
-			continue
-		}
-		key := strings.ToLower(filepath.Clean(path))
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		if item := collectWebConfigFile(path); item != nil {
-			seen[key] = struct{}{}
-			files = append(files, item)
-		}
-	}
-	return files
-}
-
-func collectWindowsDiscoveryCertificateFiles(ctx context.Context, spec agentDiscoverySpecV1, processFacts []map[string]any, serviceFacts []map[string]any) []map[string]any {
-	if len(spec.Profiles) == 0 {
-		return []map[string]any{}
-	}
-	files := make([]map[string]any, 0, 32)
-	seen := make(map[string]struct{})
-	for _, path := range windowsDiscoveryCandidatePaths(ctx, spec, processFacts, serviceFacts) {
-		if len(files) >= 128 {
-			break
-		}
-		if !isWindowsDiscoveryCertificatePath(spec, path) {
-			continue
-		}
-		key := strings.ToLower(filepath.Clean(path))
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		if item := collectWindowsCertificateFile(path); item != nil {
-			seen[key] = struct{}{}
-			files = append(files, item)
-		}
-	}
-	return files
-}
-
-func collectWindowsCertificateFilesFromConfigFiles(spec agentDiscoverySpecV1, configFiles []map[string]any) []map[string]any {
-	files := make([]map[string]any, 0, 16)
-	seen := map[string]struct{}{}
-	for _, file := range configFiles {
-		configPath := stringFromMap(file, "path")
-		content := stringFromMap(file, "content")
-		if configPath == "" || content == "" {
-			continue
-		}
-		for _, certificatePath := range windowsCertificateReferencesFromConfigContent(spec, configPath, content) {
-			key := strings.ToLower(filepath.Clean(certificatePath))
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
-			if item := collectWindowsCertificateFile(certificatePath); item != nil {
-				files = append(files, item)
-			}
-			if len(files) >= 128 {
-				return files
-			}
-		}
-	}
-	return files
-}
-
-func isWindowsDiscoveryConfigPath(spec agentDiscoverySpecV1, path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".conf" || ext == ".xml" || ext == ".properties" || ext == ".config" {
-		return true
-	}
-	name := strings.ToLower(filepath.Base(path))
-	for _, profile := range spec.Profiles {
-		for _, allowed := range profile.ConfigFileNames {
-			allowed = strings.ToLower(allowed)
-			if strings.HasPrefix(allowed, "*.") && strings.HasSuffix(name, strings.TrimPrefix(allowed, "*")) {
-				return true
-			}
-			if name == allowed {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func windowsProcessDiscoveryRoots(ctx context.Context, process map[string]any) []string {
-	roots := make([]string, 0, 4)
-	seen := make(map[string]struct{})
-	appendRoot := func(value string) {
-		value = strings.Trim(strings.TrimSpace(value), "\"")
-		if value == "" {
-			return
-		}
-		if !filepath.IsAbs(value) {
-			return
-		}
-		if info, err := os.Stat(value); err == nil && info.IsDir() {
-			value = filepath.Clean(value)
-		} else {
-			value = filepath.Dir(value)
-		}
-		key := strings.ToLower(value)
-		if _, exists := seen[key]; exists {
-			return
-		}
-		seen[key] = struct{}{}
-		roots = append(roots, value)
-	}
-	appendRoot(filepath.Dir(stringFromMap(process, "executablePath")))
-	pid := uint32(intFromMap(process, "pid"))
-	if pid == 0 {
-		return roots
-	}
-	commandLine := windowsProcessCommandLine(ctx, pid)
-	for _, token := range parseWindowsCommandLine(commandLine) {
-		if path := windowsDrivePathFromToken(token); path != "" {
-			appendRoot(path)
-		}
-	}
-	return roots
 }
 
 func windowsDrivePathFromToken(token string) string {
@@ -2282,97 +1843,6 @@ func processExecutablePaths(processFacts []map[string]any) []string {
 	}
 	sort.Strings(paths)
 	return paths
-}
-
-func collectWebConfigFile(path string) map[string]any {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() > 256*1024 {
-		return nil
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	text, ok := decodeWindowsConfigText(content)
-	if !ok {
-		return nil
-	}
-	return map[string]any{"path": filepath.ToSlash(path), "content": text}
-}
-
-// 仅回传公开证书摘要，不回传 PEM、私钥或 PKCS#12 原文。
-func collectWindowsCertificateFiles(ctx context.Context, budget *windowsDiscoveryBudget, roots []string) []map[string]any {
-	files := make([]map[string]any, 0, 64)
-	seen := make(map[string]struct{})
-	for _, root := range roots {
-		if discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
-				return filepath.SkipAll
-			}
-			if budget != nil {
-				if err := budget.visit(); err != nil {
-					return filepath.SkipAll
-				}
-			}
-			if walkErr != nil || entry == nil || entry.IsDir() {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".der" {
-				return nil
-			}
-			key := strings.ToLower(filepath.Clean(path))
-			if _, exists := seen[key]; exists {
-				return nil
-			}
-			seen[key] = struct{}{}
-			if item := collectWindowsCertificateFile(path); item != nil {
-				files = append(files, item)
-			}
-			return nil
-		})
-		if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
-			break
-		}
-	}
-	// Windows 证书库绑定使用 Thumbprint，而不是磁盘证书文件。
-	// 周期库存也必须携带 LocalMachine\My 摘要，以建立证书关联。
-	for _, fact := range collectWindowsCertificateStores(ctx) {
-		if certificate := certificateFileFromFact(fact); certificate != nil {
-			files = append(files, certificate)
-		}
-	}
-	return files
-}
-
-func collectWindowsCertificateFile(path string) map[string]any {
-	content, err := os.ReadFile(path)
-	if err != nil || len(content) == 0 || len(content) > 512*1024 {
-		return nil
-	}
-	der := content
-	if block, _ := pem.Decode(content); block != nil {
-		der = block.Bytes
-	}
-	certificate, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil
-	}
-	fingerprint := sha256.Sum256(certificate.Raw)
-	thumbprint := sha1.Sum(certificate.Raw)
-	return map[string]any{
-		"path":              filepath.ToSlash(path),
-		"configuredPaths":   []string{filepath.Base(path)},
-		"sha256Fingerprint": hex.EncodeToString(fingerprint[:]),
-		"thumbprint":        hex.EncodeToString(thumbprint[:]),
-		"subject":           certificate.Subject.String(),
-		"issuer":            certificate.Issuer.String(),
-		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
-		"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339),
-	}
 }
 
 // Windows 配置文件常见 UTF-8、UTF-16 LE 和 UTF-16 BE 三种编码。UTF-16 原始字节不能直接转 string，否则会把 NUL 上报到 JSONB。
@@ -2554,22 +2024,43 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity) error {
-	return reportCapabilitiesWithInventory(ctx, client, config, registration, identity, nil)
+	var runtimeFacts map[string]any
+	if !isPureGatewayRole(config) {
+		runtimeFacts = collectWindowsRuntimeInventory(ctx, nil)
+	}
+	return reportRuntimeCapabilities(ctx, client, config, registration, identity, runtimeFacts)
 }
 
 func reportCapabilitiesWithScanLog(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, logger *runtimeLogger) error {
-	var inventory map[string]any
+	var runtimeFacts map[string]any
 	if !isPureGatewayRole(config) {
-		inventory = collectWindowsWebInventoryWithLogger(ctx, config, logger)
+		runtimeFacts = collectWindowsRuntimeInventoryWithLogger(ctx, logger)
 	}
-	return reportCapabilitiesWithInventory(ctx, client, config, registration, identity, inventory)
+	return reportRuntimeCapabilities(ctx, client, config, registration, identity, runtimeFacts)
 }
 
-func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, inventory map[string]any) error {
+func reportRuntimeCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, runtimeFacts map[string]any) error {
 	capabilities := []reportedCapability{}
 	if !isPureGatewayRole(config) {
-		capabilities = collectCapabilityReportsWithConfiguredInventory(identity, config, inventory)
+		capabilities = collectRuntimeCapabilityReports(identity, runtimeFacts)
 	}
+	return submitCapabilityReports(ctx, client, config, registration, capabilities)
+}
+
+// reportCapabilitiesWithInventory 仅接受完整 Web 发现事实。调用方必须来自
+// agent.fact.collect，周期 worker 不允许通过此路径提交任何 web.inventory。
+func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, inventory map[string]any) error {
+	if inventory == nil || stringFromMap(inventory, "scope") != fullWebDiscoveryScope {
+		return errors.New("完整 Web 快照缺少 FULL_WEB_DISCOVERY scope")
+	}
+	capabilities := []reportedCapability{}
+	if !isPureGatewayRole(config) {
+		capabilities = collectCapabilityReportsWithInventory(identity, inventory)
+	}
+	return submitCapabilityReports(ctx, client, config, registration, capabilities)
+}
+
+func submitCapabilityReports(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, capabilities []reportedCapability) error {
 	request := capabilityReportRequest{
 		AgentID:            registration.AgentID,
 		CompatibilityLevel: "modern",
@@ -2675,98 +2166,21 @@ func logDiscoveryDiagnostics(logger *runtimeLogger, trigger string, requestID st
 	)
 }
 
-// webInventoryFromFactEnvelope 将事实采集结果转换为宿主可消费的通用 Web 库存。
-// Agent 只搬运原始配置、监听和证书元数据；框架语法解析由宿主插件完成。
+// webInventoryFromFactEnvelope 只接受成熟扫描器生成的完整运行态快照。
+// 旧的候选文件、证书库和 TLS 握手事实不能再拼装成站点绑定。
 func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
-	inventory := map[string]any{"processes": []map[string]any{}, "processExecutables": []string{}, "services": []map[string]any{}, "listeningPorts": []map[string]any{}, "sslCertificateBindings": []map[string]any{}, "configFiles": []map[string]any{}, "certificateFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
-	if envelope == nil {
+	if inventory := mapFromMap(envelope, "webInventory"); inventory != nil && stringFromMap(inventory, "scope") == fullWebDiscoveryScope {
 		return inventory
 	}
-	facts := factMaps(envelope["facts"])
-	for _, fact := range facts {
-		switch stringFromMap(fact, "kind") {
-		case "process":
-			inventory["processes"] = append(inventory["processes"].([]map[string]any), fact)
-			if executable := stringFromMap(fact, "executablePath"); executable != "" {
-				inventory["processExecutables"] = append(inventory["processExecutables"].([]string), executable)
-			}
-			continue
-		case "service":
-			inventory["services"] = append(inventory["services"].([]map[string]any), fact)
-			continue
-		case "listening_port":
-			port := map[string]any{
-				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": stringFromMap(fact, "protocol"),
-			}
-			if pid := intFromMap(fact, "pid"); pid > 0 {
-				port["pid"] = pid
-			}
-			inventory["listeningPorts"] = append(inventory["listeningPorts"].([]map[string]any), port)
-		case "ssl_certificate_binding":
-			binding := map[string]any{
-				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": "https",
-				"thumbprint": normalizeCertificateHex(stringFromMap(fact, "thumbprint")),
-			}
-			for _, key := range []string{"store", "hostname"} {
-				if value := stringFromMap(fact, key); value != "" {
-					binding[key] = value
-				}
-			}
-			inventory["sslCertificateBindings"] = append(inventory["sslCertificateBindings"].([]map[string]any), binding)
-		case "certificate_store":
-			if certificate := certificateFileFromFact(fact); certificate != nil {
-				inventory["certificateFiles"] = append(inventory["certificateFiles"].([]map[string]any), certificate)
-			}
-			continue
-		case "certificate_file":
-			if certificate := certificateFileFromFact(fact); certificate != nil {
-				inventory["certificateFiles"] = append(inventory["certificateFiles"].([]map[string]any), certificate)
-			}
-			continue
-		case "file_content":
-			// 受控配置文本继续向控制面提供原始证据，控制面可据此进行完整解析。
-		default:
-			continue
-		}
-		path := stringFromMap(fact, "path")
-		encoded := stringFromMap(fact, "contentBase64")
-		if path == "" || encoded == "" {
-			continue
-		}
-		decoded, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			continue
-		}
-		content, ok := decodeWindowsConfigText(decoded)
-		if !ok {
-			continue
-		}
-		inventory["configFiles"] = append(inventory["configFiles"].([]map[string]any), map[string]any{"path": filepath.ToSlash(path), "content": content})
+	inventory := map[string]any{
+		"scope":            fullWebDiscoveryScope,
+		"frameworks":       []map[string]any{},
+		"sites":            []map[string]any{},
+		"certificateFiles": []map[string]any{},
+		"configFiles":      []map[string]any{},
+		"warnings":         []map[string]any{},
 	}
 	return inventory
-}
-
-func certificateFileFromFact(fact map[string]any) map[string]any {
-	thumbprint := strings.ToUpper(strings.Map(func(r rune) rune {
-		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
-			return r
-		}
-		return -1
-	}, stringFromMap(fact, "thumbprint")))
-	if len(thumbprint) < 8 {
-		return nil
-	}
-	path := stringFromMap(fact, "path")
-	if path == "" {
-		path = "windows-certstore://LocalMachine/" + stringFromMap(fact, "store") + "/" + thumbprint
-	}
-	item := map[string]any{"path": filepath.ToSlash(path), "thumbprint": thumbprint, "store": stringFromMap(fact, "store"), "storeLocation": stringFromMap(fact, "storeLocation")}
-	for _, key := range []string{"sha256Fingerprint", "subject", "issuer", "notBefore", "notAfter", "hasPrivateKey"} {
-		if value := fact[key]; value != nil && value != "" {
-			item[key] = value
-		}
-	}
-	return item
 }
 
 func lenOfAny(value any) int {
@@ -3629,6 +3043,19 @@ func intFromMap(input map[string]any, key string) int {
 	case int:
 		return value
 	case int64:
+		return int(value)
+	case uint:
+		return int(value)
+	case uint8:
+		return int(value)
+	case uint16:
+		return int(value)
+	case uint32:
+		return int(value)
+	case uint64:
+		if value > uint64(^uint(0)>>1) {
+			return 0
+		}
 		return int(value)
 	case float64:
 		return int(value)

@@ -30,6 +30,7 @@ test('Agent web.inventory 投影会淘汰旧插件 Web 资产，但不影响非 
     capabilityKey: 'web.inventory',
     confidence: 0.95,
     value: {
+      scope: 'FULL_WEB_DISCOVERY',
       configFiles: [{
         path: '/etc/nginx/conf.d/current.conf',
         content: 'server { listen 443 ssl; server_name current.example.test; ssl_certificate /etc/nginx/certs/current.pem; }',
@@ -70,11 +71,39 @@ test('Agent Web 空快照不会把历史 Web 资产立即标记为 STALE', async
   }, legacyDiscovery('web.nginx', 'nginx', 'legacy-web', true));
 
   const service = new AgentCapabilityDiscoveryProjector(db, standardProjector);
-  await service.project(agent(), snapshot([{ capabilityKey: 'web.inventory', confidence: 0.9, value: { configFiles: [], frameworks: [], sites: [] } }]));
+  await service.project(agent(), snapshot([{ capabilityKey: 'web.inventory', confidence: 0.9, value: { scope: 'FULL_WEB_DISCOVERY', configFiles: [], frameworks: [], sites: [] } }]));
 
   assert.equal(await status(db, 'pg_framework_instances', 'plugin:web-nginx-v1'), 'ACTIVE');
   assert.equal(await status(db, 'pg_site_assets', 'plugin:web-nginx-v1'), 'ACTIVE');
   assert.equal(await status(db, 'pg_managed_targets', 'plugin:web-nginx-v1'), 'ACTIVE');
+});
+
+test('真实 Web 框架出现后会淘汰旧 device.generic，后续空快照也不会重新激活它', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, {
+    appliedBy: 'test',
+    checksum: (content) => createHash('sha256').update(content).digest('hex'),
+  });
+  await db.query(`insert into pg_hosts (id, tenant_id, agent_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-1','tenant-1','agent-1','agent.example.test','WINDOWS','AGENT','L1','AGENT','ACTIVE')`);
+
+  const standardProjector = new StandardDeviceDiscoveryProjector(db);
+  await standardProjector.project({
+    tenantId: 'tenant-1', hostId: 'host-1', discoveryProviderKey: 'agent:agent-1', discoverySource: 'AGENT',
+  }, emptyDiscovery());
+  assert.equal(await genericFrameworkStatus(db), 'ACTIVE');
+
+  const service = new AgentCapabilityDiscoveryProjector(db, standardProjector);
+  await service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      scope: 'FULL_WEB_DISCOVERY',
+      configFiles: [{ path: 'D:/runtime/nginx/conf/nginx.conf', content: 'server { listen 443 ssl; server_name portal.example.test; }' }],
+    },
+  }]));
+  assert.equal(await genericFrameworkStatus(db), 'STALE');
+
+  await service.project(agent(), snapshot([{ capabilityKey: 'web.inventory', confidence: 0.9, value: { scope: 'FULL_WEB_DISCOVERY', configFiles: [] } }]));
+  assert.equal(await genericFrameworkStatus(db), 'STALE');
 });
 
 function legacyDiscovery(frameworkType: string, frameworkKey: string, suffix: string, includeCertificate: boolean) {
@@ -117,10 +146,31 @@ function legacyDiscovery(frameworkType: string, frameworkKey: string, suffix: st
   };
 }
 
+function emptyDiscovery() {
+  return {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'device:empty', displayName: 'agent.example.test', productFamily: 'AGENT_HOST' },
+    capabilities: [],
+    frameworks: [],
+    sites: [],
+    managedTargets: [],
+    certificates: [],
+    certificateBindings: [],
+    warnings: [],
+  };
+}
+
 async function status(db: PgliteDatabase, table: 'pg_framework_instances' | 'pg_site_assets' | 'pg_managed_targets', provider: string) {
   const result = await db.query<{ status: string }>(
     `select status from ${table} where tenant_id=$1 and discovery_provider_key=$2`,
     ['tenant-1', provider],
+  );
+  return result.rows[0]?.status;
+}
+
+async function genericFrameworkStatus(db: PgliteDatabase) {
+  const result = await db.query<{ status: string }>(
+    "select status from pg_framework_instances where tenant_id='tenant-1' and device_id='host-1' and discovery_provider_key='agent:agent-1' and framework_type='device.generic'",
   );
   return result.rows[0]?.status;
 }

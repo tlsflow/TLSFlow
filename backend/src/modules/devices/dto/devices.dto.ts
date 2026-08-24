@@ -87,6 +87,10 @@ export interface ManagedDeviceSiteBindingDto {
   hostName?: string;
   status: string;
   certificate?: ManagedDeviceBoundCertificateDto;
+  /** 运行时 TLS 握手得到的证书，不替换配置绑定证书。 */
+  observedCertificate?: ManagedDeviceBoundCertificateDto;
+  driftStatus?: 'SYNCED' | 'DRIFTED' | 'UNKNOWN' | string;
+  deploymentTarget?: Record<string, unknown>;
   replacement: {
     allowed: boolean;
     managedTargetId?: string;
