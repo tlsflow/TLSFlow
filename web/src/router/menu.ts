@@ -83,15 +83,14 @@ export const mainMenuItems: MenuItem[] = [
     permission: 'settings.read',
     icon: 'sliders',
     descriptionKey: 'nav.settingsDesc',
+    activePaths: ['/settings/tenant-architecture', '/settings/version'],
     children: [
       { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
-      { titleKey: 'tenantArchitecture.nav', path: '/settings/tenant-architecture', module: 'settings', permission: 'settings.read', descriptionKey: 'tenantArchitecture.description' },
-      { titleKey: 'credentials.title', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
-      { titleKey: 'settings.version.title', path: '/settings/version', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.version.description' },
-      ...licensingMenuItems,
-      { titleKey: 'notifications.title', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
       { titleKey: 'nav.users', path: '/settings/users', module: 'settings', permission: 'security.user.read', descriptionKey: 'nav.usersDesc' },
       { titleKey: 'nav.roles', path: '/settings/roles', module: 'settings', permission: 'security.role.read', descriptionKey: 'nav.rolesDesc' },
+      { titleKey: 'credentials.title', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
+      { titleKey: 'notifications.title', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
+      ...licensingMenuItems,
       { titleKey: 'nav.identitySources', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', descriptionKey: 'nav.identitySourcesDesc' }
     ]
   }
