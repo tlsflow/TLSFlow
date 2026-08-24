@@ -44,7 +44,7 @@ internal static class Tests
         Run("PREFLIGHT 不修改文件", AtomicPreflightDoesNotMutate);
         Run("文件路径越权被拒绝", AtomicFilePermissionIsEnforced);
         Run("程序路径越权被拒绝", AtomicProgramPermissionIsEnforced);
-        Run("Shell 程序被拒绝", AtomicShellProgramIsRejected);
+        Run("Shell 程序在显式权限下可执行", AtomicShellProgramIsAllowedWithPermission);
         Run("参数数组程序执行成功", AtomicCommandArgumentsExecute);
         Run("服务权限越权被拒绝", AtomicServicePermissionIsEnforced);
         Run("服务状态预演只读成功", AtomicServiceStatusPreflight);
@@ -508,19 +508,19 @@ internal static class Tests
         Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "程序路径越权未失败关闭");
     }
 
-    private static void AtomicShellProgramIsRejected()
+    private static void AtomicShellProgramIsAllowedWithPermission()
     {
         string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
         Dictionary<string, object> plan = AtomicPlanWithOperations(
             "shell-program-plan",
             "shell-program-key",
-            "PREFLIGHT",
-            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/c", "echo blocked" } } }) },
+            "EXECUTE",
+            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/c", "echo shell-allowed" } }, { "timeoutSeconds", 30 } }) },
             new object[0],
             new object[] { Permission("process", program) });
         SignPlan(plan);
         ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "Shell 程序未被拒绝");
+        Assert(result.Success, "Shell 程序在显式权限下仍不可执行");
     }
 
     private static void AtomicCommandArgumentsExecute()

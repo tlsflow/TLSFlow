@@ -457,7 +457,7 @@ namespace GCAC.WindowsCompatibilityAgent
             string program = AtomicValue.String(input, "program");
             AtomicFileOperations.RequireProgram(program, context.Permissions);
             AtomicValue.RequireArgumentArray(input);
-            if (AtomicValue.IsShellProgram(program) || AtomicValue.ShellEnabled(input)) throw new InvalidOperationException("shell mode is disabled");
+            if (AtomicValue.ShellEnabled(input)) throw new InvalidOperationException("shell mode is disabled");
             List<string> arguments = AtomicValue.StringList(input, "args");
             if (preview)
             {
