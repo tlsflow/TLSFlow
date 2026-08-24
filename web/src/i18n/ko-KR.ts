@@ -2997,6 +2997,7 @@ export default {
       }
     },
     deployment: {
+      noCertificateAsset: '배포 가능한 인증서 자산이 없습니다',
       targetLocked: '업데이트 대상 고정',
       title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검, 승인 제출 및 승인 후 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷, 승인 및 실행 경계로 유지됩니다.', latestVersionPointer: '현재 인증서의 최신 버전 자동 적용', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', approval: '승인 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', pendingApproval: '사전 점검이 완료되었으며 배포는 승인을 기다리고 있습니다.', executionStarted: '사전 점검과 승인이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
     },

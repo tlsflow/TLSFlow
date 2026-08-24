@@ -12,7 +12,7 @@ const saving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const settings = reactive({
-  dryRunEnabled: true,
+  dryRunEnabled: false,
   approvalEnabled: true,
 })
 

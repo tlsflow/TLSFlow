@@ -86,7 +86,7 @@ test('应用资产创建入口接受 reuseDraft，保持历史请求未传该字
     path: '/api/v1/deployment-plans/from-application-asset',
     query: {},
     headers: {},
-    body: { applicationAssetId: 'asset_1', reuseDraft: false, idempotencyKey: 'idem_reuse_draft_false' },
+    body: { applicationAssetId: 'asset_1', certificateAssetId: 'cert_asset_1', reuseDraft: false, idempotencyKey: 'idem_reuse_draft_false' },
     context,
   });
   await route.handler({
@@ -99,6 +99,7 @@ test('应用资产创建入口接受 reuseDraft，保持历史请求未传该字
   });
 
   assert.equal(calls[0]?.applicationAssetId, 'asset_1');
+  assert.equal(calls[0]?.certificateAssetId, 'cert_asset_1');
   assert.equal(calls[0]?.reuseDraft, false);
   assert.equal(calls[1]?.applicationAssetId, 'asset_legacy');
   assert.equal(calls[1]?.reuseDraft, undefined);

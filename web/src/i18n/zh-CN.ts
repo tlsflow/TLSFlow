@@ -3177,6 +3177,7 @@ export default {
       description: '从当前应用资产选择一个证书版本。系统会依次创建部署快照、执行预检、提交审批并在获准后执行。',
       dialogTitle: '证书部署',
       dialogDescription: '此操作只作用于当前应用资产，部署计划仍作为后台快照、审批和执行边界保留。',
+      noCertificateAsset: '没有可部署的证书资产',
       targetLocked: '已锁定更新目标',
       latestVersionPointer: '自动应用当前证书的最新版本',
       deployThisVersion: '部署此证书版本',

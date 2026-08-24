@@ -3023,6 +3023,7 @@ export default {
     },
     deployment: {
       targetLocked: "已鎖定更新目標",
+      noCertificateAsset: "沒有可部署的憑證資產",
       title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照、執行預檢、提交審核並在獲准後執行。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照、審核和執行邊界。", latestVersionPointer: "自動套用目前憑證的最新版本", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", approval: "審核狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", pendingApproval: "預檢已完成，部署正在等待審核。", executionStarted: "預檢和審核已通過，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
     },
     compatibilityModes: {

@@ -1,6 +1,6 @@
 /**
- * 中文说明：部署任务开关按租户保存。缺少旧字段时保持安全默认值，避免历史租户
- * 因升级后意外跳过预检或审批。
+ * 中文说明：部署任务开关按租户保存。缺少历史字段时关闭可选 Dry-run，
+ * 但继续保留审批默认开启。
  */
 export interface DeploymentTaskSettings {
   dryRunEnabled: boolean;
@@ -8,7 +8,7 @@ export interface DeploymentTaskSettings {
 }
 
 export const DEFAULT_DEPLOYMENT_TASK_SETTINGS: Readonly<DeploymentTaskSettings> = {
-  dryRunEnabled: true,
+  dryRunEnabled: false,
   approvalEnabled: true,
 };
 
@@ -17,7 +17,7 @@ export function normalizeDeploymentTaskSettings(value: unknown): DeploymentTaskS
     ? value as Record<string, unknown>
     : {};
   return {
-    dryRunEnabled: record.dryRunEnabled !== false,
+    dryRunEnabled: record.dryRunEnabled === true,
     approvalEnabled: record.approvalEnabled !== false,
   };
 }

@@ -855,7 +855,7 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
   deploymentError.value = ''
   try {
     const settingsResult = await getDeploymentTaskSettings()
-    const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: true, approvalEnabled: true }
+    const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: false, approvalEnabled: true }
     const isBulk = bulkCertificateUpdateMode.value
     const targetAssetIds = isBulk
       ? [...bulkCertificateUpdateAssetIds.value]

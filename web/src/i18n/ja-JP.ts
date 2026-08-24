@@ -3024,6 +3024,7 @@ export default {
     },
     deployment: {
       targetLocked: '更新対象を固定', latestVersionPointer: '現在の証明書の最新バージョンを自動適用',
+      noCertificateAsset: 'デプロイ可能な証明書アセットがありません',
       title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットの作成、事前確認、承認申請、承認後の実行を行います。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショット、承認、実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', approval: '承認状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', pendingApproval: '事前確認が完了し、デプロイは承認待ちです。', executionStarted: '事前確認と承認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' }
     },
     compatibilityModes: {

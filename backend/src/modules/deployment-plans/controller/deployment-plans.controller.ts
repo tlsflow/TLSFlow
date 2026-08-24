@@ -95,6 +95,7 @@ export class DeploymentPlansController {
   private async create(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
+      certificateAssetId: { type: 'string' },
       certificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
       selectionMode: { type: 'string' },
@@ -116,6 +117,7 @@ export class DeploymentPlansController {
       statusCode: 201,
       body: this.service.create({
         name: String(body.name),
+        certificateAssetId: body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId),
         certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
         certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
         selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
@@ -133,6 +135,7 @@ export class DeploymentPlansController {
     const body = validateObject(request.body, {
       applicationAssetId: { type: 'string' },
       applicationId: { type: 'string' },
+      certificateAssetId: { type: 'string' },
       targetCertificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
       selectionMode: { type: 'string' },
@@ -151,6 +154,7 @@ export class DeploymentPlansController {
       statusCode: 201,
       body: this.service.createFromApplicationAsset({
         applicationAssetId: String(applicationAssetId),
+        certificateAssetId: body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId),
         targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
         certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
         selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
@@ -169,6 +173,7 @@ export class DeploymentPlansController {
       planId: { type: 'string', required: true },
       expectedVersion: { type: 'number', required: true },
       applicationAssetId: { type: 'string', required: true },
+      certificateAssetId: { type: 'string' },
       targetCertificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
       selectionMode: { type: 'string' },
@@ -182,6 +187,7 @@ export class DeploymentPlansController {
       planId: String(body.planId),
       expectedVersion: Number(body.expectedVersion),
       applicationAssetId: String(body.applicationAssetId),
+      certificateAssetId: body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId),
       targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
       certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
       selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,

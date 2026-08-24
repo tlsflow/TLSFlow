@@ -2998,6 +2998,7 @@ export default {
     },
     deployment: {
       targetLocked: 'Alvo de atualização bloqueado',
+      noCertificateAsset: 'Nenhum ativo de certificado implantável',
       title: 'Implantação de certificado',
       description: 'Escolha uma versão de certificado para este ativo de aplicação. O sistema cria um snapshot, executa a pré-verificação, solicita aprovação e executa quando autorizado.',
       dialogTitle: 'Implantação de certificado',

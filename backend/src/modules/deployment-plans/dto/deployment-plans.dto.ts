@@ -163,6 +163,7 @@ export interface ApplicationAssetDeploymentRecordDto extends DeploymentPlanDto {
 
 export interface CreateDeploymentPlanInput {
   name: string;
+  certificateAssetId?: string;
   certificateVersionId?: string;
   certificateFormatId?: string;
   selectionMode?: DeploymentPlanSelectionMode;
@@ -199,6 +200,7 @@ export interface CreateDeploymentPlanInput {
 
 export interface CreateDeploymentPlanFromApplicationAssetInput {
   applicationAssetId: string;
+  certificateAssetId?: string;
   targetCertificateVersionId?: string;
   certificateFormatId?: string;
   selectionMode?: DeploymentPlanSelectionMode;

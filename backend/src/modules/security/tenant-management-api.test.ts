@@ -257,7 +257,7 @@ describe('租户治理 API', () => {
     });
     assert.equal(defaults.statusCode, 200, JSON.stringify(defaults.body));
     assert.deepEqual((defaults.body as { deploymentTasks: { dryRunEnabled: boolean; approvalEnabled: boolean } }).deploymentTasks, {
-      dryRunEnabled: true,
+      dryRunEnabled: false,
       approvalEnabled: true,
     });
 

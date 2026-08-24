@@ -3155,6 +3155,7 @@ export default {
       description: 'Choose a certificate version for this application asset. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
       dialogTitle: 'Certificate deployment',
       dialogDescription: 'This applies only to the current application asset. The deployment plan remains the backend snapshot, approval, and execution boundary.',
+      noCertificateAsset: 'No deployable certificate asset',
       targetLocked: 'Update target locked',
       latestVersionPointer: 'Automatically apply the latest version of the current certificate',
       deployThisVersion: 'Deploy this certificate version',

@@ -3062,6 +3062,7 @@ export default {
     deployment: {
       title: 'Déploiement du certificat',
       description: 'Choisissez une version de certificat pour cet actif applicatif. Le système crée un instantané, lance la pré-vérification, demande l’approbation puis exécute si elle est autorisée.',
+      noCertificateAsset: 'Aucun actif de certificat déployable',
       dialogTitle: 'Déploiement du certificat',
       dialogDescription: 'Cette action concerne uniquement l’actif applicatif actuel. Le plan reste la limite de snapshot, d’approbation et d’exécution côté serveur.',
       targetLocked: 'Cible de mise à jour verrouillée',

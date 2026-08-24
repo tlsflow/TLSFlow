@@ -17,6 +17,10 @@ describe('GcCertificateDeploymentForm', () => {
         },
         siteName: '生产站点',
         certificate: { id: 'cert-1', primaryDomain: '*.example.com' },
+        certificates: [
+          { id: 'cert-1', name: '当前证书', primaryDomain: '*.example.com' },
+          { id: 'cert-2', name: '目标证书', primaryDomain: '*.example.com' },
+        ],
         certificateVersions: [
           {
             id: 'version-old',
@@ -34,6 +38,14 @@ describe('GcCertificateDeploymentForm', () => {
             notBefore: '2098-01-01T00:00:00.000Z',
             notAfter: '2099-01-01T00:00:00.000Z',
           },
+          {
+            id: 'version-target',
+            certificateAssetId: 'cert-2',
+            status: 'active',
+            deployable: true,
+            notBefore: '2097-01-01T00:00:00.000Z',
+            notAfter: '2098-01-01T00:00:00.000Z',
+          },
         ],
       },
     })
@@ -41,18 +53,25 @@ describe('GcCertificateDeploymentForm', () => {
     expect(wrapper.text()).toContain('支付网关')
     expect(wrapper.text()).toContain('生产站点')
     expect(wrapper.text()).toContain('*.example.com')
-    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('__LATEST__')
-    expect([...wrapper.get('select').findAll('option')].map((option) => (option.element as HTMLOptionElement).value)).toEqual([
+    expect((wrapper.findAll('select')[0]!.element as HTMLSelectElement).value).toBe('cert-1')
+    expect((wrapper.findAll('select')[1]!.element as HTMLSelectElement).value).toBe('__LATEST__')
+    expect([...wrapper.findAll('select')[1]!.findAll('option')].map((option) => (option.element as HTMLOptionElement).value)).toEqual([
       '__LATEST__',
       'version-new',
       'version-old',
     ])
-    expect(wrapper.get('select').findAll('option')[1]?.text()).toContain('version-new (2098-01-01 ~ 2099-01-01)')
+    expect(wrapper.findAll('select')[1]!.findAll('option')[1]?.text()).toContain('version-new (2098-01-01 ~ 2099-01-01)')
 
-    await wrapper.get('select').setValue('version-old')
+    await wrapper.findAll('select')[0]!.setValue('cert-2')
+    expect((wrapper.findAll('select')[1]!.element as HTMLSelectElement).value).toBe('__LATEST__')
+    expect(wrapper.findAll('select')[1]!.findAll('option').map((option) => (option.element as HTMLOptionElement).value)).toEqual([
+      '__LATEST__',
+      'version-target',
+    ])
+    await wrapper.findAll('select')[1]!.setValue('version-target')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('submit')).toEqual([[
-      { selectionMode: 'EXPLICIT', certificateVersionId: 'version-old' },
+      { certificateAssetId: 'cert-2', selectionMode: 'EXPLICIT', certificateVersionId: 'version-target' },
     ]])
   })
 
@@ -63,6 +82,7 @@ describe('GcCertificateDeploymentForm', () => {
         applicationAsset: { id: 'asset-1', displayName: '支付网关' },
         siteName: '生产站点',
         certificate: { id: 'cert-1', primaryDomain: '*.example.com' },
+        certificates: [{ id: 'cert-1', name: '当前证书', primaryDomain: '*.example.com' }],
         certificateVersions: [{
           id: 'version-new',
           certificateAssetId: 'cert-1',
@@ -73,11 +93,11 @@ describe('GcCertificateDeploymentForm', () => {
       },
     })
 
-    await wrapper.get('select').setValue('__LATEST__')
+    await wrapper.findAll('select')[1]!.setValue('__LATEST__')
     expect(wrapper.text()).toContain('自动应用当前证书的最新版本')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('submit')).toEqual([[
-      { selectionMode: 'LATEST_AUTO', certificateVersionId: 'version-new' },
+      { certificateAssetId: 'cert-1', selectionMode: 'LATEST_AUTO', certificateVersionId: 'version-new' },
     ]])
   })
 

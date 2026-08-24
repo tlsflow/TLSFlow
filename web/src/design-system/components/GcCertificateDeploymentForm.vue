@@ -10,12 +10,14 @@ const props = withDefaults(defineProps<{
   applicationAsset: ApiRecord | null
   siteName?: string
   certificate: ApiRecord | null
+  certificates?: readonly ApiRecord[]
   certificateVersions: readonly ApiRecord[]
   preflightChecks?: readonly ApiRecord[]
   loading?: boolean
   submitLabel?: string
 }>(), {
   siteName: '',
+  certificates: () => [],
   preflightChecks: () => [],
   loading: false,
   submitLabel: '',
@@ -24,24 +26,57 @@ const props = withDefaults(defineProps<{
 type CertificateVersionSelectionMode = 'EXPLICIT' | 'LATEST_AUTO'
 
 const emit = defineEmits<{
-  submit: [selection: { selectionMode: CertificateVersionSelectionMode; certificateVersionId: string }]
+  submit: [selection: { certificateAssetId: string; selectionMode: CertificateVersionSelectionMode; certificateVersionId: string }]
   cancel: []
 }>()
 
 const { t } = useI18n()
 const LATEST_VERSION_MARKER = '__LATEST__'
+const selectedCertificateAssetId = ref('')
 const selectedVersionId = ref('')
 
-const sortedVersions = computed(() => sortDeployableCertificateVersions(props.certificateVersions))
-const latestVersion = computed(() => sortedVersions.value[0] ?? null)
+const certificateOptions = computed(() => {
+  const deployableAssetIds = new Set(
+    props.certificateVersions
+      .filter((item) => sortDeployableCertificateVersions([item]).length > 0)
+      .map((item) => certificateAssetId(item))
+      .filter(Boolean),
+  )
+  const listed = props.certificates.filter((item) => {
+    const id = certificateAssetId(item)
+    return Boolean(id) && deployableAssetIds.has(id)
+  })
+  if (listed.length > 0) return listed
+  const currentId = certificateAssetId(props.certificate)
+  return currentId && deployableAssetIds.has(currentId) && props.certificate
+    ? [props.certificate]
+    : []
+})
+const selectedCertificateVersions = computed(() => sortDeployableCertificateVersions(
+  props.certificateVersions.filter((item) => certificateAssetId(item) === selectedCertificateAssetId.value),
+))
+const latestVersion = computed(() => selectedCertificateVersions.value[0] ?? null)
 const selectedVersion = computed(() => selectedVersionId.value === LATEST_VERSION_MARKER
   ? latestVersion.value
-  : sortedVersions.value.find((item) => versionId(item) === selectedVersionId.value) ?? null)
-const canSubmit = computed(() => Boolean(selectedVersionId.value)
+  : selectedCertificateVersions.value.find((item) => versionId(item) === selectedVersionId.value) ?? null)
+const canSubmit = computed(() => Boolean(selectedCertificateAssetId.value && selectedVersionId.value)
   && (selectedVersionId.value !== LATEST_VERSION_MARKER || Boolean(versionId(latestVersion.value)))
   && !props.loading)
 
-watch(sortedVersions, (items) => {
+watch([certificateOptions, () => certificateAssetId(props.certificate)], ([items, currentCertificateId]) => {
+  const preferredId = currentCertificateId && items.some((item) => certificateAssetId(item) === currentCertificateId)
+    ? currentCertificateId
+    : certificateAssetId(items[0])
+  if (!selectedCertificateAssetId.value || !items.some((item) => certificateAssetId(item) === selectedCertificateAssetId.value)) {
+    selectedCertificateAssetId.value = preferredId
+  }
+}, { immediate: true })
+
+watch(selectedCertificateAssetId, () => {
+  selectedVersionId.value = selectedCertificateVersions.value.length > 0 ? LATEST_VERSION_MARKER : ''
+}, { immediate: true })
+
+watch(selectedCertificateVersions, (items) => {
   if (selectedVersionId.value === LATEST_VERSION_MARKER) {
     if (items.length > 0) return
     selectedVersionId.value = ''
@@ -55,13 +90,24 @@ function submit(): void {
   if (!canSubmit.value) return
   const followsLatest = selectedVersionId.value === LATEST_VERSION_MARKER
   emit('submit', {
+    certificateAssetId: selectedCertificateAssetId.value,
     selectionMode: followsLatest ? 'LATEST_AUTO' : 'EXPLICIT',
     certificateVersionId: followsLatest ? versionId(latestVersion.value) : selectedVersionId.value,
   })
 }
 
+function certificateAssetId(item: ApiRecord | null | undefined): string {
+  return readString(item, ['certificateAssetId', 'certificateId', 'id'])
+}
+
 function versionId(item: ApiRecord | null | undefined): string {
   return readString(item, ['id', 'certificateVersionId'])
+}
+
+function certificateOptionLabel(item: ApiRecord): string {
+  const name = readString(item, ['name', 'displayName', 'primaryDomain', 'commonName', 'id'])
+  const domain = readString(item, ['primaryDomain', 'commonName'])
+  return name && domain && name !== domain ? `${name} (${domain})` : name
 }
 
 function versionLabel(item: ApiRecord): string {
@@ -155,13 +201,22 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
 
     <section class="gc-certificate-deployment-form__section gc-certificate-deployment-form__section--version">
       <label class="gc-certificate-deployment-form__field">
+        <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
+        <select v-model="selectedCertificateAssetId" :disabled="loading || certificateOptions.length === 0">
+          <option v-if="certificateOptions.length === 0" value="">{{ t('assets.deployment.noCertificateAsset') }}</option>
+          <option v-for="option in certificateOptions" :key="certificateAssetId(option)" :value="certificateAssetId(option)">
+            {{ certificateOptionLabel(option) }}
+          </option>
+        </select>
+      </label>
+      <label class="gc-certificate-deployment-form__field">
         <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
-        <select v-model="selectedVersionId" :disabled="loading || sortedVersions.length === 0">
-          <option v-if="sortedVersions.length === 0" value="">{{ t('designSystem.deploymentWizard.version.noDeployableVersion') }}</option>
+        <select v-model="selectedVersionId" :disabled="loading || selectedCertificateVersions.length === 0">
+          <option v-if="selectedCertificateVersions.length === 0" value="">{{ t('designSystem.deploymentWizard.version.noDeployableVersion') }}</option>
           <option v-if="latestVersion" :value="LATEST_VERSION_MARKER">
             {{ t('assets.deployment.latestVersionPointer') }}
           </option>
-          <option v-for="version in sortedVersions" :key="versionId(version)" :value="versionId(version)">
+          <option v-for="version in selectedCertificateVersions" :key="versionId(version)" :value="versionId(version)">
             {{ versionLabel(version) }}
           </option>
         </select>

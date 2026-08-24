@@ -831,6 +831,7 @@ export class DeploymentPlansApplicationService {
 
     return {
       name: planName,
+      certificateAssetId: input.certificateAssetId,
       certificateVersionId,
       certificateFormatId,
       selectionMode,
@@ -1398,6 +1399,7 @@ export class DeploymentPlansApplicationService {
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
     return {
       name: planName,
+      certificateAssetId: input.certificateAssetId,
       certificateVersionId: input.targetCertificateVersionId,
       selectionMode,
       targets: [{
@@ -1433,13 +1435,16 @@ export class DeploymentPlansApplicationService {
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'submit');
     const plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
-    const preflightTargets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId))
-      .filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
-    await this.assertSynchronousPreflight(plan, preflightTargets, 'submit');
+    if (settings.dryRunEnabled) {
+      const preflightTargets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId))
+        .filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
+      await this.assertSynchronousPreflight(plan, preflightTargets, 'submit', settings);
+    }
 
     if (plan.status === 'PENDING_APPROVAL') {
       if (automationApproval) {
@@ -1449,7 +1454,7 @@ export class DeploymentPlansApplicationService {
         });
         return this.toDto(ready);
       }
-      if (!(await this.requiresApproval(plan))) {
+      if (!(await this.requiresApproval(plan, settings))) {
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
           approvalStatus: 'NOT_REQUIRED',
           approvalId: undefined,
@@ -1466,7 +1471,7 @@ export class DeploymentPlansApplicationService {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DRAFT 或 PENDING_APPROVAL 计划允许提交', { planId: plan.id, status: plan.status });
     }
 
-    if (await this.requiresApproval(plan)) {
+    if (await this.requiresApproval(plan, settings)) {
       if (automationApproval) {
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
           approvalStatus: 'NOT_REQUIRED',
@@ -1521,6 +1526,7 @@ export class DeploymentPlansApplicationService {
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'execute');
     let plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
@@ -1535,12 +1541,12 @@ export class DeploymentPlansApplicationService {
           approvalId: undefined,
         });
       }
-    } else if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan))) {
+    } else if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan, settings))) {
       plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
         approvalStatus: 'NOT_REQUIRED',
         approvalId: undefined,
       });
-    } else if (await this.requiresApproval(plan)) {
+    } else if (await this.requiresApproval(plan, settings)) {
       executionApprovalId = input.approvalId ?? plan.approvalId;
       if (!executionApprovalId) {
         await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
@@ -1576,8 +1582,10 @@ export class DeploymentPlansApplicationService {
     }
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
-    await this.assertSynchronousPreflight(plan, targets, 'execute');
-    // 中文说明：Dry-run 只提供只读诊断，不得成为正式证书部署的执行门槛。
+    if (settings.dryRunEnabled) {
+      await this.assertSynchronousPreflight(plan, targets, 'execute', settings);
+    }
+    // 中文说明：Dry-run 是否启用由当前租户的部署任务参数决定。
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     await this.freezePluginActionBindingsForExecution(plan, targets, agentPayloadByTargetId);
@@ -1646,7 +1654,7 @@ export class DeploymentPlansApplicationService {
 
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可预检目标', { planId: plan.id });
-    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
+    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets, settings);
     return {
       plan: await this.toDto(plan),
       checks,
@@ -1809,6 +1817,7 @@ export class DeploymentPlansApplicationService {
       ? this.resolveCertificateVersionId({
           tenantId: input.tenantId,
           selectionMode,
+           requestedCertificateAssetId: input.certificateAssetId,
            requestedCertificateVersionId: input.certificateVersionId,
            requestedCertificateFormatId: input.certificateFormatId,
            binding: target.binding,
@@ -1817,6 +1826,7 @@ export class DeploymentPlansApplicationService {
        : this.resolveWorkflowCertificateVersionId({
            tenantId: input.tenantId!,
            selectionMode,
+           requestedCertificateAssetId: input.certificateAssetId,
            requestedCertificateVersionId: input.certificateVersionId,
            requestedDomain: target.domain,
          })));
@@ -2035,6 +2045,7 @@ export class DeploymentPlansApplicationService {
   private async resolveCertificateVersionId(input: {
     tenantId?: string;
     selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
+    requestedCertificateAssetId?: string;
     requestedCertificateVersionId?: string;
     requestedCertificateFormatId?: string;
     binding: CertificateBindingDto;
@@ -2050,6 +2061,7 @@ export class DeploymentPlansApplicationService {
         input.requestedDomain,
         input.requestedCertificateFormatId,
         input.tenantId,
+        input.requestedCertificateAssetId,
       );
       return input.requestedCertificateVersionId;
     }
@@ -2064,12 +2076,14 @@ export class DeploymentPlansApplicationService {
       input.binding,
       input.requestedDomain,
       input.tenantId,
+      input.requestedCertificateAssetId,
     );
   }
 
   private async resolveWorkflowCertificateVersionId(input: {
     tenantId: string;
     selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
+    requestedCertificateAssetId?: string;
     requestedCertificateVersionId?: string;
     requestedDomain?: string;
   }): Promise<string> {
@@ -2078,6 +2092,12 @@ export class DeploymentPlansApplicationService {
     }
     const version = await this.certificates.getVersion(input.requestedCertificateVersionId, input.tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.requestedCertificateVersionId });
+    if (input.requestedCertificateAssetId && version.certificateAssetId !== input.requestedCertificateAssetId) {
+      throw new AppError('VALIDATION_FAILED', '证书版本不属于所选证书资产', {
+        certificateAssetId: input.requestedCertificateAssetId,
+        certificateVersionId: input.requestedCertificateVersionId,
+      });
+    }
     if (!isDeployableCertificateVersion(version)) {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', {
         certificateVersionId: input.requestedCertificateVersionId,
@@ -2104,9 +2124,16 @@ export class DeploymentPlansApplicationService {
     requestedDomain?: string,
     requestedCertificateFormatId?: string,
     tenantId?: string,
+    requestedCertificateAssetId?: string,
   ): Promise<void> {
     const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    if (requestedCertificateAssetId && version.certificateAssetId !== requestedCertificateAssetId) {
+      throw new AppError('VALIDATION_FAILED', '证书版本不属于所选证书资产', {
+        certificateAssetId: requestedCertificateAssetId,
+        certificateVersionId,
+      });
+    }
     const asset = await this.certificates.getAsset(version.certificateAssetId, tenantId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: version.certificateAssetId });
     if (!isDeployableCertificateVersion(version)) {
@@ -2139,9 +2166,16 @@ export class DeploymentPlansApplicationService {
     binding?: CertificateBindingDto,
     requestedDomain?: string,
     tenantId?: string,
+    requestedCertificateAssetId?: string,
   ): Promise<string> {
     const seed = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!seed) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    if (requestedCertificateAssetId && seed.certificateAssetId !== requestedCertificateAssetId) {
+      throw new AppError('VALIDATION_FAILED', '证书版本不属于所选证书资产', {
+        certificateAssetId: requestedCertificateAssetId,
+        certificateVersionId,
+      });
+    }
     const asset = await this.certificates.getAsset(seed.certificateAssetId, tenantId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: seed.certificateAssetId });
     const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} }, tenantId);
@@ -3282,8 +3316,8 @@ export class DeploymentPlansApplicationService {
   }
 
   private protocolsFromExecutorType(executorType: CreateDeploymentPlanInput['targets'][number]['executorType']): GatewayAdapterType[] {
-    if (executorType === 'GATEWAY_FORWARD') return ['forward.agent_task'];
-    return ['forward.agent_task'];
+    if (executorType === 'GATEWAY_FORWARD') return ['relay.tcp'];
+    return [];
   }
 
   private async assertPersistedDeploymentExecutors(planId: string, tenantId: string | undefined, operation: string): Promise<void> {
@@ -3534,6 +3568,7 @@ export class DeploymentPlansApplicationService {
   private async collectSynchronousPlanPreflightChecks(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
+    settings?: DeploymentTaskSettings,
   ): Promise<DeploymentPlanDryRunCheckDto[]> {
     const checks: DeploymentPlanDryRunCheckDto[] = [this.buildPlanSnapshotPreflightCheck(plan, targets)];
     const targetChecks = await Promise.all(targets.map(async (target) => [
@@ -3543,7 +3578,7 @@ export class DeploymentPlansApplicationService {
       await this.buildExecutionSummaryPreflightCheck(target),
     ]));
     checks.push(...targetChecks.flat());
-    checks.push(await this.buildApprovalPreflightCheck(plan));
+    checks.push(await this.buildApprovalPreflightCheck(plan, settings));
     return checks;
   }
 
@@ -3551,8 +3586,9 @@ export class DeploymentPlansApplicationService {
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
     operation: 'submit' | 'execute',
+    settings?: DeploymentTaskSettings,
   ): Promise<void> {
-    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
+    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets, settings);
     const failed = checks.filter((check) => check.status === 'failed');
     if (failed.length > 0) {
       throw new AppError('VALIDATION_FAILED', '部署计划预检失败，请先处理失败检查项', {
@@ -3652,7 +3688,8 @@ export class DeploymentPlansApplicationService {
       const asset = target.applicationAssetId
         ? await this.assets.getServiceAsset(tenantId, target.applicationAssetId)
         : undefined;
-      const domain = normalizeDomain(binding?.domainName ?? binding?.domain ?? asset?.sniName ?? asset?.address);
+      // 中文说明：ApplicationAsset 的 DNS 是用户实际访问入口，优先于绑定发现时记录的 IP。
+      const domain = normalizeDomain(asset?.sniName ?? asset?.address ?? binding?.domainName ?? binding?.domain);
       const certificateVersionId = plan.selectionMode === 'LATEST_AUTO'
         ? await this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding, domain, tenantId)
         : plan.certificateVersionId;
@@ -3891,9 +3928,12 @@ export class DeploymentPlansApplicationService {
     }
   }
 
-  private async buildApprovalPreflightCheck(plan: DeploymentPlanEntity): Promise<DeploymentPlanDryRunCheckDto> {
+  private async buildApprovalPreflightCheck(
+    plan: DeploymentPlanEntity,
+    settings?: DeploymentTaskSettings,
+  ): Promise<DeploymentPlanDryRunCheckDto> {
     try {
-      const approvalRequired = await this.requiresApproval(plan);
+      const approvalRequired = await this.requiresApproval(plan, settings);
       if (!approvalRequired) {
         return {
           key: 'approval',

@@ -84,6 +84,7 @@ async function createMigratedTestApp(options: { security?: ReturnType<typeof cre
   const app = createDeploymentTestApp(db, security);
   configureDeploymentLicenseFixture(app);
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
+  configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: true, approvalEnabled: true });
   return {
     db,
     security,
@@ -107,7 +108,18 @@ async function createMigratedDeploymentService(options: {
   const bindings = new PgBindingsRepository(assets, db);
   const certificates = new PgCertificatesRepository(db);
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
+  configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: true, approvalEnabled: true });
   return { db, security, app, repository, assets, bindings, certificates, service, fixture };
+}
+
+function configureDeploymentTaskSettingsForTest(
+  app: ReturnType<typeof createApp>,
+  settings: { dryRunEnabled: boolean; approvalEnabled: boolean },
+): void {
+  const service = app.getResource('deploymentPlansService') as { tenantHierarchy?: { getDeploymentTaskSettings: () => Promise<typeof settings> } };
+  service.tenantHierarchy = {
+    getDeploymentTaskSettings: async () => ({ ...settings }),
+  };
 }
 
 function createDeploymentTestApp(db: PgliteDatabase, security: ReturnType<typeof createSecurityServices>) {
@@ -293,7 +305,7 @@ async function createReadyLowRiskPlan(app: ReturnType<typeof createApp>, fixture
   assert.equal(created.statusCode, 201, JSON.stringify(created.body));
   const plan = created.body as { id: string };
   const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
-  assert.equal(submitted.statusCode, 200);
+  assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
   return submitted.body as { id: string; status: string };
 }
 
@@ -766,6 +778,7 @@ describe('部署计划与执行编排 API', () => {
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createDeploymentTestApp(db, security);
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: true, approvalEnabled: true });
     const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
     const workflow = await createPublishedPluginWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
 
@@ -1191,13 +1204,14 @@ describe('部署计划与执行编排 API', () => {
 
   it('提交低风险计划进入 READY，高风险计划进入审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_submit_low');
     assert.equal(ready.status, 'READY');
 
     const createdHigh = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans', headers: userHeaders, body: createPlanBody(fixture, 'idem_submit_high', 'high') });
     const highPlan = createdHigh.body as { id: string };
     const pending = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: highPlan.id } });
-    assert.equal(pending.statusCode, 200);
+    assert.equal(pending.statusCode, 200, JSON.stringify(pending.body));
     assert.equal((pending.body as { status: string }).status, 'PENDING_APPROVAL');
   });
 
@@ -1484,6 +1498,43 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.summary.failed, 1);
   });
 
+  it('submit 读取租户部署任务参数，关闭 Dry-run 后不阻断正式提交', async () => {
+    const { app, service, fixture } = await createMigratedDeploymentService();
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId: fixture.target_1.applicationAssetId,
+        targetCertificateVersionId: fixture.certificateVersionId,
+        certificateFormatId: fixture.certificateFormatId,
+        selectionMode: 'EXPLICIT',
+        idempotencyKey: 'idem_submit_dry_run_disabled',
+        policy: { riskLevel: 'low', approvalRequired: false, failurePolicy: 'rollback' },
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const planId = String((created.body as { id: string }).id);
+    const [target] = await service.getRepository().listTargetsByPlan(planId, 'tenant_1');
+    assert.ok(target);
+    await service.getRepository().updateTarget(target.id, {
+      matchResult: { status: 'blocked', missingCapabilities: ['certificate.install'] },
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'test_submit_dry_run_disabled',
+    });
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
+
+    const submitted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/submit',
+      headers: userHeaders,
+      body: { planId },
+    });
+
+    assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
+    assert.equal((submitted.body as { status: string }).status, 'READY');
+  });
+
   it('预检失败仅作为诊断，不阻止正式部署入队', async () => {
     const { app, service, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_preflight_failure_advisory');
@@ -1494,6 +1545,7 @@ describe('部署计划与执行编排 API', () => {
       updatedAt: new Date().toISOString(),
       updatedBy: 'test_preflight_failure_advisory',
     });
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: true, approvalEnabled: true });
 
     const preflight = await app.inject({
       method: 'POST',
@@ -1505,6 +1557,7 @@ describe('部署计划与执行编排 API', () => {
     const preflightBody = preflight.body as { checks: Array<{ key: string; status: string }> };
     assert.equal(preflightBody.checks.find((check) => check.key === `target_compatibility:${target.id}`)?.status, 'failed');
 
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
     const executed = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans/execute',
@@ -1713,6 +1766,7 @@ describe('部署计划与执行编排 API', () => {
 
   it('回滚缺少源步骤目标时拒绝创建空 rollback', async () => {
     const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
     const plan = await deploymentService.create({ ...createPlanBody(fixture, 'idem_empty_rollback_plan', 'low'), actorId: 'user_1', tenantId: 'tenant_1' }, { actor: { id: 'user_1', type: 'user', scope: { tenantId: 'tenant_1' } } });
     const ready = await deploymentService.submit({ planId: plan.id, actorId: 'user_1', tenantId: 'tenant_1' });
     const created = await deploymentService.getExecutionsService().createApplyRun({
@@ -1780,6 +1834,7 @@ describe('部署计划与执行编排 API', () => {
 
   it('能力匹配 blocked 的目标不能创建计划，manual_required 会强制进入审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
     const blocked = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans',
@@ -1808,6 +1863,7 @@ describe('部署计划与执行编排 API', () => {
 
   it('能力重评估会更新目标 matchResult，并让 degraded 目标强制审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
     const reevaluateTarget = await createIisManagedTargetFixture(app, {
       hostId: fixture.hostId,
       frameworkInstanceId: fixture.serviceInstanceId,
