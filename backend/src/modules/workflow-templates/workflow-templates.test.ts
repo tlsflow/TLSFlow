@@ -126,9 +126,24 @@ function createIsolatedWorkflowService(rootDirs: { builtinRootDir?: string; user
 }
 
 describe('WorkflowTemplates', () => {
-  it('校验 DSL v1 schema，拒绝未知字段、缺失引用、类型错误、明文 Secret 和私钥', () => {
+  it('校验 DSL v1 schema，拒绝未知字段、缺失引用、类型错误、明文 Secret 和私钥', async () => {
     workflowTemplatesSchemaRegistry.validate(templateFixture());
     assert.throws(() => workflowTemplatesSchemaRegistry.validate({ ...templateFixture(), extra: true }), /未知字段/);
+
+    const invalidPluginVersion = templateFixture();
+    invalidPluginVersion.metadata.version = 'v1';
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidPluginVersion), /SemVer/);
+
+    const unsafeLocalLogo = templateFixture();
+    unsafeLocalLogo.metadata.logoUrl = '../private/logo.svg';
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(unsafeLocalLogo), /不能包含/);
+
+    const versionedPrevious = { ...templateFixture(), metadata: { ...templateFixture().metadata, version: '1.0.0' } };
+    const versionedService = new WorkflowTemplatesApplicationService();
+    const versionedTemplate = await versionedService.createTemplate({ content: versionedPrevious });
+    const versionedNext = { ...versionedPrevious, steps: [...versionedPrevious.steps, { name: 'new_wait', type: 'wait', seconds: 1 }] } as WorkflowDslV1;
+    await assert.rejects(() => versionedService.createDraftVersion({ templateId: versionedTemplate.template.id, content: versionedNext }), /必须递进 metadata.version/);
+    await versionedService.createDraftVersion({ templateId: versionedTemplate.template.id, content: { ...versionedNext, metadata: { ...versionedNext.metadata, version: '1.0.1' } } });
 
     const missingReference = templateFixture();
     missingReference.steps[0] = {
@@ -247,6 +262,13 @@ describe('WorkflowTemplates', () => {
         ...templateFixture().metadata,
         name: 'file_template_create',
         displayName: '文件模板新建',
+        description: '用于验证插件市场元数据。',
+        version: '1.2.0',
+        logoUrl: '/plugin-logos/test.svg',
+        platforms: ['linux', 'apache'],
+        updateMethods: ['ssh', 'curl'],
+        maintainer: 'GCAC Test',
+        homepage: 'https://example.com/plugins/file-template-create',
       },
       steps: [
         {
@@ -290,6 +312,10 @@ describe('WorkflowTemplates', () => {
     assert.equal(files.length, 3);
     assert.equal(files.some((item) => item.id === 'builtin/apache/valid-create.json' && item.source === 'builtin' && item.valid), true);
     assert.equal(files.some((item) => item.id === 'user/broken.json' && item.source === 'user' && item.valid === false), true);
+    assert.equal(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.version, '1.2.0');
+    assert.equal(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.logoUrl, '/plugin-logos/test.svg');
+    assert.deepEqual(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.platforms, ['linux', 'apache']);
+    assert.deepEqual(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.updateMethods, ['ssh', 'curl']);
 
     const createdFromFile = await service.createTemplateFromFile({
       fileTemplateId: 'builtin/apache/valid-create.json',
@@ -1009,6 +1035,55 @@ describe('WorkflowTemplates', () => {
     assert.equal(scpPlan.sshRequest.scp[0]!.content, '[REDACTED]');
     assert.equal(scpPlan.sshRequest.scp[0]!.mode, '0600');
     assert.equal(run.stepResults[0]!.extracted.certHash, 'b'.repeat(64));
+  });
+
+  it('connectionRef 会为 SSH、SFTP、SCP 和 rollback 解析同一结构化连接', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'connection-ref-runtime' },
+      connections: {
+        targetSsh: {
+          protocol: 'ssh',
+          host: { configurationMode: 'required', source: 'binding' },
+          port: { configurationMode: 'advanced', source: 'dsl_default', default: 22 },
+          username: { configurationMode: 'required', source: 'binding' },
+          credential: { slot: 'sshCredential', configurationMode: 'required', source: 'credential' },
+          hostKey: { configurationMode: 'advanced', policy: 'trust_on_first_use' },
+        },
+      },
+      variables: {},
+      steps: [
+        { name: 'sshStep', type: 'ssh', stage: 'prepare', ssh: { mode: 'command', connectionRef: 'targetSsh', command: 'echo ok' } },
+        { name: 'sftpStep', type: 'sftp', stage: 'install', sftp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/a', localPath: '/tmp/local-a' } },
+        { name: 'scpStep', type: 'scp', stage: 'install', scp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/b', localPath: '/tmp/local-b' } },
+      ],
+      rollback: [
+        { name: 'rollbackStep', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connectionRef: 'targetSsh', command: 'echo rollback' } },
+      ],
+    };
+    const input = {
+      content,
+      mode: 'render_only' as const,
+      connectionBindings: {
+        targetSsh: {
+          host: '10.255.0.127',
+          port: 2222,
+          username: 'root',
+          credentialRef: 'sec_ssh',
+          credential: { id: 'sec_ssh', kind: 'ssh_key' as const, type: 'ssh_key' as const },
+        },
+      },
+    };
+    for (const stepName of ['sshStep', 'sftpStep', 'scpStep', 'rollbackStep']) {
+      const result = await service.testStep({ ...input, stepName });
+      const plan = result.stepResult.plan as { connection: { host: string; port: number; username: string }; sshRequest?: { connection: { host: string; port: number; username: string } } };
+      const connection = plan.sshRequest?.connection ?? plan.connection;
+      assert.equal(connection.host, '10.255.0.127');
+      assert.equal(connection.port, 2222);
+      assert.equal(connection.username, 'root');
+    }
   });
 
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {

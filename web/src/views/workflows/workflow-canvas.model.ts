@@ -12,6 +12,9 @@ export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
 export type WorkflowCanvasStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify'
 export type WorkflowCanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls'
 export type WorkflowDslCredentialValue = WorkflowCredentialBinding | string
+export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime'
+export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output'
+export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding'
 
 function canvasModelText(key: string, params?: Record<string, string | number>): string {
   const fullKey = `workflows.canvasModel.${key}`
@@ -52,6 +55,7 @@ export interface WorkflowCanvasDefinition {
     readonly tags?: readonly string[]
   }
   readonly variables: Record<string, WorkflowVariableDefinition>
+  readonly connections?: Record<string, WorkflowConnectionDefinition>
   readonly nodes: readonly WorkflowCanvasNode[]
   readonly edges: readonly WorkflowCanvasEdge[]
   readonly viewport: {
@@ -65,10 +69,15 @@ export interface WorkflowCanvasDefinition {
 export interface WorkflowVariableDefinition {
   readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate'
   readonly required?: boolean
+  readonly configurationMode?: WorkflowConfigurationMode
   readonly default?: unknown
   readonly enum?: readonly unknown[]
   readonly sensitive?: boolean
   readonly description?: string
+  readonly source?: Record<string, unknown>
+  readonly lifecycle?: WorkflowVariableLifecycle
+  readonly bindingPolicy?: WorkflowBindingPolicy
+  readonly ui?: Record<string, unknown>
   readonly artifactContract?: {
     readonly outputs: Record<string, {
       readonly role: string
@@ -78,6 +87,15 @@ export interface WorkflowVariableDefinition {
       readonly description?: string
     }>
   }
+}
+
+export interface WorkflowConnectionDefinition {
+  readonly protocol: 'ssh' | 'http'
+  readonly host: Record<string, unknown>
+  readonly port: Record<string, unknown>
+  readonly username?: Record<string, unknown>
+  readonly credential?: Record<string, unknown>
+  readonly hostKey?: Record<string, unknown>
 }
 
 export interface WorkflowNodeFieldDefinition {
@@ -121,6 +139,7 @@ export interface WorkflowDslV1 {
   readonly kind: 'CurlSshWorkflow'
   readonly metadata: WorkflowCanvasDefinition['metadata']
   readonly variables: Record<string, WorkflowVariableDefinition>
+  readonly connections?: Record<string, WorkflowConnectionDefinition>
   readonly steps: readonly WorkflowDslStep[]
   readonly rollback?: readonly WorkflowDslStep[]
 }
@@ -614,6 +633,7 @@ export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinitio
     dslVersion: 'gcac.workflow/v1',
     metadata: dsl.metadata,
     variables: cloneRecord(dsl.variables),
+    connections: cloneRecord(dsl.connections ?? {}),
     nodes,
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },

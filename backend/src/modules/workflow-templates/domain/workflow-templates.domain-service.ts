@@ -14,6 +14,7 @@ import type {
   UpdateWorkflowTemplateVersionNoteInput,
   WorkflowAssertion,
   WorkflowCredentialBinding,
+  WorkflowConnectionBinding,
   WorkflowDslV1,
   WorkflowExtractor,
   WorkflowMockStepOutput,
@@ -27,6 +28,7 @@ import type {
   WorkflowFileTemplate,
   WorkflowStage,
   WorkflowStep,
+  WorkflowSshConnection,
   WorkflowTransformStep,
   WorkflowStepRuntimeInput,
   WorkflowStepRunResult,
@@ -36,11 +38,13 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { WorkflowTemplateFileLibrary } from './workflow-template-file-library.js';
 import { normalizeExtractors, validateVariableValue, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
+import { resolveWorkflowConnection } from './workflow-variable-resolver.js';
 
 interface RuntimeContext {
   values: Record<string, unknown>;
   secretPaths: Set<string>;
   outputs: Record<string, unknown>;
+  connections: Record<string, WorkflowSshConnection>;
 }
 
 const defaultTransformTimeoutMs = 200;
@@ -107,7 +111,7 @@ export class WorkflowTemplatesDomainService {
     const template = await this.getTemplateOrThrow(input.templateId);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
-    return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true });
+    return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
   }
 
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
@@ -120,6 +124,7 @@ export class WorkflowTemplatesDomainService {
     if (!version) throw new AppError('VALIDATION_FAILED', 'workflow template has no draft version');
     const hash = digest(content);
     if (list.some((item) => item.id !== version.id && item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
+    assertPluginVersionIncrement(version.content, content, hash !== version.contentHash);
     version.content = clone(content);
     version.contentHash = hash;
     version.changeSummary = input.changeSummary ?? version.changeSummary;
@@ -148,7 +153,7 @@ export class WorkflowTemplatesDomainService {
       template,
       content,
       input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 覆盖工作流草稿`,
-      { rejectDuplicateContent: false },
+      { rejectDuplicateContent: false, enforcePluginVersionIncrement: false },
     );
   }
 
@@ -451,10 +456,12 @@ export class WorkflowTemplatesDomainService {
       .sort((left, right) => right.version - left.version)[0];
   }
 
-  private async appendDraftVersion(template: WorkflowTemplate, content: WorkflowDslV1, changeSummary: string | undefined, options: { rejectDuplicateContent: boolean }): Promise<WorkflowTemplateVersion> {
+  private async appendDraftVersion(template: WorkflowTemplate, content: WorkflowDslV1, changeSummary: string | undefined, options: { rejectDuplicateContent: boolean; enforcePluginVersionIncrement: boolean }): Promise<WorkflowTemplateVersion> {
     const list = this.versions.get(template.id) ?? [];
     const hash = digest(content);
     if (options.rejectDuplicateContent && list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
+    const previous = [...list].sort((left, right) => right.version - left.version)[0];
+    if (previous && options.enforcePluginVersionIncrement) assertPluginVersionIncrement(previous.content, content, hash !== previous.contentHash);
     const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
     const version = this.createVersion(template.id, versionNumber, content, 'draft', changeSummary);
     this.versions.set(template.id, [...list, version]);
@@ -543,7 +550,45 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
   values.asset = input.assetVariables ?? {};
   values.previous = {};
   values.steps = {};
-  return { values, secretPaths, outputs: {} };
+  return {
+    values,
+    secretPaths,
+    outputs: {},
+    connections: resolveRuntimeConnections(content, input.connectionBindings ?? {}, input.assetVariables ?? {}, input.mode === 'render_only'),
+  };
+}
+
+function resolveRuntimeConnections(
+  content: WorkflowDslV1,
+  bindings: Record<string, WorkflowConnectionBinding>,
+  assetContext: Record<string, unknown>,
+  keepMissing: boolean,
+): Record<string, WorkflowSshConnection> {
+  return Object.fromEntries(Object.entries(content.connections ?? {}).flatMap(([name, definition]) => {
+    if (definition.protocol !== 'ssh') return [];
+    const resolved = resolveWorkflowConnection(definition, bindings[name], assetContext);
+    if ((!resolved.host || !resolved.username || !isCredentialBinding(resolved.credential)) && !keepMissing) {
+      throw new AppError('VALIDATION_FAILED', 'SSH 连接配置不完整', {
+        connectionRef: name,
+        missing: [
+          !resolved.host ? 'host' : undefined,
+          !resolved.username ? 'username' : undefined,
+          !isCredentialBinding(resolved.credential) ? 'credential' : undefined,
+        ].filter(Boolean),
+      });
+    }
+    const connection: WorkflowSshConnection = {
+      host: resolved.host ?? `{{connections.${name}.host}}`,
+      port: resolved.port,
+      username: resolved.username ?? `{{connections.${name}.username}}`,
+      credential: isCredentialBinding(resolved.credential)
+        ? resolved.credential
+        : `{{connections.${name}.credential}}`,
+      hostKeyPolicy: resolved.hostKeyPolicy,
+      expectedHostKeyFingerprint: resolved.expectedHostKeyFingerprint,
+    };
+    return [[name, connection]];
+  }));
 }
 
 function markSensitive(name: string, definition: WorkflowVariableDefinition, value: unknown, secretPaths: Set<string>): void {
@@ -622,7 +667,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       realSsh: mode === 'real_test',
       idempotencyKey: `workflow:${step.name}`,
       stage: step.stage,
-      connection: adaptSshConnection(step.ssh.connection, context.values, mode === 'render_only'),
+      connection: adaptSshConnection(resolveStepConnection(step.ssh.connection, step.ssh.connectionRef, context), context.values, mode === 'render_only'),
       command,
       commands: step.ssh.commands?.map((item) => renderString(item, context.values, mode === 'render_only')),
       mode: step.ssh.mode,
@@ -631,7 +676,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     };
   }
   if (step.type === 'sftp' || step.type === 'scp') {
-    const transferStep = buildFileTransferStepPlan(step, context.values, mode === 'render_only');
+    const transferStep = buildFileTransferStepPlan(step, context, mode === 'render_only');
     return {
       executor: '015.SSH',
       dryRun: mode !== 'real_test',
@@ -957,6 +1002,7 @@ function buildSshCommandText(step: Extract<WorkflowStep, { type: 'ssh' }>): stri
 }
 
 function adaptSshConnection(connection: Extract<WorkflowStep, { type: 'ssh' }>['ssh']['connection'], values: Record<string, unknown>, keepMissing: boolean) {
+  if (!connection) throw new AppError('VALIDATION_FAILED', '执行前必须先解析 connectionRef');
   const credential = resolveCredentialBinding(connection.credential, values, keepMissing);
   return {
     host: renderString(connection.host, values, keepMissing),
@@ -966,6 +1012,18 @@ function adaptSshConnection(connection: Extract<WorkflowStep, { type: 'ssh' }>['
     ...(connection.expectedHostKeyFingerprint ? { expectedHostKeyFingerprint: renderString(connection.expectedHostKeyFingerprint, values, keepMissing) } : {}),
     ...(connection.hostKeyPolicy ? { hostKeyPolicy: connection.hostKeyPolicy } : {}),
   };
+}
+
+function resolveStepConnection(
+  connection: WorkflowSshConnection | undefined,
+  connectionRef: string | undefined,
+  context: RuntimeContext,
+): WorkflowSshConnection {
+  if (connection) return connection;
+  if (!connectionRef) throw new AppError('VALIDATION_FAILED', 'SSH/SFTP/SCP 步骤必须配置 connection 或 connectionRef');
+  const resolved = context.connections[connectionRef];
+  if (!resolved) throw new AppError('VALIDATION_FAILED', 'connectionRef 未定义或不是 SSH 连接', { connectionRef });
+  return resolved;
 }
 
 function adaptHttpAuth(auth: Extract<WorkflowStep, { type: 'http' }>['request']['auth'], values: Record<string, unknown>, keepMissing: boolean) {
@@ -1112,28 +1170,28 @@ function readPath(source: unknown, path: string): unknown {
   }, source);
 }
 
-function buildFileTransferStepPlan(step: Extract<WorkflowStep, { type: 'sftp' | 'scp' }>, values: Record<string, unknown>, keepMissing: boolean) {
+function buildFileTransferStepPlan(step: Extract<WorkflowStep, { type: 'sftp' | 'scp' }>, context: RuntimeContext, keepMissing: boolean) {
   const config = step.type === 'sftp' ? step.sftp : step.scp;
   const localPath = config.localPath
-    ? renderString(config.localPath, values, keepMissing)
+    ? renderString(config.localPath, context.values, keepMissing)
     : `virtual://workflow/${step.name}`;
   const sshRequest: Record<string, unknown> = {
-    connection: adaptSshConnection(config.connection, values, keepMissing),
+    connection: adaptSshConnection(resolveStepConnection(config.connection, config.connectionRef, context), context.values, keepMissing),
     timeoutMs: (config.timeoutSeconds ?? 60) * 1000,
     dryRun: false,
     [step.type]: [
       {
         direction: config.direction,
         localPath,
-        remotePath: renderString(config.remotePath, values, keepMissing),
-        ...(config.contentRef ? { content: renderTransferContent(config.contentRef, config.contentEncoding, values, keepMissing) } : {}),
-        ...(config.temporaryPath ? { temporaryPath: renderString(config.temporaryPath, values, keepMissing) } : {}),
-        ...(config.expectedHash ? { expectedHash: renderString(config.expectedHash, values, keepMissing) } : {}),
+        remotePath: renderString(config.remotePath, context.values, keepMissing),
+        ...(config.contentRef ? { content: renderTransferContent(config.contentRef, config.contentEncoding, context.values, keepMissing) } : {}),
+        ...(config.temporaryPath ? { temporaryPath: renderString(config.temporaryPath, context.values, keepMissing) } : {}),
+        ...(config.expectedHash ? { expectedHash: renderString(config.expectedHash, context.values, keepMissing) } : {}),
         ...(config.expectedSize !== undefined ? { expectedSize: config.expectedSize } : {}),
         ...(config.verifyHash !== undefined ? { verifyHash: config.verifyHash } : {}),
-        ...(config.mode ? { mode: renderString(config.mode, values, keepMissing) } : {}),
-        ...(config.owner ? { owner: renderString(config.owner, values, keepMissing) } : {}),
-        ...(config.group ? { group: renderString(config.group, values, keepMissing) } : {}),
+        ...(config.mode ? { mode: renderString(config.mode, context.values, keepMissing) } : {}),
+        ...(config.owner ? { owner: renderString(config.owner, context.values, keepMissing) } : {}),
+        ...(config.group ? { group: renderString(config.group, context.values, keepMissing) } : {}),
       },
     ],
   };
@@ -1166,6 +1224,48 @@ function stableStringify(value: unknown): string {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function assertPluginVersionIncrement(previous: WorkflowDslV1, next: WorkflowDslV1, contentChanged: boolean): void {
+  if (!contentChanged) return;
+  const previousVersion = previous.metadata.version;
+  const nextVersion = next.metadata.version;
+  if (!previousVersion && !nextVersion) return;
+  if (!previousVersion || !nextVersion || compareSemanticVersions(nextVersion, previousVersion) <= 0) {
+    throw new AppError('VALIDATION_FAILED', 'DSL 模板内容发生变化时必须递进 metadata.version', {
+      previousVersion,
+      nextVersion,
+    });
+  }
+}
+
+function compareSemanticVersions(left: string, right: string): number {
+  const [leftCoreText, leftPreRelease = ''] = left.split('+', 1)[0]!.split('-', 2);
+  const [rightCoreText, rightPreRelease = ''] = right.split('+', 1)[0]!.split('-', 2);
+  const leftCore = leftCoreText!.split('.').map(Number);
+  const rightCore = rightCoreText!.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if ((leftCore[index] ?? 0) !== (rightCore[index] ?? 0)) return (leftCore[index] ?? 0) - (rightCore[index] ?? 0);
+  }
+  if (!leftPreRelease && !rightPreRelease) return 0;
+  if (!leftPreRelease) return 1;
+  if (!rightPreRelease) return -1;
+  const leftParts = leftPreRelease.split('.');
+  const rightParts = rightPreRelease.split('.');
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : undefined;
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : undefined;
+    if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber - rightNumber;
+    if (leftNumber !== undefined) return -1;
+    if (rightNumber !== undefined) return 1;
+    return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

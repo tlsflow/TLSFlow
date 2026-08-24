@@ -9,6 +9,42 @@ export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
 export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
 export type WorkflowCredentialSecretType = 'password' | 'ssh_key' | 'api_token';
 export type WorkflowCertificateArtifactRole = 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle';
+export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
+export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
+export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
+export type WorkflowVariableSource =
+  | { kind: 'asset_ssl'; path: string }
+  | { kind: 'dsl'; value: unknown }
+  | { kind: 'derived'; resolver: 'endpoint_url' | 'authority' | 'binding_information' }
+  | { kind: 'system'; key: string }
+  | { kind: 'credential'; slot?: string }
+  | { kind: 'certificate' }
+  | { kind: 'step_output'; step: string; output: string };
+
+export interface WorkflowConnectionFieldDefinition {
+  configurationMode?: Exclude<WorkflowConfigurationMode, 'runtime'>;
+  source?: 'binding' | 'asset_ssl' | 'credential' | 'dsl_default';
+  assetPath?: string;
+  default?: string | number;
+}
+
+export interface WorkflowConnectionDefinition {
+  protocol: 'ssh' | 'http';
+  host: WorkflowConnectionFieldDefinition;
+  port: WorkflowConnectionFieldDefinition;
+  username?: WorkflowConnectionFieldDefinition;
+  credential?: WorkflowConnectionFieldDefinition & { slot: string };
+  hostKey?: { configurationMode?: Exclude<WorkflowConfigurationMode, 'runtime'>; policy: 'strict' | 'trust_on_first_use' | 'manual_approval_required' };
+}
+
+export interface WorkflowConnectionBinding {
+  host?: string;
+  port?: number;
+  username?: string;
+  credentialRef?: string;
+  credential?: WorkflowCredentialBinding;
+  expectedHostKeyFingerprint?: string;
+}
 
 export interface WorkflowCredentialBinding {
   id: string;
@@ -35,19 +71,31 @@ export interface WorkflowCertificateArtifactContract {
 
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
+  configurationMode?: WorkflowConfigurationMode;
   required?: boolean;
   default?: unknown;
   enum?: unknown[];
   sensitive?: boolean;
   description?: string;
+  source?: WorkflowVariableSource;
+  lifecycle?: WorkflowVariableLifecycle;
+  bindingPolicy?: WorkflowBindingPolicy;
+  ui?: { label?: string; group?: string; order?: number; help?: string };
   artifactContract?: WorkflowCertificateArtifactContract;
 }
 
 export interface WorkflowMetadata {
   name: string;
   displayName?: string;
+  description?: string;
   category?: string;
   tags?: string[];
+  version?: string;
+  logoUrl?: string;
+  platforms?: string[];
+  updateMethods?: WorkflowTemplateUpdateMethod[];
+  maintainer?: string;
+  homepage?: string;
 }
 
 export interface WorkflowRetryPolicy {
@@ -127,7 +175,8 @@ export interface WorkflowSshDialogueItem {
 
 export interface WorkflowSshStepConfig {
   mode: 'command' | 'script' | 'interactive';
-  connection: WorkflowSshConnection;
+  connection?: WorkflowSshConnection;
+  connectionRef?: string;
   command?: string;
   commands?: string[];
   script?: string;
@@ -137,7 +186,8 @@ export interface WorkflowSshStepConfig {
 
 export interface WorkflowFileTransferStepConfig {
   direction: 'upload' | 'download';
-  connection: WorkflowSshConnection;
+  connection?: WorkflowSshConnection;
+  connectionRef?: string;
   remotePath: string;
   contentRef?: string;
   contentEncoding?: WorkflowFileTransferContentEncoding;
@@ -226,6 +276,7 @@ export interface WorkflowDslV1 {
   kind: 'CurlSshWorkflow';
   metadata: WorkflowMetadata;
   variables: Record<string, WorkflowVariableDefinition>;
+  connections?: Record<string, WorkflowConnectionDefinition>;
   steps: WorkflowStep[];
   rollback?: WorkflowStep[];
 }
@@ -275,6 +326,7 @@ export interface WorkflowTemplateRecord {
 }
 
 export type WorkflowFileTemplateSource = 'builtin' | 'user';
+export type WorkflowTemplateUpdateMethod = 'ssh' | 'curl';
 
 export interface WorkflowFileTemplate {
   id: string;
@@ -304,6 +356,7 @@ export interface WorkflowRuntimeInput {
   templateVersionId: string;
   userVariables?: Record<string, unknown>;
   assetVariables?: Record<string, unknown>;
+  connectionBindings?: Record<string, WorkflowConnectionBinding>;
   certificateMaterials?: Record<string, Record<string, unknown>>;
   mockResponses?: Record<string, WorkflowMockStepOutput>;
   mode: WorkflowTestRunMode;

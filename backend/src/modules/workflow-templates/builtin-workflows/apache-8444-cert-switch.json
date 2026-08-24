@@ -3,7 +3,13 @@
   "kind": "CurlSshWorkflow",
   "metadata": {
     "name": "apache-8444-cert-switch",
-    "displayName": "Apache 8444 证书切换",
+    "displayName": "SSH更新Apache站点证书",
+    "description": "通过 SSH 更新 Apache 证书文件并验证 8444 HTTPS 服务。",
+    "version": "1.1.2",
+    "logoUrl": "/plugin-logos/apache-wordmark.svg",
+    "platforms": ["linux"],
+    "updateMethods": ["ssh"],
+    "maintainer": "GCAC",
     "category": "certificate",
     "tags": [
       "apache2",
@@ -13,11 +19,45 @@
       "certificate"
     ]
   },
+  "connections": {
+    "targetSsh": {
+      "protocol": "ssh",
+      "host": {
+        "configurationMode": "required",
+        "source": "binding"
+      },
+      "port": {
+        "configurationMode": "advanced",
+        "source": "dsl_default",
+        "default": 22
+      },
+      "username": {
+        "configurationMode": "required",
+        "source": "binding"
+      },
+      "credential": {
+        "slot": "sshCredential",
+        "configurationMode": "required",
+        "source": "credential"
+      },
+      "hostKey": {
+        "configurationMode": "advanced",
+        "policy": "trust_on_first_use"
+      }
+    }
+  },
   "variables": {
     "targetPlatform": {
       "type": "enum",
       "required": true,
       "default": "linux",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "linux"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "enum": [
         "linux"
       ],
@@ -27,6 +67,13 @@
       "type": "enum",
       "required": true,
       "default": "APACHE",
+      "configurationMode": "required",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.frameworkType"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "enum": [
         "NGINX",
         "APACHE",
@@ -40,30 +87,65 @@
       "type": "string",
       "required": true,
       "default": "Apache 8444",
+      "configurationMode": "required",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.siteName"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "应用资产站点显示名称。"
     },
     "bindingInformation": {
       "type": "string",
       "required": false,
       "default": "*:8444:test.local",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.bindingInformation"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "应用资产站点绑定信息。"
     },
     "hostHeader": {
       "type": "string",
       "required": false,
       "default": "test.local",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.hostHeader"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "HTTPS 验证请求使用的 Host 头。"
     },
     "port": {
       "type": "number",
       "required": true,
       "default": 8444,
+      "configurationMode": "required",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.port"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "Apache HTTPS 监听端口。"
     },
     "protocol": {
       "type": "enum",
       "required": true,
       "default": "HTTPS",
+      "configurationMode": "required",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.protocol"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "enum": [
         "HTTP",
         "HTTPS",
@@ -76,70 +158,116 @@
       "type": "string",
       "required": true,
       "default": "https://127.0.0.1:8444/",
+      "configurationMode": "required",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.verifyUrl"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "后端和工作流共同使用的 HTTPS 验证 URL。"
     },
     "sniName": {
       "type": "string",
       "required": false,
       "default": "test.local",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "asset_ssl",
+        "path": "target.sniName"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
       "description": "TLS SNI 名称。"
-    },
-    "deviceHost": {
-      "type": "string",
-      "required": true,
-      "description": "目标主机，用于 SSH 连接。"
-    },
-    "sshUsername": {
-      "type": "string",
-      "required": true,
-      "description": "SSH 用户名。"
-    },
-    "credential": {
-      "type": "credential",
-      "required": true,
-      "sensitive": true,
-      "description": "SSH 登录凭据，从工作流凭据管理中选择。"
     },
     "apacheServiceName": {
       "type": "string",
       "required": true,
       "default": "apache2",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "apache2"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "Apache systemd 服务名。"
     },
     "apacheSiteConfigPath": {
       "type": "string",
       "required": true,
       "default": "/etc/apache2/sites-available/gcac-test.conf",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "/etc/apache2/sites-available/gcac-test.conf"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "Apache 8444 站点配置文件路径。"
     },
     "certificateFilePath": {
       "type": "string",
       "required": true,
-      "default": "/etc/gcac-test/certs/test.crt",
+      "default": "/etc/gcac-test/certs/apache/apache-test.crt",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "/etc/gcac-test/certs/apache/apache-test.crt"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "Apache SSLCertificateFile 证书目的路径。"
     },
     "certificateKeyFilePath": {
       "type": "string",
       "required": true,
-      "default": "/etc/gcac-test/certs/test.key",
+      "default": "/etc/gcac-test/certs/apache/apache-test.key",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "/etc/gcac-test/certs/apache/apache-test.key"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "Apache SSLCertificateKeyFile 私钥目的路径。"
     },
     "backupRoot": {
       "type": "string",
       "required": true,
       "default": "/var/backups/gcac-certs",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "/var/backups/gcac-certs"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "证书备份根目录，实际备份目录为 backupRoot/cert_bak_YYYYMMDD_HHMM。"
     },
     "expectedResponseContains": {
       "type": "string",
       "required": true,
       "default": "apache test ok",
+      "configurationMode": "advanced",
+      "source": {
+        "kind": "dsl",
+        "value": "apache test ok"
+      },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
       "description": "HTTPS 验证响应正文需要包含的文本片段，不要求完整匹配。"
     },
     "serverCert": {
       "type": "certificate",
       "required": true,
       "sensitive": true,
+      "configurationMode": "runtime",
+      "source": {
+        "kind": "certificate"
+      },
+      "lifecycle": "runtime_injected",
+      "bindingPolicy": "fixed",
       "description": "指定服务器证书产物，必须绑定公钥证书和私钥两个输出项。",
       "artifactContract": {
         "outputs": {
@@ -188,12 +316,7 @@
       "stage": "prepare",
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ntest -f \"$site_conf\"\ngrep -Eq '^[[:space:]]*SSLCertificateFile[[:space:]]+' \"$site_conf\"\ngrep -Eq '^[[:space:]]*SSLCertificateKeyFile[[:space:]]+' \"$site_conf\"\nconfigured_cert=\"$(awk '/^[[:space:]]*SSLCertificateFile[[:space:]]+/ {print $2; exit}' \"$site_conf\")\"\nconfigured_key=\"$(awk '/^[[:space:]]*SSLCertificateKeyFile[[:space:]]+/ {print $2; exit}' \"$site_conf\")\"\ntest \"$configured_cert\" = \"$cert_path\"\ntest \"$configured_key\" = \"$key_path\"\ntest -f \"$cert_path\"\ntest -f \"$key_path\"\ncommand -v openssl >/dev/null\napache2ctl -t 2>&1\nprintf 'TARGET_CERT=%s\\n' \"$cert_path\"\nprintf 'TARGET_KEY=%s\\n' \"$key_path\"",
         "timeoutSeconds": 120
       },
@@ -210,12 +333,7 @@
       "stage": "backup",
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\nbackup_root='{{backupRoot}}'\ncurrent_cert='{{certificateFilePath}}'\ncurrent_key='{{certificateKeyFilePath}}'\nstamp=\"$(date +%Y%m%d_%H%M)\"\nbackup_dir=\"${backup_root}/cert_bak_${stamp}\"\nmkdir -p \"$backup_dir\"\nbackup_conf=\"$backup_dir/$(basename \"$site_conf\")\"\nbackup_cert=\"$backup_dir/$(basename \"$current_cert\")\"\nbackup_key=\"$backup_dir/$(basename \"$current_key\")\"\ncp -p \"$site_conf\" \"$backup_conf\"\ncp -p \"$current_cert\" \"$backup_cert\"\ncp -p \"$current_key\" \"$backup_key\"\nold_subject=\"$(openssl x509 -in \"$current_cert\" -noout -subject | sed 's/^subject=//')\"\nold_issuer=\"$(openssl x509 -in \"$current_cert\" -noout -issuer | sed 's/^issuer=//')\"\nold_serial=\"$(openssl x509 -in \"$current_cert\" -noout -serial | sed 's/^serial=//')\"\nold_not_before=\"$(openssl x509 -in \"$current_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nold_not_after=\"$(openssl x509 -in \"$current_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nold_fingerprint=\"$(openssl x509 -in \"$current_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nprintf 'BACKUP_DIR=%s\\n' \"$backup_dir\"\nprintf 'BACKUP_CONF=%s\\n' \"$backup_conf\"\nprintf 'BACKUP_CERT=%s\\n' \"$backup_cert\"\nprintf 'BACKUP_KEY=%s\\n' \"$backup_key\"\nprintf 'OLD_CERT_PATH=%s\\n' \"$current_cert\"\nprintf 'OLD_KEY_PATH=%s\\n' \"$current_key\"\nprintf 'OLD_CERT_SUBJECT=%s\\n' \"$old_subject\"\nprintf 'OLD_CERT_ISSUER=%s\\n' \"$old_issuer\"\nprintf 'OLD_CERT_SERIAL=%s\\n' \"$old_serial\"\nprintf 'OLD_CERT_NOT_BEFORE=%s\\n' \"$old_not_before\"\nprintf 'OLD_CERT_NOT_AFTER=%s\\n' \"$old_not_after\"\nprintf 'OLD_CERT_FINGERPRINT=%s\\n' \"$old_fingerprint\"",
         "timeoutSeconds": 120
       },
@@ -278,12 +396,7 @@
       "stage": "install",
       "sftp": {
         "direction": "upload",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "remotePath": "{{certificateFilePath}}",
         "temporaryPath": "{{certificateFilePath}}.gcac.tmp",
         "contentRef": "{{serverCert.outputs.certFile.content}}",
@@ -297,12 +410,7 @@
       "stage": "install",
       "scp": {
         "direction": "upload",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "remotePath": "{{certificateKeyFilePath}}",
         "temporaryPath": "{{certificateKeyFilePath}}.gcac.tmp",
         "contentRef": "{{serverCert.outputs.keyFile.content}}",
@@ -316,12 +424,7 @@
       "stage": "install",
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ncert_pubkey=\"$(openssl x509 -in \"$cert_path\" -noout -pubkey | openssl pkey -pubin -outform PEM | sha256sum | awk '{print $1}')\"\nkey_pubkey=\"$(openssl pkey -in \"$key_path\" -pubout -outform PEM | sha256sum | awk '{print $1}')\"\ntest \"$cert_pubkey\" = \"$key_pubkey\"\nnew_subject=\"$(openssl x509 -in \"$cert_path\" -noout -subject | sed 's/^subject=//')\"\nnew_issuer=\"$(openssl x509 -in \"$cert_path\" -noout -issuer | sed 's/^issuer=//')\"\nnew_serial=\"$(openssl x509 -in \"$cert_path\" -noout -serial | sed 's/^serial=//')\"\nnew_not_before=\"$(openssl x509 -in \"$cert_path\" -noout -startdate | sed 's/^notBefore=//')\"\nnew_not_after=\"$(openssl x509 -in \"$cert_path\" -noout -enddate | sed 's/^notAfter=//')\"\nnew_fingerprint=\"$(openssl x509 -in \"$cert_path\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\napache2ctl -t 2>&1\nprintf 'NEW_CERT_PATH=%s\\n' \"$cert_path\"\nprintf 'NEW_KEY_PATH=%s\\n' \"$key_path\"\nprintf 'NEW_CERT_SUBJECT=%s\\n' \"$new_subject\"\nprintf 'NEW_CERT_ISSUER=%s\\n' \"$new_issuer\"\nprintf 'NEW_CERT_SERIAL=%s\\n' \"$new_serial\"\nprintf 'NEW_CERT_NOT_BEFORE=%s\\n' \"$new_not_before\"\nprintf 'NEW_CERT_NOT_AFTER=%s\\n' \"$new_not_after\"\nprintf 'NEW_CERT_FINGERPRINT=%s\\n' \"$new_fingerprint\"",
         "timeoutSeconds": 120
       },
@@ -375,12 +478,7 @@
       "stage": "refresh",
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\napache2ctl -t 2>&1\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nprintf 'SERVICE_RELOAD=ok\\n'",
         "timeoutSeconds": 120
       },
@@ -448,12 +546,7 @@
       "stage": "verify",
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{port}} -servername '{{sniName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_subject=\"$(openssl x509 -in \"$live_cert\" -noout -subject | sed 's/^subject=//')\"\nlive_issuer=\"$(openssl x509 -in \"$live_cert\" -noout -issuer | sed 's/^issuer=//')\"\nlive_serial=\"$(openssl x509 -in \"$live_cert\" -noout -serial | sed 's/^serial=//')\"\nlive_not_before=\"$(openssl x509 -in \"$live_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nlive_not_after=\"$(openssl x509 -in \"$live_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\nprintf 'LIVE_CERT_SUBJECT=%s\\n' \"$live_subject\"\nprintf 'LIVE_CERT_ISSUER=%s\\n' \"$live_issuer\"\nprintf 'LIVE_CERT_SERIAL=%s\\n' \"$live_serial\"\nprintf 'LIVE_CERT_NOT_BEFORE=%s\\n' \"$live_not_before\"\nprintf 'LIVE_CERT_NOT_AFTER=%s\\n' \"$live_not_after\"\nprintf 'LIVE_CERT_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'CERT_COMPARE_OLD=%s\\n' '{{oldCertificateFingerprintSha256}}'\nprintf 'CERT_COMPARE_NEW=%s\\n' \"$live_fingerprint\"",
         "timeoutSeconds": 120
       },
@@ -515,12 +608,7 @@
       },
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ncp -p '{{backupConfigPath}}' \"$site_conf\"\ncp -p '{{backupCertificateFile}}' \"$cert_path\"\ncp -p '{{backupCertificateKeyFile}}' \"$key_path\"\nrestored_fingerprint=\"$(openssl x509 -in \"$cert_path\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\ntest \"$restored_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\napache2ctl -t 2>&1\nprintf 'ROLLBACK_RESTORE_FINGERPRINT=%s\\n' \"$restored_fingerprint\"\nprintf 'ROLLBACK_RESTORE=ok\\n'",
         "timeoutSeconds": 120
       },
@@ -541,12 +629,7 @@
       },
       "ssh": {
         "mode": "script",
-        "connection": {
-          "host": "{{deviceHost}}",
-          "username": "{{sshUsername}}",
-          "credential": "{{credential}}",
-          "hostKeyPolicy": "trust_on_first_use"
-        },
+        "connectionRef": "targetSsh",
         "script": "set -eu\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{port}} -servername '{{sniName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\ntest \"$live_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\nprintf 'ROLLBACK_LIVE_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'ROLLBACK_RELOAD=ok\\n'",
         "timeoutSeconds": 120
       },

@@ -7,9 +7,11 @@ import type {
   WorkflowVariableType,
 } from '../dto/workflow-templates.dto.js';
 
-const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'variables', 'steps', 'rollback']);
-const metadataKeys = new Set(['name', 'displayName', 'category', 'tags']);
-const variableKeys = new Set(['type', 'required', 'default', 'enum', 'sensitive', 'description', 'artifactContract']);
+const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'variables', 'connections', 'steps', 'rollback']);
+const metadataKeys = new Set(['name', 'displayName', 'description', 'category', 'tags', 'version', 'logoUrl', 'platforms', 'updateMethods', 'maintainer', 'homepage']);
+const updateMethodValues = new Set(['ssh', 'curl']);
+const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const variableKeys = new Set(['type', 'configurationMode', 'required', 'default', 'enum', 'sensitive', 'description', 'artifactContract', 'source', 'lifecycle', 'bindingPolicy', 'ui']);
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
@@ -32,10 +34,12 @@ export class WorkflowSchemaRegistry {
     if (content.kind !== 'CurlSshWorkflow') throw validationError('kind 只支持 CurlSshWorkflow');
     validateMetadata(content.metadata);
     validateVariables(content.variables);
+    if (content.connections !== undefined) validateConnections(content.connections);
     validateSteps(content.steps, 'steps');
     if (content.rollback !== undefined) validateSteps(content.rollback, 'rollback');
     scanPlainSecrets(content, []);
     const typedContent = content as unknown as WorkflowDslV1;
+    validateExplicitConfigurationContract(typedContent);
     validateVariableReferences(typedContent);
     return typedContent;
   }
@@ -48,8 +52,32 @@ function validateMetadata(value: unknown): void {
   rejectUnknown(value, metadataKeys, 'metadata');
   if (!isNonEmptyString(value.name)) throw validationError('metadata.name 必填');
   if (value.displayName !== undefined && typeof value.displayName !== 'string') throw validationError('metadata.displayName 必须是字符串');
+  if (value.description !== undefined && typeof value.description !== 'string') throw validationError('metadata.description 必须是字符串');
   if (value.category !== undefined && typeof value.category !== 'string') throw validationError('metadata.category 必须是字符串');
   if (value.tags !== undefined && (!Array.isArray(value.tags) || !value.tags.every((item) => typeof item === 'string'))) throw validationError('metadata.tags 必须是字符串数组');
+  if (value.version !== undefined && (!isNonEmptyString(value.version) || !semanticVersionPattern.test(value.version))) {
+    throw validationError('metadata.version 必须是 SemVer 语义版本，例如 1.0.0');
+  }
+  if (value.logoUrl !== undefined) validateLogoUrl(value.logoUrl);
+  if (value.platforms !== undefined && (!Array.isArray(value.platforms) || !value.platforms.length || !value.platforms.every(isNonEmptyString))) {
+    throw validationError('metadata.platforms 必须是非空字符串数组');
+  }
+  if (value.updateMethods !== undefined && (!Array.isArray(value.updateMethods) || !value.updateMethods.length || !value.updateMethods.every((item) => typeof item === 'string' && updateMethodValues.has(item)))) {
+    throw validationError('metadata.updateMethods 只支持 ssh 或 curl');
+  }
+  if (value.maintainer !== undefined && !isNonEmptyString(value.maintainer)) throw validationError('metadata.maintainer 必须是非空字符串');
+  if (value.homepage !== undefined && (!isNonEmptyString(value.homepage) || !/^https?:\/\//i.test(value.homepage))) {
+    throw validationError('metadata.homepage 必须是 HTTP(S) URL');
+  }
+}
+
+function validateLogoUrl(value: unknown): void {
+  if (!isNonEmptyString(value)) throw validationError('metadata.logoUrl 必须是非空字符串');
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) {
+    throw validationError('metadata.logoUrl 只支持 HTTP(S) URL 或本地 Web 路径');
+  }
+  const normalized = value.replace(/\\/g, '/');
+  if (normalized.split('/').includes('..')) throw validationError('metadata.logoUrl 本地路径不能包含 ..');
 }
 
 function validateVariables(value: unknown): void {
@@ -63,8 +91,50 @@ function validateVariables(value: unknown): void {
     if (typed.required !== undefined && typeof typed.required !== 'boolean') throw validationError('required 必须是布尔值', { name });
     if (typed.sensitive !== undefined && typeof typed.sensitive !== 'boolean') throw validationError('sensitive 必须是布尔值', { name });
     if (typed.type === 'enum' && (!Array.isArray(typed.enum) || typed.enum.length === 0)) throw validationError('enum 变量必须提供枚举值', { name });
+    if (typed.configurationMode !== undefined && !['required', 'advanced', 'runtime'].includes(typed.configurationMode)) throw validationError('configurationMode 不支持', { name });
+    if (typed.lifecycle !== undefined && !['pre_execution', 'runtime_injected', 'step_output'].includes(typed.lifecycle)) throw validationError('lifecycle 不支持', { name });
+    if (typed.bindingPolicy !== undefined && !['fixed', 'default_overridable', 'required_binding'].includes(typed.bindingPolicy)) throw validationError('bindingPolicy 不支持', { name });
+    if (typed.source !== undefined) validateVariableSource(typed.source, `variables.${name}.source`);
+    if (typed.ui !== undefined && !isRecord(typed.ui)) throw validationError(`variables.${name}.ui 必须是对象`);
+    if (typed.configurationMode === 'runtime' && typed.lifecycle === 'pre_execution') throw validationError('runtime 变量不能使用 pre_execution 生命周期', { name });
+    if (typed.configurationMode === 'advanced' && typed.bindingPolicy === 'required_binding') throw validationError('advanced 变量不能使用 required_binding', { name });
     if (typed.artifactContract !== undefined) validateArtifactContract(typed, name);
     if (typed.default !== undefined) validateVariableValue(typed, typed.default, `variables.${name}.default`);
+  }
+}
+
+function validateVariableSource(source: unknown, path: string): void {
+  if (!isRecord(source) || typeof source.kind !== 'string') throw validationError(`${path} 必须声明 kind`);
+  if (source.kind === 'asset_ssl' && typeof source.path !== 'string') throw validationError(`${path}.path 必填`);
+  if (source.kind === 'dsl' && !Object.prototype.hasOwnProperty.call(source, 'value')) throw validationError(`${path}.value 必填`);
+  if (source.kind === 'derived' && !['endpoint_url', 'authority', 'binding_information'].includes(String(source.resolver))) throw validationError(`${path}.resolver 不支持`);
+  if (source.kind === 'system' && typeof source.key !== 'string') throw validationError(`${path}.key 必填`);
+  if (source.kind === 'credential' && source.slot !== undefined && typeof source.slot !== 'string') throw validationError(`${path}.slot 必须是字符串`);
+  if (source.kind === 'step_output' && (typeof source.step !== 'string' || typeof source.output !== 'string')) throw validationError(`${path}.step/output 必填`);
+  if (!['asset_ssl', 'dsl', 'derived', 'system', 'credential', 'certificate', 'step_output'].includes(source.kind)) throw validationError(`${path}.kind 不支持`);
+}
+
+function validateConnections(value: unknown): void {
+  if (!isRecord(value)) throw validationError('connections 必须是对象');
+  for (const [name, connection] of Object.entries(value)) {
+    if (!isRecord(connection) || !['ssh', 'http'].includes(String(connection.protocol))) throw validationError('连接槽位定义无效', { name });
+    for (const fieldName of ['host', 'port', 'username']) {
+      const field = connection[fieldName];
+      if (field === undefined && fieldName === 'username') continue;
+      if (!isRecord(field) || !['required', 'advanced'].includes(String(field.configurationMode))) throw validationError(`connections.${name}.${fieldName} 必须声明 configurationMode`);
+    }
+    if (connection.credential !== undefined) {
+      if (!isRecord(connection.credential) || typeof connection.credential.slot !== 'string' || !['required', 'advanced'].includes(String(connection.credential.configurationMode))) throw validationError(`connections.${name}.credential 定义无效`);
+    }
+    if (connection.hostKey !== undefined && (!isRecord(connection.hostKey) || !['required', 'advanced'].includes(String(connection.hostKey.configurationMode)))) throw validationError(`connections.${name}.hostKey 定义无效`);
+  }
+}
+
+function validateExplicitConfigurationContract(content: WorkflowDslV1): void {
+  const explicit = content.connections !== undefined || Object.values(content.variables).some((item) => item.configurationMode || item.source || item.lifecycle || item.bindingPolicy);
+  if (!explicit) return;
+  for (const [name, definition] of Object.entries(content.variables)) {
+    if (!definition.configurationMode || !definition.source || !definition.lifecycle) throw validationError('新 DSL 变量必须显式声明 configurationMode/source/lifecycle', { name });
   }
 }
 
@@ -127,9 +197,13 @@ function validateStepByType(step: WorkflowStep, path: string): void {
   if (step.type === 'ssh') {
     rejectUnknown(step as unknown as Record<string, unknown>, sshStepKeys, path);
     if (!isRecord(step.ssh)) throw validationError(`${path}.ssh 必须是对象`);
-    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
+    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'connectionRef', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
     if (!['command', 'script', 'interactive'].includes(step.ssh.mode)) throw validationError(`${path}.ssh.mode 不支持`);
-    validateSshConnection(step.ssh.connection, `${path}.ssh.connection`);
+    if (step.ssh.connectionRef) {
+      if (!isNonEmptyString(step.ssh.connectionRef)) throw validationError(`${path}.ssh.connectionRef 必须是非空字符串`);
+    } else {
+      validateSshConnection(step.ssh.connection, `${path}.ssh.connection`);
+    }
     if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command) && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0)) throw validationError(`${path}.ssh.command 或 commands 必填`);
     if (step.ssh.commands !== undefined && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0 || !step.ssh.commands.every(isNonEmptyString))) throw validationError(`${path}.ssh.commands 必须是非空命令数组`);
     if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
@@ -234,9 +308,13 @@ function validateSshConnection(value: unknown, path: string): void {
 
 function validateFileTransferStep(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
-  rejectUnknown(value, new Set(['direction', 'connection', 'remotePath', 'contentRef', 'contentEncoding', 'localPath', 'temporaryPath', 'expectedHash', 'expectedSize', 'verifyHash', 'mode', 'owner', 'group', 'timeoutSeconds']), path);
+  rejectUnknown(value, new Set(['direction', 'connection', 'connectionRef', 'remotePath', 'contentRef', 'contentEncoding', 'localPath', 'temporaryPath', 'expectedHash', 'expectedSize', 'verifyHash', 'mode', 'owner', 'group', 'timeoutSeconds']), path);
   if (!['upload', 'download'].includes(String(value.direction))) throw validationError(`${path}.direction 不支持`);
-  validateSshConnection(value.connection, `${path}.connection`);
+  if (value.connectionRef) {
+    if (!isNonEmptyString(value.connectionRef)) throw validationError(`${path}.connectionRef 必须是非空字符串`);
+  } else {
+    validateSshConnection(value.connection, `${path}.connection`);
+  }
   if (!isNonEmptyString(value.remotePath)) throw validationError(`${path}.remotePath 必填`);
   if (value.contentRef !== undefined && !isNonEmptyString(value.contentRef)) throw validationError(`${path}.contentRef 必须是非空字符串`);
   if (value.localPath !== undefined && !isNonEmptyString(value.localPath)) throw validationError(`${path}.localPath 必须是非空字符串`);
