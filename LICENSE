@@ -1,0 +1,183 @@
+# TLSFlow 授权许可说明
+
+版本：2026-08-23
+
+TLSFlow 是一个包含不同类型内容的组合项目。仓库根目录的 `LICENSE` 文件用于说明
+各类内容的默认授权范围；如果某个文件、目录或第三方组件随附了更具体的
+`LICENSE`、`COPYING`、`NOTICE`、SPDX 标识或其他授权声明，应以该声明为准。
+同一内容同时符合多个类别时，优先级依次为具体文件声明、第三方/社区插件声明、
+扩展合同范围、文档和示例范围，最后才是核心源码的默认许可。
+
+## 内容与授权映射
+
+| 内容范围 | 默认许可 | 说明 |
+| --- | --- | --- |
+| TLSFlow 核心源码和随仓库发布的官方实现 | PolyForm Noncommercial 1.0.0 | 允许非商业用途；商业使用必须取得单独商业许可证或 EULA。 |
+| 插件 SDK、Manifest、Host API 合同及其 schema/协议示例 | Apache-2.0 | 本项目对扩展接口采用 Apache License 2.0，并包含专利授权条款。 |
+| 第三方或社区插件 | 插件作者自行选择 | 插件必须随附自己的许可证和第三方声明；本文件不替社区插件授予统一许可。 |
+| TLSFlow 文档和示例内容 | CC BY 4.0 | 允许转载、改编和再发布，但必须保留署名、许可证链接和修改说明。第三方素材仍以其自身许可为准。 |
+
+### 核心源码范围
+
+除非文件或目录另有声明，TLSFlow 核心源码包括平台后端、Web 控制台、官方 Agent、
+运行时、兼容性实现、构建与部署代码，以及随仓库发布的官方内置插件实现。
+核心源码的默认许可是下方完整的 PolyForm Noncommercial 1.0.0。
+
+### 扩展合同范围
+
+插件 SDK、Manifest、Host API 合同及其公开 schema、协议定义和配套协议示例，
+默认按 Apache-2.0 授权。该授权只覆盖这些扩展接口和合同材料，不会把 TLSFlow
+核心实现自动转换为 Apache-2.0，也不会改变第三方组件的原有许可。
+
+### 商业使用
+
+PolyForm Noncommercial 1.0.0 未授予商业使用权。商业客户必须在使用、部署、
+提供商业服务或分发受限核心源码前，从项目权利人处取得单独的商业许可证或
+最终用户许可协议（EULA）。商业许可证或 EULA 仅在其明确约定的范围内覆盖
+核心源码、版本、功能、支持和插件权益。
+
+### 版权和贡献
+
+各文件的版权归其相应作者或权利人所有。除非贡献协议或文件声明另有规定，
+贡献者提交的内容按其所属内容范围适用本文件对应的默认许可。提交贡献不代表
+授予超出该许可范围的商业权利。
+
+# PolyForm Noncommercial License 1.0.0
+
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+## Acceptance
+
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all
+your licenses.
+
+## Copyright License
+
+The licensor grants you a copyright license for the
+software to do everything you might do with the software
+that would otherwise infringe the licensor's copyright
+in it for any permitted purpose.  However, you may
+only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works
+based on the software according to [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Distribution License
+
+The licensor grants you an additional copyright license
+to distribute copies of the software.  Your license
+to distribute covers distributing the software with
+changes and new works permitted by [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of
+the software from you also gets a copy of these terms or the
+URL for them above, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided
+with the software.  For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to
+make changes and new works based on the software for any
+permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able
+to license, that you would infringe by using the software.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for
+the benefit of public knowledge, personal study, private
+entertainment, hobby projects, amateur pursuits, or religious
+observance, without any anticipated commercial application,
+is use for a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution,
+public research organization, public safety or health
+organization, environmental protection organization,
+or government institution is use for a permitted purpose
+regardless of the source of funding or obligations resulting
+from the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the
+law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of
+your licenses to anyone else, or prevent the licensor from
+granting licenses to anyone else.  These terms do not imply
+any other licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license
+for the software granted under these terms ends immediately. If
+your company makes such a claim, your patent license ends
+immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have
+violated any of these terms, or done anything with the software
+not covered by your licenses, your licenses can nonetheless
+continue if you come into full compliance with these terms,
+and take practical steps to correct past violations, within
+32 days of receiving notice.  Otherwise, all your licenses
+end immediately.
+
+## No Liability
+
+***As far as the law allows, the software comes as is, without
+any warranty or condition, and the licensor will not be liable
+to you for any damages arising out of these terms or the use
+or nature of the software, under any kind of legal claim.***
+
+## Definitions
+
+The **licensor** is the individual or entity offering these
+terms, and the **software** is the software the licensor makes
+available under these terms.
+
+**You** refers to the individual or entity agreeing to these
+terms.
+
+**Your company** is any legal entity, sole proprietorship,
+or other kind of organization that you work for, plus all
+organizations that have control over, are under the control of,
+or are under common control with that organization.  **Control**
+means ownership of substantially all the assets of an entity,
+or the power to direct its management and policies by vote,
+contract, or otherwise.  Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
+
+**Use** means anything you do with the software requiring one
+of your licenses.
+
+## 其他标准许可的正式文本
+
+- Apache-2.0：<https://www.apache.org/licenses/LICENSE-2.0>
+- CC BY 4.0：<https://creativecommons.org/licenses/by/4.0/legalcode>
+
+本文件中的许可名称和链接对应其正式版本。若发布包需要脱离网络运行，发布者
+应同时携带上述标准许可的完整文本以及相关第三方 `NOTICE` 文件。
