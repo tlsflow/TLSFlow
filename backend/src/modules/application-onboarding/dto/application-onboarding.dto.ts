@@ -45,6 +45,8 @@ export interface OnboardingPlatformDto {
   /** 插件声明的统一设备向导预选入口。 */
   newDeviceOnboarding?: ApplicationOnboardingNewDeviceOnboarding;
   supportStatus: 'SUPPORTED' | 'PREVIEW' | 'IN_REVIEW';
+  /** 插件配方声明的平台接受的证书格式（如 PEM/PFX），向导据此过滤证书版本选项。 */
+  acceptedCertificateFormats?: string[];
   /** 仅供宿主选择同一平台最新插件版本，不作为用户配置字段。 */
   updatedAt?: string;
 }

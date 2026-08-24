@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { CertificateFormats } from '../../../shared/enums/core.enums.js';
 import { PluginCapabilityRegistry } from '../../plugins/capabilities/plugin-capability.registry.js';
 import type { UnifiedPluginCapabilityDescriptor } from '../../plugins/dto/unified-plugins.dto.js';
 import {
@@ -12,7 +13,7 @@ const recipeKeys = new Set([
   'platformMetadata', 'forms', 'capabilities', 'targetProjection', 'certificate', 'commit',
 ]);
 const platformMetadataKeys = new Set(['capabilityVersion', 'compatibilityKeys', 'requiredInformationKeys']);
-const newDeviceOnboardingAgentKeys = new Set(['kind', 'platformKey']);
+const newDeviceOnboardingAgentKeys = new Set(['kind', 'platformKey', 'platformKeys']);
 const newDeviceOnboardingPluginKeys = new Set(['kind', 'pluginId']);
 const formKeys = new Set(['device', 'advanced']);
 const capabilityKeys = new Set(['connectionTest', 'identity', 'discovery', 'workflowExecution']);
@@ -97,6 +98,16 @@ function validateNewDeviceOnboarding(input: unknown): ApplicationOnboardingRecip
   const kind = enumValue(value.kind, ['AGENT_INSTALL', 'PLUGIN_MANAGED'] as const, 'recipe.newDeviceOnboarding.kind');
   if (kind === 'AGENT_INSTALL') {
     assertKnownKeys(value, newDeviceOnboardingAgentKeys, 'recipe.newDeviceOnboarding');
+    if (value.platformKey !== undefined && value.platformKeys !== undefined) {
+      invalid('recipe.newDeviceOnboarding', 'platformKey 与 platformKeys 不能同时声明');
+    }
+    if (value.platformKeys !== undefined) {
+      const platformKeys = array(value.platformKeys, 'recipe.newDeviceOnboarding.platformKeys')
+        .map((item, index) => identifier(item, `recipe.newDeviceOnboarding.platformKeys[${index}]`));
+      if (platformKeys.length === 0) invalid('recipe.newDeviceOnboarding.platformKeys', '至少声明一个 Agent 平台');
+      assertUnique(platformKeys, 'recipe.newDeviceOnboarding.platformKeys');
+      return { kind, platformKeys };
+    }
     return { kind, platformKey: identifier(value.platformKey, 'recipe.newDeviceOnboarding.platformKey') };
   }
   assertKnownKeys(value, newDeviceOnboardingPluginKeys, 'recipe.newDeviceOnboarding');
@@ -219,6 +230,14 @@ function validateCertificate(input: unknown): ApplicationOnboardingRecipeV1['cer
   assertKnownKeys(value, certificateKeys, 'recipe.certificate');
   const acceptedFormats = uniqueTokens(value.acceptedFormats, 'recipe.certificate.acceptedFormats');
   if (acceptedFormats.length === 0) invalid('recipe.certificate.acceptedFormats', '至少声明一种证书格式');
+  // 证书格式码是宿主与插件共享的标准规范：插件只能从宿主可提供的格式中选取，
+  // 与证书版本产物配置（certificateFormats）一一对应，避免声明宿主不存在的格式。
+  const supportedFormats = CertificateFormats as readonly string[];
+  for (const format of acceptedFormats) {
+    if (!supportedFormats.includes(format)) {
+      invalid('recipe.certificate.acceptedFormats', `证书格式必须来自宿主标准格式码：${supportedFormats.join(' / ')}`);
+    }
+  }
   const requiredArtifacts = uniqueTokens(value.requiredArtifacts, 'recipe.certificate.requiredArtifacts');
   if (requiredArtifacts.length === 0) invalid('recipe.certificate.requiredArtifacts', '至少声明一种证书制品');
   const defaultVersion = enumValue(value.defaultVersion, ['LATEST_VALID'] as const, 'recipe.certificate.defaultVersion');

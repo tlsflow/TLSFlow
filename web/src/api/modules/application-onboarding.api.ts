@@ -20,6 +20,12 @@ export function listOnboardingDevices(sessionId: string): Promise<ApiRecordResul
   return apiClient.get<ApiRecord>(toClientPath(`${ROOT}/sessions/${encodeURIComponent(sessionId)}/devices`))
 }
 
+/** 返回插件声明格式下可用的证书资产与版本；版本已按平台接受格式过滤。 */
+export function listOnboardingCertificateOptions(sessionId: string, certificateAssetId?: string): Promise<ApiRecordResult> {
+  const params = certificateAssetId ? `?certificateAssetId=${encodeURIComponent(certificateAssetId)}` : ''
+  return apiClient.get<ApiRecord>(toClientPath(`${ROOT}/sessions/${encodeURIComponent(sessionId)}/certificate-options${params}`))
+}
+
 export function selectOnboardingResource(sessionId: string, body: Record<string, unknown>): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(`${ROOT}/sessions/${encodeURIComponent(sessionId)}/resource-selection`), body, { idempotencyKey: createIdempotencyKey('onboarding_resource') })
 }

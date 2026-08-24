@@ -82,6 +82,8 @@ export class OnboardingCommitService implements OnboardingCommitPort {
     const plan = await this.deploymentPlans.createFromApplicationAsset({
       applicationAssetId: asset.id,
       targetCertificateVersionId: session.certificateVersionId,
+      // 用户选择“始终使用最新版本”时创建 LATEST_AUTO 计划，执行时自动解析最新可部署版本。
+      selectionMode: session.inputSnapshot.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT',
       idempotencyKey: `onboarding-plan:${session.id}`,
       actorId,
       tenantId,

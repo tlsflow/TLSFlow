@@ -82,6 +82,27 @@ test('平台目录解析插件 Locale，不把插件翻译 key 交给前端显�
   const platform = (await service.listPlatforms('tenant-1', 'zh-CN')).find((item) => item.platformKey === 'vendor.test-platform');
   assert.equal(platform?.displayName, '测试平台');
   assert.equal(platform?.logoUrl, '/plugin-logos/test-platform.svg');
+  assert.deepEqual(platform?.acceptedCertificateFormats, ['PEM']);
+});
+
+test('证书选项只通过宿主端口提供，并携带插件声明的证书格式', async () => {
+  const calls: string[] = [];
+  const { service } = fixture({
+    execution: {
+      listCertificateOptions: async (tenantId, _session, recipe, certificateAssetId) => {
+        calls.push(`${tenantId}:${certificateAssetId ?? ''}:${recipe.recipe.certificate.acceptedFormats.join(',')}`);
+        return {
+          assets: [{ id: 'cert-1', primaryDomain: '*.example.test' }],
+          versions: certificateAssetId ? [{ id: 'version-1', certificateAssetId }] : [],
+        } as never;
+      },
+    },
+  });
+  const created = await service.createSession('tenant-1', 'actor-1', { platformKey: 'vendor.test-platform', idempotencyKey: 'create-cert-options' });
+  const options = await service.certificateOptions('tenant-1', created.id, 'cert-1');
+  assert.deepEqual(options.assets, [{ id: 'cert-1', primaryDomain: '*.example.test' }]);
+  assert.deepEqual(options.versions, [{ id: 'version-1', certificateAssetId: 'cert-1' }]);
+  assert.deepEqual(calls, ['tenant-1:cert-1:PEM']);
 });
 
 test('平台目录返回插件声明的业务接入信息，不返回 Locale key', async () => {
@@ -108,6 +129,19 @@ test('平台目录返回插件声明的新建设备入口，不由宿主猜测�
   const platform = (await service.listPlatforms('tenant-1')).find((item) => item.platformKey === selectedRecipe.recipe.platformKey);
 
   assert.deepEqual(platform?.newDeviceOnboarding, { kind: 'AGENT_INSTALL', platformKey: 'linux' });
+});
+
+test('平台目录保留插件声明的 Linux 和 Windows Agent 入口', async () => {
+  const selectedRecipe = recipe('DIRECT_WORKFLOW');
+  selectedRecipe.recipe.newDeviceOnboarding = { kind: 'AGENT_INSTALL', platformKeys: ['linux', 'windows-server-2016-plus'] };
+  const { service } = fixture({ recipe: selectedRecipe, execution: { supportsDirectWorkflow: () => true } });
+
+  const platform = (await service.listPlatforms('tenant-1')).find((item) => item.platformKey === selectedRecipe.recipe.platformKey);
+
+  assert.deepEqual(platform?.newDeviceOnboarding, {
+    kind: 'AGENT_INSTALL',
+    platformKeys: ['linux', 'windows-server-2016-plus'],
+  });
 });
 
 test('平台目录按语义版本选择配方，旧版本更新更晚也不能覆盖新版本', async () => {
@@ -222,6 +256,32 @@ test('发现没有业务目标时只能停留在目标选择阶段，不能直�
     /当前阶段不能选择证书/,
   );
   assert.equal(repository.getStored(created.id)?.state, 'TARGET_SELECTION_REQUIRED');
+});
+
+test('选择证书版本时按输入快照记录始终使用最新版本模式，默认使用显式版本', async () => {
+  const { service, repository } = fixture({
+    execution: {
+      validateExistingDevice: async () => undefined,
+      testConnection: async () => undefined,
+      discover: async () => [target()],
+    },
+  });
+  const created = await service.createSession('tenant-1', 'actor-1', { platformKey: 'vendor.test-platform', idempotencyKey: 'create-cert-mode' });
+  const selected = await service.selectResource('tenant-1', created.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE', deviceId: 'device-1' });
+  const tested = await service.test('tenant-1', created.id, { expectedStateVersion: selected.stateVersion });
+  const discovered = await service.discover('tenant-1', created.id, { expectedStateVersion: tested.stateVersion });
+  const targetSelected = await service.selectTarget('tenant-1', created.id, { expectedStateVersion: discovered.stateVersion, managedTargetId: 'target-1', configFingerprint: 'fingerprint-1' });
+  assert.equal(targetSelected.state, 'CERTIFICATE_SELECTION_REQUIRED');
+
+  const explicit = await service.selectCertificate('tenant-1', created.id, { expectedStateVersion: targetSelected.stateVersion, certificateId: 'cert-1', certificateVersionId: 'version-1' });
+  assert.equal(explicit.state, 'READY_TO_COMMIT');
+  assert.equal(repository.getStored(created.id)?.inputSnapshot.certificateSelectionMode, 'EXPLICIT');
+
+  await repository.update('tenant-1', created.id, explicit.stateVersion, { state: 'CERTIFICATE_SELECTION_REQUIRED' });
+  const latestAuto = await service.selectCertificate('tenant-1', created.id, { expectedStateVersion: explicit.stateVersion + 1, certificateId: 'cert-1', certificateVersionId: 'version-2', selectionMode: 'LATEST_AUTO' });
+  assert.equal(latestAuto.state, 'READY_TO_COMMIT');
+  assert.equal(repository.getStored(created.id)?.inputSnapshot.certificateSelectionMode, 'LATEST_AUTO');
+  assert.equal(repository.getStored(created.id)?.certificateVersionId, 'version-2');
 });
 
 function fixture(options: { recipe?: LoadedApplicationOnboardingRecipe; execution: OnboardingExecutionPort }): {

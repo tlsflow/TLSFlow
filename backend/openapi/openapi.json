@@ -5023,6 +5023,37 @@
         }
       }
     },
+    "/api/v1/application-onboarding/sessions/:id/certificate-options": {
+      "get": {
+        "operationId": "listApplicationOnboardingCertificateOptions",
+        "summary": "查询平台可用的证书选项",
+        "tags": [
+          "ApplicationOnboarding"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/application-onboarding/sessions/:id/resource-selection": {
       "post": {
         "operationId": "selectApplicationOnboardingResource",
@@ -21488,5 +21519,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-14T08:32:41.518Z"
+  "x-generatedAt": "2026-08-14T17:41:03.836Z"
 }

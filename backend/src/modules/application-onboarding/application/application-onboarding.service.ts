@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
+import type { CertificateAssetDto, CertificateVersionDto } from '../../certificates/dto/certificates.dto.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { compareSemanticVersions, type UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import { PluginLocaleService } from '../../plugins/locales/plugin-locale.service.js';
@@ -24,6 +25,13 @@ export interface OnboardingExecutionPort {
   discover?: (tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<OnboardingTargetOptionDto[]>;
   /** 宿主只有在真正接入了直工作流发现/连接适配器时才暴露该平台。 */
   supportsDirectWorkflow?: (platformKey: string, recipe: LoadedApplicationOnboardingRecipe) => boolean | Promise<boolean>;
+  /** 返回当前平台插件声明格式下的证书资产与版本；版本已按配方 acceptedFormats 过滤。 */
+  listCertificateOptions?: (
+    tenantId: string,
+    session: ApplicationOnboardingSessionDto,
+    recipe: LoadedApplicationOnboardingRecipe,
+    certificateAssetId?: string,
+  ) => Promise<{ assets: CertificateAssetDto[]; versions: CertificateVersionDto[] }>;
   /** 在证书进入 READY_TO_COMMIT 前复核租户、格式、状态和精确版本。 */
   validateCertificate?: (tenantId: string, certificateId: string, certificateVersionId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<void>;
 }
@@ -75,6 +83,7 @@ export class ApplicationOnboardingService {
               deviceSelection: bundle.recipe.deviceSelection,
               ...(bundle.recipe.newDeviceOnboarding ? { newDeviceOnboarding: bundle.recipe.newDeviceOnboarding } : {}),
               supportStatus: directSupported ? 'SUPPORTED' : 'IN_REVIEW',
+              acceptedCertificateFormats: bundle.recipe.certificate.acceptedFormats,
               updatedAt: version.updatedAt,
             });
           }
@@ -221,7 +230,14 @@ export class ApplicationOnboardingService {
     return this.execution.listExistingDevices(tenantId, session, recipe);
   }
 
-  async selectCertificate(tenantId: string, id: string, input: StateVersionInput & { certificateId: string; certificateVersionId: string }): Promise<ApplicationOnboardingSessionDto> {
+  async certificateOptions(tenantId: string, id: string, certificateAssetId?: string): Promise<{ assets: CertificateAssetDto[]; versions: CertificateVersionDto[] }> {
+    const session = await this.getSession(tenantId, id);
+    const recipe = await this.recipeForSession(tenantId, session);
+    if (!this.execution.listCertificateOptions) return { assets: [], versions: [] };
+    return this.execution.listCertificateOptions(tenantId, session, recipe, certificateAssetId?.trim() || undefined);
+  }
+
+  async selectCertificate(tenantId: string, id: string, input: StateVersionInput & { certificateId: string; certificateVersionId: string; selectionMode?: 'EXPLICIT' | 'LATEST_AUTO' }): Promise<ApplicationOnboardingSessionDto> {
     const session = await this.getSession(tenantId, id);
     const recipe = await this.recipeForSession(tenantId, session);
     if (session.state !== 'CERTIFICATE_SELECTION_REQUIRED') throw invalidState(session, '当前阶段不能选择证书');
@@ -230,9 +246,10 @@ export class ApplicationOnboardingService {
     const certificateVersionId = input.certificateVersionId?.trim();
     if (!certificateId || !certificateVersionId) throw new AppError('VALIDATION_FAILED', '必须选择证书资产和精确版本', { code: 'ONBOARDING_CERTIFICATE_REQUIRED' });
     if (this.execution.validateCertificate) await this.execution.validateCertificate(tenantId, certificateId, certificateVersionId, session, recipe);
+    const certificateSelectionMode = input.selectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT';
     const updated = await this.repository.update(tenantId, id, input.expectedStateVersion, {
       state: 'READY_TO_COMMIT', certificateId, certificateVersionId,
-      inputSnapshot: { ...session.inputSnapshot, certificateId, certificateVersionId },
+      inputSnapshot: { ...session.inputSnapshot, certificateId, certificateVersionId, certificateSelectionMode },
     });
     if (!updated) throw versionConflict();
     return updated;

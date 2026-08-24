@@ -187,6 +187,9 @@ export interface AppDependencies {
   pluginRunner?: PluginRunnerExecutionDependencies;
 }
 
+/** 生成证书产物必须包含私钥的格式码；证书版本本身只保存公钥/私钥材料。 */
+const certificateKeyRequiredFormats = new Set(['PEM', 'PFX', 'JKS']);
+
 export function createApp(dependencies: AppDependencies = {}): App {
   const deploymentArchitecture = dependencies.deploymentArchitecture ?? resolveDeploymentArchitecture();
   const corePersistence = dependencies.corePersistence ?? { mode: 'postgres' as const, strict: true };
@@ -671,15 +674,32 @@ export function createApp(dependencies: AppDependencies = {}): App {
         }
         if (!session.deviceId) return [];
         const detail = await devicesService.get(tenantId, session.deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
-        return detail.sites.map((site) => ({
-          managedTargetId: site.managedTargetId ?? site.id,
-          targetType: site.kind,
-          displayName: site.name,
-          endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
-          configFingerprint: `${site.id}:${detail.overview.updatedAt}`,
-          selectable: Boolean(site.managedTargetId),
-          reasonCode: site.managedTargetId ? undefined : 'MANAGED_TARGET_MISSING',
-        }));
+        return detail.sites
+          .map((site) => ({
+            managedTargetId: site.managedTargetId ?? site.id,
+            targetType: site.kind,
+            displayName: site.name,
+            endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
+            configFingerprint: `${site.id}:${detail.overview.updatedAt}`,
+            selectable: Boolean(site.managedTargetId),
+            reasonCode: site.managedTargetId ? undefined : 'MANAGED_TARGET_MISSING',
+          }))
+          .filter((site) => site.selectable);
+      },
+      listCertificateOptions: async (tenantId, _session, recipe, certificateAssetId) => {
+        // 证书格式由插件配方声明（插件的向导参数）。证书版本本身只保存公钥/私钥材料，
+        // 产物在部署时按配置文件 + 证书材料生成；这里只按“平台接受的格式是否需要私钥”过滤版本。
+        const accepted = recipe.recipe.certificate.acceptedFormats.map((format) => format.toUpperCase());
+        const requiresPrivateKey = accepted.some((format) => certificateKeyRequiredFormats.has(format));
+        const assets = (await certificateServices.certificates.listAssets({
+          page: 1, pageSize: 100, sort: { field: 'updatedAt', direction: 'desc' }, filter: { status: 'active' },
+        }, tenantId)).items;
+        if (!certificateAssetId) return { assets, versions: [] };
+        const candidates = (await certificateServices.certificates.listVersions({
+          page: 1, pageSize: 200, sort: { field: 'notAfter', direction: 'desc' }, filter: { certificateAssetId },
+        }, tenantId)).items;
+        const versions = candidates.filter((version) => !requiresPrivateKey || version.hasPrivateKey);
+        return { assets, versions };
       },
       validateCertificate: async (tenantId, certificateId, certificateVersionId, _session, recipe) => {
         const [asset, version] = await Promise.all([
@@ -692,10 +712,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
         if (asset.status !== 'active' || version.status !== 'active' || !version.deployable || version.activationState !== 'promoted') {
           throw new AppError('VALIDATION_FAILED', '证书版本当前不可部署', { code: 'ONBOARDING_CERTIFICATE_VERSION_INVALID', certificateId, certificateVersionId, assetStatus: asset.status, versionStatus: version.status, deployable: version.deployable, activationState: version.activationState });
         }
-        const accepted = new Set(recipe.recipe.certificate.acceptedFormats.map((format) => format.toUpperCase()));
-        const available = new Set(version.formats.map((format) => format.format.toUpperCase()));
-        if (![...accepted].some((format) => available.has(format))) {
-          throw new AppError('VALIDATION_FAILED', '证书版本没有匹配的平台格式制品', { code: 'ONBOARDING_CERTIFICATE_FORMAT_UNSUPPORTED', acceptedFormats: [...accepted], availableFormats: [...available] });
+        // 平台接受的格式中只要有一种需要私钥（PEM/PFX/JKS），版本就必须持有可部署私钥；
+        // 证书版本本身不保存格式产物，产物在部署时按配置文件 + 证书材料按需生成。
+        const accepted = recipe.recipe.certificate.acceptedFormats.map((format) => format.toUpperCase());
+        const requiresPrivateKey = accepted.some((format) => certificateKeyRequiredFormats.has(format));
+        if (requiresPrivateKey && !version.hasPrivateKey) {
+          throw new AppError('VALIDATION_FAILED', '证书版本缺少私钥，无法生成平台所需格式制品', { code: 'ONBOARDING_CERTIFICATE_FORMAT_UNSUPPORTED', acceptedFormats: accepted });
         }
       },
     },

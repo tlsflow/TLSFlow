@@ -87,6 +87,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/application-onboarding/sessions",
     "/api/v1/application-onboarding/sessions/:id",
     "/api/v1/application-onboarding/sessions/:id/cancel",
+    "/api/v1/application-onboarding/sessions/:id/certificate-options",
     "/api/v1/application-onboarding/sessions/:id/certificate-selection",
     "/api/v1/application-onboarding/sessions/:id/complete",
     "/api/v1/application-onboarding/sessions/:id/devices",

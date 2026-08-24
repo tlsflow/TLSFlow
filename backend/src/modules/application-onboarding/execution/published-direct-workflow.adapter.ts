@@ -28,7 +28,7 @@ export class PublishedDirectWorkflowOnboardingAdapter {
   async test(tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe): Promise<void> {
     await this.requireBindings(recipe);
     const targets = await this.projectTargets(tenantId, recipe, requireDeviceId(session));
-    if (!targets.some((target) => target.selectable)) {
+    if (targets.length === 0) {
       throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '所选设备没有已发现的可用目标站点', {
         code: 'ONBOARDING_DIRECT_WORKFLOW_TARGET_UNAVAILABLE',
         pluginVersionId: recipe.pluginVersionId,
@@ -107,7 +107,7 @@ export class PublishedDirectWorkflowOnboardingAdapter {
   ): Promise<OnboardingTargetOptionDto[]> {
     const executionCapability = recipe.recipe.capabilities.workflowExecution!;
     const candidates = await this.compatibleTargets(tenantId, recipe, deviceId);
-    return candidates.map(({ target, site, endpoint }) => {
+    const options = candidates.map(({ target, site, endpoint }) => {
       const selectable = target.status === 'ACTIVE'
         && target.supportedCapabilities.includes(executionCapability)
         && Boolean(endpoint.host && endpoint.port && endpoint.protocol);
@@ -134,6 +134,9 @@ export class PublishedDirectWorkflowOnboardingAdapter {
             : 'TARGET_ENDPOINT_MISSING' }),
       };
     });
+    // 向导只展示实际可用的受管目标：停用或不满足选择条件的目标不进入会话，
+    // 避免用户看到不可点击的站点选项。
+    return options.filter((option) => option.selectable);
   }
 
   private async compatibleTargets(tenantId: string, recipe: LoadedApplicationOnboardingRecipe, deviceId?: string) {

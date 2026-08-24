@@ -12,8 +12,12 @@ export type ApplicationOnboardingExecutionSource = 'PLUGIN' | 'WORKFLOW';
 /**
  * 插件声明的新建设备入口。宿主只负责打开统一设备向导，不得按应用平台名称猜测设备接入方式。
  */
-export type ApplicationOnboardingNewDeviceOnboarding =
+export type ApplicationOnboardingAgentInstallOnboarding =
   | { kind: 'AGENT_INSTALL'; platformKey: string }
+  | { kind: 'AGENT_INSTALL'; platformKeys: string[] };
+
+export type ApplicationOnboardingNewDeviceOnboarding =
+  | ApplicationOnboardingAgentInstallOnboarding
   | { kind: 'PLUGIN_MANAGED'; pluginId: string };
 /**
  * 平台可接入状态必须由插件配方声明。宿主只执行通用门禁，不能按厂商或产品名特判。
@@ -64,6 +68,7 @@ export interface ApplicationOnboardingRecipeV1 {
     selectableWhen: string;
   };
   certificate: {
+    /** 宿主标准证书格式码（PEM/PFX/JKS/DER/P7B，见 shared/enums CertificateFormats）；配方校验强制只能从中选择，与证书版本产物配置一一对应。 */
     acceptedFormats: string[];
     requiredArtifacts: string[];
     defaultVersion: 'LATEST_VALID';

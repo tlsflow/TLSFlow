@@ -23,6 +23,20 @@ test('受管设备接入只通过既有应用服务写入目标策略和部署�
     assetId: 'asset-1', actorId: 'actor-1', strategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target-1', executionMode: 'PLUGIN' } },
   }]);
   assert.equal(fixture.plans[0]?.targetCertificateVersionId, 'cert-version-1');
+  assert.equal(fixture.plans[0]?.selectionMode, 'EXPLICIT');
+});
+
+test('受管设备接入默认创建 EXPLICIT 计划，LATEST_AUTO 输入快照创建自动跟踪最新版本的计划', async () => {
+  const fixture = createFixture();
+  const service = new OnboardingCommitService(fixture.assets, fixture.deploymentPlans);
+
+  await service.commit('tenant-1', 'actor-1', {
+    ...session(),
+    inputSnapshot: { ...session().inputSnapshot, certificateSelectionMode: 'LATEST_AUTO' },
+  }, recipe('MANAGED_TARGET'));
+
+  assert.equal(fixture.plans[0]?.selectionMode, 'LATEST_AUTO');
+  assert.equal(fixture.plans[0]?.targetCertificateVersionId, 'cert-version-1');
 });
 
 test('直接工作流接入固定插件发布的工作流版本，缺失发布绑定即失败关闭', async () => {

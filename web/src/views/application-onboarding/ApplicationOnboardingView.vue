@@ -9,6 +9,7 @@ import {
   createOnboardingSession,
   discoverOnboardingTargets,
   getOnboardingSession,
+  listOnboardingCertificateOptions,
   listOnboardingDevices,
   listOnboardingPlatforms,
   listOnboardingTargets,
@@ -17,17 +18,20 @@ import {
   selectOnboardingTarget,
   testOnboardingConnection
 } from '@/api/modules/application-onboarding.api'
-import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
+import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; displayNameKey: string; displayName?: string; logoUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string }
-interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; lastErrorCode?: string }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; displayNameKey: string; displayName?: string; logoUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[] }
+interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
 interface DeviceOption { deviceId: string; displayName: string; address?: string; health: string; selectable: boolean }
 interface CertificateOption { id: string; label: string }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
+/** 与部署计划向导保持一致的“始终使用最新版本”选项标记。 */
+const LATEST_VERSION_MARKER = '__LATEST__'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -57,8 +61,9 @@ const deviceMode = ref<'EXISTING_DEVICE' | 'NEW_DEVICE'>('EXISTING_DEVICE')
 const deviceId = ref('')
 const certificateId = ref('')
 const certificateVersionId = ref('')
+const certificateSelectionMode = ref<'EXPLICIT' | 'LATEST_AUTO'>('EXPLICIT')
 const certificateAssets = ref<CertificateOption[]>([])
-const certificateVersions = ref<CertificateOption[]>([])
+const certificateVersions = ref<Record<string, unknown>[]>([])
 const failedPlatformLogos = ref(new Set<string>())
 const currentStepOverride = ref<OnboardingStep | null>(null)
 const supportsNewDevice = computed(() => selectedPlatform.value?.deviceSelection === 'EXISTING_OR_NEW' && Boolean(selectedPlatform.value.newDeviceOnboarding))
@@ -75,6 +80,18 @@ const canGoPrevious = computed(() => step.value > 1 && step.value < 5 && !loadin
 const stepLabels = computed(() => [
   t('applicationOnboarding.steps.platform'), t('applicationOnboarding.steps.device'), t('applicationOnboarding.steps.target'), t('applicationOnboarding.steps.certificate'), t('applicationOnboarding.steps.complete')
 ])
+// 站点选择步骤只展示实际可用的受管目标；停用或不满足选择条件的目标不显示。
+const selectableTargets = computed(() => targets.value.filter((target) => target.selectable))
+// 证书版本列表按到期时间倒序，第一项即最新可部署版本。
+const latestCertificateVersion = computed(() => certificateVersions.value[0] ?? null)
+// 插件配方声明的平台接受格式，作为证书步骤的向导参数展示。
+const platformAcceptedFormats = computed(() => selectedPlatform.value?.acceptedCertificateFormats ?? [])
+// “始终使用最新版本”选项在提交时解析为当前最新版本 ID，作为 LATEST_AUTO 计划的种子版本。
+const resolvedCertificateVersionId = computed(() =>
+  certificateVersionId.value === LATEST_VERSION_MARKER
+    ? certificateVersionIdOf(latestCertificateVersion.value)
+    : certificateVersionId.value,
+)
 onMounted(restoreSession)
 watch(deviceMode, (mode) => {
   if (mode === 'EXISTING_DEVICE' && session.value && step.value === 2) void refreshDevices()
@@ -152,7 +169,12 @@ async function saveCertificate(): Promise<void> {
   if (!session.value) return
   loading.value = true
   try {
-    session.value = readObject<Session>((await selectOnboardingCertificate(session.value.id, { expectedStateVersion: session.value.stateVersion, certificateId: certificateId.value, certificateVersionId: certificateVersionId.value })).data)
+    session.value = readObject<Session>((await selectOnboardingCertificate(session.value.id, {
+      expectedStateVersion: session.value.stateVersion,
+      certificateId: certificateId.value,
+      certificateVersionId: resolvedCertificateVersionId.value,
+      selectionMode: certificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
+    })).data)
     currentStepOverride.value = null
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
 }
@@ -182,6 +204,7 @@ async function restoreSession(): Promise<void> {
     deviceId.value = session.value.deviceId ?? deviceId.value
     certificateId.value = session.value.certificateId ?? certificateId.value
     certificateVersionId.value = session.value.certificateVersionId ?? certificateVersionId.value
+    certificateSelectionMode.value = session.value.inputSnapshot?.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT'
     if (!selectedPlatform.value) { resetOnboardingState(); await clearOnboardingRoute(); return }
     if (isRestartableSessionState(session.value.state)) {
       await restartSessionForSelectedPlatform()
@@ -210,21 +233,63 @@ async function readTargets(): Promise<Target[]> {
   return readArray<Target>((await listOnboardingTargets(session.value.id)).data)
 }
 async function loadCertificateAssets(): Promise<void> {
-  const response = await listCertificates({ page: 1, pageSize: 100, sort: 'updatedAt:desc', filters: { status: 'active' } })
-  certificateAssets.value = readArray<Record<string, unknown>>(response.data).map(toCertificateOption).filter((item): item is CertificateOption => item !== null)
-  certificateId.value = certificateAssets.value[0]?.id ?? ''
+  if (!session.value) return
+  const options = readObject<{ assets: unknown; versions: unknown }>((await listOnboardingCertificateOptions(session.value.id)).data)
+  certificateAssets.value = readArray<Record<string, unknown>>(options.assets).map(toCertificateOption).filter((item): item is CertificateOption => item !== null)
+  const currentCertificateId = certificateId.value
+  if (!currentCertificateId || !certificateAssets.value.some((item) => item.id === currentCertificateId)) {
+    certificateId.value = certificateAssets.value[0]?.id ?? ''
+  }
   await loadCertificateVersions()
 }
 async function loadCertificateVersions(): Promise<void> {
+  const previousSelection = certificateVersionId.value
   certificateVersions.value = []
   certificateVersionId.value = ''
-  if (!certificateId.value) return
-  const response = await listCertificateVersions({ page: 1, pageSize: 100, sort: 'notAfter:desc', filters: { certificateAssetId: certificateId.value } })
-  certificateVersions.value = readArray<Record<string, unknown>>(response.data)
-    .filter(isPreferredCertificateVersion)
-    .map(toCertificateOption)
-    .filter((item): item is CertificateOption => item !== null)
-  certificateVersionId.value = certificateVersions.value[0]?.id ?? ''
+  if (!session.value || !certificateId.value) return
+  // 后端已按插件配方声明的平台格式过滤版本，这里保留可部署性过滤与到期时间排序。
+  const options = readObject<{ assets: unknown; versions: unknown }>((await listOnboardingCertificateOptions(session.value.id, certificateId.value)).data)
+  certificateVersions.value = sortDeployableCertificateVersions(
+    readArray<Record<string, unknown>>(options.versions).filter(isPreferredCertificateVersion),
+  )
+  const latest = certificateVersions.value[0]
+  if (!latest) return
+  // 恢复会话时保持用户之前的选择；默认使用“始终使用最新版本”，与部署计划向导一致。
+  if (certificateSelectionMode.value === 'LATEST_AUTO') {
+    certificateVersionId.value = LATEST_VERSION_MARKER
+    return
+  }
+  const explicitId = previousSelection === LATEST_VERSION_MARKER ? '' : previousSelection
+  if (explicitId && certificateVersions.value.some((item) => certificateVersionIdOf(item) === explicitId)) {
+    certificateVersionId.value = explicitId
+    return
+  }
+  certificateVersionId.value = LATEST_VERSION_MARKER
+}
+function onCertificateVersionChange(): void {
+  certificateSelectionMode.value = certificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT'
+}
+function certificateVersionIdOf(item: Record<string, unknown> | null | undefined): string {
+  return readString(item ?? {}, ['id', 'certificateVersionId'])
+}
+function certificateVersionOptionLabel(item: Record<string, unknown>): string {
+  const name = readString(item, ['primaryDomain', 'commonName', 'name', 'displayName']) || certificateVersionIdOf(item) || t('designSystem.deploymentWizard.fallback.unnamedVersion')
+  const notBefore = formatDateOnly(readString(item, ['notBefore', 'validFrom', 'issuedAt']))
+  const notAfter = formatDateOnly(readString(item, ['notAfter', 'validTo', 'expiresAt']))
+  if (!notBefore && !notAfter) return name
+  return t('designSystem.deploymentWizard.version.range', {
+    id: name,
+    notBefore: notBefore || t('designSystem.deploymentWizard.fallback.unknownStart'),
+    notAfter: notAfter || t('designSystem.deploymentWizard.fallback.unknownEnd'),
+  })
+}
+function autoLatestVersionLabel(current: Record<string, unknown> | null): string {
+  const currentLabel = current ? certificateVersionOptionLabel(current) : t('designSystem.deploymentWizard.version.noDeployableVersion')
+  return t('designSystem.deploymentWizard.version.autoLatest', { current: currentLabel })
+}
+function formatDateOnly(value: string): string {
+  if (!value) return ''
+  return formatBrowserLocalTime(value, { includeTime: false }) || value
 }
 function toCertificateOption(record: Record<string, unknown>): CertificateOption | null {
   const id = readString(record, ['id', 'certificateAssetId', 'certificateVersionId'])
@@ -280,6 +345,7 @@ function resetTargetSelection(): void {
   targets.value = []
   certificateId.value = ''
   certificateVersionId.value = ''
+  certificateSelectionMode.value = 'EXPLICIT'
   certificateAssets.value = []
   certificateVersions.value = []
 }
@@ -545,7 +611,7 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
         </div>
         <div class="target-list">
           <button
-            v-for="target in targets"
+            v-for="target in selectableTargets"
             :key="target.managedTargetId"
             class="target-row"
             :class="{ 'target-row--unavailable': !target.selectable }"
@@ -588,14 +654,16 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
       </div>
       <div v-else-if="step === 4" class="onboarding-panel">
         <h2>{{ t('applicationOnboarding.certificate.title') }}</h2>
+        <p v-if="platformAcceptedFormats.length" class="onboarding-hint">{{ t('applicationOnboarding.certificate.requiredFormat', { formats: platformAcceptedFormats.join(' / ') }) }}</p>
         <label>{{ t('applicationOnboarding.certificate.asset') }}
           <select v-model="certificateId" :disabled="loading || certificateAssets.length === 0" @change="loadCertificateVersions">
             <option v-for="asset in certificateAssets" :key="asset.id" :value="asset.id">{{ asset.label }}</option>
           </select>
         </label>
         <label>{{ t('applicationOnboarding.certificate.version') }}
-          <select v-model="certificateVersionId" :disabled="loading || certificateVersions.length === 0">
-            <option v-for="version in certificateVersions" :key="version.id" :value="version.id">{{ version.label }}</option>
+          <select v-model="certificateVersionId" :disabled="loading || certificateVersions.length === 0" @change="onCertificateVersionChange">
+            <option v-if="latestCertificateVersion" :value="LATEST_VERSION_MARKER">{{ autoLatestVersionLabel(latestCertificateVersion) }}</option>
+            <option v-for="version in certificateVersions" :key="certificateVersionIdOf(version)" :value="certificateVersionIdOf(version)">{{ certificateVersionOptionLabel(version) }}</option>
           </select>
         </label>
         <div class="onboarding-actions">
@@ -674,6 +742,7 @@ h1, h2, p { margin: 0; }
 .target-list { display: grid; gap: var(--gc-space-2); }
 .onboarding-error { color: var(--gc-color-danger); background: var(--gc-color-danger-soft); padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); }
 .onboarding-empty { color: var(--gc-color-text-muted); }
+.onboarding-hint { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .onboarding-footer { display: flex; justify-content: flex-end; }
 .onboarding-panel--success { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); }
 @media (max-width: 64rem) { .onboarding-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

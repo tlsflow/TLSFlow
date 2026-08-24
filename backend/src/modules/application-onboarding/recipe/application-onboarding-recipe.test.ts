@@ -41,6 +41,19 @@ test('接入配方拒绝未知字段、重复稳定字段和脚本条件', () =>
   }, { manifest }), /未知字段/);
 });
 
+test('接入配方只接受宿主标准证书格式码，拒绝宿主不提供的格式', () => {
+  const manifest = manifestForRecipe();
+  assert.equal(validateApplicationOnboardingRecipe(managedRecipe(), { manifest }).certificate.acceptedFormats.join(','), 'PEM');
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    certificate: { acceptedFormats: ['P12'], requiredArtifacts: ['certificate', 'privateKey'], defaultVersion: 'LATEST_VALID' },
+  }, { manifest }), /标准格式码：PEM \/ PFX \/ JKS \/ DER \/ P7B/);
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    certificate: { acceptedFormats: ['pem'], requiredArtifacts: ['certificate', 'privateKey'], defaultVersion: 'LATEST_VALID' },
+  }, { manifest }), /标准格式码/);
+});
+
 test('新增设备入口只能由允许新建设备的配方以受限声明提供', () => {
   const manifest = manifestForRecipe();
   const pluginManaged = validateApplicationOnboardingRecipe({
@@ -60,6 +73,27 @@ test('新增设备入口只能由允许新建设备的配方以受限声明提�
     newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKey: 'linux' },
   }, { manifest: directManifest });
   assert.deepEqual(agentInstall.newDeviceOnboarding, { kind: 'AGENT_INSTALL', platformKey: 'linux' });
+
+  const multiPlatform = validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKeys: ['linux', 'windows-server-2016-plus'] },
+  }, { manifest });
+  assert.deepEqual(multiPlatform.newDeviceOnboarding, {
+    kind: 'AGENT_INSTALL',
+    platformKeys: ['linux', 'windows-server-2016-plus'],
+  });
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKeys: [] },
+  }, { manifest }), /至少声明一个 Agent 平台/);
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKeys: ['linux', 'linux'] },
+  }, { manifest }), /重复字段/);
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKey: 'linux', platformKeys: ['windows-server-2016-plus'] },
+  }, { manifest }), /不能同时声明/);
 
   assert.throws(() => validateApplicationOnboardingRecipe({
     ...managedRecipe(),

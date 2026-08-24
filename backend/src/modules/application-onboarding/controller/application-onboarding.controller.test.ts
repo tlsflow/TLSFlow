@@ -63,3 +63,29 @@ test('创建接入会话缺少幂等键时失败关闭，不再复用用户和�
       && error.message === '创建接入会话必须提供 X-Idempotency-Key',
   );
 });
+
+test('证书选项接口按查询参数透传证书资产 ID 并返回资产与版本', async () => {
+  const calls: Array<{ id: string; certificateAssetId?: string }> = [];
+  const service = {
+    certificateOptions: async (tenantId: string, id: string, certificateAssetId?: string) => {
+      calls.push({ id, certificateAssetId });
+      return { assets: [{ id: 'cert-1' }], versions: certificateAssetId ? [{ id: 'version-1' }] : [] };
+    },
+  };
+  const router = new Router();
+  new ApplicationOnboardingController(service as never).register(router);
+  const route = router.match('GET', '/api/v1/application-onboarding/sessions/session-1/certificate-options');
+  assert.ok(route);
+
+  const response = await route.handler({
+    method: 'GET',
+    path: '/api/v1/application-onboarding/sessions/session-1/certificate-options',
+    query: { certificateAssetId: 'cert-1' },
+    headers: {},
+    body: {},
+    context,
+  });
+
+  assert.deepEqual(calls, [{ id: 'session-1', certificateAssetId: 'cert-1' }]);
+  assert.deepEqual(response, { assets: [{ id: 'cert-1' }], versions: [{ id: 'version-1' }] });
+});
