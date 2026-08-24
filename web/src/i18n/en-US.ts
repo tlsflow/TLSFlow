@@ -3192,6 +3192,12 @@ export default {
           expired: 'Expired'
         },
         versionCount: '{count} versions',
+        versionCountShort: '{count}',
+        sourceLabels: {
+          manual: 'Manual',
+          acme: 'ACME',
+          unknown: 'Unknown'
+        },
         fields: {
           expires: 'Expires at',
           source: 'Source'

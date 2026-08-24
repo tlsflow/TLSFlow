@@ -3107,6 +3107,12 @@ export default {
           expired: '期限切れ'
         },
         versionCount: '{count} バージョン',
+        versionCountShort: '{count}',
+        sourceLabels: {
+          manual: '手動',
+          acme: 'ACME',
+          unknown: '不明'
+        },
         fields: {
           expires: '有効期限',
           source: 'ソース'

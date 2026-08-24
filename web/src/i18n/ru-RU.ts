@@ -3081,6 +3081,12 @@ export default {
           expired: 'Истекшие'
         },
         versionCount: 'Версий: {count}',
+        versionCountShort: '{count}',
+        sourceLabels: {
+          manual: 'Вручную',
+          acme: 'ACME',
+          unknown: 'Неизвестно'
+        },
         fields: {
           expires: 'Срок действия',
           source: 'Источник'

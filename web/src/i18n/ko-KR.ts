@@ -3081,6 +3081,12 @@ export default {
           expired: '만료됨'
         },
         versionCount: '{count}개 버전',
+        versionCountShort: '{count}개',
+        sourceLabels: {
+          manual: '수동',
+          acme: 'ACME',
+          unknown: '알 수 없음'
+        },
         fields: {
           expires: '만료일',
           source: '출처'

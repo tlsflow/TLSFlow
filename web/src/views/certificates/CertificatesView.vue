@@ -68,6 +68,7 @@ type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' 
 type VersionSortOrder = 'asc' | 'desc'
 type LifecycleStatusKey = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
 type CertificateSourceTypeKey = 'manual' | 'internal_ca' | 'enterprise_ca' | 'external_api' | 'unknown'
+type CertificateCardSourceKey = 'manual' | 'acme' | 'unknown'
 type CertificateCategory = 'all' | LifecycleStatusKey
 type AssetPresentation = 'cards' | 'list'
 const EXPIRING_SOON_DAYS = 10
@@ -339,7 +340,33 @@ function readAssetVersion(record: ApiRecord | null): ApiRecord | null {
 }
 
 function readAssetSourceType(record: ApiRecord | null) {
-  return resolveCertificateSourceTypeKey(readString(readAssetVersion(record), ['sourceType'], readString(record, ['sourceType'], '')))
+  return resolveCertificateSourceTypeKey(readAssetRawSourceType(record))
+}
+
+function readAssetRawSourceType(record: ApiRecord | null) {
+  return readString(readAssetVersion(record), ['sourceType'], readString(record, ['sourceType'], '')).trim().toLowerCase()
+}
+
+function readAssetCardSourceType(record: ApiRecord | null): CertificateCardSourceKey {
+  const sourceType = readAssetRawSourceType(record)
+  if (sourceType === 'manual') return 'manual'
+  if (sourceType === 'acme' || sourceType === 'external_api') return 'acme'
+  return 'unknown'
+}
+
+function assetCardSourceLabel(record: ApiRecord | null) {
+  return t(`certificates.userView.simple.sourceLabels.${readAssetCardSourceType(record)}`)
+}
+
+function assetCardSourceTone(record: ApiRecord | null): StatusTone {
+  switch (readAssetCardSourceType(record)) {
+    case 'manual':
+      return 'info'
+    case 'acme':
+      return 'success'
+    default:
+      return 'muted'
+  }
 }
 
 function readAssetRemainingLabel(record: ApiRecord) {
@@ -1016,6 +1043,7 @@ async function removeVersion(row: CertificateVersionRow) {
               :class="`certificate-page__asset-card--${readAssetLifecycleStatusKey(asset)}`"
               :selected="readId(asset) === selectedAssetId"
               :ariaLabel="assetCardAriaLabel(asset)"
+              @click="openVersionsDialog(readId(asset))"
             >
               <template #header>
                 <span class="certificate-page__asset-card-icon" aria-hidden="true">
@@ -1028,7 +1056,7 @@ async function removeVersion(row: CertificateVersionRow) {
                   :aria-expanded="versionsDialogOpen && readId(asset) === selectedAssetId"
                   :aria-controls="versionDialogPanelId(readId(asset))"
                   :aria-label="assetCardAriaLabel(asset)"
-                  @click="openVersionsDialog(readId(asset))"
+                  @click.stop="openVersionsDialog(readId(asset))"
                 >
                   <span class="certificate-page__asset-card-heading">
                     <strong>{{ readAssetName(asset) }}</strong>
@@ -1063,11 +1091,17 @@ async function removeVersion(row: CertificateVersionRow) {
                   </div>
                   <div>
                     <dt>{{ t('certificates.userView.simple.fields.source') }}</dt>
-                    <dd>{{ t(`certificates.list.sourceTypes.${readAssetSourceType(asset)}`) }}</dd>
+                    <dd class="certificate-page__asset-card-source-value">
+                      <GcStatusTag
+                        :status="readAssetCardSourceType(asset)"
+                        :label="assetCardSourceLabel(asset)"
+                        :tone="assetCardSourceTone(asset)"
+                      />
+                    </dd>
                   </div>
                   <div>
                     <dt>{{ t('certificates.detailPanel.fields.version') }}</dt>
-                    <dd>{{ t('certificates.userView.simple.versionCount', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
+                    <dd>{{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
                   </div>
                 </dl>
               </template>
@@ -1151,7 +1185,7 @@ async function removeVersion(row: CertificateVersionRow) {
                     />
                   </div>
                   <span class="certificate-simple-view__card-meta">
-                    {{ t('certificates.userView.simple.versionCount', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}
+                    {{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}
                   </span>
                 </div>
                 <div class="certificate-simple-view__card-body">
@@ -1161,7 +1195,13 @@ async function removeVersion(row: CertificateVersionRow) {
                   </div>
                   <div class="certificate-simple-view__card-field">
                     <span class="certificate-simple-view__field-label">{{ t('certificates.userView.simple.fields.source') }}</span>
-                    <span class="certificate-simple-view__field-value">{{ t(`certificates.list.sourceTypes.${readAssetSourceType(asset)}`) }}</span>
+                    <span class="certificate-simple-view__field-value">
+                      <GcStatusTag
+                        :status="readAssetCardSourceType(asset)"
+                        :label="assetCardSourceLabel(asset)"
+                        :tone="assetCardSourceTone(asset)"
+                      />
+                    </span>
                   </div>
                 </div>
               </article>
@@ -2089,7 +2129,8 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__asset-card-metadata {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gc-space-3);
+  column-gap: var(--gc-space-5);
+  row-gap: var(--gc-space-3);
   margin: 0;
 }
 
@@ -2113,6 +2154,12 @@ async function removeVersion(row: CertificateVersionRow) {
   font-weight: var(--gc-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.certificate-page__asset-card-source-value {
+  display: flex;
+  align-items: center;
+  min-height: var(--gc-control-height-sm);
 }
 
 .certificate-page__state {

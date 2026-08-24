@@ -3081,6 +3081,12 @@ export default {
           expired: 'Expirados'
         },
         versionCount: '{count} versões',
+        versionCountShort: '{count}',
+        sourceLabels: {
+          manual: 'Manual',
+          acme: 'ACME',
+          unknown: 'Desconhecida'
+        },
         fields: {
           expires: 'Expira em',
           source: 'Origem'

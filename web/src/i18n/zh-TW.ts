@@ -3106,6 +3106,12 @@ export default {
           expired: '已到期'
         },
         versionCount: '{count} 個版本',
+        versionCountShort: '{count} 個',
+        sourceLabels: {
+          manual: '手動',
+          acme: 'ACME',
+          unknown: '未知'
+        },
         fields: {
           expires: '到期時間',
           source: '來源'
