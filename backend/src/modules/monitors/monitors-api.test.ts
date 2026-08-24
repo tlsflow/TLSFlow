@@ -785,6 +785,50 @@ describe('监控风险 API', () => {
     }
   });
 
+  it('证书回切到历史指纹时复用原观测并刷新最新时间', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const repository = new PgMonitorsRepository(db);
+    const tenantId = 'tenant_probe_certificate_revert';
+    const serviceAssetId = 'sat_probe_certificate_revert';
+    const firstFingerprint = 'a'.repeat(64);
+    const secondFingerprint = 'b'.repeat(64);
+    const base = {
+      tenantId,
+      serviceAssetId,
+      source: 'control_plane' as const,
+      url: 'https://example.com/',
+      subject: 'CN=example.com',
+      issuer: 'CN=GCAC',
+      verified: true,
+      rawResult: { source: 'test' },
+    };
+
+    await repository.saveCertificateObservation({
+      ...base,
+      observedAt: '2026-08-20T12:49:00.000Z',
+      fingerprintSha256: firstFingerprint,
+    });
+    await repository.saveCertificateObservation({
+      ...base,
+      observedAt: '2026-08-22T14:45:00.000Z',
+      fingerprintSha256: secondFingerprint,
+    });
+
+    const restored = await repository.saveCertificateObservation({
+      ...base,
+      observedAt: '2026-08-24T00:00:27.000Z',
+      fingerprintSha256: firstFingerprint,
+    });
+
+    assert.equal(restored.fingerprintSha256, firstFingerprint);
+    assert.equal(new Date(restored.observedAt).toISOString(), '2026-08-24T00:00:27.000Z');
+    const observations = await repository.listCertificateObservations({ tenantId, serviceAssetId });
+    assert.equal(observations.length, 2);
+    assert.equal(observations[0]?.fingerprintSha256, firstFingerprint);
+    assert.equal(new Date(observations[0]!.observedAt).toISOString(), '2026-08-24T00:00:27.000Z');
+  });
+
   it('工作流资产探测会使用 metadata.workflowTarget 的验证地址和 SNI', async () => {
     const server = createHttpsServer({
       key: PRIVATE_KEY_PEM,

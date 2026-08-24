@@ -644,39 +644,15 @@ export class PgMonitorsRepository implements MonitorsRepository {
   async saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto> {
     const latest = await this.getLatestCertificateObservation(input.tenantId, input.serviceAssetId);
     if (latest && normalizeObservationFingerprint(latest.fingerprintSha256) === normalizeObservationFingerprint(input.fingerprintSha256)) {
-      const updated: CertificateObservationDto = {
-        ...latest,
-        source: input.source,
-        url: input.url,
-        subject: input.subject,
-        issuer: input.issuer,
-        serialNumber: input.serialNumber,
-        notBefore: input.notBefore,
-        notAfter: input.notAfter,
-        dnsNames: input.dnsNames,
-        verified: input.verified,
-        verificationError: input.verificationError,
-        rawResult: input.rawResult ?? {},
-      };
-      await this.db.query(`update pg_monitor_certificate_observations set
-        source = $2, probe_url = $3, subject = $4, issuer = $5, serial_number = $6,
-        not_before = $7, not_after = $8, dns_names = $9::jsonb, verified = $10,
-        verification_error = $11, raw_result = $12::jsonb
-        where id = $1`, [
-        updated.id,
-        updated.source,
-        updated.url,
-        updated.subject ?? null,
-        updated.issuer ?? null,
-        updated.serialNumber ?? null,
-        updated.notBefore ?? null,
-        updated.notAfter ?? null,
-        JSON.stringify(updated.dnsNames ?? []),
-        updated.verified ?? null,
-        updated.verificationError ?? null,
-        JSON.stringify(updated.rawResult),
-      ]);
-      return updated;
+      // 中文说明：最新指纹未变化时只更新证书内容，保留原有观测时间，避免无意义地刷新历史时间线。
+      return this.updateCertificateObservation(latest, input, false);
+    }
+
+    // 中文说明：唯一索引按“资产 + 指纹”限制历史记录数量；证书回切时，历史指纹可能不是最新一条，
+    // 此时必须复用原记录，否则会在插入阶段触发唯一约束并阻断资产状态写回。
+    const historical = await this.getCertificateObservationByFingerprint(input.tenantId, input.serviceAssetId, input.fingerprintSha256);
+    if (historical) {
+      return this.updateCertificateObservation(historical, input, true);
     }
 
     const now = new Date().toISOString();
@@ -725,6 +701,66 @@ export class PgMonitorsRepository implements MonitorsRepository {
       item.createdAt,
     ]);
     return item;
+  }
+
+  private async getCertificateObservationByFingerprint(
+    tenantId: string | undefined,
+    serviceAssetId: string,
+    fingerprintSha256: string,
+  ): Promise<CertificateObservationDto | undefined> {
+    const row = (await this.db.query<CertificateObservationRow>(
+      `select * from pg_monitor_certificate_observations
+       where coalesce(tenant_id, '') = coalesce($1, '')
+         and service_asset_id = $2
+         and upper(regexp_replace(fingerprint_sha256, '[^a-fA-F0-9]', '', 'g')) =
+             upper(regexp_replace($3, '[^a-fA-F0-9]', '', 'g'))
+       order by observed_at desc, created_at desc
+       limit 1`,
+      [tenantId ?? null, serviceAssetId, fingerprintSha256],
+    )).rows[0];
+    return row ? toCertificateObservation(row) : undefined;
+  }
+
+  private async updateCertificateObservation(
+    current: CertificateObservationDto,
+    input: SaveCertificateObservationInput,
+    updateObservedAt: boolean,
+  ): Promise<CertificateObservationDto> {
+    const updated: CertificateObservationDto = {
+      ...current,
+      source: input.source,
+      url: input.url,
+      observedAt: updateObservedAt ? input.observedAt : current.observedAt,
+      subject: input.subject,
+      issuer: input.issuer,
+      serialNumber: input.serialNumber,
+      notBefore: input.notBefore,
+      notAfter: input.notAfter,
+      dnsNames: input.dnsNames,
+      verified: input.verified,
+      verificationError: input.verificationError,
+      rawResult: input.rawResult ?? {},
+    };
+    await this.db.query(`update pg_monitor_certificate_observations set
+      source = $2, probe_url = $3, observed_at = $4::timestamptz, subject = $5, issuer = $6, serial_number = $7,
+      not_before = $8, not_after = $9, dns_names = $10::jsonb, verified = $11,
+      verification_error = $12, raw_result = $13::jsonb
+      where id = $1`, [
+      updated.id,
+      updated.source,
+      updated.url,
+      updated.observedAt,
+      updated.subject ?? null,
+      updated.issuer ?? null,
+      updated.serialNumber ?? null,
+      updated.notBefore ?? null,
+      updated.notAfter ?? null,
+      JSON.stringify(updated.dnsNames ?? []),
+      updated.verified ?? null,
+      updated.verificationError ?? null,
+      JSON.stringify(updated.rawResult),
+    ]);
+    return updated;
   }
 
   async listCertificateObservations(query: ListCertificateObservationsQuery = {}): Promise<CertificateObservationDto[]> {
