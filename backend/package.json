@@ -1,0 +1,19 @@
+{
+  "name": "gcac-backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "test:unit": "npm run build && node --test \"dist/**/*.test.js\"",
+    "test:integration": "npm run build && node --test \"dist/**/*.test.js\"",
+    "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
+    "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest",
+    "@electric-sql/pglite": "latest"
+  }
+}

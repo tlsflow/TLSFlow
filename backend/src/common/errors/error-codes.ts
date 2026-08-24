@@ -1,0 +1,28 @@
+export const errorCodes = {
+  VALIDATION_FAILED: { httpStatus: 400, message: '请求参数不合法' },
+  RESOURCE_NOT_FOUND: { httpStatus: 404, message: '资源不存在' },
+  RESOURCE_ALREADY_EXISTS: { httpStatus: 409, message: '资源已存在' },
+  RESOURCE_VERSION_CONFLICT: { httpStatus: 409, message: '资源版本冲突' },
+  IDEMPOTENCY_CONFLICT: { httpStatus: 409, message: '幂等键冲突' },
+  AUTH_UNAUTHENTICATED: { httpStatus: 401, message: '未认证' },
+  AUTH_FORBIDDEN: { httpStatus: 403, message: '无权限' },
+  SYSTEM_INTERNAL_ERROR: { httpStatus: 500, message: '系统内部错误' },
+  CERT_PARSE_FAILED: { httpStatus: 422, message: '证书解析失败' },
+  CERT_PRIVATE_KEY_MISSING: { httpStatus: 422, message: '缺少私钥' },
+  CERT_FORMAT_UNSUPPORTED: { httpStatus: 422, message: '证书格式不支持' },
+  ASSET_UNREACHABLE: { httpStatus: 422, message: '资产不可达' },
+  BINDING_NOT_MANAGED: { httpStatus: 422, message: '绑定未纳管' },
+  CAPABILITY_MISSING: { httpStatus: 422, message: '缺少能力' },
+  CAPABILITY_EXPIRED: { httpStatus: 422, message: '能力检测已过期' },
+  DEPLOYMENT_INVALID_STATE: { httpStatus: 409, message: '部署计划状态不允许该操作' },
+  DEPLOYMENT_APPROVAL_REQUIRED: { httpStatus: 422, message: '需要审批' },
+  EXECUTION_TIMEOUT: { httpStatus: 504, message: '执行超时' },
+  EXECUTION_TARGET_UNAVAILABLE: { httpStatus: 503, message: '执行目标不可用' },
+  AGENT_OFFLINE: { httpStatus: 503, message: 'Agent 离线' },
+  PLUGIN_SIGNATURE_INVALID: { httpStatus: 422, message: '插件签名无效' },
+  PLUGIN_PERMISSION_DENIED: { httpStatus: 403, message: '插件权限不足' },
+  WORKFLOW_ASSERTION_FAILED: { httpStatus: 422, message: '工作流断言失败' },
+  SECRET_REF_INVALID: { httpStatus: 422, message: 'Secret 引用无效' },
+} as const;
+
+export type ErrorCode = keyof typeof errorCodes;
