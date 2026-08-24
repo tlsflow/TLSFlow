@@ -489,6 +489,147 @@ describe('监控风险 API', () => {
     }
   });
 
+  it('实测证书切换到绑定指向的最新版本后自动解决证书未切换风险', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { assetsService, bindingsService, certificatesRepository, monitors } = await createMonitorHarness();
+      const tenantId = 'tenant_probe_certificate_recovered';
+      const asset = await assetsService.createServiceAsset(tenantId, {
+        address: '127.0.0.1',
+        port,
+        protocol: 'HTTPS',
+        sniName: 'example.com',
+        platform: 'LINUX',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+      });
+      const host = await assetsService.createHost(tenantId, {
+        hostname: 'certificate-recovered.example.com',
+        osType: 'LINUX',
+        compatibilityLevel: 'L1',
+        managementMode: 'AGENT',
+      });
+      const service = await assetsService.createFrameworkInstance(tenantId, {
+        deviceId: host.id,
+        frameworkType: 'web.nginx',
+        frameworkKey: 'nginx:certificate-recovered',
+        discoveryProviderKey: 'manual.discovery',
+        displayName: 'certificate recovered nginx',
+      });
+      const versionId = await seedCertificate(certificatesRepository, {
+        primaryDomain: 'certificate-recovered.example.com',
+        notAfter: '2026-10-30T00:00:00.000Z',
+      });
+      const version = await certificatesRepository.getVersion(versionId);
+      assert.ok(version);
+      const certificate = new X509Certificate(CERT_PEM);
+      const fingerprint = createHash('sha256').update(certificate.raw).digest('hex').toUpperCase();
+      await certificatesRepository.updateVersion(version.id, { fingerprintSha256: fingerprint });
+      await certificatesRepository.updateAsset(version.certificateAssetId, { currentVersionId: version.id });
+      const binding = await bindingsService.createCertificateBinding(tenantId, {
+        serviceAssetId: asset.id,
+        serviceInstanceId: service.id,
+        domainName: 'certificate-recovered.example.com',
+        port,
+        protocol: 'HTTPS',
+        bindingType: 'FILE_PATH',
+        certPath: '/etc/nginx/certificate-recovered.pem',
+        verifyMethod: 'TLS_CONNECT',
+        certificateVersionId: version.id,
+        desiredFingerprintSha256: fingerprint,
+        status: 'DRIFTED',
+      });
+      const risk = await monitors.getRepository().upsertRiskEvent({
+        dedupKey: riskDedupKey(['certificate', 'observed-update-pending', tenantId, asset.id, version.certificateAssetId]),
+        type: 'certificate_update_pending',
+        source: 'certificate',
+        severity: 'medium',
+        title: '证书待更新',
+        summary: '系统探测证书尚未切换到最新版本',
+        scope: { tenantId, serviceAssetId: asset.id },
+        metadata: {
+          latestFingerprintSha256: fingerprint,
+          latestCertificateVersionId: version.id,
+        },
+        detectedAt: '2026-08-02T11:20:50.000Z',
+      });
+
+      const target = await monitors.createMonitorTarget({
+        tenantId,
+        serviceAssetId: asset.id,
+        intervalSeconds: 60,
+        metrics: ['availability', 'certificate'],
+        createdBy: 'monitor_test',
+      });
+      await monitors.getRepository().saveCertificateObservation({
+        tenantId,
+        serviceAssetId: asset.id,
+        source: 'control_plane',
+        url: `https://127.0.0.1:${port}/`,
+        observedAt: '2026-08-02T11:20:49.000Z',
+        fingerprintSha256: fingerprint,
+        subject: 'CN=example.com',
+        issuer: 'CN=example.com',
+        serialNumber: 'serial',
+        notBefore: '2026-06-08T09:09:54.000Z',
+        notAfter: '2027-06-08T09:09:54.000Z',
+        verified: true,
+        rawResult: { source: 'test' },
+      });
+      await monitors.getRepository().saveMonitorProbeResult({
+        tenantId,
+        monitorTargetId: target.id,
+        result: {
+          serviceAssetId: asset.id,
+          source: 'control_plane',
+          url: `https://127.0.0.1:${port}/`,
+          status: 'WARNING',
+          success: true,
+          latencyMs: 1,
+          checkedAt: '2026-08-02T11:20:49.000Z',
+          message: '历史探测结果',
+          certificate: { fingerprintSha256: fingerprint },
+        },
+      });
+
+      const scheduled = await monitors.runDueMonitorTargetProbes({
+        maxTargets: 5,
+        now: '2026-08-02T11:20:51.000Z',
+      });
+      assert.equal(scheduled.checkedCount, 0);
+      assert.equal(scheduled.skippedCount, 1);
+
+      const recoveredFromStoredObservation = (await monitors.listRiskEvents({ tenantId }))
+        .find((item) => item.id === risk.id);
+      assert.equal(recoveredFromStoredObservation?.status, 'RESOLVED');
+
+      const result = await monitors.probeServiceAsset({
+        tenantId,
+        serviceAssetId: asset.id,
+        timeoutMs: 1000,
+      });
+      assert.equal(result.certificate?.fingerprintSha256, fingerprint);
+
+      const resolved = (await monitors.listRiskEvents({ tenantId })).find((item) => item.id === risk.id);
+      assert.equal(resolved?.status, 'RESOLVED');
+      const updatedBinding = await bindingsService.getRepository().getCertificateBinding(tenantId, binding.id);
+      assert.equal(updatedBinding?.observedFingerprintSha256?.toUpperCase(), fingerprint);
+      assert.equal(updatedBinding?.driftStatus, 'synced');
+      assert.equal(updatedBinding?.status, 'MANAGED');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('监控 URL 含 @ 时返回明确配置错误，避免误测到用户名后的主机', async () => {
     const { assetsService, monitors } = await createMonitorHarness();
     const asset = await assetsService.createServiceAsset('tenant_probe_userinfo', {

@@ -6,6 +6,7 @@ import tls from 'node:tls';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
+import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
@@ -64,6 +65,12 @@ export class MonitorsApplicationService {
     const createdOrUpdated: RiskEvent[] = [];
 
     const certificates = await this.dependencies.certificates.listVersions(allRowsQuery());
+    // 中文说明：先用已持久化的最新观测恢复状态，再生成本轮风险，避免扫描把已恢复的漂移重新写成活动风险。
+    await this.reconcileMonitorCertificateRisks({
+      tenantId: input.tenantId,
+      occurredAt: detectedAt,
+    });
+
     for (const version of certificates.items) {
       const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
       if (!asset || asset.status !== 'active' || version.status !== 'active') continue;
@@ -169,20 +176,23 @@ export class MonitorsApplicationService {
   async runDueMonitorTargetProbes(input: { maxTargets?: number; now?: string } = {}): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
+    // 中文说明：风险恢复使用已有最新观测，必须独立于本轮是否执行实际探测。
+    await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
     const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3);
     let checkedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
 
     for (const target of candidates) {
-      if (checkedCount >= maxTargets) break;
       const latest = await this.repository.getLatestMonitorProbeResult(target.tenantId, target.id);
-      if (!isProbeDue(target, latest, now)) {
-        skippedCount += 1;
-        continue;
-      }
 
       try {
+        if (checkedCount >= maxTargets) continue;
+        if (!isProbeDue(target, latest, now)) {
+          skippedCount += 1;
+          continue;
+        }
+
         await this.probeServiceAsset({
           tenantId: target.tenantId,
           monitorTargetId: target.id,
@@ -219,6 +229,7 @@ export class MonitorsApplicationService {
     const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
     const probeResult = await probeFromControlPlane(asset, url, timeoutMs);
     await this.saveCertificateObservationIfChanged(tenantId, probeResult);
+    await this.reconcileMonitorCertificateApplication(tenantId, probeResult);
     await this.reconcileMonitorTlsRisk(tenantId, asset.address, probeResult);
     const result = await this.applyActiveAssetRisksToProbeResult(tenantId, probeResult);
     if (input.monitorTargetId) {
@@ -332,6 +343,154 @@ export class MonitorsApplicationService {
         metadata: { trigger: 'monitor_tls_chain_recovered', serviceAssetId: result.serviceAssetId },
       });
     }
+  }
+
+  private async reconcileMonitorCertificateApplication(
+    tenantId: string,
+    result: Pick<ProbeServiceAssetResult, 'serviceAssetId' | 'checkedAt' | 'certificate'>,
+  ): Promise<void> {
+    const observedFingerprint = normalizeFingerprint(result.certificate?.fingerprintSha256);
+    if (!observedFingerprint) return;
+
+    const bindings = (await this.dependencies.bindings.listCertificateBindings(tenantId, allRowsQuery())).items
+      .filter((binding) => binding.serviceAssetId === result.serviceAssetId);
+
+    const matchedBindingIds = new Set<string>();
+    for (const binding of bindings) {
+      const expectedFingerprints = await this.latestBindingFingerprints(binding);
+      if (!expectedFingerprints.has(observedFingerprint)) continue;
+
+      matchedBindingIds.add(binding.id);
+      const shouldUpdateBinding = normalizeFingerprint(binding.observedFingerprintSha256) !== observedFingerprint
+        || binding.driftStatus !== 'synced'
+        || binding.status === 'DRIFTED';
+      if (!shouldUpdateBinding) continue;
+
+      await this.dependencies.bindings.updateCertificateBinding(tenantId, binding.id, {
+        observedFingerprintSha256: observedFingerprint,
+        lastVerifiedAt: result.checkedAt,
+        driftStatus: 'synced',
+        ...(binding.status === 'DRIFTED' ? { status: 'MANAGED' } : {}),
+      });
+    }
+
+    const risks = await this.repository.listRiskEvents({ tenantId });
+    for (const risk of risks) {
+      if (
+        !isCertificateApplicationRisk(risk)
+        || !['OPEN', 'ACKED'].includes(risk.status)
+        || risk.scope.serviceAssetId !== result.serviceAssetId
+      ) continue;
+
+      const riskExpectedFingerprint = await this.latestRiskExpectedFingerprint(risk);
+      const matchedRiskBinding = risk.scope.bindingId !== undefined
+        && matchedBindingIds.has(risk.scope.bindingId);
+      const matchedRiskFingerprint = riskExpectedFingerprint === observedFingerprint;
+      if (
+        (risk.scope.bindingId !== undefined && !matchedRiskBinding)
+        || (risk.scope.bindingId === undefined && !matchedRiskFingerprint)
+      ) continue;
+
+      await this.repository.changeRiskStatus({
+        tenantId,
+        riskEventId: risk.id,
+        action: 'resolved',
+        reason: '最新系统探测已确认站点使用证书最新版本',
+        actorType: 'system',
+        occurredAt: result.checkedAt,
+        metadata: {
+          trigger: 'monitor_certificate_application_recovered',
+          serviceAssetId: result.serviceAssetId,
+          observedFingerprintSha256: observedFingerprint,
+        },
+      });
+    }
+  }
+
+  private async reconcileMonitorCertificateRisks(input: {
+    tenantId?: string;
+    serviceAssetIds?: readonly string[];
+    occurredAt: string;
+  }): Promise<void> {
+    const risks = await this.repository.listRiskEvents({ tenantId: input.tenantId });
+    const requestedServiceAssetIds = input.serviceAssetIds
+      ? new Set(input.serviceAssetIds.filter(Boolean))
+      : undefined;
+    const groupedTargets = new Map<string, Set<string>>();
+    for (const risk of risks) {
+      const serviceAssetId = risk.scope.serviceAssetId;
+      if (!serviceAssetId || (requestedServiceAssetIds && !requestedServiceAssetIds.has(serviceAssetId))) continue;
+      const tenantId = risk.scope.tenantId ?? input.tenantId ?? tenantFallback;
+      const serviceAssetIds = groupedTargets.get(tenantId) ?? new Set<string>();
+      serviceAssetIds.add(serviceAssetId);
+      groupedTargets.set(tenantId, serviceAssetIds);
+    }
+
+    for (const [tenantId, serviceAssetIds] of groupedTargets) {
+      for (const serviceAssetId of serviceAssetIds) {
+        const observation = await this.repository.getLatestCertificateObservation(tenantId, serviceAssetId);
+        if (!observation) continue;
+        await this.reconcileMonitorCertificateApplication(tenantId, {
+          serviceAssetId,
+          checkedAt: observation.observedAt || input.occurredAt,
+          certificate: observation,
+        });
+      }
+    }
+  }
+
+  private async latestRiskExpectedFingerprint(risk: RiskEvent): Promise<string | undefined> {
+    const metadataFingerprint = normalizeFingerprint(
+      readString(risk.metadata.latestFingerprintSha256)
+        ?? readString(risk.metadata.desiredFingerprintSha256)
+        ?? readString(risk.metadata.targetFingerprintSha256),
+    );
+    if (metadataFingerprint) return metadataFingerprint;
+
+    const versionId = risk.scope.certificateVersionId
+      ?? readString(risk.metadata.latestCertificateVersionId)
+      ?? readString(risk.metadata.certificateVersionId);
+    if (!versionId) return undefined;
+
+    const version = await this.dependencies.certificates.getVersion(versionId);
+    if (!version) return undefined;
+    const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
+    const latestVersion = asset?.currentVersionId
+      ? await this.dependencies.certificates.getVersion(asset.currentVersionId)
+      : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId))
+        .sort((left, right) => right.versionNo - left.versionNo)[0];
+    return normalizeFingerprint(latestVersion?.fingerprintSha256);
+  }
+
+  private async latestBindingFingerprints(binding: CertificateBindingDto): Promise<Set<string>> {
+    const fingerprints = new Set<string>();
+    const versionIds = [...new Set([
+      binding.certificateVersionId,
+      binding.targetCertificateVersionId,
+      binding.localCertificateVersionId,
+    ].filter((value): value is string => Boolean(value)))];
+    let resolvedVersionFingerprint = false;
+    for (const versionId of versionIds) {
+      const version = await this.dependencies.certificates.getVersion(versionId);
+      if (!version) continue;
+      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
+      const latestVersion = asset?.currentVersionId
+        ? await this.dependencies.certificates.getVersion(asset.currentVersionId)
+        : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId))
+          .sort((left, right) => right.versionNo - left.versionNo)[0];
+      const fingerprint = normalizeFingerprint(latestVersion?.fingerprintSha256);
+      if (!fingerprint) continue;
+      resolvedVersionFingerprint = true;
+      fingerprints.add(fingerprint);
+    }
+
+    if (!resolvedVersionFingerprint) {
+      for (const value of [binding.desiredFingerprintSha256, binding.targetFingerprintSha256]) {
+        const fingerprint = normalizeFingerprint(value);
+        if (fingerprint) fingerprints.add(fingerprint);
+      }
+    }
+    return fingerprints;
   }
 
   private async applyActiveAssetRisksToProbeResult(
@@ -736,6 +895,15 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
 function normalizeFingerprint(value: string | undefined): string | undefined {
   const normalized = value?.replace(/[^a-f0-9]/giu, '').toUpperCase();
   return normalized ? normalized : undefined;
+}
+
+function isCertificateApplicationRisk(risk: RiskEvent): boolean {
+  if (risk.type === 'binding_drift' || risk.type === 'tls_fingerprint_mismatch') return true;
+  if (risk.type === 'certificate_update_pending') return true;
+  if (risk.type !== 'certificate_expiring') return false;
+  if (risk.metadata.applicationMismatch === true) return true;
+  const text = `${risk.title} ${risk.summary}`.toLowerCase();
+  return ['最新版本', '未应用', '未切换', '未生效'].some((marker) => text.includes(marker));
 }
 
 function isUnchangedObservation(

@@ -5,6 +5,7 @@ export const severity = ['low', 'medium', 'high', 'critical'] as const;
 export const riskEventTypes = [
   'certificate_expiring',
   'certificate_expired',
+  'certificate_update_pending',
   'binding_drift',
   'binding_unknown_certificate',
   'execution_failed',
