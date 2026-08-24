@@ -77,41 +77,43 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="isOpen"
-      class="gc-modal__mask"
-      role="presentation"
-    >
-      <section
-        :class="modalClass"
-        :style="modalStyle"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="title"
-        @click.stop
+    <Transition name="gc-modal">
+      <div
+        v-if="isOpen"
+        class="gc-modal__mask"
+        role="presentation"
       >
-        <header v-if="!frameless && (title || description)" class="gc-modal__header">
-          <div>
-            <h2 v-if="title">{{ title }}</h2>
-            <p v-if="description">{{ description }}</p>
-          </div>
-          <div class="gc-modal__header-actions">
-            <slot name="header-actions" />
-            <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
-              ×
-            </button>
-          </div>
-        </header>
+        <section
+          :class="modalClass"
+          :style="modalStyle"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title"
+          @click.stop
+        >
+          <header v-if="!frameless && (title || description)" class="gc-modal__header">
+            <div>
+              <h2 v-if="title">{{ title }}</h2>
+              <p v-if="description">{{ description }}</p>
+            </div>
+            <div class="gc-modal__header-actions">
+              <slot name="header-actions" />
+              <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
+                ×
+              </button>
+            </div>
+          </header>
 
-        <div class="gc-modal__body">
-          <slot />
-        </div>
+          <div class="gc-modal__body">
+            <slot />
+          </div>
 
-        <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
-          <slot name="actions" />
-        </footer>
-      </section>
-    </div>
+          <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
+            <slot name="actions" />
+          </footer>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -194,6 +196,27 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--gc-color-border);
 }
 
+.gc-modal-enter-active,
+.gc-modal-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.gc-modal-enter-active .gc-modal,
+.gc-modal-leave-active .gc-modal {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.gc-modal-enter-from,
+.gc-modal-leave-to {
+  opacity: 0;
+}
+
+.gc-modal-enter-from .gc-modal,
+.gc-modal-leave-to .gc-modal {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+}
+
 .gc-modal__header-actions {
   display: flex;
   align-items: center;
@@ -223,6 +246,15 @@ onBeforeUnmount(() => {
 
   .gc-modal__header h2 {
     font-size: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-modal-enter-active,
+  .gc-modal-leave-active,
+  .gc-modal-enter-active .gc-modal,
+  .gc-modal-leave-active .gc-modal {
+    transition: none;
   }
 }
 </style>

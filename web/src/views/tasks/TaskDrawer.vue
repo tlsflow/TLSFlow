@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcDrawer, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -20,17 +20,7 @@ const total = ref(0)
 const page = ref(1)
 const detail = ref<TaskDetail | null>(null)
 const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
-const filters = ref({
-  taskType: '',
-  status: '',
-  resourceType: '',
-  resourceId: '',
-  requestedBy: '',
-  taskId: '',
-  createdFrom: '',
-  createdTo: '',
-  keyword: ''
-})
+const keyword = ref('')
 
 const tabs = computed(() => [
   { value: 'all', label: t('tasks.tabs.all') },
@@ -58,18 +48,10 @@ async function loadTasks(resetPage = false): Promise<void> {
     const result = await listTasks({
       page: page.value,
       pageSize: 20,
-      keyword: filters.value.keyword || undefined,
+      keyword: keyword.value.trim() || undefined,
       includeAll: includeAll.value || activeTab.value === 'all',
       filters: {
-        category: selectedCategory.value,
-        taskType: filters.value.taskType || undefined,
-        status: filters.value.status || undefined,
-        resourceType: filters.value.resourceType || undefined,
-        resourceId: filters.value.resourceId || undefined,
-        requestedBy: filters.value.requestedBy || undefined,
-        taskId: filters.value.taskId || undefined,
-        createdFrom: filters.value.createdFrom ? new Date(filters.value.createdFrom).toISOString() : undefined,
-        createdTo: filters.value.createdTo ? new Date(filters.value.createdTo).toISOString() : undefined
+        category: selectedCategory.value
       }
     })
     tasks.value = result.data?.items ?? []
@@ -108,7 +90,7 @@ function submitSearch(): void {
 }
 
 function resetFilters(): void {
-  filters.value = { taskType: '', status: '', resourceType: '', resourceId: '', requestedBy: '', taskId: '', createdFrom: '', createdTo: '', keyword: '' }
+  keyword.value = ''
   void loadTasks(true)
 }
 
@@ -131,11 +113,13 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 </script>
 
 <template>
-  <GcDrawer
+  <GcModal
     :open="open"
     :title="t('tasks.title')"
     :description="t('tasks.description')"
-    labelled-by="global-task-drawer-title"
+    size="xl"
+    width="min(960px, calc(100vw - 32px))"
+    close-on-backdrop
     @update:open="emit('close')"
   >
     <div v-if="detail" class="task-drawer__detail">
@@ -206,27 +190,21 @@ function recordValue(record: Record<string, unknown>, key: string): string {
     </div>
     <div v-else class="task-drawer__list">
       <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('tasks.aria.tabs')" />
-      <label class="task-drawer__checkbox">
-        <input v-model="includeAll" type="checkbox">
-        <span>{{ t('tasks.filters.includeAll') }}</span>
-      </label>
-      <form class="task-drawer__filters" @submit.prevent="submitSearch">
-        <input v-model="filters.keyword" :placeholder="t('tasks.filters.keyword')" :aria-label="t('tasks.filters.keyword')" type="search">
-        <input v-model="filters.taskType" :placeholder="t('tasks.filters.taskType')" :aria-label="t('tasks.filters.taskType')">
-        <select v-model="filters.status" :aria-label="t('tasks.filters.status')">
-          <option value="">{{ t('tasks.filters.allStatuses') }}</option>
-          <option v-for="status in ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING', 'SUCCEEDED', 'FAILED', 'CANCELLED']" :key="status" :value="status">{{ t(`tasks.status.${status}`) }}</option>
-        </select>
-        <input v-model="filters.resourceType" :placeholder="t('tasks.filters.resourceType')" :aria-label="t('tasks.filters.resourceType')">
-        <input v-model="filters.resourceId" :placeholder="t('tasks.filters.resourceId')" :aria-label="t('tasks.filters.resourceId')">
-        <input v-model="filters.requestedBy" :placeholder="t('tasks.filters.requestedBy')" :aria-label="t('tasks.filters.requestedBy')">
-        <input v-model="filters.taskId" :placeholder="t('tasks.filters.taskId')" :aria-label="t('tasks.filters.taskId')">
-        <input v-model="filters.createdFrom" :aria-label="t('tasks.filters.createdFrom')" type="datetime-local">
-        <input v-model="filters.createdTo" :aria-label="t('tasks.filters.createdTo')" type="datetime-local">
-        <div class="task-drawer__filter-actions">
-          <button class="gc-button gc-button--primary" type="submit">{{ t('tasks.actions.search') }}</button>
-          <button class="gc-button" type="button" @click="resetFilters">{{ t('tasks.actions.reset') }}</button>
-        </div>
+      <form class="task-drawer__toolbar" @submit.prevent="submitSearch">
+        <label class="task-drawer__search">
+          <span class="sr-only">{{ t('tasks.filters.keyword') }}</span>
+          <input v-model="keyword" :placeholder="t('tasks.filters.keyword')" :aria-label="t('tasks.filters.keyword')" type="search">
+        </label>
+        <label class="task-drawer__switch">
+          <input
+            v-model="includeAll"
+            type="checkbox"
+            role="switch"
+            :aria-checked="includeAll"
+          >
+          <span class="task-drawer__switch-track" aria-hidden="true"><span /></span>
+          <span>{{ t('tasks.filters.includeAll') }}</span>
+        </label>
       </form>
       <p v-if="error" class="gc-form-error">{{ error }}</p>
       <div v-if="loading" class="task-drawer__loading">{{ t('common.loading') }}</div>
@@ -247,49 +225,97 @@ function recordValue(record: Record<string, unknown>, key: string): string {
         <button class="gc-icon-button" type="button" :disabled="page >= pageCount" :aria-label="t('tasks.actions.nextPage')" @click="page += 1; void loadTasks()"><span aria-hidden="true">›</span></button>
       </div>
     </div>
-  </GcDrawer>
+  </GcModal>
 </template>
 
 <style scoped>
 .task-drawer__list,
 .task-drawer__detail {
   display: grid;
+  gap: var(--gc-space-5);
+}
+
+.task-drawer__toolbar {
+  display: flex;
+  align-items: center;
   gap: var(--gc-space-4);
 }
 
-.task-drawer__filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-2);
+.task-drawer__search {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.task-drawer__filters input,
-.task-drawer__filters select {
+.task-drawer__search input {
+  width: 100%;
   min-width: 0;
   min-height: var(--gc-control-height-md);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-sm);
+  border-radius: var(--gc-radius-md);
   padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-field);
 }
 
-.task-drawer__filters input:first-child,
-.task-drawer__filter-actions {
-  grid-column: 1 / -1;
+.task-drawer__search input:focus-visible {
+  outline: none;
+  border-color: var(--gc-color-primary-border-strong);
+  box-shadow: var(--gc-shadow-focus);
 }
 
-.task-drawer__filter-actions {
+.task-drawer__switch {
   display: flex;
-  gap: var(--gc-space-2);
-}
-
-.task-drawer__checkbox {
-  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--gc-space-2);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.task-drawer__switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.task-drawer__switch-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 42px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--gc-color-border-strong);
+  transition: background-color 160ms ease;
+}
+
+.task-drawer__switch-track span {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
+  transform: translateX(0);
+  transition: transform 160ms ease;
+}
+
+.task-drawer__switch input:checked + .task-drawer__switch-track {
+  background: var(--gc-color-primary);
+}
+
+.task-drawer__switch input:checked + .task-drawer__switch-track span {
+  transform: translateX(18px);
+}
+
+.task-drawer__switch input:focus-visible + .task-drawer__switch-track {
+  box-shadow: var(--gc-shadow-focus);
 }
 
 .task-drawer__items {
@@ -443,9 +469,17 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 }
 
 @media (max-width: 560px) {
-  .task-drawer__filters,
   .task-drawer__facts {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-drawer__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .task-drawer__switch {
+    justify-content: flex-end;
   }
 }
 </style>
