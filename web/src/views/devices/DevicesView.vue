@@ -4,12 +4,34 @@ import { useI18n } from 'vue-i18n'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { listManagedDevices } from '@/api/modules/devices.api'
+import { getManagedDevice } from '@/api/modules/devices.api'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
+import DeviceDetailPanel from './DeviceDetailPanel.vue'
+import { GcModal } from '@/design-system/components'
+import type { ViewRow } from '@/composables/useBusinessPage'
 
 const { t } = useI18n()
 const filters = ref<Record<string, string>>({})
 const onboardingOpen = ref(false)
 const reloadKey = ref(0)
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const detail = ref<Record<string, unknown> | null>(null)
+
+async function openDetail(row: ViewRow) {
+  detailOpen.value = true
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const response = await getManagedDevice(row.id)
+    detail.value = response.data ?? null
+  } catch (cause) {
+    detailError.value = cause instanceof Error ? cause.message : t('devices.errors.detailLoadFailed')
+  } finally {
+    detailLoading.value = false
+  }
+}
 
 const config = computed<BusinessPageConfig>(() => ({
   title: t('devices.page.title'),
@@ -67,10 +89,18 @@ const config = computed<BusinessPageConfig>(() => ({
     return listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value })
   },
   actions: [],
+  rowActions: [{
+    label: t('devices.actions.detail'), permission: 'host.read', reloadAfterRun: false, run: openDetail,
+  }],
 }))
 </script>
 
 <template>
   <BusinessResourcePage :key="reloadKey" :config="config" />
   <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
+  <GcModal v-model:open="detailOpen" :title="t('devices.detail.title')" size="xl">
+    <p v-if="detailLoading">{{ t('common.loading') }}</p>
+    <p v-else-if="detailError">{{ detailError }}</p>
+    <DeviceDetailPanel v-else-if="detail" :detail="detail" />
+  </GcModal>
 </template>
