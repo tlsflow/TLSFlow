@@ -44,6 +44,12 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.error.loadStepsFailed',
   'executionDetail.error.streamConnectFailed',
   'executionDetail.step.nameFallback',
+  'executionDetail.step.labels.discover',
+  'executionDetail.step.labels.backup',
+  'executionDetail.step.labels.install',
+  'executionDetail.step.labels.reload',
+  'executionDetail.step.labels.verify',
+  'executionDetail.step.labels.rollback',
   'executionDetail.dryRun.failedNoChecks.label',
   'executionDetail.dryRun.failedNoChecks.detail',
   'executionDetail.dryRun.queued.label',
@@ -107,6 +113,22 @@ type ExecutionDetailI18nKey = typeof EXECUTION_DETAIL_I18N_KEYS[number]
 
 function createExecutionDetailText(t: I18nTranslate | undefined): ExecutionDetailText {
   return (key, params) => translateWithFallback(t, key, key, params)
+}
+
+function friendlyStepName(record: Record<string, unknown>, index: number, text: ExecutionDetailText): string {
+  const stepType = readString(record, ['stepType', 'type'], '').toUpperCase()
+  const customName = readString(record, ['name', 'stepName'], '')
+  const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
+  const isWorkflowStep = customName.toUpperCase().startsWith('WORKFLOW ')
+    || Boolean(resultDetail?.workflowRun || resultDetail?.workflowExecutionSteps || resultDetail?.workflowStepResult)
+  if (isWorkflowStep && customName) return customName
+  if (stepType.startsWith('DISCOVER') || stepType.startsWith('PREPARE')) return text('executionDetail.step.labels.discover')
+  if (stepType.startsWith('BACKUP')) return text('executionDetail.step.labels.backup')
+  if (stepType.startsWith('INSTALL') || stepType.startsWith('UPDATE')) return text('executionDetail.step.labels.install')
+  if (stepType.startsWith('RELOAD')) return text('executionDetail.step.labels.reload')
+  if (stepType.startsWith('VERIFY')) return text('executionDetail.step.labels.verify')
+  if (stepType.startsWith('ROLLBACK')) return text('executionDetail.step.labels.rollback')
+  return customName || text('executionDetail.step.nameFallback', { index: index + 1 })
 }
 
 export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null }, options: UseExecutionDetailOptions = {}) {
@@ -194,7 +216,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       const diagnostics = buildStepDiagnostics(record)
       return {
         id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
-        name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
+        name: friendlyStepName(record, index, text),
         stepType: readString(record, ['stepType', 'type'], ''),
         status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
         detail: buildStepDetail(record, index, text),
@@ -797,7 +819,7 @@ function formatExecutionInputIssue(issue: Record<string, unknown>, text: Executi
 
 function buildLogLines(record: Record<string, unknown>, index: number, agentLogs: readonly ApiRecord[], text: ExecutionDetailText): ExecutionLogLine[] {
   const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
-  const baseStep = readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 }))
+  const baseStep = friendlyStepName(record, index, text)
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
   const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
@@ -860,7 +882,7 @@ function buildAgentLogLine(
   text: ExecutionDetailText,
 ): ExecutionLogLine {
   const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
-  const baseStep = readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 }))
+  const baseStep = friendlyStepName(record, index, text)
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   return {
     id: `line-${baseId}-agent-${readString(log, ['id'], String(logIndex + 1))}`,

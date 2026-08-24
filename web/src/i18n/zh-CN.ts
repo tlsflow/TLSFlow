@@ -719,6 +719,14 @@ export default {
     },
     step: {
       nameFallback: '步骤 {index}',
+      labels: {
+        discover: '发现部署目标',
+        backup: '备份当前证书',
+        install: '安装新证书',
+        reload: '重载服务',
+        verify: '验证证书',
+        rollback: '回滚证书'
+      },
       dryRunCheckSummary: '预检结论：通过 {passed} / 警告 {warning} / 失败 {failed} / 未知 {unknown}。{topChecks}',
       dryRunPending: {
         queued: '当前仍在队列中，尚未开始执行。',

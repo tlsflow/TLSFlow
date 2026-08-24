@@ -724,6 +724,14 @@ export default {
     },
     step: {
       nameFallback: 'ステップ {index}',
+      labels: {
+        discover: 'デプロイ対象を検出',
+        backup: '現在の証明書をバックアップ',
+        install: '新しい証明書をインストール',
+        reload: 'サービスを再読み込み',
+        verify: '証明書を検証',
+        rollback: '証明書をロールバック'
+      },
       dryRunCheckSummary: '事前チェックの結論：合格 {passed} / 警告 {warning} / 失敗 {failed} / 不明 {unknown}。{topChecks}',
       dryRunPending: {
         queued: '現在もキュー内にあり、まだ実行を開始していません。',

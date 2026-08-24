@@ -723,6 +723,14 @@ export default {
     },
     step: {
       nameFallback: "步驟 {index}",
+      labels: {
+        discover: "發現部署目標",
+        backup: "備份目前憑證",
+        install: "安裝新憑證",
+        reload: "重新載入服務",
+        verify: "驗證憑證",
+        rollback: "回滾憑證"
+      },
       dryRunCheckSummary: "預檢結論：通過 {passed} / 警告 {warning} / 失敗 {failed} / 未知 {unknown}。{topChecks}",
       dryRunPending: {
         queued: "目前仍在佇列中，尚未開始執行。",

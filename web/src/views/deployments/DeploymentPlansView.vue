@@ -19,12 +19,12 @@ import {
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { listMonitorCertificateObservations, probeMonitorServiceAsset } from '@/api/modules/monitors.api'
-import { GcConfirmAction, GcDeploymentWizard, GcDryRunResultModal, GcEmptyState, GcExecutionProgressPanel, GcHelpTip, GcModal, GcPermissionButton, GcStatusTag, GcUserFlowWizard } from '@/design-system/components'
+import { GcConfirmAction, GcDeploymentWizard, GcEmptyState, GcExecutionDetailModal, GcExecutionProgressPanel, GcHelpTip, GcModal, GcPermissionButton, GcStatusTag, GcUserFlowWizard } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { subscribeTaskRealtime, type DeploymentExecutionMode, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { useAppStore } from '@/stores/app.store'
@@ -131,19 +131,15 @@ const dryRunChecks = ref<ApiRecord[]>([])
 const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow, { t })
 const detailExecutionRow = ref<ViewRow | null>(null)
 const detailExecutionDetail = useExecutionDetail(detailExecutionRow, { t })
-const dryRunResultModalOpen = ref(false)
+const executionDetailModalOpen = ref(false)
 const dryRunActionError = ref('')
 const executionStarting = ref(false)
 const activeExecutionSource = ref<'plan' | 'related'>('plan')
-const latestExecutionMode = ref<'dry-run' | 'apply' | 'rollback'>('dry-run')
-const latestExecutionRequestId = ref('')
-const executionModalTransitionName = ref('gc-modal')
 const executionTaskFlights = ref<ExecutionTaskFlight[]>([])
 const probingAssetIds = new Set<string>()
 let unknownStateProbeTimer: number | null = null
 let executionFlightSequence = 0
 const executionFlightTimers = new Map<number, number>()
-let disposeOpenDeploymentExecution: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 let deploymentPlanRealtimeReloadTimer: number | null = null
 const relatedRecordsLoadedPlanId = ref('')
@@ -256,16 +252,8 @@ function isDryRunActionLabel(label: string): boolean {
   return isDeploymentPlanActionLabel(label, 'dryRun') || label.toLowerCase().includes('dry-run')
 }
 
-const latestExecutionTitle = computed(() => resolveExecutionDialogTitle(latestExecutionMode.value))
-const latestExecutionViewMode = computed<'dry-run' | 'execution'>(() => (
-  latestExecutionMode.value === 'dry-run' ? 'dry-run' : 'execution'
-))
 const activeExecutionRow = computed(() => activeExecutionSource.value === 'related' ? relatedExecutionRow.value : dryRunRunRow.value)
 const activeExecutionDetail = computed(() => activeExecutionSource.value === 'related' ? relatedExecutionDetail : dryRunExecutionDetail)
-const activeExecutionChecks = computed(() => {
-  if (activeExecutionSource.value === 'related') return relatedExecutionDetail.dryRunChecks.value
-  return dryRunChecks.value.length ? dryRunChecks.value : dryRunExecutionDetail.dryRunChecks.value
-})
 const deploymentInputSourceRows = computed<DeploymentInputSourceRow[]>(() => deploymentInputSnapshots.value.flatMap((entity) => {
   const targetId = readString(entity, ['deploymentPlanTargetId'])
   const snapshot = readRecord(entity, ['snapshot'])
@@ -306,7 +294,6 @@ watch(activeDetailTab, async (tab) => {
 })
 
 onMounted(() => {
-  disposeOpenDeploymentExecution = subscribeOpenDeploymentExecution(openExecutionModalFromTask)
   disposeTaskRealtime = subscribeTaskRealtime(handleDeploymentTaskRealtime)
 })
 
@@ -318,9 +305,7 @@ onUnmounted(() => {
   clearUnknownStateProbeRetry()
   clearDeploymentPlanRealtimeReload()
   clearExecutionModalTimers()
-  disposeOpenDeploymentExecution?.()
   disposeTaskRealtime?.()
-  disposeOpenDeploymentExecution = undefined
   disposeTaskRealtime = undefined
 })
 
@@ -540,7 +525,6 @@ function resetMessages() {
   submitRequestId.value = ''
   dryRunChecks.value = []
   dryRunActionError.value = ''
-  latestExecutionRequestId.value = ''
   executionStarting.value = false
 }
 
@@ -585,13 +569,11 @@ async function decideApprovalFromModal(decision: 'approved' | 'rejected') {
   }
 }
 
-async function closeDryRunResultModal(options: { reload?: boolean } = {}) {
+async function closeExecutionDetailModal(options: { reload?: boolean } = {}) {
   clearExecutionModalTimers()
   executionStarting.value = false
-  executionModalTransitionName.value = 'gc-modal'
-  dryRunResultModalOpen.value = false
+  executionDetailModalOpen.value = false
   dryRunActionError.value = ''
-  latestExecutionRequestId.value = ''
   if (options.reload === true) await pageRef.value?.reload()
 }
 
@@ -718,7 +700,6 @@ function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
   clearExecutionModalTimers()
   dryRunActionError.value = ''
   executionStarting.value = false
-  executionModalTransitionName.value = 'gc-modal'
   activeExecutionSource.value = 'related'
   relatedExecutionRow.value = {
     id: record.runId,
@@ -736,9 +717,7 @@ function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
       planName: record.planName,
     },
   }
-  latestExecutionMode.value = normalizeExecutionMode(record.type)
-  latestExecutionRequestId.value = ''
-  dryRunResultModalOpen.value = true
+  executionDetailModalOpen.value = true
 }
 
 async function handleDryRun(plan: DeploymentWizardPlan) {
@@ -915,7 +894,7 @@ function handleActionError(actionLabel: string, _row: ViewRow | null, cause: unk
     dryRunChecks.value = []
     dryRunRunRow.value = null
     dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
-    dryRunResultModalOpen.value = true
+    executionDetailModalOpen.value = true
     return
   }
   if (executionModeForActionLabel(actionLabel)) {
@@ -936,7 +915,6 @@ function openExecutionModalFromResult(
   clearExecutionModalTimers()
   dryRunActionError.value = ''
   activeExecutionSource.value = 'plan'
-  executionModalTransitionName.value = 'gc-modal'
   const data = readResponseData(result)
   const run = readRecord(data, ['run'])
   const runId = readString(run, ['id', 'runId']) || readString(data, ['runId'])
@@ -947,9 +925,7 @@ function openExecutionModalFromResult(
     }
     return
   }
-  latestExecutionMode.value = mode
-  latestExecutionRequestId.value = readString(result as ApiRecord, ['requestId'], '')
-  dryRunResultModalOpen.value = options.autoMinimize ? false : true
+  executionDetailModalOpen.value = options.autoMinimize ? false : true
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
@@ -974,12 +950,9 @@ function openExecutionModalStarting(mode: DeploymentExecutionMode, fallbackRow?:
   dryRunActionError.value = ''
   dryRunChecks.value = []
   activeExecutionSource.value = 'plan'
-  executionModalTransitionName.value = 'gc-modal'
-  latestExecutionMode.value = mode
-  latestExecutionRequestId.value = ''
   executionStarting.value = true
   dryRunRunRow.value = null
-  dryRunResultModalOpen.value = false
+  executionDetailModalOpen.value = false
   if (fallbackRow) {
     dryRunRunRow.value = {
       id: '',
@@ -989,34 +962,6 @@ function openExecutionModalStarting(mode: DeploymentExecutionMode, fallbackRow?:
       raw: {},
     }
   }
-}
-
-function openExecutionModalFromTask(detail: DeploymentExecutionOpenDetail) {
-  clearExecutionModalTimers()
-  dryRunActionError.value = ''
-  dryRunChecks.value = []
-  executionStarting.value = false
-  executionModalTransitionName.value = 'gc-modal'
-  activeExecutionSource.value = 'related'
-  latestExecutionMode.value = detail.mode
-  latestExecutionRequestId.value = ''
-  relatedExecutionRow.value = {
-    id: detail.runId,
-    name: detail.planName || t('deploymentPlans.execution.fallbackName', { runId: detail.runId }),
-    status: detail.status || 'DISPATCHED',
-    risk: detail.mode === 'dry-run' ? 'MEDIUM' : 'HIGH',
-    raw: {
-      id: detail.runId,
-      runId: detail.runId,
-      deploymentPlanId: detail.deploymentPlanId,
-      status: detail.status || 'DISPATCHED',
-      type: executionRunTypeForMode(detail.mode),
-      planName: detail.planName,
-      taskId: detail.taskId,
-      summary: detail.summary,
-    },
-  }
-  dryRunResultModalOpen.value = true
 }
 
 function launchExecutionTaskFlight(mode: DeploymentExecutionMode) {
@@ -1076,17 +1021,6 @@ function executionModeForActionLabel(actionLabel: string): 'apply' | 'rollback' 
   if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return 'apply'
   if (isDeploymentPlanActionLabel(actionLabel, 'rollback')) return 'rollback'
   return ''
-}
-
-function executionRunTypeForMode(mode: DeploymentExecutionMode): string {
-  if (mode === 'dry-run') return 'dry_run'
-  return mode
-}
-
-function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
-  if (mode === 'rollback') return t('deploymentPlans.execution.rollbackTitle')
-  if (mode === 'apply') return t('deploymentPlans.execution.applyTitle')
-  return t('deploymentPlans.execution.dryRunTitle')
 }
 
 function normalizeExecutionMode(type: string): 'dry-run' | 'apply' | 'rollback' {
@@ -1593,22 +1527,15 @@ async function fetchAllPages(
       />
     </GcModal>
 
-    <GcDryRunResultModal
-      :open="dryRunResultModalOpen"
-      :title="latestExecutionTitle"
-      :run-id="activeExecutionRow?.id"
-      :request-id="latestExecutionRequestId || activeExecutionDetail.requestId.value || dryRunRequestId"
+    <GcExecutionDetailModal
+      :open="executionDetailModalOpen"
+      :row="activeExecutionRow"
       :summary="activeExecutionDetail.dryRunSummary.value"
-      :checks="activeExecutionChecks"
       :steps="activeExecutionDetail.steps.value"
       :lines="activeExecutionDetail.lines.value"
       :loading="activeExecutionLoading"
-      :polling="activeExecutionDetail.isPolling.value"
       :error="activeExecutionError"
-      :mode="latestExecutionViewMode"
-      :transition-name="executionModalTransitionName"
-      :collapse-target-selector="executionModalCollapseTargetSelector"
-      @update:open="(value) => value ? (dryRunResultModalOpen = true) : void closeDryRunResultModal()"
+      @update:open="(value) => value ? (executionDetailModalOpen = true) : void closeExecutionDetailModal()"
     />
 
     <Teleport to="body">

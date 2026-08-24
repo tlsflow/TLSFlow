@@ -724,6 +724,14 @@ export default {
     },
     step: {
       nameFallback: '절차 {index}',
+      labels: {
+        discover: '배포 대상 검색',
+        backup: '현재 인증서 백업',
+        install: '새 인증서 설치',
+        reload: '서비스 다시 로드',
+        verify: '인증서 검증',
+        rollback: '인증서 롤백'
+      },
       dryRunCheckSummary: '사전 점검결론:통과 {passed}/경고 {warning}/실패 {failed}/미확인 {unknown}.{topChecks}',
       dryRunPending: {
         queued: '아직 실행 중이지만 아직 실행되지 않았습니다.',

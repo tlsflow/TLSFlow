@@ -719,6 +719,14 @@ export default {
     },
     step: {
       nameFallback: 'Step {index}',
+      labels: {
+        discover: 'Discover deployment target',
+        backup: 'Back up current certificate',
+        install: 'Install new certificate',
+        reload: 'Reload service',
+        verify: 'Verify certificate',
+        rollback: 'Roll back certificate'
+      },
       dryRunCheckSummary: 'Precheck result: passed {passed} / warnings {warning} / failed {failed} / unknown {unknown}. {topChecks}',
       dryRunPending: {
         queued: 'Still queued and not started yet.',

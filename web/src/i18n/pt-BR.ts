@@ -724,6 +724,14 @@ export default {
     },
     step: {
       nameFallback: 'Etapa {index}',
+      labels: {
+        discover: 'Descobrir o alvo da implantação',
+        backup: 'Fazer backup do certificado atual',
+        install: 'Instalar o novo certificado',
+        reload: 'Recarregar o serviço',
+        verify: 'Verificar o certificado',
+        rollback: 'Reverter o certificado'
+      },
       dryRunCheckSummary: 'Conclusão da pré-verificação: aprovadas {passed} / avisos {warning} / falhas {failed} / desconhecidas {unknown}. {topChecks}',
       dryRunPending: {
         queued: 'Ainda está na fila e a execução não começou.',

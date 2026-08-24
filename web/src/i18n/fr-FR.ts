@@ -719,7 +719,15 @@ export default {
       streamConnectFailed: 'Failed to connect to the execution detail stream'
     },
     step: {
-      nameFallback: 'Step {index}',
+      nameFallback: 'Étape {index}',
+      labels: {
+        discover: 'Découvrir la cible de déploiement',
+        backup: 'Sauvegarder le certificat actuel',
+        install: 'Installer le nouveau certificat',
+        reload: 'Recharger le service',
+        verify: 'Vérifier le certificat',
+        rollback: 'Restaurer le certificat'
+      },
       dryRunCheckSummary: 'Precheck result: passed {passed} / warnings {warning} / failed {failed} / unknown {unknown}. {topChecks}',
       dryRunPending: {
         queued: 'Still queued and not started yet.',

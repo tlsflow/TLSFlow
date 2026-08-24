@@ -5,7 +5,7 @@ import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
-import { GcModal } from '@/design-system/components'
+import { GcExecutionDetailModal, GcModal } from '@/design-system/components'
 import { productBrand } from '@/brand/product-brand'
 import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
 import { useAppStore } from '@/stores/app.store'
@@ -15,9 +15,11 @@ import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 import { useTenantStore, type TenantOption } from '@/stores/tenant.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
+import { useExecutionDetail } from '@/composables/useExecutionDetail'
+import type { ViewRow } from '@/composables/useBusinessPage'
 import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { isDeploymentRunTask, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { isDeploymentRunTask, subscribeOpenDeploymentExecution, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 
 type ToastTone = 'success' | 'warning' | 'danger' | 'info'
 
@@ -108,6 +110,8 @@ const passwordDialogOpen = ref(false)
 const passwordSubmitting = ref(false)
 const passwordError = ref('')
 const passwordSuccess = ref('')
+const globalExecutionModalOpen = ref(false)
+const globalExecutionRow = ref<ViewRow | null>(null)
 const passwordForm = reactive({
   currentPassword: '',
   newPassword: '',
@@ -129,6 +133,9 @@ let overlayStateObserver: MutationObserver | undefined
 let sidebarCollapsedBeforeModal = false
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
+let disposeOpenDeploymentExecution: (() => void) | undefined
+
+const globalExecutionDetail = useExecutionDetail(globalExecutionRow, { t })
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -464,6 +471,7 @@ onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   window.addEventListener('gcac:toast', handleToastEvent as EventListener)
   window.addEventListener(TENANT_CONTEXT_CHANGED_EVENT, refreshTenantBoundRoute)
+  disposeOpenDeploymentExecution = subscribeOpenDeploymentExecution(openGlobalExecutionModal)
   disposeTaskActivity = subscribeTaskActivity((state) => {
     taskEntryConnected.value = state.connected
     activeTaskCount.value = state.activeCount
@@ -487,10 +495,12 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   window.removeEventListener(TENANT_CONTEXT_CHANGED_EVENT, refreshTenantBoundRoute)
+  disposeOpenDeploymentExecution?.()
   disposeTaskActivity?.()
   disposeTaskRealtime?.()
   disposeTaskActivity = undefined
   disposeTaskRealtime = undefined
+  disposeOpenDeploymentExecution = undefined
   executionTaskSuccessToastIds.clear()
   toastTimers.forEach((timer) => window.clearTimeout(timer))
   toastTimers.clear()
@@ -529,6 +539,31 @@ function handleTaskRealtime(message: TaskRealtimeMessage): void {
 
 function normalizeToastTone(tone: ToastEventDetail['tone']): ToastTone {
   return tone === 'success' || tone === 'warning' || tone === 'danger' || tone === 'info' ? tone : 'info'
+}
+
+function openGlobalExecutionModal(detail: DeploymentExecutionOpenDetail): void {
+  globalExecutionRow.value = {
+    id: detail.runId,
+    name: detail.planName || t('deploymentPlans.execution.fallbackName', { runId: detail.runId }),
+    status: detail.status || 'DISPATCHED',
+    risk: detail.mode === 'dry-run' ? 'MEDIUM' : 'HIGH',
+    raw: {
+      id: detail.runId,
+      runId: detail.runId,
+      deploymentPlanId: detail.deploymentPlanId,
+      status: detail.status || 'DISPATCHED',
+      type: detail.mode === 'dry-run' ? 'dry_run' : detail.mode,
+      planName: detail.planName,
+      taskId: detail.taskId,
+      summary: detail.summary,
+    },
+  }
+  globalExecutionModalOpen.value = true
+}
+
+function closeGlobalExecutionModal(): void {
+  globalExecutionModalOpen.value = false
+  globalExecutionRow.value = null
 }
 
 function removeToastNotice(id: number): void {
@@ -880,6 +915,17 @@ function removeToastNotice(id: number): void {
     </GcModal>
 
     <GlobalSearchModal :open="globalSearchOpen" @close="globalSearchOpen = false" />
+
+    <GcExecutionDetailModal
+      :open="globalExecutionModalOpen"
+      :row="globalExecutionRow"
+      :summary="globalExecutionDetail.dryRunSummary.value"
+      :steps="globalExecutionDetail.steps.value"
+      :lines="globalExecutionDetail.lines.value"
+      :loading="globalExecutionDetail.loading.value"
+      :error="globalExecutionDetail.error.value"
+      @update:open="(value) => value ? (globalExecutionModalOpen = true) : closeGlobalExecutionModal()"
+    />
 
     <Teleport to="body">
       <TransitionGroup name="gc-shell-toast" tag="div" class="gc-shell__toasts">

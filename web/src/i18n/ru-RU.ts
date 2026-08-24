@@ -724,6 +724,14 @@ export default {
     },
     step: {
       nameFallback: 'Шаг {index}',
+      labels: {
+        discover: 'Обнаружить цель развертывания',
+        backup: 'Создать резервную копию текущего сертификата',
+        install: 'Установить новый сертификат',
+        reload: 'Перезагрузить службу',
+        verify: 'Проверить сертификат',
+        rollback: 'Откатить сертификат'
+      },
       dryRunCheckSummary: 'Итог предпроверки: пройдено {passed} / предупреждений {warning} / ошибок {failed} / неизвестно {unknown}. {topChecks}',
       dryRunPending: {
         queued: 'Задача все еще в очереди и еще не началась.',

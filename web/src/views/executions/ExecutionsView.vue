@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcExecutionDetailModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
 import { listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
@@ -45,7 +45,6 @@ const error = ref('')
 const currentPage = ref(1)
 const detailModalOpen = ref(false)
 const detailRow = ref<ExecutionListRow | null>(null)
-const activeTab = ref<'summary' | 'steps' | 'logs'>('summary')
 const autoOpenedRunId = ref('')
 const recoveringUnknownResult = ref(false)
 const permissionStore = usePermissionStore()
@@ -76,16 +75,6 @@ const visibleRange = computed(() => {
 })
 
 const modalExecutionDetail = useExecutionDetail(detailRow, { t })
-const modalSummaryCards = computed(() => {
-  const summary = modalExecutionDetail.dryRunSummary.value
-  if (!summary) return []
-  return [
-    { label: t('executions.summary.passed'), value: summary.passed },
-    { label: t('executions.summary.warning'), value: summary.warning },
-    { label: t('executions.summary.failed'), value: summary.failed },
-    { label: t('executions.summary.unknown'), value: summary.unknown },
-  ]
-})
 const canRecoverUnknownResult = computed(() => modalExecutionDetail.hasUnknownResult.value
   && permissionStore.hasPermission('execution.run.recover'))
 
@@ -282,7 +271,6 @@ function executionDuration(record: ApiRecord): string {
 function openExecutionDetail(row: ExecutionListRow) {
   detailRow.value = row
   detailModalOpen.value = true
-  activeTab.value = 'summary'
   void modalExecutionDetail.reload()
 }
 
@@ -339,14 +327,6 @@ function timestamp(record: ApiRecord): number {
 
 function formatListTime(value: string): string {
   return formatBrowserLocalTime(value, { includeSeconds: false }) || t('executions.list.timeUnknown')
-}
-
-function formatDetailTime(value: unknown): string {
-  return formatBrowserLocalTime(value) || t('common.notAvailable')
-}
-
-function formatStepStartTime(value: unknown): string {
-  return formatBrowserLocalTime(value) || t('executions.detail.notStarted')
 }
 
 function readRecordArray(value: unknown): ApiRecord[] {
@@ -447,173 +427,19 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
       </footer>
     </section>
 
-    <GcModal
-      v-model:open="detailModalOpen"
-      :title="detailRow ? t('executions.detail.titleWithId', { id: detailRow.id }) : t('executions.detail.title')"
-      :description="t('executions.detail.description')"
-      size="xxl"
-    >
-      <section v-if="detailRow" class="execution-detail-modal">
-        <section class="execution-detail-modal__hero">
-          <div class="execution-detail-modal__hero-copy">
-            <p class="execution-detail-modal__eyebrow">{{ t('executions.detail.eyebrow') }}</p>
-            <h2>{{ detailRow.planName }}</h2>
-            <span>{{ detailRow.id }}</span>
-          </div>
-          <div class="execution-detail-modal__hero-side">
-            <GcStatusTag :status="detailRow.status" />
-            <div class="execution-detail-modal__spotlight">
-              <small>{{ t('executions.fields.runType') }}</small>
-              <strong>{{ detailRow.runTypeLabel }}</strong>
-            </div>
-          </div>
-        </section>
-
-        <div class="execution-detail-modal__tabs" role="tablist" :aria-label="t('executions.detail.title')">
-          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'summary'" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">{{ t('executions.tabs.summary') }}</button>
-          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'steps'" :data-active="activeTab === 'steps'" @click="activeTab = 'steps'">{{ t('executions.tabs.steps') }}</button>
-          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'logs'" :data-active="activeTab === 'logs'" @click="activeTab = 'logs'">{{ t('executions.tabs.logs') }}</button>
-        </div>
-
-        <section v-if="activeTab === 'summary'" class="execution-detail-modal__section">
-          <article v-if="modalExecutionDetail.hasUnknownResult.value" class="execution-detail-modal__unknown" role="status" aria-live="polite">
-            <div>
-              <strong>{{ t('executionDetail.step.unknownResult') }}</strong>
-              <p>{{ t('executions.detail.unknownResultDescription') }}</p>
-            </div>
-            <button
-              v-if="canRecoverUnknownResult"
-              class="gc-button gc-button--primary"
-              type="button"
-              :disabled="recoveringUnknownResult"
-              @click="recoverUnknownResult"
-            >
-              {{ recoveringUnknownResult ? t('executionDetail.recovery.running') : t('executionDetail.recovery.confirm') }}
-            </button>
-          </article>
-          <dl class="execution-detail-modal__facts">
-            <div>
-              <dt>{{ t('executions.fields.executionId') }}</dt>
-              <dd>{{ detailRow.id }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.deploymentPlan') }}</dt>
-              <dd>{{ detailRow.planName }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('tasks.fields.triggerSource') }}</dt>
-              <dd>{{ detailRow.sourceLabel }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.target') }}</dt>
-              <dd>{{ detailRow.assetNames.join(', ') }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.status') }}</dt>
-              <dd>{{ readString(detailRow.raw, ['status', 'state', 'result']) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.startedAt') }}</dt>
-              <dd>{{ formatDetailTime(readString(detailRow.raw, ['startedAt', 'createdAt'])) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.finishedAt') }}</dt>
-              <dd>{{ formatDetailTime(readString(detailRow.raw, ['finishedAt', 'updatedAt'])) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.errorCode') }}</dt>
-              <dd>{{ readString(detailRow.raw, ['errorCode']) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('executions.fields.failureReason') }}</dt>
-              <dd>{{ readString(detailRow.raw, ['failureReason', 'errorMessage', 'error.message']) }}</dd>
-            </div>
-          </dl>
-
-          <article
-            v-if="modalExecutionDetail.dryRunSummary.value"
-            class="execution-detail-modal__summary"
-            :data-state="modalExecutionDetail.dryRunSummary.value.state"
-          >
-            <div class="execution-detail-modal__summary-head">
-              <strong>{{ modalExecutionDetail.dryRunSummary.value.label }}</strong>
-              <span>{{ modalExecutionDetail.dryRunSummary.value.detail }}</span>
-            </div>
-            <div class="execution-detail-modal__summary-grid">
-              <div v-for="item in modalSummaryCards" :key="item.label">
-                <small>{{ item.label }}</small>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section v-else-if="activeTab === 'steps'" class="execution-detail-modal__section">
-          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">{{ t('executions.detail.loadingSteps') }}</p>
-          <p v-else-if="modalExecutionDetail.error.value" class="execution-detail-modal__error">{{ modalExecutionDetail.error.value }}</p>
-          <template v-else>
-            <header v-if="modalExecutionDetail.hasUnknownResult.value" class="execution-detail-modal__unknown execution-detail-modal__unknown--steps">
-              <div>
-                <strong>{{ t('executionDetail.step.unknownResult') }}</strong>
-                <p>{{ t('executions.detail.unknownResultDescription') }}</p>
-              </div>
-              <button
-                v-if="canRecoverUnknownResult"
-                class="gc-button gc-button--primary"
-                type="button"
-                :disabled="recoveringUnknownResult"
-                @click="recoverUnknownResult"
-              >
-                {{ recoveringUnknownResult ? t('executionDetail.recovery.running') : t('executionDetail.recovery.confirm') }}
-              </button>
-            </header>
-            <ul v-if="modalExecutionDetail.steps.value.length" class="execution-detail-modal__list">
-            <li v-for="step in modalExecutionDetail.steps.value" :key="step.id" class="execution-detail-modal__list-item">
-              <div class="execution-detail-modal__list-head">
-                <strong>{{ step.name }}</strong>
-                <GcStatusTag :status="step.status" />
-              </div>
-              <p>{{ step.detail ?? t('executions.detail.noStepDetail') }}</p>
-              <small>{{ formatStepStartTime(step.startedAt) }}{{ step.finishedAt ? ` -> ${formatDetailTime(step.finishedAt)}` : '' }}</small>
-              <div v-if="step.diagnostics?.length" class="execution-detail-modal__diagnostics">
-                <strong>{{ t('executionDetail.step.diagnosticsTitle') }}</strong>
-                <dl>
-                  <div v-for="diagnostic in step.diagnostics" :key="`${step.id}-${diagnostic.label}`">
-                    <dt>{{ diagnostic.label }}</dt>
-                    <dd>{{ diagnostic.value }}</dd>
-                  </div>
-                </dl>
-                <details v-if="step.structuredDetail">
-                  <summary>{{ t('executionDetail.step.structuredDetail') }}</summary>
-                  <pre>{{ step.structuredDetail }}</pre>
-                </details>
-              </div>
-            </li>
-            </ul>
-            <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noSteps') }}</p>
-          </template>
-        </section>
-
-        <section v-else class="execution-detail-modal__section">
-          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">{{ t('executions.detail.loadingLogs') }}</p>
-          <p v-else-if="modalExecutionDetail.error.value" class="execution-detail-modal__error">{{ modalExecutionDetail.error.value }}</p>
-          <ul v-else-if="modalExecutionDetail.lines.value.length" class="execution-detail-modal__logs">
-            <li v-for="line in modalExecutionDetail.lines.value" :key="line.id" class="execution-detail-modal__log-item" :data-level="line.level">
-              <div class="execution-detail-modal__log-meta">
-                <span>{{ line.time }}</span>
-                <strong>{{ line.step || t('executions.tabs.logs') }}</strong>
-              </div>
-              <p>{{ line.message }}</p>
-            </li>
-          </ul>
-          <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noLogs') }}</p>
-        </section>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" @click="detailModalOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
-      </template>
-    </GcModal>
+    <GcExecutionDetailModal
+      :open="detailModalOpen"
+      :row="detailRow"
+      :summary="modalExecutionDetail.dryRunSummary.value"
+      :steps="modalExecutionDetail.steps.value"
+      :lines="modalExecutionDetail.lines.value"
+      :loading="modalExecutionDetail.loading.value"
+      :error="modalExecutionDetail.error.value"
+      :can-recover-unknown-result="canRecoverUnknownResult"
+      :recovering-unknown-result="recoveringUnknownResult"
+      @update:open="detailModalOpen = $event"
+      @recover="recoverUnknownResult"
+    />
   </section>
 </template>
 
@@ -823,352 +649,16 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   border-top: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
-.execution-detail-modal {
-  display: grid;
-  gap: var(--gc-space-3);
-  min-width: 0;
-}
-
-.execution-detail-modal__hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: stretch;
-  gap: var(--gc-space-4);
-  padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-subtle);
-}
-
-.execution-detail-modal__hero-copy,
-.execution-detail-modal__hero-side,
-.execution-detail-modal__summary-head {
-  display: grid;
-  gap: var(--gc-space-1);
-}
-
-.execution-detail-modal__hero-copy {
-  min-width: 0;
-}
-
-.execution-detail-modal__eyebrow {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 850;
-}
-
-.execution-detail-modal__hero-copy h2 {
-  margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-xl);
-  line-height: 1.1;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__hero-copy span,
-.execution-detail-modal__summary-head span,
-.execution-detail-modal__list-item p,
-.execution-detail-modal__log-item p,
-.execution-detail-modal__list-item small,
-.execution-detail-modal__log-meta span {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__hero-side {
-  align-content: space-between;
-  justify-items: end;
-  min-width: calc(var(--gc-space-10) * 4);
-}
-
-.execution-detail-modal__spotlight {
-  display: grid;
-  gap: var(--gc-space-1);
-  min-width: calc(var(--gc-space-10) * 4);
-  padding: var(--gc-space-3);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-text);
-  color: var(--gc-color-surface-solid);
-}
-
-.execution-detail-modal__spotlight small {
-  color: var(--gc-color-text-inverse-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-}
-
-.execution-detail-modal__tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--gc-space-1);
-  width: fit-content;
-  padding: var(--gc-space-1);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-xl);
-  background: var(--gc-color-surface-hover);
-}
-
-.execution-detail-modal__tab {
-  min-height: var(--gc-space-8);
-  border: 0;
-  border-radius: var(--gc-radius-xl);
-  padding: 0 var(--gc-space-4);
-  background: transparent;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.execution-detail-modal__tab[data-active='true'] {
-  background: var(--gc-color-surface-solid);
-  color: var(--gc-color-primary);
-  box-shadow: var(--gc-shadow-button-primary);
-}
-
-.execution-detail-modal__section,
-.execution-detail-modal__summary {
-  display: grid;
-  gap: var(--gc-space-3);
-  padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
-}
-
-.execution-detail-modal__unknown {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--gc-space-4);
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-warning-border);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-warning-soft);
-  color: var(--gc-color-text);
-}
-
-.execution-detail-modal__unknown strong,
-.execution-detail-modal__unknown p {
-  margin: 0;
-}
-
-.execution-detail-modal__unknown p {
-  margin-top: var(--gc-space-1);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  line-height: 1.5;
-}
-
-.execution-detail-modal__unknown--steps {
-  margin-bottom: var(--gc-space-3);
-}
-
-.execution-detail-modal__facts,
-.execution-detail-modal__summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-  margin: 0;
-}
-
-.execution-detail-modal__facts div,
-.execution-detail-modal__summary-grid > div {
-  display: grid;
-  gap: var(--gc-space-1);
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-hover);
-}
-
-.execution-detail-modal__facts dt,
-.execution-detail-modal__summary-grid small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-}
-
-.execution-detail-modal__facts dd,
-.execution-detail-modal__summary-grid strong {
-  margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.execution-detail-modal__summary[data-state='passed'] {
-  border-color: var(--gc-color-success-border);
-  background: var(--gc-color-success-soft);
-}
-
-.execution-detail-modal__summary[data-state='warning'] {
-  border-color: var(--gc-color-warning-border);
-  background: var(--gc-color-warning-soft);
-}
-
-.execution-detail-modal__summary[data-state='failed'] {
-  border-color: var(--gc-color-danger-border);
-  background: var(--gc-color-danger-soft);
-}
-
-.execution-detail-modal__list,
-.execution-detail-modal__logs {
-  display: grid;
-  gap: var(--gc-space-3);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.execution-detail-modal__list-item,
-.execution-detail-modal__log-item {
-  display: grid;
-  gap: var(--gc-space-2);
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-hover);
-}
-
-.execution-detail-modal__list-head,
-.execution-detail-modal__log-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-  flex-wrap: wrap;
-}
-
-.execution-detail-modal__list-item p,
-.execution-detail-modal__log-item p,
-.execution-detail-modal__list-item small {
-  margin: 0;
-}
-
-.execution-detail-modal__diagnostics {
-  display: grid;
-  gap: var(--gc-space-2);
-  padding-top: var(--gc-space-2);
-  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-}
-
-.execution-detail-modal__diagnostics > strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-xs);
-}
-
-.execution-detail-modal__diagnostics dl {
-  display: grid;
-  gap: var(--gc-space-1);
-  margin: 0;
-}
-
-.execution-detail-modal__diagnostics dl div {
-  display: grid;
-  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
-  gap: var(--gc-space-2);
-}
-
-.execution-detail-modal__diagnostics dt,
-.execution-detail-modal__diagnostics dd {
-  margin: 0;
-  font-size: var(--gc-font-size-xs);
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__diagnostics dt {
-  color: var(--gc-color-text-muted);
-  font-weight: 800;
-}
-
-.execution-detail-modal__diagnostics dd {
-  color: var(--gc-color-text);
-  white-space: pre-wrap;
-}
-
-.execution-detail-modal__diagnostics details {
-  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  padding-top: var(--gc-space-2);
-}
-
-.execution-detail-modal__diagnostics summary {
-  color: var(--gc-color-primary);
-  cursor: pointer;
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-}
-
-.execution-detail-modal__diagnostics pre {
-  max-height: 18rem;
-  margin: var(--gc-space-2) 0 0;
-  overflow: auto;
-  border-radius: var(--gc-radius-sm);
-  padding: var(--gc-space-3);
-  background: var(--gc-color-code-bg);
-  color: var(--gc-color-text-inverse);
-  font-size: var(--gc-font-size-xs);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__log-item[data-level='error'] {
-  border-color: var(--gc-color-danger-border);
-  background: var(--gc-color-danger-soft);
-}
-
-.execution-detail-modal__log-item[data-level='warn'] {
-  border-color: var(--gc-color-warning-border);
-  background: var(--gc-color-warning-soft);
-}
-
-.execution-detail-modal__loading,
-.execution-detail-modal__error {
-  margin: 0;
-}
-
-.execution-detail-modal__error {
-  color: var(--gc-color-danger);
-}
-
 @media (max-width: 56.25rem) {
   .execution-list__header,
-  .execution-list__pagination,
-  .execution-detail-modal__hero {
+  .execution-list__pagination {
     grid-template-columns: 1fr;
     align-items: flex-start;
   }
 
   .execution-list__header,
-  .execution-list__pagination,
-  .execution-detail-modal__hero {
+  .execution-list__pagination {
     display: grid;
-  }
-
-  .execution-detail-modal__hero-side {
-    justify-items: start;
-  }
-
-  .execution-detail-modal__unknown {
-    display: grid;
-    align-items: flex-start;
-  }
-
-  .execution-detail-modal__facts,
-  .execution-detail-modal__summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .execution-detail-modal__diagnostics dl div {
-    grid-template-columns: 1fr;
   }
 }
 </style>
