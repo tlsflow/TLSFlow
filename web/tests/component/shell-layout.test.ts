@@ -111,7 +111,10 @@ describe('ShellLayout', () => {
 
     const contextChildren = Array.from(wrapper.get('.gc-workbench__context').element.children)
     expect(contextChildren[0]?.classList.contains('gc-workbench__context-heading')).toBe(true)
-    expect(contextChildren[1]?.tagName).toBe('NAV')
+    expect(contextChildren.length).toBe(1)
+
+    const submenu = wrapper.get('.gc-workbench__submenu')
+    expect(submenu.element.parentElement?.classList.contains('gc-workbench__topbar')).toBe(true)
   })
 
   it('将搜索和全局任务入口紧邻右侧用户菜单', async () => {

@@ -599,19 +599,20 @@ function removeToastNotice(id: number): void {
           <div class="gc-workbench__context-heading">
             <h1 class="gc-workbench__context-title">{{ currentPageTitle || (activeTopItem ? menuTitle(activeTopItem) : t('nav.dashboard')) }}</h1>
           </div>
-          <nav v-if="activeChildren.length" class="gc-workbench__submenu" :aria-label="t('shell.currentGroupNavigation')">
-            <RouterLink
-              v-for="child in activeChildren"
+        </div>
+
+        <nav v-if="activeChildren.length" class="gc-workbench__submenu" :aria-label="t('shell.currentGroupNavigation')">
+          <RouterLink
+            v-for="child in activeChildren"
             :key="child.path"
             class="gc-workbench__submenu-item"
             :class="{ 'gc-workbench__submenu-item--active': isMenuItemActive(child) }"
             :to="child.path"
             @click="closeMobileNav(false)"
           >
-              {{ menuTitle(child) }}
-            </RouterLink>
-          </nav>
-        </div>
+            {{ menuTitle(child) }}
+          </RouterLink>
+        </nav>
 
         <div class="gc-workbench__account-actions">
           <button
