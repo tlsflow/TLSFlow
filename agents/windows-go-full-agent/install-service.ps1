@@ -113,6 +113,19 @@ function Remove-GoServiceByInstallRoot {
     }
   }
 
+  $escapedBinaryPath = [regex]::Escape($defaultBinaryPath)
+  $servicesUsingAgentBinary = Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Where-Object {
+    $path = [string]$_.PathName
+    $path -match ("(?i)^\s*(?:" + [char]34 + $escapedBinaryPath + [char]34 + "|" + $escapedBinaryPath + ")(?:\s|$)")
+  }
+  foreach ($serviceUsingAgentBinary in $servicesUsingAgentBinary) {
+    $discoveredServiceName = [string]$serviceUsingAgentBinary.Name
+    if (-not [string]::IsNullOrWhiteSpace($discoveredServiceName)) {
+      [void]$candidateNames.Add($discoveredServiceName)
+      $binaryPathMap[$discoveredServiceName] = $defaultBinaryPath
+    }
+  }
+
   foreach ($serviceName in $candidateNames) {
     $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -eq $existing) {
@@ -192,6 +205,22 @@ Copy-Item -LiteralPath $binarySource -Destination $binaryTarget -Force
 if (-not (Test-Path -LiteralPath $configTarget)) {
   Copy-Item -LiteralPath $configTemplate -Destination $configTarget -Force
 }
+
+if ((Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) -and (Get-Command Remove-NetFirewallRule -ErrorAction SilentlyContinue)) {
+  Get-NetFirewallRule -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.DisplayName -like "GCAC Agent Direct Control (*)" } |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+}
+if (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) {
+  Get-NetFirewallRule -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.DisplayName -eq "GCAC Go Full Agent Management TCP 18930" } |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+} else {
+  $deleteOutput = (& netsh.exe advfirewall firewall delete rule name="GCAC Go Full Agent Management TCP 18930" 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -and $deleteOutput -notmatch "(?i)no rules match|没有规则匹配|找不到规则") { throw "Go Agent firewall rule cleanup failed: 18930`n$deleteOutput" }
+}
+& netsh.exe advfirewall firewall add rule name="GCAC Go Full Agent Management TCP 18930" dir=in action=allow protocol=TCP localport=18930 program=$binaryTarget profile=any | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Go Agent firewall rule creation failed: 18930" }
 
 $serviceCommand = "`"$binaryTarget`" service run --config=`"$configTarget`""
 New-Service -Name $ServiceName -BinaryPathName $serviceCommand -DisplayName $DisplayName -Description $Description -StartupType Automatic | Out-Null

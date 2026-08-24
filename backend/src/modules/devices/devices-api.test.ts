@@ -685,11 +685,18 @@ test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
   assert.equal('installMaterials' in windows, false);
   assert.equal('installCommand' in windows, false);
 
+  const windows2012 = await service.onboard('tenant-onboarding', {
+    platformKey: 'windows-server-2012-r2',
+  }, 'user-onboarding', 'request-onboarding-2012', 'https://gcac.example.test');
+  if (windows2012.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装会话');
+  assert.match(windows2012.installSession.installCommand, /^irm 'https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=12345678' \| iex$/);
+
   const windows2008 = await service.onboard('tenant-onboarding', {
     platformKey: 'windows-server-2008-r2',
   }, 'user-onboarding', 'request-onboarding-2008', 'https://gcac.example.test');
   if (windows2008.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装会话');
-  assert.match(windows2008.installSession.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "\(New-Object System\.Net\.WebClient\)\.DownloadString\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=12345678'\) \| iex"$/);
+  assert.match(windows2008.installSession.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "\(New-Object System\.Net\.WebClient\)\.DownloadFile\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=12345678', \(Join-Path \(\[System\.IO\.Path\]::GetTempPath\(\)\) 'gcac-agent-install\.ps1'\)\); & \(Join-Path \(\[System\.IO\.Path\]::GetTempPath\(\)\) 'gcac-agent-install\.ps1'\)"$/);
+  assert.doesNotMatch(windows2008.installSession.installCommand, /DownloadString|\biex\b/);
 });
 
 test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', async () => {
@@ -698,8 +705,11 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   const tenantId = 'tenant_plugin_onboarding';
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
   const pluginRoot = resolve('src/modules/plugins/builtin-plugins/citrix-adc');
-  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as { resources: Record<string, Record<string, string>> };
-  const resourcePaths = Object.values(manifest.resources).flatMap((value) => Object.values(value));
+  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as {
+    resources: Record<string, string | Record<string, string>>;
+  };
+  const workflowResources = manifest.resources.workflows as Record<string, string> | undefined;
+  const resourcePaths = Object.values(manifest.resources).flatMap((value) => (typeof value === 'string' ? [value] : Object.values(value)));
   const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (path) => [path, await readFile(resolve(pluginRoot, path), 'utf8')])));
   const imported = await plugins.importVersion(tenantId, { manifest, resources }, 'BUILTIN');
   await plugins.approvePermissions(imported.id, (manifest as unknown as { permissions: string[] }).permissions);
@@ -719,7 +729,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     }),
   } as PluginWorkflowPublisherService;
   const workflows = {
-    getVersion: async (versionId: string) => workflowVersionFixture(versionId, manifest.resources.workflows?.[versionId], resources),
+    getVersion: async (versionId: string) => workflowVersionFixture(versionId, workflowResources?.[versionId], resources),
     execute: async ({ templateVersionId }: { templateVersionId: string }): Promise<WorkflowRunResult> => {
       executedCapabilities.push(templateVersionId);
       return {
@@ -767,14 +777,14 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
 
   assert.equal(result.onboardingKind, 'PLUGIN_MANAGED');
   if (result.onboardingKind !== 'PLUGIN_MANAGED') assert.fail('应返回插件接入结果');
-  assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
+  assert.equal(result.device.deviceFamily, 'device.citrix.netscaler-adc');
   assert.equal(result.binding.managedContext?.hostId, result.device.hostId);
   assert.deepEqual(result.binding.inputBindings.credentials.credential, { credentialId: 'cred_adc' });
   assert.deepEqual(result.binding.inputBindings.variables, {});
   assert.deepEqual(result.binding.inputBindings.connections.management, {
     host: '10.33.5.49', port: 443, tls: { verifyPeer: true },
   });
-  assert.equal(result.assignments.length, 6);
+  assert.equal(result.assignments.length, 5);
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery);
   assert.equal(result.discovery.projection?.certificateBindings, 1);
@@ -842,8 +852,12 @@ test('Spec033 插件设备接入失败保留设备并写入可恢复状态', asy
   const tenantId = 'tenant_plugin_onboarding_failed';
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
   const pluginRoot = resolve('src/modules/plugins/builtin-plugins/citrix-adc');
-  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as { resources: Record<string, Record<string, string>>; permissions: string[] };
-  const resourcePaths = Object.values(manifest.resources).flatMap((value) => Object.values(value));
+  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as {
+    resources: Record<string, string | Record<string, string>>;
+    permissions: string[];
+  };
+  const workflowResources = manifest.resources.workflows as Record<string, string> | undefined;
+  const resourcePaths = Object.values(manifest.resources).flatMap((value) => (typeof value === 'string' ? [value] : Object.values(value)));
   const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (path) => [path, await readFile(resolve(pluginRoot, path), 'utf8')])));
   const imported = await plugins.importVersion(tenantId, { manifest, resources }, 'BUILTIN');
   await plugins.approvePermissions(imported.id, manifest.permissions);
@@ -861,7 +875,7 @@ test('Spec033 插件设备接入失败保留设备并写入可恢复状态', asy
     }),
   } as PluginWorkflowPublisherService;
   const workflows = {
-    getVersion: async (versionId: string) => workflowVersionFixture(versionId, manifest.resources.workflows?.[versionId], resources),
+    getVersion: async (versionId: string) => workflowVersionFixture(versionId, workflowResources?.[versionId], resources),
     execute: async (): Promise<WorkflowRunResult> => {
       throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '模拟连接失败');
     },

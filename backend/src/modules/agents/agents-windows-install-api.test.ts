@@ -39,6 +39,22 @@ describe('Agent 一键安装会话', () => {
     const script = String(bootstrap.body);
     assert.match(script, /gcac-agent\.exe/);
     assert.match(script, /register-once/);
+    assert.match(script, /Agent registration or initial capability report failed/);
+    assert.match(script, /function Remove-GoAgentService/);
+    assert.match(script, /Existing Go Agent installation metadata is invalid/);
+    assert.match(script, /Get-CimInstance -ClassName Win32_Service/);
+    assert.match(script, /servicesUsingAgentBinary/);
+    assert.match(script, /\[char\]34/);
+    assert.match(script, /Go Agent service deletion timed out/);
+    assert.match(script, /Agent log tail/);
+    assert.match(script, /Get-NetFirewallRule -ErrorAction SilentlyContinue/);
+    assert.match(script, /GCAC Go Full Agent Management TCP \$Port/);
+    assert.doesNotMatch(script, /advfirewall firewall delete rule name=all \$programArgument/);
+    assert.match(script, /no rules match\|没有规则匹配\|找不到规则/);
+    assert.match(script, /GCAC Go Full Agent Management TCP 18930/);
+    assert.match(script, /GCAC Agent Direct Control \(\*\)/);
+    assert.ok(script.indexOf('Remove-GoAgentLegacyFirewallRules') < script.indexOf('Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930'));
+    assert.ok(script.indexOf('foreach ($serviceName in $serviceNames) { Remove-GoAgentService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
   });
 
@@ -59,9 +75,7 @@ describe('Agent 一键安装会话', () => {
     assert.equal(body.platform, 'windows_compatibility_service');
     assert.equal(body.serviceName, 'GCACWindowsCompatibilityAgent');
     assert.match(body.bootstrapUrl, /^http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=/);
-    assert.match(body.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command ".*DownloadFile\('http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=\d{8}', `\$scriptPath\); & `\$scriptPath"$/);
-    assert.match(body.installCommand, /`\$env:TEMP/);
-    assert.doesNotMatch(body.installCommand, /\b(?:irm|iex)\b/i);
+    assert.match(body.installCommand, /^irm 'http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=\d{8}' \| iex$/);
 
     const token = new URL(body.bootstrapUrl).searchParams.get('token');
     assert.ok(token);
@@ -84,7 +98,19 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /\$existing\.WaitForStatus\("Stopped", \[TimeSpan\]::FromSeconds\(30\)\)/);
     assert.match(script, /Compatibility Agent service deletion timed out/);
     assert.match(script, /GCAC Windows Compatibility Agent Management TCP 18932/);
+    assert.match(script, /advfirewall firewall delete rule name="GCAC Windows Compatibility Agent Management TCP 18932" 2>\$null/);
+    assert.doesNotMatch(script, /-notmatch.*没有规则匹配|Compatibility Agent firewall rule cleanup failed/);
     assert.match(script, /JavaScriptSerializer/);
+    assert.match(script, /\$manifest\['artifacts'\]/);
+    assert.match(script, /\$artifact\['content'\]/);
+    assert.match(script, /\$manifest\['tenantId'\]/);
+    assert.match(script, /\$manifest\['controlPlaneUrl'\]/);
+    assert.match(script, /function Serialize-JsonString/);
+    assert.match(script, /Serialize\(\[string\]\$Value\)/);
+    assert.doesNotMatch(script, /Serialize\(\$config\)/);
+    assert.doesNotMatch(script, /Serialize\(\$metadata\)/);
+    assert.doesNotMatch(script, /\$manifest\.(?:tenantId|agentKey|enrollmentToken|controlPlaneUrl|artifacts|startAfterInstall)/);
+    assert.doesNotMatch(script, /\$manifest\.artifacts|\$artifact\.content/);
     assert.doesNotMatch(script, /ConvertFrom-Json|ConvertTo-Json/);
     assert.doesNotMatch(script, /\[Console\]::OutputEncoding|Write-Host/);
     assert.ok(script.indexOf('Remove-CompatibilityService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));

@@ -68,6 +68,7 @@ export class DevicesApplicationService {
         [tenantId, device.id, device.extension.pluginBindingId],
       ),
     ]);
+    const { version: plugin, ui } = pluginResources;
     const capabilities = assignmentRows.rows.map((row) => row.capability_key);
     const presentation = asDevicePresentation(ui.presentations.device);
     const localizedResources = applyResourceLabels(device, presentation, ui.locale?.messages ?? {});
@@ -400,7 +401,8 @@ function resolveDeviceInstallCommand(
   defaultCommand: string,
 ): string {
   if (profile !== 'WINDOWS_POWERSHELL_2') return defaultCommand;
-  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(New-Object System.Net.WebClient).DownloadString('${bootstrapUrl}') | iex"`;
+  const scriptPath = "(Join-Path ([System.IO.Path]::GetTempPath()) 'gcac-agent-install.ps1')";
+  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(New-Object System.Net.WebClient).DownloadFile('${bootstrapUrl}', ${scriptPath}); & ${scriptPath}"`;
 }
 
 function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {
