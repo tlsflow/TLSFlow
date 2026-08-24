@@ -23,6 +23,29 @@ export class AutomationsController {
     router.post('/api/v1/automations/:id/actions/enable', '启用自动化', tags, (request) => this.changeStatus(request, 'enable'));
     router.post('/api/v1/automations/:id/actions/disable', '停用自动化', tags, (request) => this.changeStatus(request, 'disable'));
     router.delete('/api/v1/automations/:id', '删除自动化', tags, (request) => this.remove(request));
+    router.post('/api/v1/automations/:id/preview', '预览自动化目标', tags, (request) => this.preview(request));
+    router.post('/api/v1/automations/:id/runs', '按需执行自动化', tags, (request) => this.createRun(request));
+  }
+
+  private async preview(request: HttpRequest) {
+    const id = pathId(request);
+    const subject = this.subject(request);
+    await this.assertCan(subject, 'automation.execute', request, id);
+    const body = request.body as { page?: number; pageSize?: number } | undefined;
+    return this.service.preview(this.tenantId(request), subject.id, id, body?.page, body?.pageSize);
+  }
+
+  private async createRun(request: HttpRequest) {
+    const id = pathId(request);
+    const subject = this.subject(request);
+    await this.assertCan(subject, 'automation.execute', request, id);
+    const body = request.body as { idempotencyKey?: string; expectedVersion?: number };
+    if (!body?.idempotencyKey || !Number.isInteger(body.expectedVersion)) throw new AppError('VALIDATION_FAILED', '按需运行必须提供幂等键和期望版本');
+    const idempotencyKey = body.idempotencyKey;
+    const expectedVersion = Number(body.expectedVersion);
+    const run = await this.service.createOnDemandRun(this.tenantId(request), subject.id, id, idempotencyKey, expectedVersion);
+    await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_EXECUTED, 'automation.execute', run.id, undefined, run);
+    return { statusCode: 201, body: run };
   }
 
   private async list(request: HttpRequest) {
@@ -132,5 +155,7 @@ export function getAutomationRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/automations/:id/actions/enable', 'enableAutomation', '启用自动化'],
     ['POST', '/api/v1/automations/:id/actions/disable', 'disableAutomation', '停用自动化'],
     ['DELETE', '/api/v1/automations/:id', 'deleteAutomation', '删除自动化'],
+    ['POST', '/api/v1/automations/:id/preview', 'previewAutomation', '预览自动化目标'],
+    ['POST', '/api/v1/automations/:id/runs', 'createAutomationRun', '按需执行自动化'],
   ].map(([method, path, operationId, summary]) => ({ method: method as RouteContract['method'], path, operationId, summary, tags, responseSchema: automationPublicSchema }));
 }

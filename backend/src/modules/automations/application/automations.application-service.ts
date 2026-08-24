@@ -1,6 +1,8 @@
 import { newId } from '../../../shared/id.js';
 import { AutomationsDomainService } from '../domain/automations.domain-service.js';
-import type { AutomationConfigurationDto, AutomationStatus, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
+import type { AutomationConfigurationDto, AutomationRunDto, AutomationStatus, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
+import type { AutomationPreviewDto } from '../dto/automations.dto.js';
+import type { AutomationTargetSelector } from './automation-target-selector.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
 import type { AutomationEntity, AutomationVersionEntity } from '../schema/automations.schema.js';
 
@@ -9,10 +11,58 @@ export class AutomationsApplicationService {
     private readonly repository = new AutomationsRepository(),
     private readonly domain = new AutomationsDomainService(),
     private readonly clock: () => Date = () => new Date(),
+    private readonly targetSelector?: AutomationTargetSelector,
   ) {}
 
   getRepository(): AutomationsRepository {
     return this.repository;
+  }
+
+  async preview(tenantId: string, actorId: string, id: string, page?: number, pageSize?: number): Promise<AutomationPreviewDto> {
+    if (!this.targetSelector) throw new Error('automation target selector is not configured');
+    const automation = await this.repository.getAutomationOrThrow(id, tenantId);
+    const version = await this.repository.getVersion(id, automation.currentVersion, tenantId);
+    if (!version) throw new Error(`automation version missing: ${id}@${automation.currentVersion}`);
+    return this.targetSelector.preview({
+      tenantId, actorId, automationId: id, automationVersion: version.version, configurationChecksum: version.checksum,
+      selector: version.targetSelector, guardrails: version.guardrails, page, pageSize,
+    });
+  }
+
+  async createOnDemandRun(tenantId: string, actorId: string, id: string, idempotencyKey: string, expectedVersion: number, options: { triggerType?: 'on_demand' | 'schedule'; scheduledAt?: string } = {}): Promise<AutomationRunDto> {
+    const existing = await this.repository.findRunByIdempotencyKey(tenantId, idempotencyKey);
+    if (existing) return existing;
+    const automation = await this.repository.getAutomationOrThrow(id, tenantId);
+    this.domain.assertVersion(automation, expectedVersion);
+    if (automation.status === 'deleted' || (automation.status === 'disabled' && !(await this.repository.getVersion(id, automation.currentVersion, tenantId))?.guardrails.allowManualWhenDisabled)) {
+      throw new Error('automation is not available for manual execution');
+    }
+    const version = await this.repository.getVersion(id, automation.currentVersion, tenantId);
+    if (!version) throw new Error(`automation version missing: ${id}@${automation.currentVersion}`);
+    if (!this.targetSelector) throw new Error('automation target selector is not configured');
+    const preview = await this.targetSelector.preview({
+      tenantId, actorId, automationId: id, automationVersion: version.version, configurationChecksum: version.checksum,
+      selector: version.targetSelector, guardrails: version.guardrails,
+    });
+    if (version.guardrails.requirePreview && preview.previewId.length === 0) throw new Error('automation preview is required');
+    const now = this.clock().toISOString();
+    const executableTargets = preview.items.filter((item) => item.executable);
+    const targetSummary = { total: executableTargets.length, pending: executableTargets.length, running: 0, waitingApproval: 0, succeeded: 0, failed: 0, skipped: preview.excludedCount, cancelled: 0 };
+    const run = {
+      id: newId('arun'), tenantId, automationId: id, automationVersion: version.version, automationNameSnapshot: automation.name,
+      triggerType: options.triggerType ?? 'on_demand', scheduledAt: options.scheduledAt, idempotencyKey, status: 'queued' as const, targetSummary,
+      actionTypes: version.actions.slice().sort((left, right) => left.position - right.position).map((action) => action.type),
+      environmentSnapshots: [...new Set(executableTargets.map((item) => item.target.environment).filter((item): item is string => Boolean(item)))],
+      createdBy: actorId, createdAt: now,
+    };
+    await this.repository.transaction(async (repository) => {
+      await repository.createRun(run);
+      await Promise.all(executableTargets.map((item, index) => repository.createRunTarget({
+        id: newId('art'), tenantId, runId: run.id, sequenceNo: index + 1, targetSnapshot: item.target,
+        environmentSnapshot: item.target.environment, actionTypes: run.actionTypes, status: 'pending', notificationRequestIds: [], createdAt: now, updatedAt: now,
+      })));
+    });
+    return run;
   }
 
   async list(tenantId: string): Promise<Array<AutomationEntity & { configuration: AutomationConfigurationDto }>> {
@@ -91,7 +141,14 @@ export class AutomationsApplicationService {
     const current = await this.repository.getAutomationOrThrow(id, tenantId);
     this.domain.assertVersion(current, expectedVersion);
     this.domain.assertTransition(current.status, status);
-    return this.repository.updateAutomation(id, tenantId, { status, updatedAt: this.clock().toISOString() });
+    const patch: Partial<AutomationEntity> = { status, updatedAt: this.clock().toISOString() };
+    if (status === 'active') {
+      const version = await this.repository.getVersion(id, current.currentVersion, tenantId);
+      if (version?.trigger.type === 'schedule' && !current.nextRunAt) {
+        patch.nextRunAt = new Date(this.clock().getTime() + 60_000).toISOString();
+      }
+    }
+    return this.repository.updateAutomation(id, tenantId, patch);
   }
 
   private async withConfiguration(definition: AutomationEntity): Promise<AutomationEntity & { configuration: AutomationConfigurationDto }> {

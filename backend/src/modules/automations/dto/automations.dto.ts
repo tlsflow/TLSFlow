@@ -197,3 +197,23 @@ export interface AutomationRunActionResultDto {
   finishedAt?: string;
   createdAt: string;
 }
+
+export interface AutomationPreviewTargetDto {
+  target: AutomationTargetSnapshotDto;
+  executable: boolean;
+  excludedReason?: 'permission_denied' | 'missing_version' | 'version_not_deployable' | 'binding_not_managed' | 'environment_not_allowed';
+}
+
+export interface AutomationPreviewDto {
+  previewId: string;
+  automationId: string;
+  automationVersion: number;
+  configurationChecksum: string;
+  totalMatched: number;
+  executableCount: number;
+  excludedCount: number;
+  excludedReasons: Record<string, number>;
+  page: number;
+  pageSize: number;
+  items: AutomationPreviewTargetDto[];
+}

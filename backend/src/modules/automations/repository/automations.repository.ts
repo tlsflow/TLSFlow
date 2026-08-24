@@ -81,6 +81,13 @@ function mapActionResult(row: AutomationRow): AutomationRunActionResultEntity {
 export class AutomationsRepository {
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
 
+  async acquireSchedulerLease(leaseKey: string, ownerId: string, leasedUntil: Date): Promise<boolean> {
+    const result = await this.db.query<{ lease_key: string }>(`insert into automation_scheduler_leases (lease_key, owner_id, leased_until, updated_at)
+      values ($1, $2, $3, now()) on conflict (lease_key) do update set owner_id = excluded.owner_id, leased_until = excluded.leased_until, updated_at = now()
+      where automation_scheduler_leases.leased_until < now() returning lease_key`, [leaseKey, ownerId, leasedUntil.toISOString()]);
+    return result.rows.length > 0;
+  }
+
   transaction<T>(work: (repository: AutomationsRepository) => Promise<T>): Promise<T> {
     return this.db.transaction((transaction) => work(new AutomationsRepository(transaction)));
   }

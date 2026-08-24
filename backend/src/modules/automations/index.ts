@@ -1,5 +1,7 @@
 export * from './application/automation-action-registry.js';
 export * from './application/automations.application-service.js';
+export * from './application/automation-target-selector.js';
+export * from './application/automation-scheduler.js';
 export * from './controller/automations.controller.js';
 export * from './domain/automations.domain-service.js';
 export * from './dto/automations.dto.js';
