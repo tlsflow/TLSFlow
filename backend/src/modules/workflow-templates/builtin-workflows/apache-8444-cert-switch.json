@@ -1,0 +1,513 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "apache-8444-cert-switch",
+    "displayName": "Apache 8444 证书切换",
+    "category": "certificate",
+    "tags": [
+      "apache2",
+      "linux",
+      "ssl",
+      "8444",
+      "certificate"
+    ]
+  },
+  "variables": {
+    "targetPlatform": {
+      "type": "enum",
+      "required": true,
+      "default": "linux",
+      "enum": [
+        "linux"
+      ],
+      "description": "目标平台，当前工作流只允许 Linux。"
+    },
+    "deviceHost": {
+      "type": "string",
+      "required": true,
+      "description": "目标主机，用于 SSH 连接。"
+    },
+    "sshUsername": {
+      "type": "string",
+      "required": true,
+      "description": "SSH 用户名。"
+    },
+    "credential": {
+      "type": "credential",
+      "required": true,
+      "sensitive": true,
+      "description": "SSH 登录凭据，从工作流凭据管理中选择。"
+    },
+    "verifyHost": {
+      "type": "string",
+      "required": true,
+      "description": "后端 HTTPS 验证时访问的主机名或 IP。"
+    },
+    "verifyPort": {
+      "type": "number",
+      "required": true,
+      "default": 8444,
+      "description": "Apache HTTPS 监听端口。"
+    },
+    "verifyPath": {
+      "type": "string",
+      "required": true,
+      "default": "/",
+      "description": "HTTPS 验证路径。"
+    },
+    "virtualHostServerName": {
+      "type": "string",
+      "required": true,
+      "default": "test.local",
+      "description": "Apache 站点的 ServerName，用于 Host 头和 TLS SNI。"
+    },
+    "apacheServiceName": {
+      "type": "string",
+      "required": true,
+      "default": "apache2",
+      "description": "Apache systemd 服务名。"
+    },
+    "apacheSiteConfigPath": {
+      "type": "string",
+      "required": true,
+      "default": "/etc/apache2/sites-available/gcac-test.conf",
+      "description": "Apache 8444 站点配置文件路径。"
+    },
+    "certificateFilePath": {
+      "type": "string",
+      "required": true,
+      "default": "/etc/gcac-test/certs/test.crt",
+      "description": "Apache SSLCertificateFile 证书目的路径。"
+    },
+    "certificateKeyFilePath": {
+      "type": "string",
+      "required": true,
+      "default": "/etc/gcac-test/certs/test.key",
+      "description": "Apache SSLCertificateKeyFile 私钥目的路径。"
+    },
+    "backupRoot": {
+      "type": "string",
+      "required": true,
+      "default": "/var/backups/gcac-certs",
+      "description": "证书备份根目录，实际备份目录为 backupRoot/cert_bak_YYYYMMDD_HHMM。"
+    },
+    "expectedResponseContains": {
+      "type": "string",
+      "required": true,
+      "default": "apache test ok",
+      "description": "HTTPS 验证响应正文需要包含的文本片段，不要求完整匹配。"
+    },
+    "serverCert": {
+      "type": "certificate",
+      "required": true,
+      "sensitive": true,
+      "description": "指定服务器证书产物，必须绑定公钥证书和私钥两个输出项。",
+      "artifactContract": {
+        "outputs": {
+          "certFile": {
+            "role": "public_certificate",
+            "required": true,
+            "format": "pem",
+            "encoding": "utf8",
+            "description": "写入 Apache SSLCertificateFile 的证书文件内容。"
+          },
+          "keyFile": {
+            "role": "private_key",
+            "required": true,
+            "format": "pem",
+            "encoding": "utf8",
+            "description": "写入 Apache SSLCertificateKeyFile 的私钥文件内容。"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "prepare_linux_target_only",
+      "type": "condition",
+      "stage": "prepare",
+      "condition": {
+        "variable": "targetPlatform",
+        "equals": "linux"
+      },
+      "description": "当前工作流只支持 Linux Apache 目标。"
+    },
+    {
+      "name": "prepare_validate_apache_site",
+      "type": "ssh",
+      "stage": "prepare",
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ntest -f \"$site_conf\"\ngrep -Eq '^[[:space:]]*SSLCertificateFile[[:space:]]+' \"$site_conf\"\ngrep -Eq '^[[:space:]]*SSLCertificateKeyFile[[:space:]]+' \"$site_conf\"\nconfigured_cert=\"$(awk '/^[[:space:]]*SSLCertificateFile[[:space:]]+/ {print $2; exit}' \"$site_conf\")\"\nconfigured_key=\"$(awk '/^[[:space:]]*SSLCertificateKeyFile[[:space:]]+/ {print $2; exit}' \"$site_conf\")\"\ntest \"$configured_cert\" = \"$cert_path\"\ntest \"$configured_key\" = \"$key_path\"\ntest -f \"$cert_path\"\ntest -f \"$key_path\"\ncommand -v openssl >/dev/null\napache2ctl -t 2>&1\nprintf 'TARGET_CERT=%s\\n' \"$cert_path\"\nprintf 'TARGET_KEY=%s\\n' \"$key_path\"",
+        "timeoutSeconds": 120
+      },
+      "assert": [
+        {
+          "type": "contains",
+          "value": "Syntax OK"
+        }
+      ]
+    },
+    {
+      "name": "backup_record_current_certificate",
+      "type": "ssh",
+      "stage": "backup",
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\nbackup_root='{{backupRoot}}'\ncurrent_cert='{{certificateFilePath}}'\ncurrent_key='{{certificateKeyFilePath}}'\nstamp=\"$(date +%Y%m%d_%H%M)\"\nbackup_dir=\"${backup_root}/cert_bak_${stamp}\"\nmkdir -p \"$backup_dir\"\nbackup_conf=\"$backup_dir/$(basename \"$site_conf\")\"\nbackup_cert=\"$backup_dir/$(basename \"$current_cert\")\"\nbackup_key=\"$backup_dir/$(basename \"$current_key\")\"\ncp -p \"$site_conf\" \"$backup_conf\"\ncp -p \"$current_cert\" \"$backup_cert\"\ncp -p \"$current_key\" \"$backup_key\"\nold_subject=\"$(openssl x509 -in \"$current_cert\" -noout -subject | sed 's/^subject=//')\"\nold_issuer=\"$(openssl x509 -in \"$current_cert\" -noout -issuer | sed 's/^issuer=//')\"\nold_serial=\"$(openssl x509 -in \"$current_cert\" -noout -serial | sed 's/^serial=//')\"\nold_not_before=\"$(openssl x509 -in \"$current_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nold_not_after=\"$(openssl x509 -in \"$current_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nold_fingerprint=\"$(openssl x509 -in \"$current_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nprintf 'BACKUP_DIR=%s\\n' \"$backup_dir\"\nprintf 'BACKUP_CONF=%s\\n' \"$backup_conf\"\nprintf 'BACKUP_CERT=%s\\n' \"$backup_cert\"\nprintf 'BACKUP_KEY=%s\\n' \"$backup_key\"\nprintf 'OLD_CERT_PATH=%s\\n' \"$current_cert\"\nprintf 'OLD_KEY_PATH=%s\\n' \"$current_key\"\nprintf 'OLD_CERT_SUBJECT=%s\\n' \"$old_subject\"\nprintf 'OLD_CERT_ISSUER=%s\\n' \"$old_issuer\"\nprintf 'OLD_CERT_SERIAL=%s\\n' \"$old_serial\"\nprintf 'OLD_CERT_NOT_BEFORE=%s\\n' \"$old_not_before\"\nprintf 'OLD_CERT_NOT_AFTER=%s\\n' \"$old_not_after\"\nprintf 'OLD_CERT_FINGERPRINT=%s\\n' \"$old_fingerprint\"",
+        "timeoutSeconds": 120
+      },
+      "extract": [
+        {
+          "name": "backupDirectory",
+          "type": "regex",
+          "pattern": "BACKUP_DIR=([^\\r\\n]+)"
+        },
+        {
+          "name": "backupConfigPath",
+          "type": "regex",
+          "pattern": "BACKUP_CONF=([^\\r\\n]+)"
+        },
+        {
+          "name": "backupCertificateFile",
+          "type": "regex",
+          "pattern": "BACKUP_CERT=([^\\r\\n]+)"
+        },
+        {
+          "name": "backupCertificateKeyFile",
+          "type": "regex",
+          "pattern": "BACKUP_KEY=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateSubject",
+          "type": "regex",
+          "pattern": "OLD_CERT_SUBJECT=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateIssuer",
+          "type": "regex",
+          "pattern": "OLD_CERT_ISSUER=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateSerial",
+          "type": "regex",
+          "pattern": "OLD_CERT_SERIAL=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateNotBefore",
+          "type": "regex",
+          "pattern": "OLD_CERT_NOT_BEFORE=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateNotAfter",
+          "type": "regex",
+          "pattern": "OLD_CERT_NOT_AFTER=([^\\r\\n]+)"
+        },
+        {
+          "name": "oldCertificateFingerprintSha256",
+          "type": "regex",
+          "pattern": "OLD_CERT_FINGERPRINT=([a-f0-9]{64})"
+        }
+      ]
+    },
+    {
+      "name": "install_upload_certificate_pem",
+      "type": "sftp",
+      "stage": "install",
+      "sftp": {
+        "direction": "upload",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "remotePath": "{{certificateFilePath}}",
+        "temporaryPath": "{{certificateFilePath}}.gcac.tmp",
+        "contentRef": "{{serverCert.outputs.certFile.content}}",
+        "mode": "0644",
+        "timeoutSeconds": 120
+      }
+    },
+    {
+      "name": "install_upload_certificate_private_key",
+      "type": "scp",
+      "stage": "install",
+      "scp": {
+        "direction": "upload",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "remotePath": "{{certificateKeyFilePath}}",
+        "temporaryPath": "{{certificateKeyFilePath}}.gcac.tmp",
+        "contentRef": "{{serverCert.outputs.keyFile.content}}",
+        "mode": "0600",
+        "timeoutSeconds": 120
+      }
+    },
+    {
+      "name": "install_validate_replaced_certificate",
+      "type": "ssh",
+      "stage": "install",
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ncert_pubkey=\"$(openssl x509 -in \"$cert_path\" -noout -pubkey | openssl pkey -pubin -outform PEM | sha256sum | awk '{print $1}')\"\nkey_pubkey=\"$(openssl pkey -in \"$key_path\" -pubout -outform PEM | sha256sum | awk '{print $1}')\"\ntest \"$cert_pubkey\" = \"$key_pubkey\"\nnew_subject=\"$(openssl x509 -in \"$cert_path\" -noout -subject | sed 's/^subject=//')\"\nnew_issuer=\"$(openssl x509 -in \"$cert_path\" -noout -issuer | sed 's/^issuer=//')\"\nnew_serial=\"$(openssl x509 -in \"$cert_path\" -noout -serial | sed 's/^serial=//')\"\nnew_not_before=\"$(openssl x509 -in \"$cert_path\" -noout -startdate | sed 's/^notBefore=//')\"\nnew_not_after=\"$(openssl x509 -in \"$cert_path\" -noout -enddate | sed 's/^notAfter=//')\"\nnew_fingerprint=\"$(openssl x509 -in \"$cert_path\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\napache2ctl -t 2>&1\nprintf 'NEW_CERT_PATH=%s\\n' \"$cert_path\"\nprintf 'NEW_KEY_PATH=%s\\n' \"$key_path\"\nprintf 'NEW_CERT_SUBJECT=%s\\n' \"$new_subject\"\nprintf 'NEW_CERT_ISSUER=%s\\n' \"$new_issuer\"\nprintf 'NEW_CERT_SERIAL=%s\\n' \"$new_serial\"\nprintf 'NEW_CERT_NOT_BEFORE=%s\\n' \"$new_not_before\"\nprintf 'NEW_CERT_NOT_AFTER=%s\\n' \"$new_not_after\"\nprintf 'NEW_CERT_FINGERPRINT=%s\\n' \"$new_fingerprint\"",
+        "timeoutSeconds": 120
+      },
+      "extract": [
+        {
+          "name": "newCertificateSubject",
+          "type": "regex",
+          "pattern": "NEW_CERT_SUBJECT=([^\\r\\n]+)"
+        },
+        {
+          "name": "newCertificateIssuer",
+          "type": "regex",
+          "pattern": "NEW_CERT_ISSUER=([^\\r\\n]+)"
+        },
+        {
+          "name": "newCertificateSerial",
+          "type": "regex",
+          "pattern": "NEW_CERT_SERIAL=([^\\r\\n]+)"
+        },
+        {
+          "name": "newCertificateNotBefore",
+          "type": "regex",
+          "pattern": "NEW_CERT_NOT_BEFORE=([^\\r\\n]+)"
+        },
+        {
+          "name": "newCertificateNotAfter",
+          "type": "regex",
+          "pattern": "NEW_CERT_NOT_AFTER=([^\\r\\n]+)"
+        },
+        {
+          "name": "newCertificateFingerprintSha256",
+          "type": "regex",
+          "pattern": "NEW_CERT_FINGERPRINT=([a-f0-9]{64})"
+        }
+      ],
+      "assert": [
+        {
+          "type": "contains",
+          "value": "Syntax OK"
+        },
+        {
+          "type": "certificateFingerprint",
+          "actual": "{{newCertificateFingerprintSha256}}",
+          "expected": "{{serverCert.fingerprintSha256}}"
+        }
+      ]
+    },
+    {
+      "name": "refresh_reload_apache_service",
+      "type": "ssh",
+      "stage": "refresh",
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\napache2ctl -t 2>&1\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nprintf 'SERVICE_RELOAD=ok\\n'",
+        "timeoutSeconds": 120
+      },
+      "assert": [
+        {
+          "type": "contains",
+          "value": "SERVICE_RELOAD=ok"
+        }
+      ]
+    },
+    {
+      "name": "refresh_wait_for_apache_apply",
+      "type": "wait",
+      "stage": "refresh",
+      "seconds": 3
+    },
+    {
+      "name": "verify_backend_https_response",
+      "type": "http",
+      "stage": "verify",
+      "retry": {
+        "count": 2,
+        "intervalSeconds": 5,
+        "retryOnStatus": [
+          502,
+          503,
+          504
+        ],
+        "retryOnNetworkError": true
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://{{verifyHost}}:{{verifyPort}}{{verifyPath}}",
+        "headers": {
+          "Host": "{{virtualHostServerName}}"
+        },
+        "tls": {
+          "allowInsecure": true,
+          "verify": false,
+          "sni": "{{virtualHostServerName}}"
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 65536,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "extract": [
+        {
+          "name": "backendHttpStatus",
+          "type": "statusCode"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    },
+    {
+      "name": "verify_live_tls_certificate_info",
+      "type": "ssh",
+      "stage": "verify",
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{verifyPort}} -servername '{{virtualHostServerName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_subject=\"$(openssl x509 -in \"$live_cert\" -noout -subject | sed 's/^subject=//')\"\nlive_issuer=\"$(openssl x509 -in \"$live_cert\" -noout -issuer | sed 's/^issuer=//')\"\nlive_serial=\"$(openssl x509 -in \"$live_cert\" -noout -serial | sed 's/^serial=//')\"\nlive_not_before=\"$(openssl x509 -in \"$live_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nlive_not_after=\"$(openssl x509 -in \"$live_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\nprintf 'LIVE_CERT_SUBJECT=%s\\n' \"$live_subject\"\nprintf 'LIVE_CERT_ISSUER=%s\\n' \"$live_issuer\"\nprintf 'LIVE_CERT_SERIAL=%s\\n' \"$live_serial\"\nprintf 'LIVE_CERT_NOT_BEFORE=%s\\n' \"$live_not_before\"\nprintf 'LIVE_CERT_NOT_AFTER=%s\\n' \"$live_not_after\"\nprintf 'LIVE_CERT_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'CERT_COMPARE_OLD=%s\\n' '{{oldCertificateFingerprintSha256}}'\nprintf 'CERT_COMPARE_NEW=%s\\n' \"$live_fingerprint\"",
+        "timeoutSeconds": 120
+      },
+      "extract": [
+        {
+          "name": "liveCertificateSubject",
+          "type": "regex",
+          "pattern": "LIVE_CERT_SUBJECT=([^\\r\\n]+)"
+        },
+        {
+          "name": "liveCertificateIssuer",
+          "type": "regex",
+          "pattern": "LIVE_CERT_ISSUER=([^\\r\\n]+)"
+        },
+        {
+          "name": "liveCertificateSerial",
+          "type": "regex",
+          "pattern": "LIVE_CERT_SERIAL=([^\\r\\n]+)"
+        },
+        {
+          "name": "liveCertificateNotBefore",
+          "type": "regex",
+          "pattern": "LIVE_CERT_NOT_BEFORE=([^\\r\\n]+)"
+        },
+        {
+          "name": "liveCertificateNotAfter",
+          "type": "regex",
+          "pattern": "LIVE_CERT_NOT_AFTER=([^\\r\\n]+)"
+        },
+        {
+          "name": "liveCertificateFingerprintSha256",
+          "type": "regex",
+          "pattern": "LIVE_CERT_FINGERPRINT=([a-f0-9]{64})"
+        }
+      ],
+      "assert": [
+        {
+          "type": "certificateFingerprint",
+          "actual": "{{liveCertificateFingerprintSha256}}",
+          "expected": "{{serverCert.fingerprintSha256}}"
+        }
+      ]
+    },
+    {
+      "name": "verify_show_certificate_comparison",
+      "type": "manual",
+      "stage": "verify",
+      "instruction": "Apache 8444 证书替换完成。备份目录：{{backupDirectory}}。后端 HTTPS 验证状态：{{backendHttpStatus}}。替换前证书：subject={{oldCertificateSubject}}；issuer={{oldCertificateIssuer}}；serial={{oldCertificateSerial}}；notBefore={{oldCertificateNotBefore}}；notAfter={{oldCertificateNotAfter}}；sha256={{oldCertificateFingerprintSha256}}。替换后证书：subject={{liveCertificateSubject}}；issuer={{liveCertificateIssuer}}；serial={{liveCertificateSerial}}；notBefore={{liveCertificateNotBefore}}；notAfter={{liveCertificateNotAfter}}；sha256={{liveCertificateFingerprintSha256}}。"
+    }
+  ],
+  "rollback": [
+    {
+      "name": "rollback_restore_apache_8444_certificate_files",
+      "type": "ssh",
+      "stage": "install",
+      "when": {
+        "variable": "backupDirectory",
+        "exists": true
+      },
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ncert_path='{{certificateFilePath}}'\nkey_path='{{certificateKeyFilePath}}'\ncp -p '{{backupConfigPath}}' \"$site_conf\"\ncp -p '{{backupCertificateFile}}' \"$cert_path\"\ncp -p '{{backupCertificateKeyFile}}' \"$key_path\"\nrestored_fingerprint=\"$(openssl x509 -in \"$cert_path\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\ntest \"$restored_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\napache2ctl -t 2>&1\nprintf 'ROLLBACK_RESTORE_FINGERPRINT=%s\\n' \"$restored_fingerprint\"\nprintf 'ROLLBACK_RESTORE=ok\\n'",
+        "timeoutSeconds": 120
+      },
+      "assert": [
+        {
+          "type": "contains",
+          "value": "ROLLBACK_RESTORE=ok"
+        }
+      ]
+    },
+    {
+      "name": "rollback_reload_apache_service",
+      "type": "ssh",
+      "stage": "refresh",
+      "when": {
+        "variable": "backupDirectory",
+        "exists": true
+      },
+      "ssh": {
+        "mode": "script",
+        "connection": {
+          "host": "{{deviceHost}}",
+          "username": "{{sshUsername}}",
+          "credential": "{{credential}}",
+          "hostKeyPolicy": "trust_on_first_use"
+        },
+        "script": "set -eu\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{verifyPort}} -servername '{{virtualHostServerName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\ntest \"$live_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\nprintf 'ROLLBACK_LIVE_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'ROLLBACK_RELOAD=ok\\n'",
+        "timeoutSeconds": 120
+      },
+      "assert": [
+        {
+          "type": "contains",
+          "value": "ROLLBACK_RELOAD=ok"
+        }
+      ]
+    }
+  ]
+}

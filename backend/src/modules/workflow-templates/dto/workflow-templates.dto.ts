@@ -247,8 +247,11 @@ export interface WorkflowTemplateRecord {
   versions: WorkflowTemplateVersion[];
 }
 
+export type WorkflowFileTemplateSource = 'builtin' | 'user';
+
 export interface WorkflowFileTemplate {
   id: string;
+  source: WorkflowFileTemplateSource;
   fileName: string;
   relativePath: string;
   valid: boolean;

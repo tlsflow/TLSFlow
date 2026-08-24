@@ -6410,7 +6410,7 @@
     "/api/v1/workflow-file-templates": {
       "get": {
         "operationId": "listWorkflowFileTemplates",
-        "summary": "扫描 data/workflows 工作流文件模板",
+        "summary": "扫描内置与用户导入工作流文件模板",
         "tags": [
           "WorkflowTemplates"
         ],

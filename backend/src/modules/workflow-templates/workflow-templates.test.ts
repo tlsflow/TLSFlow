@@ -116,12 +116,12 @@ function runtimeInput(versionId: string) {
   };
 }
 
-function createIsolatedWorkflowService(rootDir: string) {
+function createIsolatedWorkflowService(rootDirs: { builtinRootDir?: string; userRootDir: string } | string) {
   const db = new PgliteDatabase();
   const templates = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
   const versions = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
   return new WorkflowTemplatesApplicationService(
-    new WorkflowTemplatesDomainService(templates, versions, new WorkflowTemplateFileLibrary(rootDir)),
+    new WorkflowTemplatesDomainService(templates, versions, new WorkflowTemplateFileLibrary(rootDirs)),
   );
 }
 
@@ -236,9 +236,11 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: edited }), /duplicate workflow version content/);
   });
 
-  it('可以扫描 data/workflows 文件模板，并支持基于模板新建或覆盖现有工作流', async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-files-'));
-    await mkdir(join(rootDir, 'apache'), { recursive: true });
+  it('可以扫描内置与用户导入文件模板，并支持基于模板新建或覆盖现有工作流', async () => {
+    const builtinRootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-builtin-files-'));
+    const userRootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-user-files-'));
+    await mkdir(join(builtinRootDir, 'apache'), { recursive: true });
+    await mkdir(join(userRootDir, 'apache'), { recursive: true });
     const validDsl = {
       ...templateFixture(),
       metadata: {
@@ -278,19 +280,19 @@ describe('WorkflowTemplates', () => {
         },
       ],
     } satisfies WorkflowDslV1;
-    await writeFile(join(rootDir, 'apache', 'valid-create.json'), `${JSON.stringify(validDsl, null, 2)}\n`, 'utf8');
-    await writeFile(join(rootDir, 'apache', 'valid-overwrite.json'), `${JSON.stringify(overwriteDsl, null, 2)}\n`, 'utf8');
-    await writeFile(join(rootDir, 'broken.json'), '{ bad json', 'utf8');
+    await writeFile(join(builtinRootDir, 'apache', 'valid-create.json'), `${JSON.stringify(validDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(userRootDir, 'apache', 'valid-overwrite.json'), `${JSON.stringify(overwriteDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(userRootDir, 'broken.json'), '{ bad json', 'utf8');
 
-    const service = createIsolatedWorkflowService(rootDir);
+    const service = createIsolatedWorkflowService({ builtinRootDir, userRootDir });
     const files = await service.listFileTemplates();
 
     assert.equal(files.length, 3);
-    assert.equal(files.some((item) => item.id === 'apache/valid-create.json' && item.valid), true);
-    assert.equal(files.some((item) => item.id === 'broken.json' && item.valid === false), true);
+    assert.equal(files.some((item) => item.id === 'builtin/apache/valid-create.json' && item.source === 'builtin' && item.valid), true);
+    assert.equal(files.some((item) => item.id === 'user/broken.json' && item.source === 'user' && item.valid === false), true);
 
     const createdFromFile = await service.createTemplateFromFile({
-      fileTemplateId: 'apache/valid-create.json',
+      fileTemplateId: 'builtin/apache/valid-create.json',
       changeSummary: '从文件模板创建',
     });
     assert.equal(createdFromFile.template.name, 'file_template_create');

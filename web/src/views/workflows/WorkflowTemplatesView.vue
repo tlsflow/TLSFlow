@@ -18,6 +18,7 @@ import { createSecret } from '@/api/modules/security.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import AutomationSectionTabs from '@/views/automation/AutomationSectionTabs.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import {
@@ -437,7 +438,7 @@ async function submitFileTemplateAction() {
     if (fileTemplateMode.value === 'create') {
       await createWorkflowTemplateFromFile({
         fileTemplateId: selectedFileTemplateId.value,
-        changeSummary: '从 data/workflows 模板创建工作流草稿',
+        changeSummary: '从文件模板创建工作流草稿',
       })
     } else {
       const row = fileTemplateTargetRow.value
@@ -445,7 +446,7 @@ async function submitFileTemplateAction() {
       await applyWorkflowTemplateFromFile({
         templateId: readString(row.raw, ['id']),
         fileTemplateId: selectedFileTemplateId.value,
-        changeSummary: '从 data/workflows 模板覆盖工作流草稿',
+        changeSummary: '从文件模板覆盖工作流草稿',
       })
       if (editorRow.value && readString(editorRow.value.raw, ['id']) === readString(row.raw, ['id'])) {
         await loadVersions(editorRow.value)
@@ -617,6 +618,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 <template>
   <section class="workflow-templates-page">
+    <AutomationSectionTabs section="workflow" />
     <BusinessResourcePage ref="pageRef" :config="config">
       <template #toolbar-actions-before-refresh>
         <button class="gc-button" type="button" @click="openFileTemplateModal('create')">模板管理</button>
@@ -776,7 +778,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
     <GcModal
       v-model:open="fileTemplateModalOpen"
       :title="fileTemplateModalTitle"
-      description="模板文件来自 data/workflows。覆盖现有工作流时，会创建新的草稿版本，不会改写历史版本。"
+      description="模板文件来自内置模板库或用户导入目录。覆盖现有工作流时，会创建新的草稿版本，不会改写历史版本。"
       size="xl"
       width="min(1080px, calc(100vw - 32px))"
     >
@@ -785,7 +787,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           当前目标：{{ readString(fileTemplateTargetRow.raw, ['name'], fileTemplateTargetRow.id) }}
         </p>
         <p v-if="fileTemplateError" class="workflow-file-template-modal__error">{{ fileTemplateError }}</p>
-        <p v-if="fileTemplateLoading" class="workflow-file-template-modal__loading">正在扫描 data/workflows...</p>
+        <p v-if="fileTemplateLoading" class="workflow-file-template-modal__loading">正在扫描文件模板...</p>
         <ul v-else-if="fileTemplateItems.length" class="workflow-file-template-modal__list">
           <li
             v-for="item in fileTemplateItems"
@@ -807,7 +809,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
                   <strong>{{ readString(item, ['metadata.displayName'], readString(item, ['metadata.name'], readString(item, ['fileName']))) }}</strong>
                   <span class="workflow-file-template-modal__pill" :data-valid="item.valid ? 'true' : 'false'">{{ item.valid ? '可用' : '无效' }}</span>
                 </div>
-                <small>{{ readString(item, ['relativePath']) }}</small>
+                <small>{{ readString(item, ['source']) === 'builtin' ? '内置' : '用户导入' }} / {{ readString(item, ['relativePath']) }}</small>
                 <p v-if="item.valid">
                   标识 {{ readString(item, ['metadata.name']) }} / steps {{ readString(item, ['stepCount'], '0') }} / rollback {{ readString(item, ['rollbackCount'], '0') }}
                 </p>
@@ -816,7 +818,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             </label>
           </li>
         </ul>
-        <p v-else class="workflow-file-template-modal__loading">data/workflows 目录中暂无可识别的工作流模板文件。</p>
+        <p v-else class="workflow-file-template-modal__loading">暂无可识别的工作流模板文件。</p>
       </section>
       <template #actions>
         <button class="gc-button" type="button" @click="fileTemplateModalOpen = false">取消</button>

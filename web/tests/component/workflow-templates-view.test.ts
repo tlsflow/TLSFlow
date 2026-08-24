@@ -85,9 +85,10 @@ describe('WorkflowTemplatesView', () => {
       data: {
         items: [
           {
-            id: 'apache/apache-8444-cert-switch.json',
+            id: 'builtin/apache-8444-cert-switch.json',
+            source: 'builtin',
             fileName: 'apache-8444-cert-switch.json',
-            relativePath: 'apache/apache-8444-cert-switch.json',
+            relativePath: 'apache-8444-cert-switch.json',
             valid: true,
             updatedAt: '2026-07-03T00:00:00.000Z',
             metadata: {
@@ -178,11 +179,11 @@ describe('WorkflowTemplatesView', () => {
 
     expect(listWorkflowFileTemplates).toHaveBeenCalled()
     expect(createWorkflowTemplateFromFile).toHaveBeenCalledWith(expect.objectContaining({
-      fileTemplateId: 'apache/apache-8444-cert-switch.json',
+      fileTemplateId: 'builtin/apache-8444-cert-switch.json',
     }))
   })
 
-  it('支持用 data/workflows 文件模板覆盖现有工作流', async () => {
+  it('支持用文件模板覆盖现有工作流', async () => {
     mount(WorkflowTemplatesView, {
       attachTo: document.body,
       global: { stubs: { teleport: true, Teleport: true } },
@@ -196,7 +197,7 @@ describe('WorkflowTemplatesView', () => {
 
     expect(applyWorkflowTemplateFromFile).toHaveBeenCalledWith(expect.objectContaining({
       templateId: 'tpl-1',
-      fileTemplateId: 'apache/apache-8444-cert-switch.json',
+      fileTemplateId: 'builtin/apache-8444-cert-switch.json',
     }))
   })
 
