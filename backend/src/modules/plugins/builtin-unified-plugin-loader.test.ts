@@ -22,15 +22,21 @@ test('内置插件装载器读取 Runner 入口但不在宿主进程装载模块
     scope: 'MANAGED',
     trust: 'OFFICIAL_SIGNED',
     support: 'OFFICIAL',
-    capabilities: [],
+    capabilities: [{
+      key: 'certificate.deploy',
+      contractVersion: 'v1',
+      actionContractId: 'certificate.deploy.v1',
+      riskLevel: 'HIGH',
+      executionLocations: ['CONTROL_PLANE'],
+    }],
     permissions: [],
     resources: {
       workflows: { deploy: 'workflows/deploy.json' },
       runtimeEntrypoint: 'runtime/index.js',
     },
   }), 'utf8');
-  await writeFile(join(pluginDirectory, 'workflows/deploy.json'), '{}\n', 'utf8');
-  await writeFile(join(pluginDirectory, 'runtime/index.js'), 'export default true;\n', 'utf8');
+  await writeFile(join(pluginDirectory, 'workflows/deploy.json'), '{}\r\n', 'utf8');
+  await writeFile(join(pluginDirectory, 'runtime/index.js'), 'export default true;\r\n', 'utf8');
 
   const [pluginPackage] = await new BuiltinUnifiedPluginLoader(root).loadPackages();
 

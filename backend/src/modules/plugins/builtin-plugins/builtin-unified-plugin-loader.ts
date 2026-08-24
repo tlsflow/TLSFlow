@@ -101,7 +101,8 @@ export class BuiltinUnifiedPluginLoader {
     const resourcePaths = collectManifestResourcePaths(manifest).sort();
     const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => {
       const absolutePath = resolvePackageResource(directory, resourcePath);
-      return [resourcePath, await readFile(absolutePath, 'utf8')] as const;
+      const content = await readFile(absolutePath, 'utf8');
+      return [resourcePath, normalizePackageText(content)] as const;
     })));
     const runtimeEntrypoint = typeof manifest.resources?.runtimeEntrypoint === 'string'
       ? manifest.resources.runtimeEntrypoint.replaceAll('\\', '/')
@@ -114,7 +115,8 @@ export class BuiltinUnifiedPluginLoader {
       packageDirectory: directory,
       manifest,
       resources,
-      packageContent: JSON.stringify({ directory: basename(directory), manifest, resources }),
+      // 包指纹沿用原始 Manifest 结构，避免运行时 Schema 规范化改变历史版本摘要。
+      packageContent: JSON.stringify({ directory: basename(directory), manifest: parsedManifest, resources }),
       ...(runtimeEntrypoint ? { runtimeEntrypoint } : {}),
       ...(runtimeEntrypointPath ? { runtimeEntrypointPath } : {}),
     };
@@ -132,6 +134,11 @@ function collectManifestResourcePaths(manifest: { resources?: Record<string, Rec
     if (typeof value === 'object') paths.push(...Object.values(value));
   }
   return [...new Set(paths)];
+}
+
+// 统一不同平台检出的换行，保证包摘要、资源摘要和运行时输入一致。
+function normalizePackageText(content: string): string {
+  return content.replace(/\r\n?/g, '\n');
 }
 
 function resolvePackageResource(packageDirectory: string, resourcePath: string): string {
