@@ -185,14 +185,6 @@ export function deleteRole(roleId: string): Promise<ApiResult<{ roleId: string; 
   })
 }
 
-export function listPermissionPolicies(query?: BusinessListQuery): Promise<ApiPageResult> {
-  return apiClient.get(buildListPath('/api/v1/security/permission-policies', query))
-}
-
-export function createPermissionPolicy(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
-  return apiClient.post<ApiRecord>(toClientPath('/api/v1/security/permission-policies'), body)
-}
-
 export function listObjectTypes(query?: BusinessListQuery): Promise<ApiPageResult> {
   return listRecords('/api/v1/security/object-types', query)
 }

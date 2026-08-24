@@ -24,7 +24,6 @@ const assetMocks = vi.hoisted(() => ({
   deleteServiceAsset: vi.fn(),
   getAssetDetail: vi.fn(),
   listAgents: vi.fn(),
-  getAgentDetail: vi.fn(),
   listSiteAssets: vi.fn(),
   createSiteAsset: vi.fn(),
   listManagedTargets: vi.fn(),
@@ -167,7 +166,6 @@ describe('资产与证书产物视图', () => {
     assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({ items: [] }))
     assetMocks.saveApplicationAssetManagedTarget.mockResolvedValue(okRecord({ target: { id: 'target-binding-1' } }))
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
-    assetMocks.getAgentDetail.mockResolvedValue(okRecord({ id: 'agent-1', capabilitySnapshot: { capabilities: [] } }))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
     deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
       contractVersion: 'gcac.deployment-input-contract/v1',

@@ -141,16 +141,6 @@ export function listAgents(query?: BusinessListQuery) {
   return listRecords(AGENTS_PATH, query)
 }
 
-export function getAgentDetail(agentId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(`${toClientPath(AGENTS_PATH)}/detail?agentId=${encodeURIComponent(agentId)}`)
-}
-
-export function requestAgentCapabilityRescan(agentId: string): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${AGENTS_PATH}/${encodeURIComponent(agentId)}/rescan`), {}, {
-    idempotencyKey: createIdempotencyKey('agent_capability_rescan'),
-  })
-}
-
 export function listAgentTaskQueue(agentId: string, query: BusinessListQuery = {}) {
   return listRecords(`${AGENTS_PATH}/${encodeURIComponent(agentId)}/tasks`, { page: 1, pageSize: 10, ...query })
 }
@@ -187,15 +177,6 @@ export function createWindowsPowerShellInstallSession(payload: ApiBody) {
   )
 }
 
-export function createWindowsCompatibilityInstallSession(payload: ApiBody) {
-  return postAction(
-    `${AGENTS_PATH}/install-sessions/windows-compatibility`,
-    payload,
-    'agent_windows_compatibility_install',
-    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
-  )
-}
-
 export function createGatewayEnableSession(payload: ApiBody) {
   return postAction(
     `${AGENTS_PATH}/gateway-enable-sessions`,
@@ -215,14 +196,6 @@ export function listDiscoverySnapshots(query?: BusinessListQuery) {
 
 export function previewDiscoveryMerge(payload: ApiBody) {
   return postAction('/api/v1/discovery-snapshots/merge-preview', payload, 'discovery_merge_preview')
-}
-
-export function disableAgent(agentId: string, payload: ApiBody = {}) {
-  return postAction(`${AGENTS_PATH}/disable`, { ...payload, agentId }, 'agent_disable')
-}
-
-export function enableAgent(agentId: string, payload: ApiBody = {}) {
-  return postAction(`${AGENTS_PATH}/enable`, { ...payload, agentId }, 'agent_enable')
 }
 
 export function deleteAgent(agentId: string, payload: ApiBody = {}) {

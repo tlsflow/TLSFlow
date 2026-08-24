@@ -9,11 +9,11 @@ import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
-import { getPluginBinding, getUnifiedPluginUiResources } from '@/api/modules/plugins.api'
+import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type PluginFormSchema } from '@/design-system/components'
+import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
 import { useAuthStore } from '@/stores/auth.store'
 import { useTenantStore } from '@/stores/tenant.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
@@ -35,9 +35,6 @@ import {
 import {
   createInputBindingsV1,
   readInputBindingsV1,
-  type InputArtifactBindingV1,
-  type InputConnectionBindingV1,
-  type InputCredentialBindingV1,
 } from './asset-input-bindings.model'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
@@ -137,7 +134,6 @@ const workflowBindingProjection = ref<DeploymentInputProjectionV1 | null>(null)
 const deploymentInputBindings = ref<DeploymentInputBindingsV1>(createInputBindingsV1())
 const workflowProjectionLoading = ref(false)
 const workflowProjectionError = ref('')
-const workflowAdvancedExpanded = ref(false)
 const workflowTargetAdvancedExpanded = ref(false)
 const credentialProfileItems = ref<CredentialProfileOption[]>([])
 const credentialProfileLoading = ref(false)
@@ -148,16 +144,8 @@ const workflowVersionListError = ref('')
 const gatewayListError = ref('')
 const credentialProfileError = ref('')
 const certificateFormatError = ref('')
-const pluginFormSchema = ref<PluginFormSchema | null>(null)
-const pluginFormMessages = ref<Record<string, string>>({})
-const pluginFormValues = ref<Record<string, unknown>>({})
 const pluginBindingId = ref('')
 const pluginBindingVersion = ref(0)
-const pluginBindingCredentials = ref<Record<string, InputCredentialBindingV1>>({})
-const pluginBindingConnections = ref<Record<string, InputConnectionBindingV1>>({})
-const pluginBindingArtifacts = ref<Record<string, InputArtifactBindingV1>>({})
-const pluginFormLoading = ref(false)
-const pluginFormError = ref('')
 const effectiveCapability = ref<ApiRecord | null>(null)
 const inheritedEffectiveCapability = ref<ApiRecord | null>(null)
 const effectiveCapabilityLoading = ref(false)
@@ -723,40 +711,13 @@ async function loadWorkflowVersions(workflowId: string) {
   }
 }
 
-async function loadPluginForm(pluginVersionId: string) {
-  pluginFormSchema.value = null
-  pluginFormMessages.value = {}
-  pluginFormError.value = ''
-  if (!pluginVersionId) return
-  pluginFormLoading.value = true
-  try {
-    const result = await getUnifiedPluginUiResources(pluginVersionId, locale.value)
-    const payload = readRecord(result.data) ?? {}
-    const forms = readRecord(payload.forms) ?? {}
-    pluginFormSchema.value = Object.values(forms)[0] as PluginFormSchema | undefined ?? null
-    pluginFormMessages.value = (readRecord(readNested(payload, ['locale', 'messages'])) ?? {}) as Record<string, string>
-  } catch (cause) {
-    pluginFormError.value = cause instanceof Error ? cause.message : t('assets.errors.pluginFormLoadFailed')
-  } finally {
-    pluginFormLoading.value = false
-  }
-}
-
 async function loadExistingPluginBinding(bindingId: string) {
   const result = await getPluginBinding(bindingId)
   const binding = readRecord(result.data) ?? {}
   const inputBindings = readInputBindingsV1(binding.inputBindings) ?? createInputBindingsV1()
   assetDraft.pluginOverrideVersionId = String(binding.pluginVersionId ?? '')
   pluginBindingVersion.value = Number(binding.version ?? 0)
-  pluginBindingCredentials.value = inputBindings.credentials
-  pluginBindingConnections.value = inputBindings.connections
-  pluginBindingArtifacts.value = inputBindings.artifacts
   deploymentInputBindings.value = inputBindings
-  pluginFormValues.value = {
-    ...inputBindings.variables,
-    ...Object.fromEntries(Object.entries(inputBindings.credentials).map(([name, value]) => [name, value.credentialId])),
-  }
-  await loadPluginForm(assetDraft.pluginOverrideVersionId)
 }
 
 async function loadExistingWorkflowExecutionBinding(bindingId: string) {
@@ -1177,19 +1138,11 @@ function resetDraft() {
   assetDraft.workflowTargetHostHeader = ''
   assetDraft.workflowTargetSniName = ''
   workflowBindingProjection.value = null
-  pluginFormSchema.value = null
-  pluginFormMessages.value = {}
-  pluginFormValues.value = {}
   pluginBindingId.value = ''
   pluginBindingVersion.value = 0
-  pluginBindingCredentials.value = {}
-  pluginBindingConnections.value = {}
-  pluginBindingArtifacts.value = {}
-  pluginFormError.value = ''
   effectiveCapability.value = null
   inheritedEffectiveCapability.value = null
   compatibleManagedPlugins.value = []
-  workflowAdvancedExpanded.value = false
   workflowTargetAdvancedExpanded.value = false
   serviceInstanceItems.value = []
   siteItems.value = []
@@ -1562,13 +1515,7 @@ watch(
 
 watch(
   () => assetDraft.pluginOverrideVersionId,
-  async (pluginVersionId, previousPluginVersionId) => {
-    if (pluginVersionId !== previousPluginVersionId && !pluginBindingId.value) {
-      pluginFormValues.value = {}
-      pluginBindingCredentials.value = {}
-      pluginBindingConnections.value = {}
-      pluginBindingArtifacts.value = {}
-    }
+  async () => {
     if (editingServiceAssetId.value) await refreshWorkflowBindingProjection()
   },
 )
@@ -1661,10 +1608,6 @@ watch(
     assetDraft.pluginOverrideVersionId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
-    pluginFormValues.value = {}
-    pluginBindingCredentials.value = {}
-    pluginBindingConnections.value = {}
-    pluginBindingArtifacts.value = {}
     await loadManagedTargetPluginResolution(managedTargetId)
   },
 )
@@ -1682,10 +1625,6 @@ watch(
     assetDraft.pluginOverrideVersionId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
-    pluginFormValues.value = {}
-    pluginBindingCredentials.value = {}
-    pluginBindingConnections.value = {}
-    pluginBindingArtifacts.value = {}
     await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   },
 )
@@ -2698,213 +2637,6 @@ function managedTargetLabel(target: ApiRecord): string {
   overflow-wrap: anywhere;
 }
 
-.workflow-variable-form {
-  display: grid;
-  gap: 10px;
-}
-
-.workflow-variable-form__head,
-.workflow-variable-form__add,
-.workflow-variable-form__verify,
-.workflow-variable-form__row-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.workflow-variable-form__head {
-  justify-content: space-between;
-}
-
-.workflow-variable-form__head > div:first-child {
-  display: grid;
-  gap: 3px;
-}
-
-.workflow-variable-form__head strong {
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-}
-
-.workflow-variable-form__add {
-  flex: 0 1 360px;
-}
-
-.workflow-variable-form__verify {
-  justify-content: space-between;
-  padding: 9px 11px;
-  border: 1px solid var(--gc-color-info-border);
-  border-radius: 12px;
-  background: var(--gc-color-surface-selected);
-}
-
-.workflow-variable-form__verify span {
-  color: var(--gc-color-primary-strong);
-  font-weight: 900;
-}
-
-.workflow-variable-form__verify strong {
-  color: var(--gc-color-text);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.workflow-variable-form__rows {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.workflow-variable-form__row {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.9fr) minmax(110px, 0.7fr) minmax(180px, 1.5fr) auto;
-  gap: 10px;
-  align-items: start;
-  padding: 11px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 12px;
-  background: var(--gc-color-surface-subtle);
-}
-
-.workflow-variable-form__row--variable {
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 2.2fr);
-}
-
-.workflow-variable-form__row--connection-advanced {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.workflow-variable-form__row--variable > input,
-.workflow-variable-form__row--variable > select,
-.workflow-variable-form__row--connection-advanced input {
-  width: 100%;
-  min-width: 0;
-}
-
-.workflow-variable-form__row label {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.workflow-variable-form__row label span,
-.workflow-variable-form__row-actions span {
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.workflow-variable-form__row input[readonly] {
-  color: var(--gc-color-muted);
-  background: var(--gc-color-muted-bg);
-}
-
-.workflow-variable-form__value textarea {
-  min-height: 78px;
-}
-
-.workflow-variable-form__row-actions {
-  align-self: stretch;
-  justify-content: space-between;
-  flex-direction: column;
-  min-width: 74px;
-}
-
-.workflow-variable-form__description {
-  grid-column: 1 / -1;
-  margin: -2px 0 0;
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.workflow-variable-form__empty {
-  margin: 0;
-  padding: 14px;
-  border: 1px dashed var(--gc-color-border-strong);
-  border-radius: 12px;
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-subtle);
-  font-size: 13px;
-  font-weight: 750;
-}
-
-.workflow-certificate-form {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--gc-color-info-border);
-  border-radius: 12px;
-  background: var(--gc-color-surface-hover);
-}
-
-.workflow-certificate-form__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.workflow-certificate-form__head > div,
-.workflow-certificate-form__variable,
-.workflow-certificate-form__row label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.workflow-certificate-form__head span,
-.workflow-certificate-form__row label span {
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.workflow-certificate-form__head strong,
-.workflow-certificate-form__variable strong {
-  color: var(--gc-color-text);
-  overflow-wrap: anywhere;
-}
-
-.workflow-certificate-form__head small,
-.workflow-certificate-form__variable span,
-.workflow-certificate-form__row label small,
-.workflow-certificate-form__empty {
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.workflow-certificate-form__rows {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.workflow-certificate-form__row {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(180px, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 11px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 12px;
-  background: var(--gc-color-surface-solid);
-}
-
-.workflow-certificate-form__empty {
-  grid-column: 2 / -1;
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px dashed var(--gc-color-border-strong);
-  border-radius: 10px;
-  background: var(--gc-color-surface-subtle);
-}
-
 .asset-wizard__progress {
   display: grid;
   gap: 12px;
@@ -3128,15 +2860,6 @@ function managedTargetLabel(target: ApiRecord): string {
   .workflow-target-form__head,
   .workflow-target-form__advanced-head,
   .workflow-target-form__summary { align-items: stretch; flex-direction: column; }
-  .workflow-variable-form__head,
-  .workflow-variable-form__add,
-  .workflow-variable-form__verify { align-items: stretch; flex-direction: column; }
-  .workflow-variable-form__add { flex-basis: auto; }
-  .workflow-variable-form__row { grid-template-columns: 1fr; }
-  .workflow-variable-form__row-actions { flex-direction: row; }
-  .workflow-certificate-form__head { flex-direction: column; }
-  .workflow-certificate-form__row { grid-template-columns: 1fr; }
-  .workflow-certificate-form__empty { grid-column: 1; }
   .asset-detail-modal__grid,
   .asset-binding__detail,
   .asset-form__binding-summary,
