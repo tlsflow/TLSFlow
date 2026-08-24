@@ -37,6 +37,34 @@ test('云账号资产支持四类 Provider、作用域幂等冲突和无 Host �
   const assetId = (created.body as { id: string }).id;
   assert.match(assetId, /^caa_/);
 
+  const queued = await app.inject({
+    method: 'POST',
+    path: `/api/v1/cloud-account-assets/${encodeURIComponent(assetId)}/execute-task`,
+    headers,
+    body: {
+      frameworkType: 'cloud.aliyun.cdn',
+      operationKey: 'certificate.deploy',
+      target: {
+        frameworkType: 'cloud.aliyun.cdn',
+        resourceId: 'cdn-domain-1',
+        domain: 'cdn.example.test',
+      },
+      input: {
+        certificateRef: 'secret://certificates/example#current',
+      },
+    },
+  });
+  assert.equal(queued.statusCode, 202, JSON.stringify(queued.body));
+  const taskId = (queued.body as { taskId: string }).taskId;
+  const taskRow = await db.query<{ task_type: string; payload: Record<string, unknown> }>(
+    'select task_type, payload from task_runs where id = $1',
+    [taskId],
+  );
+  assert.equal(taskRow.rows[0]?.task_type, 'PROVIDER_OPERATION');
+  const taskPayload = taskRow.rows[0]?.payload ?? {};
+  assert.equal((taskPayload.input as Record<string, unknown>)?.certificateRef, 'secret://certificates/example#current');
+  assert.equal(JSON.stringify(taskPayload).includes('certificatePem'), false);
+
   const listed = await app.inject({
     method: 'GET',
     path: '/api/v1/cloud-account-assets',
