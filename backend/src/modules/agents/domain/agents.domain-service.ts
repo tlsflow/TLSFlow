@@ -9,7 +9,10 @@ import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthori
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
 const WINDOWS_GO_RELEASE_PRODUCT_LINE = 'windows-go-full';
-const RELEASE_REQUIREMENTS = new Map([[WINDOWS_GO_RELEASE_PRODUCT_LINE, { platform: 'WINDOWS', requireArchitecture: true }]]);
+const RELEASE_REQUIREMENTS = new Map([
+  [WINDOWS_GO_RELEASE_PRODUCT_LINE, { platform: 'WINDOWS', requireArchitecture: true }],
+  ['linux-go-full', { platform: 'LINUX', requireArchitecture: true }],
+]);
 const WINDOWS_FULL_AGENT_PLATFORMS = new Set(['windows_go_service', 'windows_compatibility_service']);
 const WINDOWS_COMPATIBILITY_PLATFORM = 'windows_compatibility_service';
 const INSTALL_AGENT_KEY_PREFIX: Record<'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd', string> = {
@@ -458,7 +461,7 @@ export class AgentsDomainService {
       || (releaseRequirements.requireArchitecture && !input.arch?.trim())
       || !input.signatureKeyId?.trim()
       || !(input.artifactSize && Number.isInteger(input.artifactSize) && input.artifactSize > 0))) {
-      throw new AppError('VALIDATION_FAILED', 'Windows Go Release 必须提供平台、架构、制品大小和签名 keyId');
+      throw new AppError('VALIDATION_FAILED', 'Go Full Agent Release 必须提供匹配平台、架构、制品大小和签名 keyId');
     }
     const rolloutPercent = input.rolloutPercent ?? 100;
     if (rolloutPercent < 0 || rolloutPercent > 100) throw new AppError('VALIDATION_FAILED', 'rolloutPercent 必须在 0-100 之间');

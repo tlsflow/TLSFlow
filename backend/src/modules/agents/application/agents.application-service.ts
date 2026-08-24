@@ -33,6 +33,7 @@ import { AgentDirectClient } from './agent-direct-client.js';
 import { AgentManagementClient, signAgentUpgradeEnvelope, type AgentManagementResponse, type AgentUpgradeEnvelope } from './agent-management-client.js';
 
 const agentV2PreExecutionFailureCodes = new Set(['ACTION_HANDLER_NOT_REGISTERED', 'AGENT_V2_AUTHORIZATION_DENIED', 'AGENT_V2_MESSAGE_INVALID', 'AGENT_V2_ACTION_UNSUPPORTED', 'AGENT_PLAN_INVALID']);
+const agentUpgradeHelperTimeoutMs = 5 * 60 * 1000;
 
 export interface AgentTrustMaterialIssuer {
   issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown>;
@@ -1066,15 +1067,12 @@ export class AgentsApplicationService {
     if (!release || release.status !== 'active') {
       throw new AppError('RESOURCE_NOT_FOUND', 'Agent Release 不存在或已不可用', { releaseId });
     }
-    if (release.productLine !== windowsGoProductLine) {
+    const productLine = resolveGoFullProductLine(release.platform, release.productLine);
+    if (!productLine) {
       throw new AppError('RESOURCE_NOT_FOUND', '该 Agent Release 未启用控制面下载', { releaseId });
     }
-    const architecture = normalizeWindowsArchitecture(release.arch);
-    const artifactPath = architecture === 'amd64'
-      ? windowsGoAgentAmd64Artifact
-      : architecture === 'arm64'
-        ? windowsGoAgentArm64Artifact
-        : undefined;
+    const architecture = normalizeAgentArchitecture(release.arch);
+    const artifactPath = resolveGoFullArtifactPath(productLine, architecture);
     if (!artifactPath || !existsSync(artifactPath)) {
       throw new AppError('RESOURCE_NOT_FOUND', '本地 Agent 制品不存在，请先完成构建', { releaseId, architecture: release.arch });
     }
@@ -1132,7 +1130,7 @@ export class AgentsApplicationService {
    */
   async dispatchUpgrade(tenantId: string, input: DispatchAgentUpgradeInput, actorId: string, requestId: string): Promise<AgentUpgradePlan> {
     const agent = await this.requireAgent(tenantId, input.agentId);
-    if (!isWindowsGoAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
+    if (!isGoFullAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows/Linux Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
     const plan = await this.repository.getUpgradePlan(tenantId, input.planId);
     if (!plan || plan.agentId !== agent.id)
       throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', {
@@ -1154,7 +1152,7 @@ export class AgentsApplicationService {
       const releases = await this.listActiveVersions(tenantId);
       const release = releases.find((item) => item.id === plan.releaseId);
       if (!release) throw new AppError('RESOURCE_NOT_FOUND', '升级计划绑定的 Release 不存在或已不可用', { releaseId: plan.releaseId });
-      assertWindowsGoRelease(agent, release, plan.targetVersion);
+      assertGoFullRelease(agent, release, plan.targetVersion);
       const transactionId = plan.transactionId || newId('agtxn');
       const attempt = (plan.attempt ?? 0) + 1;
       const globalTask = await this.enqueueUpgradeTask({
@@ -1178,7 +1176,10 @@ export class AgentsApplicationService {
       });
       let envelope: AgentUpgradeEnvelope;
       try {
-        envelope = buildWindowsGoUpgradeEnvelope(agent, dispatching, release, requestId);
+        const upgradeBootstrapUrl = resolveGoFullProductLine(agent.descriptor.osType) === linuxGoProductLine
+          ? (await this.createLinuxUpgradeBootstrap(agent, dispatching, requestId, release)).bootstrapUrl
+          : undefined;
+        envelope = buildGoFullUpgradeEnvelope(agent, dispatching, release, requestId, upgradeBootstrapUrl);
       } catch (error) {
         await this.repository.updateUpgradePlan(plan.id, {
           status: 'rejected',
@@ -1216,10 +1217,11 @@ export class AgentsApplicationService {
         reason: accepted ? 'Agent 已接受升级事务，等待本地 Receipt' : response.errorMessage || 'Agent 拒绝升级事务',
         result: {
           requestId,
-          transport: 'accepted',
+          transport: accepted ? 'accepted' : 'rejected',
           accepted,
           status: response.status,
           transactionId,
+          actualTransactionId: response.transactionId,
           taskId: globalTask?.id,
           errorCode: response.errorCode,
           errorMessage: response.errorMessage,
@@ -1229,6 +1231,39 @@ export class AgentsApplicationService {
     } finally {
       this.activeUpgradeLocks.delete(lockKey);
     }
+  }
+
+  /**
+   * Linux 升级复用正式 bootstrap 安装入口。
+   * 该入口会先安装新的 service unit，再执行重启，因此脚本不会被旧 Agent 的
+   * systemd cgroup 清理；同一 agentKey 会让注册流程更新原设备，而不是创建新设备。
+   */
+  private async createLinuxUpgradeBootstrap(
+    agent: AgentRegistration,
+    plan: AgentUpgradePlan,
+    requestId: string,
+    release: AgentVersionRelease,
+  ): Promise<AgentInstallSessionBootstrapProjection> {
+    const releaseUrl = new URL(release.downloadUrl);
+    const session = await this.createAgentInstallSession(
+      plan.tenantId,
+      {
+        platform: 'linux_go',
+        role: 'full_agent',
+        zone: agent.zone ?? 'default',
+        agentKey: agent.agentKey,
+        serviceName: 'gcac-linux-agent',
+        displayName: agent.descriptor.hostname || 'GCAC Linux Go Full Agent',
+        installRoot: '/opt/gcac/linux-agent',
+        configDir: '/etc/gcac/linux-agent',
+        dataDir: '/var/lib/gcac/linux-agent',
+        logDir: '/var/log/gcac/linux-agent',
+        startAfterInstall: true,
+      },
+      requestId,
+      releaseUrl.origin,
+    );
+    return session;
   }
 
   /** 中文说明：统一任务只负责观察已经确认的 UpgradePlan，升级授权仍由本次用户确认请求发送。 */
@@ -1283,12 +1318,55 @@ export class AgentsApplicationService {
 
   async getUpgradeStatus(tenantId: string, agentId: string, planId: string): Promise<AgentUpgradePlan> {
     const agent = await this.requireAgent(tenantId, agentId);
-    if (!isWindowsGoAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
+    if (!isGoFullAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows/Linux Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
     const plan = await this.repository.getUpgradePlan(tenantId, planId);
     if (!plan || plan.agentId !== agent.id) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId });
-    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'manual_required', 'transport_failed'].includes(plan.status)) return plan;
+    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'unknown', 'manual_required', 'transport_failed'].includes(plan.status)) return plan;
     if (!plan.transactionId) return plan;
-    const status = await this.agentManagementClient.getUpgradeStatus(agent, plan.transactionId);
+    let status: Awaited<ReturnType<AgentManagementClient['getUpgradeStatus']>>;
+    try {
+      status = await this.agentManagementClient.getUpgradeStatus(agent, plan.transactionId);
+    } catch (error) {
+      if (!isUpgradeTransactionIdentityMismatch(error)) throw error;
+      const errorMessage = 'Agent 返回了不匹配的升级事务，副作用结果无法确认，已停止自动重试';
+      const mismatchDetails = readRecord(error instanceof AppError ? error.details : undefined);
+      return this.repository.updateUpgradePlan(plan.id, {
+        status: 'unknown',
+        reason: errorMessage,
+        result: {
+          ...plan.result,
+          receipt: {
+            ...readRecord(plan.result?.receipt),
+            phase: 'unknown',
+            status: 'unknown',
+            transactionId: plan.transactionId,
+            actualTransactionId: readStringValue(mismatchDetails.actualTransactionId),
+            errorCode: 'AGENT_UPGRADE_RESULT_UNKNOWN',
+            errorMessage,
+          },
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    if (isStaleUpgradeHelperStatus(status)) {
+      const errorMessage = 'Agent 升级 helper 已超时且结果无法确认，已停止自动重试';
+      return this.repository.updateUpgradePlan(plan.id, {
+        status: 'unknown',
+        reason: errorMessage,
+        result: {
+          ...plan.result,
+          receipt: {
+            ...readRecord(plan.result?.receipt),
+            ...status,
+            phase: 'unknown',
+            status: 'unknown',
+            errorCode: 'AGENT_UPGRADE_HELPER_TIMEOUT',
+            errorMessage,
+          },
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    }
     const mapped = mapAgentUpgradeStatus(status.status);
     if (!mapped) return plan;
     return this.repository.updateUpgradePlan(plan.id, {
@@ -1312,7 +1390,7 @@ export class AgentsApplicationService {
   ): Promise<AgentUpgradePlan> {
     const plan = await this.repository.getUpgradePlan(tenantId, planId);
     if (!plan || plan.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId });
-    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'manual_required'].includes(plan.status)) return plan;
+    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'unknown', 'manual_required'].includes(plan.status)) return plan;
     return this.repository.updateUpgradePlan(plan.id, {
       status: 'manual_required',
       actorId,
@@ -1495,6 +1573,8 @@ export class AgentsApplicationService {
             authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet(),
           }
         : {}),
+      upgradeTrustKeySet: readAgentTrustKeySet(AGENT_UPGRADE_TRUST_KEYS_ENV),
+      releaseTrustKeySet: readAgentTrustKeySet(AGENT_RELEASE_TRUST_KEYS_ENV),
     };
   }
 
@@ -1757,7 +1837,7 @@ export class AgentsApplicationService {
   }
 
   async getAgentDetail(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailProjection> {
-    await this.ensureLocalWindowsGoRelease(tenantId);
+    await this.ensureLocalGoFullReleases(tenantId);
     const [detailData, liveness, managementLiveness] = await Promise.all([this.repository.getDetailData(tenantId, agentId, options), this.liveness?.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']), this.liveness?.project(tenantId, 'AGENT', agentId, ['MANAGEMENT_TCP'])]);
     if (!detailData) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
     const { agent, capabilitySnapshot, latestHeartbeat, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans } = detailData;
@@ -1809,7 +1889,7 @@ export class AgentsApplicationService {
   async getUpgradeSuggestion(tenantId: string, agentId: string): Promise<AgentUpgradeSuggestionProjection> {
     const agent = await this.requireAgent(tenantId, agentId);
     const releases = await this.listActiveVersions(tenantId);
-    const release = releases.find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
+    const release = selectLatestMatchingRelease(agent, releases);
     if (!release) {
       return {
         agentId: agent.id,
@@ -1850,40 +1930,45 @@ export class AgentsApplicationService {
   }
 
   private async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
-    await this.ensureLocalWindowsGoRelease(tenantId);
+    await this.ensureLocalGoFullReleases(tenantId);
     return this.repository.listActiveVersions(tenantId);
   }
 
-  private async ensureLocalWindowsGoRelease(tenantId: string): Promise<void> {
+  private async ensureLocalGoFullReleases(tenantId: string): Promise<void> {
     const existing = this.localReleaseSync.get(tenantId);
     if (existing) return existing;
     const sync = (async () => {
       if (typeof this.repository.publishVersion !== 'function') return;
-      const version = await readWindowsGoAgentVersion();
-      for (const architecture of ['amd64', 'arm64'] as const) {
-        const artifactPath = architecture === 'amd64' ? windowsGoAgentAmd64Artifact : windowsGoAgentArm64Artifact;
-        if (!existsSync(artifactPath)) continue;
-        const content = await readFile(artifactPath);
-        const checksumSha256 = createHash('sha256').update(content).digest('hex');
-        const releaseId = localWindowsReleaseId(tenantId, version, architecture);
-        const release: AgentVersionRelease = {
-          id: releaseId,
-          tenantId,
-          version,
-          platform: 'WINDOWS',
-          arch: architecture,
-          productLine: windowsGoProductLine,
-          artifactSize: content.length,
-          downloadUrl: localWindowsReleaseDownloadUrl(releaseId),
-          checksumSha256,
-          // 开发/测试环境先允许摘要校验闭环；配置发布信任根后，Agent 会强制验签。
-          signature: 'unsigned',
-          rolloutPercent: 100,
-          status: 'active',
-          createdAt: new Date().toISOString(),
-          createdBy: 'system:local-build',
-        };
-        await this.repository.publishVersion(release);
+      const localProducts = [
+        { productLine: windowsGoProductLine, platform: 'WINDOWS', version: await readWindowsGoAgentVersion() },
+        { productLine: linuxGoProductLine, platform: 'LINUX', version: await readLinuxGoAgentVersion() },
+      ] as const;
+      for (const product of localProducts) {
+        for (const architecture of ['amd64', 'arm64'] as const) {
+          const artifactPath = resolveGoFullArtifactPath(product.productLine, architecture);
+          if (!artifactPath || !existsSync(artifactPath)) continue;
+          const content = await readFile(artifactPath);
+          const checksumSha256 = createHash('sha256').update(content).digest('hex');
+          const releaseId = localGoFullReleaseId(product.productLine, tenantId, product.version, architecture);
+          const release: AgentVersionRelease = {
+            id: releaseId,
+            tenantId,
+            version: product.version,
+            platform: product.platform,
+            arch: architecture,
+            productLine: product.productLine,
+            artifactSize: content.length,
+            downloadUrl: localGoFullReleaseDownloadUrl(releaseId),
+            checksumSha256,
+            // 本地构建先使用 SHA-256 闭环；配置发布信任根后由 Agent 强制验签。
+            signature: 'unsigned',
+            rolloutPercent: 100,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            createdBy: 'system:local-build',
+          };
+          await this.repository.publishVersion(release);
+        }
       }
     })();
     this.localReleaseSync.set(tenantId, sync);
@@ -2123,7 +2208,7 @@ function buildRecentTaskRuntimeLogs(tasks: AgentTaskEnvelope[], logs: AgentTaskL
 }
 
 function buildUpgradeSuggestion(agent: AgentRegistration, releases: AgentVersionRelease[], upgradePlans: AgentUpgradePlan[]): AgentUpgradeSuggestionProjection {
-  const release = [...releases].sort((left, right) => compareAgentVersions(right.version, left.version)).find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
+  const release = selectLatestMatchingRelease(agent, releases);
   if (!release) {
     return {
       agentId: agent.id,
@@ -2156,48 +2241,86 @@ function buildUpgradeSuggestion(agent: AgentRegistration, releases: AgentVersion
 }
 
 const windowsGoAgentOS = 'WINDOWS';
+const linuxGoAgentOS = 'LINUX';
 const windowsGoProductLine: 'windows-go-full' = 'windows-go-full';
+const linuxGoProductLine: 'linux-go-full' = 'linux-go-full';
+type GoFullProductLine = typeof windowsGoProductLine | typeof linuxGoProductLine;
 
-function isWindowsGoAgent(agent: AgentRegistration): boolean {
-  return agent.role !== 'gateway' && agent.descriptor.osType.toUpperCase() === windowsGoAgentOS && !agent.descriptor.osType.toUpperCase().includes('COMPATIBILITY');
+function isGoFullAgent(agent: AgentRegistration): boolean {
+  const osType = agent.descriptor.osType.toUpperCase();
+  return agent.role !== 'gateway' && (osType === windowsGoAgentOS || osType === linuxGoAgentOS) && !osType.includes('COMPATIBILITY');
+}
+
+function resolveGoFullProductLine(platform: string | undefined, productLine?: AgentVersionRelease['productLine']): GoFullProductLine | undefined {
+  const normalizedPlatform = platform?.toUpperCase();
+  if (productLine === windowsGoProductLine) return normalizedPlatform && normalizedPlatform !== windowsGoAgentOS ? undefined : productLine;
+  if (productLine === linuxGoProductLine) return normalizedPlatform && normalizedPlatform !== linuxGoAgentOS ? undefined : productLine;
+  if (normalizedPlatform === windowsGoAgentOS) return windowsGoProductLine;
+  if (normalizedPlatform === linuxGoAgentOS) return linuxGoProductLine;
+  return undefined;
+}
+
+function selectLatestMatchingRelease(agent: AgentRegistration, releases: AgentVersionRelease[]): AgentVersionRelease | undefined {
+  const productLine = resolveGoFullProductLine(agent.descriptor.osType);
+  if (!productLine) return undefined;
+  return [...releases]
+    .sort((left, right) => compareAgentVersions(right.version, left.version))
+    .find((item) => resolveGoFullProductLine(item.platform, item.productLine) === productLine && matchesAgentArchitecture(item.arch, agent.descriptor.arch));
 }
 
 function selectUpgradeRelease(agent: AgentRegistration, releases: AgentVersionRelease[], input: CheckAgentUpgradeInput): AgentVersionRelease | undefined {
-  const candidates = releases.filter((item) => item.platform.toUpperCase() === agent.descriptor.osType.toUpperCase() && (!item.arch || item.arch === agent.descriptor.arch || normalizeWindowsArchitecture(item.arch) === normalizeWindowsArchitecture(agent.descriptor.arch)));
+  const productLine = resolveGoFullProductLine(agent.descriptor.osType);
+  if (!productLine) return undefined;
+  const candidates = releases
+    .filter((item) => resolveGoFullProductLine(item.platform, item.productLine) === productLine && matchesAgentArchitecture(item.arch, agent.descriptor.arch))
+    .sort((left, right) => compareAgentVersions(right.version, left.version));
   if (input.releaseId) return candidates.find((item) => item.id === input.releaseId);
   if (input.targetVersion) return candidates.find((item) => item.version === input.targetVersion);
   return candidates[0];
 }
 
-function assertWindowsGoRelease(agent: AgentRegistration, release: AgentVersionRelease, targetVersion: string): void {
-  if (!isWindowsGoAgent(agent) || release.platform.toUpperCase() !== windowsGoAgentOS || (release.productLine !== undefined && release.productLine !== windowsGoProductLine) || release.version !== targetVersion) {
-    throw new AppError('VALIDATION_FAILED', 'Release 与 Windows Go Full Agent 的产品线、平台或版本不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
+function matchesAgentArchitecture(releaseArch: string | undefined, agentArch: string | undefined): boolean {
+  if (!releaseArch) return true;
+  return normalizeAgentArchitecture(releaseArch) !== undefined && normalizeAgentArchitecture(releaseArch) === normalizeAgentArchitecture(agentArch);
+}
+
+function assertGoFullRelease(agent: AgentRegistration, release: AgentVersionRelease, targetVersion: string): void {
+  const expectedProductLine = resolveGoFullProductLine(agent.descriptor.osType);
+  const actualProductLine = resolveGoFullProductLine(release.platform, release.productLine);
+  if (!expectedProductLine || actualProductLine !== expectedProductLine || release.version !== targetVersion) {
+    throw new AppError('VALIDATION_FAILED', 'Release 与 Go Full Agent 的产品线、平台或版本不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
   }
-  const agentArch = normalizeWindowsArchitecture(agent.descriptor.arch);
-  const releaseArch = normalizeWindowsArchitecture(release.arch);
-  if (!agentArch || !releaseArch || agentArch !== releaseArch) {
-    throw new AppError('VALIDATION_FAILED', 'Release 与 Windows Go Full Agent 的架构不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
+  if (!matchesAgentArchitecture(release.arch, agent.descriptor.arch) || !normalizeAgentArchitecture(agent.descriptor.arch)) {
+    throw new AppError('VALIDATION_FAILED', 'Release 与 Go Full Agent 的架构不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
   }
 }
 
-function normalizeWindowsArchitecture(value: string | undefined): 'amd64' | 'arm64' | undefined {
+function normalizeAgentArchitecture(value: string | undefined): 'amd64' | 'arm64' | undefined {
   const normalized = value?.trim().toLowerCase();
   if (normalized === 'amd64' || normalized === 'x86_64' || normalized === 'x64') return 'amd64';
   if (normalized === 'arm64' || normalized === 'aarch64') return 'arm64';
   return undefined;
 }
 
-function buildWindowsGoUpgradeEnvelope(agent: AgentRegistration, plan: AgentUpgradePlan, release: AgentVersionRelease, requestId: string): AgentUpgradeEnvelope {
+function buildGoFullUpgradeEnvelope(
+  agent: AgentRegistration,
+  plan: AgentUpgradePlan,
+  release: AgentVersionRelease,
+  requestId: string,
+  upgradeBootstrapUrl?: string,
+): AgentUpgradeEnvelope {
   const authorityKeyId = process.env.GCAC_AGENT_UPGRADE_AUTHORITY_KEY_ID?.trim();
   const privateKeyPem = process.env.GCAC_AGENT_UPGRADE_SIGNING_KEY_PEM?.replaceAll('\\n', '\n').trim();
-  const architecture = normalizeWindowsArchitecture(agent.descriptor.arch);
+  const productLine = resolveGoFullProductLine(agent.descriptor.osType);
+  const platform = agent.descriptor.osType.toLowerCase() as 'windows' | 'linux';
+  const architecture = normalizeAgentArchitecture(agent.descriptor.arch);
   const signatureKeyId = release.signatureKeyId?.trim() || process.env.GCAC_AGENT_RELEASE_SIGNING_KEY_ID?.trim();
   // 本地构建 Release 在没有发布信任根时只携带 SHA-256；一旦配置 keyId，
   // 必须同时提供真实 Ed25519 制品签名，避免把占位字符串送到 Agent 验签。
   const configuredArtifactSignature = release.artifactSignature?.trim();
   const artifactSignature = signatureKeyId && configuredArtifactSignature ? configuredArtifactSignature : '';
   if (!architecture || !release.artifactSize || release.artifactSize <= 0) {
-    throw new AppError('VALIDATION_FAILED', 'Windows Go Release 缺少架构或制品大小', { reason: 'RELEASE_METADATA_INCOMPLETE', releaseId: release.id });
+    throw new AppError('VALIDATION_FAILED', 'Go Full Release 缺少产品线、架构或制品大小', { reason: 'RELEASE_METADATA_INCOMPLETE', releaseId: release.id });
   }
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
@@ -2206,11 +2329,12 @@ function buildWindowsGoUpgradeEnvelope(agent: AgentRegistration, plan: AgentUpgr
     planId: plan.id,
     transactionId: plan.transactionId ?? newId('agtxn'),
     agentId: agent.id,
+    ...(upgradeBootstrapUrl ? { upgradeBootstrapUrl } : {}),
     release: {
       releaseId: release.id,
-      productLine: windowsGoProductLine,
+      productLine: productLine as GoFullProductLine,
       version: release.version,
-      platform: 'windows' as const,
+      platform,
       architecture,
       downloadUrl: release.downloadUrl,
       artifactSha256: release.checksumSha256,
@@ -2234,15 +2358,15 @@ function buildWindowsGoUpgradeEnvelope(agent: AgentRegistration, plan: AgentUpgr
     try {
       privateKey = createPrivateKey(privateKeyPem);
     } catch {
-      throw new AppError('CONFIGURATION_ERROR', 'Windows Go 升级签名私钥无法解析', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
+      throw new AppError('CONFIGURATION_ERROR', 'Go Full 升级签名私钥无法解析', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
     }
     if (privateKey.asymmetricKeyType !== 'ed25519') {
-      throw new AppError('CONFIGURATION_ERROR', 'Windows Go 升级签名私钥必须是 Ed25519', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
+      throw new AppError('CONFIGURATION_ERROR', 'Go Full 升级签名私钥必须是 Ed25519', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
     }
     envelope = signAgentUpgradeEnvelope(unsigned, privateKey);
   }
   structuredLogger.info(
-    'Windows Go UpgradeEnvelope 已签发',
+    'Go Full UpgradeEnvelope 已签发',
     {
       tenantId: plan.tenantId,
       agentId: agent.id,
@@ -2264,8 +2388,19 @@ function mapAgentUpgradeStatus(status: string | undefined): AgentUpgradePlan['st
   if (status === 'succeeded') return 'succeeded';
   if (status === 'failed') return 'failed';
   if (status === 'rolled_back') return 'rolled_back';
+  if (status === 'unknown') return 'unknown';
   if (status === 'manual_required') return 'manual_required';
   return undefined;
+}
+
+function isUpgradeTransactionIdentityMismatch(error: unknown): boolean {
+  return error instanceof AppError && readRecord(error.details).reason === 'AGENT_UPGRADE_RESPONSE_IDENTITY_MISMATCH';
+}
+
+function isStaleUpgradeHelperStatus(status: Awaited<ReturnType<AgentManagementClient['getUpgradeStatus']>>): boolean {
+  if (status.status !== 'running' || status.phase !== 'helper_started' || !status.updatedAt) return false;
+  const updatedAt = Date.parse(status.updatedAt);
+  return !Number.isNaN(updatedAt) && Date.now() - updatedAt >= agentUpgradeHelperTimeoutMs;
 }
 
 function readAppErrorCode(error: unknown): string {
@@ -2477,6 +2612,9 @@ const currentDirPath = path.dirname(currentFilePath);
 const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
 const windowsGoAgentAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
 const windowsGoAgentArm64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-arm64.exe');
+const linuxGoAgentRoot = resolveRepositoryAgentRoot('linux-go-full-agent');
+const linuxGoAgentAmd64Artifact = path.join(linuxGoAgentRoot, 'gcac-linux-agent');
+const linuxGoAgentArm64Artifact = path.join(linuxGoAgentRoot, 'gcac-linux-agent-arm64');
 const windowsGoAgentUpdaterAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent-updater.windows-amd64.exe');
 const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
@@ -2620,13 +2758,28 @@ async function readWindowsGoAgentVersion(): Promise<string> {
   return match[1];
 }
 
-function localWindowsReleaseId(tenantId: string, version: string, architecture: string): string {
-  // Release ID 表示租户、版本和架构，而不是某一次构建的摘要。
-  // 这样重新构建同一版本时会幂等更新制品元数据，不会遗留多个同版本候选。
-  return `agrel-local-windows-go-${sha256(`${tenantId}:${version}:${architecture}`).slice(0, 24)}`;
+async function readLinuxGoAgentVersion(): Promise<string> {
+  const source = await readFile(path.join(linuxGoAgentRoot, 'build.sh'), 'utf8');
+  const match = source.match(/VERSION_VALUE="\$\{VERSION:-([^"}]+)\}"/u);
+  if (!match?.[1] || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(match[1])) {
+    throw new AppError('RESOURCE_NOT_FOUND', '无法从 Linux Go Agent 构建脚本读取版本');
+  }
+  return match[1];
 }
 
-function localWindowsReleaseDownloadUrl(releaseId: string): string {
+function resolveGoFullArtifactPath(productLine: GoFullProductLine, architecture: 'amd64' | 'arm64' | undefined): string | undefined {
+  if (!architecture) return undefined;
+  if (productLine === windowsGoProductLine) return architecture === 'amd64' ? windowsGoAgentAmd64Artifact : windowsGoAgentArm64Artifact;
+  return architecture === 'amd64' ? linuxGoAgentAmd64Artifact : linuxGoAgentArm64Artifact;
+}
+
+function localGoFullReleaseId(productLine: GoFullProductLine, tenantId: string, version: string, architecture: string): string {
+  // Release ID 表示租户、版本和架构，而不是某一次构建的摘要。
+  // 这样重新构建同一版本时会幂等更新制品元数据，不会遗留多个同版本候选。
+  return `agrel-local-${productLine}-${sha256(`${tenantId}:${version}:${architecture}`).slice(0, 24)}`;
+}
+
+function localGoFullReleaseDownloadUrl(releaseId: string): string {
   const configuredReleaseBase = process.env.GCAC_AGENT_RELEASE_BASE_URL?.trim();
   const configuredBase = configuredReleaseBase
     || process.env.GCAC_PUBLIC_BASE_URL?.trim()

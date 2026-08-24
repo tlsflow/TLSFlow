@@ -355,7 +355,7 @@ async function executeAgentUpgradeTask(
       ...(receipt ? { receipt } : {}),
     };
     if (plan.status === 'succeeded') return { success: true, detail };
-    if (['failed', 'rolled_back', 'rejected', 'manual_required', 'transport_failed'].includes(plan.status)) {
+    if (['failed', 'rolled_back', 'rejected', 'unknown', 'manual_required', 'transport_failed'].includes(plan.status)) {
       return {
         success: false,
         retryable: false,

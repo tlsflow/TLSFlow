@@ -130,6 +130,19 @@ test('Agent 更新任务持续读取 UpgradePlan，成功和失败都收敛为�
   assert.equal(failed.success, false);
   assert.equal(failed.retryable, false);
   assert.equal(failed.errorCode, 'AGENT_UPGRADE_ARTIFACT_INVALID');
+
+  const unknownRegistry = createTaskExecutorRegistry({
+    agents: {
+      getUpgradeStatus: async () => ({ status: 'unknown', reason: '本地结果无法确认', result: { receipt: { phase: 'unknown', errorCode: 'AGENT_UPGRADE_RESULT_UNKNOWN' } } }),
+    } as never,
+  });
+  const unknown = await unknownRegistry.get('agent.update')(
+    task('AGENT_UPDATE', { agentId: 'agent-1', planId: 'plan-1', currentVersion: '0.1.32', targetVersion: '0.1.33' }),
+    attempt,
+  );
+  assert.equal(unknown.success, false);
+  assert.equal(unknown.retryable, false);
+  assert.equal(unknown.errorCode, 'AGENT_UPGRADE_RESULT_UNKNOWN');
 });
 
 test('执行任务写入结果不明时冻结待确认，不允许自动重放', async () => {

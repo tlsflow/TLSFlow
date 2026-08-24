@@ -78,6 +78,26 @@ test('AgentManagementClient 默认支持明文管理端点', async () => {
   );
 });
 
+test('AgentManagementClient 保留活动旧事务冲突响应，不误报为响应身份错误', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(409, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      errorCode: 'AGENT_UPGRADE_CONFLICT',
+      errorMessage: '已有升级事务正在执行',
+      transactionId: 'txn-old',
+      status: 'running',
+    }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const client = new AgentManagementClient(fetch, 5000);
+  const response = await client.dispatchUpgrade(createAgent(`http://127.0.0.1:${address.port}`), {} as AgentUpgradeEnvelope);
+  assert.equal(response.errorCode, 'AGENT_UPGRADE_CONFLICT');
+  assert.equal(response.transactionId, 'txn-old');
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+});
+
 function createAgent(managementEndpoint: string): AgentRegistration {
   const now = new Date().toISOString();
   return {

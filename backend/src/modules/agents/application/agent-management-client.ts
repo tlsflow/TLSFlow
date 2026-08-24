@@ -8,11 +8,16 @@ export interface AgentUpgradeEnvelope {
   planId: string;
   transactionId: string;
   agentId: string;
+  /**
+   * Linux Full Agent 使用现有 bootstrap 安装入口完成升级。
+   * Windows 继续使用原有升级器，因此该字段只对 Linux 生效。
+   */
+  upgradeBootstrapUrl?: string;
   release: {
     releaseId: string;
-    productLine: 'windows-go-full';
+    productLine: 'windows-go-full' | 'linux-go-full';
     version: string;
-    platform: 'windows';
+    platform: 'windows' | 'linux';
     architecture: 'amd64' | 'arm64';
     downloadUrl: string;
     artifactSha256: string;
@@ -62,6 +67,7 @@ export function signAgentUpgradeEnvelope(input: Omit<AgentUpgradeEnvelope, 'cont
     planId: input.planId,
     transactionId: input.transactionId,
     agentId: input.agentId,
+    ...(input.upgradeBootstrapUrl ? { upgradeBootstrapUrl: input.upgradeBootstrapUrl } : {}),
     release: input.release,
     policyRef: input.policyRef,
     approvalRef: input.approvalRef,
@@ -79,7 +85,7 @@ export function signAgentUpgradeEnvelope(input: Omit<AgentUpgradeEnvelope, 'cont
 type Fetcher = typeof fetch;
 
 /**
- * Windows Go 升级专用管理客户端。它只调用 Agent 管理端口，不会把请求转换成
+ * Go Full Agent 升级专用管理客户端。它只调用 Agent 管理端口，不会把请求转换成
  * Agent task，也不会在传输失败时切换到 SSH、CURL 或 Gateway Relay。
  */
 export class AgentManagementClient {
@@ -90,6 +96,8 @@ export class AgentManagementClient {
 
   async dispatchUpgrade(agent: AgentRegistration, envelope: AgentUpgradeEnvelope): Promise<AgentManagementResponse> {
     const body = await this.request(agent, '/api/v1/control/upgrade', 'POST', envelope);
+    // Agent 返回活动旧事务时，transactionId 指向冲突事务是有意义的证据，不能先被通用身份校验吞掉。
+    if (body.errorCode === 'AGENT_UPGRADE_CONFLICT') return body;
     assertResponseIdentity(body, envelope.transactionId, agent.id);
     return body;
   }

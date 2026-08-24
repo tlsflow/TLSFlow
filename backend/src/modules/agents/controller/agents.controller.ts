@@ -590,13 +590,15 @@ export class AgentsController {
     if (!releaseId || releaseId.includes('/')) throw new AppError('VALIDATION_FAILED', 'Release ID 无效');
     const artifact = await this.service.getReleaseArtifact(releaseId);
     const architecture = artifact.release.arch === 'arm64' ? 'arm64' : 'amd64';
+    const isLinux = artifact.release.productLine === 'linux-go-full' || artifact.release.platform.toUpperCase() === 'LINUX';
+    const fileName = isLinux ? `gcac-linux-agent-${architecture}` : `gcac-agent.windows-${architecture}.exe`;
     return {
       statusCode: 200,
       body: artifact.content,
       headers: {
-        'content-type': 'application/vnd.microsoft.portable-executable',
+        'content-type': isLinux ? 'application/octet-stream' : 'application/vnd.microsoft.portable-executable',
         'content-length': String(artifact.content.length),
-        'content-disposition': `attachment; filename="gcac-agent.windows-${architecture}.exe"`,
+        'content-disposition': `attachment; filename="${fileName}"`,
         'cache-control': 'public, max-age=31536000, immutable',
       },
     };
@@ -1689,6 +1691,8 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '} else {',
     '  config.capabilityRescanIntervalSeconds = 300;',
     '  config.capabilityRescanEnabled = true;',
+    '  config.upgradeTrustKeySet = manifest.upgradeTrustKeySet || {};',
+    '  config.releaseTrustKeySet = manifest.releaseTrustKeySet || {};',
     '  config.authorizationMaterialPath = `${manifest.dataDir}/policy/agent-trust-material.json`;',
     '}',
     'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',

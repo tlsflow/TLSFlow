@@ -70,6 +70,9 @@ export function getLinuxAgentInstallMaterials(arch = releaseArchitecture()): Lin
 export function getLinuxAgentBundleFiles(): LinuxBundleFile[] {
   return [
     loadFile('gcac-linux-agent', 0o755),
+    loadFile('linux/upgrade.sh', 0o755),
+    loadFile('linux/rollback.sh', 0o755),
+    loadFile('release/verify-signature.sh', 0o755),
     loadFile('service-control.sh', 0o755),
     loadFile('config/agent.config.template.json', 0o644),
     loadFile('linux/gcac-linux-agent.service', 0o644),
