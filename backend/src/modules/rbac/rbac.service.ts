@@ -54,6 +54,14 @@ export class RBACService {
     return this.users.update(userId, { ...patch, updatedAt: new Date().toISOString() });
   }
 
+  async deleteUser(userId: string): Promise<void> {
+    const links = await this.userRoles.list((row) => row.userId === userId);
+    for (const link of links) {
+      await this.userRoles.delete(link.id);
+    }
+    await this.users.delete(userId);
+  }
+
   async getUser(id: string): Promise<UserEntity | undefined> {
     return this.users.get(id);
   }

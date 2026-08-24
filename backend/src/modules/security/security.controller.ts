@@ -52,14 +52,18 @@ export class SecurityController {
     router.get('/api/v1/audit-events', '鏌ヨ瀹¤浜嬩欢', ['Security'], (request) => this.queryAudits(request));
     router.get('/api/v1/security/users', '鏌ヨ鐢ㄦ埛鍒楄〃', ['Security'], (request) => this.listUsers(request));
     router.post('/api/v1/security/users', '鍒涘缓鐢ㄦ埛', ['Security'], (request) => this.createUser(request));
+    router.patch('/api/v1/security/users', '更新用户', ['Security'], (request) => this.updateUser(request));
     router.patch('/api/v1/security/users/status', '淇敼鐢ㄦ埛鐘舵€?', ['Security'], (request) => this.updateUserStatus(request));
     router.post('/api/v1/security/users/roles', '鍒嗛厤鐢ㄦ埛瑙掕壊', ['Security'], (request) => this.assignUserRole(request));
+    router.delete('/api/v1/security/users/delete', '删除用户', ['Security'], (request) => this.deleteUser(request));
     router.get('/api/v1/security/roles', '鏌ヨ瑙掕壊鍒楄〃', ['Security'], (request) => this.listRoles(request));
     router.post('/api/v1/security/roles', '鍒涘缓瑙掕壊', ['Security'], (request) => this.createRole(request));
     router.get('/api/v1/security/permission-policies', '鏌ヨ鏉冮檺绛栫暐', ['Security'], (request) => this.listPermissionPolicies(request));
     router.post('/api/v1/security/permission-policies', '鍒涘缓鏉冮檺绛栫暐', ['Security'], (request) => this.createPermissionPolicy(request));
     router.get('/api/v1/security/identity-sources', '鏌ヨ韬唤婧?', ['Security'], (request) => this.listIdentitySources(request));
     router.post('/api/v1/security/identity-sources', '鍒涘缓韬唤婧?', ['Security'], (request) => this.createIdentitySource(request));
+    router.patch('/api/v1/security/identity-sources', '更新身份源', ['Security'], (request) => this.updateIdentitySource(request));
+    router.delete('/api/v1/security/identity-sources/delete', '删除身份源', ['Security'], (request) => this.deleteIdentitySource(request));
     router.post('/api/v1/security/identity-sources/test', '娴嬭瘯韬唤婧愯繛鎺?', ['Security'], (request) => this.testIdentitySource(request));
     router.post('/api/v1/security/identity-sources/sync-users', '鍚屾 LDAP 鐢ㄦ埛', ['Security'], (request) => this.syncIdentitySourceUsers(request));
     router.get('/api/v1/security/group-role-mappings', '鏌ヨ澶栭儴缁勮鑹叉槧灏?', ['Security'], (request) => this.listGroupRoleMappings(request));
@@ -269,6 +273,35 @@ export class SecurityController {
     return { statusCode: 201, body: user };
   }
 
+  private async updateUser(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
+    const body = validateObject(request.body, {
+      userId: { type: 'string', required: true },
+      displayName: { type: 'string' },
+      email: { type: 'string' },
+      status: { type: 'string', enum: ['active', 'disabled'] },
+      roleId: { type: 'string' },
+    });
+    const userId = String(body.userId);
+    if (userId === 'user_admin' && body.status === 'disabled') {
+      throw new AppError('VALIDATION_FAILED', '不能禁用内置管理员');
+    }
+    const user = await this.services.rbac.updateUser(userId, {
+      displayName: body.displayName === undefined ? undefined : String(body.displayName),
+      email: body.email === undefined ? undefined : String(body.email),
+      status: body.status === undefined ? undefined : body.status as 'active' | 'disabled',
+    });
+    if (body.roleId) {
+      await this.services.rbac.assignRole(userId, String(body.roleId));
+    }
+    await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_USER_UPDATED, 'security.user.update', 'user', user.id, {
+      roleId: body.roleId === undefined ? undefined : String(body.roleId),
+      status: user.status,
+    });
+    return user;
+  }
+
   private async updateUserStatus(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
@@ -291,6 +324,22 @@ export class SecurityController {
     await this.services.rbac.assignRole(String(body.userId), String(body.roleId));
     await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_USER_ROLE_ASSIGNED, 'security.user.assign_role', 'user', String(body.userId), { roleId: String(body.roleId) });
     return { userId: String(body.userId), roleId: String(body.roleId) };
+  }
+
+  private async deleteUser(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
+    const body = validateObject(request.body, {
+      userId: { type: 'string', required: true },
+    });
+    const userId = String(body.userId);
+    if (userId === 'user_admin') {
+      throw new AppError('VALIDATION_FAILED', '不能删除内置管理员');
+    }
+    await this.services.auth.deleteUserCredentials(userId);
+    await this.services.rbac.deleteUser(userId);
+    await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_USER_DELETED, 'security.user.delete', 'user', userId);
+    return { userId, deleted: true as const };
   }
 
   private async listRoles(request: HttpRequest) {
@@ -404,6 +453,62 @@ export class SecurityController {
       groupAttributes: body.groupAttributes === undefined ? undefined : toStringArray(body.groupAttributes, 'groupAttributes'),
     }, subject, request.context);
     return { statusCode: 201, body: source };
+  }
+
+  private async updateIdentitySource(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.identity_source.write', request, 'identitySource');
+    const body = validateObject(request.body, {
+      id: { type: 'string', required: true },
+      name: { type: 'string' },
+      type: { type: 'string', enum: ['active_directory', 'ldap'] },
+      url: { type: 'string' },
+      baseDn: { type: 'string' },
+      userFilter: { type: 'string' },
+      groupFilter: { type: 'string' },
+      syncUserFilter: { type: 'string' },
+      userDnTemplate: { type: 'string' },
+      bindDn: { type: 'string' },
+      bindPasswordSecretRef: { type: 'string' },
+      defaultRoleId: { type: 'string' },
+      requireGroupMapping: { type: 'boolean' },
+      tlsMode: { type: 'string', enum: ['none', 'starttls', 'ldaps'] },
+      userAttributes: { type: 'array' },
+      groupAttributes: { type: 'array' },
+      enabled: { type: 'boolean' },
+    });
+    return this.services.externalIdentity.updateSource(
+      String(body.id),
+      {
+        name: body.name === undefined ? undefined : String(body.name),
+        type: body.type as IdentitySourceType | undefined,
+        enabled: body.enabled === undefined ? undefined : Boolean(body.enabled),
+        url: body.url === undefined ? undefined : String(body.url),
+        baseDn: body.baseDn === undefined ? undefined : String(body.baseDn),
+        userFilter: body.userFilter === undefined ? undefined : String(body.userFilter),
+        groupFilter: body.groupFilter === undefined ? undefined : String(body.groupFilter),
+        syncUserFilter: body.syncUserFilter === undefined ? undefined : String(body.syncUserFilter),
+        userDnTemplate: body.userDnTemplate === undefined ? undefined : String(body.userDnTemplate),
+        bindDn: body.bindDn === undefined ? undefined : String(body.bindDn),
+        bindPasswordSecretRef: body.bindPasswordSecretRef === undefined ? undefined : String(body.bindPasswordSecretRef),
+        defaultRoleId: body.defaultRoleId === undefined ? undefined : String(body.defaultRoleId),
+        requireGroupMapping: body.requireGroupMapping === undefined ? undefined : Boolean(body.requireGroupMapping),
+        tlsMode: body.tlsMode as IdentitySourceTlsMode | undefined,
+        userAttributes: body.userAttributes === undefined ? undefined : toStringArray(body.userAttributes, 'userAttributes'),
+        groupAttributes: body.groupAttributes === undefined ? undefined : toStringArray(body.groupAttributes, 'groupAttributes'),
+      },
+      subject,
+      request.context,
+    );
+  }
+
+  private async deleteIdentitySource(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.identity_source.write', request, 'identitySource');
+    const body = validateObject(request.body, {
+      id: { type: 'string', required: true },
+    });
+    return this.services.externalIdentity.deleteSource(String(body.id), subject, request.context);
   }
 
   private async testIdentitySource(request: HttpRequest) {
@@ -547,14 +652,18 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/audit-events', operationId: 'queryAuditEvents', summary: '鏌ヨ瀹¤浜嬩欢', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/users', operationId: 'listSecurityUsers', summary: '鏌ヨ鐢ㄦ埛鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users', operationId: 'createSecurityUser', summary: '鍒涘缓鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PATCH', path: '/api/v1/security/users', operationId: 'updateSecurityUser', summary: '更新用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/users/status', operationId: 'updateSecurityUserStatus', summary: '淇敼鐢ㄦ埛鐘舵€?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users/roles', operationId: 'assignSecurityUserRole', summary: '鍒嗛厤鐢ㄦ埛瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'DELETE', path: '/api/v1/security/users/delete', operationId: 'deleteSecurityUser', summary: '删除用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/roles', operationId: 'listSecurityRoles', summary: '鏌ヨ瑙掕壊鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/roles', operationId: 'createSecurityRole', summary: '鍒涘缓瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/permission-policies', operationId: 'listSecurityPermissionPolicies', summary: '鏌ヨ鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/permission-policies', operationId: 'createSecurityPermissionPolicy', summary: '鍒涘缓鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '鏌ヨ韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '鍒涘缓韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PATCH', path: '/api/v1/security/identity-sources', operationId: 'updateIdentitySource', summary: '更新身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'DELETE', path: '/api/v1/security/identity-sources/delete', operationId: 'deleteIdentitySource', summary: '删除身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources/test', operationId: 'testIdentitySource', summary: '娴嬭瘯韬唤婧愯繛鎺?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources/sync-users', operationId: 'syncIdentitySourceUsers', summary: '鍚屾 LDAP 鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/group-role-mappings', operationId: 'listGroupRoleMappings', summary: '鏌ヨ澶栭儴缁勮鑹叉槧灏?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

@@ -115,9 +115,7 @@ export class RealLdapConnector implements LdapConnector {
   private async searchUsers(client: Client, source: IdentitySource, usernamePrefix?: string, pageSize = 100): Promise<LdapSearchEntry[]> {
     const filter = source.syncUserFilter
       ? renderLdapTemplate(source.syncUserFilter, { username: escapeLdapFilterValue(usernamePrefix ?? '') })
-      : source.userFilter
-        ? renderLdapTemplate(source.userFilter, { username: escapeLdapFilterValue(usernamePrefix ? `${usernamePrefix}*` : '*') })
-        : '(objectClass=person)';
+      : buildDefaultSyncFilter(source, usernamePrefix);
     const options: SearchOptions = {
       scope: 'sub',
       filter,
@@ -234,6 +232,31 @@ function requestedUserAttributes(source: IdentitySource): string[] {
   return source.userAttributes?.length
     ? source.userAttributes
     : ['dn', 'cn', 'displayName', 'mail', 'uid', 'sAMAccountName', 'userPrincipalName', 'memberOf', 'entryUUID', 'objectGUID', 'userAccountControl'];
+}
+
+export function buildDefaultSyncFilter(source: IdentitySource, usernamePrefix?: string): string {
+  if (source.type === 'active_directory') {
+    const samAccountClause = usernamePrefix
+      ? `(sAMAccountName=${escapeLdapFilterValue(`${usernamePrefix}*`)})`
+      : '(sAMAccountName=*)';
+    return `(&
+(objectCategory=person)
+(objectClass=user)
+(!(objectClass=computer))
+(!(userAccountControl:1.2.840.113556.1.4.803:=2))
+(!(sAMAccountName=*$))
+${samAccountClause}
+)`.replace(/\s+/g, '');
+  }
+  if (source.userFilter) {
+    return renderLdapTemplate(source.userFilter, {
+      username: escapeLdapFilterValue(usernamePrefix ? `${usernamePrefix}*` : '*'),
+    });
+  }
+  const uidClause = usernamePrefix
+    ? `(uid=${escapeLdapFilterValue(`${usernamePrefix}*`)})`
+    : '(uid=*)';
+  return `(&(objectClass=person)${uidClause})`;
 }
 
 function firstString(value: unknown): string | undefined {

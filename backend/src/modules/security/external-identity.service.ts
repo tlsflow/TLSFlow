@@ -191,6 +191,77 @@ export class ExternalIdentityService {
     return source;
   }
 
+  async updateSource(
+    sourceId: string,
+    patch: Partial<Omit<IdentitySource, 'id' | 'createdAt' | 'updatedAt' | 'lastSyncAt' | 'lastSyncStatus'>>,
+    actor: SecuritySubject,
+    context: RequestContext,
+  ): Promise<IdentitySource> {
+    const current = await this.sources.get(sourceId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    const next = await this.sources.update(sourceId, {
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.IDENTITY_SOURCE_UPDATED,
+      actorType: 'user',
+      actorId: actor.id,
+      action: 'security.identity_source.update',
+      resourceType: 'identitySource',
+      resourceId: sourceId,
+      result: 'success',
+      riskLevel: 'medium',
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
+      detail: {
+        before: {
+          name: current.name,
+          type: current.type,
+          url: current.url,
+          baseDn: current.baseDn,
+          bindDn: current.bindDn,
+          defaultRoleId: current.defaultRoleId,
+          enabled: current.enabled,
+          tlsMode: current.tlsMode,
+        },
+        after: {
+          name: next.name,
+          type: next.type,
+          url: next.url,
+          baseDn: next.baseDn,
+          bindDn: next.bindDn,
+          defaultRoleId: next.defaultRoleId,
+          enabled: next.enabled,
+          tlsMode: next.tlsMode,
+        },
+      },
+    });
+    return next;
+  }
+
+  async deleteSource(sourceId: string, actor: SecuritySubject, context: RequestContext): Promise<{ id: string; deleted: true }> {
+    const source = await this.sources.get(sourceId);
+    if (!source) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    const relatedMappings = await this.mappings.list((mapping) => mapping.sourceId === sourceId);
+    for (const mapping of relatedMappings) {
+      await this.mappings.delete(mapping.id);
+    }
+    await this.sources.delete(sourceId);
+    await this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.IDENTITY_SOURCE_DELETED,
+      actorType: 'user',
+      actorId: actor.id,
+      action: 'security.identity_source.delete',
+      resourceType: 'identitySource',
+      resourceId: sourceId,
+      result: 'success',
+      riskLevel: 'high',
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
+      detail: { name: source.name, mappingCount: relatedMappings.length },
+    });
+    return { id: sourceId, deleted: true };
+  }
+
   async testSource(sourceId: string, actorId = 'system', context: RequestContext = {}): Promise<LdapConnectionTestResult & { requestId?: string }> {
     const source = await this.sources.get(sourceId);
     if (!source) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
@@ -372,10 +443,11 @@ export class ExternalIdentityService {
   }
 
   private async upsertShadowUser(source: IdentitySource, profile: ExternalIdentityProfile, syncSource: 'login' | 'manual_sync') {
+    const shadowUsername = this.buildShadowUsername(profile);
     const existing = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
     if (existing) {
       return this.rbac.updateUser(existing.id, {
-        username: `${source.id}:${profile.username}`,
+        username: shadowUsername,
         displayName: profile.displayName || profile.username,
         email: profile.email,
         identityProvider: source.type,
@@ -388,7 +460,7 @@ export class ExternalIdentityService {
     }
     return this.rbac.createUser({
       id: `external_${source.id}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
-      username: `${source.id}:${profile.username}`,
+      username: shadowUsername,
       displayName: profile.displayName || profile.username,
       email: profile.email,
       status: profile.disabled ? 'disabled' : 'active',
@@ -400,6 +472,10 @@ export class ExternalIdentityService {
       lastSyncedAt: new Date().toISOString(),
       syncSource,
     });
+  }
+
+  private buildShadowUsername(profile: ExternalIdentityProfile): string {
+    return profile.username.trim();
   }
 
   private async matchRoleIds(sourceId: string, groups: string[]): Promise<string[]> {

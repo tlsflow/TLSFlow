@@ -79,7 +79,7 @@ describe('安全 API 最小闭环', () => {
     });
     assert.equal(externalLogin.statusCode, 200);
     const session = externalLogin.body as { token: string; user: { username: string; roles: Array<{ code: string }> }; permissions: string[] };
-    assert.equal(session.user.username, `${sourceId}:alice`);
+    assert.equal(session.user.username, 'alice');
     assert.deepEqual(session.user.roles.map((item) => item.code), ['ad_ops']);
     assert.equal(session.permissions.includes('dashboard.read'), true);
   });
@@ -142,10 +142,69 @@ describe('安全 API 最小闭环', () => {
     });
     assert.equal(users.statusCode, 200);
     const items = (users.body as { items: Array<{ username: string; identityProvider: string; externalSourceId?: string; email?: string }> }).items;
-    const ldapUser = items.find((item) => item.username === `${sourceId}:bob`);
+    const ldapUser = items.find((item) => item.username === 'bob');
     assert.equal(ldapUser?.identityProvider, 'ldap');
     assert.equal(ldapUser?.externalSourceId, sourceId);
     assert.equal(ldapUser?.email, 'bob@example.test');
+  });
+
+  it('AD 同步默认只保留真实用户并使用目录 sAMAccountName 作为本地用户名', async () => {
+    const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '企业 AD',
+        type: 'active_directory',
+        url: 'ldaps://ad.example.test:636',
+        baseDn: 'DC=example,DC=test',
+        userDnTemplate: '{{username}}@example.test',
+        groupFilter: '(member={{userDn}})',
+        requireGroupMapping: false,
+        tlsMode: 'ldaps',
+      },
+    });
+    const sourceId = (source.body as { id: string }).id;
+
+    connector.addProfile(sourceId, {
+      externalId: 'ad-user-jackson',
+      username: 'jackson',
+      displayName: 'Jackson Zhang',
+      email: 'jackson@example.test',
+      userDn: 'CN=Jackson Zhang,OU=Users,DC=example,DC=test',
+      groups: [],
+      password: 'jackson-password',
+    });
+
+    const sync = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources/sync-users',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId },
+    });
+    assert.equal(sync.statusCode, 200);
+
+    const users = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/users',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(users.statusCode, 200);
+    const items = (users.body as { items: Array<{ username: string; displayName: string }> }).items;
+    const adUser = items.find((item) => item.username === 'jackson');
+    assert.equal(adUser?.displayName, 'Jackson Zhang');
   });
 
   it('支持登录、Bearer Token 当前用户和权限管理 API', async () => {

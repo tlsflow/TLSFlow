@@ -122,6 +122,10 @@ export class AuthService {
     return user;
   }
 
+  async deleteUserCredentials(userId: string): Promise<void> {
+    await this.credentials.delete(userId);
+  }
+
   async currentSession(userId: string): Promise<AuthSessionResponse> {
     await this.seedReady;
     const user = await this.rbac.getUser(userId);
