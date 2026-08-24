@@ -136,6 +136,7 @@ export type WorkflowAssertion =
 export interface WorkflowHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
+  connectionRef?: string;
   query?: Record<string, string | number | boolean>;
   headers?: Record<string, string>;
   headerRefs?: Record<string, string>;

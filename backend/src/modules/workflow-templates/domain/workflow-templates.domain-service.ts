@@ -40,12 +40,14 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { WorkflowTemplateFileLibrary } from './workflow-template-file-library.js';
 import { normalizeExtractors, validateVariableValue, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
+import type { ResolvedConnectionV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 interface RuntimeContext {
   values: Record<string, unknown>;
   secretPaths: Set<string>;
   outputs: Record<string, unknown>;
   connections: Record<string, WorkflowSshConnection>;
+  resolvedConnections: Record<string, ResolvedConnectionV1>;
 }
 
 const defaultTransformTimeoutMs = 200;
@@ -700,6 +702,7 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
     secretPaths: new Set(input.resolvedInput.sensitivePaths),
     outputs: {},
     connections: resolveRuntimeConnections(input.resolvedInput),
+    resolvedConnections: input.resolvedInput.connections,
   };
 }
 
@@ -707,8 +710,6 @@ function withCurrentStepValues(values: Record<string, unknown>, stepName: string
   if (Object.keys(extracted).length === 0) return values;
   return {
     ...values,
-    // 当前步骤的提取结果在本步骤重渲染和后续旧模板中都按根变量访问。
-    ...extracted,
     steps: {
       ...(values.steps as Record<string, unknown>),
       [stepName]: { extracted },
@@ -754,6 +755,7 @@ function collectValuePaths(path: string, value: unknown, paths: Set<string>): vo
 
 function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode'], output?: WorkflowMockStepOutput): unknown {
   if (step.type === 'http') {
+    const httpConnection = resolveHttpConnection(step.request.connectionRef, context);
     const renderedHeaders = renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only') as Record<string, string>;
     const promotedHeaders = promoteSecretHeaders(renderedHeaders, step.request.headerRefs);
     const curlRequest = {
@@ -771,7 +773,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         formSecretRefs: adaptFormCredentialRefs(step.request.formCredentialRefs, context.values, mode === 'render_only'),
         multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
         auth: adaptHttpAuth(step.request.auth, context.values, mode === 'render_only'),
-        tls: adaptHttpTls(step.request.tls, context.values, mode === 'render_only'),
+        tls: adaptHttpTls(step.request.tls ?? (httpConnection?.tls ? { verify: httpConnection.tls.verifyPeer, sni: httpConnection.tls.serverName } : undefined), context.values, mode === 'render_only'),
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
         maxResponseBytes: step.request.maxResponseBytes,
       },
@@ -1259,6 +1261,15 @@ function resolveStepConnection(
   return resolved;
 }
 
+function resolveHttpConnection(connectionRef: string | undefined, context: RuntimeContext): ResolvedConnectionV1 | undefined {
+  if (!connectionRef) return undefined;
+  const resolved = context.resolvedConnections[connectionRef];
+  if (!resolved) throw new AppError('VALIDATION_FAILED', 'HTTP connectionRef 未定义', { connectionRef });
+  if (resolved.transport !== 'http') throw new AppError('VALIDATION_FAILED', 'HTTP connectionRef 必须引用 HTTP 连接', { connectionRef, transport: resolved.transport });
+  if (!resolved.host || !resolved.port) throw new AppError('VALIDATION_FAILED', '统一 HTTP Connection 快照不完整', { connectionRef });
+  return resolved;
+}
+
 function adaptHttpAuth(auth: Extract<WorkflowStep, { type: 'http' }>['request']['auth'], values: Record<string, unknown>, keepMissing: boolean) {
   if (!auth || auth.type === 'none') return auth;
   if (auth.type === 'basic') {
@@ -1334,7 +1345,7 @@ function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, v
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
   if (step.type === 'condition') return evaluateCondition(step.condition, values);
   if (step.type === 'checkpoint_verify') {
-    const plan = adaptStep(step, { values, secretPaths: new Set(), outputs: {}, connections: {} }, 'mock');
+    const plan = adaptStep(step, { values, secretPaths: new Set(), outputs: {}, connections: {}, resolvedConnections: {} }, 'mock');
     return isRecord(plan) && plan.matched === true;
   }
   return true;

@@ -185,9 +185,10 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'http') {
     rejectUnknown(step as unknown as Record<string, unknown>, httpStepKeys, path);
     if (!isRecord(step.request)) throw validationError(`${path}.request 必须是对象`);
-    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
+    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'connectionRef', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
+    if (step.request.connectionRef !== undefined && !isNonEmptyString(step.request.connectionRef)) throw validationError(`${path}.request.connectionRef 必须是非空字符串`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
     if (step.request.headerRefs !== undefined && !isSecretRefOrVariableRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 或 credential 变量引用对象`);
     if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);

@@ -1179,6 +1179,37 @@ describe('WorkflowTemplates', () => {
     }
   });
 
+  it('HTTP connectionRef 使用统一连接快照的 TLS 配置并拒绝 SSH Transport', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'http-connection-ref-runtime' },
+      variables: {},
+      steps: [{ name: 'probe', type: 'http', request: { method: 'GET', url: 'https://api.example.com/health', connectionRef: 'management' } }],
+    };
+    const result = await service.testStep({
+      content,
+      stepName: 'probe',
+      mode: 'render_only',
+      resolvedInput: resolvedWorkflowInput({
+        connections: { management: { transport: 'http', host: 'api.example.com', port: 8443, tls: { verifyPeer: false, serverName: 'adc.example.com' } } },
+      }),
+    });
+    const plan = result.stepResult.plan as { curlRequest: { template: { tls: { verify: boolean; sni?: string } } } };
+    assert.deepEqual(plan.curlRequest.template.tls, { verify: false, sni: 'adc.example.com' });
+
+    await assert.rejects(() => service.testStep({
+      content,
+      stepName: 'probe',
+      mode: 'render_only',
+      resolvedInput: resolvedWorkflowInput({
+        connections: { management: { transport: 'ssh', host: 'api.example.com', port: 22, username: 'root', credentialSlot: 'sshCredential' } },
+        credentials: { sshCredential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } } },
+      }),
+    }), /必须引用 HTTP 连接/);
+  });
+
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
