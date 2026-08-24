@@ -27,6 +27,11 @@ export default defineConfig({
       '/agent-install.ps1': {
         target: 'http://127.0.0.1:3003',
         changeOrigin: true
+      },
+      '/tls-inspector': {
+        target: 'http://127.0.0.1:8788',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/tls-inspector/, '')
       }
     }
   },
