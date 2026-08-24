@@ -14,8 +14,8 @@ import {
   listDeploymentPlans,
   submitDeploymentPlan,
 } from '@/api/modules/deployments.api'
-import { GcDeploymentWizard, GcDryRunResultModal, GcModal, GcStatusTag } from '@/design-system/components'
-import type { DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.vue'
+import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
+import type { DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
@@ -57,7 +57,6 @@ const relatedRecords = ref<RelatedExecutionRecord[]>([])
 const relatedRecordsLoading = ref(false)
 const relatedRecordsError = ref('')
 const activeDetailTab = ref<'summary' | 'versions' | 'execution'>('summary')
-const relatedExecutionModalOpen = ref(false)
 const relatedExecutionRow = ref<ViewRow | null>(null)
 const relatedExecutionDetail = useExecutionDetail(relatedExecutionRow)
 
@@ -69,6 +68,14 @@ const dryRunChecks = ref<ApiRecord[]>([])
 const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow)
 const dryRunResultModalOpen = ref(false)
 const dryRunActionError = ref('')
+const activeExecutionSource = ref<'plan' | 'related'>('plan')
+const latestExecutionMode = ref<'dry-run' | 'apply' | 'rollback'>('dry-run')
+const latestExecutionRequestId = ref('')
+const dryRunRequiredModalOpen = ref(false)
+const dryRunRequiredPending = ref(false)
+const dryRunRequiredMessage = ref('')
+const dryRunRequiredActionLabel = ref('')
+const dryRunRequiredRow = ref<ViewRow | null>(null)
 
 const pageConfig: BusinessPageConfig = {
   ...deploymentPlansPageConfig,
@@ -85,7 +92,7 @@ const pageConfig: BusinessPageConfig = {
         const result = await runPlanAction(action.label, row ?? null, () => action.run?.(row))
         await handleActionFeedback(action.label, row ?? null, result)
       } catch (cause) {
-        handleActionError(action.label, cause)
+        handleActionError(action.label, row ?? null, cause)
       }
     },
   })),
@@ -123,7 +130,7 @@ const pageConfig: BusinessPageConfig = {
           const result = await runPlanAction(action.label, row, () => action.run?.(row))
           await handleActionFeedback(action.label, row, result)
         } catch (cause) {
-          handleActionError(action.label, cause)
+          handleActionError(action.label, row, cause)
         }
       },
     }))),
@@ -136,25 +143,23 @@ const modalDescription = computed(() => {
   if (editingPlanId.value) return `当前正在编辑草稿计划 ${editingPlanId.value}。保存会重建草稿，dry-run、提交和执行会作用于当前草稿。`
   return '从应用资产选择部署目标，再选择证书版本与证书格式配置。'
 })
-const detailExecutionSummaryCards = computed(() => {
-  const summary = dryRunExecutionDetail.dryRunSummary.value
-  if (!summary) return []
-  return [
-    { label: '通过', value: summary.passed },
-    { label: '警告', value: summary.warning },
-    { label: '失败', value: summary.failed },
-    { label: '未知', value: summary.unknown },
-  ]
+const latestExecutionTitle = computed(() => resolveExecutionDialogTitle(latestExecutionMode.value))
+const latestExecutionViewMode = computed<'dry-run' | 'execution'>(() => (
+  latestExecutionMode.value === 'dry-run' ? 'dry-run' : 'execution'
+))
+const activeExecutionRow = computed(() => activeExecutionSource.value === 'related' ? relatedExecutionRow.value : dryRunRunRow.value)
+const activeExecutionDetail = computed(() => activeExecutionSource.value === 'related' ? relatedExecutionDetail : dryRunExecutionDetail)
+const activeExecutionChecks = computed(() => {
+  if (activeExecutionSource.value === 'related') return relatedExecutionDetail.dryRunChecks.value
+  return dryRunChecks.value.length ? dryRunChecks.value : dryRunExecutionDetail.dryRunChecks.value
 })
-const relatedExecutionSummaryCards = computed(() => {
-  const summary = relatedExecutionDetail.dryRunSummary.value
-  if (!summary) return []
-  return [
-    { label: '通过', value: summary.passed },
-    { label: '警告', value: summary.warning },
-    { label: '失败', value: summary.failed },
-    { label: '未知', value: summary.unknown },
-  ]
+const activeExecutionError = computed(() => {
+  if (activeExecutionSource.value === 'related') return relatedExecutionDetail.error.value
+  return dryRunExecutionDetail.error.value || dryRunActionError.value
+})
+const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
+  const type = readString(dryRunRunRow.value?.raw as ApiRecord | undefined, ['type'], 'dry_run')
+  return normalizeExecutionMode(type) === 'dry-run' ? 'dry-run' : 'execution'
 })
 
 async function openCreateDialog() {
@@ -208,10 +213,20 @@ function resetMessages() {
   submitRequestId.value = ''
   dryRunChecks.value = []
   dryRunActionError.value = ''
+  latestExecutionRequestId.value = ''
 }
 
 function closeDryRunResultModal() {
   dryRunResultModalOpen.value = false
+  latestExecutionRequestId.value = ''
+}
+
+function closeDryRunRequiredModal(force = false) {
+  if (dryRunRequiredPending.value && !force) return
+  dryRunRequiredModalOpen.value = false
+  dryRunRequiredMessage.value = ''
+  dryRunRequiredActionLabel.value = ''
+  dryRunRequiredRow.value = null
 }
 
 async function loadWizardOptions() {
@@ -300,22 +315,26 @@ async function loadRelatedRecords(row: ViewRow) {
 }
 
 async function openExecutionDetailFromPlan(row: ViewRow) {
-  const runId = readString(readRecord(row.raw, ['latestRun']), ['id', 'runId'])
+  const latestRun = readRecord(row.raw, ['latestRun'])
+  const runId = readString(latestRun, ['id', 'runId'])
     || readString(row.raw, ['latestRunId', 'runId'])
   if (!runId) {
     dryRunRunRow.value = null
     return
   }
+  const runStatus = readString(latestRun, ['status'], readString(row.raw, ['status'], 'UNKNOWN'))
+  const runType = readString(latestRun, ['type'], readString(row.raw, ['latestRunType', 'type'], 'dry_run'))
   dryRunRunRow.value = {
     id: runId,
     name: `执行 ${runId}`,
-    status: readString(row.raw, ['status'], 'UNKNOWN'),
+    status: runStatus,
     risk: normalizeRisk(readString(row.raw, ['risk', 'riskLevel'], 'HIGH')),
-    raw: { id: runId, runId, status: readString(row.raw, ['status'], 'UNKNOWN') },
+    raw: { id: runId, runId, status: runStatus, type: runType },
   }
 }
 
 function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
+  activeExecutionSource.value = 'related'
   relatedExecutionRow.value = {
     id: record.runId,
     name: record.planName,
@@ -332,7 +351,9 @@ function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
       planName: record.planName,
     },
   }
-  relatedExecutionModalOpen.value = true
+  latestExecutionMode.value = normalizeExecutionMode(record.type)
+  latestExecutionRequestId.value = ''
+  dryRunResultModalOpen.value = true
 }
 
 async function handleDryRun(plan: DeploymentWizardPlan) {
@@ -441,8 +462,10 @@ async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () =
   const result = await run()
   if (actionLabel === 'Dry-run 影响预览') {
     openExecutionModalFromResult(result, 'dry-run', row)
-  } else if (actionLabel === '执行部署' || actionLabel === '重新执行') {
+  } else if (actionLabel === '执行部署' || actionLabel === '重新执行' || actionLabel === '重试执行') {
     openExecutionModalFromResult(result, 'apply', row)
+  } else if (actionLabel === '回滚执行') {
+    openExecutionModalFromResult(result, 'rollback', row)
   }
   return result
 }
@@ -471,25 +494,67 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   await pageRef.value?.reload()
 }
 
-function handleActionError(actionLabel: string, cause: unknown) {
+function handleActionError(actionLabel: string, row: ViewRow | null, cause: unknown) {
+  if (shouldPromptDryRun(actionLabel, cause)) {
+    dryRunRequiredRow.value = row
+    dryRunRequiredActionLabel.value = actionLabel
+    dryRunRequiredMessage.value = toErrorMessage(cause, '执行前必须先完成一次成功的 Dry-run 影响预览。')
+    dryRunRequiredModalOpen.value = true
+    errorMessage.value = ''
+    infoMessage.value = ''
+    return
+  }
   if (actionLabel.includes('Dry-run')) {
     dryRunResultModalOpen.value = true
     errorMessage.value = ''
     infoMessage.value = ''
     dryRunChecks.value = []
     dryRunRunRow.value = null
-    dryRunActionError.value = toErrorMessage(cause, '?? dry-run ??')
+    dryRunActionError.value = toErrorMessage(cause, '发起 dry-run 失败')
     return
   }
-  errorMessage.value = toErrorMessage(cause, `${actionLabel}??`)
+  errorMessage.value = toErrorMessage(cause, `${actionLabel}失败`)
 }
 
-function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply', fallbackRow?: ViewRow | null) {
+function shouldPromptDryRun(actionLabel: string, cause: unknown): boolean {
+  if (!['执行部署', '重新执行', '重试执行'].includes(actionLabel)) return false
+  const message = toErrorMessage(cause, '').toLowerCase()
+  return (
+    message.includes('dry-run')
+    || message.includes('影响预览')
+    || message.includes('预检')
+    || message.includes('必须先完成一次成功')
+  )
+}
+
+async function runRequiredDryRun() {
+  if (!dryRunRequiredRow.value || dryRunRequiredPending.value) return
+  const row = dryRunRequiredRow.value
+  dryRunRequiredPending.value = true
+  closeDryRunRequiredModal(true)
+  try {
+    const result = await runPlanAction(
+      'Dry-run 影响预览',
+      row,
+      () => dryRunDeploymentPlan({ planId: readString(row.raw, ['id', 'planId']) }),
+    )
+    await handleActionFeedback('Dry-run 影响预览', row, result)
+  } catch (cause) {
+    handleActionError('Dry-run 影响预览', row, cause)
+  } finally {
+    dryRunRequiredPending.value = false
+  }
+}
+
+function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply' | 'rollback', fallbackRow?: ViewRow | null) {
+  activeExecutionSource.value = 'plan'
   const data = readResponseData(result)
   const run = readRecord(data, ['run'])
   const runId = readString(run, ['id', 'runId']) || readString(data, ['runId'])
   if (!runId) return
-  if (mode === 'dry-run') dryRunResultModalOpen.value = true
+  latestExecutionMode.value = mode
+  latestExecutionRequestId.value = readString(result as ApiRecord, ['requestId'], '')
+  dryRunResultModalOpen.value = true
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
@@ -503,6 +568,19 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   } else {
     dryRunChecks.value = []
   }
+}
+
+function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
+  if (mode === 'rollback') return 'IIS 证书回滚执行'
+  if (mode === 'apply') return 'IIS 证书更新执行'
+  return 'Dry-run 结果'
+}
+
+function normalizeExecutionMode(type: string): 'dry-run' | 'apply' | 'rollback' {
+  const normalized = type.trim().toLowerCase()
+  if (normalized === 'rollback') return 'rollback'
+  if (normalized === 'dry_run') return 'dry-run'
+  return 'apply'
 }
 
 function readResponseData(result: unknown): ApiRecord | undefined {
@@ -711,17 +789,42 @@ async function fetchAllPages(
 
     <GcDryRunResultModal
       v-model:open="dryRunResultModalOpen"
-      :run-id="dryRunRunRow?.id"
-      :request-id="dryRunRequestId || dryRunExecutionDetail.requestId.value"
-      :summary="dryRunExecutionDetail.dryRunSummary.value"
-      :checks="dryRunChecks.length ? dryRunChecks : dryRunExecutionDetail.dryRunChecks.value"
-      :steps="dryRunExecutionDetail.steps.value"
-      :lines="dryRunExecutionDetail.lines.value"
-      :loading="dryRunExecutionDetail.loading.value"
-      :polling="dryRunExecutionDetail.isPolling.value"
-      :error="dryRunExecutionDetail.error.value || dryRunActionError"
+      :title="latestExecutionTitle"
+      :run-id="activeExecutionRow?.id"
+      :request-id="latestExecutionRequestId || activeExecutionDetail.requestId.value || dryRunRequestId"
+      :summary="activeExecutionDetail.dryRunSummary.value"
+      :checks="activeExecutionChecks"
+      :steps="activeExecutionDetail.steps.value"
+      :lines="activeExecutionDetail.lines.value"
+      :loading="activeExecutionDetail.loading.value"
+      :polling="activeExecutionDetail.isPolling.value"
+      :error="activeExecutionError"
+      :mode="latestExecutionViewMode"
       @update:open="(value) => value ? (dryRunResultModalOpen = true) : closeDryRunResultModal()"
     />
+
+    <GcModal
+      v-model:open="dryRunRequiredModalOpen"
+      title="需要先执行 Dry-run"
+      description="正式执行前需要先完成一次成功的 Dry-run 影响预览。"
+      size="md"
+      width="560px"
+      :close-on-backdrop="!dryRunRequiredPending"
+    >
+      <section class="deployment-plans-page__dry-run-required">
+        <p class="deployment-plans-page__error">{{ dryRunRequiredMessage }}</p>
+        <p class="deployment-plans-page__dry-run-required-copy">
+          当前操作：{{ dryRunRequiredActionLabel || '执行部署' }}。请先做一次 Dry-run，确认影响范围和检查结论后再继续正式执行。
+        </p>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="dryRunRequiredPending" @click="closeDryRunRequiredModal()">取消</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="dryRunRequiredPending" @click="runRequiredDryRun">
+          {{ dryRunRequiredPending ? '正在发起 Dry-run…' : '先做 Dry-run' }}
+        </button>
+      </template>
+    </GcModal>
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -805,152 +908,25 @@ async function fetchAllPages(
 
         <section v-else class="deployment-plan-detail__section">
           <p v-if="!dryRunRunRow" class="deployment-plan-detail__loading">当前计划还没有执行记录。</p>
-          <template v-else>
-            <article
-              v-if="dryRunExecutionDetail.dryRunSummary.value"
-              class="deployment-plan-detail__summary"
-              :data-state="dryRunExecutionDetail.dryRunSummary.value.state"
-            >
-              <div class="deployment-plan-detail__summary-head">
-                <strong>{{ dryRunExecutionDetail.dryRunSummary.value.label }}</strong>
-                <span>{{ dryRunExecutionDetail.dryRunSummary.value.detail }}</span>
-              </div>
-              <div class="deployment-plan-detail__summary-grid">
-                <div v-for="item in detailExecutionSummaryCards" :key="item.label">
-                  <small>{{ item.label }}</small>
-                  <strong>{{ item.value }}</strong>
-                </div>
-              </div>
-            </article>
-
-            <ul v-if="dryRunExecutionDetail.steps.value.length" class="deployment-plan-detail__list">
-              <li v-for="step in dryRunExecutionDetail.steps.value" :key="step.id" class="deployment-plan-detail__list-item">
-                <div class="deployment-plan-detail__list-head">
-                  <strong>{{ step.name }}</strong>
-                  <GcStatusTag :status="step.status" />
-                </div>
-                <p>{{ step.detail ?? '暂无步骤说明' }}</p>
-                <small>{{ step.startedAt ?? '未开始' }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
-              </li>
-            </ul>
-
-            <ul v-if="dryRunExecutionDetail.lines.value.length" class="deployment-plan-detail__logs">
-              <li v-for="line in dryRunExecutionDetail.lines.value.slice(0, 20)" :key="line.id" class="deployment-plan-detail__log-item" :data-level="line.level">
-                <div class="deployment-plan-detail__log-meta">
-                  <span>{{ line.time }}</span>
-                  <strong>{{ line.step || '执行日志' }}</strong>
-                </div>
-                <p>{{ line.message }}</p>
-              </li>
-            </ul>
-          </template>
+          <GcExecutionProgressPanel
+            v-else
+            :run-id="dryRunRunRow.id"
+            :request-id="dryRunExecutionDetail.requestId.value"
+            :summary="dryRunExecutionDetail.dryRunSummary.value"
+            :checks="dryRunExecutionDetail.dryRunChecks.value"
+            :steps="dryRunExecutionDetail.steps.value"
+            :lines="dryRunExecutionDetail.lines.value"
+            :loading="dryRunExecutionDetail.loading.value"
+            :polling="dryRunExecutionDetail.isPolling.value"
+            :error="dryRunExecutionDetail.error.value"
+            :reveal-on-mount="false"
+            :mode="detailExecutionViewMode"
+          />
         </section>
       </section>
 
       <template #actions>
         <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
-      </template>
-    </GcModal>
-
-    <GcModal
-      v-model:open="relatedExecutionModalOpen"
-      :title="relatedExecutionRow ? `执行详情 ${relatedExecutionRow.id}` : '执行详情'"
-      description="查看关联记录对应执行的步骤状态和详细日志。"
-      size="xxl"
-      width="min(1280px, calc(100vw - 32px))"
-    >
-      <section v-if="relatedExecutionRow" class="execution-detail-modal">
-        <section class="execution-detail-modal__hero">
-          <div class="execution-detail-modal__hero-copy">
-            <p class="execution-detail-modal__eyebrow">Related Execution</p>
-            <h2>{{ readString(relatedExecutionRow.raw, ['planName', 'name', 'id'], relatedExecutionRow.id) }}</h2>
-            <span>部署计划 {{ readString(relatedExecutionRow.raw, ['deploymentPlanId', 'planId']) }}</span>
-          </div>
-          <div class="execution-detail-modal__hero-side">
-            <GcStatusTag :status="readString(relatedExecutionRow.raw, ['status', 'state', 'result'])" />
-            <div class="execution-detail-modal__spotlight">
-              <small>运行类型</small>
-              <strong>{{ readString(relatedExecutionRow.raw, ['type']) || 'unknown' }}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section class="execution-detail-modal__section">
-          <dl class="execution-detail-modal__facts">
-            <div>
-              <dt>执行 ID</dt>
-              <dd>{{ readString(relatedExecutionRow.raw, ['id', 'runId'], relatedExecutionRow.id) }}</dd>
-            </div>
-            <div>
-              <dt>部署计划</dt>
-              <dd>{{ readString(relatedExecutionRow.raw, ['deploymentPlanId', 'planId']) }}</dd>
-            </div>
-            <div>
-              <dt>运行类型</dt>
-              <dd>{{ readString(relatedExecutionRow.raw, ['type']) }}</dd>
-            </div>
-            <div>
-              <dt>执行状态</dt>
-              <dd>{{ readString(relatedExecutionRow.raw, ['status', 'state', 'result']) }}</dd>
-            </div>
-            <div>
-              <dt>创建时间</dt>
-              <dd>{{ formatBrowserLocalTime(readString(relatedExecutionRow.raw, ['createdAt'])) || readString(relatedExecutionRow.raw, ['createdAt']) }}</dd>
-            </div>
-            <div>
-              <dt>更新时间</dt>
-              <dd>{{ formatBrowserLocalTime(readString(relatedExecutionRow.raw, ['updatedAt'])) || readString(relatedExecutionRow.raw, ['updatedAt']) }}</dd>
-            </div>
-          </dl>
-
-          <article
-            v-if="relatedExecutionDetail.dryRunSummary.value"
-            class="execution-detail-modal__summary"
-            :data-state="relatedExecutionDetail.dryRunSummary.value.state"
-          >
-            <div class="execution-detail-modal__summary-head">
-              <strong>{{ relatedExecutionDetail.dryRunSummary.value.label }}</strong>
-              <span>{{ relatedExecutionDetail.dryRunSummary.value.detail }}</span>
-            </div>
-            <div class="execution-detail-modal__summary-grid">
-              <div v-for="item in relatedExecutionSummaryCards" :key="item.label">
-                <small>{{ item.label }}</small>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-          </article>
-
-          <p v-if="relatedExecutionDetail.loading.value" class="execution-detail-modal__loading">正在加载步骤和日志...</p>
-          <p v-else-if="relatedExecutionDetail.error.value" class="execution-detail-modal__error">{{ relatedExecutionDetail.error.value }}</p>
-          <template v-else>
-            <ul v-if="relatedExecutionDetail.steps.value.length" class="execution-detail-modal__list">
-              <li v-for="step in relatedExecutionDetail.steps.value" :key="step.id" class="execution-detail-modal__list-item">
-                <div class="execution-detail-modal__list-head">
-                  <strong>{{ step.name }}</strong>
-                  <GcStatusTag :status="step.status" />
-                </div>
-                <p>{{ step.detail ?? '暂无步骤说明' }}</p>
-                <small>{{ step.startedAt ?? '未开始' }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
-              </li>
-            </ul>
-            <p v-else class="execution-detail-modal__loading">暂无步骤。</p>
-
-            <ul v-if="relatedExecutionDetail.lines.value.length" class="execution-detail-modal__logs">
-              <li v-for="line in relatedExecutionDetail.lines.value" :key="line.id" class="execution-detail-modal__log-item" :data-level="line.level">
-                <div class="execution-detail-modal__log-meta">
-                  <span>{{ line.time }}</span>
-                  <strong>{{ line.step || '执行日志' }}</strong>
-                </div>
-                <p>{{ line.message }}</p>
-              </li>
-            </ul>
-            <p v-else class="execution-detail-modal__loading">暂无日志。</p>
-          </template>
-        </section>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" @click="relatedExecutionModalOpen = false">关闭</button>
       </template>
     </GcModal>
   </section>
@@ -970,6 +946,17 @@ async function fetchAllPages(
 .deployment-plans-page__wizard {
   display: grid;
   gap: var(--gc-space-3);
+}
+
+.deployment-plans-page__dry-run-required {
+  display: grid;
+  gap: 12px;
+}
+
+.deployment-plans-page__dry-run-required-copy {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  line-height: 1.6;
 }
 
 .deployment-plans-page__error,
@@ -1098,8 +1085,7 @@ async function fetchAllPages(
   box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
 }
 
-.deployment-plan-detail__section,
-.deployment-plan-detail__summary {
+.deployment-plan-detail__section {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
@@ -1115,8 +1101,7 @@ async function fetchAllPages(
   margin: 0;
 }
 
-.deployment-plan-detail__facts div,
-.deployment-plan-detail__summary-grid > div {
+.deployment-plan-detail__facts div {
   display: grid;
   gap: 5px;
   min-height: 70px;
@@ -1126,8 +1111,7 @@ async function fetchAllPages(
   border: 1px solid #e4edf8;
 }
 
-.deployment-plan-detail__facts dt,
-.deployment-plan-detail__summary-grid small {
+.deployment-plan-detail__facts dt {
   color: #64748b;
   font-size: 10px;
   font-weight: 800;
@@ -1143,57 +1127,7 @@ async function fetchAllPages(
   overflow-wrap: anywhere;
 }
 
-.deployment-plan-detail__summary-head {
-  display: grid;
-  gap: 4px;
-}
-
-.deployment-plan-detail__summary-head strong {
-  color: #0f172a;
-  font-size: 15px;
-}
-
-.deployment-plan-detail__summary-head span {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.deployment-plan-detail__summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.deployment-plan-detail__summary-grid strong {
-  font-size: 18px;
-  color: #0f172a;
-}
-
-.deployment-plan-detail__summary[data-state='passed'] {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-}
-
-.deployment-plan-detail__summary[data-state='warning'] {
-  border-color: #fde68a;
-  background: #fffbeb;
-}
-
-.deployment-plan-detail__summary[data-state='failed'] {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.deployment-plan-detail__summary[data-state='pending'],
-.deployment-plan-detail__summary[data-state='queued'],
-.deployment-plan-detail__summary[data-state='running'] {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-}
-
-.deployment-plan-detail__list,
-.deployment-plan-detail__logs {
+.deployment-plan-detail__list {
   display: grid;
   gap: 10px;
   padding: 0;
@@ -1201,8 +1135,7 @@ async function fetchAllPages(
   list-style: none;
 }
 
-.deployment-plan-detail__list-item,
-.deployment-plan-detail__log-item {
+.deployment-plan-detail__list-item {
   display: grid;
   gap: 6px;
   padding: 12px;
@@ -1292,8 +1225,7 @@ async function fetchAllPages(
   font-size: 12px;
 }
 
-.deployment-plan-detail__list-head,
-.deployment-plan-detail__log-meta {
+.deployment-plan-detail__list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1302,29 +1234,12 @@ async function fetchAllPages(
 }
 
 .deployment-plan-detail__list-item p,
-.deployment-plan-detail__list-item small,
-.deployment-plan-detail__log-meta span,
-.deployment-plan-detail__log-item p {
+.deployment-plan-detail__list-item small {
   margin: 0;
   color: #64748b;
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
-}
-
-.deployment-plan-detail__log-meta strong {
-  color: #0f172a;
-  font-size: 12px;
-}
-
-.deployment-plan-detail__log-item[data-level='error'] {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.deployment-plan-detail__log-item[data-level='warn'] {
-  border-color: #fde68a;
-  background: #fffbeb;
 }
 
 .deployment-plan-detail__loading,
@@ -1342,8 +1257,7 @@ async function fetchAllPages(
     grid-template-columns: 1fr;
   }
 
-  .deployment-plan-detail__facts,
-  .deployment-plan-detail__summary-grid {
+  .deployment-plan-detail__facts {
     grid-template-columns: 1fr;
   }
 
@@ -1352,255 +1266,4 @@ async function fetchAllPages(
   }
 }
 
-.execution-detail-modal {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.execution-detail-modal__hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: stretch;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid #d9e5f7;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
-}
-
-.execution-detail-modal__hero-copy {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.execution-detail-modal__eyebrow {
-  margin: 0;
-  color: #5b6f88;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.execution-detail-modal__hero-copy h2 {
-  margin: 0;
-  color: #0f172a;
-  font-size: 24px;
-  line-height: 1.06;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__hero-copy span {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.execution-detail-modal__hero-side {
-  display: grid;
-  align-content: space-between;
-  justify-items: end;
-  gap: 8px;
-  min-width: 150px;
-}
-
-.execution-detail-modal__spotlight {
-  display: grid;
-  gap: 4px;
-  min-width: 150px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
-}
-
-.execution-detail-modal__spotlight small {
-  color: rgb(255 255 255 / 68%);
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.execution-detail-modal__spotlight strong {
-  font-size: 16px;
-  line-height: 1.15;
-}
-
-.execution-detail-modal__section,
-.execution-detail-modal__summary {
-  display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid #e3ebf5;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff, #fbfdff);
-}
-
-.execution-detail-modal__facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.execution-detail-modal__facts div,
-.execution-detail-modal__summary-grid > div {
-  display: grid;
-  gap: 5px;
-  min-height: 70px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #f8fbff;
-  border: 1px solid #e4edf8;
-}
-
-.execution-detail-modal__facts dt,
-.execution-detail-modal__summary-grid small {
-  color: #64748b;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.execution-detail-modal__facts dd {
-  margin: 0;
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__summary-head {
-  display: grid;
-  gap: 4px;
-}
-
-.execution-detail-modal__summary-head strong {
-  color: #0f172a;
-  font-size: 15px;
-}
-
-.execution-detail-modal__summary-head span {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.execution-detail-modal__summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.execution-detail-modal__summary-grid strong {
-  font-size: 18px;
-  color: #0f172a;
-}
-
-.execution-detail-modal__summary[data-state='passed'] {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-}
-
-.execution-detail-modal__summary[data-state='warning'] {
-  border-color: #fde68a;
-  background: #fffbeb;
-}
-
-.execution-detail-modal__summary[data-state='failed'] {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.execution-detail-modal__summary[data-state='pending'],
-.execution-detail-modal__summary[data-state='queued'],
-.execution-detail-modal__summary[data-state='running'] {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-}
-
-.execution-detail-modal__list,
-.execution-detail-modal__logs {
-  display: grid;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.execution-detail-modal__logs {
-  max-height: 420px;
-  overflow: auto;
-}
-
-.execution-detail-modal__list-item,
-.execution-detail-modal__log-item {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid #e4edf8;
-  border-radius: 12px;
-  background: #f8fbff;
-}
-
-.execution-detail-modal__list-head,
-.execution-detail-modal__log-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.execution-detail-modal__list-item p,
-.execution-detail-modal__list-item small,
-.execution-detail-modal__log-meta span,
-.execution-detail-modal__log-item p {
-  margin: 0;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.execution-detail-modal__log-meta strong {
-  color: #0f172a;
-  font-size: 12px;
-}
-
-.execution-detail-modal__log-item[data-level='error'] {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.execution-detail-modal__log-item[data-level='warn'] {
-  border-color: #fde68a;
-  background: #fffbeb;
-}
-
-.execution-detail-modal__loading,
-.execution-detail-modal__error {
-  margin: 0;
-}
-
-.execution-detail-modal__error {
-  color: var(--gc-color-danger);
-}
-
-@media (max-width: 900px) {
-  .execution-detail-modal__hero {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .execution-detail-modal__facts,
-  .execution-detail-modal__summary-grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>
