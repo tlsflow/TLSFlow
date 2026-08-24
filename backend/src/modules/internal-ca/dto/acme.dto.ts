@@ -45,6 +45,8 @@ export interface CreateAcmeRenewalPolicyDto {
 export interface AcmeOrderView {
   id: string;
   status: string;
+  certificateRequestId: string;
+  certificateAssetId?: string;
   externalOrderUrl: string;
   identifiers: Array<{ type: string; value: string }>;
   authorizationCount: number;

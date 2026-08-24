@@ -26,6 +26,8 @@ export interface CreateAcmeOrderServiceInput {
 export interface AcmeOrderView {
   id: string;
   status: AcmeOrderEntity['status'];
+  certificateRequestId: string;
+  certificateAssetId?: string;
   externalOrderUrl: string;
   identifiers: AcmeOrderEntity['identifiers'];
   authorizationCount: number;
@@ -280,9 +282,12 @@ export class AcmeOrderService {
 
   private async toView(order: AcmeOrderEntity): Promise<AcmeOrderView> {
     const challenges = await this.repository.listChallenges(order.tenantId, order.id);
+    const request = await this.caRepository.getRequest(order.tenantId, order.certificateRequestId);
     return {
       id: order.id,
       status: order.status,
+      certificateRequestId: order.certificateRequestId,
+      certificateAssetId: request?.applicationAssetId,
       externalOrderUrl: order.externalOrderUrl,
       identifiers: order.identifiers.map((item) => ({ ...item })),
       authorizationCount: order.authorizationUrls.length,

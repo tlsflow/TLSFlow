@@ -148,6 +148,8 @@ test('ACME Order Service 固定 CSR/SAN 快照并创建对应 Authorization/Chal
   assert.equal(result.status, 'pending');
   assert.equal(result.identifiers[0]?.value, 'app.example.com');
   assert.equal(result.challengeCount, 1);
+  assert.equal(result.certificateRequestId, request.id);
+  assert.equal(result.certificateAssetId, request.applicationAssetId);
   assert.equal(savedOrder?.csrSha256, request.csrSha256);
   assert.equal(savedRequest.status, 'issuing');
   assert.equal(savedChallenge?.tokenSha256, createHash('sha256').update('token-value').digest('hex'));
