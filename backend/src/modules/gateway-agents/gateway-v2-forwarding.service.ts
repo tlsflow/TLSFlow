@@ -31,12 +31,12 @@ export interface GatewayV2ReplayBinding {
 
 export interface GatewayV2ReplayGuardPort {
   assertAvailable(binding: GatewayV2ReplayBinding): void;
-  consume(binding: GatewayV2ReplayBinding): void;
+  consume(binding: GatewayV2ReplayBinding, consumedForwardingGrant?: ForwardingGrant): void;
 }
 
 export interface GatewayV2NonceStorePort {
   assertV2NonceAvailable(binding: GatewayV2ReplayBinding): void;
-  consumeV2Nonce(taskId: string, binding: GatewayV2ReplayBinding): unknown;
+  consumeV2NonceAndForwardingGrant(taskId: string, binding: GatewayV2ReplayBinding, consumedForwardingGrant: ForwardingGrant): unknown;
 }
 
 /** 把 nonce 消费记录写回 GatewayTask，重启后仍能从持久化任务拒绝重放。 */
@@ -47,10 +47,11 @@ export class GatewayTaskReplayGuard implements GatewayV2ReplayGuardPort {
     this.store.assertV2NonceAvailable(binding);
   }
 
-  consume(binding: GatewayV2ReplayBinding): void {
+  consume(binding: GatewayV2ReplayBinding, consumedForwardingGrant?: ForwardingGrant): void {
     const taskId = binding.taskId;
     if (!taskId) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Gateway v2 nonce 消费缺少 GatewayTask ID');
-    this.store.consumeV2Nonce(taskId, binding);
+    if (!consumedForwardingGrant) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Gateway v2 nonce 消费缺少已绑定的 ForwardingGrant');
+    this.store.consumeV2NonceAndForwardingGrant(taskId, binding, consumedForwardingGrant);
   }
 }
 
@@ -72,7 +73,7 @@ export class GatewayV2ReplayGuard implements GatewayV2ReplayGuardPort {
     }
   }
 
-  consume(binding: { tenantId: string; agentId: string; tokenId: string; nonce: string; revocationRef: string }): void {
+  consume(binding: { tenantId: string; agentId: string; tokenId: string; nonce: string; revocationRef: string }, _consumedForwardingGrant?: ForwardingGrant): void {
     this.assertAvailable(binding);
     this.consumed.add(nonceKey(binding));
   }

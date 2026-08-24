@@ -108,10 +108,14 @@ export class GatewayAgentProcess {
         stepId: gatewayTask.stepId,
       });
       const consumed = this.grants.consume(grant);
-      const updated = this.options.gatewayTasks.updateForwardingGrant(gatewayTask.id, consumed);
+      // Nonce 与单次 ForwardingGrant 必须作为同一 GatewayTask 状态提交，避免先消费 Grant 再消费 Nonce 造成半提交。
+      this.replayGuard.consume(replayBinding, consumed);
+      const updated = this.options.gatewayTasks.get(gatewayTask.id);
+      if (!updated?.forwardingGrant || updated.forwardingGrant.status !== 'used' || !updated.v2NonceBinding) {
+        throw new AppError('SYSTEM_INTERNAL_ERROR', 'Gateway v2 授权材料未完成原子提交');
+      }
       gatewayTask.forwardingGrant = updated.forwardingGrant;
       authorizationCommitted = true;
-      this.replayGuard.consume(replayBinding);
 
       const forwarded = this.v2Forwarding.validateResult(request, await this.forwarder.forward({ ...request, forwardingGrant: consumed }));
       const reportedStatus = forwarded.receipt?.status ?? 'SUCCESS';

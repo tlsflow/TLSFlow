@@ -178,7 +178,6 @@ export class ExecutionResultSyncService {
     let latestSteps = await this.executions.listSteps(input.tenantId, run.id);
     let hasFailed = latestSteps.some((item) => item.status === 'FAILED' || item.status === 'TIMEOUT');
     let allFinished = latestSteps.every((item) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(item.status));
-    const executionMode = readString(mergedDetail, 'executionMode')?.toLowerCase();
     if (hasFailed && !allFinished) {
       await this.skipPendingStepsAfterRunFailure(run, latestSteps, input.actorId, input.tenantId, effectiveErrorCode ?? 'STEP_FAILED', effectiveErrorMessage ?? 'Agent 执行失败');
       latestSteps = await this.executions.listSteps(input.tenantId, run.id);
@@ -186,9 +185,7 @@ export class ExecutionResultSyncService {
       allFinished = latestSteps.every((item) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(item.status));
     }
     if (!allFinished) {
-      if (executionMode !== 'direct') {
-        await this.continueRunAfterAgentResult(run, input.actorId, input.tenantId);
-      }
+      await this.continueRunAfterAgentResult(run, input.actorId, input.tenantId);
       return;
     }
 
@@ -209,7 +206,7 @@ export class ExecutionResultSyncService {
     await this.recordTransitionIfChanged('executionRun', run.id, run.status, nextRunStatus, hasFailed ? 'agent.run.failed' : 'agent.run.success', input.actorId, run.tenantId);
     if (!isDryRun) {
       await this.syncDeploymentPlanAfterRun(finishedRun, latestSteps, input.actorId, input.tenantId);
-      if (hasFailed && executionMode !== 'direct') {
+      if (hasFailed) {
         await this.requestAutomaticRollbackIfNeeded(finishedRun, input.actorId, input.tenantId);
       }
     }
@@ -244,8 +241,39 @@ export class ExecutionResultSyncService {
       updatedAt: now,
       updatedBy: input.actorId,
     });
+    await this.persistUnknownDeploymentState(input.tenantId, run.deploymentPlanId, step.deploymentPlanTargetId, input.actorId, input.errorMessage ?? input.errorCode ?? 'Agent 写操作结果不明');
     this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, input.tenantId));
     this.detailStream?.publishRun(await this.executions.getRunOrThrow(run.id, input.tenantId));
+  }
+
+  private async persistUnknownDeploymentState(
+    tenantId: string,
+    deploymentPlanId: string,
+    targetId: string | undefined,
+    actorId: string,
+    reason: string,
+  ): Promise<void> {
+    if (!this.deploymentPlans) return;
+    const plan = await this.deploymentPlans.getPlan(deploymentPlanId, tenantId);
+    if (!plan) return;
+    await this.deploymentPlans.updatePlan(plan.id, {
+      executionStatus: 'UNKNOWN',
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorId,
+    });
+    if (!targetId) return;
+    const target = await this.deploymentPlans.getTarget(targetId, tenantId);
+    if (!target) return;
+    await this.deploymentPlans.updateTarget(target.id, {
+      executionStatus: 'UNKNOWN',
+      strategyPayload: {
+        ...(target.strategyPayload ?? {}),
+        executionStatus: 'UNKNOWN',
+        unknownReason: reason,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorId,
+    });
   }
 
   private async resolveTargetInstallDetail(tenantId: string, step: ExecutionStepEntity): Promise<Record<string, unknown> | undefined> {

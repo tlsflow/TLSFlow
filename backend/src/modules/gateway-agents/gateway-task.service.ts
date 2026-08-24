@@ -245,13 +245,24 @@ export class GatewayTaskService {
     if (taskId) throw new AppError('AUTH_FORBIDDEN', 'Gateway 拒绝重复使用 Agent v2 nonce', { reason: 'GATEWAY_V2_NONCE_REPLAY', taskId, tokenId: binding.tokenId, nonce: binding.nonce });
   }
 
-  consumeV2Nonce(taskId: string, binding: GatewayV2NonceBinding, now = new Date()): GatewayTask {
+  consumeV2NonceAndForwardingGrant(taskId: string, binding: GatewayV2NonceBinding, consumedForwardingGrant: NonNullable<GatewayTask['forwardingGrant']>, now = new Date()): GatewayTask {
     this.assertDurableV2NonceStore();
     const task = this.requireTask(taskId);
     assertV2TaskBinding(task, binding);
+    if (consumedForwardingGrant.id !== task.forwardingGrant?.id
+      || consumedForwardingGrant.status !== 'used'
+      || consumedForwardingGrant.remainingUses !== 0
+      || consumedForwardingGrant.tenantId !== task.tenantId
+      || consumedForwardingGrant.gatewayId !== task.gatewayId
+      || consumedForwardingGrant.delegatedTargetId !== task.delegatedTargetId
+      || consumedForwardingGrant.executionRunId !== task.executionRunId
+      || consumedForwardingGrant.stepId !== task.stepId) {
+      throw new AppError('AUTH_FORBIDDEN', 'Gateway v2 Nonce 与已消费 ForwardingGrant 不一致', { reason: 'GATEWAY_V2_COMMIT_BINDING_DENIED', taskId });
+    }
     this.assertV2NonceAvailable(binding);
     const nonceBinding = binding;
     const next = { ...task, v2NonceBinding: { ...nonceBinding, consumedAt: now.toISOString() }, updatedAt: now.toISOString() };
+    next.forwardingGrant = structuredClone(consumedForwardingGrant);
     const saved = this.save(next);
     this.v2NonceIndex.set(this.v2NonceKey(binding), taskId);
     return saved;

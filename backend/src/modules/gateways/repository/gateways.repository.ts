@@ -47,7 +47,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
       defaults.push(await this.upsertZone(tenantId, { id: 'zone_prod', name: '生产区', type: 'production', enabled: true, policy: { priority: 10, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 10 } }));
     }
     if (!existingIds.has('zone_dmz')) {
-      defaults.push(await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'], maxConcurrentTasks: 5 } }));
+      defaults.push(await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'], maxConcurrentTasks: 5 } }));
     }
     return defaults;
   }
@@ -437,11 +437,11 @@ function normalizeZoneId(value: string): string {
 }
 
 function defaultGatewayRouteChannels(): GatewayAdapterType[] {
-  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'];
+  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'];
 }
 
 function defaultGatewayCapabilities(): string[] {
-  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task', 'gateway.forward.direct_control'];
+  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task'];
 }
 
 function normalizeRouteChannels(values: GatewayAdapterType[]): GatewayAdapterType[] {
@@ -454,7 +454,9 @@ function normalizeRouteChannel(value: string): GatewayAdapterType {
   if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
   if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
   if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
-  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
+    throw new Error('Gateway 旧 Direct Control 能力已退役，只允许 forward.agent_task');
+  }
   return normalized as GatewayAdapterType;
 }
 
