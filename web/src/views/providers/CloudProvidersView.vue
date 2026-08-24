@@ -214,6 +214,7 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryPermission: 'cloud_account_asset.create',
   primaryActionLabel: t('providers.actions.add'),
   primaryAction: openAccountForm,
+  toolbarPlacement: 'hero-leading',
   moduleName: 'cloud-providers',
   resourceName: t('providers.sections.accounts'),
   defaultStatus: 'UNKNOWN',
@@ -704,7 +705,6 @@ function errorMessage(cause: unknown, fallback: string): string {
 
 <template>
   <main class="provider-page">
-    <p v-if="catalogLoading" class="provider-message">{{ t('common.loading') }}</p>
     <p v-if="catalogError" class="provider-message provider-message--error">{{ catalogError }}</p>
     <p v-if="notice" class="provider-message provider-message--success">{{ notice }}</p>
 

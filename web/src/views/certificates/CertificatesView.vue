@@ -18,6 +18,7 @@ import {
   GcDataTable,
   GcEmptyState,
   GcModal,
+  GcPageToolbar,
   GcPermissionButton,
   GcStatusTag,
 } from '@/design-system/components'
@@ -703,17 +704,21 @@ async function removeVersion(row: CertificateVersionRow) {
 
     <template v-if="isProfessionalView">
       <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-        <div class="certificate-page__toolbar-actions">
-          <button class="gc-button certificate-page__filter-toggle" type="button" @click="toggleFilters">
-            {{ t('certificates.list.actions.toggleFilters') }}
-          </button>
-          <GcPermissionButton class="gc-button certificate-page__trust-roots-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
-            {{ t('certificates.trustRoots.actions.open') }}
-          </GcPermissionButton>
-          <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
-            {{ t('certificates.import.title') }}
-          </GcPermissionButton>
-        </div>
+        <GcPageToolbar class="certificate-page__toolbar-actions">
+          <template #actions>
+            <button class="gc-button" type="button" @click="toggleFilters">
+              {{ t('certificates.list.actions.toggleFilters') }}
+            </button>
+            <GcPermissionButton class="gc-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
+              {{ t('certificates.trustRoots.actions.open') }}
+            </GcPermissionButton>
+          </template>
+          <template #primary>
+            <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.import" @click="openImportDialog">
+              {{ t('certificates.import.title') }}
+            </GcPermissionButton>
+          </template>
+        </GcPageToolbar>
       </Teleport>
 
       <section v-if="filtersVisible" class="certificate-page__toolbar">
@@ -1387,45 +1392,6 @@ async function removeVersion(row: CertificateVersionRow) {
   align-items: center;
   gap: 8px;
   min-height: 32px;
-}
-
-.certificate-page__toolbar-actions {
-  display: flex;
-  align-self: stretch;
-  align-items: stretch;
-  gap: var(--gc-space-2);
-}
-
-.certificate-page__filter-toggle,
-.certificate-page__trust-roots-button {
-  min-height: auto;
-  padding-inline: var(--gc-space-4);
-  border-radius: var(--gc-radius-md);
-  white-space: nowrap;
-}
-
-.certificate-page__import-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: auto;
-  padding-inline: var(--gc-space-4);
-  border: 0;
-  border-radius: var(--gc-radius-md);
-  color: var(--gc-color-surface-solid);
-  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
-  box-shadow: 0 10px 24px var(--gc-color-primary-weak);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.certificate-page__import-button:hover {
-  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
-}
-
-.certificate-page__import-button:focus-visible {
-  outline: 2px solid var(--gc-color-primary-border);
-  outline-offset: 2px;
 }
 
 .certificate-page__workspace {

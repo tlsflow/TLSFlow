@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type AcmeProviderPreset, type AcmeProviderPresetKey, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { listCertificateVersions, listCertificates } from '@/api/modules/certificates.api'
-import { GcAcmeDnsCredentialSelect, GcDataTable, GcModal } from '@/design-system/components'
+import { GcAcmeDnsCredentialSelect, GcDataTable, GcModal, GcPageToolbar } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { ApiRecord } from '@/api/modules/common'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -706,11 +706,15 @@ function latestVersionForAsset(asset: ApiRecord | null): InternalCaRecord | unde
 <template>
   <section class="acme-page">
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-      <div class="acme-hero-actions">
-        <button class="gc-button" type="button" :disabled="loading || actionPending" :aria-label="t('acme.aria.refresh')" @click="loadAll">{{ t('acme.actions.refresh') }}</button>
-        <button class="gc-button" type="button" :disabled="actionPending" @click="openProviderSettingsDialog">{{ t('acme.provider.actions.settings') }}</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" :aria-label="t('acme.aria.add')" @click="openCreateDialog">{{ t('acme.actions.add') }}</button>
-      </div>
+      <GcPageToolbar class="acme-hero-actions">
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading || actionPending" :aria-label="t('acme.aria.refresh')" @click="loadAll">{{ t('acme.actions.refresh') }}</button>
+          <button class="gc-button" type="button" :disabled="actionPending" @click="openProviderSettingsDialog">{{ t('acme.provider.actions.settings') }}</button>
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" :aria-label="t('acme.aria.add')" @click="openCreateDialog">{{ t('acme.actions.add') }}</button>
+        </template>
+      </GcPageToolbar>
     </Teleport>
 
     <p v-if="error" class="acme-error" role="alert">{{ error }}</p>
@@ -995,7 +999,6 @@ function latestVersionForAsset(asset: ApiRecord | null): InternalCaRecord | unde
 
 <style scoped>
 .acme-page { display: grid; gap: var(--gc-space-5); }
-.acme-hero-actions { display: flex; align-items: center; gap: var(--gc-space-2); }
 .acme-page-note { margin: 0; padding-top: var(--gc-space-4); color: var(--gc-color-text-muted); text-align: center; font-size: var(--gc-font-size-sm); }
 .acme-error { margin: 0; padding: var(--gc-space-3); color: var(--gc-color-danger); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); background: var(--gc-color-danger-bg); }
 .acme-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }

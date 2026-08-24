@@ -55,6 +55,7 @@ let applicationAssetsRequest: Promise<void> | null = null
 const pageConfig = computed<BusinessPageConfig>(() => ({
   title: t('automations.title'),
   description: t('automations.description'),
+  toolbarPlacement: 'hero-leading',
   showHeader: false,
   showMetrics: false,
   readPermission: 'automation.read',

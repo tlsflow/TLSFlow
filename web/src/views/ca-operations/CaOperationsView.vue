@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
-import { GcDataTable, GcEmptyState } from '@/design-system/components'
+import { GcDataTable, GcEmptyState, GcPageToolbar } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -199,12 +199,16 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 <template>
   <main class="ca-operations">
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-      <div class="ca-operations__hero-actions">
-        <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
-          {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
-        </button>
-      </div>
+      <GcPageToolbar class="ca-operations__hero-actions">
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
+            {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
+          </button>
+        </template>
+      </GcPageToolbar>
     </Teleport>
 
     <p v-if="errorKey" class="ca-operations__error" role="alert">{{ t(errorKey) }}</p>
@@ -299,7 +303,6 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
 <style scoped>
 .ca-operations { display: grid; gap: var(--gc-space-4); }
-.ca-operations__hero-actions { display: flex; align-items: center; gap: var(--gc-space-2); }
 .ca-operations__error { margin: 0; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-soft); border: 1px solid var(--gc-color-danger-border); border-radius: 14px; font-size: 12px; }
 
 .ca-operations__layout {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { Teleport, computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { GcEmptyState, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcModal, GcPageToolbar, GcStatusTag } from '@/design-system/components'
 import { listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
@@ -37,6 +37,7 @@ const PAGE_SIZE = 20
 
 const route = useRoute()
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const allRows = ref<ExecutionListRow[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -288,13 +289,15 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 <template>
   <section class="gc-page execution-page">
-    <GcPageHeader :title="t('executions.title')" :description="t('executions.description')">
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="loading" @click="loadExecutions">
-          {{ loading ? t('executions.actions.refreshing') : t('executions.actions.refreshList') }}
-        </button>
-      </template>
-    </GcPageHeader>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading" @click="loadExecutions">
+            {{ loading ? t('executions.actions.refreshing') : t('executions.actions.refreshList') }}
+          </button>
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <GcEmptyState v-if="error" :title="t('executions.errors.loadFailed')" :description="error">
       <button class="gc-button" type="button" @click="loadExecutions">{{ t('common.refresh') }}</button>

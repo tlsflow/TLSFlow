@@ -37,6 +37,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Certificate Assets',
       titleKey: 'nav.certificateAssets',
+      heroTitle: true,
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.asset.read',
@@ -71,6 +72,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Internal CA',
       titleKey: 'internalCa.title',
+      heroTitle: true,
       module: 'certificate',
       requiresAuth: true,
       permission: 'ca.operations.read',
@@ -88,6 +90,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'ACME Operations',
       titleKey: 'acme.title',
+      heroTitle: true,
       module: 'certificate',
       requiresAuth: true,
       permission: 'ca.operations.read',
@@ -165,6 +168,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Cloud Providers',
       titleKey: 'providers.page.title',
+      heroTitle: true,
       module: 'provider',
       requiresAuth: true,
       permission: 'cloud_account_asset.read',
@@ -181,7 +185,8 @@ export const businessRoutes: GcRouteRecord[] = [
     component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
       title: 'Application Assets',
-      titleKey: 'nav.assets',
+      titleKey: 'nav.assetManagement',
+      heroTitle: true,
       module: 'asset',
       requiresAuth: true,
       permission: 'service_asset.read',
@@ -198,6 +203,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Certificate Format Config',
       titleKey: 'nav.certificateFormats',
+      heroTitle: true,
       module: 'binding',
       requiresAuth: true,
       permission: 'binding.read',
@@ -214,6 +220,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Deployment Plans',
       titleKey: 'nav.deploymentPlans',
+      heroTitle: true,
       module: 'deployment',
       requiresAuth: true,
       permission: 'deployment.plan.read',
@@ -230,6 +237,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Executions',
       titleKey: 'nav.executions',
+      heroTitle: true,
       module: 'execution',
       requiresAuth: true,
       permission: 'execution.run.read',
@@ -246,6 +254,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Assets',
       titleKey: 'devices.page.title',
+      heroTitle: true,
       module: 'asset',
       requiresAuth: true,
       permission: 'host.read',
@@ -262,6 +271,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Devices',
       titleKey: 'devices.page.title',
+      heroTitle: true,
       module: 'device',
       requiresAuth: true,
       permission: 'host.read',
@@ -294,6 +304,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Gateways',
       titleKey: 'nav.gateways',
+      heroTitle: true,
       module: 'gateway',
       requiresAuth: true,
       permission: 'gateway.read',
@@ -326,6 +337,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Workflows',
       titleKey: 'nav.workflowTemplates',
+      heroTitle: true,
       module: 'workflow',
       requiresAuth: true,
       permission: 'workflow.read',
@@ -358,6 +370,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Automations',
       titleKey: 'nav.automations',
+      heroTitle: true,
       module: 'automation',
       requiresAuth: true,
       permission: 'automation.read',
@@ -437,6 +450,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'System Settings',
       titleKey: 'nav.systemSettings',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'settings.read',
@@ -453,6 +467,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'credentials.title',
       titleKey: 'credentials.title',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'credential.read',
@@ -500,6 +515,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'settings.version.title',
       titleKey: 'settings.version.title',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'settings.read',
@@ -517,6 +533,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Notification Center',
       titleKey: 'notifications.title',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'notification.channel.read',
@@ -533,6 +550,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Users',
       titleKey: 'nav.users',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'security.user.read',
@@ -549,6 +567,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Roles',
       titleKey: 'nav.roles',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'security.role.read',
@@ -565,6 +584,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Identity Sources',
       titleKey: 'nav.identitySources',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'security.identity_source.read',

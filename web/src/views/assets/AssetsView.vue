@@ -13,7 +13,7 @@ import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcPermissionButton, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcPageToolbar, GcPermissionButton, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { useTenantStore } from '@/stores/tenant.store'
@@ -93,6 +93,7 @@ const { t, locale } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const tenantStore = useTenantStore()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const userAssetItems = ref<ApiRecord[]>([])
 const userAssetsLoading = ref(false)
@@ -2009,7 +2010,26 @@ function managedTargetLabel(target: ApiRecord): string {
       </section>
     </template>
 
-    <BusinessResourcePage v-else ref="pageRef" :config="config" />
+    <template v-else>
+      <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+        <GcPageToolbar class="asset-page__hero-actions">
+          <template #actions>
+            <button class="gc-button" type="button" @click="pageRef?.reload()">{{ t('common.refresh') }}</button>
+          </template>
+          <template #primary>
+            <GcPermissionButton
+              class="gc-button gc-button--primary"
+              permission="service_asset.manage"
+              @click="openCreateDialog"
+            >
+              {{ t('assets.actions.add') }}
+            </GcPermissionButton>
+          </template>
+        </GcPageToolbar>
+      </Teleport>
+
+      <BusinessResourcePage ref="pageRef" :config="config" />
+    </template>
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -2678,6 +2698,10 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.asset-page :deep(.business-page__toolbar) {
+  display: none;
 }
 
 .asset-user-view__hero {

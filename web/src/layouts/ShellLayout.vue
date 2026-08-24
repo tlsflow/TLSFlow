@@ -557,9 +557,17 @@ async function refreshTaskEntryCount(): Promise<void> {
     </header>
 
     <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
-      <section v-if="showHeroBar" class="gc-shell__hero" :aria-label="t('shell.currentLocation')">
-        <h1 v-if="currentPageTitle" class="gc-shell__page-title">{{ currentPageTitle }}</h1>
-        <div id="gc-shell-hero-actions" class="gc-shell__hero-actions"></div>
+      <section
+        v-if="showHeroBar"
+        class="gc-shell__hero"
+        :class="{ 'gc-shell__hero--monitoring': route.path === '/monitors' }"
+        :aria-label="t('shell.currentLocation')"
+      >
+        <div class="gc-shell__hero-main">
+          <h1 v-if="currentPageTitle" class="gc-shell__page-title">{{ currentPageTitle }}</h1>
+          <div id="gc-shell-hero-leading" class="gc-shell__hero-leading"></div>
+          <div id="gc-shell-hero-actions" class="gc-shell__hero-actions"></div>
+        </div>
         <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
           <RouterLink
             v-for="child in activeChildren"

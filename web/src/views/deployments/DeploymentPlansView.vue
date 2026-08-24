@@ -140,6 +140,7 @@ const pageConfig = computed<BusinessPageConfig>(() => {
   const baseConfig = createDeploymentPlansPageConfig(t)
   return {
     ...baseConfig,
+    toolbarPlacement: 'hero-leading',
     showHeader: false,
     showMetrics: false,
     showDetailPanel: false,

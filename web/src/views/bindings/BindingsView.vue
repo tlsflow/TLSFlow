@@ -14,6 +14,7 @@ import {
   GcDataTable,
   GcEmptyState,
   GcModal,
+  GcPageToolbar,
   GcPermissionButton,
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
@@ -616,13 +617,17 @@ function toErrorMessage(cause: unknown, fallback: string) {
 <template>
   <section class="gc-page artifact-page">
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-      <div class="artifact-page__hero-actions">
-        <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>
-        <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
-        <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.format.create" @click="openCreateDialog">
-          {{ t('bindings.actions.create') }}
-        </GcPermissionButton>
-      </div>
+      <GcPageToolbar class="artifact-page__hero-actions">
+        <template #actions>
+          <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>
+          <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.format.create" @click="openCreateDialog">
+            {{ t('bindings.actions.create') }}
+          </GcPermissionButton>
+        </template>
+      </GcPageToolbar>
     </Teleport>
 
     <section v-if="filtersVisible" class="gc-card artifact-page__filters">
@@ -861,12 +866,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
   gap: 10px;
   flex: 1;
   min-height: 0;
-}
-
-.artifact-page__hero-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--gc-space-2);
 }
 
 .artifact-page__filters {

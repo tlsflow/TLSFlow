@@ -64,6 +64,7 @@ export interface BusinessFilterField {
 export interface BusinessPageConfig {
   readonly title: string
   readonly description: string
+  readonly toolbarPlacement?: 'table' | 'hero-leading'
   readonly showHeader?: boolean
   readonly showMetrics?: boolean
   readonly showEmptyState?: boolean

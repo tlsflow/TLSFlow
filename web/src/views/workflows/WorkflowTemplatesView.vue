@@ -70,6 +70,7 @@ const showNonDeploymentWorkflows = ref(false)
 const config: BusinessPageConfig = {
   title: t('workflows.templates.title'),
   description: t('workflows.templates.description'),
+  toolbarPlacement: 'hero-leading',
   showHeader: false,
   showMetrics: false,
   readPermission: 'workflow.read',
