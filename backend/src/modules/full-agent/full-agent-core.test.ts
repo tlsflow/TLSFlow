@@ -297,6 +297,8 @@ describe('spec012 Full Agent 最小骨架', () => {
       'README.md',
       'config/agent.config.template.json',
       'linux/gcac-full-agent-test.service',
+      'linux/gcac-nginx-helper.example.sh',
+      'linux/gcac-nginx.sudoers.example',
       'linux/install-systemd.sh',
       'linux/uninstall-systemd.sh',
       'windows/install-service.ps1',
@@ -319,6 +321,18 @@ describe('spec012 Full Agent 最小骨架', () => {
     assert.match(linuxInstall?.content ?? '', /健康检查命令：'\/opt\/gcac\/full-agent\/bin\/gcac-full-agent' health/);
     assert.match(linuxInstall?.content ?? '', /回滚\/卸载命令：sudo bash \.\/linux\/uninstall-systemd\.sh/);
 
+    const nginxHelper = byPath.get('linux/gcac-nginx-helper.example.sh');
+    assert.equal(nginxHelper?.mode, 0o755);
+    assert.match(nginxHelper?.content ?? '', /case "\$\{ACTION\}" in/);
+    assert.match(nginxHelper?.content ?? '', /exec "\$\{NGINX_BIN\}" -t/);
+    assert.match(nginxHelper?.content ?? '', /exec "\$\{SYSTEMCTL_BIN\}" reload "\$\{NGINX_SERVICE\}"/);
+
+    const nginxSudoers = byPath.get('linux/gcac-nginx.sudoers.example');
+    assert.equal(nginxSudoers?.mode, 0o644);
+    assert.match(nginxSudoers?.content ?? '', /Cmnd_Alias GCAC_NGINX_DIRECT/);
+    assert.match(nginxSudoers?.content ?? '', /Cmnd_Alias GCAC_NGINX_HELPER/);
+    assert.match(nginxSudoers?.content ?? '', /gcac-agent ALL=\(root\) NOPASSWD:/);
+
     const linuxUninstall = byPath.get('linux/uninstall-systemd.sh');
     assert.equal(linuxUninstall?.mode, 0o755);
     assert.match(linuxUninstall?.content ?? '', /systemctl disable --now/);
@@ -338,6 +352,12 @@ describe('spec012 Full Agent 最小骨架', () => {
     const template = JSON.parse(byPath.get('config/agent.config.template.json')?.content ?? '{}') as { controlPlaneUrl: string; security: { providerPermissionMode: string } };
     assert.equal(template.controlPlaneUrl, 'https://control.example.test');
     assert.equal(template.security.providerPermissionMode, 'deny-by-default');
+
+    const readme = byPath.get('README.md');
+    assert.match(readme?.content ?? '', /helper-required/);
+    assert.match(readme?.content ?? '', /2770/);
+    assert.match(readme?.content ?? '', /gcac-nginx\.sudoers\.example/);
+    assert.match(readme?.content ?? '', /gcac-nginx-helper\.example\.sh/);
 
     assert.match(bundle.linux.commands.rollbackUninstall, /systemctl disable --now/);
     assert.match(bundle.windows.commands.rollbackUninstall, /sc\.exe delete/);

@@ -154,7 +154,7 @@ export class AgentsController {
 
   private async getWindowsPowerShellBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
+    const session = await this.service.consumeWindowsPowerShellInstallSessionByToken(tenantId(request), token, request.context.ip);
     const baseUrl = resolveInstallBaseUrl(request);
     const manifest = {
       ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
@@ -171,7 +171,7 @@ export class AgentsController {
 
   private async getWindowsPowerShellManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.getInstallSessionByToken(token);
+    const session = await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
     const baseUrl = resolveInstallBaseUrl(request);
     return {
       ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
@@ -181,7 +181,7 @@ export class AgentsController {
 
   private async getLinuxGoBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
+    const session = await this.service.getInstallSessionByToken(token);
     const baseUrl = resolveInstallBaseUrl(request);
     const manifest = {
       ...this.service.buildLinuxGoInstallManifest(session),
@@ -199,7 +199,7 @@ export class AgentsController {
 
   private async getLinuxGoManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
+    const session = await this.service.getInstallSessionByToken(token);
     const baseUrl = resolveInstallBaseUrl(request);
     return {
       ...this.service.buildLinuxGoInstallManifest(session),

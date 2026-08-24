@@ -17,6 +17,7 @@ import { buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest } from './linux
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
+import type { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
@@ -28,6 +29,7 @@ export class AgentsApplicationService {
     private readonly certificates?: CertificatesApplicationService,
     private readonly secrets?: SecretService,
     private readonly executionResultSync?: ExecutionResultSyncService,
+    private readonly detailStream?: ExecutionDetailStreamService,
   ) {}
 
   getModuleMetadata() {
@@ -275,7 +277,7 @@ export class AgentsApplicationService {
   }
 
   async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
-    await this.requireAgent(tenantId, input.agentId);
+    const agent = await this.requireAgent(tenantId, input.agentId);
     const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
     if (existingQueuedTask) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', 'Agent 已存在进行中的能力重扫任务', {
@@ -284,7 +286,7 @@ export class AgentsApplicationService {
         status: existingQueuedTask.status,
       });
     }
-    return this.enqueueTask(tenantId, {
+    const task = await this.enqueueTask(tenantId, {
       agentId: input.agentId,
       executionRunId: `agent_rescan:${input.agentId}`,
       executionStepId: `capability_rescan:${input.agentId}`,
@@ -295,6 +297,18 @@ export class AgentsApplicationService {
         requestedAt: new Date().toISOString(),
       },
     }, requestId);
+    if (agent.directControl?.enabled && agent.directControl.reachable && agent.directControl.supportedActions.includes('agent.capability.rescan')) {
+      try {
+        const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
+        return direct.task;
+      } catch (error) {
+        const appError = error instanceof AppError ? error : undefined;
+        if (!shouldFallbackDirectExecution(appError)) {
+          throw error;
+        }
+      }
+    }
+    return task;
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
@@ -435,7 +449,10 @@ export class AgentsApplicationService {
       success: direct.success,
       errorCode: direct.errorCode,
       errorMessage: direct.errorMessage,
-      detail: direct.detail,
+      detail: {
+        executionMode: 'direct',
+        ...(direct.detail ?? {}),
+      },
     });
 
     const updatedTask = await this.requireTask(tenantId, task.agentId, task.id);
@@ -488,6 +505,10 @@ export class AgentsApplicationService {
       const saved = await this.repository.saveTaskLog(this.domain.normalizeTaskLog(tenantId, { ...log, agentId: input.agentId, taskId: input.taskId }, requestId));
       existingLogs.push(saved);
       acceptedSequences.push(saved.sequence);
+      const task = await this.repository.getTask(tenantId, input.taskId);
+      if (task) {
+        this.detailStream?.publishLog(task.executionRunId, tenantId, saved);
+      }
     }
 
     const allSequences = existingLogs
@@ -695,7 +716,7 @@ export class AgentsApplicationService {
       expiresAt: session.expiresAt,
       bootstrapUrl,
       bundleUrl,
-      installCommand: `curl -fsSL ${baseUrl}/agent-install?token=${token} | bash`,
+      installCommand: `curl -fsSL ${baseUrl}/agent-install?token=${token} | sudo bash`,
       bootstrapTokenPreview: session.bootstrapTokenPreview,
       serviceName: session.serviceName,
       displayName: session.displayName,
@@ -722,7 +743,6 @@ export class AgentsApplicationService {
     const session = await this.repository.findInstallSessionByTokenHashAnyTenant(sha256(bootstrapToken));
     if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
     if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
-    if (session.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
     return session;
   }
 
@@ -1108,6 +1128,12 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function shouldFallbackDirectExecution(error: AppError | undefined): boolean {
+  return error?.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
+    || error?.errorCode === 'CAPABILITY_MISSING'
+    || error?.errorCode === 'VALIDATION_FAILED';
 }
 
 function readDirectFallback(value: unknown): AgentDetailProjection['recentTaskLogs'][number]['directFallback'] | undefined {

@@ -288,6 +288,34 @@ type directActionExecuteRequest struct {
 	RequestID  string         `json:"requestId,omitempty"`
 }
 
+type directActionStartRequest struct {
+	ActionType string         `json:"actionType"`
+	Inputs     map[string]any `json:"inputs"`
+	RequestID  string         `json:"requestId,omitempty"`
+}
+
+type directActionStatusSnapshot struct {
+	ActionID     string         `json:"actionId"`
+	ActionType   string         `json:"actionType"`
+	RequestID    string         `json:"requestId,omitempty"`
+	Status       string         `json:"status"`
+	StartedAt    string         `json:"startedAt"`
+	FinishedAt   string         `json:"finishedAt,omitempty"`
+	Success      bool           `json:"success"`
+	ErrorCode    string         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Detail       map[string]any `json:"detail,omitempty"`
+}
+
+type directActionStatusStore struct {
+	mu      sync.Mutex
+	actions map[string]directActionStatusSnapshot
+}
+
+var globalDirectActionStatusStore = &directActionStatusStore{
+	actions: map[string]directActionStatusSnapshot{},
+}
+
 type NetworkInterfaceInfo struct {
 	Name              string   `json:"name"`
 	MACAddress        string   `json:"macAddress,omitempty"`
@@ -1278,6 +1306,32 @@ func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(response)
 	})
+	mux.HandleFunc("/api/v1/control/actions/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var request directActionStartRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		response, statusCode := startDirectControlAction(config, request)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(response)
+	})
+	mux.HandleFunc("/api/v1/control/actions/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		actionID := strings.TrimSpace(r.URL.Query().Get("actionId"))
+		response, statusCode := readDirectControlActionStatus(actionID)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(response)
+	})
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
 		Handler:           mux,
@@ -1380,6 +1434,135 @@ func executeDirectControlAction(config *AgentConfig, request directActionExecute
 		"requestId":    request.RequestID,
 		"actionType":   "windows.iis.deploy_certificate",
 	}, statusCode
+}
+
+func startDirectControlAction(config *AgentConfig, request directActionStartRequest) (map[string]any, int) {
+	actionType := strings.TrimSpace(request.ActionType)
+	if !strings.EqualFold(actionType, "windows.iis.deploy_certificate") {
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
+			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
+		}, http.StatusBadRequest
+	}
+
+	payload := map[string]any{}
+	for key, value := range request.Inputs {
+		payload[key] = value
+	}
+	payload["type"] = "windows.iis.deploy_certificate"
+
+	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
+	startedAt := time.Now().Format(time.RFC3339)
+	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
+		ActionID:   actionID,
+		ActionType: "windows.iis.deploy_certificate",
+		RequestID:  request.RequestID,
+		Status:     "running",
+		StartedAt:  startedAt,
+	})
+
+	go func() {
+		hostName, err := os.Hostname()
+		if err != nil || strings.TrimSpace(hostName) == "" {
+			hostName = "localhost"
+		}
+		execution := &taskExecutionContext{
+			ctx:    context.Background(),
+			client: &http.Client{Timeout: 20 * time.Second},
+			config: config,
+			logger: newRuntimeLogger(filepath.Join(config.Paths.Windows.LogDir, "agent.log")),
+			deps: &runtimeDependencies{
+				taskLedger: &localTaskLedger{
+					filePath:         filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-tasks.json"),
+					tasks:            map[string]localTaskRecord{},
+					idempotencyIndex: map[string]string{},
+				},
+				recoveryLedger: &recoveryLedger{
+					filePath: filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-recovery.json"),
+					entries:  map[string]recoveryLedgerEntry{},
+				},
+			},
+			registration: &runtimeRegistration{
+				AgentID:  "direct-control",
+				Hostname: hostName,
+				Version:  agentVersion,
+			},
+			task: agentTaskEnvelope{
+				ID:              actionID,
+				ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
+				ExecutionStepID: fmt.Sprintf("direct_step_%d", time.Now().UnixNano()),
+				Payload:         payload,
+			},
+			leaseID:     fmt.Sprintf("direct_lease_%d", time.Now().UnixNano()),
+			logSequence: 1,
+		}
+		success, errorCode, errorMessage, detail := executeTask(execution)
+		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
+			ActionID:     actionID,
+			ActionType:   "windows.iis.deploy_certificate",
+			RequestID:    request.RequestID,
+			Status:       "completed",
+			StartedAt:    startedAt,
+			FinishedAt:   time.Now().Format(time.RFC3339),
+			Success:      success,
+			ErrorCode:    errorCode,
+			ErrorMessage: errorMessage,
+			Detail:       detail,
+		})
+	}()
+
+	return map[string]any{
+		"success":    true,
+		"accepted":   true,
+		"actionId":   actionID,
+		"requestId":  request.RequestID,
+		"actionType": "windows.iis.deploy_certificate",
+		"status":     "running",
+	}, http.StatusAccepted
+}
+
+func readDirectControlActionStatus(actionID string) (map[string]any, int) {
+	if strings.TrimSpace(actionID) == "" {
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "ACTION_ID_REQUIRED",
+			"errorMessage": "actionId is required",
+		}, http.StatusBadRequest
+	}
+	snapshot, ok := globalDirectActionStatusStore.get(actionID)
+	if !ok {
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "DIRECT_ACTION_NOT_FOUND",
+			"errorMessage": fmt.Sprintf("direct action not found: %s", actionID),
+		}, http.StatusNotFound
+	}
+	return map[string]any{
+		"success":      snapshot.Success,
+		"actionId":     snapshot.ActionID,
+		"actionType":   snapshot.ActionType,
+		"requestId":    snapshot.RequestID,
+		"status":       snapshot.Status,
+		"startedAt":    snapshot.StartedAt,
+		"finishedAt":   snapshot.FinishedAt,
+		"errorCode":    snapshot.ErrorCode,
+		"errorMessage": snapshot.ErrorMessage,
+		"detail":       snapshot.Detail,
+	}, http.StatusOK
+}
+
+func (s *directActionStatusStore) upsert(snapshot directActionStatusSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.actions[snapshot.ActionID] = snapshot
+}
+
+func (s *directActionStatusStore) get(actionID string) (directActionStatusSnapshot, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot, ok := s.actions[actionID]
+	return snapshot, ok
 }
 
 func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request directDiscoveryRequest) map[string]any {

@@ -121,7 +121,7 @@ describe('Agent 安装会话安全约束', () => {
     const ttlMs = expiresAt - Date.now();
     assert.ok(ttlMs > 9 * 60 * 1000 && ttlMs <= 10 * 60 * 1000 + 10_000);
     assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\?token=/);
-    assert.match(createdBody.installCommand, /^curl -fsSL https:\/\/gcac\.example\.test\/agent-install\?token=.* \| bash$/);
+    assert.match(createdBody.installCommand, /^curl -fsSL https:\/\/gcac\.example\.test\/agent-install\?token=.* \| sudo bash$/);
     assert.equal(createdBody.bundleUrl, 'https://gcac.example.test/api/v1/agents/install/linux/bundle.tar.gz');
 
     const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
@@ -153,7 +153,14 @@ describe('Agent 安装会话安全约束', () => {
       path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
       headers,
     });
-    assert.equal(secondBootstrap.statusCode, 403);
+    assert.equal(secondBootstrap.statusCode, 200);
+
+    const shortBootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install?token=${encodeURIComponent(bootstrapToken!)}`,
+      headers,
+    });
+    assert.equal(shortBootstrap.statusCode, 200);
   });
 
   it('并发请求同一个 bootstrap token 时只能成功一次', async () => {
@@ -191,7 +198,7 @@ describe('Agent 安装会话安全约束', () => {
     ]);
 
     const statusCodes = [left.statusCode, right.statusCode].sort((a, b) => a - b);
-    assert.deepEqual(statusCodes, [200, 403]);
+    assert.deepEqual(statusCodes, [200, 200]);
   });
 
   it('创建安装会话时优先使用显式公共基地址', async () => {

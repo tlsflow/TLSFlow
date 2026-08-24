@@ -37,6 +37,8 @@ export interface AgentDirectActionExecuteResult {
   errorMessage?: string;
   detail?: Record<string, unknown>;
   taskId?: string;
+  actionId?: string;
+  status?: string;
 }
 
 export class AgentDirectClient {
@@ -86,6 +88,59 @@ export class AgentDirectClient {
     const actionType = request.actionType.trim();
     const directControl = requireReachableDirectControl(agent, actionType);
     const baseUrl = buildDirectControlBaseUrl(directControl.listenAddress!);
+    try {
+      const startResponse = await fetch(`${baseUrl}/api/v1/control/actions/start`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': request.requestId ?? `agent-direct-action-start:${actionType}`,
+        },
+        body: JSON.stringify({
+          actionType,
+          inputs: request.inputs ?? {},
+          requestId: request.requestId,
+        }),
+      });
+      const startBody = await safeReadJson(startResponse) as Record<string, unknown> | undefined;
+      if (startResponse.status === 404) {
+        return this.executeActionLegacy(baseUrl, directControl, agent, request, actionType);
+      }
+      if (!startResponse.ok || typeof startBody?.actionId !== 'string') {
+        throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连启动任务失败', {
+          agentId: agent.id,
+          actionType,
+          statusCode: startResponse.status,
+          response: startBody,
+        });
+      }
+      const actionId = startBody.actionId;
+      const statusBody = await this.waitActionCompleted(baseUrl, agent, actionType, actionId, request.requestId);
+      return {
+        directControl,
+        success: statusBody.success === true,
+        errorCode: typeof statusBody.errorCode === 'string' ? statusBody.errorCode : undefined,
+        errorMessage: typeof statusBody.errorMessage === 'string' ? statusBody.errorMessage : undefined,
+        detail: readRecord(statusBody.detail),
+        taskId: typeof statusBody.taskId === 'string' ? statusBody.taskId : undefined,
+        actionId,
+        status: typeof statusBody.status === 'string' ? statusBody.status : 'completed',
+      };
+    } catch (error) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连执行连接失败', {
+        agentId: agent.id,
+        actionType,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async executeActionLegacy(
+    baseUrl: string,
+    directControl: AgentDirectControlState,
+    agent: AgentRegistration,
+    request: AgentDirectActionExecuteRequest,
+    actionType: string,
+  ): Promise<AgentDirectActionExecuteResult> {
     let response: Response;
     try {
       response = await fetch(`${baseUrl}/api/v1/control/actions/execute`, {
@@ -122,7 +177,55 @@ export class AgentDirectClient {
       errorMessage: typeof body?.errorMessage === 'string' ? body.errorMessage : undefined,
       detail: readRecord(body?.detail),
       taskId: typeof body?.taskId === 'string' ? body.taskId : undefined,
+      status: 'completed',
     };
+  }
+
+  private async waitActionCompleted(
+    baseUrl: string,
+    agent: AgentRegistration,
+    actionType: string,
+    actionId: string,
+    requestId?: string,
+  ): Promise<Record<string, unknown>> {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/api/v1/control/actions/status?actionId=${encodeURIComponent(actionId)}`, {
+          method: 'GET',
+          headers: {
+            'x-request-id': requestId ?? `agent-direct-action-status:${actionType}`,
+          },
+        });
+      } catch (error) {
+        throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连结果查询失败', {
+          agentId: agent.id,
+          actionType,
+          actionId,
+          cause: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const body = await safeReadJson(response) as Record<string, unknown> | undefined;
+      if (!response.ok || !body) {
+        throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连结果查询返回异常', {
+          agentId: agent.id,
+          actionType,
+          actionId,
+          statusCode: response.status,
+          response: body,
+        });
+      }
+      if (body.status === 'completed') {
+        return body;
+      }
+      await sleep(200);
+    }
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连结果查询超时', {
+      agentId: agent.id,
+      actionType,
+      actionId,
+    });
   }
 }
 
@@ -165,4 +268,8 @@ async function safeReadJson(response: Response): Promise<unknown> {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

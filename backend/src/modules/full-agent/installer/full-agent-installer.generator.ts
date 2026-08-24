@@ -13,6 +13,7 @@ import type {
 
 const DEFAULT_SERVICE_NAME = 'gcac-full-agent';
 const DEFAULT_DISPLAY_NAME = 'GCAC Full Agent';
+const DEFAULT_NGINX_HELPER_PATH = '/usr/local/libexec/gcac-nginx-helper';
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/[\\/]+$/u, '');
@@ -211,6 +212,51 @@ echo "如需彻底清理，请人工确认备份后执行：sudo rm -rf '\${CONF
 `;
 }
 
+function renderLinuxNginxHelperScript(): string {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+NGINX_BIN="\${NGINX_BIN:-/usr/sbin/nginx}"
+SYSTEMCTL_BIN="\${SYSTEMCTL_BIN:-/usr/bin/systemctl}"
+NGINX_SERVICE="\${NGINX_SERVICE:-nginx}"
+ACTION="\${1:-}"
+
+case "\${ACTION}" in
+  test)
+    exec "\${NGINX_BIN}" -t
+    ;;
+  reload)
+    "\${NGINX_BIN}" -t
+    exec "\${SYSTEMCTL_BIN}" reload "\${NGINX_SERVICE}"
+    ;;
+  *)
+    echo "用法：$0 {test|reload}" >&2
+    exit 64
+    ;;
+esac
+`;
+}
+
+function renderLinuxNginxSudoersExample(options: FullAgentLinuxInstallOptions): string {
+  return `# /etc/sudoers.d/gcac-nginx
+# 目标：只给 ${options.user} 开放 NGINX 换证需要的最小命令，不开放任意 root shell。
+#
+# 方案 A：直接放行固定命令。
+# 前提：站点元数据里的 testCommand / reloadCommand 必须与这里逐字匹配。
+Cmnd_Alias GCAC_NGINX_DIRECT = /usr/sbin/nginx -t, /usr/bin/systemctl reload nginx
+
+# 方案 B：放行固定 helper。helper 本身只能接受 test/reload 两个子命令。
+# 先把 linux/gcac-nginx-helper.example.sh 安装为 root:root 0755 的 ${DEFAULT_NGINX_HELPER_PATH}
+Cmnd_Alias GCAC_NGINX_HELPER = ${DEFAULT_NGINX_HELPER_PATH} test, ${DEFAULT_NGINX_HELPER_PATH} reload
+
+Defaults:${options.user} !requiretty
+
+# 二选一，不要同时开大口子。
+${options.user} ALL=(root) NOPASSWD: GCAC_NGINX_DIRECT
+# ${options.user} ALL=(root) NOPASSWD: GCAC_NGINX_HELPER
+`;
+}
+
 function renderWindowsInstallScript(options: FullAgentWindowsInstallOptions, commands: FullAgentLifecycleCommands, description: string): string {
   return `#Requires -Version 5.1
 [CmdletBinding()]
@@ -349,6 +395,8 @@ function renderReadme(bundle: Omit<FullAgentInstallerBundle, 'artifacts'>): stri
 - 健康检查命令：\`${bundle.linux.commands.healthCheck}\`
 - 启动命令：\`${bundle.linux.commands.start}\`
 - 回滚/卸载命令：\`${bundle.linux.commands.rollbackUninstall}\`
+- NGINX 权限样例：\`linux/gcac-nginx.sudoers.example\`
+- NGINX helper 样例：\`linux/gcac-nginx-helper.example.sh\`
 
 ## Windows Service
 
@@ -366,6 +414,36 @@ function renderReadme(bundle: Omit<FullAgentInstallerBundle, 'artifacts'>): stri
 - 模板路径：\`config/agent.config.template.json\`
 - 首次安装会复制为目标配置文件，但不会替你填入真实租户、Agent Key 或控制面地址。
 - 填完配置后先运行自检，确认通过后再手工启动服务。
+
+## Linux NGINX 部署权限模型
+
+- \`gcac-agent\` 默认是普通用户。没有目录写权限时，install / rollback 一定失败；没有非交互提权路径时，\`nginx -t\` / reload 一定失败。
+- Agent dry-run 会把命令权限分成 \`direct\`、\`sudo-n\`、\`helper-required\`。其中 \`helper-required\` 的真实含义不是“可以忽略”，而是“当前主机还没有可上线的非交互权限路径”。
+- 生产上不要继续把目标指到发行版默认私钥目录，再靠逐文件 ACL 打补丁。长期方案是单独规划一个 NGINX 证书部署目录，让 NGINX 配置引用这组路径。
+
+### 推荐目录模型
+
+- 为证书目标路径单独建目录，例如 \`/var/lib/gcac/nginx-certs/<site>\`
+- 目录必须允许 Agent 原子写入，也就是父目录可写、可重命名；推荐：
+  - \`install -d -m 2770 -o root -g gcac-agent /var/lib/gcac/nginx-certs\`
+  - \`install -d -m 2770 -o root -g gcac-agent /var/lib/gcac/nginx-certs/example.com\`
+- 不要把 cert/key 落到 Agent 无法写入的系统目录；否则 dry-run 只能报告“父目录不可写/文件不可写”，install 无法自愈。
+
+### 推荐提权策略
+
+1. 受限 sudo：把 \`testCommand\` / \`reloadCommand\` 固定成少量绝对路径命令，并按 \`linux/gcac-nginx.sudoers.example\` 配 sudoers。
+2. 受控 helper：如果你们不想直接开放 \`nginx\` 或 \`systemctl\`，把 \`linux/gcac-nginx-helper.example.sh\` 安装到 \`${DEFAULT_NGINX_HELPER_PATH}\`，再只在 sudoers 中放行这个 helper。
+3. 当前安装产物不提供独立 root 守护进程。所谓 helper-required，不是自动魔法；你必须先把 sudoers 或 helper 装好，再让站点元数据里的 \`testCommand\` / \`reloadCommand\` 指向它。
+
+### 上线前必须试跑
+
+- 直接命令策略：
+  - \`sudo -n /usr/sbin/nginx -t\`
+  - \`sudo -n /usr/bin/systemctl reload nginx\`
+- helper 策略：
+  - \`sudo -n ${DEFAULT_NGINX_HELPER_PATH} test\`
+  - \`sudo -n ${DEFAULT_NGINX_HELPER_PATH} reload\`
+- 如果以上命令任一失败，控制面现在最多只能把目标分类成 \`helper-required\` 或命令失败，不能替你消除生产权限问题。
 
 ## 注意
 
@@ -414,6 +492,20 @@ export function generateFullAgentInstallerBundle(options: FullAgentInstallerOpti
       platform: 'linux-systemd',
       description: 'systemd 卸载/回滚脚本，默认保留数据',
       content: renderLinuxUninstallScript(linux),
+    },
+    {
+      path: 'linux/gcac-nginx-helper.example.sh',
+      mode: 0o755,
+      platform: 'linux-systemd',
+      description: 'NGINX 受控 helper 样例，只接受固定 test/reload 子命令',
+      content: renderLinuxNginxHelperScript(),
+    },
+    {
+      path: 'linux/gcac-nginx.sudoers.example',
+      mode: 0o644,
+      platform: 'linux-systemd',
+      description: 'NGINX 受限 sudo 样例，仅放行固定命令或固定 helper',
+      content: renderLinuxNginxSudoersExample(linux),
     },
     {
       path: 'windows/install-service.ps1',

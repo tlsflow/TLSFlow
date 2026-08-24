@@ -28,6 +28,7 @@ export function getLinuxAgentBundleFiles(): LinuxBundleFile[] {
     loadFile('service-control.sh', 0o755),
     loadFile('config/agent.config.template.json', 0o644),
     loadFile('linux/gcac-linux-agent.service', 0o644),
+    loadFile('linux/gcac-nginx-helper.sh', 0o755),
     loadFile('linux/install-systemd.sh', 0o755),
     loadFile('linux/uninstall-systemd.sh', 0o755),
     loadFile('README.md', 0o644),

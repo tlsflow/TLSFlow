@@ -80,6 +80,20 @@ sudo bash ./linux/uninstall-systemd.sh
 ./service-control.sh service-info
 ```
 
+安装脚本会额外自动完成两件事：
+
+- 安装 root 拥有的 NGINX helper：`/usr/local/libexec/gcac-nginx-helper`
+- 写入 sudoers：`/etc/sudoers.d/gcac-nginx`
+
+这不是装饰。它是 Linux NGINX 在“不改业务证书目录”的前提下完成以下动作的正式权限通道：
+
+- `nginx -t`
+- `systemctl reload nginx`
+- 受控读取现有证书/私钥
+- 受控原子写入证书/私钥
+- 受控删除回滚目标
+- 受控检查目标文件是否存在
+
 ## 直连监听默认值
 
 - Linux Go Agent 默认直连监听端口：`18931`
