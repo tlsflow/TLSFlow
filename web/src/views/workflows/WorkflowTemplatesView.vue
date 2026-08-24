@@ -1085,8 +1085,8 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail__tab[data-active='true'] {
   background: var(--gc-color-surface-solid);
-  color: var(--gc-color-text);
-  box-shadow: 0 4px 14px var(--gc-color-border);
+  color: var(--gc-color-primary);
+  box-shadow: 0 4px 14px var(--gc-color-primary-weak);
 }
 
 .workflow-template-detail__section {

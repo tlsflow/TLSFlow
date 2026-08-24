@@ -783,8 +783,8 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 .execution-detail-modal__tab[data-active='true'] {
   background: var(--gc-color-surface-solid);
-  color: var(--gc-color-text);
-  box-shadow: var(--gc-shadow-sm);
+  color: var(--gc-color-primary);
+  box-shadow: 0 4px 14px var(--gc-color-primary-weak);
 }
 
 .execution-detail-modal__section,

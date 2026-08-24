@@ -1617,9 +1617,9 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__tabs button[data-active='true'] {
-  background: var(--gc-color-text);
-  color: var(--gc-color-surface-solid);
-  border-color: var(--gc-color-text);
+  background: var(--gc-color-primary);
+  color: var(--gc-color-text-inverse);
+  border-color: var(--gc-color-primary);
 }
 
 .workflow-canvas-editor__panel {

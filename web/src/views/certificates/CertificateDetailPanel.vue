@@ -536,7 +536,7 @@ async function loadDetail() {
 
 .certificate-detail-panel__tab.is-active {
   border-bottom-color: var(--gc-color-primary);
-  color: var(--gc-color-text);
+  color: var(--gc-color-primary);
 }
 
 .certificate-detail-panel__tab-panel {
