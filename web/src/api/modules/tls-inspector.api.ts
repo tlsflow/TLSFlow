@@ -1,4 +1,4 @@
-import { ApiClient, createIdempotencyKey, readApiRequestContext } from '@/api/client'
+import { ApiClient, createIdempotencyKey, readApiRequestContext, readApiToken } from '@/api/client'
 
 export interface TlsInspectorListResult<T> {
   readonly data: {
@@ -183,6 +183,7 @@ export interface TlsInspectionSnapshot {
 
 const tlsInspectorClient = new ApiClient({
   baseUrl: import.meta.env.VITE_TLS_INSPECTOR_BASE_URL ?? '/tls-inspector',
+  getToken: () => readApiToken(),
   getRequestContext: () => readApiRequestContext(),
 })
 

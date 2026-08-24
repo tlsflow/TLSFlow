@@ -46,6 +46,19 @@ describe('API Client 契约', () => {
     expect(headers.get('X-Tenant-Id')).toBe('tenant_1')
   })
 
+  it('请求会携带当前会话的 Bearer token', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { ok: true }, requestId: 'req_token', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 200 })))
+    const client = new ApiClient({
+      baseUrl: 'https://api.example.test',
+      getToken: () => 'token_for_request',
+    })
+
+    await client.get('/assets')
+
+    const headers = vi.mocked(fetch).mock.calls[0]?.[1]?.headers as Headers
+    expect(headers.get('Authorization')).toBe('Bearer token_for_request')
+  })
+
   it('错误响应抛出包含错误码和 requestId 的异常', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ errorCode: 'PERMISSION_DENIED', message: '无权限', requestId: 'req_2', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 403 })))
     const client = new ApiClient({ baseUrl: 'https://api.example.test' })

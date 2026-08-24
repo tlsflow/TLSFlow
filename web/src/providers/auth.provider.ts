@@ -4,6 +4,8 @@ import { getCurrentUser, login as loginApi, logout as logoutApi, type AuthUser }
 import { i18n } from '@/i18n'
 
 export interface AuthSession {
+  /** 中文说明：Bearer token 仅用于当前页面会话；刷新页面优先由 HttpOnly Cookie 恢复。 */
+  readonly token?: string | null
   readonly user: CurrentUser
   readonly permissions?: readonly string[]
 }
@@ -53,6 +55,7 @@ export class ApiAuthProvider implements AuthProvider {
     const result = await loginApi(credentials)
     if (!result.data) throw new Error(i18n.global.t('auth.errors.missingSession'))
     return {
+      token: result.data.token,
       user: toCurrentUser(result.data.user),
       permissions: result.data.permissions
     }
@@ -67,6 +70,7 @@ export class MockAuthProvider implements AuthProvider {
   async bootstrapSession(): Promise<AuthSession> {
     // 中文说明：mock 只留给测试；真实运行默认使用 ApiAuthProvider。
     return {
+      token: 'mock-token-for-frontend-skeleton',
       user: {
         id: 'mock-user',
         username: 'mock',

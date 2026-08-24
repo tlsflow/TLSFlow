@@ -1,4 +1,4 @@
-import { apiClient, createRequestId, readApiRequestContext } from '@/api/client'
+import { apiClient, createRequestId, readApiRequestContext, readApiToken } from '@/api/client'
 import { i18n } from '@/i18n'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 import { buildListPath } from './common'
@@ -72,6 +72,9 @@ export async function streamExecutionDetail(
   const headers = new Headers()
   headers.set('Accept', 'text/event-stream')
   headers.set('X-Request-Id', createRequestId())
+
+  const token = readApiToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const requestContext = readApiRequestContext()
   if (requestContext?.actorId) {

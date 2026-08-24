@@ -4,7 +4,7 @@ import App from './app.vue'
 import { router } from './router'
 import { i18n } from './i18n'
 import { permissionDirective } from './directives/permission.directive'
-import { setApiRequestContextProvider } from './api/client'
+import { setApiRequestContextProvider, setApiTokenProvider } from './api/client'
 import { useAppStore } from './stores/app.store'
 import { useAuthStore } from './stores/auth.store'
 import { useTenantStore } from './stores/tenant.store'
@@ -26,6 +26,9 @@ setApiRequestContextProvider(() => {
     tenantId: authStore.user?.tenantId ?? tenantStore.currentTenantId ?? null
   }
 })
+
+// 中文说明：后端仍以 Bearer/Cookie 解析身份；token 不落盘，只作为当前页面的认证兜底。
+setApiTokenProvider(() => useAuthStore(pinia).token)
 
 app.use(i18n)
 app.use(router)

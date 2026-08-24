@@ -12,16 +12,18 @@ export interface CurrentUser {
 }
 
 interface AuthState {
+  token: string | null
   user: CurrentUser | null
 }
 
 export const useAuthStore = defineStore('auth', {
-  state: (): AuthState => ({ user: null }),
+  state: (): AuthState => ({ token: null, user: null }),
   getters: {
     isAuthenticated: (state) => Boolean(state.user)
   },
   actions: {
     setSession(session: AuthSession): void {
+      this.token = session.token ?? null
       this.user = session.user
     },
     async login(credentials: LoginCredentials): Promise<AuthSession> {
@@ -47,6 +49,7 @@ export const useAuthStore = defineStore('auth', {
       }
     },
     clearSession(): void {
+      this.token = null
       this.user = null
     }
   }
