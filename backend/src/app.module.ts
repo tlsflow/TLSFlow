@@ -63,6 +63,8 @@ import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/p
 import { BuiltinPluginCompatibilityUpgradeService } from './modules/plugins/application/builtin-plugin-compatibility-upgrade.service.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
+import { DeploymentCapabilityResolver } from './modules/plugins/application/deployment-capability.resolver.js';
+import { HistoricalAgentActionResolver } from './modules/plugins/application/historical-agent-action-resolver.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
@@ -190,7 +192,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     standardDeviceDiscoveryProjector,
   );
-  const agentPlanCompiler = new UnifiedAgentPlanCompilerService(unifiedPluginsService, pluginBindingsService);
+  const agentPlanCompiler = new UnifiedAgentPlanCompilerService(unifiedPluginsService);
+  const historicalAgentActions = new HistoricalAgentActionResolver(
+    unifiedPluginsService,
+    new DeploymentCapabilityResolver(pluginBindingsService, unifiedPluginsService),
+  );
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
