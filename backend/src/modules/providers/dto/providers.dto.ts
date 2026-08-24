@@ -102,6 +102,47 @@ export interface DiscoveryBindingResult {
   rawFacts?: Record<string, unknown>;
 }
 
+export type DiscoveryServiceInstanceResult = DiscoveryServiceResult;
+export type DiscoveryCertificateBindingResult = DiscoveryBindingResult;
+
+export interface DiscoveryServiceAssetResult {
+  key: string;
+  serviceKey: string;
+  endpointKey?: string;
+  address: string;
+  addressType?: 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN';
+  port: number;
+  protocol: 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP';
+  sniName?: string;
+  displayName?: string;
+  status?: 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED';
+  rawFacts?: Record<string, unknown>;
+}
+
+export interface DiscoveryRiskEventResult {
+  key: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category: string;
+  message: string;
+  serviceKey?: string;
+  endpointKey?: string;
+  serviceAssetKey?: string;
+  bindingKey?: string;
+  rawFacts?: Record<string, unknown>;
+}
+
+export interface DiscoveryCapabilityGapResult {
+  key: string;
+  capability: string;
+  reason: string;
+  providerStrategy?: 'AGENT' | 'SSH' | 'WINRM' | 'GATEWAY' | 'MANUAL' | 'SCRIPT_PACKAGE' | 'MONITOR_ONLY';
+  serviceKey?: string;
+  endpointKey?: string;
+  serviceAssetKey?: string;
+  bindingKey?: string;
+  rawFacts?: Record<string, unknown>;
+}
+
 export interface DiscoveryResult {
   providerId: string;
   providerType: ProviderType;
@@ -110,8 +151,13 @@ export interface DiscoveryResult {
   scope?: Record<string, string>;
   hosts: DiscoveryHostResult[];
   services: DiscoveryServiceResult[];
+  serviceInstances?: DiscoveryServiceInstanceResult[];
   endpoints: DiscoveryEndpointResult[];
   bindings: DiscoveryBindingResult[];
+  serviceAssets?: DiscoveryServiceAssetResult[];
+  certificateBindings?: DiscoveryCertificateBindingResult[];
+  riskEvents?: DiscoveryRiskEventResult[];
+  capabilityGaps?: DiscoveryCapabilityGapResult[];
   rawPayload?: Record<string, unknown>;
 }
 

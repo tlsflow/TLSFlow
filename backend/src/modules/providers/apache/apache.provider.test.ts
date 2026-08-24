@@ -69,6 +69,8 @@ describe('spec021 Apache Provider', () => {
     assert.equal(result.services[0]?.installPath, 'httpd');
     assert.equal(result.services[0]?.configPath, '/etc/httpd/conf/httpd.conf');
     assert.equal(result.endpoints.length, 1);
+    assert.equal(result.serviceAssets?.length, 1);
+    assert.equal(result.serviceAssets?.[0]?.address, 'legacy.example.com');
     assert.equal(result.bindings[0]?.domainName, 'legacy.example.com');
     assert.equal(result.bindings[0]?.rawFacts?.sslCertificateChain, '/etc/pki/tls/certs/legacy-chain.crt');
     assert.deepEqual(result.services[0]?.rawFacts?.requiredCapabilities, requiredApacheCapabilities());

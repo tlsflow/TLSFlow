@@ -5,11 +5,16 @@ import type {
   DeploymentDraftBundle,
   DeploymentStepDraft,
   DiscoveryBindingResult,
+  DiscoveryCapabilityGapResult,
+  DiscoveryCertificateBindingResult,
   DiscoveryEndpointResult,
   DiscoveryExecutionContext,
   DiscoveryHostResult,
   DiscoveryResult,
   DiscoveryResultRecordDto,
+  DiscoveryRiskEventResult,
+  DiscoveryServiceAssetResult,
+  DiscoveryServiceInstanceResult,
   DiscoveryServiceResult,
   ProviderDescriptor,
   ProviderListItemDto,
@@ -61,9 +66,12 @@ export class ProvidersDomainService {
   normalizeDiscoveryResult(input: DiscoveryResult): DiscoveryResult {
     const discoveredAt = normalizeOptionalString(input.discoveredAt) ?? new Date().toISOString();
     const hosts = dedupeByKey(input.hosts.map((host) => this.normalizeHost(host)), 'host');
-    const services = dedupeByKey(input.services.map((service) => this.normalizeService(service, hosts)), 'service');
+    const services = dedupeByKey((input.serviceInstances ?? input.services).map((service) => this.normalizeService(service, hosts)), 'service');
     const endpoints = dedupeByKey(input.endpoints.map((endpoint) => this.normalizeEndpoint(endpoint, services)), 'endpoint');
-    const bindings = dedupeByKey(input.bindings.map((binding) => this.normalizeBinding(binding, endpoints)), 'binding');
+    const bindings = dedupeByKey((input.certificateBindings ?? input.bindings).map((binding) => this.normalizeBinding(binding, endpoints)), 'binding');
+    const serviceAssets = dedupeByKey(this.normalizeServiceAssets(input.serviceAssets, endpoints, bindings), 'serviceAsset');
+    const riskEvents = dedupeByKey((input.riskEvents ?? []).map((event) => this.normalizeRiskEvent(event, services, endpoints, serviceAssets, bindings)), 'riskEvent');
+    const capabilityGaps = dedupeByKey((input.capabilityGaps ?? []).map((gap) => this.normalizeCapabilityGap(gap, services, endpoints, serviceAssets, bindings)), 'capabilityGap');
 
     return {
       providerId: normalizeRequiredString(input.providerId, 'providerId'),
@@ -73,8 +81,13 @@ export class ProvidersDomainService {
       scope: normalizeStringRecord(input.scope ?? {}),
       hosts,
       services,
+      serviceInstances: services,
       endpoints,
       bindings,
+      certificateBindings: bindings,
+      serviceAssets,
+      riskEvents,
+      capabilityGaps,
       rawPayload: cloneRecord(input.rawPayload ?? {}),
     };
   }
@@ -182,8 +195,13 @@ export class ProvidersDomainService {
       topology: {
         hosts: result.hosts,
         services: result.services,
+        serviceInstances: result.serviceInstances ?? result.services,
         endpoints: result.endpoints,
+        serviceAssets: result.serviceAssets ?? [],
         bindings: result.bindings,
+        certificateBindings: result.certificateBindings ?? result.bindings,
+        riskEvents: result.riskEvents ?? [],
+        capabilityGaps: result.capabilityGaps ?? [],
       },
       draftBundle,
     };
@@ -197,8 +215,13 @@ export class ProvidersDomainService {
       scope: result.scope ?? {},
       hosts: result.hosts,
       services: result.services,
+      serviceInstances: result.serviceInstances ?? result.services,
       endpoints: result.endpoints,
+      serviceAssets: result.serviceAssets ?? [],
       bindings: result.bindings,
+      certificateBindings: result.certificateBindings ?? result.bindings,
+      riskEvents: result.riskEvents ?? [],
+      capabilityGaps: result.capabilityGaps ?? [],
     })).digest('hex');
   }
 
@@ -286,7 +309,7 @@ export class ProvidersDomainService {
     };
   }
 
-  private normalizeBinding(binding: DiscoveryBindingResult, endpoints: DiscoveryEndpointResult[]): DiscoveryBindingResult {
+  private normalizeBinding(binding: DiscoveryCertificateBindingResult, endpoints: DiscoveryEndpointResult[]): DiscoveryBindingResult {
     if (!endpoints.some((endpoint) => endpoint.key === binding.endpointKey)) {
       throw new AppError('VALIDATION_FAILED', 'binding.endpointKey 未找到对应 endpoint', { endpointKey: binding.endpointKey, bindingKey: binding.key });
     }
@@ -299,6 +322,90 @@ export class ProvidersDomainService {
       privateKeyRef: normalizeOptionalString(binding.privateKeyRef),
       configPath: normalizeOptionalString(binding.configPath),
       rawFacts: cloneRecord(binding.rawFacts ?? {}),
+    };
+  }
+
+  private normalizeServiceAssets(
+    explicitAssets: DiscoveryServiceAssetResult[] | undefined,
+    endpoints: DiscoveryEndpointResult[],
+    bindings: DiscoveryBindingResult[],
+  ): DiscoveryServiceAssetResult[] {
+    const assets = explicitAssets && explicitAssets.length > 0 ? explicitAssets : projectServiceAssetsFromEndpoints(endpoints, bindings);
+    return assets.map((asset) => this.normalizeServiceAsset(asset, endpoints));
+  }
+
+  private normalizeServiceAsset(asset: DiscoveryServiceAssetResult, endpoints: DiscoveryEndpointResult[]): DiscoveryServiceAssetResult {
+    if (!endpoints.some((endpoint) => endpoint.serviceKey === asset.serviceKey)) {
+      throw new AppError('VALIDATION_FAILED', 'serviceAsset.serviceKey ????? service', { serviceAssetKey: asset.key, serviceKey: asset.serviceKey });
+    }
+    if (asset.endpointKey && !endpoints.some((endpoint) => endpoint.key === asset.endpointKey)) {
+      throw new AppError('VALIDATION_FAILED', 'serviceAsset.endpointKey ????? endpoint', { serviceAssetKey: asset.key, endpointKey: asset.endpointKey });
+    }
+    const port = asset.port;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new AppError('VALIDATION_FAILED', 'serviceAsset.port ??? 1 ? 65535 ??', { serviceAssetKey: asset.key, port });
+    }
+    const address = normalizeRequiredString(asset.address, 'serviceAsset.address').toLowerCase();
+    return {
+      key: normalizeRequiredString(asset.key, 'serviceAsset.key'),
+      serviceKey: normalizeRequiredString(asset.serviceKey, 'serviceAsset.serviceKey'),
+      endpointKey: normalizeOptionalString(asset.endpointKey),
+      address,
+      addressType: normalizeAddressType(asset.addressType, address),
+      port,
+      protocol: normalizeEnum(asset.protocol, endpointProtocols, 'serviceAsset.protocol'),
+      sniName: normalizeOptionalString(asset.sniName)?.toLowerCase(),
+      displayName: normalizeOptionalString(asset.displayName),
+      status: normalizeStatus(asset.status, ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED'] as const, 'ACTIVE'),
+      rawFacts: cloneRecord(asset.rawFacts ?? {}),
+    };
+  }
+
+  private normalizeRiskEvent(
+    event: DiscoveryRiskEventResult,
+    services: DiscoveryServiceResult[],
+    endpoints: DiscoveryEndpointResult[],
+    serviceAssets: DiscoveryServiceAssetResult[],
+    bindings: DiscoveryBindingResult[],
+  ): DiscoveryRiskEventResult {
+    assertKeyRef(event.serviceKey, services, 'riskEvent.serviceKey', event.key);
+    assertKeyRef(event.endpointKey, endpoints, 'riskEvent.endpointKey', event.key);
+    assertKeyRef(event.serviceAssetKey, serviceAssets, 'riskEvent.serviceAssetKey', event.key);
+    assertKeyRef(event.bindingKey, bindings, 'riskEvent.bindingKey', event.key);
+    return {
+      key: normalizeRequiredString(event.key, 'riskEvent.key'),
+      severity: normalizeEnum(event.severity, ['low', 'medium', 'high', 'critical'] as const, 'riskEvent.severity'),
+      category: normalizeRequiredString(event.category, 'riskEvent.category'),
+      message: normalizeRequiredString(event.message, 'riskEvent.message'),
+      serviceKey: normalizeOptionalString(event.serviceKey),
+      endpointKey: normalizeOptionalString(event.endpointKey),
+      serviceAssetKey: normalizeOptionalString(event.serviceAssetKey),
+      bindingKey: normalizeOptionalString(event.bindingKey),
+      rawFacts: cloneRecord(event.rawFacts ?? {}),
+    };
+  }
+
+  private normalizeCapabilityGap(
+    gap: DiscoveryCapabilityGapResult,
+    services: DiscoveryServiceResult[],
+    endpoints: DiscoveryEndpointResult[],
+    serviceAssets: DiscoveryServiceAssetResult[],
+    bindings: DiscoveryBindingResult[],
+  ): DiscoveryCapabilityGapResult {
+    assertKeyRef(gap.serviceKey, services, 'capabilityGap.serviceKey', gap.key);
+    assertKeyRef(gap.endpointKey, endpoints, 'capabilityGap.endpointKey', gap.key);
+    assertKeyRef(gap.serviceAssetKey, serviceAssets, 'capabilityGap.serviceAssetKey', gap.key);
+    assertKeyRef(gap.bindingKey, bindings, 'capabilityGap.bindingKey', gap.key);
+    return {
+      key: normalizeRequiredString(gap.key, 'capabilityGap.key'),
+      capability: normalizeRequiredString(gap.capability, 'capabilityGap.capability'),
+      reason: normalizeRequiredString(gap.reason, 'capabilityGap.reason'),
+      providerStrategy: normalizeOptionalString(gap.providerStrategy) as DiscoveryCapabilityGapResult['providerStrategy'],
+      serviceKey: normalizeOptionalString(gap.serviceKey),
+      endpointKey: normalizeOptionalString(gap.endpointKey),
+      serviceAssetKey: normalizeOptionalString(gap.serviceAssetKey),
+      bindingKey: normalizeOptionalString(gap.bindingKey),
+      rawFacts: cloneRecord(gap.rawFacts ?? {}),
     };
   }
 }
@@ -374,6 +481,65 @@ function sortValue(value: unknown): unknown {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, child]) => [key, sortValue(child)]),
   );
+}
+
+function normalizeAddressType(value: DiscoveryServiceAssetResult['addressType'], address: string): NonNullable<DiscoveryServiceAssetResult['addressType']> {
+  if (value !== undefined) return normalizeEnum(value, ['DNS', 'IPV4', 'IPV6', 'UNKNOWN'] as const, 'serviceAsset.addressType');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return 'IPV4';
+  if (address.includes(':')) return 'IPV6';
+  return 'DNS';
+}
+
+function projectServiceAssetsFromEndpoints(endpoints: DiscoveryEndpointResult[], bindings: DiscoveryBindingResult[]): DiscoveryServiceAssetResult[] {
+  const assets: DiscoveryServiceAssetResult[] = [];
+  for (const endpoint of endpoints) {
+    const endpointBindings = bindings.filter((binding) => binding.endpointKey === endpoint.key);
+    if (endpointBindings.length === 0) {
+      const address = endpoint.hostName ?? endpoint.listenIp;
+      if (!address) continue;
+      assets.push(buildProjectedServiceAsset(endpoint, address));
+      continue;
+    }
+    for (const binding of endpointBindings) {
+      const address = binding.domainName ?? endpoint.hostName ?? endpoint.listenIp;
+      if (!address) continue;
+      assets.push(buildProjectedServiceAsset(endpoint, address, binding));
+    }
+  }
+  return assets;
+}
+
+function buildProjectedServiceAsset(
+  endpoint: DiscoveryEndpointResult,
+  address: string,
+  binding?: DiscoveryBindingResult,
+): DiscoveryServiceAssetResult {
+  const normalizedAddress = address.trim().toLowerCase();
+  return {
+    key: 'service-asset:' + endpoint.key + ':' + normalizedAddress + ':' + String(endpoint.port),
+    serviceKey: endpoint.serviceKey,
+    endpointKey: endpoint.key,
+    address: normalizedAddress,
+    addressType: normalizeAddressType(undefined, normalizedAddress),
+    port: endpoint.port,
+    protocol: normalizeEnum(endpoint.protocol, endpointProtocols, 'serviceAsset.protocol'),
+    sniName: binding?.domainName?.trim().toLowerCase(),
+    displayName: normalizedAddress,
+    status: normalizeStatus(endpoint.status, ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED'] as const, 'ACTIVE'),
+    rawFacts: cloneRecord({
+      projectedFrom: 'endpoint',
+      endpointHostName: endpoint.hostName,
+      endpointListenIp: endpoint.listenIp,
+      bindingKey: binding?.key,
+    }),
+  };
+}
+
+function assertKeyRef<T extends { key: string }>(value: string | undefined, items: T[], field: string, key: string): void {
+  if (!value) return;
+  if (!items.some((item) => item.key === value)) {
+    throw new AppError('VALIDATION_FAILED', field + ' ???????', { field, key, ref: value });
+  }
 }
 
 function scanSensitive(value: unknown, path: string[]): void {

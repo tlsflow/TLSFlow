@@ -41,6 +41,8 @@ describe('spec020 NGINX Provider', () => {
     assert.equal(result.hosts.length, 1);
     assert.equal(result.services[0]?.providerType, 'NGINX');
     assert.equal(result.endpoints.length, 2);
+    assert.equal(result.serviceAssets?.length, 2);
+    assert.equal(result.serviceAssets?.[0]?.address, 'example.com');
     assert.equal(result.bindings[0]?.domainName, 'example.com');
 
     const bundle = provider.toDeploymentDraft(result);

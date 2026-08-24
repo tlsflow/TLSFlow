@@ -79,6 +79,8 @@ describe('spec022 Tomcat Provider', () => {
     assert.equal(result.hosts.length, 1);
     assert.equal(result.services[0]?.configPath, '/srv/tomcat-a/conf/server.xml');
     assert.equal(result.endpoints.length, 2);
+    assert.equal(result.serviceAssets?.length, 2);
+    assert.equal(result.serviceAssets?.[0]?.address, 'app.example.com');
     assert.equal(result.bindings.length, 2);
     assert.equal(result.bindings[0]?.bindingType, 'PFX');
     assert.equal(result.bindings[0]?.certificateRef, 'keystore:///opt/tomcat/conf/app.p12');

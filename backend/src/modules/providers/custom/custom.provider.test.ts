@@ -177,6 +177,8 @@ describe('spec023 Custom Provider', () => {
     assert.equal(result.hosts.length, 1);
     assert.equal(result.services[0]?.providerType, 'CUSTOM');
     assert.equal(result.endpoints[0]?.hostName, 'legacy.example.test');
+    assert.equal(result.serviceAssets?.length, 1);
+    assert.equal(result.serviceAssets?.[0]?.address, 'legacy.example.test');
     assert.equal(result.bindings[0]?.domainName, 'legacy.example.test');
 
     const bundle = provider.toDeploymentDraft(result);

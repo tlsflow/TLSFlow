@@ -89,6 +89,8 @@ describe('spec019 IIS Provider', () => {
     assert.equal(result.services[0]?.providerType, 'IIS');
     assert.equal(result.endpoints[0]?.protocol, 'HTTPS');
     assert.equal(result.endpoints[0]?.port, 443);
+    assert.equal(result.serviceAssets?.length, 1);
+    assert.equal(result.serviceAssets?.[0]?.address, 'www.example.com');
     assert.equal(result.bindings[0]?.bindingType, 'WINDOWS_CERT_STORE');
     assert.equal(result.bindings[0]?.domainName, 'www.example.com');
     assert.equal(result.bindings[0]?.certificateRef, 'certstore://LocalMachine/My/ABCD1234EF567890ABCD1234EF567890ABCD1234');

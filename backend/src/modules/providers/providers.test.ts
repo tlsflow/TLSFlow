@@ -79,6 +79,8 @@ describe('spec018 providers 基础框架', () => {
     assert.equal(normalized.services[0]?.serviceName, 'mock-web');
     assert.equal(normalized.endpoints[0]?.hostName, 'www.example.com');
     assert.equal(normalized.bindings[0]?.domainName, 'www.example.com');
+    assert.equal(normalized.serviceAssets?.length, 1);
+    assert.equal(normalized.serviceAssets?.[0]?.address, 'www.example.com');
     assert.deepEqual(normalized.scope, { region: 'cn' });
 
     const draftBundle = domain.buildDraftBundle(normalized);
