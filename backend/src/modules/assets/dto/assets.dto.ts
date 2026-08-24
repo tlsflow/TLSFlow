@@ -6,6 +6,7 @@ import type {
   ProviderType,
 } from '../../../shared/enums/core.enums.js';
 import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindingDto, DriftState } from '../../bindings/dto/bindings.dto.js';
+import type { CertificateDistinguishedName } from '../../certificates/schema/certificates.schema.js';
 import type { RuntimeCredentialV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
@@ -207,6 +208,24 @@ export interface ServiceAssetDto {
   deletedAt?: string;
   version: number;
   targetBinding?: ApplicationAssetTargetSummaryDto;
+  /** 当前实际服务证书的脱敏展示投影，不包含证书材料或私钥引用。 */
+  currentCertificate?: CurrentCertificateDto;
+}
+
+export interface CurrentCertificateDto {
+  versionId?: string;
+  certificateAssetId?: string;
+  /** 当前绑定版本不是证书资产最新激活版本时为 true。 */
+  updateAvailable?: boolean;
+  commonName?: string;
+  subject?: CertificateDistinguishedName;
+  fingerprintSha256?: string;
+  notBefore?: string;
+  notAfter?: string;
+  status?: string;
+  verified?: boolean;
+  observedAt?: string;
+  source?: string;
 }
 
 export interface ServiceAssetDetailDto extends ServiceAssetDto {

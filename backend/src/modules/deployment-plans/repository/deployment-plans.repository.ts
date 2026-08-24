@@ -53,6 +53,18 @@ export class DeploymentPlansRepository {
     return this.plans.list((plan) => sameTenant(plan.tenantId, tenantId));
   }
 
+  /**
+   * 资产详情只读取与该应用资产有关的计划，避免调用方先拉取全量计划再过滤。
+   */
+  async listPlansByApplicationAsset(tenantId: string | undefined, applicationAssetId: string): Promise<DeploymentPlanEntity[]> {
+    const targetPlanIds = new Set((await this.targets.list((target) => (
+      sameTenantOrLegacyMissing(target.tenantId, tenantId)
+      && target.applicationAssetId === applicationAssetId
+    ))).map((target) => target.deploymentPlanId));
+    if (targetPlanIds.size === 0) return [];
+    return this.plans.list((plan) => sameTenant(plan.tenantId, tenantId) && targetPlanIds.has(plan.id));
+  }
+
   async findPlanByIdempotencyKey(tenantId: string | undefined, actorId: string, idempotencyKey: string): Promise<DeploymentPlanEntity | undefined> {
     return (await this.plans.list((plan) => sameTenant(plan.tenantId, tenantId) && plan.createdBy === actorId && plan.idempotencyKey === idempotencyKey))[0];
   }

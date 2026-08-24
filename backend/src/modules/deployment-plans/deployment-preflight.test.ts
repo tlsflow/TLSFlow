@@ -194,6 +194,7 @@ test('临时部署计划不进入部署计划列表，并可在执行结束后�
   const temporaryPlan = makePlan('plan-temporary', true);
   const visiblePlan = makePlan('plan-visible');
   const deleted: string[] = [];
+  const auditEntries: Array<Record<string, unknown>> = [];
   const repository = {
     listPlans: async () => [temporaryPlan, visiblePlan],
     listTargetsByPlans: async () => [],
@@ -206,13 +207,141 @@ test('临时部署计划不进入部署计划列表，并可在执行结束后�
   const service = new DeploymentPlansApplicationService({
     repository: repository as never,
     executions: { listRuns: async () => [] } as never,
-    approval: { getMany: async () => new Map(), deleteByDeploymentPlan: async () => [] } as never,
+    approval: { getMany: async () => new Map(), get: async () => undefined, deleteByDeploymentPlan: async () => [] } as never,
+    audit: { write: async (input: Record<string, unknown>) => { auditEntries.push(input); } } as never,
   });
 
   const listed = await service.list({ tenantId: 'tenant-temporary' });
   assert.deepEqual(listed.map((plan) => plan.id), [visiblePlan.id]);
   assert.equal(await service.cleanupTemporaryPlan({ planId: temporaryPlan.id, tenantId: 'tenant-temporary' }), true);
   assert.deepEqual(deleted, [temporaryPlan.id]);
+  assert.equal(auditEntries.length, 1);
+  assert.equal(auditEntries[0]?.action, 'deployment_plan.temporary.archive');
+  assert.deepEqual((auditEntries[0]?.detail as { applicationAssetIds?: string[] }).applicationAssetIds, []);
+  assert.equal((auditEntries[0]?.detail as { approvalSummary?: unknown }).approvalSummary, undefined);
+});
+
+test('应用资产部署记录由服务端聚合审批、运行、预检和回滚', async () => {
+  const now = '2026-08-12T08:00:00.000Z';
+  const plan: DeploymentPlanEntity = {
+    id: 'plan-asset-record',
+    tenantId: 'tenant-asset-record',
+    name: '资产部署记录',
+    planType: 'UPDATE',
+    selectionMode: 'EXPLICIT',
+    certificateVersionId: 'certver-asset-record',
+    status: 'SUCCESS',
+    approvalStatus: 'APPROVED',
+    approvalId: 'approval-asset-record',
+    snapshotHash: 'snapshot-asset-record',
+    idempotencyKey: 'idem-asset-record',
+    requestHash: 'request-asset-record',
+    policy: { approvalRequired: true, riskLevel: 'high', failurePolicy: 'rollback' },
+    createdReason: 'MANUAL',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: 'operator-asset-record',
+    version: 1,
+  };
+  const target = {
+    id: 'target-asset-record',
+    tenantId: plan.tenantId,
+    deploymentPlanId: plan.id,
+    applicationAssetId: 'asset-record',
+    executorType: 'AGENT',
+    requiredCapabilities: ['certificate.deploy'],
+    status: 'SUCCESS',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: plan.createdBy,
+    version: 1,
+  };
+  const dryRun = {
+    id: 'run-asset-dry-run',
+    tenantId: plan.tenantId,
+    deploymentPlanId: plan.id,
+    runNo: 1,
+    type: 'dry_run' as const,
+    idempotencyKey: 'idem-run-asset-dry-run',
+    status: 'SUCCESS',
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: plan.createdBy,
+    version: 1,
+  };
+  const applyRun = {
+    ...dryRun,
+    id: 'run-asset-apply',
+    runNo: 2,
+    type: 'apply' as const,
+    idempotencyKey: 'idem-run-asset-apply',
+    createdAt: '2026-08-12T08:02:00.000Z',
+    updatedAt: '2026-08-12T08:02:00.000Z',
+  };
+  const rollbackRun = {
+    ...dryRun,
+    id: 'run-asset-rollback',
+    runNo: 3,
+    type: 'rollback' as const,
+    idempotencyKey: 'idem-run-asset-rollback',
+    status: 'FAILED',
+    createdAt: '2026-08-12T08:03:00.000Z',
+    updatedAt: '2026-08-12T08:03:00.000Z',
+  };
+  const approval = {
+    id: plan.approvalId,
+    tenantId: plan.tenantId,
+    operationType: 'deployment.execute',
+    resourceRefs: [{ type: 'deploymentPlan', id: plan.id }],
+    riskLevel: 'high' as const,
+    parameterHash: 'approval-hash',
+    status: 'approved' as const,
+    requestedBy: plan.createdBy,
+    approvedBy: 'approver-asset-record',
+    createdAt: now,
+    updatedAt: now,
+  };
+  const service = new DeploymentPlansApplicationService({
+    repository: {
+      listPlansByApplicationAsset: async (tenantId: string | undefined, applicationAssetId: string) =>
+        tenantId === plan.tenantId && applicationAssetId === 'asset-record' ? [plan] : [],
+      listTargetsByPlans: async () => [target],
+      listTargetsByPlan: async () => [target],
+    } as never,
+    executions: {
+      listRuns: async () => [dryRun, applyRun, rollbackRun],
+      listSteps: async ({ executionRunId }: { executionRunId: string }) => executionRunId === dryRun.id
+        ? [{
+            id: 'step-asset-dry-run',
+            executionRunId: dryRun.id,
+            stepNo: 1,
+            stepType: 'VERIFY',
+            name: '证书产物预检',
+            attemptCount: 1,
+            maxAttempts: 1,
+            inputSnapshot: { resultDetail: { dryRunChecks: [{ key: 'artifact', label: '证书产物', status: 'passed' }] } },
+            status: 'SUCCESS',
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+          }]
+        : [],
+    } as never,
+    approval: {
+      getMany: async () => new Map([[approval.id, approval]]),
+      get: async () => approval,
+    } as never,
+  });
+
+  const records = await service.listByApplicationAsset({ tenantId: plan.tenantId, applicationAssetId: 'asset-record' });
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.approval?.status, 'approved');
+  assert.equal(records[0]?.runs.length, 3);
+  assert.equal(records[0]?.latestRun?.id, rollbackRun.id);
+  assert.equal(records[0]?.latestPreflight?.run.id, dryRun.id);
+  assert.equal(records[0]?.latestPreflight?.checks[0]?.status, 'passed');
+  assert.equal(records[0]?.latestRollback?.id, rollbackRun.id);
 });
 
 test('历史工作流目标缺少固定身份快照时仍可读取部署计划列表', async () => {

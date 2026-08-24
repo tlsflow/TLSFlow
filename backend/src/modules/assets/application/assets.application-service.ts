@@ -2,6 +2,10 @@ import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificateBindingDto, CreateCertificateBindingDto, UpdateCertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
+import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
+import type { CertificateAssetEntity, CertificateDistinguishedName, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
+import type { CertificateObservationDto } from '../../monitors/dto/monitors.dto.js';
+import type { MonitorsRepository } from '../../monitors/repository/monitors.repository.js';
 import { AssetsDomainService } from '../domain/assets.domain-service.js';
 import type {
   AssetConflictDto,
@@ -37,6 +41,7 @@ import type {
   ServiceAssetDto,
   ServiceAssetDetailDto,
   DeploymentStrategyDto,
+  CurrentCertificateDto,
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
@@ -63,10 +68,20 @@ export class AssetsApplicationService {
     private pluginBindings?: PluginBindingsApplicationService,
     private managedTargetContextResolver?: ManagedTargetContextResolver,
     private licensingService?: ApplicationAssetQuotaPort,
+    private certificatesRepository?: CertificatesRepository,
+    private monitorsRepository?: MonitorsRepository,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
     this.bindingsRepository = bindingsRepository;
+  }
+
+  setCertificatesRepository(certificatesRepository: CertificatesRepository): void {
+    this.certificatesRepository = certificatesRepository;
+  }
+
+  setMonitorsRepository(monitorsRepository: MonitorsRepository): void {
+    this.monitorsRepository = monitorsRepository;
   }
 
   setAgentsService(agentsService: AgentsApplicationService): void {
@@ -174,14 +189,16 @@ export class AssetsApplicationService {
 
   async listServiceAssets(tenantId: string, query: PageQuery) {
     const result = await this.repository.listServiceAssets(tenantId, query);
-    return { ...result, items: await Promise.all(result.items.map((item) => this.hydrateServiceAssetStrategy(tenantId, item))) };
+    const hydrated = await Promise.all(result.items.map((item) => this.hydrateServiceAssetStrategy(tenantId, item)));
+    return { ...result, items: await this.hydrateCurrentCertificateProjection(tenantId, hydrated) };
   }
 
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
     if (!detail) return detail;
     const hydrated = await this.hydrateServiceAssetStrategy(tenantId, detail);
-    return this.hydrateServiceAssetTargetContext(tenantId, hydrated);
+    const [withCertificate] = await this.hydrateCurrentCertificateProjection(tenantId, [hydrated]);
+    return this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? hydrated);
   }
 
   async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {
@@ -738,6 +755,55 @@ export class AssetsApplicationService {
     };
   }
 
+  private async hydrateCurrentCertificateProjection<T extends ServiceAssetDto>(tenantId: string, assets: T[]): Promise<T[]> {
+    if (assets.length === 0) return assets;
+
+    const [bindingPage, observations, versionPage, certificateAssetPage] = await Promise.all([
+      this.bindingsRepository?.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} }),
+      this.monitorsRepository?.listCertificateObservations({ tenantId, pageSize: 5000 }),
+      this.certificatesRepository?.listVersions({ page: 1, pageSize: 5000, filter: {} }, tenantId),
+      this.certificatesRepository?.listAssets({ page: 1, pageSize: 5000, filter: {} }, tenantId),
+    ]);
+    const bindings = bindingPage?.items ?? [];
+    const versionById = new Map((versionPage?.items ?? []).map((version) => [version.id, version]));
+    const certificateAssetById = new Map((certificateAssetPage?.items ?? []).map((asset) => [asset.id, asset]));
+    // 应用状态比较的是证书资产中最新可用的活动版本，而不是 CertificateAsset.currentVersionId。
+    // currentVersionId 表示已提升/已生效版本，在新版本 staged 或历史数据未提升时不能代表可更新目标。
+    const latestVersionByAssetId = new Map<string, CertificateVersionEntity>();
+    for (const version of versionPage?.items ?? []) {
+      if (version.status !== 'active') continue;
+      const current = latestVersionByAssetId.get(version.certificateAssetId);
+      if (!current || isLaterCertificateVersion(version, current)) {
+        latestVersionByAssetId.set(version.certificateAssetId, version);
+      }
+    }
+    const versionByFingerprint = new Map<string, CertificateVersionEntity>();
+    for (const version of versionPage?.items ?? []) {
+      const fingerprint = normalizeCertificateFingerprint(version.fingerprintSha256);
+      if (fingerprint && !versionByFingerprint.has(fingerprint)) versionByFingerprint.set(fingerprint, version);
+    }
+    const observationByAssetId = new Map<string, CertificateObservationDto>();
+    for (const observation of observations ?? []) {
+      if (!observationByAssetId.has(observation.serviceAssetId)) observationByAssetId.set(observation.serviceAssetId, observation);
+    }
+
+    return assets.map((asset) => ({
+      ...asset,
+      currentCertificate: resolveCurrentCertificateProjection(
+        asset,
+        bindings.filter((binding) => binding.serviceAssetId === asset.id || (
+          Boolean(binding.managedTargetId)
+          && binding.managedTargetId === asset.targetBinding?.managedTargetId
+        )),
+        observationByAssetId.get(asset.id),
+        versionById,
+        versionByFingerprint,
+        certificateAssetById,
+        latestVersionByAssetId,
+      ),
+    }));
+  }
+
   private async applyPluginBindingCompatibility(tenantId: string, strategy: DeploymentStrategyDto): Promise<DeploymentStrategyDto> {
     const pluginBindingId = getDeploymentStrategyPluginBindingId(strategy);
     if (!pluginBindingId) return strategy;
@@ -802,6 +868,205 @@ export class AssetsApplicationService {
     }
   }
 	}
+
+function resolveCurrentCertificateProjection(
+  asset: ServiceAssetDto,
+  bindings: CertificateBindingDto[],
+  observation: CertificateObservationDto | undefined,
+  versionById: ReadonlyMap<string, CertificateVersionEntity>,
+  versionByFingerprint: ReadonlyMap<string, CertificateVersionEntity>,
+  certificateAssetById: ReadonlyMap<string, CertificateAssetEntity>,
+  latestVersionByAssetId: ReadonlyMap<string, CertificateVersionEntity>,
+): CurrentCertificateDto | undefined {
+  const metadataCertificate = readRecordAtPath(asset.metadata, 'currentCertificate');
+  const metadataFingerprint = readCertificateFingerprint(asset.metadata, [
+    'currentCertificate.fingerprintSha256',
+    'currentFingerprintSha256',
+  ]);
+  const metadataVersionId = readStringAtPath(asset.metadata, [
+    'currentCertificate.versionId',
+    'currentCertificate.certificateVersionId',
+    'currentCertificateVersionId',
+  ]);
+  const metadataCertificateValue = projectCertificateEvidence({
+    version: metadataVersionId ? versionById.get(metadataVersionId) : metadataFingerprint ? versionByFingerprint.get(metadataFingerprint) : undefined,
+    fallback: metadataCertificate ?? {
+      commonName: readStringAtPath(asset.metadata, ['currentCertificateCommonName']),
+      notBefore: readStringAtPath(asset.metadata, ['currentCertificateNotBefore']),
+      notAfter: readStringAtPath(asset.metadata, ['currentCertificateNotAfter']),
+    },
+    fingerprint: metadataFingerprint,
+    source: readStringAtPath(asset.metadata, ['currentCertificate.source']) ?? 'asset_metadata',
+    observedAt: readStringAtPath(asset.metadata, ['currentCertificate.observedAt', 'currentCertificateObservedAt']),
+    verified: readBooleanAtPath(asset.metadata, ['currentCertificate.verified', 'currentCertificateVerified']),
+  });
+  if (metadataCertificateValue) return markCertificateUpdateAvailability(metadataCertificateValue, certificateAssetById, latestVersionByAssetId);
+
+  if (observation) {
+    const fingerprint = normalizeCertificateFingerprint(observation.fingerprintSha256);
+    const observationValue = projectCertificateEvidence({
+      version: fingerprint ? versionByFingerprint.get(fingerprint) : undefined,
+      fallback: observation,
+      fingerprint,
+      source: observation.source,
+      observedAt: observation.observedAt,
+      verified: observation.verified,
+    });
+    if (observationValue) return markCertificateUpdateAvailability(observationValue, certificateAssetById, latestVersionByAssetId);
+  }
+
+  for (const binding of bindings) {
+    const observedFingerprint = readBindingFingerprint(binding);
+    const observedVersion = observedFingerprint ? versionByFingerprint.get(observedFingerprint) : undefined;
+    const observedValue = projectCertificateEvidence({
+      version: observedVersion,
+      fingerprint: observedFingerprint,
+      source: 'binding_observation',
+      observedAt: binding.lastVerifiedAt ?? binding.checkedAt,
+    });
+    if (observedValue) return markCertificateUpdateAvailability(observedValue, certificateAssetById, latestVersionByAssetId);
+
+    const versionId = resolveBindingCurrentCertificateVersionId(binding);
+    const versionValue = projectCertificateEvidence({
+      version: versionId ? versionById.get(versionId) : undefined,
+      source: 'binding_version',
+      observedAt: binding.lastVerifiedAt ?? binding.lastDeployedAt ?? binding.checkedAt,
+    });
+    if (versionValue) return markCertificateUpdateAvailability(versionValue, certificateAssetById, latestVersionByAssetId);
+  }
+
+  return undefined;
+}
+
+function markCertificateUpdateAvailability(
+  certificate: CurrentCertificateDto,
+  certificateAssetById: ReadonlyMap<string, CertificateAssetEntity>,
+  latestVersionByAssetId: ReadonlyMap<string, CertificateVersionEntity>,
+): CurrentCertificateDto {
+  if (!certificate.versionId || !certificate.certificateAssetId) return certificate;
+  const certificateAsset = certificateAssetById.get(certificate.certificateAssetId);
+  const latestVersionId = latestVersionByAssetId.get(certificate.certificateAssetId)?.id
+    ?? certificateAsset?.currentVersionId;
+  if (!latestVersionId) return { ...certificate, updateAvailable: false };
+  return {
+    ...certificate,
+    updateAvailable: certificate.versionId !== latestVersionId,
+  };
+}
+
+function isLaterCertificateVersion(candidate: CertificateVersionEntity, current: CertificateVersionEntity): boolean {
+  if (candidate.versionNo !== current.versionNo) return candidate.versionNo > current.versionNo;
+  return candidate.createdAt > current.createdAt;
+}
+
+function projectCertificateEvidence(input: {
+  version?: CertificateVersionEntity;
+  fallback?: Record<string, unknown> | CertificateObservationDto;
+  fingerprint?: string;
+  source: string;
+  observedAt?: string;
+  verified?: boolean;
+}): CurrentCertificateDto | undefined {
+  const fallback = input.fallback;
+  const subject = readCertificateSubject(fallback) ?? input.version?.subject;
+  const fallbackCommonName = readStringAtPath(fallback, [
+    'commonName',
+    'subject.commonName',
+    'name',
+  ]);
+  const fingerprint = input.fingerprint
+    ?? normalizeCertificateFingerprint(input.version?.fingerprintSha256)
+    ?? readCertificateFingerprint(fallback, ['fingerprintSha256']);
+  const notBefore = readStringAtPath(fallback, ['notBefore']) ?? input.version?.notBefore;
+  const notAfter = readStringAtPath(fallback, ['notAfter']) ?? input.version?.notAfter;
+  const versionId = input.version?.id;
+
+  if (!versionId && !fingerprint && !fallbackCommonName && !notBefore && !notAfter && !subject) return undefined;
+
+  return {
+    ...(versionId ? { versionId } : {}),
+    ...(input.version?.certificateAssetId ? { certificateAssetId: input.version.certificateAssetId } : {}),
+    ...(fallbackCommonName ?? input.version?.commonName ?? subject?.commonName ? { commonName: fallbackCommonName ?? input.version?.commonName ?? subject?.commonName } : {}),
+    ...(subject ? { subject } : {}),
+    ...(fingerprint ? { fingerprintSha256: fingerprint } : {}),
+    ...(notBefore ? { notBefore } : {}),
+    ...(notAfter ? { notAfter } : {}),
+    ...(input.version?.status ? { status: input.version.status } : {}),
+    ...(input.verified !== undefined ? { verified: input.verified } : {}),
+    ...(input.observedAt ? { observedAt: input.observedAt } : {}),
+    source: input.source,
+  };
+}
+
+function resolveBindingCurrentCertificateVersionId(binding: CertificateBindingDto): string | undefined {
+  return [
+    binding.localCertificateVersionId,
+    binding.certificateVersionId,
+    binding.targetCertificateVersionId,
+  ].find((id): id is string => Boolean(id));
+}
+
+function readBindingFingerprint(binding: CertificateBindingDto): string | undefined {
+  return normalizeCertificateFingerprint(
+    binding.observedFingerprintSha256
+      ?? binding.remoteEndpointFingerprint
+      ?? binding.unmanagedCertificateFingerprint,
+  );
+}
+
+function readCertificateFingerprint(value: unknown, paths: readonly string[]): string | undefined {
+  const raw = readStringAtPath(value, paths);
+  return normalizeCertificateFingerprint(raw);
+}
+
+function normalizeCertificateFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^a-f0-9]/giu, '').toUpperCase();
+  return normalized || undefined;
+}
+
+function readRecordAtPath(value: unknown, path: string): Record<string, unknown> | undefined {
+  const candidate = readPath(value, path);
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    ? candidate as Record<string, unknown>
+    : undefined;
+}
+
+function readStringAtPath(value: unknown, paths: readonly string[]): string | undefined {
+  for (const path of paths) {
+    const candidate = readPath(value, path);
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
+function readBooleanAtPath(value: unknown, paths: readonly string[]): boolean | undefined {
+  for (const path of paths) {
+    const candidate = readPath(value, path);
+    if (typeof candidate === 'boolean') return candidate;
+  }
+  return undefined;
+}
+
+function readCertificateSubject(value: unknown): CertificateDistinguishedName | undefined {
+  const candidate = readPath(value, 'subject');
+  if (typeof candidate === 'string' && candidate.trim()) return { raw: candidate.trim() };
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined;
+  const subject = candidate as Record<string, unknown>;
+  const raw = typeof subject.raw === 'string' && subject.raw.trim() ? subject.raw.trim() : undefined;
+  const commonName = typeof subject.commonName === 'string' && subject.commonName.trim() ? subject.commonName.trim() : undefined;
+  if (!raw && !commonName) return undefined;
+  return {
+    ...(raw ? { raw } : { raw: commonName! }),
+    ...(commonName ? { commonName } : {}),
+  };
+}
+
+function readPath(value: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    return (current as Record<string, unknown>)[segment];
+  }, value);
+}
 
 function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; siteAssets: NormalizedDiscoveredSiteAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
   const bindings = arrayOfObjects(payload.bindings ?? payload.certificateBindings) as unknown as NormalizedDiscoveredBindingDto[];

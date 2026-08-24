@@ -53,6 +53,7 @@ export const AUDIT_EVENT_TYPES = {
   DEPLOYMENT_CREATED: 'deployment.created',
   DEPLOYMENT_EXECUTED: 'deployment.executed',
   DEPLOYMENT_ROLLBACK_REQUESTED: 'deployment.rollback_requested',
+  DEPLOYMENT_TEMPORARY_PLAN_ARCHIVED: 'deployment.temporary_plan.archived',
   PLUGIN_INSTALLED: 'plugin.installed',
   PLUGIN_PERMISSION_DENIED: 'plugin.permission_denied',
   WORKFLOW_TEMPLATE_EXECUTED: 'workflow_template.executed',

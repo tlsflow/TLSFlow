@@ -34,6 +34,7 @@ export class DeploymentPlansController {
 
   register(router: Router): void {
     router.get('/api/v1/deployment-plans', '查询部署计划', ['DeploymentPlans'], (request) => this.list(request));
+    router.get('/api/v1/deployment-plans/by-application-asset', '按应用资产查询部署记录', ['DeploymentPlans'], (request) => this.listByApplicationAsset(request));
     router.get('/api/v1/deployment-plans/input-snapshots', '查询部署输入快照', ['DeploymentPlans'], (request) => this.listInputSnapshots(request));
     router.post('/api/v1/deployment-plans', '创建部署计划', ['DeploymentPlans'], (request) => this.create(request));
     router.post('/api/v1/deployment-plans/from-application-asset', '按应用资产创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
@@ -51,6 +52,20 @@ export class DeploymentPlansController {
     const items = await this.service.list({ tenantId: request.context.tenantId });
     const filtered = await this.authorizedItems(this.subjectFromRequest(request), 'deployment_plan', items);
     return { items: filtered, page: 1, pageSize: 200, total: filtered.length };
+  }
+
+  private async listByApplicationAsset(request: HttpRequest) {
+    const rawApplicationAssetId = request.query.applicationAssetId;
+    const applicationAssetId = Array.isArray(rawApplicationAssetId) ? rawApplicationAssetId[0] : rawApplicationAssetId;
+    if (!applicationAssetId || applicationAssetId.trim() === '') {
+      throw new AppError('VALIDATION_FAILED', 'applicationAssetId 不能为空');
+    }
+    const items = await this.service.listByApplicationAsset({
+      tenantId: request.context.tenantId,
+      applicationAssetId: applicationAssetId.trim(),
+    });
+    const filtered = await this.authorizedItems(this.subjectFromRequest(request), 'deployment_plan', items);
+    return { items: filtered, page: 1, pageSize: filtered.length, total: filtered.length };
   }
 
   private async listInputSnapshots(request: HttpRequest) {
@@ -111,6 +126,7 @@ export class DeploymentPlansController {
       targetCertificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
       selectionMode: { type: 'string' },
+      reuseDraft: { type: 'boolean' },
       idempotencyKey: { type: 'string' },
       planType: { type: 'string' },
       policy: { type: 'object' },
@@ -127,6 +143,7 @@ export class DeploymentPlansController {
         targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
         certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
         selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
+        reuseDraft: body.reuseDraft === undefined ? undefined : Boolean(body.reuseDraft),
         idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
         planType: body.planType === undefined ? undefined : body.planType as 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY',
         policy: this.parsePolicy(body.policy),
@@ -381,6 +398,7 @@ export function getDeploymentPlanRouteContracts(): RouteContract[] {
   const schema = { type: 'object', additionalProperties: true } as const;
   return [
     { method: 'GET', path: '/api/v1/deployment-plans', operationId: 'listDeploymentPlans', summary: '查询部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
+    { method: 'GET', path: '/api/v1/deployment-plans/by-application-asset', operationId: 'listDeploymentPlansByApplicationAsset', summary: '按应用资产查询部署记录', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'GET', path: '/api/v1/deployment-plans/input-snapshots', operationId: 'listDeploymentInputSnapshots', summary: '查询部署输入快照', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans', operationId: 'createDeploymentPlan', summary: '创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/from-application-asset', operationId: 'createDeploymentPlanFromApplicationAsset', summary: '按应用资产创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },

@@ -9,7 +9,7 @@ import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
+import type { ApplicationAssetDeploymentRecordDto, CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
@@ -264,6 +264,62 @@ export class DeploymentPlansApplicationService {
 
   async get(id: string, tenantId?: string): Promise<DeploymentPlanDto> {
     return this.toDto(await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(id, tenantId)));
+  }
+
+  /**
+   * 资产详情的部署记录由服务端按 applicationAssetId 聚合。
+   * 临时计划在尚未清理时也会返回，方便观察自动化执行中的预检和运行状态。
+   */
+  async listByApplicationAsset(input: { tenantId?: string; applicationAssetId: string }): Promise<ApplicationAssetDeploymentRecordDto[]> {
+    const sourcePlans = await this.repository.listPlansByApplicationAsset(input.tenantId, input.applicationAssetId);
+    if (sourcePlans.length === 0) return [];
+
+    const approvalIds = sourcePlans
+      .map((plan) => plan.approvalId)
+      .filter((id): id is string => Boolean(id));
+    const approvalsById = await this.approval.getMany(approvalIds, input.tenantId);
+    const plans = await Promise.all(
+      sourcePlans.map((plan) => this.synchronizeApprovalState(plan, approvalsById.get(plan.approvalId ?? ''))),
+    );
+    const [targets, runsByPlan] = await Promise.all([
+      this.repository.listTargetsByPlans(plans.map((plan) => plan.id), input.tenantId),
+      Promise.all(plans.map(async (plan) => [
+        plan.id,
+        await this.executions.listRuns({ tenantId: input.tenantId, deploymentPlanId: plan.id }) as ExecutionRunDto[],
+      ] as const)),
+    ]);
+    const targetsByPlanId = new Map<string, DeploymentPlanTargetEntity[]>();
+    for (const target of targets) {
+      const current = targetsByPlanId.get(target.deploymentPlanId) ?? [];
+      current.push(target);
+      targetsByPlanId.set(target.deploymentPlanId, current);
+    }
+    const runsByPlanId = new Map(runsByPlan);
+    const context: DeploymentPlanListContext = {
+      runsByPlanId,
+      targetsByPlanId,
+      approvalsById,
+      workflowVersions: new Map(),
+    };
+
+    const records = await Promise.all(plans.map(async (plan) => {
+      const runs = sortDeploymentRuns(runsByPlanId.get(plan.id) ?? []);
+      const latestPreflightRun = runs.find((run) => run.type === 'dry_run');
+      const latestRollback = runs.find((run) => run.type === 'rollback');
+      const dto = await this.toDto(plan, context);
+      return {
+        ...dto,
+        runs,
+        ...(latestPreflightRun ? {
+          latestPreflight: {
+            run: latestPreflightRun,
+            checks: await this.readDryRunChecks(latestPreflightRun, input.tenantId),
+          },
+        } : {}),
+        ...(latestRollback ? { latestRollback } : {}),
+      } satisfies ApplicationAssetDeploymentRecordDto;
+    }));
+    return records.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   async listInputSnapshots(planId: string, tenantId?: string): Promise<DeploymentInputSnapshotEntity[]> {
@@ -1586,6 +1642,31 @@ export class DeploymentPlansApplicationService {
     const runs = await this.executions.listRuns({ tenantId: input.tenantId, deploymentPlanId: plan.id }) as ExecutionRunDto[];
     if (runs.some((run) => ['PENDING', 'DISPATCHED', 'RUNNING'].includes(run.status))) return false;
     const targets = await this.repository.listTargetsByPlan(plan.id, input.tenantId);
+    const approval = plan.approvalId
+      ? await this.approval.get(plan.approvalId, input.tenantId)
+      : undefined;
+    const inputSnapshots = this.deploymentInputSnapshots
+      ? await this.deploymentInputSnapshots.listByPlan(input.tenantId, plan.id)
+      : [];
+
+    // 审计快照先落盘再删除临时实体。写入失败时保留计划，不能为了清理而削薄排障证据。
+    try {
+      await this.audit.write({
+        eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_TEMPORARY_PLAN_ARCHIVED,
+        actorType: 'system',
+        actorId: 'automation-cleanup',
+        action: 'deployment_plan.temporary.archive',
+        resourceType: 'deploymentPlan',
+        resourceId: plan.id,
+        result: 'success',
+        riskLevel: 'medium',
+        context: { tenantId: input.tenantId },
+        failClosed: true,
+        detail: buildTemporaryPlanAuditSnapshot(plan, targets, runs, inputSnapshots, approval),
+      });
+    } catch {
+      return false;
+    }
     await this.repository.deleteTransitionsByEntityIds([plan.id, ...targets.map((target) => target.id)], input.tenantId);
     await this.approval.deleteByDeploymentPlan(plan.id, plan.approvalId, input.tenantId);
     if (this.deploymentInputSnapshots) await this.deploymentInputSnapshots.deleteByPlan(input.tenantId, plan.id);
@@ -2992,6 +3073,30 @@ export class DeploymentPlansApplicationService {
     };
   }
 
+  private async readDryRunChecks(run: ExecutionRunDto, tenantId?: string): Promise<DeploymentPlanDryRunCheckDto[]> {
+    const steps = await this.executions.listSteps({ tenantId, executionRunId: run.id }) as ExecutionStepDto[];
+    const checks: DeploymentPlanDryRunCheckDto[] = [];
+    for (const step of steps) {
+      const resultDetail = readRecord(step.inputSnapshot.resultDetail);
+      const rawChecks = Array.isArray(resultDetail?.dryRunChecks) ? resultDetail.dryRunChecks : [];
+      for (const rawCheck of rawChecks) {
+        if (!rawCheck || typeof rawCheck !== 'object' || Array.isArray(rawCheck)) continue;
+        const check = rawCheck as Record<string, unknown>;
+        const key = readOptionalString(check.key);
+        const label = readOptionalString(check.label);
+        if (!key || !label) continue;
+        const status = readOptionalString(check.status);
+        checks.push({
+          key,
+          label,
+          status: status === 'passed' || status === 'failed' || status === 'warning' ? status : 'unknown',
+          ...(readOptionalString(check.detail) ? { detail: readOptionalString(check.detail) } : {}),
+        });
+      }
+    }
+    return checks;
+  }
+
   /**
    * 从部署计划目标的固定执行来源快照读取工作流身份。
    *
@@ -3294,6 +3399,76 @@ export function resolveBoundCertificateOutput(
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function sortDeploymentRuns(runs: readonly ExecutionRunDto[]): ExecutionRunDto[] {
+  return [...runs].sort((left, right) => {
+    const runNo = Number(right.runNo ?? 0) - Number(left.runNo ?? 0);
+    if (runNo !== 0) return runNo;
+    return String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''));
+  });
+}
+
+function buildTemporaryPlanAuditSnapshot(
+  plan: DeploymentPlanEntity,
+  targets: readonly DeploymentPlanTargetEntity[],
+  runs: readonly ExecutionRunDto[],
+  inputSnapshots: readonly DeploymentInputSnapshotEntity[],
+  approval?: ApprovalRequestEntity,
+): Record<string, unknown> {
+  return {
+    snapshotVersion: 1,
+    archivedAt: new Date().toISOString(),
+    planId: plan.id,
+    applicationAssetIds: uniqueStrings(targets.map((target) => target.applicationAssetId)),
+    certificateVersionId: plan.certificateVersionId,
+    status: plan.status,
+    executionStatus: plan.executionStatus,
+    approvalStatus: plan.approvalStatus,
+    approvalId: plan.approvalId,
+    ...(approval ? {
+      approvalSummary: {
+        id: approval.id,
+        status: approval.status,
+        riskLevel: approval.riskLevel,
+        requestedBy: approval.requestedBy,
+        approvedBy: approval.approvedBy,
+        expiresAt: approval.expiresAt,
+        createdAt: approval.createdAt,
+        updatedAt: approval.updatedAt,
+      },
+    } : {}),
+    snapshotHash: plan.snapshotHash,
+    createdReason: plan.createdReason,
+    targetSummary: targets.map((target) => ({
+      targetId: target.id,
+      applicationAssetId: target.applicationAssetId,
+      certificateBindingId: target.certificateBindingId,
+      executionTargetId: target.executionTargetId,
+      executorType: target.executorType,
+      status: target.status,
+      executionStatus: target.executionStatus,
+    })),
+    runSummary: sortDeploymentRuns(runs).map((run) => ({
+      runId: run.id,
+      type: run.type,
+      status: run.status,
+      runNo: run.runNo,
+      errorCode: run.errorCode,
+      createdAt: run.createdAt,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    })),
+    inputSnapshotSummary: inputSnapshots.map((snapshot) => ({
+      snapshotId: snapshot.id,
+      targetId: snapshot.deploymentPlanTargetId,
+      revision: snapshot.revision,
+      resolvedSha256: snapshot.snapshot.resolvedSha256,
+      contractVersion: snapshot.snapshot.contractVersion,
+      executable: snapshot.snapshot.executable,
+      createdAt: snapshot.createdAt,
+    })),
+  };
 }
 
 function readWorkflowVersionSelection(value: unknown): 'FIXED' | undefined {

@@ -129,6 +129,21 @@ export interface DeploymentPlanDryRunCheckDto {
   evidence?: Record<string, unknown>;
 }
 
+/**
+ * 应用资产视角的部署记录。
+ *
+ * DeploymentPlan 仍是执行快照和审批边界；该 DTO 只把同一应用资产的
+ * 运行、预检与回滚事实聚合给资产详情页，不改变计划或资产的数据模型。
+ */
+export interface ApplicationAssetDeploymentRecordDto extends DeploymentPlanDto {
+  runs: ExecutionRunDto[];
+  latestPreflight?: {
+    run: ExecutionRunDto;
+    checks: DeploymentPlanDryRunCheckDto[];
+  };
+  latestRollback?: ExecutionRunDto;
+}
+
 export interface CreateDeploymentPlanInput {
   name: string;
   certificateVersionId?: string;
