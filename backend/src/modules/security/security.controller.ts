@@ -610,7 +610,7 @@ export class SecurityController {
 
   private async subjectFromRequest(request: HttpRequest): Promise<SecuritySubject> {
     if (!request.context.actorId) {
-      throw new AppError('AUTH_UNAUTHENTICATED', '缂哄皯 actor 涓婁笅鏂?');
+      throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     }
     const user = await this.services.rbac.getUser(request.context.actorId);
     return {
