@@ -47,6 +47,11 @@ const zhSidebar = [
       { text: "主题变量与设计系统", link: "/developer-guide/theme" },
       { text: "测试与验证", link: "/developer-guide/testing" },
       { text: "插件开发", link: "/developer-guide/plugins/" },
+      { text: "插件包契约", link: "/developer-guide/plugins/package-contract" },
+      { text: "设备与目标模式", link: "/developer-guide/plugins/target-modes" },
+      { text: "发现与证书位置", link: "/developer-guide/plugins/discovery-and-assets" },
+      { text: "Agent 插件运行时", link: "/developer-guide/plugins/agent-runtime" },
+      { text: "插件安全与成熟度", link: "/developer-guide/plugins/security-and-maturity" },
       { text: "工作流开发", link: "/developer-guide/workflows/" }
     ]
   },

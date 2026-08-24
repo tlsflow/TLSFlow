@@ -1,7 +1,7 @@
 ---
 title: 插件开发
 description: GCAC 统一插件和 Agent 插件开发入口
-docStatus: todo
+docStatus: in_review
 productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
@@ -17,11 +17,20 @@ lastVerified: 2026-08-02
 
 # 插件开发
 
-插件开发正文将在阶段 3.4 编写。当前入口先固定导航和事实边界，避免开发者直接从旧规范复制已迁移的 Standalone 或厂商分派模型。
+插件开发必须以现行的 `20260802` 统一规范、对应 Spec 和代码证据为准。当前手册已经覆盖包契约、设备与目标模式、标准发现、Agent 运行时、安全门禁和能力成熟度；没有外部厂商、真实部署或密码学验签证据的能力会保留为 `in_review` 或 `todo`。
 
-重点主题：
+推荐阅读顺序：
 
-- 统一 Manifest、版本不可变和权限审批。
-- Agent Atomic Runtime 与 Workflow DSL Runtime。
-- 无 Agent、ManagedTarget 和 Standalone 的执行模式。
-- 标准发现、证书位置、Secret/Artifact Grant 和回滚。
+1. [插件包契约](./package-contract.md)
+2. [设备与目标模式](./target-modes.md)
+3. [发现、资产字段与证书位置](./discovery-and-assets.md)
+4. [Agent 插件运行时](./agent-runtime.md)
+5. [插件安全与能力成熟度](./security-and-maturity.md)
+
+核心边界：
+
+- 插件身份由 `CapabilityAssignment -> PluginBinding -> PluginVersion` 解析，不按厂商字符串选择实现。
+- `AGENT_ATOMIC` 与 `WORKFLOW_DSL` 是两种独立运行时，Agent 原子插件不能伪装成工作流 Step。
+- 无 Agent `DeviceAsset`、`ManagedTarget + Plugin`、`ManagedTarget + Workflow Override` 和 `Standalone + Workflow` 必须分开建模。
+- 发现得到的证书路径等事实使用 `source.kind=asset`，精确发现优先于插件默认值。
+- Secret、Artifact、权限、审计、快照、验证和回滚由宿主统一治理，插件只消费受控 Grant。
