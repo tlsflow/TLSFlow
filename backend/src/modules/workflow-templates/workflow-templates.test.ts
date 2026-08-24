@@ -8,7 +8,7 @@ import { WorkflowTemplatesApplicationService } from './application/workflow-temp
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
-import type { WorkflowDslV1, WorkflowRunProgress } from './dto/workflow-templates.dto.js';
+import type { WorkflowDslV1, WorkflowPluginActionStep, WorkflowRunProgress } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../plugins/repository/plugin-workflow-bindings.repository.js';
@@ -266,6 +266,33 @@ describe('WorkflowTemplates', () => {
     const firstStep = invalidFirstOf.steps[0];
     if (firstStep?.type === 'http') firstStep.extract = [{ name: 'accessToken', type: 'firstOf', paths: [] }];
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFirstOf), /paths/);
+  });
+
+  it('Schema 接受合法 plugin.action，并拒绝缺少 Action ID、Schema 摘要或版本的步骤', () => {
+    const content = templateFixture();
+    const action: WorkflowPluginActionStep = {
+      name: 'sign_request',
+      type: 'plugin.action',
+      stage: 'prepare',
+      pluginId: 'cloud.aliyun',
+      capability: 'certificate.sign',
+      actionId: 'certificate.sign.v1',
+      actionContractVersion: 'v1',
+      input: { payload: '{{variables.deviceHost}}' },
+      inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+      outputSchemaSha256: `sha256:${'b'.repeat(64)}`,
+      timeoutSeconds: 30,
+      writeEffect: false,
+      idempotencyKeyRef: '{{variables.deviceHost}}',
+    };
+    content.steps.push(action);
+    assert.equal(workflowTemplatesSchemaRegistry.validate(content).steps.at(-1)?.type, 'plugin.action');
+
+    for (const field of ['actionId', 'inputSchemaSha256', 'outputSchemaSha256', 'actionContractVersion'] as const) {
+      const invalid = templateFixture();
+      invalid.steps.push({ ...action, [field]: '' });
+      assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalid), new RegExp(field));
+    }
   });
 
   it('拒绝 SSH Shell、CMD、PowerShell、脚本、下载后执行和参数模板越权', () => {
@@ -1611,7 +1638,7 @@ describe('WorkflowTemplates', () => {
       type: 'transform',
       transform: {
         engine: 'jsonata',
-        outputs: { value: { expression: '$sum([1..1000000])' } },
+        outputs: { value: { expression: '$reduce([1..1000000], function($a,$b){$a+$b}, 0)' } },
         timeoutMs: 1,
       },
     }];

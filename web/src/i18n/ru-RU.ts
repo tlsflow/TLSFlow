@@ -469,7 +469,6 @@ export default {
       DEPLOYMENT_APPROVAL: 'Согласование развёртывания',
       CERTIFICATE_VERIFY: 'Проверка сертификата',
       CERTIFICATE_ROLLBACK: 'Откат сертификата',
-      PROVIDER_OPERATION: 'Облачная операция',
       AGENT_INSTALL: 'Установка Agent',
       AGENT_UPDATE: 'Обновление Agent',
       PLUGIN_REFERENCE_REFRESH: 'Обновление ссылок плагинов',
@@ -3825,6 +3824,10 @@ export default {
           displayName: 'Точка восстановления',
           description: 'Сохраняет проверяемую сводку удалённого состояния перед записью на устройство.'
         },
+        pluginAction: {
+          displayName: 'Атомарное действие плагина',
+          description: 'Вызывает одно действие плагина, явно объявленное DSL, не управляя порядком или откатом.'
+        },
         wait: {
           displayName: 'Ожидание',
           description: 'Ожидает фиксированное число секунд и продолжает выполнение.'
@@ -3864,6 +3867,15 @@ export default {
         checkpointName: 'Имя точки восстановления',
         checkpointCapture: 'JSON путей захвата',
         requiredForRollback: 'Требуется для отката',
+        pluginId: 'ID плагина',
+        capability: 'Возможность',
+        actionId: 'ID действия',
+        actionContractVersion: 'Версия контракта действия',
+        actionInput: 'JSON входа действия',
+        inputSchemaSha256: 'Дайджест входной схемы',
+        outputSchemaSha256: 'Дайджест выходной схемы',
+        writeEffect: 'Эффект записи',
+        idempotencyKeyRef: 'Ссылка на ключ идемпотентности',
         outputFormat: 'Формат вывода',
         usernameVariable: 'Переменная имени пользователя',
         variable: 'Переменная',

@@ -12,7 +12,7 @@ import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.sc
 import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
-type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
+type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual' | 'plugin.action';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
 type CanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls';
 
@@ -64,7 +64,7 @@ export interface WorkflowCanvasCompileResult {
 }
 
 const workflowStages: readonly WorkflowStage[] = ['prepare', 'backup', 'install', 'refresh', 'verify'];
-const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual'];
+const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual', 'plugin.action'];
 const requiredNodeTypes: readonly CanvasNodeType[] = ['http', 'ssh', 'sftp', 'verify'];
 
 export function compileWorkflowCanvas(input: unknown): WorkflowCanvasCompileResult {
@@ -284,6 +284,25 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       },
     });
   }
+  if (node.type === 'plugin.action') {
+    const imported = readImportedStep(node);
+    const generated: WorkflowStep = {
+      name,
+      type: 'plugin.action',
+      stage: getNodeStage(node),
+      pluginId: String(config.pluginId ?? ''),
+      capability: String(config.capability ?? ''),
+      actionId: String(config.actionId ?? ''),
+      actionContractVersion: String(config.actionContractVersion ?? 'v1'),
+      input: parseLooseJson(String(config.input ?? '{}')) as Record<string, unknown>,
+      inputSchemaSha256: String(config.inputSchemaSha256 ?? ''),
+      outputSchemaSha256: String(config.outputSchemaSha256 ?? ''),
+      timeoutSeconds: Number(config.timeoutSeconds ?? 30),
+      writeEffect: config.writeEffect === true || String(config.writeEffect).toLowerCase() === 'true',
+      idempotencyKeyRef: String(config.idempotencyKeyRef ?? '{{variables.idempotencyKey}}'),
+    };
+    return imported?.type === 'plugin.action' ? { ...imported, ...generated } : generated;
+  }
   if (node.type === 'wait') return mergeImportedDslStep(node, { name, type: 'wait', stage: getNodeStage(node), seconds: Number(config.seconds ?? 10) });
   return mergeImportedDslStep(node, { name, type: 'manual', stage: getNodeStage(node), instruction: String(config.instruction ?? '人工确认') });
 }
@@ -328,6 +347,7 @@ function requiredFieldsForType(type: CanvasNodeType): string[] {
   if (type === 'condition') return ['variable', 'operator'];
   if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'continueOnError', 'steps'];
   if (type === 'checkpoint') return ['checkpointName', 'capture', 'requiredForRollback'];
+  if (type === 'plugin.action') return ['pluginId', 'capability', 'actionId', 'actionContractVersion', 'input', 'inputSchemaSha256', 'outputSchemaSha256', 'timeoutSeconds', 'writeEffect', 'idempotencyKeyRef'];
   if (type === 'wait') return ['seconds'];
   if (type === 'manual') return ['instruction'];
   return [];
@@ -508,6 +528,7 @@ function defaultStageForType(type: CanvasNodeType): WorkflowStage {
   if (type === 'transform' || type === 'foreach') return 'refresh';
   if (type === 'sftp' || type === 'scp') return 'install';
   if (type === 'ssh' || type === 'wait') return 'refresh';
+  if (type === 'plugin.action') return 'install';
   if (type === 'verify') return 'verify';
   return 'backup';
 }

@@ -464,7 +464,6 @@ export default {
       DEPLOYMENT_APPROVAL: 'Deployment approval',
       CERTIFICATE_VERIFY: 'Certificate verify',
       CERTIFICATE_ROLLBACK: 'Certificate rollback',
-      PROVIDER_OPERATION: 'Cloud operation',
       AGENT_INSTALL: 'Agent install',
       AGENT_UPDATE: 'Agent update',
       PLUGIN_REFERENCE_REFRESH: 'Plugin reference refresh',
@@ -3956,6 +3955,10 @@ export default {
           displayName: 'Recovery Checkpoint',
           description: 'Save a verifiable remote-state summary before a device write operation.'
         },
+        pluginAction: {
+          displayName: 'Plugin Atomic Action',
+          description: 'Invoke one explicitly declared plugin action without taking over workflow order or rollback.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -3995,6 +3998,15 @@ export default {
         checkpointName: 'Checkpoint name',
         checkpointCapture: 'Capture paths JSON',
         requiredForRollback: 'Required for rollback',
+        pluginId: 'Plugin ID',
+        capability: 'Capability',
+        actionId: 'Action ID',
+        actionContractVersion: 'Action contract version',
+        actionInput: 'Action input JSON',
+        inputSchemaSha256: 'Input schema digest',
+        outputSchemaSha256: 'Output schema digest',
+        writeEffect: 'Write effect',
+        idempotencyKeyRef: 'Idempotency key reference',
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',

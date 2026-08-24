@@ -39,6 +39,45 @@ describe('Workflow Canvas 正式输入契约', () => {
 
     assert.throws(() => compileWorkflowCanvas({ canvas: invalid }), /未声明的连接槽位/);
   });
+
+  it('Canvas plugin.action 节点编译后保留 Action 合同且可被 DSL Schema 接收', () => {
+    const canvas = canvasFixture() as unknown as { nodes: Array<Record<string, unknown>> };
+    canvas.nodes.push({
+      id: 'plugin_action_1',
+      type: 'plugin.action',
+      config: {
+        pluginId: 'test.echo',
+        capability: 'test.echo',
+        actionId: 'test.echo.v1',
+        actionContractVersion: 'v1',
+        input: '{"value":"{{variables.verifyUrl}}"}',
+        inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+        outputSchemaSha256: `sha256:${'b'.repeat(64)}`,
+        timeoutSeconds: 30,
+        writeEffect: 'false',
+        idempotencyKeyRef: '{{variables.verifyUrl}}',
+      },
+      ui: { stage: 'prepare' },
+    });
+
+    const result = compileWorkflowCanvas({ canvas });
+    const action = result.content.steps.find((step) => step.type === 'plugin.action');
+    assert.deepEqual(action, {
+      name: 'plugin_action_2_plugin_action_1',
+      type: 'plugin.action',
+      stage: 'prepare',
+      pluginId: 'test.echo',
+      capability: 'test.echo',
+      actionId: 'test.echo.v1',
+      actionContractVersion: 'v1',
+      input: { value: '{{variables.verifyUrl}}' },
+      inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+      outputSchemaSha256: `sha256:${'b'.repeat(64)}`,
+      timeoutSeconds: 30,
+      writeEffect: false,
+      idempotencyKeyRef: '{{variables.verifyUrl}}',
+    });
+  });
 });
 
 function canvasFixture() {

@@ -132,7 +132,7 @@ function pluginWorkflowLegacyExecutorFailure(plan: Record<string, unknown>): Wor
   return {
     success: false,
     errorCode: 'PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN',
-    errorMessage: 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Curl/SSH 执行器已拒绝',
+    errorMessage: '包级 PluginWorkflow 已禁止，旧 Curl/SSH 执行器已拒绝',
     body: {
       kind: asString(plan.kind),
       executionMode: asString(plan.executionMode),

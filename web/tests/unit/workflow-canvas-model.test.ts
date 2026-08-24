@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createCanvasNode,
   createDefaultWorkflowCanvas,
   isWorkflowDslCanvasImportable,
   isWorkflowDslV1,
@@ -30,6 +31,52 @@ describe('workflow canvas model', () => {
       args: ['service-main'],
       argumentTemplate: 'systemctl.reload',
     }))
+  })
+
+  it('可以创建并导入回读 plugin.action 节点而不丢失 Action 合同', () => {
+    const created = createCanvasNode('plugin.action', 0)
+    expect(created.type).toBe('plugin.action')
+    expect(created.config).toEqual(expect.objectContaining({
+      actionContractVersion: 'v1',
+      timeoutSeconds: 30,
+      writeEffect: 'false',
+    }))
+
+    const actionDsl = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'plugin-action-workflow' },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
+      steps: [{
+        name: 'sign_request',
+        type: 'plugin.action',
+        stage: 'prepare',
+        pluginId: 'test.echo',
+        capability: 'test.echo',
+        actionId: 'test.echo.v1',
+        actionContractVersion: 'v1',
+        input: { value: 'hello' },
+        inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+        outputSchemaSha256: `sha256:${'b'.repeat(64)}`,
+        timeoutSeconds: 30,
+        writeEffect: false,
+        idempotencyKeyRef: '{{variables.verifyUrl}}',
+      }],
+    } as const
+
+    expect(isWorkflowDslV1(actionDsl)).toBe(true)
+    const imported = workflowDslToCanvas(actionDsl)
+    expect(imported.nodes[0]).toEqual(expect.objectContaining({
+      type: 'plugin.action',
+      config: expect.objectContaining({
+        pluginId: 'test.echo',
+        actionId: 'test.echo.v1',
+        input: '{\n  "value": "hello"\n}',
+        inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+        outputSchemaSha256: `sha256:${'b'.repeat(64)}`,
+      }),
+    }))
+    expect(imported.nodes[0]?.ui?.rawStep).toEqual(actionDsl.steps[0])
   })
 
   it('导入 DSL 后会把高级字段保留在 rawStep 并记录 rollback', () => {

@@ -469,7 +469,6 @@ export default {
       DEPLOYMENT_APPROVAL: '배포 승인',
       CERTIFICATE_VERIFY: '인증서 검증',
       CERTIFICATE_ROLLBACK: '인증서 롤백',
-      PROVIDER_OPERATION: '클라우드 작업',
       AGENT_INSTALL: 'Agent 설치',
       AGENT_UPDATE: 'Agent 업데이트',
       PLUGIN_REFERENCE_REFRESH: '플러그인 참조 새로고침',
@@ -3812,6 +3811,10 @@ export default {
           displayName: '복구 체크포인트',
           description: '장치 쓰기 작업 전에 검증 가능한 원격 상태 요약을 저장합니다.'
         },
+        pluginAction: {
+          displayName: '플러그인 원자 작업',
+          description: 'DSL에 명시된 단일 플러그인 작업을 호출하며 순서나 롤백은 관리하지 않습니다.'
+        },
         wait: {
           displayName: '대기',
           description: '몇 초 동안 기다린 후 계속 실행하세요.'
@@ -3851,6 +3854,15 @@ export default {
         checkpointName: '체크포인트 이름',
         checkpointCapture: '캡처 경로 JSON',
         requiredForRollback: '롤백 필수',
+        pluginId: '플러그인 ID',
+        capability: 'Capability',
+        actionId: '작업 ID',
+        actionContractVersion: '작업 계약 버전',
+        actionInput: '작업 입력 JSON',
+        inputSchemaSha256: '입력 Schema 요약',
+        outputSchemaSha256: '출력 Schema 요약',
+        writeEffect: '쓰기 효과',
+        idempotencyKeyRef: '멱등 키 참조',
         outputFormat: '출력 형식',
         usernameVariable: '사용자 이름 변수',
         variable: '변수',

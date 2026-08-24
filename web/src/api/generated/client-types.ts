@@ -201,7 +201,6 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/certificate-versions/validate-import",
     "/api/v1/cloud-account-assets",
     "/api/v1/cloud-account-assets/:id",
-    "/api/v1/cloud-account-assets/:id/actions/:action",
     "/api/v1/cloud-account-assets/:id/capability-binding",
     "/api/v1/cloud-account-assets/delete",
     "/api/v1/credentials/browser-sessions",

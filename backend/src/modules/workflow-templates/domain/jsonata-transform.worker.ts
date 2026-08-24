@@ -22,17 +22,21 @@ await new Promise<void>((resolve) => {
 });
 port.postMessage({ type: 'started' });
 
+// 让宿主先收到 started 并启动执行计时器，避免重计算抢在超时计时器之前完成消息投递。
+await new Promise<void>((resolve) => setImmediate(resolve));
+const executionStartedAt = performance.now();
 try {
   const expression = jsonata(data.expression);
   expression.registerFunction('x509Sha256', x509Sha256, '<s:s>');
   const value = await expression.evaluate(data.input);
   try {
-    port.postMessage({ type: 'result', ok: true, value });
+    port.postMessage({ type: 'result', ok: true, value, durationMs: performance.now() - executionStartedAt });
   } catch (error) {
     port.postMessage({
       type: 'result',
       ok: false,
       message: error instanceof Error ? error.message : 'JSONata 输出不可序列化',
+      durationMs: performance.now() - executionStartedAt,
     });
   }
 } catch (error) {
@@ -40,6 +44,7 @@ try {
     type: 'result',
     ok: false,
     message: error instanceof Error ? error.message : 'JSONata 表达式执行失败',
+    durationMs: performance.now() - executionStartedAt,
   });
 }
 

@@ -464,7 +464,6 @@ export default {
       DEPLOYMENT_APPROVAL: '部署审批',
       CERTIFICATE_VERIFY: '证书验证',
       CERTIFICATE_ROLLBACK: '证书回滚',
-      PROVIDER_OPERATION: '云服务操作',
       AGENT_INSTALL: 'Agent安装',
       AGENT_UPDATE: 'Agent更新',
       PLUGIN_REFERENCE_REFRESH: '插件引用刷新',
@@ -3997,6 +3996,10 @@ export default {
           displayName: '恢复检查点',
           description: '在设备写操作前保存可验证的远端状态摘要。'
         },
+        pluginAction: {
+          displayName: '插件原子动作',
+          description: '调用 DSL 明确声明的单个插件动作，不接管工作流顺序或回滚。'
+        },
         wait: {
           displayName: '等待',
           description: '等待固定秒数后继续执行。'
@@ -4036,6 +4039,15 @@ export default {
         checkpointName: '检查点名称',
         checkpointCapture: '捕获路径 JSON',
         requiredForRollback: '回滚必需',
+        pluginId: '插件 ID',
+        capability: '能力标识',
+        actionId: '动作 ID',
+        actionContractVersion: '动作合同版本',
+        actionInput: '动作输入 JSON',
+        inputSchemaSha256: '输入 Schema 摘要',
+        outputSchemaSha256: '输出 Schema 摘要',
+        writeEffect: '写入效果',
+        idempotencyKeyRef: '幂等键变量引用',
         outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',

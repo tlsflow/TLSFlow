@@ -24,9 +24,12 @@ const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
 const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'browser', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
+const pluginActionStepKeys = new Set([...stepBaseKeys, 'pluginId', 'capability', 'actionId', 'actionContractVersion', 'input', 'inputSchemaSha256', 'outputSchemaSha256', 'timeoutSeconds', 'writeEffect', 'idempotencyKeyRef']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'browser', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual', 'plugin.action']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'variables', 'connections', 'credentials', 'artifacts', 'steps', 'system']);
+const identifierPattern = /^[A-Za-z0-9._:-]{1,256}$/;
+const sha256Pattern = /^sha256:[a-f0-9]{64}$/;
 
 export class WorkflowSchemaRegistry {
   validate(content: unknown): WorkflowDslV1 {
@@ -240,6 +243,22 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     if (!isNonEmptyString(step.checkpointVerify.expectedHash)) throw validationError(`${path}.checkpointVerify.expectedHash 必填`);
     return;
   }
+  if (step.type === 'plugin.action') {
+    rejectUnknown(step as unknown as Record<string, unknown>, pluginActionStepKeys, path);
+    if (!isNonEmptyString(step.pluginId) || !identifierPattern.test(step.pluginId)) throw validationError(`${path}.pluginId 必须是固定标识符`);
+    if (!isNonEmptyString(step.capability) || !identifierPattern.test(step.capability)) throw validationError(`${path}.capability 必须是固定标识符`);
+    if (!isNonEmptyString(step.actionId) || !identifierPattern.test(step.actionId)) throw validationError(`${path}.actionId 必须是固定标识符`);
+    if (!isNonEmptyString(step.actionContractVersion) || !identifierPattern.test(step.actionContractVersion)) throw validationError(`${path}.actionContractVersion 必须是固定标识符`);
+    if (!isRecord(step.input)) throw validationError(`${path}.input 必须是对象`);
+    if (!isNonEmptyString(step.inputSchemaSha256) || !sha256Pattern.test(step.inputSchemaSha256)) throw validationError(`${path}.inputSchemaSha256 必须是 sha256 摘要`);
+    if (!isNonEmptyString(step.outputSchemaSha256) || !sha256Pattern.test(step.outputSchemaSha256)) throw validationError(`${path}.outputSchemaSha256 必须是 sha256 摘要`);
+    if (!isPositiveInteger(step.timeoutSeconds) || step.timeoutSeconds > 3600) throw validationError(`${path}.timeoutSeconds 必须在 1-3600 之间`);
+    if (typeof step.writeEffect !== 'boolean') throw validationError(`${path}.writeEffect 必须是布尔值`);
+    if (!isNonEmptyString(step.idempotencyKeyRef) || !/^\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}$/.test(step.idempotencyKeyRef)) {
+      throw validationError(`${path}.idempotencyKeyRef 必须是变量引用`);
+    }
+    return;
+  }
   if (step.type === 'wait') {
     rejectUnknown(step as unknown as Record<string, unknown>, waitStepKeys, path);
     if (!isPositiveInteger(step.seconds)) throw validationError(`${path}.seconds 必须是正整数`);
@@ -275,13 +294,14 @@ export function normalizeExtractors(value: WorkflowStep['extract']): WorkflowExt
 
 function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (!isNonEmptyString(extractor.name)) throw validationError(`${path}.extract.name 必填`);
-  if (!['jsonPath', 'outputPath', 'firstOf', 'header', 'regex', 'statusCode', 'textContains'].includes(extractor.type)) throw validationError(`${path}.extract.type 不支持`);
+  if (!['jsonPath', 'outputPath', 'firstOf', 'header', 'regex', 'statusCode', 'textContains', 'literal'].includes(extractor.type)) throw validationError(`${path}.extract.type 不支持`);
   if (extractor.type === 'jsonPath' && !isNonEmptyString(extractor.path)) throw validationError(`${path}.extract.path 必填`);
   if (extractor.type === 'outputPath' && !isNonEmptyString(extractor.path)) throw validationError(`${path}.extract.path 必填`);
   if (extractor.type === 'firstOf' && (!Array.isArray(extractor.paths) || extractor.paths.length === 0 || !extractor.paths.every(isNonEmptyString))) throw validationError(`${path}.extract.paths 必须是非空字符串数组`);
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
+  if (extractor.type === 'literal' && !Object.prototype.hasOwnProperty.call(extractor, 'value')) throw validationError(`${path}.extract.value 必填`);
 }
 
 function validateTransform(value: unknown, path: string): void {

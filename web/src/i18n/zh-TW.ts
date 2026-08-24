@@ -468,7 +468,6 @@ export default {
       DEPLOYMENT_APPROVAL: "部署審批",
       CERTIFICATE_VERIFY: "證書驗證",
       CERTIFICATE_ROLLBACK: "證書回滾",
-      PROVIDER_OPERATION: "雲服務操作",
       AGENT_INSTALL: "Agent安裝",
       AGENT_UPDATE: "Agent更新",
       PLUGIN_REFERENCE_REFRESH: "外掛引用刷新",
@@ -3837,6 +3836,10 @@ export default {
           displayName: "復原檢查點",
           description: "在裝置寫入操作前儲存可驗證的遠端狀態摘要。"
         },
+        pluginAction: {
+          displayName: "外掛原子動作",
+          description: "呼叫 DSL 明確宣告的單一外掛動作，不接管工作流順序或回復。"
+        },
         wait: {
           displayName: "等待",
           description: "等待固定秒數後繼續執行。"
@@ -3876,6 +3879,15 @@ export default {
         checkpointName: "檢查點名稱",
         checkpointCapture: "擷取路徑 JSON",
         requiredForRollback: "回復必需",
+        pluginId: "外掛 ID",
+        capability: "能力標識",
+        actionId: "動作 ID",
+        actionContractVersion: "動作合約版本",
+        actionInput: "動作輸入 JSON",
+        inputSchemaSha256: "輸入 Schema 摘要",
+        outputSchemaSha256: "輸出 Schema 摘要",
+        writeEffect: "寫入效果",
+        idempotencyKeyRef: "冪等鍵變數引用",
         outputFormat: "輸出格式",
         usernameVariable: "使用者名稱變數",
         variable: "變數",

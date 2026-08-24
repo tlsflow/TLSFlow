@@ -469,7 +469,6 @@ export default {
       DEPLOYMENT_APPROVAL: '配備承認',
       CERTIFICATE_VERIFY: '証明書検証',
       CERTIFICATE_ROLLBACK: '証明書ロールバック',
-      PROVIDER_OPERATION: 'クラウド操作',
       AGENT_INSTALL: 'Agentインストール',
       AGENT_UPDATE: 'Agent更新',
       PLUGIN_REFERENCE_REFRESH: 'プラグイン参照更新',
@@ -3838,6 +3837,10 @@ export default {
           displayName: '復旧チェックポイント',
           description: 'デバイス書き込み前に検証可能なリモート状態の要約を保存します。'
         },
+        pluginAction: {
+          displayName: 'プラグイン原子アクション',
+          description: 'DSL で明示された単一のプラグインアクションを呼び出します。順序やロールバックは管理しません。'
+        },
         wait: {
           displayName: '待機',
           description: '指定した秒数待機してから実行を続行します。'
@@ -3877,6 +3880,15 @@ export default {
         checkpointName: 'チェックポイント名',
         checkpointCapture: '取得パス JSON',
         requiredForRollback: 'ロールバック必須',
+        pluginId: 'プラグイン ID',
+        capability: 'Capability',
+        actionId: 'アクション ID',
+        actionContractVersion: 'アクション契約バージョン',
+        actionInput: 'アクション入力 JSON',
+        inputSchemaSha256: '入力 Schema ダイジェスト',
+        outputSchemaSha256: '出力 Schema ダイジェスト',
+        writeEffect: '書き込み効果',
+        idempotencyKeyRef: '冪等キー参照',
         outputFormat: '出力形式',
         usernameVariable: 'ユーザー名変数',
         variable: '変数',

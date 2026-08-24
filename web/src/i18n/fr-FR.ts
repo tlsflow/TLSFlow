@@ -465,7 +465,6 @@ export default {
       DEPLOYMENT_APPROVAL: 'Approbation du déploiement',
       CERTIFICATE_VERIFY: 'Vérification du certificat',
       CERTIFICATE_ROLLBACK: 'Restauration du certificat',
-      PROVIDER_OPERATION: 'Opération cloud',
       AGENT_INSTALL: 'Installation Agent',
       AGENT_UPDATE: 'Mise à jour Agent',
       PLUGIN_REFERENCE_REFRESH: 'Rafraîchissement des références plugin',
@@ -3888,6 +3887,10 @@ export default {
           displayName: 'Point de reprise',
           description: 'Enregistre un résumé vérifiable de l’état distant avant une écriture sur l’équipement.'
         },
+        pluginAction: {
+          displayName: 'Action atomique du plugin',
+          description: 'Appelle une seule action de plugin déclarée par le DSL, sans gérer l’ordre ni le retour arrière.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -3927,6 +3930,15 @@ export default {
         checkpointName: 'Nom du point de reprise',
         checkpointCapture: 'JSON des chemins capturés',
         requiredForRollback: 'Requis pour le retour arrière',
+        pluginId: 'ID du plugin',
+        capability: 'Capacité',
+        actionId: 'ID de l’action',
+        actionContractVersion: 'Version du contrat d’action',
+        actionInput: 'JSON d’entrée de l’action',
+        inputSchemaSha256: 'Empreinte du schéma d’entrée',
+        outputSchemaSha256: 'Empreinte du schéma de sortie',
+        writeEffect: 'Effet d’écriture',
+        idempotencyKeyRef: 'Référence de clé d’idempotence',
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',

@@ -469,7 +469,6 @@ export default {
       DEPLOYMENT_APPROVAL: 'Aprovação da implantação',
       CERTIFICATE_VERIFY: 'Verificação do certificado',
       CERTIFICATE_ROLLBACK: 'Rollback do certificado',
-      PROVIDER_OPERATION: 'Operação em nuvem',
       AGENT_INSTALL: 'Instalação do Agent',
       AGENT_UPDATE: 'Atualização do Agent',
       PLUGIN_REFERENCE_REFRESH: 'Atualização de referências de plugin',
@@ -3825,6 +3824,10 @@ export default {
           displayName: 'Checkpoint de recuperação',
           description: 'Salva um resumo verificável do estado remoto antes de gravar no dispositivo.'
         },
+        pluginAction: {
+          displayName: 'Ação atômica do plugin',
+          description: 'Invoca uma única ação de plugin declarada pelo DSL, sem assumir ordem ou rollback.'
+        },
         wait: {
           displayName: 'Espera',
           description: 'Aguarda um número fixo de segundos antes de continuar.'
@@ -3864,6 +3867,15 @@ export default {
         checkpointName: 'Nome do checkpoint',
         checkpointCapture: 'JSON dos caminhos capturados',
         requiredForRollback: 'Obrigatório para rollback',
+        pluginId: 'ID do plugin',
+        capability: 'Capacidade',
+        actionId: 'ID da ação',
+        actionContractVersion: 'Versão do contrato da ação',
+        actionInput: 'JSON de entrada da ação',
+        inputSchemaSha256: 'Resumo do schema de entrada',
+        outputSchemaSha256: 'Resumo do schema de saída',
+        writeEffect: 'Efeito de escrita',
+        idempotencyKeyRef: 'Referência da chave de idempotência',
         outputFormat: 'Formato de saída',
         usernameVariable: 'Variável de nome de usuário',
         variable: 'Variável',

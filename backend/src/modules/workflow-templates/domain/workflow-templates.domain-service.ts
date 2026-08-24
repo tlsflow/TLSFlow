@@ -295,7 +295,7 @@ export class WorkflowTemplatesDomainService {
   private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
     if (isPluginRunnerWorkflowVersion(version) || isPluginWorkflowResource(version.content)) {
-      throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Workflow Runtime 已拒绝', {
+      throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', '包级 PluginWorkflow 已禁止；普通 DSL WorkflowVersion 才能进入 Workflow Runtime', {
         workflowVersionId: version.id,
         executionMode: isPluginRunnerWorkflowVersion(version) ? 'PLUGIN_RUNNER' : undefined,
       });
@@ -1049,6 +1049,23 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       plannedOnly: mode === 'render_only',
     };
   }
+  if (step.type === 'plugin.action') {
+    return {
+      executor: 'plugin.action',
+      pluginId: step.pluginId,
+      capability: step.capability,
+      actionId: step.actionId,
+      actionContractVersion: step.actionContractVersion,
+      input: renderUnknown(step.input, context.values, mode === 'render_only') as Record<string, unknown>,
+      inputSchemaSha256: step.inputSchemaSha256,
+      outputSchemaSha256: step.outputSchemaSha256,
+      timeoutSeconds: step.timeoutSeconds,
+      writeEffect: step.writeEffect,
+      idempotencyKeyRef: step.idempotencyKeyRef,
+      idempotencyKey: renderString(step.idempotencyKeyRef, context.values, mode === 'render_only'),
+      plannedOnly: mode === 'render_only',
+    };
+  }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
 }
@@ -1119,7 +1136,8 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, conte
     if (extractor.type === 'outputPath') value = readJsonPath(output, extractor.path ?? '');
     if (extractor.type === 'firstOf') value = readFirstAvailablePath(output, extractor.paths ?? []);
     if (extractor.type === 'regex') value = String(output.stdout ?? output.body ?? '').match(new RegExp(extractor.pattern ?? ''))?.[1];
-    if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(extractor.value ?? '');
+    if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(String(extractor.value ?? ''));
+    if (extractor.type === 'literal') value = extractor.value;
     if ((value === undefined || value === null) && !extractor.optional) throw buildWorkflowExtractorError(step, extractor, output);
     if (value !== undefined && value !== null) {
       extracted[extractor.name] = value;
@@ -1155,6 +1173,7 @@ function extractorRuleDetail(extractor: WorkflowExtractor): Record<string, unkno
   if (extractor.type === 'header') return { header: extractor.header };
   if (extractor.type === 'regex') return { pattern: extractor.pattern };
   if (extractor.type === 'textContains') return { value: extractor.value };
+  if (extractor.type === 'literal') return { value: extractor.value };
   return {};
 }
 
@@ -1164,6 +1183,7 @@ function describeWorkflowExtractorRule(extractor: WorkflowExtractor): string {
   if (extractor.type === 'header') return extractor.header ? `，header=${extractor.header}` : '';
   if (extractor.type === 'regex') return extractor.pattern ? `，pattern=${extractor.pattern}` : '';
   if (extractor.type === 'textContains') return extractor.value ? `，value=${extractor.value}` : '';
+  if (extractor.type === 'literal') return `，value=${String(extractor.value)}`;
   return '';
 }
 
@@ -1272,6 +1292,14 @@ async function evaluateJsonata(
         failProtocol(`result 消息不符合当前阶段：${phase}`);
         return;
       }
+      if (message.durationMs >= timeoutMs) {
+        settle(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', {
+          ...location,
+          timeoutMs,
+          durationMs: message.durationMs,
+        })));
+        return;
+      }
       settle(() => {
         if (message.ok) resolve(message.value);
         else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, message: message.message }));
@@ -1318,13 +1346,18 @@ function createJsonataWorker(workerData: { expression: string; input: Record<str
 type JsonataWorkerMessage =
   | { type: 'ready' }
   | { type: 'started' }
-  | { type: 'result'; ok: true; value: unknown }
-  | { type: 'result'; ok: false; message: string };
+  | { type: 'result'; ok: true; value: unknown; durationMs: number }
+  | { type: 'result'; ok: false; message: string; durationMs: number };
 
 function isJsonataWorkerMessage(value: unknown): value is JsonataWorkerMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   if (value.type === 'ready' || value.type === 'started') return true;
-  return value.type === 'result' && typeof value.ok === 'boolean' && (value.ok || typeof value.message === 'string');
+  return value.type === 'result'
+    && typeof value.ok === 'boolean'
+    && typeof value.durationMs === 'number'
+    && Number.isFinite(value.durationMs)
+    && value.durationMs >= 0
+    && (value.ok || typeof value.message === 'string');
 }
 
 function assertJsonataExpressionSafe(expression: string): void {
@@ -1715,8 +1748,13 @@ export function computeWorkflowContentHash(content: unknown): string {
 }
 
 function stableStringify(value: unknown): string {
+  // 摘要必须与 JSONB 持久化语义一致：对象中的 undefined 会被省略，数组中的
+  // undefined 会被 JSON.stringify 规范化为 null。否则发布前后的同一内容会得到不同摘要。
+  if (value === undefined) return 'null';
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).filter((key) => value[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
   return JSON.stringify(value);
 }
 
@@ -1818,7 +1856,7 @@ function resolveExecutionBranch(
 
 function assertCurlSshWorkflowContent(content: WorkflowDslV1, workflowVersionId: string): void {
   if ((content as unknown as { kind?: unknown }).kind !== 'CurlSshWorkflow') {
-    throw new AppError('VALIDATION_FAILED', 'PluginWorkflow 必须通过独立 Plugin Runner 执行', { workflowVersionId });
+    throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', '包级 PluginWorkflow 已禁止，不能作为普通 DSL 运行', { workflowVersionId });
   }
 }
 

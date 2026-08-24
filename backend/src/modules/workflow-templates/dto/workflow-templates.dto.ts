@@ -3,7 +3,7 @@ import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/reso
 
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'browser' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'browser' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual' | 'plugin.action';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
@@ -101,12 +101,12 @@ export interface WorkflowCondition {
 
 export interface WorkflowExtractor {
   name: string;
-  type: 'jsonPath' | 'outputPath' | 'firstOf' | 'header' | 'regex' | 'statusCode' | 'textContains';
+  type: 'jsonPath' | 'outputPath' | 'firstOf' | 'header' | 'regex' | 'statusCode' | 'textContains' | 'literal';
   path?: string;
   paths?: string[];
   header?: string;
   pattern?: string;
-  value?: string;
+  value?: unknown;
   optional?: boolean;
   sensitive?: boolean;
 }
@@ -301,7 +301,25 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowBrowserStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowCheckpointVerifyStep | WorkflowWaitStep | WorkflowManualStep;
+/**
+ * DSL 中唯一可以进入 Plugin Runner 的步骤类型。
+ * 这里故意不包含 pluginVersionId、Grant 或包摘要；这些字段只能在执行绑定阶段冻结。
+ */
+export interface WorkflowPluginActionStep extends WorkflowStepBase {
+  type: 'plugin.action';
+  pluginId: string;
+  capability: string;
+  actionId: string;
+  actionContractVersion: string;
+  input: Record<string, unknown>;
+  inputSchemaSha256: string;
+  outputSchemaSha256: string;
+  timeoutSeconds: number;
+  writeEffect: boolean;
+  idempotencyKeyRef: string;
+}
+
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowBrowserStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowCheckpointVerifyStep | WorkflowWaitStep | WorkflowManualStep | WorkflowPluginActionStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';

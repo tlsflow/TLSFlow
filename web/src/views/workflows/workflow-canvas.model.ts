@@ -1,7 +1,7 @@
 import { i18n } from '@/i18n'
 import type { CredentialProfileOption } from './credential-profiles'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual' | 'plugin.action'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -301,6 +301,21 @@ export type WorkflowDslStep =
     }
   | { readonly name: string; readonly type: 'wait'; readonly stage?: WorkflowCanvasStage; readonly seconds: number }
   | { readonly name: string; readonly type: 'manual'; readonly stage?: WorkflowCanvasStage; readonly instruction: string }
+  | {
+      readonly name: string
+      readonly type: 'plugin.action'
+      readonly stage?: WorkflowCanvasStage
+      readonly pluginId: string
+      readonly capability: string
+      readonly actionId: string
+      readonly actionContractVersion: string
+      readonly input: Record<string, unknown>
+      readonly inputSchemaSha256: string
+      readonly outputSchemaSha256: string
+      readonly timeoutSeconds: number
+      readonly writeEffect: boolean
+      readonly idempotencyKeyRef: string
+    }
 
 export interface WorkflowDslFileTransferConfig {
   readonly direction: 'upload' | 'download'
@@ -529,6 +544,30 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     produces: [{ name: 'captureHash', type: 'string' }],
   },
   {
+    type: 'plugin.action',
+    displayName: canvasModelText('nodeTypes.pluginAction.displayName'),
+    category: 'control',
+    description: canvasModelText('nodeTypes.pluginAction.description'),
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'pluginId', label: canvasModelText('fields.pluginId'), kind: 'text', required: true },
+      { key: 'capability', label: canvasModelText('fields.capability'), kind: 'text', required: true },
+      { key: 'actionId', label: canvasModelText('fields.actionId'), kind: 'text', required: true },
+      { key: 'actionContractVersion', label: canvasModelText('fields.actionContractVersion'), kind: 'text', required: true },
+      { key: 'input', label: canvasModelText('fields.actionInput'), kind: 'textarea', required: true },
+      { key: 'inputSchemaSha256', label: canvasModelText('fields.inputSchemaSha256'), kind: 'text', required: true },
+      { key: 'outputSchemaSha256', label: canvasModelText('fields.outputSchemaSha256'), kind: 'text', required: true },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
+      { key: 'writeEffect', label: canvasModelText('fields.writeEffect'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.boolean.yes'), value: 'true' },
+        { label: canvasModelText('options.boolean.no'), value: 'false' },
+      ] },
+      { key: 'idempotencyKeyRef', label: canvasModelText('fields.idempotencyKeyRef'), kind: 'text', required: true },
+    ],
+    produces: [{ name: 'output', type: 'object' }],
+  },
+  {
     type: 'wait',
     displayName: canvasModelText('nodeTypes.wait.displayName'),
     category: 'control',
@@ -699,6 +738,18 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
   if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, continueOnError: false, steps: '[]' }
   if (type === 'checkpoint') return { checkpointName: 'before-write', capture: '{}', requiredForRollback: 'true' }
+  if (type === 'plugin.action') return {
+    pluginId: '',
+    capability: '',
+    actionId: '',
+    actionContractVersion: 'v1',
+    input: '{}',
+    inputSchemaSha256: '',
+    outputSchemaSha256: '',
+    timeoutSeconds: 30,
+    writeEffect: 'false',
+    idempotencyKeyRef: '{{variables.idempotencyKey}}',
+  }
   if (type === 'wait') return { seconds: 10 }
   return { instruction: canvasModelText('defaults.config.manualInstruction') }
 }
@@ -970,6 +1021,27 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
+  if (step.type === 'plugin.action') {
+    return {
+      id: `plugin_action_${index + 1}`,
+      type: 'plugin.action',
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, canvasModelText('nodeTypes.pluginAction.displayName')),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: {
+        pluginId: step.pluginId,
+        capability: step.capability,
+        actionId: step.actionId,
+        actionContractVersion: step.actionContractVersion,
+        input: JSON.stringify(step.input, null, 2),
+        inputSchemaSha256: step.inputSchemaSha256,
+        outputSchemaSha256: step.outputSchemaSha256,
+        timeoutSeconds: step.timeoutSeconds,
+        writeEffect: String(step.writeEffect),
+        idempotencyKeyRef: step.idempotencyKeyRef,
+      },
+    }
+  }
   if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.wait.displayName')), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
   return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
@@ -1043,6 +1115,7 @@ function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage 
   if (type === 'transform' || type === 'foreach') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
+  if (type === 'plugin.action') return 'install'
   if (type === 'verify') return 'verify'
   return 'backup'
 }
