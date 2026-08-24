@@ -63,6 +63,11 @@ export interface BusinessFilterField {
   readonly options?: readonly { readonly label: string; readonly value: string }[]
 }
 
+export interface BusinessPageQuery {
+  readonly page: number
+  readonly pageSize: number
+}
+
 export interface BusinessPageConfig {
   readonly title: string
   readonly description: string
@@ -81,7 +86,7 @@ export interface BusinessPageConfig {
   readonly metrics: readonly BusinessMetricCard[]
   readonly emptyTitle: string
   readonly emptyDescription: string
-  readonly load: () => Promise<ApiPageResult>
+  readonly load: (query: BusinessPageQuery) => Promise<ApiPageResult>
   readonly actions: readonly BusinessAction[]
   readonly rowActions?: readonly BusinessRowAction[]
   readonly detailFields?: readonly BusinessDetailField[]
@@ -96,4 +101,6 @@ export interface BusinessPageConfig {
   readonly tableFixed?: boolean
   /** 将列表总数从工具栏移至表格页脚。 */
   readonly showTotalInPagination?: boolean
+  /** 数据源不支持服务端分页时，在客户端对整页数据进行切片分页。 */
+  readonly clientSidePagination?: boolean
 }

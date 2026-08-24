@@ -97,6 +97,7 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
   emptyTitle: t('automations.empty'),
   emptyDescription: t('automations.description'),
   load: loadAutomationsPage,
+  clientSidePagination: true,
   actions: [],
   rowActions: [
     {

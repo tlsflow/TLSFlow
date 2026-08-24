@@ -123,7 +123,7 @@ const config: BusinessPageConfig = {
   emptyTitle: t('workflows.templates.empty.title'),
   emptyDescription: t('workflows.templates.empty.description'),
   load: async () => {
-    const result = await listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' })
+    const result = await listWorkflowTemplates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
     if (!result.data) return result
     const items = showNonDeploymentWorkflows.value
       ? result.data.items
@@ -137,6 +137,7 @@ const config: BusinessPageConfig = {
       },
     }
   },
+  clientSidePagination: true,
   actions: [],
   rowActions: [
     {

@@ -269,7 +269,7 @@ const config = computed<BusinessPageConfig>(() => ({
   ],
   emptyTitle: t('gateways.empty.title'),
   emptyDescription: t('gateways.empty.description'),
-  load: () => listGateways({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
+  load: (query) => listGateways({ ...query, sort: 'updatedAt:desc' }),
   actions: [],
   rowActions: [
     {

@@ -106,19 +106,24 @@ export function buildBusinessPageRows(page: ApiPage | undefined, config: Busines
 export function useBusinessPage(config: BusinessPageConfig, options: UseBusinessPageOptions = {}) {
   const loading = ref(false)
   const page = ref<ApiPage | null>(null)
+  const pageNumber = ref(1)
+  const pageSize = ref(20)
   const error = ref<PageErrorState | null>(null)
   const lastRequestId = ref(translateBusinessPage(options, 'businessPage.request.notRequested'))
 
   const rows = computed(() => buildBusinessPageRows(page.value ?? undefined, config))
   const total = computed(() => page.value?.total ?? rows.value.length)
+  const totalPages = computed(() => Math.max(1, Math.ceil(total.value / Math.max(pageSize.value, 1))))
 
   async function load() {
     loading.value = true
     error.value = null
     try {
-      const result: ApiPageResult = await config.load()
+      const result: ApiPageResult = await config.load({ page: pageNumber.value, pageSize: pageSize.value })
       lastRequestId.value = result.requestId
-      page.value = result.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
+      const data = result.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
+      page.value = data
+      if (data.page > 0 && data.page !== pageNumber.value) pageNumber.value = data.page
     } catch (cause) {
       if (cause instanceof ApiClientError) {
         error.value = {
@@ -139,9 +144,29 @@ export function useBusinessPage(config: BusinessPageConfig, options: UseBusiness
     }
   }
 
+  async function setPage(nextPage: number): Promise<void> {
+    const target = Math.max(1, Math.trunc(nextPage) || 1)
+    if (target === pageNumber.value) return
+    pageNumber.value = target
+    await load()
+  }
+
+  async function setPageSize(nextPageSize: number): Promise<void> {
+    if (!Number.isFinite(nextPageSize) || nextPageSize <= 0 || nextPageSize === pageSize.value) return
+    pageSize.value = Math.trunc(nextPageSize)
+    pageNumber.value = 1
+    await load()
+  }
+
+  /** 回到第 1 页并重新加载（筛选条件变化等场景）。 */
+  async function resetPage(): Promise<void> {
+    pageNumber.value = 1
+    await load()
+  }
+
   onMounted(() => {
     void load()
   })
 
-  return { loading, page, rows, total, error, lastRequestId, reload: load }
+  return { loading, page, rows, total, totalPages, error, lastRequestId, reload: load, currentPage: pageNumber, pageSize, setPage, setPageSize, resetPage }
 }

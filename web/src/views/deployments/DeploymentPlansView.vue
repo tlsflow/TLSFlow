@@ -181,7 +181,7 @@ const pageConfig = computed<BusinessPageConfig>(() => {
     showMetrics: false,
     showDetailPanel: false,
     showActionPanel: false,
-    load: loadDeploymentPlansPage,
+    load: (query) => loadDeploymentPlansPage(query),
     primaryAction: openCreateDialog,
     actions: (baseConfig.actions ?? []).map((action) => ({
       ...action,
@@ -321,9 +321,9 @@ onUnmounted(() => {
   disposeTaskRealtime = undefined
 })
 
-async function loadDeploymentPlansPage() {
+async function loadDeploymentPlansPage(query: { page: number; pageSize: number } = { page: 1, pageSize: 20 }) {
   const [plansResult, versions, assetsResult, observationsResult] = await Promise.all([
-    listDeploymentPlans({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
+    listDeploymentPlans({ ...query, sort: 'updatedAt:desc' }),
     fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
     fetchAllPages((page, pageSize) => listAssets({ page, pageSize, sort: 'updatedAt:desc' })),
     listMonitorCertificateObservations({ page: 1, pageSize: 200 }),
