@@ -7,6 +7,7 @@ import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readPath, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
+import ManagedDeviceDetailModal from '@/views/devices/details/ManagedDeviceDetailModal.vue'
 import {
   createLinuxGoInstallSession,
   createWindowsCompatibilityInstallSession,
@@ -179,6 +180,7 @@ const { t } = useI18n()
 
 const installModalOpen = ref(false)
 const detailModalOpen = ref(false)
+const managedDeviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
 const selectedPlatform = ref<InstallPlatform>('linux_go_systemd')
 const selectedVersion = ref('latest')
 const installSession = ref<InstallSessionView | null>(null)
@@ -1354,26 +1356,8 @@ async function openDetailModal(row: ViewRow) {
 }
 
 async function openAgentDetailById(agentId: string, fallbackRecord: ApiRecord = {}) {
-  detailModalOpen.value = true
-  detailLoading.value = true
-  detailActionPending.value = false
-  detailActionMessage.value = ''
-  detailError.value = ''
-  expandedRuntimeLogIds.value = []
-  activeDetailTab.value = 'overview'
-  detailData.value = Object.keys(fallbackRecord).length > 0 ? buildAgentDetail(fallbackRecord) : null
-
-  try {
-    const result = await getAgentDetail(agentId)
-    if (!result.data) {
-      throw new Error(t('agents.errors.detailDataMissing'))
-    }
-    detailData.value = buildAgentDetail(result.data, undefined)
-  } catch (cause) {
-    detailError.value = cause instanceof Error ? cause.message : t('agents.errors.loadDetailFailed')
-  } finally {
-    detailLoading.value = false
-  }
+  void fallbackRecord
+  await managedDeviceDetailModal.value?.open(agentId)
 }
 
 defineExpose({ openAgentDetailById })
@@ -1462,6 +1446,7 @@ const config = computed<BusinessPageConfig>(() => ({
 <template>
   <section class="agent-page">
     <BusinessResourcePage v-if="!props.detailOnly" :config="config" />
+    <ManagedDeviceDetailModal ref="managedDeviceDetailModal" />
 
     <GcModal
       v-model:open="detailModalOpen"

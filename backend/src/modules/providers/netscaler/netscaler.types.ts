@@ -64,6 +64,7 @@ export interface NetscalerCertificateResource {
   certKeyName: string;
   certificatePath?: string;
   privateKeyPath?: string;
+  fingerprintSha256?: string;
   subject?: string;
   issuer?: string;
   serialNumber?: string;

@@ -21,6 +21,7 @@ export class DeviceAssetsController {
     router.patch('/api/v1/device-assets', '更新设备资产', tags, (request) => this.update(request));
     router.post('/api/v1/device-assets/delete', '删除设备资产', tags, (request) => this.delete(request));
     router.post('/api/v1/device-assets/test-connection', '测试设备连接', tags, (request) => this.testConnection(request));
+    router.post('/api/v1/device-assets/discover', '重新发现设备资源', tags, (request) => this.discover(request));
   }
 
   private async list(request: HttpRequest) {
@@ -72,6 +73,24 @@ export class DeviceAssetsController {
     });
     return result;
   }
+
+  private async discover(request: HttpRequest) {
+    const body = validateObject(request.body, { deviceAssetId: { type: 'string', required: true } });
+    const deviceAssetId = String(body.deviceAssetId);
+    await this.security?.assertAccess(request, 'control', deviceAssetId);
+    const result = await this.service.discover(tenantId(request), deviceAssetId, request.context.actorId ?? 'system');
+    await this.security?.audit(request, 'device_asset.discovery_refreshed', 'device_asset.refresh_discovery', deviceAssetId, {
+      reachable: result.reachable,
+      authenticated: result.authenticated,
+      productMatched: result.productMatched,
+      softwareVersion: result.softwareVersion,
+      warningCount: result.warnings.length,
+      certificateCount: result.certificateCount,
+      fingerprintedCertificateCount: result.fingerprintedCertificateCount,
+      errorCode: result.errorCode,
+    });
+    return result;
+  }
 }
 
 export function getDeviceAssetRouteContracts(): RouteContract[] {
@@ -82,6 +101,7 @@ export function getDeviceAssetRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/device-assets', operationId: 'updateDeviceAsset', summary: '更新设备资产', tags, responseSchema: deviceAssetSchema },
     { method: 'POST', path: '/api/v1/device-assets/delete', operationId: 'deleteDeviceAsset', summary: '删除设备资产', tags, responseSchema: deviceAssetSchema },
     { method: 'POST', path: '/api/v1/device-assets/test-connection', operationId: 'testDeviceAssetConnection', summary: '测试设备连接', tags, responseSchema: { type: 'object' } },
+    { method: 'POST', path: '/api/v1/device-assets/discover', operationId: 'refreshDeviceAssetDiscovery', summary: '重新发现设备资源', tags, responseSchema: { type: 'object' } },
   ];
 }
 

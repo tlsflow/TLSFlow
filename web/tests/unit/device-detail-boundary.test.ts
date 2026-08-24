@@ -125,6 +125,8 @@ describe('统一设备详情动作边界', () => {
     expect(modalSource).toContain('refreshManagedDeviceDiscovery(deviceAssetId.value)')
     expect(modalSource).toContain('@click="refreshDiscovery"')
     expect(modalSource).toContain('getManagedDevice(openedDeviceId.value)')
+    expect(modalSource).toContain('fingerprintedCertificateCount')
+    expect(modalSource).toContain("tone: 'warning'")
     expect(modalSource).not.toContain('@click="openCertificateAssetDetail"')
     expect(modalSource).not.toContain('selectedCertificate.value !== selection')
     expect(modalSource).not.toContain('device-detail__hero')

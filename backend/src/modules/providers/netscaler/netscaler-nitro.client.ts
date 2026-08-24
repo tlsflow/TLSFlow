@@ -32,6 +32,7 @@ export interface NetscalerNitroRequest {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   path: string;
   query?: Record<string, string | number | boolean | undefined>;
+  nitroArgs?: Record<string, string | number | boolean | undefined>;
   body?: Record<string, unknown>;
 }
 
@@ -91,7 +92,7 @@ export class NetscalerNitroClient {
     try {
       const body = input.body ? Buffer.from(JSON.stringify(input.body), 'utf8') : undefined;
       const request: CurlHttpClientRequest = {
-        url: this.buildUrl(input.path, input.query),
+        url: this.buildUrl(input.path, input.query, input.nitroArgs),
         method: input.method ?? 'GET',
         headers: {
           Accept: 'application/json',
@@ -130,7 +131,7 @@ export class NetscalerNitroClient {
     return this.sessionToken;
   }
 
-  private buildUrl(path: string, query: NetscalerNitroRequest['query']): string {
+  private buildUrl(path: string, query: NetscalerNitroRequest['query'], nitroArgs: NetscalerNitroRequest['nitroArgs']): string {
     if (!path.startsWith('/nitro/')) throw new NetscalerNitroError('NETSCALER_RESPONSE_INVALID', 'NITRO 请求路径非法');
     const host = this.options.managementAddress.includes(':') && !this.options.managementAddress.startsWith('[')
       ? `[${this.options.managementAddress}]`
@@ -139,8 +140,20 @@ export class NetscalerNitroClient {
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    return url.toString();
+    const args = Object.entries(nitroArgs ?? {})
+      .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined)
+      .map(([key, value]) => `${nitroArgKey(key)}:${encodeURIComponent(String(value))}`)
+      .join(',');
+    const baseUrl = url.toString();
+    return args ? `${baseUrl}${url.search ? '&' : '?'}args=${args}` : baseUrl;
   }
+}
+
+function nitroArgKey(value: string): string {
+  if (!/^[a-z][a-z0-9_]*$/i.test(value)) {
+    throw new NetscalerNitroError('NETSCALER_RESPONSE_INVALID', 'NITRO args 参数名非法');
+  }
+  return value;
 }
 
 function nitroContentType(path: string): string {

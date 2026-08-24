@@ -43,19 +43,20 @@ export class DeviceAssetsDiscoveryProjector {
         await tx.query(
           `insert into pg_device_certificate_resources (
             id, tenant_id, device_asset_id, certkey_name, certificate_path, private_key_path, subject, issuer,
-            serial_number, not_before, not_after, remote_status, signature_algorithm, public_key_algorithm,
-            public_key_size, linked_certkey_name, source_version, metadata, last_discovered_at
-          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19)
+            serial_number, not_before, not_after, remote_status, fingerprint_sha256, signature_algorithm,
+            public_key_algorithm, public_key_size, linked_certkey_name, source_version, metadata, last_discovered_at
+          ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20)
           on conflict (id) do update set certificate_path = excluded.certificate_path, private_key_path = excluded.private_key_path,
             subject = excluded.subject, issuer = excluded.issuer, serial_number = excluded.serial_number,
             not_before = excluded.not_before, not_after = excluded.not_after, remote_status = excluded.remote_status,
-            signature_algorithm = excluded.signature_algorithm, public_key_algorithm = excluded.public_key_algorithm,
-            public_key_size = excluded.public_key_size, linked_certkey_name = excluded.linked_certkey_name,
+            fingerprint_sha256 = excluded.fingerprint_sha256, signature_algorithm = excluded.signature_algorithm,
+            public_key_algorithm = excluded.public_key_algorithm, public_key_size = excluded.public_key_size,
+            linked_certkey_name = excluded.linked_certkey_name,
             source_version = excluded.source_version, metadata = excluded.metadata, last_discovered_at = excluded.last_discovered_at,
             deleted_at = null, updated_at = excluded.last_discovered_at, version = pg_device_certificate_resources.version + 1`,
           [id, tenantId, deviceAssetId, item.certKeyName, item.certificatePath ?? null, item.privateKeyPath ?? null,
             item.subject ?? null, item.issuer ?? null, item.serialNumber ?? null, timestamp(item.notBefore), timestamp(item.notAfter),
-            item.status ?? null, item.signatureAlgorithm ?? null, item.publicKeyAlgorithm ?? null, item.publicKeySize ?? null,
+            item.status ?? null, item.fingerprintSha256 ?? null, item.signatureAlgorithm ?? null, item.publicKeyAlgorithm ?? null, item.publicKeySize ?? null,
             item.linkedCertKeyName ?? null, item.sourceVersion, JSON.stringify(item.rawFieldSummary), discoveredAt],
         );
       }
@@ -79,7 +80,7 @@ export class DeviceAssetsDiscoveryProjector {
             item.priority ?? null, JSON.stringify(item.rawSummary), discoveredAt],
         );
       }
-      await projectUnifiedAssets(tx, tenantId, deviceAssetId, discovery, certificateIds, discoveredAt);
+      await projectDiscoveredTargets(tx, tenantId, deviceAssetId, discovery, certificateIds, discoveredAt);
     });
     return { virtualServers: discovery.virtualServers.length, certificates: discovery.certificates.length, bindings: discovery.bindings.length, discoveredAt };
   }
@@ -95,7 +96,7 @@ export class DeviceAssetsDiscoveryProjector {
   }
 }
 
-async function projectUnifiedAssets(
+async function projectDiscoveredTargets(
   db: DatabasePort,
   tenantId: string,
   deviceAssetId: string,
@@ -123,40 +124,25 @@ async function projectUnifiedAssets(
 
   await db.query(`update pg_managed_targets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_asset_id=$3 and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
   await db.query(`update pg_site_assets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and metadata->>'deviceAssetId'=$3 and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
-  await db.query(`update pg_service_assets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and metadata->>'deviceAssetId'=$3 and asset_kind='APPLICATION' and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
 
   for (const virtualServer of discovery.virtualServers) {
     const identity = `${virtualServer.type}:${virtualServer.name}`;
-    const serviceAssetId = stableId('sat', deviceAssetId, identity);
     const siteAssetId = stableId('sia', deviceAssetId, identity);
     const managedTargetId = stableId('mgt', deviceAssetId, identity);
-    const applicationTargetId = stableId('aat', deviceAssetId, identity);
-    const address = virtualServer.sniNames[0] ?? `${virtualServer.type.toLowerCase()}-${virtualServer.name.toLowerCase()}.${deviceAssetId}.managed`;
     const port = virtualServer.port ?? 443;
     const protocol = normalizeProtocol(virtualServer.protocol);
     const metadata = JSON.stringify({ deviceAssetId, virtualServerType: virtualServer.type, virtualServerName: virtualServer.name });
-    await db.query(`
-      insert into pg_service_assets (
-        id, tenant_id, address, address_type, port, protocol, sni_name, display_name, service_instance_id,
-        host_id, discovery_source, last_discovered_at, status, tags, metadata, asset_kind, created_at, updated_at, version
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PROVIDER',$11,'ACTIVE','[]'::jsonb,$12::jsonb,'APPLICATION',$11,$11,1)
-      on conflict (id) do update set address=excluded.address, port=excluded.port, protocol=excluded.protocol,
-        sni_name=excluded.sni_name, display_name=excluded.display_name, last_discovered_at=excluded.last_discovered_at,
-        status='ACTIVE', metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at,
-        version=pg_service_assets.version+1
-    `, [serviceAssetId, tenantId, address.toLowerCase(), inferAddressType(address), port, protocol, virtualServer.sniNames[0] ?? null,
-      `${virtualServer.type} ${virtualServer.name}`, serviceInstanceId, device.host_id, discoveredAt, metadata]);
     await db.query(`
       insert into pg_site_assets (
         id, tenant_id, service_instance_id, service_asset_id, host_id, agent_id, provider_type, site_type,
         site_name, site_key, binding_information, host_header, listen_ip, port, protocol, runtime_status,
         discovery_source, last_discovered_at, status, metadata, created_at, updated_at, version
-      ) values ($1,$2,$3,$4,$5,null,'DEVICE_TEMPLATE','CUSTOM',$6,$7,$8,$9,$10,$11,$12,$13,'PROVIDER',$14,'ACTIVE',$15::jsonb,$14,$14,1)
-      on conflict (id) do update set service_asset_id=excluded.service_asset_id, binding_information=excluded.binding_information,
+      ) values ($1,$2,$3,null,$4,null,'DEVICE_TEMPLATE','CUSTOM',$5,$6,$7,$8,$9,$10,$11,$12,'PROVIDER',$13,'ACTIVE',$14::jsonb,$13,$13,1)
+      on conflict (id) do update set service_asset_id=null, binding_information=excluded.binding_information,
         host_header=excluded.host_header, listen_ip=excluded.listen_ip, port=excluded.port, protocol=excluded.protocol,
         runtime_status=excluded.runtime_status, last_discovered_at=excluded.last_discovered_at, status='ACTIVE',
         metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_site_assets.version+1
-    `, [siteAssetId, tenantId, serviceInstanceId, serviceAssetId, device.host_id, virtualServer.name, identity,
+    `, [siteAssetId, tenantId, serviceInstanceId, device.host_id, virtualServer.name, identity,
       `${virtualServer.address ?? '*'}:${port}`, virtualServer.sniNames[0] ?? null, virtualServer.address ?? null, port, protocol,
       virtualServer.state ?? null, discoveredAt, metadata]);
     await db.query(`
@@ -164,21 +150,12 @@ async function projectUnifiedAssets(
         id, tenant_id, agent_id, device_asset_id, host_id, service_instance_id, service_asset_id, site_asset_id,
         provider_type, framework_type, target_type, target_key, binding_key, capability_profile, deployment_mode,
         last_seen_at, status, metadata, created_at, updated_at, version
-      ) values ($1,$2,null,$3,$4,$5,$6,$7,'DEVICE_TEMPLATE','DEVICE_TEMPLATE','SITE_BINDING',$8,$9,$10::jsonb,'NITRO',$11,'ACTIVE',$12::jsonb,$11,$11,1)
-      on conflict (id) do update set service_asset_id=excluded.service_asset_id, site_asset_id=excluded.site_asset_id,
+      ) values ($1,$2,null,$3,$4,$5,null,$6,'DEVICE_TEMPLATE','DEVICE_TEMPLATE','SITE_BINDING',$7,$8,$9::jsonb,'NITRO',$10,'ACTIVE',$11::jsonb,$10,$10,1)
+      on conflict (id) do update set service_asset_id=null, site_asset_id=excluded.site_asset_id,
         capability_profile=excluded.capability_profile, last_seen_at=excluded.last_seen_at, status='ACTIVE',
         metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_managed_targets.version+1
-    `, [managedTargetId, tenantId, deviceAssetId, device.host_id, serviceInstanceId, serviceAssetId, siteAssetId, identity, identity,
+    `, [managedTargetId, tenantId, deviceAssetId, device.host_id, serviceInstanceId, siteAssetId, identity, identity,
       JSON.stringify(discovery.capabilityProfile), discoveredAt, metadata]);
-    await db.query(`
-      insert into pg_application_asset_targets (
-        id, tenant_id, application_asset_id, agent_id, device_asset_id, site_asset_id, managed_target_id,
-        provider_type, framework_type, target_type, target_key, binding_key, status, metadata, created_at, updated_at, version
-      ) values ($1,$2,$3,null,$4,$5,$6,'DEVICE_TEMPLATE','DEVICE_TEMPLATE','SITE_BINDING',$7,$7,'ACTIVE',$8::jsonb,$9,$9,1)
-      on conflict (id) do update set site_asset_id=excluded.site_asset_id, managed_target_id=excluded.managed_target_id,
-        status='ACTIVE', metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at,
-        version=pg_application_asset_targets.version+1
-    `, [applicationTargetId, tenantId, serviceAssetId, deviceAssetId, siteAssetId, managedTargetId, identity, metadata, discoveredAt]);
 
     for (const binding of discovery.bindings.filter((item) => item.virtualServerType === virtualServer.type && item.virtualServerName === virtualServer.name)) {
       const certificateResourceId = certificateIds.get(binding.certKeyName);
@@ -188,11 +165,11 @@ async function projectUnifiedAssets(
           id, tenant_id, service_instance_id, host_id, service_asset_id, site_asset_id, managed_target_id,
           domain_name, port, protocol, binding_key, binding_type, discovery_source, verify_method,
           drift_status, status, metadata, created_at, updated_at, version
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'CUSTOM','PROVIDER','CUSTOM','UNKNOWN','ACTIVE',$12::jsonb,$13,$13,1)
+        ) values ($1,$2,$3,$4,null,$5,$6,$7,$8,$9,$10,'CUSTOM','PROVIDER','CUSTOM','UNKNOWN','ACTIVE',$11::jsonb,$12,$12,1)
         on conflict (id) do update set domain_name=excluded.domain_name, port=excluded.port, protocol=excluded.protocol,
-          binding_key=excluded.binding_key, status='ACTIVE', metadata=excluded.metadata, deleted_at=null,
+          service_asset_id=null, binding_key=excluded.binding_key, status='ACTIVE', metadata=excluded.metadata, deleted_at=null,
           updated_at=excluded.updated_at, version=pg_certificate_bindings.version+1
-      `, [certificateBindingId, tenantId, serviceInstanceId, device.host_id, serviceAssetId, siteAssetId, managedTargetId,
+      `, [certificateBindingId, tenantId, serviceInstanceId, device.host_id, siteAssetId, managedTargetId,
         virtualServer.sniNames[0] ?? virtualServer.address ?? null, port, protocol,
         `${identity}:${binding.certKeyName}`, JSON.stringify({ ...binding.rawSummary, deviceAssetId, certificateResourceId }), discoveredAt]);
     }
@@ -231,10 +208,4 @@ function normalizeProtocol(value: string | undefined): 'HTTPS' | 'TLS' | 'STARTT
   if (protocol === 'HTTP') return 'HTTP';
   if (protocol === 'SSL' || protocol === 'HTTPS') return 'HTTPS';
   return 'TLS';
-}
-
-function inferAddressType(address: string): 'IPV4' | 'IPV6' | 'DNS' {
-  if (address.includes(':')) return 'IPV6';
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return 'IPV4';
-  return 'DNS';
 }

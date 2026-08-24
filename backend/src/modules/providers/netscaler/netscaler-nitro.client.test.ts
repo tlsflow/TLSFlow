@@ -81,6 +81,21 @@ test('带请求体的 NITRO 配置请求使用资源专用媒体类型', async (
   assert.equal(httpClient.requests[0].headers['Content-Type'], 'application/vnd.com.citrix.netscaler.sslcertkey+json');
 });
 
+test('NITRO args 保留 DSL 分隔符且只编码参数值', async () => {
+  const httpClient = new RecordingHttpClient([nitroResponse({ errorcode: 0, systemfile: [] })]);
+  const client = createClient('PER_REQUEST', httpClient);
+
+  await client.request({
+    path: '/nitro/v1/config/systemfile',
+    nitroArgs: { filename: 'server cert.pem', filelocation: '/nsconfig/ssl' },
+  });
+
+  assert.equal(
+    httpClient.requests[0].url,
+    'https://10.0.0.10/nitro/v1/config/systemfile?args=filename:server%20cert.pem,filelocation:%2Fnsconfig%2Fssl',
+  );
+});
+
 test('HTTP 成功但 NITRO 业务失败会归一化并脱敏', async () => {
   const httpClient = new RecordingHttpClient([nitroResponse({ errorcode: 444, message: 'invalid password nitro-password' })]);
   const client = createClient('PER_REQUEST', httpClient);

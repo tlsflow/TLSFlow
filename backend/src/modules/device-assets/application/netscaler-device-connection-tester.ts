@@ -37,6 +37,8 @@ export class NetscalerDeviceConnectionTester implements DeviceConnectionTester {
         supportLevel: discovery.capabilityProfile.supportTier,
         capabilities: { ...discovery.capabilityProfile },
         warnings: discovery.warnings,
+        certificateCount: discovery.certificates.length,
+        fingerprintedCertificateCount: discovery.certificates.filter((item) => Boolean(item.fingerprintSha256)).length,
       };
     } catch (cause) {
       const errorCode = connectionErrorCode(cause);

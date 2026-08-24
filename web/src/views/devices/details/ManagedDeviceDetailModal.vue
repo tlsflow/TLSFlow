@@ -16,7 +16,7 @@ const opened = ref(false)
 const loading = ref(false)
 const rediscovering = ref(false)
 const error = ref('')
-const discoveryFeedback = ref<{ tone: 'success' | 'danger'; message: string } | null>(null)
+const discoveryFeedback = ref<{ tone: 'success' | 'warning' | 'danger'; message: string } | null>(null)
 const detail = ref<ApiRecord | null>(null)
 const openedDeviceId = ref('')
 const activeTab = ref('overview')
@@ -89,14 +89,25 @@ async function refreshDiscovery() {
     const refreshed = await getManagedDevice(openedDeviceId.value)
     if (refreshed.data) detail.value = refreshed.data
     const succeeded = result.reachable === true && result.authenticated === true && result.productMatched === true
-    discoveryFeedback.value = succeeded
-      ? { tone: 'success', message: t('devices.unifiedDetail.discovery.success') }
-      : {
-          tone: 'danger',
-          message: t('devices.unifiedDetail.discovery.failed', {
-            errorCode: String(result.errorCode ?? t('devices.health.unknown')),
-          }),
-        }
+    const certificateCount = Number(result.certificateCount ?? 0)
+    const fingerprintedCertificateCount = Number(result.fingerprintedCertificateCount ?? 0)
+    if (!succeeded) {
+      discoveryFeedback.value = {
+        tone: 'danger',
+        message: t('devices.unifiedDetail.discovery.failed', {
+          errorCode: String(result.errorCode ?? t('devices.health.unknown')),
+        }),
+      }
+    } else if (certificateCount > fingerprintedCertificateCount) {
+      discoveryFeedback.value = {
+        tone: 'warning',
+        message: t('devices.unifiedDetail.discovery.failed', {
+          errorCode: `CERTIFICATE_FINGERPRINTS_${fingerprintedCertificateCount}_OF_${certificateCount}`,
+        }),
+      }
+    } else {
+      discoveryFeedback.value = { tone: 'success', message: t('devices.unifiedDetail.discovery.success') }
+    }
   } catch {
     discoveryFeedback.value = { tone: 'danger', message: t('devices.unifiedDetail.discovery.requestFailed') }
   } finally {
@@ -337,6 +348,7 @@ defineExpose({ open })
 .agent-detail-modal__discover { flex: 0 0 auto; }
 .agent-detail-modal__feedback { margin: 0; padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-info-soft); color: var(--gc-color-text); font-size: var(--gc-font-size-xs); font-weight: 700; }
 .agent-detail-modal__feedback[data-tone='success'] { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); color: var(--gc-color-success); }
+.agent-detail-modal__feedback[data-tone='warning'] { border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-soft); color: var(--gc-color-warning); }
 .agent-detail-modal__feedback[data-tone='danger'] { border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-soft); color: var(--gc-color-danger); }
 .agent-detail-modal__spotlight { display: grid; min-width: calc(var(--gc-space-10) * 3); gap: var(--gc-space-1); padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-sm); background: var(--gc-color-text); color: var(--gc-color-surface-solid); }
 .agent-detail-modal__spotlight small { color: var(--gc-color-text-inverse-muted); font-size: var(--gc-font-size-xs); font-weight: 800; text-transform: uppercase; }

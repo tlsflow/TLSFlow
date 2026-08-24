@@ -1,7 +1,7 @@
 import { buildNetscalerCertKeyUsage, normalizeNetscalerBindings } from './netscaler-nitro.bindings.js';
 import { getNetscalerCapabilityProfile } from './netscaler-nitro.capabilities.js';
 import type { NetscalerNitroClient } from './netscaler-nitro.client.js';
-import { normalizeNetscalerCertificates } from './netscaler-nitro.certificates.js';
+import { enrichNetscalerCertificateFingerprints, normalizeNetscalerCertificates } from './netscaler-nitro.certificates.js';
 import { parseNetscalerVersion } from './netscaler-nitro.version.js';
 import type { NetscalerCapabilityProfile, NetscalerCertificateBinding, NetscalerCertificateResource, NetscalerDeviceFacts, NetscalerVersion, NetscalerVirtualServer, NetscalerVirtualServerType } from './netscaler.types.js';
 
@@ -38,9 +38,10 @@ export async function discoverNetscaler(client: NetscalerNitroClient): Promise<N
     const rows = await readRows(client, resource, warnings);
     virtualServers.push(...normalizeVirtualServers(rows, type, sourceVersion));
   }
-  const certificates = capabilityProfile.discovery.sslCertKey
+  const certificateResources = capabilityProfile.discovery.sslCertKey
     ? normalizeNetscalerCertificates(await readRows(client, 'sslcertkey', warnings), sourceVersion)
     : [];
+  const certificates = await enrichNetscalerCertificateFingerprints(client, certificateResources, warnings);
   const bindings = capabilityProfile.discovery.sslBindings
     ? normalizeNetscalerBindings(
       await readRows(client, 'sslvserver_sslcertkey_binding', warnings, { bulkbindings: 'yes' }),

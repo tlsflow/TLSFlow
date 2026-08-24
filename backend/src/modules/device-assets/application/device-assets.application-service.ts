@@ -13,6 +13,8 @@ export interface DeviceConnectionTestResult {
   supportLevel?: string;
   capabilities: Record<string, unknown>;
   warnings: string[];
+  certificateCount?: number;
+  fingerprintedCertificateCount?: number;
   errorCode?: string;
 }
 
@@ -50,6 +52,14 @@ export class DeviceAssetsApplicationService {
   }
 
   async testConnection(tenantId: string, deviceAssetId: string, actorId: string): Promise<DeviceConnectionTestResult> {
+    return this.runDiscovery(tenantId, deviceAssetId, actorId);
+  }
+
+  async discover(tenantId: string, deviceAssetId: string, actorId: string): Promise<DeviceConnectionTestResult> {
+    return this.runDiscovery(tenantId, deviceAssetId, actorId);
+  }
+
+  private async runDiscovery(tenantId: string, deviceAssetId: string, actorId: string): Promise<DeviceConnectionTestResult> {
     if (!this.connectionTester) {
       throw new AppError('CAPABILITY_MISSING', 'NetScaler NITRO 连接测试尚未注册', { code: 'NETSCALER_CAPABILITY_MISSING' });
     }

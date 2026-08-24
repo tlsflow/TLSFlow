@@ -3,7 +3,7 @@ import test from 'node:test';
 import { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
-import { DeviceAssetsApplicationService } from './application/device-assets.application-service.js';
+import { DeviceAssetsApplicationService, type DeviceConnectionTester } from './application/device-assets.application-service.js';
 import type { DeviceAssetSecurityPort } from './application/device-assets.security.js';
 import { DeviceAssetsController } from './controller/device-assets.controller.js';
 import { PgDeviceAssetsRepository } from './repository/device-assets.repository.js';
@@ -16,7 +16,7 @@ async function createTestApp() {
   return app;
 }
 
-async function createSecuredTestApp(allowed: boolean) {
+async function createSecuredTestApp(allowed: boolean, tester?: DeviceConnectionTester) {
   const db = new PgliteDatabase();
   await runMigrations(db, 'src/database/migrations');
   const app = new App();
@@ -29,7 +29,7 @@ async function createSecuredTestApp(allowed: boolean) {
       events.push(eventType);
     },
   };
-  new DeviceAssetsController(new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(db)), security).register(app.router);
+  new DeviceAssetsController(new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(db), tester), security).register(app.router);
   return { app, events };
 }
 
@@ -82,6 +82,46 @@ test('未注册 NITRO 测试器时连接测试返回能力缺失', async () => {
   });
   assert.equal(tested.statusCode, 422);
   assert.equal((tested.body as { errorCode?: string }).errorCode, 'CAPABILITY_MISSING');
+});
+
+test('重新发现设备资源使用独立接口并记录审计事件', async () => {
+  const discoveredIds: string[] = [];
+  const tester: DeviceConnectionTester = {
+    async test(device) {
+      discoveredIds.push(device.id);
+      return {
+        reachable: true,
+        authenticated: true,
+        productMatched: true,
+        softwareVersion: '13.1',
+        capabilities: {},
+        warnings: [],
+        certificateCount: 9,
+        fingerprintedCertificateCount: 9,
+      };
+    },
+  };
+  const { app, events } = await createSecuredTestApp(true, tester);
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/device-assets',
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    body: { displayName: 'ADC', managementAddress: '10.0.0.30', deviceFamily: 'NETSCALER_ADC', credentialId: 'sec_adc' },
+  });
+  const deviceAssetId = String((created.body as Record<string, unknown>).id);
+
+  const discovered = await app.inject({
+    method: 'POST',
+    path: '/api/v1/device-assets/discover',
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    body: { deviceAssetId },
+  });
+
+  assert.equal(discovered.statusCode, 200);
+  assert.equal((discovered.body as { reachable?: boolean }).reachable, true);
+  assert.equal((discovered.body as { fingerprintedCertificateCount?: number }).fingerprintedCertificateCount, 9);
+  assert.deepEqual(discoveredIds, [deviceAssetId]);
+  assert.deepEqual(events, ['device_asset.created', 'device_asset.discovery_refreshed']);
 });
 
 test('设备资产写操作产生脱敏审计事件', async () => {
