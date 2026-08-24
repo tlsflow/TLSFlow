@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "product.apache",
+  "version": "1.0",
+  "kind": "product",
+  "consumes": ["certificate.material.pem"],
+  "produces": ["operation.apache.certificate.update"],
+  "requirements": {
+    "id": "product.apache.requirement",
+    "ownerType": "provider_action",
+    "ownerId": "product.apache",
+    "requiredAll": [
+      { "capabilityKey": "apache.config_parse", "operator": "equals", "expected": true, "reason": "需要解析 Apache VirtualHost 证书指令", "riskIfMissing": "无法定位证书绑定" },
+      { "capabilityKey": "apache.cert.install", "operator": "equals", "expected": true, "reason": "需要替换 Apache 证书材料", "riskIfMissing": "无法完成部署" }
+    ],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "critical", "supportedOperationSchemas": ["1.0"]
+}

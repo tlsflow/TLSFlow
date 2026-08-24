@@ -271,8 +271,7 @@ export function buildTomcatServiceStrategy(input: { osType: string; serviceName?
   const serviceName = input.serviceName ?? 'tomcat';
   if (input.manualRestart) return { serviceName, restartCommand: input.restartCommand, reloadCommand: input.reloadCommand, manualRestart: true, mode: 'manual' };
   if (input.restartCommand) return { serviceName, restartCommand: input.restartCommand, reloadCommand: input.reloadCommand, manualRestart: false, mode: 'custom' };
-  if (input.osType === 'WINDOWS') return { serviceName, restartCommand: `Restart-Service -Name ${serviceName}`, reloadCommand: input.reloadCommand, manualRestart: false, mode: 'windows-service' };
-  return { serviceName, restartCommand: `systemctl restart ${serviceName}`, reloadCommand: input.reloadCommand, manualRestart: false, mode: 'systemd' };
+  return { serviceName, restartCommand: undefined, reloadCommand: input.reloadCommand, manualRestart: true, mode: 'manual' };
 }
 
 export function requiredTomcatCapabilities(strategy: TomcatServiceStrategy): string[] {

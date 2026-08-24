@@ -37,7 +37,7 @@ Include conf.modules.d/*.conf
 
 describe('spec021 Apache Provider', () => {
   it('解析 Debian VirtualHost、Listen、Include、多域名和缺 key 诊断', () => {
-    const hosts = parseApacheVirtualHosts(DEBIAN_CONF, { apacheVersion: '2.4.58' });
+    const hosts = parseApacheVirtualHosts(DEBIAN_CONF, { chainStrategy: 'FULLCHAIN_CERT_FILE' });
     assert.equal(hosts.length, 2);
     assert.deepEqual(hosts[0]?.addresses, [{ listenIp: undefined, port: 443 }]);
     assert.equal(hosts[0]?.serverName, 'example.com');
@@ -50,7 +50,7 @@ describe('spec021 Apache Provider', () => {
   });
 
   it('识别 RHEL/Apache 2.2 独立 chain 策略', () => {
-    const hosts = parseApacheVirtualHosts(RHEL_CONF, { apacheVersion: '2.2.34' });
+    const hosts = parseApacheVirtualHosts(RHEL_CONF, { chainStrategy: 'SEPARATE_CHAIN_FILE' });
     assert.equal(hosts[0]?.sslCertificateChain, '/etc/pki/tls/certs/legacy-chain.crt');
     assert.equal(hosts[0]?.chainStrategy, 'SEPARATE_CHAIN_FILE');
     assert.match(hosts[0]?.diagnostics.join(','), /独立 SSLCertificateChainFile/);
@@ -61,7 +61,7 @@ describe('spec021 Apache Provider', () => {
     const result = await provider.discover({ tenantId: 'tenant_apache' }, {
       source: 'SSH',
       scope: { hostname: 'web-apache-01' },
-      payload: { configText: RHEL_CONF, distribution: 'rhel', apacheVersion: '2.2.34' },
+      payload: { configText: RHEL_CONF, configPath: '/etc/httpd/conf/httpd.conf', binaryPath: 'httpd', apacheVersion: '2.2.34', chainStrategy: 'SEPARATE_CHAIN_FILE' },
     });
     assert.equal(result.providerId, 'apache-provider');
     assert.equal(result.providerType, 'APACHE');

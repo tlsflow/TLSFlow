@@ -125,12 +125,12 @@ describe('spec022 Tomcat Provider', () => {
   it('支持服务策略 fixture，不执行真实重启', () => {
     assert.deepEqual(buildTomcatServiceStrategy({ osType: 'LINUX', serviceName: 'tomcat-a' }), {
       serviceName: 'tomcat-a',
-      restartCommand: 'systemctl restart tomcat-a',
+      restartCommand: undefined,
       reloadCommand: undefined,
-      manualRestart: false,
-      mode: 'systemd',
+      manualRestart: true,
+      mode: 'manual',
     });
-    assert.deepEqual(buildTomcatServiceStrategy({ osType: 'WINDOWS', serviceName: 'Tomcat10' }).restartCommand, 'Restart-Service -Name Tomcat10');
+    assert.deepEqual(buildTomcatServiceStrategy({ osType: 'WINDOWS', serviceName: 'Tomcat10', restartCommand: 'sc.exe stop Tomcat10 && sc.exe start Tomcat10' }).mode, 'custom');
   });
 
   it('Provider SDK fixture 校验 Tomcat provider，敏感字段仍被拒绝', async () => {

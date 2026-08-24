@@ -50,10 +50,10 @@ export class ApacheProvider implements Provider {
 
   discover(_context: DiscoveryExecutionContext, input: { source: DiscoveryResult['source']; scope: Record<string, string>; payload: Record<string, unknown> }): DiscoveryResult {
     const configText = String(input.payload.configText ?? '');
-    const configPath = String(input.payload.configPath ?? defaultConfigPath(input.payload.distribution as string | undefined));
+    const configPath = String(input.payload.configPath ?? '/etc/apache2/apache2.conf');
     const osType = String(input.payload.osType ?? input.scope.osType ?? 'LINUX').toUpperCase();
     const apacheVersion = normalizeOptionalString(input.payload.apacheVersion) ?? normalizeOptionalString(input.payload.version);
-    const binaryPath = String(input.payload.binaryPath ?? defaultBinaryPath(input.payload.distribution as string | undefined));
+    const binaryPath = String(input.payload.binaryPath ?? 'apachectl');
     const commandStrategy = buildApacheCommandStrategy({
       binaryPath,
       testCommand: input.payload.testCommand as string | undefined,
@@ -62,7 +62,7 @@ export class ApacheProvider implements Provider {
       manualReload: input.payload.manualReload === true,
     });
     const hostname = String(input.scope.hostname ?? input.payload.hostname ?? 'apache-host').toLowerCase();
-    const virtualHosts = parseApacheVirtualHosts(configText, { apacheVersion });
+    const virtualHosts = parseApacheVirtualHosts(configText, { chainStrategy: normalizeChainStrategy(input.payload.chainStrategy) });
     const hostKey = `host:${hostname}`;
     const serviceKey = `service:${hostname}:apache`;
     const endpoints = [];
@@ -127,6 +127,19 @@ export class ApacheProvider implements Provider {
       }],
       endpoints,
       bindings,
+      serviceAssets: endpoints.map((endpoint, assetIndex) => ({
+        key: `service-asset:${hostname}:${endpoint.port}:${assetIndex + 1}`,
+        serviceKey,
+        endpointKey: endpoint.key,
+        address: endpoint.hostName,
+        addressType: 'DNS',
+        port: endpoint.port,
+        protocol: endpoint.protocol === 'HTTPS' ? 'HTTPS' : 'HTTP',
+        sniName: endpoint.hostName,
+        displayName: endpoint.hostName,
+        status: 'ACTIVE',
+        rawFacts: { projectedFrom: 'apache-virtual-host' },
+      })),
       rawPayload: { configPath, binaryPath, apacheVersion, commandStrategy, diagnostics: virtualHosts.flatMap((item) => item.diagnostics) },
     };
   }
@@ -180,7 +193,7 @@ export class ApacheProvider implements Provider {
   }
 }
 
-export function parseApacheVirtualHosts(configText: string, options: { apacheVersion?: string } = {}): ApacheVirtualHost[] {
+export function parseApacheVirtualHosts(configText: string, options: { chainStrategy?: ApacheVirtualHost['chainStrategy'] } = {}): ApacheVirtualHost[] {
   const globalListens = parseListenDirectives(configText);
   return extractVirtualHostBlocks(configText).map((block) => {
     const body = stripApacheComments(block.body);
@@ -190,7 +203,7 @@ export function parseApacheVirtualHosts(configText: string, options: { apacheVer
     const serverName = readDirective(body, 'ServerName')?.split(/\s+/)[0];
     const serverAliases = readDirectives(body, 'ServerAlias').flatMap((item) => item.split(/\s+/)).filter(Boolean);
     const includes = readDirectives(body, 'Include').concat(readDirectives(body, 'IncludeOptional'));
-    const chainStrategy = resolveChainStrategy({ apacheVersion: options.apacheVersion, sslCertificateChain });
+    const chainStrategy = resolveChainStrategy({ chainStrategy: options.chainStrategy, sslCertificateChain });
     const diagnostics = [];
     if (sslCertificate && !sslCertificateKey) diagnostics.push('缺少 SSLCertificateKeyFile');
     if (!sslCertificate && sslCertificateKey) diagnostics.push('缺少 SSLCertificateFile');
@@ -273,10 +286,9 @@ function stripApacheComments(configText: string): string {
   return configText.split('\n').map((line) => line.replace(/\s+#.*$/, '').replace(/^#.*$/, '')).join('\n');
 }
 
-function resolveChainStrategy(input: { apacheVersion?: string; sslCertificateChain?: string }): ApacheVirtualHost['chainStrategy'] {
+function resolveChainStrategy(input: { chainStrategy?: ApacheVirtualHost['chainStrategy']; sslCertificateChain?: string }): ApacheVirtualHost['chainStrategy'] {
+  if (input.chainStrategy) return input.chainStrategy;
   if (input.sslCertificateChain) return 'SEPARATE_CHAIN_FILE';
-  if (input.apacheVersion?.startsWith('2.2')) return 'SEPARATE_CHAIN_FILE';
-  if (input.apacheVersion?.startsWith('2.4')) return 'FULLCHAIN_CERT_FILE';
   return 'UNKNOWN';
 }
 
@@ -300,22 +312,12 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function normalizeChainStrategy(value: unknown): ApacheVirtualHost['chainStrategy'] | undefined {
+  return value === 'FULLCHAIN_CERT_FILE' || value === 'SEPARATE_CHAIN_FILE' || value === 'UNKNOWN' ? value : undefined;
+}
+
 function hasApacheVariable(path: string): boolean {
   return /\$\{[^}]+}|%[A-Za-z_]+%|\$[A-Za-z_][A-Za-z0-9_]*/.test(path);
-}
-
-function defaultBinaryPath(distribution: string | undefined): string {
-  const normalized = distribution?.toLowerCase() ?? '';
-  if (normalized.includes('debian') || normalized.includes('ubuntu')) return 'apache2ctl';
-  if (normalized.includes('rhel') || normalized.includes('centos') || normalized.includes('fedora')) return 'httpd';
-  return 'apachectl';
-}
-
-function defaultConfigPath(distribution: string | undefined): string {
-  const normalized = distribution?.toLowerCase() ?? '';
-  if (normalized.includes('debian') || normalized.includes('ubuntu')) return '/etc/apache2/apache2.conf';
-  if (normalized.includes('rhel') || normalized.includes('centos') || normalized.includes('fedora')) return '/etc/httpd/conf/httpd.conf';
-  return '/etc/apache2/apache2.conf';
 }
 
 function quotePath(path: string): string {

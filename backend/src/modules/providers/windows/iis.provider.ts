@@ -210,17 +210,23 @@ export function parseIisBindings(input: unknown): IisBinding[] {
 }
 
 export function resolveWindowsCompatibility(osVersion: string, payload: Record<string, unknown> = {}): WindowsCompatibilityPolicy {
-  const normalized = osVersion.toLowerCase();
-  if (/2003|5\.2/.test(normalized)) {
-    return { level: 'obsolete', deploymentMode: 'monitor_only', requiredCapabilities: [...baseCapabilities, 'script_package', 'manual.confirm'], diagnostics: ['Win2003 默认只生成 monitor_only/manual/script_package 草案，不宣称全自动。'] };
-  }
-  if (/2008|6\.0|6\.1/.test(normalized)) {
-    return { level: 'legacy', deploymentMode: payload.allowLegacyAutomation === true ? 'script_package' : 'manual', requiredCapabilities: [...baseCapabilities, 'script_package', 'manual.confirm'], diagnostics: ['旧 Windows/IIS 版本能力不完整，默认降级到脚本包或人工确认。'] };
-  }
-  const remote = String(payload.remoteStrategy ?? '').toLowerCase();
-  const deploymentMode = remote === 'full_agent' ? 'full_agent' : 'winrm_smb_wmi';
-  const remoteCapabilities = deploymentMode === 'full_agent' ? ['full_agent'] : ['winrm.connect', 'smb.file_transfer', 'wmi.query'];
-  return { level: 'modern', deploymentMode, requiredCapabilities: [...baseCapabilities, ...remoteCapabilities], diagnostics: [] };
+  void osVersion;
+  const level = normalizeCompatibilityLevel(payload.compatibilityLevel);
+  const deploymentMode = normalizeDeploymentMode(payload.resolvedDeploymentMode ?? payload.remoteStrategy);
+  return {
+    level,
+    deploymentMode,
+    requiredCapabilities: capabilitiesFor(deploymentMode, baseCapabilities),
+    diagnostics: Array.isArray(payload.compatibilityDiagnostics) ? payload.compatibilityDiagnostics.map(String) : [],
+  };
+}
+
+function normalizeCompatibilityLevel(value: unknown): WindowsCompatibilityPolicy['level'] {
+  return value === 'legacy' || value === 'obsolete' ? value : 'modern';
+}
+
+function normalizeDeploymentMode(value: unknown): WindowsCompatibilityPolicy['deploymentMode'] {
+  return value === 'winrm_smb_wmi' || value === 'script_package' || value === 'manual' || value === 'monitor_only' ? value : 'full_agent';
 }
 
 function parseCertificateBlock(block: string): WindowsCertificate | undefined {

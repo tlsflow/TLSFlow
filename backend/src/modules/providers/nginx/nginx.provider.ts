@@ -98,6 +98,19 @@ export class NginxProvider implements Provider {
       services: [{ key: serviceKey, hostKey, providerType: 'NGINX', serviceName: 'nginx', displayName: 'NGINX', configPath, installPath: binaryPath, status: 'ACTIVE', rawFacts: { serverBlockCount: blocks.length, commandStrategy } }],
       endpoints,
       bindings,
+      serviceAssets: endpoints.map((endpoint, assetIndex) => ({
+        key: `service-asset:${hostname}:${endpoint.port}:${assetIndex + 1}`,
+        serviceKey,
+        endpointKey: endpoint.key,
+        address: endpoint.hostName,
+        addressType: 'DNS',
+        port: endpoint.port,
+        protocol: endpoint.protocol === 'HTTPS' ? 'HTTPS' : 'HTTP',
+        sniName: endpoint.hostName,
+        displayName: endpoint.hostName,
+        status: 'ACTIVE',
+        rawFacts: { projectedFrom: 'nginx-server-block' },
+      })),
       rawPayload: { configPath, binaryPath, commandStrategy, diagnostics: blocks.flatMap((block) => block.diagnostics) },
     };
   }
@@ -162,9 +175,6 @@ export function parseNginxServerBlocks(configText: string): NginxServerBlock[] {
 export function buildNginxCommandStrategy(input: { osType: string; binaryPath: string; testCommand?: string; reloadCommand?: string; manualReload?: boolean }): NginxCommandStrategy {
   if (input.manualReload) return { testCommand: input.testCommand ?? `${quotePath(input.binaryPath)} -t`, reloadCommand: input.reloadCommand, manualReload: true };
   const binary = quotePath(input.binaryPath);
-  if (input.osType === 'WINDOWS') {
-    return { testCommand: input.testCommand ?? `${binary} -t`, reloadCommand: input.reloadCommand ?? `${binary} -s reload`, manualReload: false };
-  }
   return { testCommand: input.testCommand ?? `${binary} -t`, reloadCommand: input.reloadCommand ?? `${binary} -s reload`, manualReload: false };
 }
 

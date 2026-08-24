@@ -110,7 +110,7 @@ describe('spec019 IIS Provider', () => {
     const result = await provider.discover({ tenantId: 'tenant_iis' }, {
       source: 'MANUAL',
       scope: { hostname: 'win-web-01' },
-      payload: { certStoreText: POWERSHELL_CERTS, iisBindings: IIS_JSON, osVersion: 'Windows Server 2022' },
+      payload: { certStoreText: POWERSHELL_CERTS, iisBindings: IIS_JSON, osVersion: 'Windows Server 2022', resolvedDeploymentMode: 'winrm_smb_wmi' },
     });
     const bundle = provider.toDeploymentDraft(result);
     assert.equal(bundle.steps.length, 5);
@@ -125,16 +125,16 @@ describe('spec019 IIS Provider', () => {
     new ProviderSdk().assertDraftBundle(bundle);
   });
 
-  it('Win2003/旧系统默认降级为 script_package/manual/monitor_only，不宣称全自动', async () => {
-    assert.equal(resolveWindowsCompatibility('Windows Server 2003').deploymentMode, 'monitor_only');
-    assert.equal(resolveWindowsCompatibility('Windows Server 2008 R2').deploymentMode, 'manual');
-    assert.equal(resolveWindowsCompatibility('Windows Server 2008 R2', { allowLegacyAutomation: true }).deploymentMode, 'script_package');
+  it('IIS Provider 使用 Resolver 结果，不按 Windows 版本猜测部署模式', async () => {
+    assert.equal(resolveWindowsCompatibility('Windows Server 2003', { compatibilityLevel: 'obsolete', resolvedDeploymentMode: 'monitor_only' }).deploymentMode, 'monitor_only');
+    assert.equal(resolveWindowsCompatibility('Windows Server 2008 R2', { compatibilityLevel: 'legacy', resolvedDeploymentMode: 'manual' }).deploymentMode, 'manual');
+    assert.equal(resolveWindowsCompatibility('Windows Server 2008 R2', { compatibilityLevel: 'legacy', resolvedDeploymentMode: 'script_package' }).deploymentMode, 'script_package');
 
     const provider = new IISProvider();
     const result = await provider.discover({ tenantId: 'tenant_legacy' }, {
       source: 'MANUAL',
       scope: { hostname: 'legacy-iis' },
-      payload: { certutilText: CERTUTIL_TEXT, iisBindingText: APPCMD_TEXT, osVersion: 'Windows Server 2003' },
+      payload: { certutilText: CERTUTIL_TEXT, iisBindingText: APPCMD_TEXT, osVersion: 'Windows Server 2003', compatibilityLevel: 'obsolete', resolvedDeploymentMode: 'monitor_only' },
     });
     const bundle = provider.toDeploymentDraft(result);
     assert.equal(result.hosts[0]?.tags.includes('monitor_only'), true);
