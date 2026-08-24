@@ -332,7 +332,6 @@ export const businessRoutes: GcRouteRecord[] = [
       riskLevel: 'high',
       breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
       keepAlive: true,
-      featureFlag: 'template.dsl.editor'
     }
   },
   {
