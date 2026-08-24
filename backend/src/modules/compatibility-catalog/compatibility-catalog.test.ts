@@ -205,9 +205,26 @@ describe('Compatibility Profile 与目录', () => {
     const root = resolve(process.cwd(), '..', 'compatibility');
     const catalog = loadCompatibilityCatalog(root);
     const matrix = buildCompatibilityMatrix([...catalog.profiles].reverse());
-    assert.deepEqual(matrix.map((item) => item.profileId), ['windows-compatibility-iis', 'windows-modern-iis']);
-    assert.equal(matrix[1]?.composition.product, 'product.iis-apphost');
-    assert.deepEqual(matrix[1]?.evidenceReferences, ['backend/src/modules/compatibility-catalog/compatibility-catalog.test.ts']);
+    assert.deepEqual(matrix.map((item) => item.profileId), [
+      'linux-openrc-nginx',
+      'linux-systemd-apache',
+      'linux-systemd-nginx',
+      'linux-systemd-tomcat-pem',
+      'linux-systemd-tomcat-pkcs12',
+      'linux-sysv-apache',
+      'windows-compatibility-iis',
+      'windows-modern-iis',
+    ]);
+    const linuxNginx = matrix.find((item) => item.profileId === 'linux-systemd-nginx');
+    const linuxTomcatPkcs12 = matrix.find((item) => item.profileId === 'linux-systemd-tomcat-pkcs12');
+    const windowsModern = matrix.find((item) => item.profileId === 'windows-modern-iis');
+    assert.equal(linuxNginx?.composition.product, 'product.nginx');
+    assert.equal(linuxNginx?.composition.service_controller, 'service-controller.systemd');
+    assert.equal(linuxNginx?.composition.rollback, 'rollback.posix-certificate-files');
+    assert.equal(linuxTomcatPkcs12?.composition.artifact_codec, 'artifact-codec.pkcs12');
+    assert.equal(linuxTomcatPkcs12?.composition.rollback, 'rollback.java-keystore');
+    assert.equal(windowsModern?.composition.product, 'product.iis-apphost');
+    assert.deepEqual(windowsModern?.evidenceReferences, ['backend/src/modules/compatibility-catalog/compatibility-catalog.test.ts']);
   });
 });
 
