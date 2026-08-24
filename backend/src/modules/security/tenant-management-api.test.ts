@@ -285,6 +285,7 @@ async function createFixture(mode: 'single' | 'hierarchical') {
     checksum: (content) => createHash('sha256').update(content).digest('hex'),
   });
   const security = createPersistedSecurityServices(db).services;
+  await security.tenantMode?.getCurrentMode();
   const app = createApp({ db, security, corePersistence: { mode: 'memory' } });
   const adminPassword = process.env.GCAC_INITIAL_ADMIN_PASSWORD ?? 'admin12345';
 

@@ -33,6 +33,7 @@ import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMe
 import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import type { TenantContextService } from './tenant-context.service.js';
 import { TenantScopeService } from './tenant-scope.service.js';
+import type { TenantModeService } from './tenant-mode.service.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -53,6 +54,7 @@ export interface SecurityServices {
   // 默认内存工厂未执行数据库迁移，不提供租户持久化服务。
   tenantHierarchy?: TenantHierarchyService;
   tenantContext?: TenantContextService;
+  tenantMode?: TenantModeService;
 }
 
 export interface AuditPresentationPort {
@@ -115,6 +117,12 @@ export class SecurityController {
       router.get('/api/v1/tenant-memberships', '查询租户成员列表', ['Security'], (request) => this.listTenantMemberships(request));
       router.post('/api/v1/tenant-memberships', '新增租户成员', ['Security'], (request) => this.createTenantMembership(request));
       router.delete('/api/v1/tenant-memberships', '撤销租户成员', ['Security'], (request) => this.revokeTenantMembership(request));
+    }
+    if (this.services.tenantMode) {
+      router.get('/api/v1/system/tenant-mode', '查询多租户模式状态', ['Security'], (request) => this.getTenantModeState(request));
+      router.post('/api/v1/system/tenant-mode/preflight', '执行多租户启用预检查', ['Security'], (request) => this.runTenantModePreflight(request));
+      router.post('/api/v1/system/tenant-mode/enable', '启用层级多租户', ['Security'], (request) => this.enableTenantMode(request));
+      router.post('/api/v1/system/tenant-mode/rollback', '回滚到单租户模式', ['Security'], (request) => this.rollbackTenantMode(request));
     }
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '创建 Secret', ['Security'], (request) => this.createSecret(request));
@@ -491,6 +499,57 @@ export class SecurityController {
     };
   }
 
+  private async getTenantModeState(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertTenantModeManage(subject, request);
+    return this.requireTenantMode().getSummary();
+  }
+
+  private async runTenantModePreflight(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertTenantModeManage(subject, request);
+    const body = validateObject(request.body ?? {}, {
+      confirmation: { type: 'string' },
+    });
+    return this.requireTenantMode().runPreflight({
+      actorId: subject.id,
+      context: this.securityContext(request, subject),
+      confirmation: body.confirmation === undefined ? undefined : String(body.confirmation),
+    });
+  }
+
+  private async enableTenantMode(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertTenantModeManage(subject, request);
+    const body = validateObject(request.body, {
+      preflightBatchId: { type: 'string', required: true },
+      confirmation: { type: 'string', required: true },
+      simulateFailureStep: { type: 'string', enum: ['before_publish'] },
+    });
+    return this.requireTenantMode().enableHierarchicalMode({
+      actorId: subject.id,
+      preflightBatchId: String(body.preflightBatchId),
+      confirmation: String(body.confirmation),
+      context: this.securityContext(request, subject),
+      simulateFailureStep: body.simulateFailureStep === undefined ? undefined : 'before_publish',
+    });
+  }
+
+  private async rollbackTenantMode(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertTenantModeManage(subject, request);
+    const body = validateObject(request.body, {
+      confirmation: { type: 'string', required: true },
+      simulateFailureStep: { type: 'string', enum: ['before_publish'] },
+    });
+    return this.requireTenantMode().rollbackToSingleMode({
+      actorId: subject.id,
+      confirmation: String(body.confirmation),
+      context: this.securityContext(request, subject),
+      simulateFailureStep: body.simulateFailureStep === undefined ? undefined : 'before_publish',
+    });
+  }
+
   private requireTenantContext(): TenantContextService {
     if (!this.services.tenantContext) {
       throw new AppError('TENANT_CONTEXT_INVALID', '租户上下文服务未配置');
@@ -503,6 +562,13 @@ export class SecurityController {
       throw new AppError('TENANT_CONTEXT_INVALID', '租户层级服务未配置');
     }
     return this.services.tenantHierarchy;
+  }
+
+  private requireTenantMode(): TenantModeService {
+    if (!this.services.tenantMode) {
+      throw new AppError('TENANT_CONTEXT_INVALID', '租户模式服务未配置');
+    }
+    return this.services.tenantMode;
   }
 
   private async resolveTenantGovernanceContext(request: HttpRequest): Promise<{
@@ -560,6 +626,14 @@ export class SecurityController {
       type: 'tenant',
       id: targetTenantId,
       scope: { tenantId: targetTenantId },
+    }, this.securityContext(request, subject));
+  }
+
+  private async assertTenantModeManage(subject: SecuritySubject, request: HttpRequest): Promise<void> {
+    await this.services.rbac.assertCan(subject, 'tenant.mode.manage', {
+      type: 'tenantMode',
+      id: 'tenant-mode',
+      scope: { tenantId: requireTenantId(request) },
     }, this.securityContext(request, subject));
   }
 
@@ -1579,6 +1653,10 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/tenant-memberships', operationId: 'listTenantMemberships', summary: '查询租户成员列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/tenant-memberships', operationId: 'createTenantMembership', summary: '新增租户成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'DELETE', path: '/api/v1/tenant-memberships', operationId: 'revokeTenantMembership', summary: '撤销租户成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/system/tenant-mode', operationId: 'getTenantModeState', summary: '查询多租户模式状态', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/system/tenant-mode/preflight', operationId: 'runTenantModePreflight', summary: '执行多租户启用预检查', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/system/tenant-mode/enable', operationId: 'enableTenantMode', summary: '启用层级多租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/system/tenant-mode/rollback', operationId: 'rollbackTenantMode', summary: '回滚到单租户模式', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '创建 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '查询 Secret 元数据', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

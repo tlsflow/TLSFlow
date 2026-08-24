@@ -30,6 +30,7 @@ import { TenantIdentityService } from './tenant-identity.service.js';
 import { PgTenantRepository } from './repository/tenant.repository.js';
 import { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import { TenantContextService, type TenantContextStateEntity } from './tenant-context.service.js';
+import { TenantModeService, type TenantModeBatchEntity, type TenantModeStateEntity } from './tenant-mode.service.js';
 
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
@@ -54,6 +55,8 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const identitySources = new PgDocumentRepository<IdentitySource>(db, 'security.identity_sources');
   const externalGroupRoleMappings = new PgDocumentRepository<ExternalGroupRoleMapping>(db, 'security.external_group_role_mappings');
   const tenantContextStates = new PgDocumentRepository<TenantContextStateEntity>(db, 'security.tenant_context_states');
+  const tenantModeStates = new PgDocumentRepository<TenantModeStateEntity>(db, 'security.tenant_mode_states');
+  const tenantModeBatches = new PgDocumentRepository<TenantModeBatchEntity>(db, 'security.tenant_mode_batches');
   const groups = new PgDocumentRepository<GroupEntity>(db, 'security.groups');
   const groupMembers = new PgDocumentRepository<GroupMemberEntity>(db, 'security.group_members');
   const roleBindings = new PgDocumentRepository<RoleBindingEntity>(db, 'security.role_bindings');
@@ -72,12 +75,14 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
   const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
-  const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates);
+  const tenantMode = new TenantModeService(db, tenantModeStates, tenantModeBatches, audit, tenantHierarchy, objectPermissions);
+  const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates, tenantMode);
+  tenantMode.attachTenantContext(tenantContext);
   const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity, tenantContext);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
-    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext },
+    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode },
     flushers: [],
   };
 }

@@ -24,6 +24,10 @@ export interface TenantContextStateEntity {
   updatedAt: string;
 }
 
+export interface TenantModeReader {
+  getCurrentMode(): Promise<TenantMode>;
+}
+
 type TenantHierarchyPort = Pick<TenantHierarchyService, 'listTenants' | 'listMemberships'>;
 
 /**
@@ -41,29 +45,30 @@ export class TenantContextService {
     private readonly tenantIdentity: TenantIdentityResolver,
     private readonly hierarchy: TenantHierarchyPort,
     private readonly states?: AsyncRepositoryPort<TenantContextStateEntity>,
-    private readonly configuredMode: TenantMode = readTenantMode(),
+    private readonly modeSource: TenantMode | TenantModeReader = readTenantMode(),
   ) {}
 
   get mode(): TenantMode {
-    return this.configuredMode;
+    return typeof this.modeSource === 'string' ? this.modeSource : 'single';
   }
 
   async initialize(actorId: string, homeTenantIdentifier?: string): Promise<TenantContext> {
     this.assertActor(actorId);
+    const mode = await this.getMode();
     const existing = await this.readState(actorId);
     const tenants = await this.hierarchy.listTenants();
     const memberships = await this.accessibleForUser(actorId);
-    if (this.mode === 'single') {
+    if (mode === 'single') {
       const defaultTenantId = await this.tenantIdentity.resolveDefault();
       if (existing && existing.currentTenantId === defaultTenantId && existing.homeTenantId === defaultTenantId) {
-        return this.toContext(existing, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] });
+        return this.toContext(existing, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] }, mode);
       }
       return this.saveState({
         actorId,
         homeTenantId: defaultTenantId,
         currentTenantId: defaultTenantId,
         version: newContextVersion(),
-      }, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] });
+      }, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] }, mode);
     }
 
     const accessibleTenantIds = this.scope.resolveAccessibleTenantIds(memberships, tenants);
@@ -71,7 +76,7 @@ export class TenantContextService {
       throw new AppError('TENANT_MEMBERSHIP_REQUIRED', '用户没有有效租户成员关系', { actorId });
     }
     if (existing && accessibleTenantIds.includes(existing.currentTenantId)) {
-      return this.toContext(existing, accessibleTenantIds, this.scope.resolveManagementScope(existing.currentTenantId, memberships, tenants));
+      return this.toContext(existing, accessibleTenantIds, this.scope.resolveManagementScope(existing.currentTenantId, memberships, tenants), mode);
     }
 
     const homeTenantId = homeTenantIdentifier
@@ -87,7 +92,7 @@ export class TenantContextService {
         : currentTenantId,
       currentTenantId,
       version: newContextVersion(),
-    }, accessibleTenantIds, this.scope.resolveManagementScope(currentTenantId, memberships, tenants));
+    }, accessibleTenantIds, this.scope.resolveManagementScope(currentTenantId, memberships, tenants), mode);
   }
 
   async resolve(
@@ -104,7 +109,7 @@ export class TenantContextService {
         currentVersion: context.version,
       });
     }
-    if (this.mode === 'hierarchical' && assertedTenantId) {
+    if (context.mode === 'hierarchical' && assertedTenantId) {
       const asserted = await this.resolveTenantIdentifier(assertedTenantId);
       if (asserted !== context.currentTenantId) {
         throw new AppError('TENANT_CONTEXT_INVALID', '认证上下文中的当前租户无效', {
@@ -120,7 +125,7 @@ export class TenantContextService {
     this.assertActor(actorId);
     const context = await this.initialize(actorId, homeTenantIdentifier);
     const tenants = await this.hierarchy.listTenants();
-    if (this.mode === 'single') {
+    if (context.mode === 'single') {
       const tenant = tenants.find((item) => item.id === context.currentTenantId);
       if (!tenant) {
         throw new AppError('TENANT_CONTEXT_INVALID', '默认租户记录不存在', {
@@ -150,7 +155,7 @@ export class TenantContextService {
 
     const current = await this.resolve(input.actorId, undefined, input.expectedVersion);
     const targetTenantId = await this.resolveTenantIdentifier(input.tenantId);
-    if (this.mode === 'single') {
+    if (current.mode === 'single') {
       if (targetTenantId !== current.currentTenantId) {
         throw new AppError('TENANT_SCOPE_DENIED', '单租户模式不允许切换到非默认租户', {
           tenantId: targetTenantId,
@@ -165,7 +170,7 @@ export class TenantContextService {
         type: 'SELF',
         rootTenantId: current.currentTenantId,
         tenantIds: [current.currentTenantId],
-      });
+      }, current.mode);
     }
 
     const accessible = await this.accessibleForUser(input.actorId);
@@ -182,7 +187,23 @@ export class TenantContextService {
       homeTenantId: current.homeTenantId,
       currentTenantId: targetTenantId,
       version: newContextVersion(),
-    }, this.scope.resolveAccessibleTenantIds(accessible, tenants), this.scope.resolveManagementScope(targetTenantId, accessible, tenants));
+    }, this.scope.resolveAccessibleTenantIds(accessible, tenants), this.scope.resolveManagementScope(targetTenantId, accessible, tenants), current.mode);
+  }
+
+  async invalidateAll(): Promise<number> {
+    const states = this.states
+      ? await this.states.list()
+      : [...this.memoryStates.values()];
+    await Promise.all(states.map(async (state) => {
+      const updated: TenantContextStateEntity = {
+        ...state,
+        version: newContextVersion(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (this.states) await this.states.upsert(updated);
+      else this.memoryStates.set(updated.actorId, updated);
+    }));
+    return states.length;
   }
 
   private async accessibleForUser(actorId: string): Promise<TenantMembershipEntity[]> {
@@ -219,6 +240,7 @@ export class TenantContextService {
     input: Omit<TenantContextStateEntity, 'id' | 'updatedAt'>,
     accessibleTenantIds: string[],
     managementScope?: TenantContext['managementScope'],
+    mode: TenantMode = this.mode,
   ): Promise<TenantContext> {
     const state: TenantContextStateEntity = {
       ...input,
@@ -227,12 +249,17 @@ export class TenantContextService {
     };
     if (this.states) await this.states.upsert(state);
     else this.memoryStates.set(state.actorId, state);
-    return this.toContext(state, accessibleTenantIds, managementScope);
+    return this.toContext(state, accessibleTenantIds, managementScope, mode);
   }
 
-  private toContext(state: TenantContextStateEntity, accessibleTenantIds: string[], managementScope?: TenantContext['managementScope']): TenantContext {
+  private toContext(
+    state: TenantContextStateEntity,
+    accessibleTenantIds: string[],
+    managementScope?: TenantContext['managementScope'],
+    mode: TenantMode = this.mode,
+  ): TenantContext {
     return {
-      mode: this.mode,
+      mode,
       actorId: state.actorId,
       currentTenantId: state.currentTenantId,
       homeTenantId: state.homeTenantId,
@@ -266,6 +293,13 @@ export class TenantContextService {
     if (!actorId.trim()) {
       throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     }
+  }
+
+  private async getMode(): Promise<TenantMode> {
+    if (typeof this.modeSource === 'string') {
+      return this.modeSource;
+    }
+    return this.modeSource.getCurrentMode();
   }
 }
 
