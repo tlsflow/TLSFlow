@@ -391,8 +391,8 @@ describe('资产与证书产物视图', () => {
     await wrapper.get('[data-testid="asset-card-select-asset-bulk-same-1"]').setValue(true)
     await wrapper.get('[data-testid="asset-card-select-asset-bulk-same-2"]').setValue(true)
 
-    expect(wrapper.get('[data-testid="asset-selection-actions"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-selection-actions"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="asset-bulk-update-action"]').text()).toContain('批量更新证书')
   })
 
@@ -423,8 +423,8 @@ describe('资产与证书产物视图', () => {
     await wrapper.get('[data-testid="asset-card-select-asset-bulk-different-1"]').setValue(true)
     await wrapper.get('[data-testid="asset-card-select-asset-bulk-different-2"]').setValue(true)
 
-    expect(wrapper.get('[data-testid="asset-selection-actions"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-selection-actions"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="asset-bulk-update-action"]').exists()).toBe(false)
   })
 
@@ -1271,6 +1271,29 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
   })
 
+  it('应用资产选择工作流时隐藏非证书部署的插件工作流', async () => {
+    workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
+      { id: 'workflow-deploy', name: 'Synology 证书部署', origin: 'plugin_internal', capabilities: ['certificate.deploy', 'certificate.rollback'] },
+      { id: 'workflow-discover', name: 'Synology 设备发现', origin: 'plugin_internal', capabilities: ['device.discover'] },
+      { id: 'workflow-user', name: '自定义证书部署', origin: 'user', capabilities: [] },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
+    await flushPromises()
+    await setInputElementValue(wrapper.get('[data-testid="asset-address-input"]').element as HTMLInputElement, 'test-workflow.jacksonz.cn')
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+
+    const workflowSelect = wrapper.findAll('select').find((select) => select.find('option[value="workflow-deploy"]').exists())
+    expect(workflowSelect).toBeTruthy()
+    expect(workflowSelect!.find('option[value="workflow-discover"]').exists()).toBe(false)
+    expect(workflowSelect!.find('option[value="workflow-user"]').exists()).toBe(true)
+  })
+
   it('应用资产选择插件内置工作流时按 DSL SemVer 展示并合并重复版本', async () => {
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([{
       id: 'workflow-apache',
@@ -1406,6 +1429,11 @@ describe('资产与证书产物视图', () => {
     const credentialSelect = wrapper.findAll('select').find((select) => select.find('option[value="sec_synology"]').exists())
     expect(credentialSelect).toBeTruthy()
     expect(wrapper.find('input[value="sec_synology"]').exists()).toBe(false)
+    const projectionCall = deploymentInputMocks.projectDeploymentInputs.mock.calls.at(-1)
+    expect(projectionCall?.[1]).toMatchObject({
+      workflowTemplateId: 'workflow-1',
+      workflowVersionId: 'workflow-version-1',
+    })
   })
 
   it('编辑工作流应用资产时会回填并保留证书产物绑定', async () => {
@@ -1491,7 +1519,8 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.saveApplicationAssetStandaloneWorkflow).toHaveBeenCalledWith('asset-1', {
       workflowExecution: expect.objectContaining({
         workflowTemplateId: 'workflow-1',
-        workflowVersionSelection: 'LATEST_PUBLISHED',
+        workflowVersionSelection: 'FIXED',
+        workflowVersionId: 'workflow-version-1',
         inputBindings: {
           apiVersion: 'gcac.input-bindings/v1',
           variables: {},
@@ -1510,7 +1539,7 @@ describe('资产与证书产物视图', () => {
       }),
     })
     const savedWorkflowExecution = assetMocks.saveApplicationAssetStandaloneWorkflow.mock.calls.at(-1)?.[1]?.workflowExecution
-    expect(savedWorkflowExecution).not.toHaveProperty('workflowVersionId')
+    expect(savedWorkflowExecution).toHaveProperty('workflowVersionId', 'workflow-version-1')
   })
 
   it('证书产物页展示真实内容格式与包含内容', async () => {
