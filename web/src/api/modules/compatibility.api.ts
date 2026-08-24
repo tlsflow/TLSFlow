@@ -10,6 +10,9 @@ export interface CompatibilityCatalogItem {
   limitations: string[]
   lastVerifiedAt?: string
   reasonCodes: string[]
+  baselineRef?: string
+  recipeRefs?: string[]
+  certificationRefs?: string[]
 }
 
 export interface CompatibilityCatalogResponse {
