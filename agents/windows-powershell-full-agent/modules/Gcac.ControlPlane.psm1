@@ -1,5 +1,10 @@
 ﻿Set-StrictMode -Version Latest
 
+$gcacRuntimeModulePath = Join-Path $PSScriptRoot "Gcac.Provider.Runtime.psm1"
+if (Test-Path -LiteralPath $gcacRuntimeModulePath) {
+  Import-Module $gcacRuntimeModulePath -Force -DisableNameChecking
+}
+
 function Get-GcacControlPlaneMode {
   [CmdletBinding()]
   param(
@@ -114,11 +119,16 @@ function Invoke-GcacControlPlaneRequest {
       ErrorMessage = $null
     }
   } catch {
+    $errorMessage = $_.Exception.Message
+    if ($null -ne $_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace([string]$_.ErrorDetails.Message)) {
+      $errorMessage = $errorMessage + "`n" + [string]$_.ErrorDetails.Message
+    }
+
     return [pscustomobject]@{
       Success = $false
       RequestId = $requestId
       Response = $null
-      ErrorMessage = $_.Exception.Message
+      ErrorMessage = $errorMessage
     }
   }
 }
@@ -152,29 +162,163 @@ function Get-GcacCapabilitySnapshot {
     [pscustomobject]$Registration
   )
 
+  $inspection = Get-GcacRuntimeInspection
+  $plainOsDetail = @{
+    Caption = if ($null -ne $inspection.OperatingSystem.Caption) { [string]$inspection.OperatingSystem.Caption } else { $null }
+    ProductName = if ($null -ne $inspection.OperatingSystem.ProductName) { [string]$inspection.OperatingSystem.ProductName } else { $null }
+    Version = if ($null -ne $inspection.OperatingSystem.Version) { [string]$inspection.OperatingSystem.Version } else { $null }
+    BuildNumber = if ($null -ne $inspection.OperatingSystem.BuildNumber) { [string]$inspection.OperatingSystem.BuildNumber } else { $null }
+    BuildRevision = if ($null -ne $inspection.OperatingSystem.BuildRevision) { [string]$inspection.OperatingSystem.BuildRevision } else { $null }
+    CurrentBuild = if ($null -ne $inspection.OperatingSystem.CurrentBuild) { [string]$inspection.OperatingSystem.CurrentBuild } else { $null }
+    CurrentBuildNumber = if ($null -ne $inspection.OperatingSystem.CurrentBuildNumber) { [string]$inspection.OperatingSystem.CurrentBuildNumber } else { $null }
+    UBR = $inspection.OperatingSystem.UBR
+    DisplayVersion = if ($null -ne $inspection.OperatingSystem.DisplayVersion) { [string]$inspection.OperatingSystem.DisplayVersion } else { $null }
+    ReleaseId = if ($null -ne $inspection.OperatingSystem.ReleaseId) { [string]$inspection.OperatingSystem.ReleaseId } else { $null }
+    EditionId = if ($null -ne $inspection.OperatingSystem.EditionId) { [string]$inspection.OperatingSystem.EditionId } else { $null }
+    InstallationType = if ($null -ne $inspection.OperatingSystem.InstallationType) { [string]$inspection.OperatingSystem.InstallationType } else { $null }
+    BuildLabEx = if ($null -ne $inspection.OperatingSystem.BuildLabEx) { [string]$inspection.OperatingSystem.BuildLabEx } else { $null }
+    OsArchitecture = if ($null -ne $inspection.OperatingSystem.OsArchitecture) { [string]$inspection.OperatingSystem.OsArchitecture } else { $null }
+    ProductType = $inspection.OperatingSystem.ProductType
+    LastBootUpTime = if ($null -ne $inspection.OperatingSystem.LastBootUpTime) { [string]$inspection.OperatingSystem.LastBootUpTime } else { $null }
+  }
+
+  $plainIisSites = @()
+  foreach ($site in @($inspection.IIS.Sites)) {
+    if ($null -eq $site) {
+      continue
+    }
+
+    $plainBindings = @()
+    foreach ($binding in @($site.Bindings)) {
+      if ($null -eq $binding) {
+        continue
+      }
+
+      $plainCertificate = $null
+      if ($null -ne $binding.Certificate) {
+        $plainCertificate = @{
+          Thumbprint = if ($null -ne $binding.Certificate.Thumbprint) { [string]$binding.Certificate.Thumbprint } else { $null }
+          StoreName = if ($null -ne $binding.Certificate.StoreName) { [string]$binding.Certificate.StoreName } else { $null }
+          Subject = if ($null -ne $binding.Certificate.Subject) { [string]$binding.Certificate.Subject } else { $null }
+          Issuer = if ($null -ne $binding.Certificate.Issuer) { [string]$binding.Certificate.Issuer } else { $null }
+          NotBefore = if ($null -ne $binding.Certificate.NotBefore) { [string]$binding.Certificate.NotBefore } else { $null }
+          NotAfter = if ($null -ne $binding.Certificate.NotAfter) { [string]$binding.Certificate.NotAfter } else { $null }
+        }
+      }
+
+      $plainBindings += @{
+        Protocol = if ($null -ne $binding.Protocol) { [string]$binding.Protocol } else { $null }
+        BindingInformation = if ($null -ne $binding.BindingInformation) { [string]$binding.BindingInformation } else { $null }
+        IPAddress = if ($null -ne $binding.IPAddress) { [string]$binding.IPAddress } else { $null }
+        Port = $binding.Port
+        HostHeader = if ($null -ne $binding.HostHeader) { [string]$binding.HostHeader } else { $null }
+        Certificate = $plainCertificate
+        CertificateStoreName = if ($null -ne $binding.CertificateStoreName) { [string]$binding.CertificateStoreName } else { $null }
+        CertificateThumbprint = if ($null -ne $binding.CertificateThumbprint) { [string]$binding.CertificateThumbprint } else { $null }
+        SslFlags = $binding.SslFlags
+      }
+    }
+
+    $plainIisSites += @{
+      Id = $site.Id
+      Name = if ($null -ne $site.Name) { [string]$site.Name } else { $null }
+      State = if ($null -ne $site.State) { [string]$site.State } else { $null }
+      ServerAutoStart = [bool]$site.ServerAutoStart
+      PhysicalPath = if ($null -ne $site.PhysicalPath) { [string]$site.PhysicalPath } else { $null }
+      Bindings = @($plainBindings)
+    }
+  }
+
+  $plainIisDetail = @{
+    Installed = [bool]$inspection.IIS.Installed
+    VersionString = if ($null -ne $inspection.IIS.VersionString) { [string]$inspection.IIS.VersionString } else { $null }
+    MajorVersion = $inspection.IIS.MajorVersion
+    MinorVersion = $inspection.IIS.MinorVersion
+    BuildNumber = $inspection.IIS.BuildNumber
+    SetupString = if ($null -ne $inspection.IIS.SetupString) { [string]$inspection.IIS.SetupString } else { $null }
+    Sites = @($plainIisSites)
+  }
+
+  $plainNetworkAdapters = @()
+  foreach ($adapter in @($inspection.NetworkAdapters)) {
+    if ($null -eq $adapter) {
+      continue
+    }
+
+    $plainNetworkAdapters += @{
+      Index = $adapter.Index
+      Guid = if ($null -ne $adapter.Guid) { [string]$adapter.Guid } else { $null }
+      Name = if ($null -ne $adapter.Name) { [string]$adapter.Name } else { $null }
+      NetConnectionId = if ($null -ne $adapter.NetConnectionId) { [string]$adapter.NetConnectionId } else { $null }
+      Description = if ($null -ne $adapter.Description) { [string]$adapter.Description } else { $null }
+      Manufacturer = if ($null -ne $adapter.Manufacturer) { [string]$adapter.Manufacturer } else { $null }
+      ServiceName = if ($null -ne $adapter.ServiceName) { [string]$adapter.ServiceName } else { $null }
+      MACAddress = if ($null -ne $adapter.MACAddress) { [string]$adapter.MACAddress } else { $null }
+      PhysicalAdapter = $adapter.PhysicalAdapter
+      AdapterType = if ($null -ne $adapter.AdapterType) { [string]$adapter.AdapterType } else { $null }
+      NetEnabled = $adapter.NetEnabled
+      NetConnectionStatus = $adapter.NetConnectionStatus
+      Speed = if ($null -ne $adapter.Speed) { [string]$adapter.Speed } else { $null }
+      DHCPEnabled = $adapter.DHCPEnabled
+      IPEnabled = $adapter.IPEnabled
+      DefaultGateways = @($adapter.DefaultGateways)
+      HasDefaultGateway = $adapter.HasDefaultGateway
+      LikelyVirtual = $adapter.LikelyVirtual
+      VirtualReason = if ($null -ne $adapter.VirtualReason) { [string]$adapter.VirtualReason } else { $null }
+      IPv4 = @($adapter.IPv4)
+      IPv6 = @($adapter.IPv6)
+    }
+  }
+
+  $capabilities = @(
+    @{
+      capabilityKey = "full_agent"
+      value = $true
+      confidence = 1.0
+      evidence = @{ source = "powershell-agent" }
+    },
+    @{
+      capabilityKey = "windows.powershell"
+      value = $true
+      confidence = 1.0
+      evidence = @{ source = "powershell-agent" }
+    },
+    @{
+      capabilityKey = "windows.service"
+      value = $true
+      confidence = 0.9
+      evidence = @{ source = "service-skeleton" }
+    },
+    @{
+      capabilityKey = "windows.os.detail"
+      value = $plainOsDetail
+      confidence = 1.0
+      evidence = @{ source = "runtime-inspection" }
+    },
+    @{
+      capabilityKey = "windows.iis.detail"
+      value = $plainIisDetail
+      confidence = if ($inspection.IIS.Installed) { 1.0 } else { 0.95 }
+      evidence = @{ source = "runtime-inspection" }
+    },
+    @{
+      capabilityKey = "windows.iis.sites"
+      value = @($plainIisSites)
+      confidence = if ($inspection.IIS.Installed) { 1.0 } else { 0.95 }
+      evidence = @{ source = "runtime-inspection" }
+    },
+    @{
+      capabilityKey = "windows.network.adapters"
+      value = @($plainNetworkAdapters)
+      confidence = 1.0
+      evidence = @{ source = "runtime-inspection" }
+    }
+  )
+
   return @{
     agentId = [string]$Registration.Detail.AgentId
     compatibilityLevel = "L1"
-    capabilities = @(
-      @{
-        capabilityKey = "full_agent"
-        value = $true
-        confidence = 1.0
-        evidence = @{ source = "powershell-agent" }
-      },
-      @{
-        capabilityKey = "windows.powershell"
-        value = $true
-        confidence = 1.0
-        evidence = @{ source = "powershell-agent" }
-      },
-      @{
-        capabilityKey = "windows.service"
-        value = $true
-        confidence = 0.9
-        evidence = @{ source = "service-skeleton" }
-      }
-    )
+    capabilities = $capabilities
   }
 }
 
@@ -203,13 +347,35 @@ function Register-GcacControlPlaneAgent {
   }
 
   $hostname = [System.Net.Dns]::GetHostName()
+  $inspection = Get-GcacRuntimeInspection
+  $effectiveAgentKey = if (-not [string]::IsNullOrWhiteSpace([string]$inspection.StableAgentKey)) {
+    [string]$inspection.StableAgentKey
+  } else {
+    [string]$Context.Config.agentKey
+  }
+
   $body = @{
-    agentKey = [string]$Context.Config.agentKey
+    agentKey = $effectiveAgentKey
+    machineId = if (-not [string]::IsNullOrWhiteSpace([string]$inspection.MachineId)) { [string]$inspection.MachineId } else { $null }
     hostname = $hostname
     version = if ($null -ne $Context.Config.PSObject.Properties["agentVersion"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.Config.agentVersion)) { [string]$Context.Config.agentVersion } else { "0.1.0" }
     osType = "windows"
     arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-    labels = @("full-agent", "powershell", "windows")
+    ipAddress = if (-not [string]::IsNullOrWhiteSpace([string]$inspection.PrimaryIPAddress)) { [string]$inspection.PrimaryIPAddress } else { $null }
+    osVersion = if (-not [string]::IsNullOrWhiteSpace([string]$inspection.OperatingSystem.ProductName)) {
+      [string]$inspection.OperatingSystem.ProductName
+    } elseif (-not [string]::IsNullOrWhiteSpace([string]$inspection.OperatingSystem.Caption)) {
+      [string]$inspection.OperatingSystem.Caption
+    } else {
+      [string]$inspection.OperatingSystem.Version
+    }
+    labels = @(
+      "full-agent",
+      "powershell",
+      "windows",
+      ("os-version:" + [string]$inspection.OperatingSystem.Version),
+      ("iis-installed:" + ([string][bool]$inspection.IIS.Installed).ToLowerInvariant())
+    )
     role = "full_agent"
     zone = if ($null -ne $Context.Config.PSObject.Properties["zone"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.Config.zone)) { [string]$Context.Config.zone } else { "local" }
   }
@@ -262,6 +428,7 @@ function Report-GcacCapabilities {
 
   $mode = Get-GcacControlPlaneMode -Context $Context
   if ($mode -eq "placeholder") {
+    $capabilityCount = (Get-GcacCapabilitySnapshot -Context $Context -Registration $Registration).capabilities.Count
     return [pscustomobject]@{
       Success = $true
       ErrorCode = $null
@@ -269,7 +436,7 @@ function Report-GcacCapabilities {
       Detail = [pscustomobject]@{
         AgentId = $Registration.Detail.AgentId
         Mode = "placeholder"
-        CapabilityCount = 3
+        CapabilityCount = $capabilityCount
       }
       Logs = @()
     }
@@ -295,13 +462,13 @@ function Report-GcacCapabilities {
     Success = $true
     ErrorCode = $null
     ErrorMessage = $null
-    Detail = [pscustomobject]@{
-      AgentId = $Registration.Detail.AgentId
-      Mode = "http"
-      CapabilityCount = 3
-      RequestId = $response.RequestId
-      Response = $response.Response
-    }
+      Detail = [pscustomobject]@{
+        AgentId = $Registration.Detail.AgentId
+        Mode = "http"
+        CapabilityCount = $body.capabilities.Count
+        RequestId = $response.RequestId
+        Response = $response.Response
+      }
     Logs = @()
   }
 }

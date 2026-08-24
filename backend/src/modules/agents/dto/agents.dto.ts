@@ -12,10 +12,14 @@ export interface CreateEnrollmentTokenInput {
 
 export interface RegisterAgentInput {
   agentKey: string;
+  machineId?: string;
   hostname: string;
   version: string;
   osType: string;
   arch?: string;
+  ipAddress?: string;
+  linuxDistribution?: string;
+  osVersion?: string;
   labels?: string[];
   enrollmentToken?: string;
   role?: string;
@@ -156,6 +160,16 @@ export interface DisableAgentInput {
   agentId: string;
   reason?: string;
   revokeCertificate?: boolean;
+  actorId: string;
+}
+
+export interface EnableAgentInput {
+  agentId: string;
+  actorId: string;
+}
+
+export interface DeleteAgentInput {
+  agentId: string;
   actorId: string;
 }
 

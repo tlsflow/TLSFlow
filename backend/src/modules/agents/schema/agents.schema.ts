@@ -26,10 +26,14 @@ export interface EnrollmentToken {
 
 export interface AgentDescriptor {
   agentKey: string;
+  machineId?: string;
   hostname: string;
   version: string;
   osType: string;
   arch?: string;
+  ipAddress?: string;
+  linuxDistribution?: string;
+  osVersion?: string;
   labels: string[];
 }
 

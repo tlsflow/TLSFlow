@@ -48,10 +48,16 @@ install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}"
 install -d -m 0750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${DATA_DIR}" "${LOG_DIR}"
 install -m 0755 -o root -g root "${BINARY_SOURCE_PATH}" "${BINARY_TARGET_PATH}"
 
-if [ ! -f "${CONFIG_PATH}" ]; then
-  install -m 0640 -o root -g "${SERVICE_GROUP}" "${BUNDLE_DIR}/config/agent.config.template.json" "${CONFIG_PATH}"
-  echo "已写入配置模板：${CONFIG_PATH}"
+if [ -f "${CONFIG_PATH}" ]; then
+  BACKUP_PATH="${CONFIG_PATH}.bak.$(date -u +"%Y%m%dT%H%M%SZ")"
+  cp "${CONFIG_PATH}" "${BACKUP_PATH}"
+  chown root:"${SERVICE_GROUP}" "${BACKUP_PATH}"
+  chmod 0640 "${BACKUP_PATH}"
+  echo "已备份旧配置：${BACKUP_PATH}"
 fi
+
+install -m 0640 -o root -g "${SERVICE_GROUP}" "${BUNDLE_DIR}/config/agent.config.template.json" "${CONFIG_PATH}"
+echo "已刷新配置文件：${CONFIG_PATH}"
 
 cat > "${METADATA_PATH}" <<EOF
 {

@@ -11,6 +11,14 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:3003',
         changeOrigin: true
+      },
+      '/agent-install': {
+        target: 'http://127.0.0.1:3003',
+        changeOrigin: true
+      },
+      '/agent-install.ps1': {
+        target: 'http://127.0.0.1:3003',
+        changeOrigin: true
       }
     }
   },

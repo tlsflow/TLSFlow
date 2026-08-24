@@ -29,8 +29,10 @@ export interface AgentsRepository {
   findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined>;
   upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration>;
   updateRegistration(agentId: string, patch: Partial<AgentRegistration>): Promise<AgentRegistration>;
+  deleteRegistration(agentId: string): Promise<void>;
   getRegistration(tenantId: string, agentId: string): Promise<AgentRegistration | undefined>;
   findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined>;
+  findByMachineId(tenantId: string, machineId: string): Promise<AgentRegistration | undefined>;
   listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>>;
   createSession(session: AgentSession): Promise<AgentSession>;
   getSession(tenantId: string, sessionId: string): Promise<AgentSession | undefined>;
@@ -151,6 +153,10 @@ export class PgAgentsRepository implements AgentsRepository {
     return this.registrations.update(agentId, patch);
   }
 
+  async deleteRegistration(agentId: string): Promise<void> {
+    await this.registrations.delete(agentId);
+  }
+
   async getRegistration(tenantId: string, agentId: string): Promise<AgentRegistration | undefined> {
     const row = await this.registrations.get(agentId);
     return row?.tenantId === tenantId ? row : undefined;
@@ -158,6 +164,11 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined> {
     return (await this.registrations.list((item) => item.tenantId === tenantId && item.agentKey === agentKey))[0];
+  }
+
+  async findByMachineId(tenantId: string, machineId: string): Promise<AgentRegistration | undefined> {
+    return (await this.registrations.list((item) => item.tenantId === tenantId && item.descriptor.machineId === machineId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.registeredAt.localeCompare(right.registeredAt))[0];
   }
 
   async listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>> {

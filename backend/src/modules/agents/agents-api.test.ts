@@ -160,6 +160,57 @@ describe('spec011 Agent 控制面协议', () => {
     assert.equal(disabledDetailBody.lifecycle.canPullTasks, false);
   });
 
+  it('同一台 Windows 主机重复安装时，即使 agentKey 变化也应基于 machineId 复用同一条 Agent 记录', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_agent_windows_mid', 'x-request-id': 'req_agent_windows_mid_1' };
+
+    const first = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'winps.install.001',
+        machineId: '4d36e967e32511cebfbc08002be10318',
+        hostname: 'WIN-SRV-01',
+        version: '0.1.0',
+        osType: 'windows',
+        ipAddress: '10.10.20.30',
+        osVersion: '20348.2402',
+        role: 'full_agent',
+        zone: 'default',
+      },
+    });
+    assert.equal(first.statusCode, 201);
+    const firstBody = first.body as { id: string; agentKey: string; descriptor: { ipAddress?: string; machineId?: string } };
+    assert.equal(firstBody.agentKey, 'winps.install.001');
+    assert.equal(firstBody.descriptor.machineId, '4d36e967e32511cebfbc08002be10318');
+    assert.equal(firstBody.descriptor.ipAddress, '10.10.20.30');
+
+    const second = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers: { ...headers, 'x-request-id': 'req_agent_windows_mid_2' },
+      body: {
+        agentKey: 'winps.install.002',
+        machineId: '4d36e967e32511cebfbc08002be10318',
+        hostname: 'WIN-SRV-01',
+        version: '0.1.1',
+        osType: 'windows',
+        ipAddress: '10.10.20.31',
+        osVersion: '20348.2520',
+        role: 'full_agent',
+        zone: 'default',
+      },
+    });
+    assert.equal(second.statusCode, 201);
+    const secondBody = second.body as { id: string; agentKey: string; descriptor: { ipAddress?: string; machineId?: string; version: string } };
+    assert.equal(secondBody.id, firstBody.id);
+    assert.equal(secondBody.agentKey, 'winps.install.001');
+    assert.equal(secondBody.descriptor.machineId, '4d36e967e32511cebfbc08002be10318');
+    assert.equal(secondBody.descriptor.ipAddress, '10.10.20.31');
+    assert.equal(secondBody.descriptor.version, '0.1.1');
+  });
+
   it('Gateway 注册、心跳、能力上报和禁用状态满足 Spec014', async () => {
     const app = createApp();
     const headers = { 'x-tenant-id': 'tenant_gateway', 'x-request-id': 'req_gateway_1' };

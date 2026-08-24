@@ -137,10 +137,14 @@ export class AgentsDomainService {
     const osType = normalizeRequired(input.osType, 'osType').toUpperCase();
     return {
       agentKey,
+      machineId: input.machineId?.trim(),
       hostname,
       version,
       osType,
       arch: input.arch?.trim(),
+      ipAddress: input.ipAddress?.trim(),
+      linuxDistribution: input.linuxDistribution?.trim(),
+      osVersion: input.osVersion?.trim(),
       labels: [...new Set((input.labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))],
     };
   }

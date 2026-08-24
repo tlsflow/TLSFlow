@@ -1,27 +1,42 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 )
 
+const agentVersion = "0.1.0"
+
 type AgentConfig struct {
-	SchemaVersion string `json:"schemaVersion"`
-	TenantID      string `json:"tenantId"`
-	AgentKey      string `json:"agentKey"`
-	ControlPlane  string `json:"controlPlaneUrl"`
-	Heartbeat     int    `json:"heartbeatIntervalSeconds"`
-	Paths         struct {
+	SchemaVersion   string `json:"schemaVersion"`
+	TenantID        string `json:"tenantId"`
+	AgentKey        string `json:"agentKey"`
+	EnrollmentToken string `json:"enrollmentToken"`
+	Zone            string `json:"zone"`
+	ControlPlane    string `json:"controlPlaneUrl"`
+	Heartbeat       int    `json:"heartbeatIntervalSeconds"`
+	Paths           struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`
 			DataDir    string `json:"dataDir"`
@@ -46,19 +61,44 @@ type CommandResult struct {
 }
 
 type InspectResult struct {
-	CollectedAt string            `json:"collectedAt"`
-	GOOS        string            `json:"goos"`
-	GOARCH      string            `json:"goarch"`
-	Hostname    string            `json:"hostname"`
-	CurrentDir  string            `json:"currentDir"`
-	User        string            `json:"user"`
-	HomeDir     string            `json:"homeDir"`
-	Shell       string            `json:"shell"`
-	Path        string            `json:"path"`
-	OSRelease   map[string]string `json:"osRelease"`
-	Uname       map[string]string `json:"uname"`
-	Proc        map[string]string `json:"proc"`
-	Environment map[string]string `json:"environment"`
+	CollectedAt       string                 `json:"collectedAt"`
+	GOOS              string                 `json:"goos"`
+	GOARCH            string                 `json:"goarch"`
+	Hostname          string                 `json:"hostname"`
+	CurrentDir        string                 `json:"currentDir"`
+	User              string                 `json:"user"`
+	HomeDir           string                 `json:"homeDir"`
+	Shell             string                 `json:"shell"`
+	Path              string                 `json:"path"`
+	MachineID         string                 `json:"machineId,omitempty"`
+	PrimaryIPAddress  string                 `json:"primaryIpAddress,omitempty"`
+	LinuxDistribution string                 `json:"linuxDistribution,omitempty"`
+	OSVersion         string                 `json:"osVersion,omitempty"`
+	NetworkInterfaces []NetworkInterfaceInfo `json:"networkInterfaces,omitempty"`
+	OSRelease         map[string]string      `json:"osRelease"`
+	Uname             map[string]string      `json:"uname"`
+	Proc              map[string]string      `json:"proc"`
+	Environment       map[string]string      `json:"environment"`
+}
+
+type NetworkInterfaceInfo struct {
+	Name              string   `json:"name"`
+	MACAddress        string   `json:"macAddress,omitempty"`
+	IPv4              []string `json:"ipv4,omitempty"`
+	IPv6              []string `json:"ipv6,omitempty"`
+	Flags             []string `json:"flags,omitempty"`
+	HasDefaultGateway bool     `json:"hasDefaultGateway,omitempty"`
+	LikelyVirtual     bool     `json:"likelyVirtual,omitempty"`
+}
+
+type runtimeIdentity struct {
+	MachineID         string
+	StableAgentKey    string
+	PrimaryIPAddress  string
+	LinuxDistribution string
+	OSVersion         string
+	NetworkInterfaces []NetworkInterfaceInfo
+	OSRelease         map[string]string
 }
 
 type InstallMetadata struct {
@@ -69,6 +109,169 @@ type InstallMetadata struct {
 	LogDir      string `json:"logDir"`
 	InstalledAt string `json:"installedAt"`
 	Mode        string `json:"mode"`
+}
+
+type registerRequest struct {
+	AgentKey          string   `json:"agentKey"`
+	MachineID         string   `json:"machineId,omitempty"`
+	Hostname          string   `json:"hostname"`
+	Version           string   `json:"version"`
+	OSType            string   `json:"osType"`
+	Arch              string   `json:"arch,omitempty"`
+	IPAddress         string   `json:"ipAddress,omitempty"`
+	LinuxDistribution string   `json:"linuxDistribution,omitempty"`
+	OSVersion         string   `json:"osVersion,omitempty"`
+	Labels            []string `json:"labels,omitempty"`
+	EnrollmentToken   string   `json:"enrollmentToken,omitempty"`
+	Zone              string   `json:"zone,omitempty"`
+}
+
+type registerResponse struct {
+	ID string `json:"id"`
+}
+
+type heartbeatRequest struct {
+	AgentID     string `json:"agentId"`
+	Version     string `json:"version"`
+	TaskSummary struct {
+		Running int `json:"running"`
+		Queued  int `json:"queued"`
+	} `json:"taskSummary"`
+}
+
+type apiErrorResponse struct {
+	Message   string `json:"message"`
+	ErrorCode string `json:"errorCode"`
+}
+
+type runtimeState struct {
+	AgentID  string
+	Hostname string
+	Version  string
+}
+
+type persistedRuntimeState struct {
+	StableAgentKey        string `json:"stableAgentKey,omitempty"`
+	EnrollmentCompleted   bool   `json:"enrollmentCompleted,omitempty"`
+	LastRegisteredAgentID string `json:"lastRegisteredAgentId,omitempty"`
+}
+
+type capabilityReportRequest struct {
+	AgentID            string               `json:"agentId"`
+	CompatibilityLevel string               `json:"compatibilityLevel,omitempty"`
+	Capabilities       []reportedCapability `json:"capabilities"`
+}
+
+type reportedCapability struct {
+	CapabilityKey string         `json:"capabilityKey"`
+	Value         any            `json:"value"`
+	Confidence    float64        `json:"confidence"`
+	Evidence      map[string]any `json:"evidence,omitempty"`
+}
+
+type nginxDetail struct {
+	Installed  bool              `json:"installed"`
+	Running    bool              `json:"running"`
+	Version    string            `json:"version,omitempty"`
+	BinaryPath string            `json:"binaryPath,omitempty"`
+	ConfigPath string            `json:"configPath,omitempty"`
+	Prefix     string            `json:"prefix,omitempty"`
+	Service    string            `json:"serviceName,omitempty"`
+	Sites      []nginxSiteDetail `json:"sites,omitempty"`
+}
+
+type nginxSiteDetail struct {
+	Name         string               `json:"name"`
+	SiteMode     string               `json:"siteMode,omitempty"`
+	ServerNames  []string             `json:"serverNames,omitempty"`
+	SitePath     string               `json:"sitePath,omitempty"`
+	ProxyTargets []string             `json:"proxyTargets,omitempty"`
+	Listen       []nginxBindingDetail `json:"listen,omitempty"`
+	ConfigFiles  []string             `json:"configFiles,omitempty"`
+
+	serverCertificatePath    string
+	serverCertificateKeyPath string
+}
+
+type nginxBindingDetail struct {
+	Address            string `json:"address,omitempty"`
+	Port               int    `json:"port"`
+	Protocol           string `json:"protocol,omitempty"`
+	CertificateName    string `json:"certificateName,omitempty"`
+	CertificatePath    string `json:"certificatePath,omitempty"`
+	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
+}
+
+type nginxContextFrame struct {
+	kind      string
+	siteIndex int
+}
+
+type apacheDetail struct {
+	Installed  bool               `json:"installed"`
+	Running    bool               `json:"running"`
+	Version    string             `json:"version,omitempty"`
+	BinaryPath string             `json:"binaryPath,omitempty"`
+	ServerRoot string             `json:"serverRoot,omitempty"`
+	ConfigPath string             `json:"configPath,omitempty"`
+	Service    string             `json:"serviceName,omitempty"`
+	Sites      []apacheSiteDetail `json:"sites,omitempty"`
+}
+
+type apacheSiteDetail struct {
+	Name         string                `json:"name"`
+	SiteMode     string                `json:"siteMode,omitempty"`
+	ServerNames  []string              `json:"serverNames,omitempty"`
+	SitePath     string                `json:"sitePath,omitempty"`
+	ProxyTargets []string              `json:"proxyTargets,omitempty"`
+	Listen       []apacheBindingDetail `json:"listen,omitempty"`
+	ConfigFiles  []string              `json:"configFiles,omitempty"`
+
+	serverCertificatePath    string
+	serverCertificateKeyPath string
+}
+
+type apacheBindingDetail struct {
+	Address            string `json:"address,omitempty"`
+	Port               int    `json:"port"`
+	Protocol           string `json:"protocol,omitempty"`
+	CertificateName    string `json:"certificateName,omitempty"`
+	CertificatePath    string `json:"certificatePath,omitempty"`
+	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
+}
+
+type apacheContextFrame struct {
+	kind      string
+	siteIndex int
+}
+
+type tomcatDetail struct {
+	Installed    bool                    `json:"installed"`
+	Running      bool                    `json:"running"`
+	Version      string                  `json:"version,omitempty"`
+	CatalinaHome string                  `json:"catalinaHome,omitempty"`
+	CatalinaBase string                  `json:"catalinaBase,omitempty"`
+	ConfigPath   string                  `json:"configPath,omitempty"`
+	Service      string                  `json:"serviceName,omitempty"`
+	Connectors   []tomcatConnectorDetail `json:"connectors,omitempty"`
+	Apps         []tomcatAppDetail       `json:"apps,omitempty"`
+}
+
+type tomcatConnectorDetail struct {
+	Address            string `json:"address,omitempty"`
+	Port               int    `json:"port"`
+	Protocol           string `json:"protocol,omitempty"`
+	TLS                bool   `json:"tls"`
+	CertificateName    string `json:"certificateName,omitempty"`
+	CertificatePath    string `json:"certificatePath,omitempty"`
+	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
+	KeystorePath       string `json:"keystorePath,omitempty"`
+}
+
+type tomcatAppDetail struct {
+	ContextPath string `json:"contextPath,omitempty"`
+	DocBase     string `json:"docBase,omitempty"`
+	AppBase     string `json:"appBase,omitempty"`
 }
 
 func main() {
@@ -100,14 +303,14 @@ func runCLI(args []string) error {
 	case "version":
 		return writeJSON(map[string]string{
 			"name":    "gcac-linux-agent",
-			"version": "0.1.0",
+			"version": agentVersion,
 			"runtime": "go",
 		})
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
 	default:
-		return fmt.Errorf("不支持的命令：%s", args[0])
+		return fmt.Errorf("不支持的命令: %s", args[0])
 	}
 }
 
@@ -116,13 +319,12 @@ func handleInspect() error {
 	if err != nil {
 		return err
 	}
-
 	return writeJSON(result)
 }
 
 func handleExec(args []string) error {
 	if len(args) == 0 {
-		return errors.New("exec 需要命令参数，例如：exec -- uname -a")
+		return errors.New("exec 需要命令参数，例如: exec -- uname -a")
 	}
 
 	timeout := 30 * time.Second
@@ -146,7 +348,7 @@ func handleExec(args []string) error {
 			value := strings.TrimPrefix(current, "--timeout=")
 			parsed, err := time.ParseDuration(value)
 			if err != nil {
-				return fmt.Errorf("无效的超时时间：%w", err)
+				return fmt.Errorf("无效的超时时间: %w", err)
 			}
 			timeout = parsed
 			commandArgs = commandArgs[1:]
@@ -164,7 +366,6 @@ execute:
 	if err != nil {
 		return err
 	}
-
 	return writeJSON(result)
 }
 
@@ -182,6 +383,8 @@ func handleSelfCheck(args []string) error {
 		checkItem("linux.configPath", config.Paths.Linux.ConfigPath != "", map[string]any{"value": config.Paths.Linux.ConfigPath}),
 		checkItem("linux.dataDir", config.Paths.Linux.DataDir != "", map[string]any{"value": config.Paths.Linux.DataDir}),
 		checkItem("linux.logDir", config.Paths.Linux.LogDir != "", map[string]any{"value": config.Paths.Linux.LogDir}),
+		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
+		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
 	}
 
 	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
@@ -231,6 +434,21 @@ func handleRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	identity := collectRuntimeIdentity(config.AgentKey)
+	runtimeStatePath := resolveRuntimeStatePath(config)
+	persisted := loadPersistedRuntimeState(runtimeStatePath)
+	if identity.StableAgentKey != "" {
+		config.AgentKey = identity.StableAgentKey
+	}
+	if persisted.EnrollmentCompleted {
+		config.EnrollmentToken = ""
+	}
+	if strings.TrimSpace(config.ControlPlane) == "" {
+		return errors.New("controlPlaneUrl 不能为空，Linux Agent 无法自动注册")
+	}
+	if strings.TrimSpace(config.AgentKey) == "" {
+		return errors.New("agentKey 不能为空，Linux Agent 无法自动注册")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -240,7 +458,30 @@ func handleRun(args []string) error {
 		tickerSeconds = 30
 	}
 
-	fmt.Fprintf(os.Stderr, "GCAC Linux Agent 前台运行中，service=%s config=%s\n", config.Service.Name, configPath)
+	client := &http.Client{Timeout: 15 * time.Second}
+	state, err := registerAgent(ctx, client, config, identity)
+	if err != nil {
+		return err
+	}
+	savePersistedRuntimeState(runtimeStatePath, persistedRuntimeState{
+		StableAgentKey:        config.AgentKey,
+		EnrollmentCompleted:   true,
+		LastRegisteredAgentID: state.AgentID,
+	})
+
+	fmt.Fprintf(os.Stderr, "GCAC Linux Agent 前台运行中，service=%s config=%s agentId=%s\n", config.Service.Name, configPath, state.AgentID)
+	if err := postHeartbeat(ctx, client, config, state); err != nil {
+		fmt.Fprintf(os.Stderr, "[heartbeat] 首次上报失败: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "[heartbeat] 首次上报成功 agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
+	}
+
+	if err := reportCapabilities(ctx, client, config, state); err != nil {
+		fmt.Fprintf(os.Stderr, "[capabilities] first report failed: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "[capabilities] first report ok agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
+	}
+
 	ticker := time.NewTicker(time.Duration(tickerSeconds) * time.Second)
 	defer ticker.Stop()
 
@@ -250,7 +491,11 @@ func handleRun(args []string) error {
 			fmt.Fprintln(os.Stderr, "收到停止信号，Linux Agent 即将退出")
 			return nil
 		case now := <-ticker.C:
-			fmt.Fprintf(os.Stderr, "[heartbeat] %s agent=%s\n", now.Format(time.RFC3339), config.AgentKey)
+			if err := postHeartbeat(ctx, client, config, state); err != nil {
+				fmt.Fprintf(os.Stderr, "[heartbeat] %s failed agent=%s error=%v\n", now.Format(time.RFC3339), config.AgentKey, err)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "[heartbeat] %s ok agent=%s agentId=%s\n", now.Format(time.RFC3339), config.AgentKey, state.AgentID)
 		}
 	}
 }
@@ -262,17 +507,26 @@ func handleServiceInfo(args []string) error {
 	if err != nil {
 		return err
 	}
+	identity := collectRuntimeIdentity(config.AgentKey)
 
 	result := map[string]any{
 		"config": map[string]any{
-			"path":        configPath,
-			"schema":      config.SchemaVersion,
-			"serviceName": config.Service.Name,
-			"dataDir":     config.Paths.Linux.DataDir,
-			"logDir":      config.Paths.Linux.LogDir,
+			"path":              configPath,
+			"schema":            config.SchemaVersion,
+			"serviceName":       config.Service.Name,
+			"dataDir":           config.Paths.Linux.DataDir,
+			"logDir":            config.Paths.Linux.LogDir,
+			"controlPlaneUrl":   config.ControlPlane,
+			"agentKey":          config.AgentKey,
+			"effectiveAgentKey": identity.StableAgentKey,
+			"machineId":         identity.MachineID,
+			"ipAddress":         identity.PrimaryIPAddress,
+			"linuxDistribution": identity.LinuxDistribution,
+			"osVersion":         identity.OSVersion,
+			"zone":              config.Zone,
 		},
 		"systemd": map[string]any{
-			"available":    fileExists("/run/systemd/system") || lookPath("systemctl"),
+			"available":     fileExists("/run/systemd/system") || lookPath("systemctl"),
 			"systemctlPath": findPath("systemctl"),
 			"unitPath":      "/etc/systemd/system/" + config.Service.Name + ".service",
 		},
@@ -299,21 +553,27 @@ func collectInspectResult() (*InspectResult, error) {
 	if user == "" {
 		user = os.Getenv("LOGNAME")
 	}
+	identity := collectRuntimeIdentity("")
 
 	result := &InspectResult{
-		CollectedAt: time.Now().Format(time.RFC3339),
-		GOOS:        runtime.GOOS,
-		GOARCH:      runtime.GOARCH,
-		Hostname:    hostname,
-		CurrentDir:  currentDir,
-		User:        user,
-		HomeDir:     os.Getenv("HOME"),
-		Shell:       os.Getenv("SHELL"),
-		Path:        os.Getenv("PATH"),
-		OSRelease:   parseKeyValueFiles([]string{"/etc/os-release", "/usr/lib/os-release"}),
-		Uname:       map[string]string{},
-		Proc:        map[string]string{},
-		Environment: pickEnvironment([]string{"LANG", "LC_ALL", "LC_CTYPE", "PATH", "HOME", "SHELL", "USER"}),
+		CollectedAt:       time.Now().Format(time.RFC3339),
+		GOOS:              runtime.GOOS,
+		GOARCH:            runtime.GOARCH,
+		Hostname:          hostname,
+		CurrentDir:        currentDir,
+		User:              user,
+		HomeDir:           os.Getenv("HOME"),
+		Shell:             os.Getenv("SHELL"),
+		Path:              os.Getenv("PATH"),
+		MachineID:         identity.MachineID,
+		PrimaryIPAddress:  identity.PrimaryIPAddress,
+		LinuxDistribution: identity.LinuxDistribution,
+		OSVersion:         identity.OSVersion,
+		NetworkInterfaces: identity.NetworkInterfaces,
+		OSRelease:         identity.OSRelease,
+		Uname:             map[string]string{},
+		Proc:              map[string]string{},
+		Environment:       pickEnvironment([]string{"LANG", "LC_ALL", "LC_CTYPE", "PATH", "HOME", "SHELL", "USER"}),
 	}
 
 	for _, entry := range []struct {
@@ -381,7 +641,7 @@ func executeCommand(commandArgs []string, useShell bool, timeout time.Duration, 
 
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("命令执行超时：%w", err)
+			return result, fmt.Errorf("命令执行超时: %w", err)
 		}
 		return result, err
 	}
@@ -403,7 +663,7 @@ func runProcess(cmd *exec.Cmd) (string, string, int, error) {
 	if errors.As(err, &exitErr) {
 		exitCode = exitErr.ExitCode()
 		stderr = strings.TrimSpace(string(exitErr.Stderr))
-		return strings.TrimSpace(stdout), stderr, exitCode, fmt.Errorf("命令执行失败，exitCode=%d", exitCode)
+		return strings.TrimSpace(stdout), stderr, exitCode, fmt.Errorf("命令执行失败: exitCode=%d", exitCode)
 	}
 
 	return strings.TrimSpace(stdout), stderr, 1, err
@@ -412,15 +672,1635 @@ func runProcess(cmd *exec.Cmd) (string, string, int, error) {
 func loadConfig(path string) (*AgentConfig, error) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取配置失败：%w", err)
+		return nil, fmt.Errorf("读取配置失败: %w", err)
 	}
 
 	var config AgentConfig
 	if err := json.Unmarshal(bytes, &config); err != nil {
-		return nil, fmt.Errorf("解析配置失败：%w", err)
+		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
 
 	return &config, nil
+}
+
+func resolveRuntimeStatePath(config *AgentConfig) string {
+	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
+	if dataDir == "" {
+		return "/var/lib/gcac/linux-agent/runtime-state.json"
+	}
+	return filepath.Join(dataDir, "runtime-state.json")
+}
+
+func loadPersistedRuntimeState(path string) persistedRuntimeState {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return persistedRuntimeState{}
+	}
+	var state persistedRuntimeState
+	if err := json.Unmarshal(bytes, &state); err != nil {
+		return persistedRuntimeState{}
+	}
+	return state
+}
+
+func savePersistedRuntimeState(path string, state persistedRuntimeState) {
+	parent := filepath.Dir(path)
+	if parent != "" {
+		_ = os.MkdirAll(parent, 0o750)
+	}
+	encoded, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, append(encoded, '\n'), 0o640)
+}
+
+func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("读取主机名失败: %w", err)
+	}
+
+	request := registerRequest{
+		AgentKey:          config.AgentKey,
+		MachineID:         identity.MachineID,
+		Hostname:          hostname,
+		Version:           agentVersion,
+		OSType:            "linux",
+		Arch:              runtime.GOARCH,
+		IPAddress:         identity.PrimaryIPAddress,
+		LinuxDistribution: identity.LinuxDistribution,
+		OSVersion:         identity.OSVersion,
+		Labels:            []string{"linux-go", "systemd"},
+		EnrollmentToken:   strings.TrimSpace(config.EnrollmentToken),
+		Zone:              strings.TrimSpace(config.Zone),
+	}
+
+	var response registerResponse
+	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); err != nil {
+		if strings.TrimSpace(request.EnrollmentToken) != "" && strings.Contains(err.Error(), "AUTH_FORBIDDEN") {
+			request.EnrollmentToken = ""
+			if retryErr := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); retryErr == nil {
+				goto registered
+			}
+		}
+		return nil, fmt.Errorf("注册 Agent 失败: %w", err)
+	}
+registered:
+	if strings.TrimSpace(response.ID) == "" {
+		return nil, errors.New("注册 Agent 失败: 服务端未返回 agentId")
+	}
+
+	return &runtimeState{
+		AgentID:  response.ID,
+		Hostname: hostname,
+		Version:  agentVersion,
+	}, nil
+}
+
+func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState) error {
+	request := heartbeatRequest{
+		AgentID: state.AgentID,
+		Version: state.Version,
+	}
+	request.TaskSummary.Running = 0
+	request.TaskSummary.Queued = 0
+
+	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
+}
+
+func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState) error {
+	capabilities := collectCapabilityReports()
+	if len(capabilities) == 0 {
+		return nil
+	}
+	request := capabilityReportRequest{
+		AgentID:            state.AgentID,
+		CompatibilityLevel: "L1",
+		Capabilities:       capabilities,
+	}
+	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
+}
+
+func collectCapabilityReports() []reportedCapability {
+	capabilities := make([]reportedCapability, 0, 3)
+	if detail := detectNginxDetail(); detail != nil && detail.Installed {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "linux.nginx.detail",
+			Value:         detail,
+			Confidence:    0.92,
+			Evidence: map[string]any{
+				"source": "runtime-inspection",
+			},
+		})
+	}
+	if detail := detectApacheDetail(); detail != nil && detail.Installed {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "linux.apache.detail",
+			Value:         detail,
+			Confidence:    0.9,
+			Evidence: map[string]any{
+				"source": "runtime-inspection",
+			},
+		})
+	}
+	if detail := detectTomcatDetail(); detail != nil && detail.Installed {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "linux.tomcat.detail",
+			Value:         detail,
+			Confidence:    0.88,
+			Evidence: map[string]any{
+				"source": "runtime-inspection",
+			},
+		})
+	}
+	return capabilities
+}
+
+func detectPrimaryIPAddress() string {
+	return collectRuntimeIdentity("").PrimaryIPAddress
+}
+
+func detectLinuxDistribution() string {
+	return collectRuntimeIdentity("").LinuxDistribution
+}
+
+func detectLinuxVersion() string {
+	return collectRuntimeIdentity("").OSVersion
+}
+
+func collectRuntimeIdentity(fallbackAgentKey string) runtimeIdentity {
+	release := parseKeyValueFiles([]string{"/etc/os-release", "/usr/lib/os-release"})
+	machineID := detectMachineID()
+	defaultRouteInterfaces := detectDefaultRouteInterfaces()
+	dnsConfigured := hasConfiguredDNS()
+	interfaces := collectNetworkInterfaces(defaultRouteInterfaces)
+	identity := runtimeIdentity{
+		MachineID:         machineID,
+		StableAgentKey:    strings.TrimSpace(fallbackAgentKey),
+		PrimaryIPAddress:  selectPrimaryIPAddress(interfaces, dnsConfigured),
+		LinuxDistribution: detectLinuxDistributionFromRelease(release),
+		OSVersion:         detectLinuxVersionFromRelease(release),
+		NetworkInterfaces: interfaces,
+		OSRelease:         release,
+	}
+	if machineID != "" {
+		identity.StableAgentKey = buildStableAgentKey(machineID)
+	}
+	return identity
+}
+
+func detectMachineID() string {
+	for _, path := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		value := strings.ToLower(strings.TrimSpace(string(content)))
+		value = strings.ReplaceAll(value, "-", "")
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func buildStableAgentKey(machineID string) string {
+	sum := sha256.Sum256([]byte(machineID))
+	return "linuxgo.mid." + hex.EncodeToString(sum[:8])
+}
+
+func detectLinuxDistributionFromRelease(release map[string]string) string {
+	for _, key := range []string{"PRETTY_NAME", "NAME", "ID"} {
+		if value := strings.TrimSpace(release[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func detectLinuxVersionFromRelease(release map[string]string) string {
+	for _, key := range []string{"VERSION", "VERSION_ID"} {
+		if value := strings.TrimSpace(release[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func collectNetworkInterfaces(defaultRouteInterfaces map[string]struct{}) []NetworkInterfaceInfo {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	results := make([]NetworkInterfaceInfo, 0, len(interfaces))
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		item := NetworkInterfaceInfo{
+			Name:              iface.Name,
+			MACAddress:        strings.TrimSpace(iface.HardwareAddr.String()),
+			Flags:             interfaceFlags(iface.Flags),
+			HasDefaultGateway: interfaceHasDefaultRoute(defaultRouteInterfaces, iface.Name),
+			LikelyVirtual:     isLikelyVirtualInterface(iface.Name),
+		}
+		for _, addr := range addresses {
+			ip := extractIP(addr)
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			if ipv4 := ip.To4(); ipv4 != nil {
+				item.IPv4 = append(item.IPv4, ipv4.String())
+				continue
+			}
+			item.IPv6 = append(item.IPv6, ip.String())
+		}
+		sort.Strings(item.IPv4)
+		sort.Strings(item.IPv6)
+		results = append(results, item)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Name < results[j].Name
+	})
+	return results
+}
+
+func selectPrimaryIPAddress(items []NetworkInterfaceInfo, dnsConfigured bool) string {
+	bestIPv4 := ""
+	bestIPv4Score := -1 << 30
+	bestIPv6 := ""
+	bestIPv6Score := -1 << 30
+	for _, item := range items {
+		if !containsFlag(item.Flags, "up") || containsFlag(item.Flags, "loopback") {
+			continue
+		}
+		score := scoreInterface(item, dnsConfigured)
+		if len(item.IPv4) > 0 && score > bestIPv4Score {
+			bestIPv4Score = score
+			bestIPv4 = item.IPv4[0]
+		}
+		if len(item.IPv6) > 0 && score > bestIPv6Score {
+			bestIPv6Score = score
+			bestIPv6 = item.IPv6[0]
+		}
+	}
+	if bestIPv4 != "" {
+		return bestIPv4
+	}
+	if bestIPv6 != "" {
+		return bestIPv6
+	}
+	return ""
+}
+
+func scoreInterface(item NetworkInterfaceInfo, dnsConfigured bool) int {
+	score := 0
+	if containsFlag(item.Flags, "up") {
+		score += 10
+	}
+	if containsFlag(item.Flags, "running") {
+		score += 10
+	}
+	if item.HasDefaultGateway {
+		score += 100
+	}
+	if dnsConfigured && item.HasDefaultGateway {
+		score += 30
+	}
+	if item.MACAddress != "" {
+		score += 5
+	}
+	if item.LikelyVirtual {
+		score -= 80
+	}
+	if len(item.IPv4) > 0 {
+		score += 20
+	}
+	if len(item.IPv6) > 0 {
+		score += 5
+	}
+	return score
+}
+
+func extractIP(addr net.Addr) net.IP {
+	switch value := addr.(type) {
+	case *net.IPNet:
+		return value.IP
+	case *net.IPAddr:
+		return value.IP
+	default:
+		return nil
+	}
+}
+
+func interfaceFlags(flags net.Flags) []string {
+	names := []struct {
+		mask net.Flags
+		name string
+	}{
+		{mask: net.FlagUp, name: "up"},
+		{mask: net.FlagBroadcast, name: "broadcast"},
+		{mask: net.FlagLoopback, name: "loopback"},
+		{mask: net.FlagPointToPoint, name: "point_to_point"},
+		{mask: net.FlagMulticast, name: "multicast"},
+		{mask: net.FlagRunning, name: "running"},
+	}
+	result := make([]string, 0, len(names))
+	for _, item := range names {
+		if flags&item.mask != 0 {
+			result = append(result, item.name)
+		}
+	}
+	return result
+}
+
+func containsFlag(flags []string, expected string) bool {
+	for _, flag := range flags {
+		if flag == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func detectDefaultRouteInterfaces() map[string]struct{} {
+	results := make(map[string]struct{})
+	collectIPv4DefaultRouteInterfaces(results)
+	collectIPv6DefaultRouteInterfaces(results)
+	return results
+}
+
+func collectIPv4DefaultRouteInterfaces(target map[string]struct{}) {
+	content, err := os.ReadFile("/proc/net/route")
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines[1:] {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 4 {
+			continue
+		}
+		if fields[1] != "00000000" {
+			continue
+		}
+		ifaceName := strings.TrimSpace(fields[0])
+		if ifaceName != "" {
+			target[ifaceName] = struct{}{}
+		}
+	}
+}
+
+func collectIPv6DefaultRouteInterfaces(target map[string]struct{}) {
+	content, err := os.ReadFile("/proc/net/ipv6_route")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 10 {
+			continue
+		}
+		if fields[0] != strings.Repeat("0", 32) || fields[1] != "00000000" {
+			continue
+		}
+		ifaceName := strings.TrimSpace(fields[len(fields)-1])
+		if ifaceName != "" {
+			target[ifaceName] = struct{}{}
+		}
+	}
+}
+
+func interfaceHasDefaultRoute(defaultRouteInterfaces map[string]struct{}, name string) bool {
+	_, ok := defaultRouteInterfaces[name]
+	return ok
+}
+
+func hasConfiguredDNS() bool {
+	content, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "nameserver ") {
+			return true
+		}
+	}
+	return false
+}
+
+func isLikelyVirtualInterface(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	virtualPrefixes := []string{
+		"docker", "br-", "veth", "cni", "flannel", "kube", "virbr", "vmnet", "vboxnet",
+		"zt", "tailscale", "wg", "tun", "tap", "podman", "lxc", "cbr", "ifb",
+	}
+	for _, prefix := range virtualPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectNginxDetail() *nginxDetail {
+	binaryPath := findNginxBinaryPath()
+	running := processRunning("nginx")
+	if binaryPath == "" && !running {
+		return nil
+	}
+
+	detail := &nginxDetail{
+		Installed:  binaryPath != "",
+		Running:    running,
+		BinaryPath: binaryPath,
+		Service:    "nginx",
+	}
+	if binaryPath == "" {
+		return detail
+	}
+
+	versionOutput, _ := captureCombinedCommand(binaryPath, "-V")
+	detail.Version = parseNginxVersion(versionOutput)
+	detail.ConfigPath = parseNginxBuildArgument(versionOutput, "--conf-path")
+	detail.Prefix = parseNginxBuildArgument(versionOutput, "--prefix")
+
+	configDump, dumpErr := captureCombinedCommand(binaryPath, "-T")
+	if dumpErr != nil || strings.TrimSpace(configDump) == "" {
+		return detail
+	}
+
+	sites := parseNginxConfigDump(configDump)
+	for index := range sites {
+		enrichNginxSiteCertificates(&sites[index])
+	}
+	detail.Sites = sites
+	return detail
+}
+
+func findNginxBinaryPath() string {
+	if path, err := exec.LookPath("nginx"); err == nil {
+		return path
+	}
+	for _, candidate := range []string{
+		"/usr/sbin/nginx",
+		"/usr/bin/nginx",
+		"/usr/local/sbin/nginx",
+		"/usr/local/nginx/sbin/nginx",
+	} {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func processRunning(name string) bool {
+	output, err := captureCommand("ps", "-eo", "comm=")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func captureCombinedCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+func parseNginxVersion(output string) string {
+	marker := "nginx version: nginx/"
+	index := strings.Index(output, marker)
+	if index < 0 {
+		return ""
+	}
+	value := output[index+len(marker):]
+	if end := strings.IndexAny(value, " \r\n\t"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
+}
+
+func parseNginxBuildArgument(output string, key string) string {
+	marker := key + "="
+	index := strings.Index(output, marker)
+	if index < 0 {
+		return ""
+	}
+	value := output[index+len(marker):]
+	if strings.HasPrefix(value, "\"") {
+		value = strings.TrimPrefix(value, "\"")
+		if end := strings.Index(value, "\""); end >= 0 {
+			return strings.TrimSpace(value[:end])
+		}
+	}
+	if end := strings.IndexAny(value, " \r\n\t"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
+}
+
+func parseNginxConfigDump(dump string) []nginxSiteDetail {
+	lines := strings.Split(dump, "\n")
+	sites := make([]nginxSiteDetail, 0)
+	stack := make([]nginxContextFrame, 0, 8)
+	currentFile := ""
+
+	for _, rawLine := range lines {
+		trimmedLine := strings.TrimSpace(rawLine)
+		if strings.HasPrefix(trimmedLine, "# configuration file ") && strings.HasSuffix(trimmedLine, ":") {
+			currentFile = strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "# configuration file "), ":")
+			continue
+		}
+
+		line := stripNginxInlineComment(rawLine)
+		for {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				break
+			}
+			if strings.HasPrefix(trimmed, "}") {
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				line = strings.TrimSpace(strings.TrimPrefix(trimmed, "}"))
+				continue
+			}
+			if openIndex := strings.Index(trimmed, "{"); openIndex >= 0 && (strings.Index(trimmed, ";") == -1 || openIndex < strings.Index(trimmed, ";")) {
+				statement := strings.TrimSpace(trimmed[:openIndex])
+				kind := firstToken(statement)
+				siteIndex := activeSiteIndex(stack)
+				if kind == "server" {
+					sites = append(sites, nginxSiteDetail{})
+					siteIndex = len(sites) - 1
+					addSiteConfigFile(&sites[siteIndex], currentFile)
+				}
+				stack = append(stack, nginxContextFrame{kind: kind, siteIndex: siteIndex})
+				line = strings.TrimSpace(trimmed[openIndex+1:])
+				continue
+			}
+			semicolonIndex := strings.Index(trimmed, ";")
+			if semicolonIndex < 0 {
+				break
+			}
+			statement := strings.TrimSpace(trimmed[:semicolonIndex])
+			siteIndex := activeSiteIndex(stack)
+			if siteIndex >= 0 && siteIndex < len(sites) {
+				applyNginxDirective(&sites[siteIndex], statement, currentFile)
+			}
+			line = strings.TrimSpace(trimmed[semicolonIndex+1:])
+		}
+	}
+
+	for index := range sites {
+		finalizeNginxSite(&sites[index], index)
+	}
+
+	filtered := make([]nginxSiteDetail, 0, len(sites))
+	for _, site := range sites {
+		if len(site.Listen) == 0 && len(site.ServerNames) == 0 && site.SitePath == "" && len(site.ProxyTargets) == 0 {
+			continue
+		}
+		filtered = append(filtered, site)
+	}
+	return filtered
+}
+
+func stripNginxInlineComment(line string) string {
+	inSingle := false
+	inDouble := false
+	for index, char := range line {
+		switch char {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if !inSingle && !inDouble {
+				return line[:index]
+			}
+		}
+	}
+	return line
+}
+
+func firstToken(statement string) string {
+	fields := strings.Fields(statement)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func activeSiteIndex(stack []nginxContextFrame) int {
+	for index := len(stack) - 1; index >= 0; index-- {
+		if stack[index].siteIndex >= 0 {
+			return stack[index].siteIndex
+		}
+	}
+	return -1
+}
+
+func applyNginxDirective(site *nginxSiteDetail, statement string, currentFile string) {
+	fields := strings.Fields(statement)
+	if len(fields) == 0 {
+		return
+	}
+	addSiteConfigFile(site, currentFile)
+	directive := fields[0]
+	args := fields[1:]
+	switch directive {
+	case "listen":
+		if binding, ok := parseNginxListen(args); ok {
+			site.Listen = append(site.Listen, binding)
+		}
+	case "server_name":
+		for _, name := range args {
+			if trimmed := strings.TrimSpace(name); trimmed != "" {
+				site.ServerNames = append(site.ServerNames, trimmed)
+			}
+		}
+	case "root":
+		if site.SitePath == "" && len(args) > 0 {
+			site.SitePath = strings.TrimSpace(args[0])
+		}
+	case "ssl_certificate":
+		site.serverCertificatePath = strings.TrimSpace(firstArgument(args))
+	case "ssl_certificate_key":
+		site.serverCertificateKeyPath = strings.TrimSpace(firstArgument(args))
+	case "proxy_pass":
+		target := strings.TrimSpace(firstArgument(args))
+		if target != "" {
+			site.ProxyTargets = append(site.ProxyTargets, target)
+		}
+	}
+}
+
+func firstArgument(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return strings.Trim(args[0], "\"'")
+}
+
+func parseNginxListen(args []string) (nginxBindingDetail, bool) {
+	binding := nginxBindingDetail{Address: "*", Protocol: "http"}
+	if len(args) == 0 {
+		return binding, false
+	}
+	for _, arg := range args {
+		value := strings.TrimSpace(strings.Trim(arg, "\"'"))
+		if value == "" {
+			continue
+		}
+		if value == "ssl" {
+			binding.Protocol = "https"
+			continue
+		}
+		if strings.ContainsAny(value, "[]:.") || isNumeric(value) {
+			address, port := splitListenAddress(value)
+			if port > 0 {
+				if address != "" {
+					binding.Address = address
+				}
+				binding.Port = port
+				if port == 443 {
+					binding.Protocol = "https"
+				}
+			}
+		}
+	}
+	return binding, binding.Port > 0
+}
+
+func splitListenAddress(value string) (string, int) {
+	if isNumeric(value) {
+		return "*", atoiSafe(value)
+	}
+	if strings.HasPrefix(value, "unix:") {
+		return "", 0
+	}
+	lastColon := strings.LastIndex(value, ":")
+	if lastColon < 0 {
+		return value, 0
+	}
+	address := value[:lastColon]
+	address = strings.Trim(address, "[]")
+	port := atoiSafe(value[lastColon+1:])
+	return address, port
+}
+
+func isNumeric(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func atoiSafe(value string) int {
+	result := 0
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return 0
+		}
+		result = result*10 + int(char-'0')
+	}
+	return result
+}
+
+func addSiteConfigFile(site *nginxSiteDetail, path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	for _, existing := range site.ConfigFiles {
+		if existing == path {
+			return
+		}
+	}
+	site.ConfigFiles = append(site.ConfigFiles, path)
+}
+
+func finalizeNginxSite(site *nginxSiteDetail, index int) {
+	site.ServerNames = uniqueStrings(site.ServerNames)
+	site.ProxyTargets = uniqueStrings(site.ProxyTargets)
+	site.ConfigFiles = uniqueStrings(site.ConfigFiles)
+	applyNginxServerCertificate(site)
+	if site.Name == "" {
+		if len(site.ServerNames) > 0 {
+			site.Name = site.ServerNames[0]
+		} else {
+			site.Name = fmt.Sprintf("server-%d", index+1)
+		}
+	}
+	if site.SitePath != "" {
+		site.SiteMode = "static_root"
+	} else if len(site.ProxyTargets) > 0 {
+		site.SiteMode = "reverse_proxy"
+	} else {
+		site.SiteMode = "unknown"
+	}
+}
+
+func applyNginxServerCertificate(site *nginxSiteDetail) {
+	if site.serverCertificatePath == "" && site.serverCertificateKeyPath == "" {
+		return
+	}
+	if len(site.Listen) == 0 {
+		site.Listen = append(site.Listen, nginxBindingDetail{Address: "*", Port: 443, Protocol: "https"})
+	}
+	for index := range site.Listen {
+		if site.Listen[index].Protocol == "" {
+			site.Listen[index].Protocol = "http"
+		}
+		if site.Listen[index].Protocol != "https" && site.Listen[index].Port != 443 && site.Listen[index].Port != 8443 {
+			continue
+		}
+		site.Listen[index].Protocol = "https"
+		if site.Listen[index].CertificatePath == "" {
+			site.Listen[index].CertificatePath = site.serverCertificatePath
+		}
+		if site.Listen[index].CertificateKeyPath == "" {
+			site.Listen[index].CertificateKeyPath = site.serverCertificateKeyPath
+		}
+	}
+}
+
+func enrichNginxSiteCertificates(site *nginxSiteDetail) {
+	for index := range site.Listen {
+		if site.Listen[index].CertificatePath == "" {
+			continue
+		}
+		site.Listen[index].CertificateName = readCertificateSubject(site.Listen[index].CertificatePath)
+	}
+}
+
+func readCertificateSubject(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for {
+		block, rest := pem.Decode(content)
+		if block == nil {
+			return ""
+		}
+		if block.Type == "CERTIFICATE" {
+			certificate, err := x509.ParseCertificate(block.Bytes)
+			if err == nil {
+				return certificate.Subject.String()
+			}
+		}
+		content = rest
+	}
+}
+
+func uniqueStrings(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func detectApacheDetail() *apacheDetail {
+	binaryPath := findApacheBinaryPath()
+	running := processRunning("apache2") || processRunning("httpd")
+	if binaryPath == "" && !running {
+		return nil
+	}
+
+	detail := &apacheDetail{
+		Installed:  binaryPath != "",
+		Running:    running,
+		BinaryPath: binaryPath,
+		Service:    detectApacheServiceName(binaryPath),
+	}
+	if binaryPath == "" {
+		return detail
+	}
+
+	versionOutput, _ := captureCombinedCommand(binaryPath, "-v")
+	buildOutput, _ := captureCombinedCommand(binaryPath, "-V")
+	detail.Version = parseApacheVersion(versionOutput)
+	detail.ServerRoot = parseApacheDefine(buildOutput, "HTTPD_ROOT")
+	serverConfigFile := parseApacheDefine(buildOutput, "SERVER_CONFIG_FILE")
+	detail.ConfigPath = resolveApacheConfigPath(detail.ServerRoot, serverConfigFile)
+	if detail.ConfigPath != "" {
+		sites := parseApacheConfigTree(detail.ConfigPath, detail.ServerRoot)
+		for index := range sites {
+			enrichApacheSiteCertificates(&sites[index])
+		}
+		detail.Sites = sites
+	}
+	return detail
+}
+
+func findApacheBinaryPath() string {
+	for _, name := range []string{"apache2ctl", "apachectl", "httpd", "apache2"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	for _, candidate := range []string{
+		"/usr/sbin/apache2ctl",
+		"/usr/sbin/apachectl",
+		"/usr/sbin/httpd",
+		"/usr/sbin/apache2",
+	} {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func detectApacheServiceName(binaryPath string) string {
+	lower := strings.ToLower(binaryPath)
+	if strings.Contains(lower, "apache2") {
+		return "apache2"
+	}
+	return "httpd"
+}
+
+func parseApacheVersion(output string) string {
+	marker := "Server version: Apache/"
+	index := strings.Index(output, marker)
+	if index < 0 {
+		return ""
+	}
+	value := output[index+len(marker):]
+	if end := strings.IndexAny(value, " \r\n\t"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
+}
+
+func parseApacheDefine(output string, key string) string {
+	pattern := key + "=\""
+	index := strings.Index(output, pattern)
+	if index < 0 {
+		return ""
+	}
+	value := output[index+len(pattern):]
+	if end := strings.Index(value, "\""); end >= 0 {
+		return strings.TrimSpace(value[:end])
+	}
+	return ""
+}
+
+func resolveApacheConfigPath(serverRoot string, configFile string) string {
+	configFile = strings.TrimSpace(configFile)
+	if configFile == "" {
+		return ""
+	}
+	if filepath.IsAbs(configFile) {
+		return configFile
+	}
+	if serverRoot != "" {
+		return filepath.Join(serverRoot, configFile)
+	}
+	return configFile
+}
+
+func parseApacheConfigTree(configPath string, serverRoot string) []apacheSiteDetail {
+	visited := make(map[string]struct{})
+	sites := make([]apacheSiteDetail, 0)
+	parseApacheConfigFile(configPath, serverRoot, visited, &sites)
+	for index := range sites {
+		finalizeApacheSite(&sites[index], index)
+	}
+	filtered := make([]apacheSiteDetail, 0, len(sites))
+	for _, site := range sites {
+		if len(site.Listen) == 0 && len(site.ServerNames) == 0 && site.SitePath == "" && len(site.ProxyTargets) == 0 {
+			continue
+		}
+		filtered = append(filtered, site)
+	}
+	return filtered
+}
+
+func parseApacheConfigFile(configPath string, serverRoot string, visited map[string]struct{}, sites *[]apacheSiteDetail) {
+	absolutePath := configPath
+	if !filepath.IsAbs(absolutePath) {
+		if serverRoot != "" {
+			absolutePath = filepath.Join(serverRoot, absolutePath)
+		} else {
+			absolutePath, _ = filepath.Abs(absolutePath)
+		}
+	}
+	absolutePath = filepath.Clean(absolutePath)
+	if _, seen := visited[absolutePath]; seen {
+		return
+	}
+	visited[absolutePath] = struct{}{}
+
+	content, err := os.ReadFile(absolutePath)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(content), "\n")
+	stack := make([]apacheContextFrame, 0, 8)
+	listenDefaults := make([]apacheBindingDetail, 0)
+	baseDir := filepath.Dir(absolutePath)
+
+	for _, rawLine := range lines {
+		line := stripApacheInlineComment(rawLine)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "<virtualhost") && strings.HasSuffix(trimmed, ">") {
+			inside := strings.TrimSuffix(strings.TrimPrefix(trimmed, "<VirtualHost"), ">")
+			inside = strings.TrimSuffix(strings.TrimPrefix(inside, "<virtualhost"), ">")
+			site := apacheSiteDetail{}
+			site.Listen = append(site.Listen, parseApacheVirtualHostBindings(inside)...)
+			addApacheSiteConfigFile(&site, absolutePath)
+			*sites = append(*sites, site)
+			stack = append(stack, apacheContextFrame{kind: "virtualhost", siteIndex: len(*sites) - 1})
+			continue
+		}
+		if strings.HasPrefix(lower, "</virtualhost") {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) == 0 {
+			continue
+		}
+		directive := strings.ToLower(fields[0])
+		args := fields[1:]
+		siteIndex := activeApacheSiteIndex(stack)
+		switch directive {
+		case "include", "includeoptional":
+			for _, includePath := range resolveApacheIncludePaths(baseDir, serverRoot, firstArgument(args)) {
+				parseApacheConfigFile(includePath, serverRoot, visited, sites)
+			}
+		case "listen":
+			if binding, ok := parseApacheListen(args); ok {
+				listenDefaults = append(listenDefaults, binding)
+				if siteIndex >= 0 && siteIndex < len(*sites) {
+					(*sites)[siteIndex].Listen = append((*sites)[siteIndex].Listen, binding)
+				}
+			}
+		case "servername":
+			if siteIndex >= 0 && siteIndex < len(*sites) && len(args) > 0 {
+				(*sites)[siteIndex].ServerNames = append((*sites)[siteIndex].ServerNames, strings.TrimSpace(args[0]))
+			}
+		case "serveralias":
+			if siteIndex >= 0 && siteIndex < len(*sites) {
+				for _, arg := range args {
+					if trimmedArg := strings.TrimSpace(arg); trimmedArg != "" {
+						(*sites)[siteIndex].ServerNames = append((*sites)[siteIndex].ServerNames, trimmedArg)
+					}
+				}
+			}
+		case "documentroot":
+			if siteIndex >= 0 && siteIndex < len(*sites) && len(args) > 0 {
+				(*sites)[siteIndex].SitePath = strings.Trim(firstArgument(args), "\"'")
+			}
+		case "sslcertificatefile":
+			if siteIndex >= 0 && siteIndex < len(*sites) {
+				(*sites)[siteIndex].serverCertificatePath = resolveApachePath(baseDir, serverRoot, firstArgument(args))
+			}
+		case "sslcertificatekeyfile":
+			if siteIndex >= 0 && siteIndex < len(*sites) {
+				(*sites)[siteIndex].serverCertificateKeyPath = resolveApachePath(baseDir, serverRoot, firstArgument(args))
+			}
+		case "proxypass":
+			if siteIndex >= 0 && siteIndex < len(*sites) && len(args) >= 2 {
+				target := strings.TrimSpace(args[1])
+				if target != "" {
+					(*sites)[siteIndex].ProxyTargets = append((*sites)[siteIndex].ProxyTargets, target)
+				}
+			}
+		}
+		if siteIndex >= 0 && siteIndex < len(*sites) {
+			addApacheSiteConfigFile(&(*sites)[siteIndex], absolutePath)
+		}
+	}
+}
+
+func stripApacheInlineComment(line string) string {
+	inSingle := false
+	inDouble := false
+	for index, char := range line {
+		switch char {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if !inSingle && !inDouble {
+				return line[:index]
+			}
+		}
+	}
+	return line
+}
+
+func parseApacheVirtualHostBindings(value string) []apacheBindingDetail {
+	fields := strings.Fields(strings.TrimSpace(value))
+	bindings := make([]apacheBindingDetail, 0, len(fields))
+	for _, field := range fields {
+		address, port := splitListenAddress(strings.Trim(field, "\"'"))
+		if port <= 0 {
+			continue
+		}
+		binding := apacheBindingDetail{Address: address, Port: port, Protocol: "http"}
+		if binding.Address == "" {
+			binding.Address = "*"
+		}
+		if port == 443 {
+			binding.Protocol = "https"
+		}
+		bindings = append(bindings, binding)
+	}
+	return bindings
+}
+
+func activeApacheSiteIndex(stack []apacheContextFrame) int {
+	for index := len(stack) - 1; index >= 0; index-- {
+		if stack[index].siteIndex >= 0 {
+			return stack[index].siteIndex
+		}
+	}
+	return -1
+}
+
+func resolveApacheIncludePaths(baseDir string, serverRoot string, includePattern string) []string {
+	includePattern = strings.Trim(includePattern, "\"'")
+	if includePattern == "" {
+		return nil
+	}
+	resolved := resolveApachePath(baseDir, serverRoot, includePattern)
+	matches, err := filepath.Glob(resolved)
+	if err == nil && len(matches) > 0 {
+		return matches
+	}
+	if fileExists(resolved) {
+		return []string{resolved}
+	}
+	return nil
+}
+
+func resolveApachePath(baseDir string, serverRoot string, pathValue string) string {
+	pathValue = strings.Trim(pathValue, "\"'")
+	if pathValue == "" {
+		return ""
+	}
+	if filepath.IsAbs(pathValue) {
+		return filepath.Clean(pathValue)
+	}
+	if baseDir != "" {
+		return filepath.Clean(filepath.Join(baseDir, pathValue))
+	}
+	if serverRoot != "" {
+		return filepath.Clean(filepath.Join(serverRoot, pathValue))
+	}
+	return filepath.Clean(pathValue)
+}
+
+func parseApacheListen(args []string) (apacheBindingDetail, bool) {
+	if len(args) == 0 {
+		return apacheBindingDetail{}, false
+	}
+	address, port := splitListenAddress(strings.Trim(args[0], "\"'"))
+	if port <= 0 {
+		return apacheBindingDetail{}, false
+	}
+	if address == "" {
+		address = "*"
+	}
+	protocol := "http"
+	if port == 443 {
+		protocol = "https"
+	}
+	return apacheBindingDetail{Address: address, Port: port, Protocol: protocol}, true
+}
+
+func ensureApacheBinding(site *apacheSiteDetail, defaults []apacheBindingDetail) {
+	if len(site.Listen) > 0 {
+		return
+	}
+	if len(defaults) > 0 {
+		site.Listen = append(site.Listen, defaults[0])
+		return
+	}
+	site.Listen = append(site.Listen, apacheBindingDetail{Address: "*", Port: 443, Protocol: "https"})
+}
+
+func addApacheSiteConfigFile(site *apacheSiteDetail, path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	for _, existing := range site.ConfigFiles {
+		if existing == path {
+			return
+		}
+	}
+	site.ConfigFiles = append(site.ConfigFiles, path)
+}
+
+func finalizeApacheSite(site *apacheSiteDetail, index int) {
+	site.ServerNames = uniqueStrings(site.ServerNames)
+	site.ProxyTargets = uniqueStrings(site.ProxyTargets)
+	site.ConfigFiles = uniqueStrings(site.ConfigFiles)
+	applyApacheSiteCertificate(site)
+	if site.Name == "" {
+		if len(site.ServerNames) > 0 {
+			site.Name = site.ServerNames[0]
+		} else {
+			site.Name = fmt.Sprintf("apache-vhost-%d", index+1)
+		}
+	}
+	if site.SitePath != "" {
+		site.SiteMode = "static_root"
+	} else if len(site.ProxyTargets) > 0 {
+		site.SiteMode = "reverse_proxy"
+	} else {
+		site.SiteMode = "unknown"
+	}
+}
+
+func applyApacheSiteCertificate(site *apacheSiteDetail) {
+	if site.serverCertificatePath == "" && site.serverCertificateKeyPath == "" {
+		return
+	}
+	ensureApacheBinding(site, nil)
+	for index := range site.Listen {
+		if site.Listen[index].Protocol == "" {
+			site.Listen[index].Protocol = "http"
+		}
+		if site.Listen[index].Protocol != "https" && site.Listen[index].Port != 443 && site.Listen[index].Port != 8443 {
+			continue
+		}
+		site.Listen[index].Protocol = "https"
+		if site.Listen[index].CertificatePath == "" {
+			site.Listen[index].CertificatePath = site.serverCertificatePath
+		}
+		if site.Listen[index].CertificateKeyPath == "" {
+			site.Listen[index].CertificateKeyPath = site.serverCertificateKeyPath
+		}
+	}
+}
+
+func enrichApacheSiteCertificates(site *apacheSiteDetail) {
+	for index := range site.Listen {
+		if site.Listen[index].CertificatePath == "" {
+			continue
+		}
+		site.Listen[index].CertificateName = readCertificateSubject(site.Listen[index].CertificatePath)
+		if site.Listen[index].Protocol == "" {
+			site.Listen[index].Protocol = "https"
+		}
+	}
+}
+
+func detectTomcatDetail() *tomcatDetail {
+	processArgs := findTomcatProcessArgs()
+	catalinaBase := extractJavaSystemProperty(processArgs, "catalina.base")
+	catalinaHome := extractJavaSystemProperty(processArgs, "catalina.home")
+	running := processArgs != ""
+	if catalinaBase == "" && catalinaHome == "" {
+		catalinaBase, catalinaHome = findTomcatInstallPaths()
+	}
+	if catalinaBase == "" && catalinaHome == "" && !running {
+		return nil
+	}
+	if catalinaBase == "" {
+		catalinaBase = catalinaHome
+	}
+	if catalinaHome == "" {
+		catalinaHome = catalinaBase
+	}
+	configPath := ""
+	if catalinaBase != "" {
+		configPath = filepath.Join(catalinaBase, "conf", "server.xml")
+	}
+	detail := &tomcatDetail{
+		Installed:    catalinaBase != "" || catalinaHome != "",
+		Running:      running,
+		CatalinaHome: catalinaHome,
+		CatalinaBase: catalinaBase,
+		ConfigPath:   configPath,
+		Service:      "tomcat",
+	}
+	detail.Version = detectTomcatVersion(catalinaHome)
+	if configPath != "" && fileExists(configPath) {
+		detail.Connectors, detail.Apps = parseTomcatServerXML(configPath, catalinaBase)
+	}
+	detail.Apps = uniqueTomcatApps(detail.Apps)
+	return detail
+}
+
+func findTomcatProcessArgs() string {
+	output, err := captureCommand("ps", "-eo", "args=")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "org.apache.catalina.startup.Bootstrap") {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func extractJavaSystemProperty(args string, key string) string {
+	pattern := regexp.MustCompile(`-D` + regexp.QuoteMeta(key) + `=([^\s]+)`)
+	match := pattern.FindStringSubmatch(args)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.Trim(match[1], "\"'")
+}
+
+func findTomcatInstallPaths() (string, string) {
+	candidates := []string{
+		"/opt/tomcat",
+		"/usr/share/tomcat",
+		"/usr/share/tomcat9",
+		"/usr/share/tomcat10",
+		"/var/lib/tomcat9",
+		"/var/lib/tomcat10",
+	}
+	for _, candidate := range candidates {
+		if fileExists(filepath.Join(candidate, "conf", "server.xml")) {
+			return candidate, candidate
+		}
+	}
+	return "", ""
+}
+
+func detectTomcatVersion(catalinaHome string) string {
+	if catalinaHome == "" {
+		return ""
+	}
+	releaseInfoPath := filepath.Join(catalinaHome, "RELEASE-NOTES")
+	if content, err := os.ReadFile(releaseInfoPath); err == nil {
+		pattern := regexp.MustCompile(`Apache Tomcat Version ([0-9.]+)`)
+		match := pattern.FindStringSubmatch(string(content))
+		if len(match) >= 2 {
+			return match[1]
+		}
+	}
+	return ""
+}
+
+type tomcatServerXML struct {
+	Services []tomcatServiceXML `xml:"Service"`
+}
+
+type tomcatServiceXML struct {
+	Connectors []tomcatConnectorXML `xml:"Connector"`
+	Engine     tomcatEngineXML      `xml:"Engine"`
+}
+
+type tomcatEngineXML struct {
+	Hosts []tomcatHostXML `xml:"Host"`
+}
+
+type tomcatHostXML struct {
+	Name     string             `xml:"name,attr"`
+	AppBase  string             `xml:"appBase,attr"`
+	Contexts []tomcatContextXML `xml:"Context"`
+}
+
+type tomcatContextXML struct {
+	Path    string `xml:"path,attr"`
+	DocBase string `xml:"docBase,attr"`
+}
+
+type tomcatConnectorXML struct {
+	Port            int    `xml:"port,attr"`
+	Address         string `xml:"address,attr"`
+	Protocol        string `xml:"protocol,attr"`
+	SSLEnabled      string `xml:"SSLEnabled,attr"`
+	Scheme          string `xml:"scheme,attr"`
+	Secure          string `xml:"secure,attr"`
+	CertificateFile string `xml:"certificateFile,attr"`
+	CertificateKey  string `xml:"certificateKeyFile,attr"`
+	KeystoreFile    string `xml:"keystoreFile,attr"`
+}
+
+func parseTomcatServerXML(configPath string, catalinaBase string) ([]tomcatConnectorDetail, []tomcatAppDetail) {
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, nil
+	}
+	var document tomcatServerXML
+	if err := xml.Unmarshal(content, &document); err != nil {
+		return nil, nil
+	}
+	connectors := make([]tomcatConnectorDetail, 0)
+	apps := make([]tomcatAppDetail, 0)
+	hostAppBases := make(map[string]string)
+	baseDir := filepath.Dir(configPath)
+
+	for _, service := range document.Services {
+		for _, connector := range service.Connectors {
+			if connector.Port <= 0 {
+				continue
+			}
+			item := tomcatConnectorDetail{
+				Address:            strings.TrimSpace(connector.Address),
+				Port:               connector.Port,
+				Protocol:           strings.TrimSpace(connector.Protocol),
+				TLS:                strings.EqualFold(connector.SSLEnabled, "true") || strings.EqualFold(connector.Scheme, "https") || strings.EqualFold(connector.Secure, "true") || connector.Port == 443 || connector.Port == 8443,
+				CertificatePath:    resolveApachePath(baseDir, catalinaBase, connector.CertificateFile),
+				CertificateKeyPath: resolveApachePath(baseDir, catalinaBase, connector.CertificateKey),
+				KeystorePath:       resolveApachePath(baseDir, catalinaBase, connector.KeystoreFile),
+			}
+			if item.TLS && item.CertificatePath != "" {
+				item.CertificateName = readCertificateSubject(item.CertificatePath)
+			}
+			connectors = append(connectors, item)
+		}
+		for _, host := range service.Engine.Hosts {
+			appBase := resolveApachePath(baseDir, catalinaBase, host.AppBase)
+			hostName := strings.TrimSpace(host.Name)
+			if hostName != "" {
+				hostAppBases[hostName] = appBase
+			}
+			for _, context := range host.Contexts {
+				apps = append(apps, tomcatAppDetail{
+					ContextPath: strings.TrimSpace(context.Path),
+					DocBase:     resolveTomcatDocBase(baseDir, catalinaBase, appBase, context.DocBase),
+					AppBase:     appBase,
+				})
+			}
+		}
+	}
+
+	apps = append(apps, parseTomcatExternalContexts(catalinaBase, hostAppBases)...)
+
+	return connectors, apps
+}
+
+type tomcatContextFileXML struct {
+	XMLName xml.Name `xml:"Context"`
+	Path    string   `xml:"path,attr"`
+	DocBase string   `xml:"docBase,attr"`
+}
+
+func parseTomcatExternalContexts(catalinaBase string, hostAppBases map[string]string) []tomcatAppDetail {
+	if strings.TrimSpace(catalinaBase) == "" {
+		return nil
+	}
+	catalinaDir := filepath.Join(catalinaBase, "conf", "Catalina")
+	hostDirs, err := os.ReadDir(catalinaDir)
+	if err != nil {
+		return nil
+	}
+	apps := make([]tomcatAppDetail, 0)
+	for _, hostDir := range hostDirs {
+		if !hostDir.IsDir() {
+			continue
+		}
+		hostName := strings.TrimSpace(hostDir.Name())
+		if hostName == "" {
+			continue
+		}
+		files, err := filepath.Glob(filepath.Join(catalinaDir, hostName, "*.xml"))
+		if err != nil {
+			continue
+		}
+		appBase := hostAppBases[hostName]
+		if appBase == "" {
+			appBase = filepath.Join(catalinaBase, "webapps")
+		}
+		for _, filePath := range files {
+			if app := parseTomcatContextFile(filePath, catalinaBase, appBase); app != nil {
+				apps = append(apps, *app)
+			}
+		}
+	}
+	return apps
+}
+
+func parseTomcatContextFile(filePath string, catalinaBase string, appBase string) *tomcatAppDetail {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil
+	}
+	var document tomcatContextFileXML
+	if err := xml.Unmarshal(content, &document); err != nil {
+		return nil
+	}
+	contextPath := strings.TrimSpace(document.Path)
+	if contextPath == "" {
+		contextPath = deriveTomcatContextPathFromFile(filePath)
+	}
+	return &tomcatAppDetail{
+		ContextPath: normalizeTomcatContextPath(contextPath),
+		DocBase:     resolveTomcatDocBase(filepath.Dir(filePath), catalinaBase, appBase, document.DocBase),
+		AppBase:     appBase,
+	}
+}
+
+func deriveTomcatContextPathFromFile(filePath string) string {
+	name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	if strings.EqualFold(name, "ROOT") {
+		return "/"
+	}
+	name = strings.ReplaceAll(name, "#", "/")
+	if name == "" {
+		return "/"
+	}
+	if strings.HasPrefix(name, "/") {
+		return name
+	}
+	return "/" + name
+}
+
+func normalizeTomcatContextPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	return value
+}
+
+func resolveTomcatDocBase(baseDir string, catalinaBase string, appBase string, docBase string) string {
+	docBase = strings.TrimSpace(docBase)
+	if docBase == "" {
+		return ""
+	}
+	if filepath.IsAbs(docBase) {
+		return filepath.Clean(docBase)
+	}
+	if appBase != "" {
+		return filepath.Clean(filepath.Join(appBase, docBase))
+	}
+	return resolveApachePath(baseDir, catalinaBase, docBase)
+}
+
+func uniqueTomcatApps(items []tomcatAppDetail) []tomcatAppDetail {
+	seen := make(map[string]struct{}, len(items))
+	result := make([]tomcatAppDetail, 0, len(items))
+	for _, item := range items {
+		item.ContextPath = normalizeTomcatContextPath(item.ContextPath)
+		item.DocBase = strings.TrimSpace(item.DocBase)
+		item.AppBase = strings.TrimSpace(item.AppBase)
+		key := item.ContextPath + "\n" + item.DocBase + "\n" + item.AppBase
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig, method string, endpointPath string, payload any, target any) error {
+	baseURL := strings.TrimRight(strings.TrimSpace(config.ControlPlane), "/")
+	if baseURL == "" {
+		return errors.New("controlPlaneUrl 不能为空")
+	}
+
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("编码请求失败: %w", err)
+		}
+		body = bytes.NewReader(encoded)
+	}
+
+	request, err := http.NewRequestWithContext(ctx, method, baseURL+endpointPath, body)
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Request-Id", fmt.Sprintf("linux_agent_%d", time.Now().UnixNano()))
+	if strings.TrimSpace(config.TenantID) != "" {
+		request.Header.Set("X-Tenant-Id", strings.TrimSpace(config.TenantID))
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("请求服务端失败: %w", err)
+	}
+	defer response.Body.Close()
+
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var apiErr apiErrorResponse
+		if err := json.Unmarshal(responseBody, &apiErr); err == nil && strings.TrimSpace(apiErr.Message) != "" {
+			if strings.TrimSpace(apiErr.ErrorCode) != "" {
+				return fmt.Errorf("%s (%s)", apiErr.Message, apiErr.ErrorCode)
+			}
+			return errors.New(apiErr.Message)
+		}
+		return fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+
+	if target == nil || len(bytes.TrimSpace(responseBody)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(responseBody, target); err == nil {
+		return nil
+	}
+
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(responseBody, &wrapped); err == nil && len(wrapped.Data) > 0 {
+		if err := json.Unmarshal(wrapped.Data, target); err == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("解析响应失败: %s", strings.TrimSpace(string(responseBody)))
 }
 
 func parseConfigPath(args []string) string {
@@ -593,7 +2473,7 @@ func printUsage() {
 	lines := []string{
 		"GCAC Linux Go Full Agent 最小实现",
 		"",
-		"用法：",
+		"用法:",
 		"  gcac-linux-agent inspect",
 		"  gcac-linux-agent exec [--timeout=30s] [--include-env] -- <cmd> [args...]",
 		"  gcac-linux-agent exec --shell -- \"uname -a && id\"",

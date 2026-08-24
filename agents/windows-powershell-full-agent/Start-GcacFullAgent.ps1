@@ -20,11 +20,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $moduleRoot = Join-Path $scriptRoot "modules"
 
-Import-Module (Join-Path $moduleRoot "Gcac.Agent.Service.psm1") -Force
+Import-Module (Join-Path $moduleRoot "Gcac.Agent.Service.psm1") -Force -DisableNameChecking
 
 $resolvedConfigPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
   Join-Path $scriptRoot "config\agent.config.template.json"
@@ -53,5 +54,9 @@ if ($RunOnce -or $SelfCheck -or $HealthCheck) {
   } else {
     $utf8Bom = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllText($OutputPath, $json, $utf8Bom)
+  }
+
+  if (-not $result.Success) {
+    exit 1
   }
 }
