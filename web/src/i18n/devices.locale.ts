@@ -37,10 +37,83 @@ export const devicesZhCN = {
   errors: { platformsLoadFailed: '加载设备平台失败。', onboardingFailed: '添加设备失败。', onboardingValidationFailed: '请完整填写设备必填信息后再提交。', detailLoadFailed: '加载设备详情失败。', detailTargetMissing: 'Agent 标识缺失，无法打开详情。', unsupportedDetailType: '该设备类型尚未定义独立管理界面。', deleteTargetMissing: '设备扩展标识缺失，无法删除。', upgradeTargetMissing: '缺少 Agent 标识，无法升级。', upgradeNotRequired: '该 Agent 当前已不需要升级。', upgradePlanMissing: '未能创建升级计划。', upgradeTargetVersionMissing: '缺少目标 Agent 版本。', upgradeDispatchFailed: '发送 Agent 升级请求失败。' },
 } as const
 
-export const devicesZhTW = devicesZhCN
+type DeviceLocaleShape = {
+  readonly platforms: Readonly<Record<keyof typeof english.platforms, string>>
+  readonly onboarding: {
+    readonly groups: Readonly<Record<keyof typeof english.onboarding.groups, string>>
+  }
+}
+
+function withPlatformTranslations<T extends DeviceLocaleShape>(
+  base: T,
+  platforms: Partial<Record<keyof T['platforms'], string>>,
+  groups: Partial<Record<keyof T['onboarding']['groups'], string>>,
+): T {
+  return {
+    ...base,
+    platforms: { ...base.platforms, ...platforms },
+    onboarding: { ...base.onboarding, groups: { ...base.onboarding.groups, ...groups } },
+  } as T
+}
+
+export const devicesZhTW = withPlatformTranslations(devicesZhCN, {
+  linuxRedHat: 'Red Hat 系列',
+  linuxDebianUbuntu: 'Debian/Ubuntu 系列',
+  linuxKylin: '麒麟系列',
+  linuxUos: '統信 OS 系列',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9、Rocky/AlmaLinux 8-9；Linux 核心 3.2 以上',
+  linuxDebianUbuntuDescription: 'Debian 10-13、Ubuntu 18.04-24.04；Linux 核心 3.2 以上',
+  linuxKylinDescription: '銀河麒麟 V10-V11',
+  linuxUosDescription: '統信 UOS 20-25',
+}, { agent: 'Agent', other: '其他平台' })
 export const devicesEnUS = english
-export const devicesJaJP = english
-export const devicesFrFR = english
-export const devicesRuRU = english
-export const devicesPtBR = english
-export const devicesKoKR = english
+export const devicesJaJP = withPlatformTranslations(english, {
+  linuxRedHat: 'Red Hat 系',
+  linuxDebianUbuntu: 'Debian/Ubuntu 系',
+  linuxKylin: 'Kylin 系',
+  linuxUos: 'UOS 系',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9、Rocky/AlmaLinux 8-9；Linux カーネル 3.2 以降',
+  linuxDebianUbuntuDescription: 'Debian 10-13、Ubuntu 18.04-24.04；Linux カーネル 3.2 以降',
+  linuxKylinDescription: '銀河麒麟 V10-V11',
+  linuxUosDescription: '統信 UOS 20-25',
+}, { agent: 'Agent', other: 'その他のプラットフォーム' })
+export const devicesFrFR = withPlatformTranslations(english, {
+  linuxRedHat: 'Famille Red Hat',
+  linuxDebianUbuntu: 'Famille Debian/Ubuntu',
+  linuxKylin: 'Famille Kylin',
+  linuxUos: 'Famille UOS',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9, Rocky/AlmaLinux 8-9 ; noyau Linux 3.2 ou ultérieur',
+  linuxDebianUbuntuDescription: 'Debian 10-13, Ubuntu 18.04-24.04 ; noyau Linux 3.2 ou ultérieur',
+  linuxKylinDescription: 'Kylin V10-V11',
+  linuxUosDescription: 'UOS 20-25',
+}, { agent: 'Agent', other: 'Autres plateformes' })
+export const devicesRuRU = withPlatformTranslations(english, {
+  linuxRedHat: 'Семейство Red Hat',
+  linuxDebianUbuntu: 'Семейство Debian/Ubuntu',
+  linuxKylin: 'Семейство Kylin',
+  linuxUos: 'Семейство UOS',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9, Rocky/AlmaLinux 8-9; ядро Linux 3.2 и новее',
+  linuxDebianUbuntuDescription: 'Debian 10-13, Ubuntu 18.04-24.04; ядро Linux 3.2 и новее',
+  linuxKylinDescription: 'Kylin V10-V11',
+  linuxUosDescription: 'UOS 20-25',
+}, { agent: 'Agent', other: 'Другие платформы' })
+export const devicesPtBR = withPlatformTranslations(english, {
+  linuxRedHat: 'Família Red Hat',
+  linuxDebianUbuntu: 'Família Debian/Ubuntu',
+  linuxKylin: 'Família Kylin',
+  linuxUos: 'Família UOS',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9, Rocky/AlmaLinux 8-9; kernel Linux 3.2 ou posterior',
+  linuxDebianUbuntuDescription: 'Debian 10-13, Ubuntu 18.04-24.04; kernel Linux 3.2 ou posterior',
+  linuxKylinDescription: 'Kylin V10-V11',
+  linuxUosDescription: 'UOS 20-25',
+}, { agent: 'Agent', other: 'Outras plataformas' })
+export const devicesKoKR = withPlatformTranslations(english, {
+  linuxRedHat: 'Red Hat 계열',
+  linuxDebianUbuntu: 'Debian/Ubuntu 계열',
+  linuxKylin: 'Kylin 계열',
+  linuxUos: 'UOS 계열',
+  linuxRedHatDescription: 'RHEL/CentOS 7-9, Rocky/AlmaLinux 8-9; Linux 커널 3.2 이상',
+  linuxDebianUbuntuDescription: 'Debian 10-13, Ubuntu 18.04-24.04; Linux 커널 3.2 이상',
+  linuxKylinDescription: 'Kylin V10-V11',
+  linuxUosDescription: 'UOS 20-25',
+}, { agent: 'Agent', other: '기타 플랫폼' })
