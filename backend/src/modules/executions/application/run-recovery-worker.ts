@@ -5,6 +5,7 @@ export interface RecoveryCandidate {
   run: ExecutionRunEntity;
   stepsToResume: ExecutionStepEntity[];
   skippedStepIds: string[];
+  unknownStepIds: string[];
 }
 
 export class RunRecoveryWorker {
@@ -17,14 +18,35 @@ export class RunRecoveryWorker {
       const steps = (await this.repository.listSteps(tenantId, run.id)).sort((left, right) => left.stepNo - right.stepNo);
       const stepsToResume = steps.filter((step) => this.canResume(step));
       const skippedStepIds = steps.filter((step) => step.status === 'RUNNING' && step.idempotent === false).map((step) => step.id);
-      candidates.push({ run, stepsToResume, skippedStepIds });
+      const unknownStepIds = steps
+        .filter((step) => step.status === 'RUNNING' && isPotentiallyUnknownWriteStep(step))
+        .map((step) => step.id);
+      candidates.push({ run, stepsToResume, skippedStepIds, unknownStepIds });
     }
     return candidates;
   }
 
   private canResume(step: ExecutionStepEntity): boolean {
-    if (step.status === 'PENDING') return true;
+    if (step.status === 'PENDING') return !hasUnknownResult(step);
     if (step.status !== 'RUNNING') return false;
+    if (hasUnknownResult(step) || isPotentiallyUnknownWriteStep(step)) return false;
     return step.idempotent !== false;
   }
+}
+
+function hasUnknownResult(step: ExecutionStepEntity): boolean {
+  const resultDetail = step.inputSnapshot.resultDetail;
+  return Boolean(resultDetail && typeof resultDetail === 'object' && !Array.isArray(resultDetail)
+    && String((resultDetail as Record<string, unknown>).executionStatus ?? '').toUpperCase() === 'UNKNOWN');
+}
+
+function isPotentiallyUnknownWriteStep(step: ExecutionStepEntity): boolean {
+  const snapshot = step.inputSnapshot;
+  const plan = snapshot.plan && typeof snapshot.plan === 'object' && !Array.isArray(snapshot.plan)
+    ? snapshot.plan as Record<string, unknown>
+    : undefined;
+  const actionType = typeof snapshot.actionType === 'string' ? snapshot.actionType.trim().toLowerCase() : undefined;
+  return snapshot.writeEffect === true
+    || plan?.writeEffect === true
+    || actionType === 'agent.plan.execute';
 }

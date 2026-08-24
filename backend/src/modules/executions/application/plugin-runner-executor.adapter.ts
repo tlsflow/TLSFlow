@@ -9,6 +9,7 @@ import {
 import { resolveProductionPluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
+import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
 
 export interface PluginRunnerExecutionDependencies {
   /** 生产只能注入 Supervisor；测试可以注入同样形状的 Fixture。 */
@@ -197,7 +198,6 @@ async function resolveRunnerBinding(input: StepExecutionInput): Promise<RunnerBi
       trustedJs.capability,
       plan.capability,
       snapshot.capability,
-      actionCapability(snapshot.actionType),
     ),
     runnerRequest.capability,
     runtime.capabilityKey,
@@ -206,7 +206,6 @@ async function resolveRunnerBinding(input: StepExecutionInput): Promise<RunnerBi
     trustedJs.capability,
     plan.capability,
     snapshot.capability,
-    actionCapability(snapshot.actionType),
   );
   const grantRefs = readStringArray(
     runnerRequest.grantRefs,
@@ -313,6 +312,11 @@ function toStepResult(
   result: Awaited<ReturnType<PluginRunnerClient['execute']>>,
   binding: RunnerBinding,
 ): StepExecutionResult {
+  const summary = result.summary;
+  const operationResults = readRecordArray(summary.operationResults);
+  const dryRunProjection = operationResults.length > 0
+    ? normalizeAgentV2DryRunDetail({ operationResults })
+    : undefined;
   const detail = {
     executionMode: 'plugin_runner',
     executionStatus: result.status,
@@ -326,7 +330,12 @@ function toStepResult(
     grantRefs: [...binding.grantRefs],
     planDigest: binding.planDigest,
     auditBinding: binding.auditBinding,
-    summary: result.summary,
+    summary,
+    ...(operationResults.length > 0 ? {
+      operationResults,
+      dryRunChecks: dryRunProjection!.dryRunChecks,
+      dryRunSummary: dryRunProjection!.dryRunSummary,
+    } : {}),
     normalizedObjects: result.normalizedObjects,
     warnings: result.warnings,
     ...(result.error ? { error: result.error } : {}),
@@ -402,6 +411,12 @@ function readStringArray(...values: unknown[]): string[] {
   const result = candidate.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim());
   if (new Set(result).size !== result.length) throw new AppError('VALIDATION_FAILED', 'Runner 绑定数组不允许重复值');
   return result;
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    : [];
 }
 
 function firstString(...values: unknown[]): string | undefined {
