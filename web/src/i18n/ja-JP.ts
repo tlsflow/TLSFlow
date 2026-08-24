@@ -1820,8 +1820,8 @@ export default {
         footer: { consult: '購入相談', faq: 'ライセンス FAQ' },
         cards: {
           free: { summary: '評価、個人利用、軽量な用途向け', price: '無料で利用可能', features: { full: '全機能を利用可能', usage: '非商用利用に限定', automation: '自動更新ワークフローを含む', quota: 'アプリケーション資産は 5 件まで', support: 'コミュニティ / メールサポート' } },
-          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じて資産数を追加購入', term: 'ライセンス期間の制限なし', support: '1 年間のバージョンアップと技術サポート' } },
-          enterprise: { summary: 'プライベート配備、オフライン環境、個別対応向け', price: '営業へお問い合わせ', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: 'プラグインの個別開発と買い切りに対応', support: '専任技術サポート' } },
+          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフロー', quota: '必要に応じてアプリケーション資産を購入、利用期限なし', support: '1 年間のバージョンアップとリモート技術サポート' } },
+          enterprise: { summary: '大規模環境、プライベート配備、個別対応向け', price: '営業へお問い合わせ', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフロー', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じてアプリケーション資産を購入、利用期限なし', customization: '要件に応じたカスタマイズ', support: '専任技術サポート' } },
         }
       },
       messages: { loadFailed: 'ライセンス状態の読み込みに失敗しました。', operationFailed: 'ライセンス操作に失敗しました。', exported: 'ライセンスファイルを出力しました。', requestExported: 'アクティベーション要求を出力しました。', invalidJson: '有効な JSON を入力してください。', licenseMissing: 'JSON にライセンスがありません。', imported: 'ライセンスを取り込みました。', importFailed: 'ライセンスの取り込みに失敗しました。' }

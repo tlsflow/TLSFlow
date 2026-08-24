@@ -1819,8 +1819,8 @@ export default {
         footer: { consult: "採購諮詢", faq: "授權常見問題" },
         cards: {
           free: { summary: "適合評估、自用或輕量場景", price: "免費使用", features: { full: "全功能可用", usage: "僅限非商業用途使用", automation: "包含自動化更新流程", quota: "限制 5 個應用資產", support: "社群 / 郵件支援" } },
-          commercial: { summary: "適合標準生產環境和按需擴容", priceCny: "699 元 / 應用資產", priceUsd: "USD 99 / application asset", features: { full: "全功能可用", usage: "可用於商業場景", automation: "包含自動化更新流程", approval: "包含流程審批引擎", quota: "依需求購買應用資產", term: "授權不限使用期限", support: "1 年版本升級服務及技術支援" } },
-          enterprise: { summary: "適合私有化、離線和定製合作", price: "聯絡銷售", features: { full: "全功能可用", usage: "可用於商業場景", automation: "包含自動化更新流程", approval: "包含流程審批引擎", quota: "支援外掛定製與買斷", support: "專屬技術支援" } },
+          commercial: { summary: "適合標準生產環境和按需擴容", priceCny: "699 元 / 應用資產", priceUsd: "USD 99 / application asset", features: { full: "全功能可用", usage: "可用於商業場景", automation: "自動化更新流程", quota: "依需求購買應用資產，無限期使用", support: "1 年版本升級服務及遠端技術支援" } },
+          enterprise: { summary: "適合大型環境、私有化和定製合作", price: "聯絡銷售", features: { full: "全功能可用", usage: "可用於商業場景", automation: "自動化更新流程", approval: "包含流程審批引擎", quota: "依需求購買應用資產，無限期使用", customization: "針對需求進行定製", support: "專屬技術支援" } },
         }
       },
       messages: { loadFailed: "授權狀態載入失敗。", operationFailed: "授權操作失敗。", exported: "授權檔案已匯出。", requestExported: "啟用請求檔案已匯出。", invalidJson: "請輸入合法的 JSON。", licenseMissing: "JSON 中缺少授權物件。", imported: "授權已匯入。", importFailed: "授權匯入失敗。" }
