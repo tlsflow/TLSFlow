@@ -25,6 +25,8 @@ paths:
                   - "service"
                   - "version"
                   - "timestamp"
+                  - "deploymentArchitecture"
+                  - "features"
                 properties:
                   status:
                     type: "string"
@@ -42,6 +44,19 @@ paths:
                     type: "object"
                     additionalProperties:
                       type: "string"
+                  deploymentArchitecture:
+                    type: "string"
+                    enum:
+                      - "small"
+                      - "standard"
+                  features:
+                    type: "object"
+                    required:
+                      - "browserRuntime"
+                    properties:
+                      browserRuntime:
+                        type: "boolean"
+                    additionalProperties: false
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -233,6 +248,46 @@ paths:
       summary: "保存当前用户偏好"
       tags:
         - "Auth"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/tenants/accessible:
+    get:
+      operationId: "listAccessibleTenants"
+      summary: "查询可访问租户"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/tenant-context/switch:
+    post:
+      operationId: "switchTenant"
+      summary: "切换当前租户"
+      tags:
+        - "Security"
       responses:
         200:
           description: "成功"
@@ -1114,6 +1169,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/deployment-plans/from-application:
+    post:
+      operationId: "createDeploymentPlanFromApplication"
+      summary: "按 Application 创建部署计划"
+      tags:
+        - "DeploymentPlans"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/deployment-plans/update-from-application-asset:
     post:
       operationId: "updateDeploymentPlanFromApplicationAsset"
@@ -1360,6 +1435,156 @@ paths:
       summary: "回滚执行运行"
       tags:
         - "Executions"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/assets:
+    get:
+      operationId: "listAssets"
+      summary: "查询统一资产入口"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: true
+                  page:
+                    type: "number"
+                  pageSize:
+                    type: "number"
+                  total:
+                    type: "number"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/applications:
+    get:
+      operationId: "listApplications"
+      summary: "查询 Application 列表"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: true
+                  page:
+                    type: "number"
+                  pageSize:
+                    type: "number"
+                  total:
+                    type: "number"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createApplication"
+      summary: "创建 Application"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updateApplication"
+      summary: "更新 Application"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/applications/detail:
+    get:
+      operationId: "getApplicationDetail"
+      summary: "查询 Application 详情"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/applications/delete:
+    post:
+      operationId: "deleteApplication"
+      summary: "删除 Application"
+      tags:
+        - "Assets"
       responses:
         200:
           description: "成功"
@@ -1810,10 +2035,104 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-targets:
+    get:
+      operationId: "listApplicationTargets"
+      summary: "查询 ApplicationTarget 列表"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: true
+                  page:
+                    type: "number"
+                  pageSize:
+                    type: "number"
+                  total:
+                    type: "number"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createApplicationTarget"
+      summary: "创建 ApplicationTarget"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updateApplicationTarget"
+      summary: "更新 ApplicationTarget"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/application-asset-targets/delete:
     post:
       operationId: "deleteApplicationAssetTarget"
       summary: "软删除 ApplicationAssetTarget"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-targets/delete:
+    post:
+      operationId: "deleteApplicationTarget"
+      summary: "删除 ApplicationTarget"
       tags:
         - "Assets"
       responses:
@@ -2285,6 +2604,204 @@ paths:
       summary: "解决资产冲突"
       tags:
         - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/providers:
+    get:
+      operationId: "listProviders"
+      summary: "查询云服务 Provider"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/providers/:providerKey/capabilities:
+    get:
+      operationId: "listProviderCapabilities"
+      summary: "查询 Provider 产品能力"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/provider-capability-plugins:
+    get:
+      operationId: "listProviderCapabilityPlugins"
+      summary: "查询 Provider 能力插件"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets:
+    get:
+      operationId: "listCloudAccountAssets"
+      summary: "查询云账号资产"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createCloudAccountAsset"
+      summary: "创建云账号资产"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updateCloudAccountAsset"
+      summary: "更新云账号资产"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/delete:
+    post:
+      operationId: "deleteCloudAccountAsset"
+      summary: "删除云账号资产"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/connection-test:
+    post:
+      operationId: "testCloudAccountAssetConnection"
+      summary: "测试云账号连接"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/discover:
+    post:
+      operationId: "discoverCloudAccountResources"
+      summary: "发现云资源"
+      tags:
+        - "Providers"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id/execute:
+    post:
+      operationId: "executeProviderCapability"
+      summary: "执行 Provider 能力"
+      tags:
+        - "Providers"
       responses:
         200:
           description: "成功"
@@ -8696,6 +9213,105 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/credentials/browser-sessions:
+    post:
+      operationId: "createBrowserCredentialSession"
+      summary: "创建浏览器临时凭据会话"
+      tags:
+        - "BrowserCredentials"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/credentials/browser-sessions/:id:
+    get:
+      operationId: "getBrowserCredentialSession"
+      summary: "查询浏览器临时凭据会话"
+      tags:
+        - "BrowserCredentials"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/credentials/browser-sessions/:id/connect:
+    get:
+      operationId: "connectBrowserCredentialSession"
+      summary: "连接浏览器临时 VNC"
+      tags:
+        - "BrowserCredentials"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "string"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/credentials/browser-sessions/:id/acquire:
+    post:
+      operationId: "acquireBrowserCredentialSession"
+      summary: "手动获取浏览器凭据"
+      tags:
+        - "BrowserCredentials"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/credentials/browser-sessions/:id/cancel:
+    post:
+      operationId: "cancelBrowserCredentialSession"
+      summary: "取消浏览器临时凭据会话"
+      tags:
+        - "BrowserCredentials"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/openapi.json:
     get:
       operationId: "getOpenApiDocument"
@@ -8747,6 +9363,8 @@ components:
         - "service"
         - "version"
         - "timestamp"
+        - "deploymentArchitecture"
+        - "features"
       properties:
         status:
           type: "string"
@@ -8764,6 +9382,19 @@ components:
           type: "object"
           additionalProperties:
             type: "string"
+        deploymentArchitecture:
+          type: "string"
+          enum:
+            - "small"
+            - "standard"
+        features:
+          type: "object"
+          required:
+            - "browserRuntime"
+          properties:
+            browserRuntime:
+              type: "boolean"
+          additionalProperties: false
     PageResponse:
       type: "object"
       required:
@@ -8803,4 +9434,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-05T08:10:33.850Z"
+x-generatedAt: "2026-08-06T05:52:43.389Z"
