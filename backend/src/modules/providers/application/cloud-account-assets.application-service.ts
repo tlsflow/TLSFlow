@@ -4,18 +4,19 @@ import type {
   CloudAccountAsset,
   CreateCloudAccountAssetInput,
   UpdateCloudAccountAssetInput,
+  ProviderDefinition,
 } from '../dto/providers.dto.js';
-import { ProviderExtensionRegistry, stableScopeHash } from '../domain/provider-extension.js';
+import { stableScopeHash } from '../domain/provider-shared.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 
 export class CloudAccountAssetsApplicationService {
   constructor(
     private readonly db: DatabasePort,
-    private readonly providers: ProviderExtensionRegistry,
+    private readonly providers: { requireDefinition(providerKey: string): ProviderDefinition | Promise<ProviderDefinition> },
   ) {}
 
   async create(tenantId: string, input: CreateCloudAccountAssetInput): Promise<CloudAccountAsset> {
-    this.providers.requireDefinition(input.providerKey);
+    await this.providers.requireDefinition(input.providerKey);
     validateCredentialRef(input.credentialRef);
     const scope = input.scope ?? {};
     const identity = `${input.providerKey}:${input.accountId ?? ''}:${stableScopeHash(scope)}`;

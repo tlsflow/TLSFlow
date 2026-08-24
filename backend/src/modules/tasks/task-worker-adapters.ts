@@ -13,7 +13,7 @@ import type { NotificationWorker } from '../notifications/application/notificati
 import type { ReportExportService } from '../reports/application/report-export.service.js';
 import type { CloudAccountAssetsApplicationService } from '../providers/application/cloud-account-assets.application-service.js';
 import type { ProviderOperationLedgerService } from '../providers/application/provider-operation-ledger.service.js';
-import type { ProviderTargetRef } from '../providers/domain/provider-extension.js';
+import type { ProviderTargetRef } from '../providers/dto/providers.dto.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
 

@@ -128,11 +128,10 @@ import {
   ProviderOperationLedgerService,
   ProviderCatalogApplicationService,
   ProvidersController,
-  createDefaultProviderRegistry,
-  createTrustedProviderExtensions,
   getProvidersRouteContracts,
 } from './modules/providers/index.js';
 import { SecretProviderCertificateMaterialResolver } from './modules/providers/runtime/provider-runtime.js';
+import { TrustedJsPluginExecutionService } from './modules/plugins/runtime/trusted-js-plugin-execution.service.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -242,29 +241,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
-  const providerRegistry = createDefaultProviderRegistry(createTrustedProviderExtensions(security.secrets, {
-    credentialProfileRepository: new CredentialsRepository(appDb),
-  }));
-  const providerCatalogService = new ProviderCatalogApplicationService(providerRegistry);
-  const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerRegistry);
-  const cloudProviderDiscoveryService = new CloudProviderDiscoveryApplicationService(appDb, providerCatalogService);
-  const providerOperationLedgerService = new ProviderOperationLedgerService(
-    appDb,
-    providerCatalogService,
-    new SecretProviderCertificateMaterialResolver(security.secrets),
-  );
-  new ProvidersController(
-    providerCatalogService,
-    cloudAccountAssetsService,
-    cloudProviderDiscoveryService,
-    providerOperationLedgerService,
-    tasksService,
-  ).register(app.router);
-  app.setResource('providerRegistry', providerRegistry);
-  app.setResource('providerCatalogService', providerCatalogService);
-  app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
-  app.setResource('cloudProviderDiscoveryService', cloudProviderDiscoveryService);
-  app.setResource('providerOperationLedgerService', providerOperationLedgerService);
   const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
   const deviceAssetsService = new DeviceAssetsApplicationService(deviceAssetsRepository);
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
@@ -292,6 +268,37 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     new PluginWorkflowBindingsRepository(appDb),
   );
+  let cloudAccountAssetsService!: CloudAccountAssetsApplicationService;
+  const trustedJsProviderRuntime = new TrustedJsPluginExecutionService({
+    db: appDb,
+    unifiedPlugins: unifiedPluginsService,
+    cloudAccounts: {
+      get: async (tenantId: string, id: string) => cloudAccountAssetsService.get(tenantId, id),
+    },
+    credentials: new CredentialsRepository(appDb),
+    secrets: security.secrets,
+    audit: security.audit,
+  });
+  const providerCatalogService = new ProviderCatalogApplicationService(trustedJsProviderRuntime);
+  cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
+  const cloudProviderDiscoveryService = new CloudProviderDiscoveryApplicationService(appDb, providerCatalogService);
+  const providerOperationLedgerService = new ProviderOperationLedgerService(
+    appDb,
+    providerCatalogService,
+    new SecretProviderCertificateMaterialResolver(security.secrets),
+  );
+  new ProvidersController(
+    providerCatalogService,
+    cloudAccountAssetsService,
+    cloudProviderDiscoveryService,
+    providerOperationLedgerService,
+    tasksService,
+  ).register(app.router);
+  app.setResource('providerCatalogService', providerCatalogService);
+  app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
+  app.setResource('cloudProviderDiscoveryService', cloudProviderDiscoveryService);
+  app.setResource('providerOperationLedgerService', providerOperationLedgerService);
+  app.setResource('trustedJsProviderRuntime', trustedJsProviderRuntime);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector, unifiedPluginsService);
   const executionResultSync = new ExecutionResultSyncService(
@@ -424,6 +431,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     workflowRecovery: workflowRecoveryService,
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,
+    trustedJsProviderRuntime,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans

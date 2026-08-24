@@ -10,18 +10,22 @@ import type {
   UnifiedPluginTrust,
 } from '../dto/unified-plugins.dto.js';
 
-export const unifiedPluginRuntimes = ['AGENT_ATOMIC', 'WORKFLOW_DSL'] as const satisfies readonly UnifiedPluginRuntime[];
 export const unifiedPluginSources = ['BUILTIN', 'USER'] as const satisfies readonly UnifiedPluginSource[];
 export const unifiedPluginScopes = ['MANAGED', 'STANDALONE', 'BOTH'] as const satisfies readonly UnifiedPluginScope[];
 export const unifiedPluginTrustLevels = ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] as const satisfies readonly UnifiedPluginTrust[];
 export const unifiedPluginSupportLevels = ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] as const satisfies readonly UnifiedPluginSupport[];
 
-const forbiddenResourceExtensions = ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue', '.ps1', '.sh', '.bat', '.cmd', '.exe'];
+export const trustedJsUnknownCodePermission = 'runtime.execute_unknown_code';
+
+export const unifiedPluginRuntimes = ['AGENT_ATOMIC', 'WORKFLOW_DSL', 'TRUSTED_JS'] as const satisfies readonly UnifiedPluginRuntime[];
+const executableCodeExtensions = ['.js', '.mjs', '.cjs'];
+const forbiddenExecutableExtensions = ['.ts', '.tsx', '.vue', '.ps1', '.sh', '.bat', '.cmd', '.exe', '.dll', '.so', '.dylib'];
 const maximumResourceCount = 500;
 const maximumResourceBytes = 20 * 1024 * 1024;
 const manifestKeys = new Set([
   'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'logoUrl', 'defaultLocale', 'publisher', 'runtime',
-  'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'credentialAcquire', 'permissions', 'compatibility', 'resources',
+  'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'providerKey', 'supportedProducts', 'supportedOperations',
+  'credentialAcquire', 'permissions', 'compatibility', 'resources',
 ]);
 
 export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginManifestV1 {
@@ -44,12 +48,25 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   if (runtime === 'WORKFLOW_DSL' && Object.keys(readStringMap(resources.workflows)).length === 0) {
     fail('resources.workflows', 'WORKFLOW_DSL 插件必须声明 Workflow DSL');
   }
+  const runtimeEntrypoint = readRuntimeEntrypoint(resources.runtimeEntrypoint);
+  const permissions = requireStringArray(manifest.permissions ?? [], 'permissions');
+  const providerMetadata = validateProviderPluginMetadata(manifest, runtime, capabilities);
+  if (runtime === 'TRUSTED_JS') {
+    if (!runtimeEntrypoint) fail('resources.runtimeEntrypoint', 'TRUSTED_JS 插件必须声明 runtimeEntrypoint');
+    if (trust !== 'OFFICIAL_SIGNED') fail('trust', 'TRUSTED_JS 插件当前只允许 OFFICIAL_SIGNED 信任级别');
+    if (!permissions.includes(trustedJsUnknownCodePermission)) {
+      fail('permissions', `TRUSTED_JS 插件必须声明 ${trustedJsUnknownCodePermission} 权限`);
+    }
+  } else if (runtimeEntrypoint) {
+    fail('resources.runtimeEntrypoint', '只有 TRUSTED_JS 插件可以声明 runtimeEntrypoint');
+  }
   const credentialAcquire = validateCredentialAcquire(manifest.credentialAcquire, capabilities);
   return {
     apiVersion: 'gcac.plugin-manifest/v1',
     kind: 'GcacPlugin',
     pluginId: requireString(manifest.pluginId, 'pluginId'),
     version: requireString(manifest.version, 'version'),
+    ...(providerMetadata?.providerKey ? { providerKey: providerMetadata.providerKey } : {}),
     displayNameKey: requireString(manifest.displayNameKey, 'displayNameKey'),
     descriptionKey: optionalString(manifest.descriptionKey, 'descriptionKey'),
     logoUrl: optionalLogoUrl(manifest.logoUrl),
@@ -62,12 +79,17 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     support,
     minGcacVersion: optionalString(manifest.minGcacVersion, 'minGcacVersion'),
     capabilities,
+    ...(providerMetadata ? {
+      supportedProducts: providerMetadata.supportedProducts,
+      supportedOperations: providerMetadata.supportedOperations,
+    } : {}),
     ...(credentialAcquire ? { credentialAcquire } : {}),
-    permissions: requireStringArray(manifest.permissions ?? [], 'permissions'),
+    permissions,
     compatibility: readCompatibility(manifest.compatibility),
     resources: {
       workflows: readStringMap(resources.workflows),
       agentRecipes: readStringMap(resources.agentRecipes),
+      ...(runtimeEntrypoint ? { runtimeEntrypoint } : {}),
       forms: readStringMap(resources.forms),
       presentations: readStringMap(resources.presentations),
       locales: readStringMap(resources.locales),
@@ -76,6 +98,39 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       actionAliases: readStringMap(resources.actionAliases),
     },
   };
+}
+
+function validateProviderPluginMetadata(
+  manifest: Record<string, unknown>,
+  runtime: UnifiedPluginRuntime,
+  capabilities: UnifiedPluginCapabilityDescriptor[],
+): Pick<UnifiedPluginManifestV1, 'providerKey' | 'supportedProducts' | 'supportedOperations'> | undefined {
+  const hasProviderMetadata = manifest.providerKey !== undefined
+    || manifest.supportedProducts !== undefined
+    || manifest.supportedOperations !== undefined;
+  if (!hasProviderMetadata) return undefined;
+  if (runtime !== 'TRUSTED_JS') {
+    fail('providerKey', '只有 TRUSTED_JS 插件可以声明 Provider 元数据');
+  }
+  const providerKey = requireString(manifest.providerKey, 'providerKey').trim();
+  if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(providerKey)) {
+    fail('providerKey', 'Provider Key 必须是类似 cloud.aliyun 的稳定命名空间');
+  }
+  const supportedProducts = uniqueNonEmptyStrings(requireStringArray(manifest.supportedProducts, 'supportedProducts'), 'supportedProducts');
+  const supportedOperations = uniqueNonEmptyStrings(requireStringArray(manifest.supportedOperations, 'supportedOperations'), 'supportedOperations');
+  if (supportedProducts.length === 0) fail('supportedProducts', 'Provider 插件至少声明一个产品');
+  if (supportedOperations.length === 0) fail('supportedOperations', 'Provider 插件至少声明一个操作');
+  const missingCapabilityOperations = capabilities
+    .map((item) => item.key)
+    .filter((key) => !supportedOperations.includes(key));
+  if (missingCapabilityOperations.length > 0) {
+    fail('supportedOperations', 'Provider 插件必须覆盖已声明能力对应的操作键', { missingCapabilityOperations });
+  }
+  const invalidProducts = supportedProducts.filter((item) => !item.startsWith(`${providerKey}.`));
+  if (invalidProducts.length > 0) {
+    fail('supportedProducts', 'Provider 插件产品键必须落在 providerKey 命名空间下', { invalidProducts, providerKey });
+  }
+  return { providerKey, supportedProducts, supportedOperations };
 }
 
 function validateCredentialAcquire(input: unknown, capabilities: UnifiedPluginCapabilityDescriptor[]): CredentialAcquireContract | undefined {
@@ -135,15 +190,13 @@ export function assertUnifiedPluginResources(manifest: UnifiedPluginManifestV1, 
   if (entries.length > maximumResourceCount) fail('resources', '资源文件数量超限', { maximumResourceCount });
   const totalBytes = entries.reduce((total, [, content]) => total + Buffer.byteLength(content, 'utf8'), 0);
   if (totalBytes > maximumResourceBytes) fail('resources', '资源总大小超限', { maximumResourceBytes });
-  const declared = Object.values(manifest.resources).flatMap((mapping) => Object.values(mapping ?? {}));
+  const declared = collectDeclaredResourcePaths(manifest);
   const missing = declared.filter((path) => !(path in resources));
   if (missing.length > 0) fail('resources', '插件资源缺失', { missing });
   for (const path of Object.keys(resources)) {
     const normalized = path.replaceAll('\\', '/');
     if (normalized.startsWith('/') || normalized.includes('../')) fail(`resources.${path}`, '资源路径不安全');
-    if (forbiddenResourceExtensions.some((extension) => normalized.toLowerCase().endsWith(extension))) {
-      fail(`resources.${path}`, '插件不得携带可执行代码');
-    }
+    assertResourceExtensionAllowed(manifest.runtime, normalized, path);
   }
 }
 
@@ -173,6 +226,7 @@ function validateResourceMaps(resources: Record<string, unknown>): void {
   for (const key of ['workflows', 'agentRecipes', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'actionAliases']) {
     readStringMap(resources[key], `resources.${key}`);
   }
+  readRuntimeEntrypoint(resources.runtimeEntrypoint);
 }
 
 function readCompatibility(input: unknown): UnifiedPluginManifestV1['compatibility'] {
@@ -197,6 +251,40 @@ function readStringMap(input: unknown, path = 'resources'): Record<string, strin
   return result;
 }
 
+function readRuntimeEntrypoint(input: unknown): string | undefined {
+  if (input === undefined) return undefined;
+  const value = requireString(input, 'resources.runtimeEntrypoint');
+  const normalized = value.replaceAll('\\', '/');
+  if (normalized.startsWith('/') || normalized.includes('../')) fail('resources.runtimeEntrypoint', '资源路径不安全');
+  return value;
+}
+
+function collectDeclaredResourcePaths(manifest: UnifiedPluginManifestV1): string[] {
+  const paths: string[] = [];
+  for (const [key, value] of Object.entries(manifest.resources)) {
+    if (!value) continue;
+    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+      paths.push(value);
+      continue;
+    }
+    if (typeof value === 'object') paths.push(...Object.values(value));
+  }
+  return [...new Set(paths)];
+}
+
+function assertResourceExtensionAllowed(runtime: UnifiedPluginRuntime, normalizedPath: string, originalPath: string): void {
+  const lower = normalizedPath.toLowerCase();
+  if (runtime === 'TRUSTED_JS') {
+    if (forbiddenExecutableExtensions.some((extension) => lower.endsWith(extension))) {
+      fail(`resources.${originalPath}`, 'TRUSTED_JS 插件不得携带宿主不可执行的脚本或二进制资源');
+    }
+    return;
+  }
+  if ([...executableCodeExtensions, ...forbiddenExecutableExtensions].some((extension) => lower.endsWith(extension))) {
+    fail(`resources.${originalPath}`, '普通插件不得携带可执行代码');
+  }
+}
+
 function requireRecord(input: unknown, path: string): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail(path, '必须是对象');
   return input as Record<string, unknown>;
@@ -218,6 +306,13 @@ function optionalString(input: unknown, path: string): string | undefined {
 
 function requireStringArray(input: unknown, path: string): string[] {
   return requireArray(input, path).map((item, index) => requireString(item, `${path}.${index}`));
+}
+
+function uniqueNonEmptyStrings(items: string[], path: string): string[] {
+  const normalized = items.map((item) => item.trim());
+  const duplicated = normalized.filter((item, index) => normalized.indexOf(item) !== index);
+  if (duplicated.length > 0) fail(path, '不能包含重复项', { duplicated: [...new Set(duplicated)] });
+  return normalized;
 }
 
 function requireEnum<T extends string>(input: unknown, allowed: readonly T[], path: string): T {

@@ -43,6 +43,15 @@ export interface ProviderCapabilityPlugin {
   enabled: boolean;
 }
 
+export interface ProviderTargetRef {
+  frameworkType: string;
+  resourceId: string;
+  domain?: string;
+  listenerId?: string;
+  certificateId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ProviderExtensionDescriptor {
   extensionKey: string;
   providerKey: string;

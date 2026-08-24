@@ -1,8 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
-import type { CloudAccountAsset, ProviderOperationResult } from '../dto/providers.dto.js';
-import type { ProviderTargetRef } from '../domain/provider-extension.js';
+import type { CloudAccountAsset, ProviderOperationResult, ProviderTargetRef } from '../dto/providers.dto.js';
 import { ProviderCatalogApplicationService } from './provider-catalog.application-service.js';
 import type { ProviderCertificateMaterialResolver } from '../runtime/provider-runtime.js';
 

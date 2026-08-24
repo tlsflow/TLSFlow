@@ -1,4 +1,4 @@
-export type UnifiedPluginRuntime = 'AGENT_ATOMIC' | 'WORKFLOW_DSL';
+export type UnifiedPluginRuntime = 'AGENT_ATOMIC' | 'WORKFLOW_DSL' | 'TRUSTED_JS';
 export type UnifiedPluginSource = 'BUILTIN' | 'USER';
 export type UnifiedPluginScope = 'MANAGED' | 'STANDALONE' | 'BOTH';
 export type UnifiedPluginTrust = 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED';
@@ -39,6 +39,7 @@ export interface UnifiedPluginManifestV1 {
   kind: 'GcacPlugin';
   pluginId: string;
   version: string;
+  providerKey?: string;
   displayNameKey: string;
   descriptionKey?: string;
   logoUrl?: string;
@@ -51,6 +52,8 @@ export interface UnifiedPluginManifestV1 {
   support: UnifiedPluginSupport;
   minGcacVersion?: string;
   capabilities: UnifiedPluginCapabilityDescriptor[];
+  supportedProducts?: string[];
+  supportedOperations?: string[];
   credentialAcquire?: CredentialAcquireContract;
   permissions: string[];
   compatibility?: {
@@ -64,6 +67,7 @@ export interface UnifiedPluginManifestV1 {
   resources: {
     workflows?: Record<string, string>;
     agentRecipes?: Record<string, string>;
+    runtimeEntrypoint?: string;
     forms?: Record<string, string>;
     presentations?: Record<string, string>;
     locales?: Record<string, string>;
@@ -145,6 +149,7 @@ export interface UnifiedPluginCatalogItem {
   pluginId: string;
   pluginVersionId: string;
   version: string;
+  providerKey?: string;
   name: string;
   displayNameKey: string;
   descriptionKey?: string;
@@ -165,6 +170,8 @@ export interface UnifiedPluginCatalogItem {
   scope: UnifiedPluginScope;
   trust: UnifiedPluginTrust;
   support: UnifiedPluginSupport;
+  supportedProducts: string[];
+  supportedOperations: string[];
   status: UnifiedPluginVersionStatus;
   capabilities: UnifiedPluginCapabilityDescriptor[];
   compatibility: UnifiedPluginManifestV1['compatibility'];
@@ -192,10 +199,13 @@ export interface UnifiedPluginVersionSummary {
   id: string;
   pluginId: string;
   version: string;
+  providerKey?: string;
   source: UnifiedPluginSource;
   runtime: UnifiedPluginRuntime;
   scope: UnifiedPluginScope;
   status: UnifiedPluginVersionStatus;
+  supportedProducts: string[];
+  supportedOperations: string[];
   packageSha256: string;
   manifestSha256: string;
   resourceSha256: Record<string, string>;

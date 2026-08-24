@@ -2310,6 +2310,9 @@ export class DeploymentPlansApplicationService {
     if (readOptionalString(runtimeCapability?.runtime) === 'WORKFLOW_DSL') {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
+    if (readOptionalString(runtimeCapability?.runtime) === 'TRUSTED_JS') {
+      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+    }
     throw new AppError('VALIDATION_FAILED', '受管目标缺少可执行的插件运行能力', {
       deploymentPlanTargetId: target.id,
       executionTargetId: target.executionTargetId,

@@ -1071,7 +1071,7 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
   }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
   const runtime = readString(payload.pluginRuntimeCapability, 'runtime');
-  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'AGENT_ATOMIC';
+  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'AGENT_ATOMIC' || runtime === 'TRUSTED_JS';
   if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
 }
@@ -1146,7 +1146,7 @@ function readSourceGatewayRoutes(
 function shouldSyncExecutorResult(executorType: string, runType: ExecutionRunEntity['type']): boolean {
   if (runType === 'dry_run') return false;
   if (executorType === 'CONTROL_PLANE_TLS') return true;
-  return executorType === 'WORKFLOW';
+  return executorType === 'WORKFLOW' || executorType === 'TRUSTED_JS';
 }
 
 function isTerminalRunStatus(status: ExecutionRunEntity['status']): boolean {
@@ -1175,6 +1175,9 @@ function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: E
       ?? readString(readRecord(readRecord(firstDetail?.backupManifest)?.certBackup), 'certificateFingerprintSha256'),
     installedCertificateSha256: readString(installDetail?.installedCertificateSha256)
       ?? readString(firstDetail?.installedCertificateSha256),
+    checkpoint: readRecord(installDetail?.checkpoint)
+      ?? readRecord(backupDetail?.checkpoint)
+      ?? readRecord(firstDetail?.checkpoint),
   };
 }
 

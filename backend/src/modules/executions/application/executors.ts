@@ -21,6 +21,7 @@ import { projectWorkflowBusinessSteps } from './workflow-business-step-projector
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
 import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
+import { TrustedJsPluginExecutionService } from '../../plugins/runtime/trusted-js-plugin-execution.service.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -102,6 +103,7 @@ export interface DefaultExecutorDependencies {
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
+  trustedJsProviderRuntime?: TrustedJsPluginExecutionService;
 }
 
 export class ExecutorRegistry {
@@ -169,6 +171,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler),
+    new TrustedJsExecutorAdapter(dependencies.trustedJsProviderRuntime),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
   ];
@@ -321,6 +324,65 @@ export class AgentExecutorAdapter implements Executor {
   }
 }
 
+export class TrustedJsExecutorAdapter implements Executor {
+  readonly type = 'TRUSTED_JS';
+
+  constructor(private readonly trustedJsProviderRuntime?: TrustedJsPluginExecutionService) {}
+
+  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
+    if (!this.trustedJsProviderRuntime) {
+      return { success: false, errorCode: 'TRUSTED_JS_RUNTIME_MISSING', errorMessage: 'TRUSTED_JS 执行器未接入 Provider Runtime' };
+    }
+    const tenantId = requireExecutionTenantId(input.step, 'trusted js provider execute');
+    const request = readRecord(input.step.inputSnapshot.trustedJsRequest);
+    if (!request) {
+      return { success: false, errorCode: 'TRUSTED_JS_REQUEST_REQUIRED', errorMessage: 'TRUSTED_JS 执行器缺少 trustedJsRequest' };
+    }
+    const assetId = stringFromSnapshot(request.cloudAccountAssetId);
+    const frameworkType = stringFromSnapshot(request.frameworkType);
+    const target = readRecord(request.target);
+    if (!assetId || !frameworkType || !target) {
+      return { success: false, errorCode: 'TRUSTED_JS_REQUEST_INVALID', errorMessage: 'TRUSTED_JS 请求缺少云账号、框架或目标' };
+    }
+    const operationKey = trustedJsOperationForStep(input.step.stepType, input.runType);
+    if (!operationKey) {
+      return { success: true, detail: { mode: 'trusted_js_skipped_stage', stepType: input.step.stepType } };
+    }
+    const operationInput = trustedJsOperationInput(input.step.inputSnapshot, input.runType);
+    const result = await this.trustedJsProviderRuntime.executeByAssetId({
+      tenantId,
+      assetId,
+      frameworkType,
+      operationKey,
+      target: target as any,
+      requestId: input.step.id,
+      input: operationInput,
+    });
+    if (result.status === 'SUCCESS') {
+      const summary = readRecord(result.resultSummary);
+      return {
+        success: true,
+        detail: {
+          executionMode: 'trusted_js',
+          providerOperation: result,
+          ...(summary?.checkpoint ? { checkpoint: summary.checkpoint } : {}),
+          ...(operationKey === 'certificate.rollback' ? { rolledBack: true } : {}),
+        },
+      };
+    }
+    return {
+      success: false,
+      errorCode: result.status === 'MANUAL_REQUIRED' ? 'TRUSTED_JS_MANUAL_REQUIRED' : `TRUSTED_JS_${result.status}`,
+      errorMessage: trustedJsFailureMessage(result),
+      detail: {
+        executionMode: 'trusted_js',
+        manualRequired: result.status === 'MANUAL_REQUIRED',
+        providerOperation: result,
+      },
+    };
+  }
+}
+
 function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(snapshot)) payload[key] = value;
@@ -328,6 +390,42 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
   payload.runType = input.runType;
   payload.dryRun = input.dryRun;
   return payload;
+}
+
+function trustedJsOperationForStep(stepType: StepExecutionInput['step']['stepType'], runType: StepExecutionInput['runType']): 'certificate.discover' | 'certificate.deploy' | 'certificate.rollback' | undefined {
+  if (stepType === 'INSTALL') return 'certificate.deploy';
+  if (stepType === 'ROLLBACK' || (runType === 'rollback' && stepType === 'CUSTOM')) return 'certificate.rollback';
+  if (stepType === 'DISCOVER') return 'certificate.discover';
+  return undefined;
+}
+
+function trustedJsOperationInput(snapshot: Record<string, unknown>, runType: StepExecutionInput['runType']): Record<string, unknown> {
+  const detail = readRecord(snapshot.resultDetail);
+  const rollbackContext = readRecord(snapshot.rollbackContext);
+  const checkpoint = readRecord(rollbackContext?.checkpoint)
+    ?? readRecord(detail?.checkpoint);
+  const artifact = readRecord(snapshot.deploymentArtifact);
+  const input: Record<string, unknown> = {};
+  if (artifact) {
+    const chainPem = stringFromSnapshot(artifact.certificateChainPem) ?? stringFromSnapshot(artifact.chainPem);
+    const certificatePem = stringFromSnapshot(artifact.certificatePem);
+    const privateKeyPem = stringFromSnapshot(artifact.privateKeyPem);
+    const certificateId = stringFromSnapshot(artifact.certificateId);
+    if (certificatePem) input.certificatePem = certificatePem;
+    if (privateKeyPem) input.privateKeyPem = privateKeyPem;
+    if (chainPem) input.chainPem = chainPem;
+    if (certificateId) input.certificateId = certificateId;
+  }
+  if (runType === 'rollback' && checkpoint) input.checkpoint = checkpoint;
+  return input;
+}
+
+function trustedJsFailureMessage(result: { status: string; resultSummary?: Record<string, unknown> }): string {
+  const message = stringFromSnapshot(readRecord(result.resultSummary)?.message);
+  if (message) return message;
+  if (result.status === 'MANUAL_REQUIRED') return 'TRUSTED_JS 插件要求人工确认或人工回滚';
+  if (result.status === 'TIMEOUT') return 'TRUSTED_JS 插件执行超时';
+  return 'TRUSTED_JS 插件执行失败';
 }
 
 function isSuccessfulAtomicDryRun(detail: Record<string, unknown> | undefined): boolean {

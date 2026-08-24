@@ -5,7 +5,7 @@ import { CredentialsRepository } from '../../credentials/repository/credentials.
 import type { CloudAccountAsset, ProviderScope } from '../dto/providers.dto.js';
 
 export interface ProviderHttpRequest {
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
   url: string;
   headers?: Record<string, string>;
   body?: string;

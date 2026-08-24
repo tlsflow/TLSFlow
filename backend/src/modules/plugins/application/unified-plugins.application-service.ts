@@ -4,6 +4,7 @@ import { newId } from '../../../shared/id.js';
 import type {
   ImportUnifiedPluginVersionInput,
   UnifiedPluginCatalogItem,
+  UnifiedPluginManifestV1,
   UnifiedPluginReferenceCounts,
   UnifiedPluginSource,
   UnifiedPluginUpgradeDiff,
@@ -16,7 +17,7 @@ import type {
 } from '../dto/unified-plugins.dto.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
-import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
+import { assertUnifiedPluginResources, trustedJsUnknownCodePermission, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
@@ -59,7 +60,8 @@ export class UnifiedPluginsApplicationService {
       }
       return existing;
     }
-    const permissionApprovalStatus = manifest.permissions.length === 0 ? 'NOT_REQUIRED' : 'PENDING';
+    const requiredPermissions = requiredApprovalPermissions(manifest);
+    const permissionApprovalStatus = requiredPermissions.length === 0 ? 'NOT_REQUIRED' : 'PENDING';
     const validationReport: UnifiedPluginValidationReport = {
       valid: true,
       errors: [],
@@ -182,7 +184,7 @@ export class UnifiedPluginsApplicationService {
 
   async approvePermissions(id: string, permissions: string[]): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
-    const declared = new Set(record.manifest.permissions);
+    const declared = new Set(requiredApprovalPermissions(record.manifest));
     const unknown = permissions.filter((permission) => !declared.has(permission));
     if (unknown.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', '审批权限超过插件声明范围', { unknown });
     return this.repository.saveVersion({
@@ -197,7 +199,7 @@ export class UnifiedPluginsApplicationService {
   async enableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
     const approved = new Set(record.approvedPermissions);
-    const missing = record.manifest.permissions.filter((permission) => !approved.has(permission));
+    const missing = requiredApprovalPermissions(record.manifest).filter((permission) => !approved.has(permission));
     if (missing.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', '插件权限尚未完成审批', { missing });
     return this.repository.saveVersion({ ...record, status: 'ENABLED', updatedAt: new Date().toISOString() });
   }
@@ -233,9 +235,15 @@ export class UnifiedPluginsApplicationService {
     };
   }
 
-  async listCatalog(tenantId: string, locale = 'zh-CN'): Promise<UnifiedPluginCatalogItem[]> {
+  async listCatalog(
+    tenantId: string,
+    locale = 'zh-CN',
+    filters: { runtime?: UnifiedPluginManifestV1['runtime']; providerKey?: string } = {},
+  ): Promise<UnifiedPluginCatalogItem[]> {
     const versions = (await this.listAccessibleVersions(tenantId))
-      .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED');
+      .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED')
+      .filter((record) => !filters.runtime || record.runtime === filters.runtime)
+      .filter((record) => !filters.providerKey || record.manifest.providerKey === filters.providerKey);
     const versionsByPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
     for (const record of versions) {
       versionsByPlugin.set(record.pluginId, [...(versionsByPlugin.get(record.pluginId) ?? []), record]);
@@ -294,10 +302,13 @@ export class UnifiedPluginsApplicationService {
       id: version.id,
       pluginId: version.pluginId,
       version: version.version,
+      ...(version.manifest.providerKey ? { providerKey: version.manifest.providerKey } : {}),
       source: version.source,
       runtime: version.runtime,
       scope: version.scope,
       status: version.status,
+      supportedProducts: [...(version.manifest.supportedProducts ?? [])],
+      supportedOperations: [...(version.manifest.supportedOperations ?? [])],
       packageSha256: version.packageSha256,
       manifestSha256: version.manifestSha256,
       resourceSha256: version.resourceSha256,
@@ -322,6 +333,7 @@ export class UnifiedPluginsApplicationService {
         pluginId: record.pluginId,
         pluginVersionId: record.id,
         version: record.version,
+        ...(record.manifest.providerKey ? { providerKey: record.manifest.providerKey } : {}),
         name: record.pluginId,
         displayNameKey: record.manifest.displayNameKey,
         descriptionKey: record.manifest.descriptionKey,
@@ -342,6 +354,8 @@ export class UnifiedPluginsApplicationService {
         scope: record.scope,
         trust: record.trust,
         support: record.support,
+        supportedProducts: [...(record.manifest.supportedProducts ?? [])],
+        supportedOperations: [...(record.manifest.supportedOperations ?? [])],
         status: record.status,
         capabilities: record.manifest.capabilities,
         compatibility: record.manifest.compatibility,
@@ -398,7 +412,9 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
 } {
   const resourcePaths = record.runtime === 'AGENT_ATOMIC'
     ? Object.values(record.manifest.resources.agentRecipes ?? {})
-    : Object.values(record.manifest.resources.workflows ?? {});
+    : record.runtime === 'WORKFLOW_DSL'
+      ? Object.values(record.manifest.resources.workflows ?? {})
+      : [];
   let stepCount = 0;
   let rollbackCount = 0;
   let configuration: UnifiedPluginCatalogItem['configuration'];
@@ -426,6 +442,12 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
     }
   }
   return { stepCount, rollbackCount, configuration };
+}
+
+function requiredApprovalPermissions(manifest: UnifiedPluginManifestV1): string[] {
+  const permissions = new Set(manifest.permissions);
+  if (manifest.runtime === 'TRUSTED_JS') permissions.add(trustedJsUnknownCodePermission);
+  return [...permissions];
 }
 
 function readRecordField(value: unknown): Record<string, unknown> {

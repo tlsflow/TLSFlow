@@ -77,7 +77,12 @@ export class PluginsController {
 
   private async listCatalog(request: HttpRequest) {
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
-    const items = await this.unifiedPlugins.listCatalog(tenantId(request), locale);
+    const runtime = queryFilterString(request, 'runtime');
+    const providerKey = queryFilterString(request, 'providerKey');
+    const items = await this.unifiedPlugins.listCatalog(tenantId(request), locale, {
+      ...(runtime ? { runtime: runtime as 'AGENT_ATOMIC' | 'WORKFLOW_DSL' | 'TRUSTED_JS' } : {}),
+      ...(providerKey ? { providerKey } : {}),
+    });
     return { items, page: 1, pageSize: items.length, total: items.length };
   }
 
@@ -391,6 +396,10 @@ export function getPluginsRouteContracts(): RouteContract[] {
 
 function queryString(request: HttpRequest, key: string): string | undefined {
   return typeof request.query[key] === 'string' ? request.query[key] : undefined;
+}
+
+function queryFilterString(request: HttpRequest, key: string): string | undefined {
+  return queryString(request, `filter[${key}]`);
 }
 
 function objectSchema() {

@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { DatabasePort, QueryResult } from '../../../database/database-port.js';
-import type { CloudAccountAsset, ProviderOperationResult } from '../dto/providers.dto.js';
-import type { ProviderTargetRef } from '../domain/provider-extension.js';
+import type { CloudAccountAsset, ProviderOperationResult, ProviderTargetRef } from '../dto/providers.dto.js';
 import { ProviderOperationLedgerService } from './provider-operation-ledger.service.js';
 import type { ProviderCatalogApplicationService } from './provider-catalog.application-service.js';
 

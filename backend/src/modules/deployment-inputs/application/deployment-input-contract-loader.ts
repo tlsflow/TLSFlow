@@ -6,6 +6,9 @@ import { validateDeploymentInputContractV1 } from '../schema/deployment-input-co
 
 export class DeploymentInputContractLoader {
   fromPlugin(plugin: UnifiedPluginVersionRecord, capabilityKey: string): DeploymentInputContractV1 {
+    if (plugin.runtime === 'TRUSTED_JS') {
+      throw new AppError('VALIDATION_FAILED', 'TRUSTED_JS 插件暂不通过 Workflow 方式加载部署输入契约', { pluginVersionId: plugin.id, capabilityKey });
+    }
     const path = plugin.runtime === 'AGENT_ATOMIC'
       ? plugin.manifest.resources.agentRecipes?.[capabilityKey]
       : plugin.manifest.resources.workflows?.[capabilityKey];

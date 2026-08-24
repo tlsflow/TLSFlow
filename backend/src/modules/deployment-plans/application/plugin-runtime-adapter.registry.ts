@@ -18,7 +18,7 @@ export interface RuntimeCompileInput {
 }
 
 export interface RuntimeExecutionRequest {
-  executorType: 'AGENT' | 'WORKFLOW';
+  executorType: 'AGENT' | 'WORKFLOW' | 'TRUSTED_JS';
   executionTargetId: string;
   requiredCapabilities: string[];
   gatewayRoute?: {
@@ -150,10 +150,55 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
   }
 }
 
+export class TrustedJsRuntimeAdapter implements PluginRuntimeAdapter {
+  readonly runtime = 'TRUSTED_JS' as const;
+
+  supports(capability: ResolvedDeploymentCapability): boolean {
+    return capability.pluginRuntime === this.runtime;
+  }
+
+  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    const cloudAccountAssetId = input.context.managedTarget.assetId;
+    if (!cloudAccountAssetId) {
+      throw new AppError('CAPABILITY_MISSING', 'TRUSTED_JS Runtime 缺少云账号资产引用', {
+        pluginVersionId: input.capability.pluginVersionId,
+        capabilityKey: input.capability.assignment.capabilityKey,
+        managedTargetId: input.context.managedTarget.id,
+      });
+    }
+    const frameworkType = input.context.frameworkType
+      ?? input.capability.plugin.manifest.supportedProducts?.[0]
+      ?? input.context.managedTarget.metadata.frameworkType as string | undefined;
+    if (!frameworkType) {
+      throw new AppError('CAPABILITY_MISSING', 'TRUSTED_JS Runtime 缺少目标框架类型', {
+        pluginVersionId: input.capability.pluginVersionId,
+        managedTargetId: input.context.managedTarget.id,
+      });
+    }
+    return {
+      executorType: 'TRUSTED_JS',
+      executionTargetId: input.context.managedTarget.id,
+      requiredCapabilities: [input.capability.assignment.capabilityKey],
+      payload: {
+        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        certificateVerification: hostCertificateVerification(input),
+        resolvedDeploymentInput: input.resolvedInput,
+        trustedJsRequest: {
+          cloudAccountAssetId,
+          providerKey: input.capability.plugin.manifest.providerKey,
+          frameworkType,
+          target: buildTrustedJsTarget(input, frameworkType),
+        },
+      },
+    };
+  }
+}
+
 export function createDefaultPluginRuntimeAdapterRegistry(): PluginRuntimeAdapterRegistry {
   return new PluginRuntimeAdapterRegistry()
     .register(new AgentAtomicRuntimeAdapter())
-    .register(new WorkflowDslRuntimeAdapter());
+    .register(new WorkflowDslRuntimeAdapter())
+    .register(new TrustedJsRuntimeAdapter());
 }
 
 function immutableCapabilitySnapshot(capability: ResolvedDeploymentCapability) {
@@ -168,5 +213,23 @@ function immutableCapabilitySnapshot(capability: ResolvedDeploymentCapability) {
     runtime: capability.pluginRuntime,
     executionLocation: capability.executionLocation,
     capabilityKey: capability.assignment.capabilityKey,
+  };
+}
+
+function buildTrustedJsTarget(input: RuntimeCompileInput, frameworkType: string): Record<string, unknown> {
+  const domain = input.context.siteAsset?.hostHeader
+    ?? input.applicationAsset.sniName
+    ?? input.applicationAsset.address;
+  const metadata = Object.keys(input.context.managedTarget.metadata ?? {}).length > 0
+    ? structuredClone(input.context.managedTarget.metadata)
+    : {};
+  return {
+    frameworkType,
+    resourceId: input.context.managedTarget.targetKey,
+    ...(domain ? { domain } : {}),
+    ...(typeof input.context.managedTarget.metadata.listenerId === 'string'
+      ? { listenerId: input.context.managedTarget.metadata.listenerId }
+      : {}),
+    metadata,
   };
 }

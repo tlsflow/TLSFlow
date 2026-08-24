@@ -22,7 +22,7 @@ export class ProvidersController {
   ) {}
 
   register(router: Router): void {
-    router.get('/api/v1/providers', '查询云服务 Provider', tags, () => ({ items: this.catalog.listProviders() }));
+    router.get('/api/v1/providers', '查询云服务 Provider', tags, async (request) => ({ items: await this.catalog.listProviders(requireTenantId(request)) }));
     router.get('/api/v1/providers/:providerKey/capabilities', '查询 Provider 产品能力', tags, (request) => this.listCapabilities(request));
     router.get('/api/v1/provider-capability-plugins', '查询 Provider 能力插件', tags, (request) => this.listCapabilities(request));
     router.get('/api/v1/cloud-account-assets', '查询云账号资产', tags, (request) => this.cloudAccounts.list(requireTenantId(request)));
@@ -35,10 +35,10 @@ export class ProvidersController {
     router.post('/api/v1/cloud-account-assets/:id/execute-task', '提交 Provider 能力任务', tags, (request) => this.enqueueExecute(request));
   }
 
-  private listCapabilities(request: HttpRequest) {
+  private async listCapabilities(request: HttpRequest) {
     const providerKey = providerKeyFromPath(request) ?? optionalString(request.query.providerKey);
     return {
-      items: this.catalog.listCapabilities({
+      items: await this.catalog.listCapabilities(requireTenantId(request), {
         providerKey,
         frameworkType: optionalString(request.query.frameworkType),
         operationKey: optionalString(request.query.operationKey),
