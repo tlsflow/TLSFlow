@@ -35,3 +35,7 @@ export function createCertificateFormat(payload: ApiBody) {
 export function requestCertificateFormatExport(payload: ApiBody) {
   return postAction(`${CERTIFICATE_FORMATS_PATH}/export-plan`, payload, 'certificate_format_export')
 }
+
+export function generateCertificateFormatExport(payload: ApiBody) {
+  return postAction(`${CERTIFICATE_FORMATS_PATH}/export`, payload, 'certificate_format_generate')
+}

@@ -5,6 +5,8 @@ const HOSTS_PATH = '/api/v1/hosts'
 const SERVICE_INSTANCES_PATH = '/api/v1/service-instances'
 const DISCOVERY_RUNS_PATH = '/api/v1/discovery-runs'
 const CAPABILITIES_PATH = '/api/v1/capabilities/definitions'
+const CAPABILITY_DECLARATIONS_PATH = '/api/v1/capabilities/declarations'
+const CAPABILITY_REQUIREMENTS_PATH = '/api/v1/capabilities/requirements'
 const AGENTS_PATH = '/api/v1/agents'
 
 export function listAssets(query?: BusinessListQuery) {
@@ -41,6 +43,30 @@ export function deleteServiceInstance(serviceInstanceId: string, payload: ApiBod
 
 export function listCapabilities(query?: BusinessListQuery) {
   return listRecords(CAPABILITIES_PATH, query)
+}
+
+export function listCapabilityDeclarations(query?: BusinessListQuery) {
+  return listRecords(CAPABILITY_DECLARATIONS_PATH, query)
+}
+
+export function createManualCapabilityDeclaration(payload: ApiBody) {
+  return postAction(`${CAPABILITY_DECLARATIONS_PATH}/manual`, payload, 'capability_manual_declaration')
+}
+
+export function listCapabilityRequirements(query?: BusinessListQuery) {
+  return listRecords(CAPABILITY_REQUIREMENTS_PATH, query)
+}
+
+export function createCapabilityRequirement(payload: ApiBody) {
+  return postAction(CAPABILITY_REQUIREMENTS_PATH, payload, 'capability_requirement_create')
+}
+
+export function matchCapabilityRequirement(payload: ApiBody) {
+  return postAction('/api/v1/capabilities/match', payload, 'capability_match')
+}
+
+export function evaluateCapabilityCompatibility(payload: ApiBody) {
+  return postAction('/api/v1/capabilities/compatibility/evaluate', payload, 'capability_compatibility_evaluate')
 }
 
 export function listAgents(query?: BusinessListQuery) {

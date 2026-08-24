@@ -9,8 +9,11 @@ const assetMocks = vi.hoisted(() => ({
   createHost: vi.fn(),
   updateHost: vi.fn(),
   deleteHost: vi.fn(),
+  deleteServiceInstance: vi.fn(),
   listAssets: vi.fn(),
   listCapabilities: vi.fn(),
+  matchCapabilityRequirement: vi.fn(),
+  evaluateCapabilityCompatibility: vi.fn(),
   listServiceInstances: vi.fn(),
   createServiceInstance: vi.fn(),
   updateServiceInstance: vi.fn(),
@@ -22,6 +25,10 @@ const bindingMocks = vi.hoisted(() => ({
   listBindings: vi.fn(),
   createBinding: vi.fn(),
   detectBindingDrift: vi.fn(),
+  persistBindingDriftResult: vi.fn(),
+  listBindingUsages: vi.fn(),
+  patchBindingStatus: vi.fn(),
+  deleteBinding: vi.fn(),
   verifyBinding: vi.fn()
 }))
 
@@ -126,10 +133,20 @@ describe('Spec028 资产和绑定操作链路', () => {
     assetMocks.listCapabilities.mockResolvedValue(okPage([
       { id: 'cap-1', key: 'file.write', name: '文件写入', confidence: 'high', updatedAt: '2026-06-09T00:00:00.000Z', description: '可写证书文件' }
     ]))
+    assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({
+      satisfiedCapabilities: [{ key: 'certificate.read', name: '读取证书', level: 'L2' }],
+      missingCapabilities: [{ key: 'service.reload', name: '重载服务', level: 'L4', missingReason: '缺少 reload 权限', recommendation: '改走 Gateway' }]
+    }, 'req_cap_match'))
+    assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({
+      compatibilityLevel: 'L4',
+      degradeAdvice: '建议走 Gateway 或脚本包',
+      manualDeclarations: [{ key: 'manual.reload', name: '人工声明 reload', level: 'L4', source: 'manual' }]
+    }, 'req_cap_eval'))
     assetMocks.createHost.mockResolvedValue(okRecord({ id: 'host-new' }, 'req_host_create'))
     assetMocks.updateHost.mockResolvedValue(okRecord({ id: 'host-1' }, 'req_host_update'))
     assetMocks.deleteHost.mockResolvedValue(okRecord({ id: 'host-1' }, 'req_host_delete'))
     assetMocks.createServiceInstance.mockResolvedValue(okRecord({ id: 'svc-new' }, 'req_svc_create'))
+    assetMocks.deleteServiceInstance.mockResolvedValue(okRecord({ id: 'svc-1' }, 'req_svc_delete'))
     assetMocks.previewDiscoveryMerge.mockResolvedValue(okRecord({
       actions: [{ kind: 'host', action: 'conflict', identityKey: 'host:web-01.example.com', reason: 'displayName 冲突' }],
       conflicts: [{ kind: 'host', identityKey: 'host:web-01.example.com', field: 'displayName', currentValue: 'Web 01', discoveredValue: '发现 Web 01', reason: '人工字段冲突' }]
@@ -151,6 +168,12 @@ describe('Spec028 资产和绑定操作链路', () => {
     ]))
     bindingMocks.createBinding.mockResolvedValue(okRecord({ id: 'binding-new' }, 'req_binding_create'))
     bindingMocks.detectBindingDrift.mockResolvedValue(okRecord({ state: 'mismatch' }, 'req_drift'))
+    bindingMocks.persistBindingDriftResult.mockResolvedValue(okRecord({ state: 'mismatch' }, 'req_drift_save'))
+    bindingMocks.listBindingUsages.mockResolvedValue(okPage([
+      { id: 'usage-1', bindingId: 'binding-1', hostId: 'host-1', serviceInstanceId: 'svc-1', domainName: 'www.example.com', driftStatus: 'DRIFTED' }
+    ]))
+    bindingMocks.patchBindingStatus.mockResolvedValue(okRecord({ id: 'binding-1', status: 'MANAGED' }, 'req_binding_status'))
+    bindingMocks.deleteBinding.mockResolvedValue(okRecord({ id: 'binding-1' }, 'req_binding_delete'))
     bindingMocks.verifyBinding.mockResolvedValue(okRecord({ state: 'unknown' }, 'req_verify'))
   })
 
@@ -190,6 +213,9 @@ describe('Spec028 资产和绑定操作链路', () => {
 
     expect(wrapper.text()).toContain('Capability 最小矩阵')
     expect(wrapper.text()).toContain('文件写入')
+    expect(wrapper.text()).toContain('缺少 reload 权限')
+    expect(assetMocks.matchCapabilityRequirement).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'host-1' }))
+    expect(assetMocks.evaluateCapabilityCompatibility).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'host-1' }))
     expect(wrapper.text()).toContain('nginx-main')
 
     await clickButtonByText(wrapper, '编辑 Host')
@@ -210,6 +236,9 @@ describe('Spec028 资产和绑定操作链路', () => {
       displayName: 'tomcat-main',
       rawFacts: { ports: [8443, 9443], manualOverrides: { restart: 'manual' } }
     }))
+
+    await clickButtonByText(wrapper, '软删除服务实例')
+    expect(assetMocks.deleteServiceInstance).toHaveBeenCalledWith('svc-1', expect.objectContaining({ reason: 'manual_soft_delete_from_console', hostId: 'host-1' }))
   })
 
   it('发现冲突入口展示当前值、发现值并支持 keep/use/custom', async () => {
@@ -245,6 +274,11 @@ describe('Spec028 资产和绑定操作链路', () => {
     await setInputValue('.binding-form input', 'svc-1')
     await clickButtonByText(wrapper, '预览漂移')
     expect(document.body.textContent).toContain('mismatch')
+    await clickButtonByText(wrapper, '保存验证结果')
+    expect(bindingMocks.persistBindingDriftResult).toHaveBeenCalledWith(expect.objectContaining({
+      bindingId: 'binding-1',
+      serviceInstanceId: 'svc-1'
+    }))
 
     await clickButtonByText(wrapper, '确认新增')
     expect(bindingMocks.createBinding).toHaveBeenCalledWith(expect.objectContaining({
@@ -259,6 +293,11 @@ describe('Spec028 资产和绑定操作链路', () => {
       observedFingerprintSha256: 'b'.repeat(64),
       metadata: { localFingerprintSha256: 'c'.repeat(64), remoteFingerprintSha256: 'd'.repeat(64) }
     }))
+    expect(bindingMocks.listBindingUsages).toHaveBeenCalledWith(expect.objectContaining({
+      filters: expect.objectContaining({ bindingId: 'binding-1' })
+    }))
+    expect(wrapper.text()).toContain('使用关系/影响范围')
+    expect(wrapper.text()).toContain('www.example.com')
   })
 
   it('绑定创建失败时展示错误 requestId，且无权限隐藏主按钮', async () => {

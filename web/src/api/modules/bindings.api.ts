@@ -15,13 +15,29 @@ export function detectBindingDrift(payload: ApiBody) {
   return postAction(`${CERTIFICATE_BINDINGS_PATH}/drift`, payload, 'binding_drift')
 }
 
+export function persistBindingDriftResult(payload: ApiBody) {
+  return postAction(`${CERTIFICATE_BINDINGS_PATH}/drift-results`, payload, 'binding_drift_result')
+}
+
+export function listBindingUsages(query?: BusinessListQuery) {
+  return listRecords(`${CERTIFICATE_BINDINGS_PATH}/usage`, query)
+}
+
+export function updateBinding(bindingId: string, payload: ApiBody) {
+  return patchAction(CERTIFICATE_BINDINGS_PATH, { ...payload, id: bindingId }, 'binding_update')
+}
+
 export function patchBindingStatus(bindingId: string, status: string, payload: ApiBody = {}) {
   return patchAction(`${CERTIFICATE_BINDINGS_PATH}/status`, { ...payload, bindingId, status }, 'binding_status')
 }
 
+export function deleteBinding(bindingId: string, payload: ApiBody = {}) {
+  return postAction(`${CERTIFICATE_BINDINGS_PATH}/delete`, { ...payload, bindingId }, 'binding_delete')
+}
+
 export function verifyBinding(bindingId: string, payload: ApiBody = {}) {
-  // 中文说明：当前后端没有单资源 verify 路由，前端用 drift action 做最小验证入口，避免请求不存在的私有路径。
-  return detectBindingDrift({ bindingId, ...payload })
+  // 中文说明：后端暴露的是集合 action，不拼单资源私有路径。
+  return persistBindingDriftResult({ bindingId, ...payload })
 }
 
 function patchAction(path: string, body: ApiBody = {}, idempotencyPrefix = 'action'): Promise<ApiRecordResult> {

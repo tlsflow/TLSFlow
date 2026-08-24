@@ -6,8 +6,8 @@ import {
   listCertificates,
   requestCertificateFormatExport
 } from '@/api/modules/certificates.api'
-import { createHost, createServiceInstance, deleteHost, listAssets, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
-import { createBinding, detectBindingDrift, listBindings, patchBindingStatus } from '@/api/modules/bindings.api'
+import { createHost, createServiceInstance, deleteHost, deleteServiceInstance, evaluateCapabilityCompatibility, listAssets, matchCapabilityRequirement, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
+import { createBinding, deleteBinding, detectBindingDrift, listBindingUsages, listBindings, patchBindingStatus, persistBindingDriftResult } from '@/api/modules/bindings.api'
 import { executeDeploymentPlan, listDeploymentPlans } from '@/api/modules/deployments.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listAudits } from '@/api/modules/audits.api'
@@ -158,9 +158,15 @@ describe('业务 API modules', () => {
     await deleteHost('host-1')
     await createServiceInstance({ hostId: 'host-1', providerType: 'NGINX', displayName: 'nginx-main' })
     await updateServiceInstance('svc-1', { configPath: '/etc/nginx/nginx.conf' })
+    await deleteServiceInstance('svc-1', { reason: 'manual' })
+    await matchCapabilityRequirement({ targetId: 'host-1', requiredCapabilities: ['service.reload'] })
+    await evaluateCapabilityCompatibility({ targetId: 'host-1', operation: 'deploy' })
     await createBinding({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem', verifyMethod: 'TLS_CONNECT' })
     await detectBindingDrift({ remoteFingerprintSha256: 'a'.repeat(64), desiredFingerprintSha256: 'a'.repeat(64) })
+    await persistBindingDriftResult({ bindingId: 'binding-1', remoteFingerprintSha256: 'a'.repeat(64) })
     await patchBindingStatus('binding-1', 'MANAGED')
+    await deleteBinding('binding-1', { reason: 'manual' })
+    await listBindingUsages({ filters: { bindingId: 'binding-1' } })
     await previewDiscoveryMerge({ normalizedHash: 'hash-ui', normalizedPayload: { hosts: [] } })
 
     const calls = vi.mocked(fetch).mock.calls
@@ -169,19 +175,27 @@ describe('业务 API modules', () => {
       '/api/v1/hosts/delete',
       '/api/v1/service-instances',
       '/api/v1/service-instances',
+      '/api/v1/service-instances/delete',
+      '/api/v1/capabilities/match',
+      '/api/v1/capabilities/compatibility/evaluate',
       '/api/v1/certificate-bindings',
       '/api/v1/certificate-bindings/drift',
+      '/api/v1/certificate-bindings/drift-results',
       '/api/v1/certificate-bindings/status',
+      '/api/v1/certificate-bindings/delete',
+      '/api/v1/certificate-bindings/usage?page=1&pageSize=20&filter%5BbindingId%5D=binding-1',
       '/api/v1/discovery-snapshots/merge-preview'
     ])
     expect(calls[0]?.[1]?.method).toBe('PATCH')
     expect(calls[3]?.[1]?.method).toBe('PATCH')
-    expect(calls[6]?.[1]?.method).toBe('PATCH')
+    expect(calls[10]?.[1]?.method).toBe('PATCH')
     expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({ id: 'host-1', hostname: 'web-01', zoneId: 'zone-a', arch: 'arm64' })
-    expect(JSON.parse(String(calls[4]?.[1]?.body))).toMatchObject({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem' })
-    expect(JSON.parse(String(calls[6]?.[1]?.body))).toMatchObject({ bindingId: 'binding-1', status: 'MANAGED' })
-    expect((calls[4]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^binding_create_/)
-    expect((calls[7]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^discovery_merge_preview_/)
+    expect(JSON.parse(String(calls[4]?.[1]?.body))).toMatchObject({ id: 'svc-1', reason: 'manual' })
+    expect(JSON.parse(String(calls[7]?.[1]?.body))).toMatchObject({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem' })
+    expect(JSON.parse(String(calls[10]?.[1]?.body))).toMatchObject({ bindingId: 'binding-1', status: 'MANAGED' })
+    expect(JSON.parse(String(calls[11]?.[1]?.body))).toMatchObject({ bindingId: 'binding-1', reason: 'manual' })
+    expect((calls[7]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^binding_create_/)
+    expect((calls[13]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^discovery_merge_preview_/)
   })
 
 })

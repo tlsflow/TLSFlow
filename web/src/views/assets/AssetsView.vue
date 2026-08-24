@@ -8,9 +8,12 @@ import {
   createHost,
   createServiceInstance,
   deleteHost,
+  deleteServiceInstance,
+  evaluateCapabilityCompatibility,
   listAssets,
   listCapabilities,
   listServiceInstances,
+  matchCapabilityRequirement,
   previewDiscoveryMerge,
   startDiscovery,
   updateHost,
@@ -86,6 +89,7 @@ const capabilityLoading = ref(false)
 const capabilityRequestId = ref('')
 const capabilityError = ref('')
 const capabilityItems = ref<CapabilityMatrixItem[]>([])
+const capabilityEvaluation = ref<ApiRecord | null>(null)
 
 const hostDraft = reactive<HostDraft>(emptyHostDraft())
 const serviceDraft = reactive<ServiceDraft>(emptyServiceDraft())
@@ -388,6 +392,23 @@ async function submitService() {
   }
 }
 
+async function softDeleteService(service: ApiRecord) {
+  const serviceInstanceId = String(service.id ?? '')
+  if (!serviceInstanceId) return
+  serviceLoading.value = true
+  serviceError.value = ''
+  serviceRequestId.value = ''
+  try {
+    const result = await deleteServiceInstance(serviceInstanceId, { reason: 'manual_soft_delete_from_console', hostId: selectedHostId.value })
+    serviceRequestId.value = result.requestId
+    await refreshServiceInstances(selectedHostId.value)
+  } catch (cause) {
+    handleDialogError(cause, serviceError, serviceRequestId, '软删除 ServiceInstance 失败。')
+  } finally {
+    serviceLoading.value = false
+  }
+}
+
 async function refreshServiceInstances(hostId?: string) {
   if (!hostId) {
     serviceItems.value = []
@@ -440,13 +461,29 @@ async function runDiscoveryConflictPreview() {
 async function refreshCapabilities(hostId?: string) {
   capabilityError.value = ''
   capabilityItems.value = []
+  capabilityEvaluation.value = null
   if (!hostId) return
   capabilityLoading.value = true
   try {
-    const result = await listCapabilities({ page: 1, pageSize: 8 })
-    capabilityRequestId.value = result.requestId
-    const definitions = result.data?.items ?? []
+    const [definitionsResult, matchResult, evaluationResult] = await Promise.all([
+      listCapabilities({ page: 1, pageSize: 8 }),
+      matchCapabilityRequirement({
+        targetType: 'host',
+        targetId: hostId,
+        requiredCapabilities: ['certificate.read', 'certificate.write', 'service.reload'],
+        operation: 'certificate_deploy_preview'
+      }),
+      evaluateCapabilityCompatibility({
+        targetType: 'host',
+        targetId: hostId,
+        operation: 'certificate_deploy_preview'
+      })
+    ])
+    capabilityRequestId.value = [definitionsResult.requestId, matchResult.requestId, evaluationResult.requestId].filter(Boolean).join(' / ')
+    capabilityEvaluation.value = evaluationResult.data ?? null
+    const definitions = definitionsResult.data?.items ?? []
     capabilityItems.value = definitions.map((item, index) => toCapabilityMatrixItem(item, index))
+    capabilityItems.value = capabilityItems.value.concat(toCapabilityResultItems(matchResult.data, evaluationResult.data))
   } catch (cause) {
     if (cause instanceof ApiClientError) {
       capabilityError.value = `${cause.message}（requestId：${cause.requestId}）`
@@ -455,6 +492,39 @@ async function refreshCapabilities(hostId?: string) {
     capabilityError.value = cause instanceof Error ? cause.message : '加载 Capability 失败。'
   } finally {
     capabilityLoading.value = false
+  }
+}
+
+function toCapabilityResultItems(matchData: ApiRecord | undefined, evaluationData: ApiRecord | undefined): CapabilityMatrixItem[] {
+  const items: CapabilityMatrixItem[] = []
+  const missing = Array.isArray(matchData?.missingCapabilities) ? matchData.missingCapabilities : []
+  const satisfied = Array.isArray(matchData?.satisfiedCapabilities) ? matchData.satisfiedCapabilities : []
+  const manual = Array.isArray(evaluationData?.manualDeclarations) ? evaluationData.manualDeclarations : []
+  satisfied.forEach((item, index) => {
+    items.push(toBackendCapabilityItem(item, `match-satisfied-${index}`, 'satisfied'))
+  })
+  missing.forEach((item, index) => {
+    items.push(toBackendCapabilityItem(item, `match-missing-${index}`, 'missing'))
+  })
+  manual.forEach((item, index) => {
+    items.push(toBackendCapabilityItem(item, `manual-${index}`, 'manualRisk'))
+  })
+  return items
+}
+
+function toBackendCapabilityItem(value: unknown, fallbackKey: string, state: CapabilityMatrixItem['state']): CapabilityMatrixItem {
+  const record = isPlainRecord(value) ? value : { key: String(value) }
+  const key = String(record.key ?? record.capabilityKey ?? record.id ?? fallbackKey)
+  return {
+    key: `${state}-${key}`,
+    label: String(record.name ?? record.label ?? record.capabilityName ?? key),
+    state,
+    level: normalizeCapabilityLevel(record.level ?? record.compatibilityLevel),
+    source: String(record.source ?? record.provider ?? (state === 'manualRisk' ? '人工声明' : '能力匹配')),
+    detail: [
+      `原因：${String(record.reason ?? record.missingReason ?? record.detail ?? '后端未返回原因')}`,
+      `建议：${String(record.recommendation ?? record.degradeAdvice ?? '按 Gateway/无代理/脚本包降级路径评估')}`
+    ].join('；')
   }
 }
 
@@ -474,6 +544,11 @@ function toCapabilityMatrixItem(item: ApiRecord, index: number): CapabilityMatri
       `缺失原因/降级建议：${String(item.missingReason ?? item.degradeAdvice ?? item.description ?? '等待后端匹配结果')}`
     ].join('；')
   }
+}
+
+function normalizeCapabilityLevel(value: unknown): CapabilityMatrixItem['level'] {
+  const level = String(value ?? 'L2').toUpperCase()
+  return level === 'L1' || level === 'L2' || level === 'L3' || level === 'L4' || level === 'L5' ? level : 'L2'
 }
 
 function splitCsv(value: string): string[] {
@@ -559,7 +634,10 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
             <small>configPath={{ service.configPath ?? '—' }} · runtimeUser={{ service.runtimeUser ?? '—' }} · discoverySource={{ service.discoverySource ?? '—' }} · status={{ service.status ?? '—' }}</small>
             <small>ports={{ stringifyValue((service.rawFacts as Record<string, unknown> | undefined)?.ports) }} · manualOverrides={{ stringifyValue((service.rawFacts as Record<string, unknown> | undefined)?.manualOverrides) }}</small>
           </div>
-          <GcPermissionButton permission="host.write" @click="openServiceDialog('edit', service)">编辑服务实例</GcPermissionButton>
+          <div class="asset-ops__buttons">
+            <GcPermissionButton permission="host.write" @click="openServiceDialog('edit', service)">编辑服务实例</GcPermissionButton>
+            <GcPermissionButton permission="host.write" danger :disabled="serviceLoading" @click="softDeleteService(service)">软删除服务实例</GcPermissionButton>
+          </div>
         </li>
       </ul>
       <p v-else class="asset-ops__empty">当前 Host 暂无 ServiceInstance；这不是错误，但部署链路没有服务上下文就很脆。</p>
@@ -608,6 +686,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
     />
     <p v-if="capabilityLoading" class="asset-ops__request">Capability 加载中…</p>
     <p v-if="capabilityRequestId" class="asset-ops__request">Capability requestId：{{ capabilityRequestId }}</p>
+    <pre v-if="capabilityEvaluation" class="asset-ops__pre">{{ JSON.stringify(capabilityEvaluation, null, 2) }}</pre>
     <p v-if="capabilityError" class="asset-ops__error">{{ capabilityError }}</p>
   </section>
 
@@ -702,9 +781,11 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
 .asset-ops__item label { display: grid; gap: var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
 .asset-ops__item input,
 .asset-ops__item select,
+.asset-ops__pre,
 .asset-form__field input,
 .asset-form__field select,
 .asset-form__field textarea { width: 100%; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; color: var(--gc-color-text); background: var(--gc-color-surface-muted); outline: none; }
+.asset-ops__pre { max-height: 180px; overflow: auto; background: #0f172a; color: #e2e8f0; }
 .asset-ops__error,
 .asset-form__field strong,
 .asset-form__error { color: var(--gc-color-danger); }

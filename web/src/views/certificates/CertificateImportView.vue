@@ -3,12 +3,19 @@ import { computed, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { importCertificate } from '@/api/modules/certificates.api'
-import { GcEmptyState, GcPageHeader } from '@/design-system/components'
+import { GcPageHeader } from '@/design-system/components'
 
 interface ImportDraft {
   format: 'PEM' | 'DER' | 'PFX' | 'JKS' | 'P7B'
   certificatePem: string
   certificateDerBase64: string
+  pfxBase64: string
+  pfxPassword: string
+  jksBase64: string
+  jksPassword: string
+  jksKeyPassword: string
+  jksAlias: string
+  p7bBase64: string
   privateKeyPem: string
   name: string
   tagsText: string
@@ -20,15 +27,22 @@ type ImportFormat = ImportDraft['format']
 const formatOptions: Array<{ key: ImportFormat; label: string; supported: boolean; hint: string }> = [
   { key: 'PEM', label: 'PEM', supported: true, hint: '后端支持：certificatePem，可粘贴完整证书链。' },
   { key: 'DER', label: 'DER', supported: true, hint: '后端支持：certificateDerBase64，先转 Base64 再提交。' },
-  { key: 'PFX', label: 'PFX / PKCS#12', supported: false, hint: '后端导入接口暂未声明 PFX 请求体，当前只展示入口。' },
-  { key: 'JKS', label: 'JKS', supported: false, hint: '后端导入接口暂未声明 JKS 请求体，当前只展示入口。' },
-  { key: 'P7B', label: 'P7B / PKCS#7', supported: false, hint: '后端导入接口暂未声明 P7B 请求体，当前只展示入口。' }
+  { key: 'PFX', label: 'PFX / PKCS#12', supported: true, hint: '后端支持：pfxBase64 + pfxPassword，解析证书和私钥。' },
+  { key: 'JKS', label: 'JKS', supported: true, hint: '后端支持：jksBase64 + jksPassword，可选 alias/keyPassword。' },
+  { key: 'P7B', label: 'P7B / PKCS#7', supported: true, hint: '后端支持：p7bBase64；P7B 不包含私钥。' }
 ]
 
 const draft = reactive<ImportDraft>({
   format: 'PEM',
   certificatePem: '',
   certificateDerBase64: '',
+  pfxBase64: '',
+  pfxPassword: '',
+  jksBase64: '',
+  jksPassword: '',
+  jksKeyPassword: '',
+  jksAlias: '',
+  p7bBase64: '',
   privateKeyPem: '',
   name: '',
   tagsText: '',
@@ -40,7 +54,13 @@ const requestId = ref('')
 const resultId = ref('')
 
 const selectedFormat = computed(() => formatOptions.find((item) => item.key === draft.format) ?? formatOptions[0])
-const materialReady = computed(() => draft.format === 'PEM' ? Boolean(draft.certificatePem.trim()) : draft.format === 'DER' ? Boolean(draft.certificateDerBase64.trim()) : false)
+const materialReady = computed(() => {
+  if (draft.format === 'PEM') return Boolean(draft.certificatePem.trim())
+  if (draft.format === 'DER') return Boolean(draft.certificateDerBase64.trim())
+  if (draft.format === 'PFX') return Boolean(draft.pfxBase64.trim() && draft.pfxPassword)
+  if (draft.format === 'JKS') return Boolean(draft.jksBase64.trim() && draft.jksPassword)
+  return Boolean(draft.p7bBase64.trim())
+})
 const submitDisabled = computed(() => loading.value || !selectedFormat.value.supported || !materialReady.value)
 
 function buildPayload() {
@@ -48,6 +68,13 @@ function buildPayload() {
   return {
     ...(draft.certificatePem.trim() ? { certificatePem: draft.certificatePem.trim() } : {}),
     ...(draft.certificateDerBase64.trim() ? { certificateDerBase64: draft.certificateDerBase64.trim() } : {}),
+    ...(draft.pfxBase64.trim() ? { pfxBase64: draft.pfxBase64.trim() } : {}),
+    ...(draft.pfxPassword ? { pfxPassword: draft.pfxPassword } : {}),
+    ...(draft.jksBase64.trim() ? { jksBase64: draft.jksBase64.trim() } : {}),
+    ...(draft.jksPassword ? { jksPassword: draft.jksPassword } : {}),
+    ...(draft.jksKeyPassword ? { jksKeyPassword: draft.jksKeyPassword } : {}),
+    ...(draft.jksAlias.trim() ? { jksAlias: draft.jksAlias.trim() } : {}),
+    ...(draft.p7bBase64.trim() ? { p7bBase64: draft.p7bBase64.trim() } : {}),
     ...(draft.privateKeyPem.trim() ? { privateKeyPem: draft.privateKeyPem.trim() } : {}),
     ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
     ...(tags.length ? { tags } : {}),
@@ -57,7 +84,7 @@ function buildPayload() {
 
 async function submitImport() {
   if (!selectedFormat.value.supported) {
-    error.value = `${selectedFormat.value.label} 后端暂不支持导入。`
+    error.value = `${selectedFormat.value.label} 当前能力声明不可用。`
     return
   }
   if (!materialReady.value) {
@@ -87,7 +114,7 @@ async function submitImport() {
 
 <template>
   <section class="gc-page certificate-import-page">
-    <GcPageHeader title="导入证书" description="展示后端真实支持能力：PEM/DER 可提交；PFX/JKS/P7B 仅保留入口并明确不可用。">
+    <GcPageHeader title="导入证书" description="后端真实支持 PEM/DER/PFX/JKS/P7B；私钥和密码只进入受控请求体，不写 URL。">
       <template #actions>
         <RouterLink class="gc-button" to="/certificates">返回证书列表</RouterLink>
       </template>
@@ -108,10 +135,6 @@ async function submitImport() {
       </button>
     </section>
 
-    <GcEmptyState v-if="!selectedFormat.supported" title="该格式暂不可用" :description="selectedFormat.hint">
-      <p>不要在前端伪造 PFX/JKS/P7B 导入。等后端契约声明字段后再接入。</p>
-    </GcEmptyState>
-
     <form class="gc-card certificate-import-page__form" @submit.prevent="submitImport">
       <label v-if="draft.format === 'PEM'" class="certificate-import-page__field certificate-import-page__field--full">
         <span>证书 PEM / 证书链</span>
@@ -120,6 +143,34 @@ async function submitImport() {
       <label v-if="draft.format === 'DER'" class="certificate-import-page__field certificate-import-page__field--full">
         <span>DER Base64</span>
         <textarea v-model="draft.certificateDerBase64" rows="5" spellcheck="false" placeholder="把 DER 二进制转为 Base64 后粘贴" />
+      </label>
+      <label v-if="draft.format === 'PFX'" class="certificate-import-page__field certificate-import-page__field--full">
+        <span>PFX / PKCS#12 Base64</span>
+        <textarea v-model="draft.pfxBase64" rows="5" spellcheck="false" placeholder="把 .pfx/.p12 二进制转为 Base64 后粘贴" />
+      </label>
+      <label v-if="draft.format === 'PFX'" class="certificate-import-page__field">
+        <span>PFX 密码</span>
+        <input v-model="draft.pfxPassword" type="password" autocomplete="off" placeholder="仅随本次请求提交" />
+      </label>
+      <label v-if="draft.format === 'JKS'" class="certificate-import-page__field certificate-import-page__field--full">
+        <span>JKS Base64</span>
+        <textarea v-model="draft.jksBase64" rows="5" spellcheck="false" placeholder="把 .jks 二进制转为 Base64 后粘贴" />
+      </label>
+      <label v-if="draft.format === 'JKS'" class="certificate-import-page__field">
+        <span>JKS Store 密码</span>
+        <input v-model="draft.jksPassword" type="password" autocomplete="off" placeholder="必填" />
+      </label>
+      <label v-if="draft.format === 'JKS'" class="certificate-import-page__field">
+        <span>JKS Key 密码（可选）</span>
+        <input v-model="draft.jksKeyPassword" type="password" autocomplete="off" placeholder="默认同 Store 密码" />
+      </label>
+      <label v-if="draft.format === 'JKS'" class="certificate-import-page__field">
+        <span>Alias（可选）</span>
+        <input v-model="draft.jksAlias" placeholder="不填则自动选择私钥条目" />
+      </label>
+      <label v-if="draft.format === 'P7B'" class="certificate-import-page__field certificate-import-page__field--full">
+        <span>P7B / PKCS#7 Base64</span>
+        <textarea v-model="draft.p7bBase64" rows="5" spellcheck="false" placeholder="把 .p7b/.p7c 二进制或 PEM 内容转为 Base64 后粘贴" />
       </label>
       <label class="certificate-import-page__field certificate-import-page__field--full">
         <span>私钥 PEM（可选）</span>
