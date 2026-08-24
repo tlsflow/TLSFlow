@@ -61,6 +61,70 @@ test('插件版本变化但工作流内容未变化时复用已有版本', async
   assert.equal((await workflows.listVersions(first!.workflowTemplateId)).length, 1);
 });
 
+test('内置插件发布会纠正历史误标为 user 的内部工作流', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService();
+  const plugin = pluginRecord('legacy-origin', '1.0.0', '1.0.0');
+  const content = JSON.parse(plugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const legacy = await workflows.createWorkflow({ content });
+  const published = await workflows.publishVersion(legacy.version.id);
+  bindings.set(`${plugin.id}:certificate.deploy`, {
+    pluginVersionId: plugin.id,
+    ownerType: 'SYSTEM',
+    capabilityKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: legacy.template.id,
+    workflowVersionId: published.id,
+    workflowContentSha256: published.contentHash,
+    createdAt: new Date().toISOString(),
+  });
+
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  await publisher.publishPlugin(plugin);
+
+  const repaired = (await workflows.listTemplates()).find((item) => item.id === legacy.template.id);
+  assert.equal(repaired?.origin, 'plugin_internal');
+  assert.equal(repaired?.ownerType, 'SYSTEM');
+  assert.equal(repaired?.ownerId, 'SYSTEM');
+});
+
+test('内置插件发布不会提升带用户插件来源证据的工作流', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService();
+  const plugin = pluginRecord('user-source-bound', '1.0.0', '1.0.0');
+  const content = JSON.parse(plugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const userWorkflow = await workflows.createWorkflow({
+    content,
+    pluginSource: {
+      sourceType: 'PLUGIN_CAPABILITY',
+      pluginId: 'another.plugin',
+      pluginVersionId: 'another-version',
+      capabilityKey: 'certificate.deploy',
+      sourceWorkflowVersionId: 'another-workflow-version',
+      sourceContentHash: 'another-content-hash',
+      createdAt: new Date().toISOString(),
+    },
+  });
+  const published = await workflows.publishVersion(userWorkflow.version.id);
+  bindings.set(`${plugin.id}:certificate.deploy`, {
+    pluginVersionId: plugin.id,
+    ownerType: 'SYSTEM',
+    capabilityKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: userWorkflow.template.id,
+    workflowVersionId: published.id,
+    workflowContentSha256: published.contentHash,
+    createdAt: new Date().toISOString(),
+  });
+
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  await assert.rejects(
+    () => publisher.publishPlugin(plugin),
+    (error: any) => error.errorCode === 'RESOURCE_VERSION_CONFLICT',
+  );
+  assert.equal((await workflows.listTemplates()).find((item) => item.id === userWorkflow.template.id)?.origin, 'user');
+});
+
 function pluginRepository(records: Map<string, UnifiedPluginVersionRecord>): UnifiedPluginsRepository {
   return { saveVersion: async (record) => { records.set(record.id, record); return record; }, findVersion: async (id) => records.get(id), findByIdentity: async (tenantId, pluginId, version) => [...records.values()].find((record) => record.tenantId === tenantId && record.pluginId === pluginId && record.version === version), listVersions: async (tenantId) => [...records.values()].filter((record) => record.tenantId === tenantId) };
 }

@@ -147,6 +147,25 @@ export class WorkflowTemplatesDomainService {
     return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
   }
 
+  async promoteLegacyPluginTemplate(templateId: string): Promise<WorkflowTemplate> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(templateId);
+    const versions = this.versions.get(template.id) ?? [];
+    if (template.origin === 'user' && versions.some((version) => version.pluginSource)) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '带有用户插件来源证据的工作流不能提升为插件内置工作流', { templateId });
+    }
+    const normalized = {
+      ...template,
+      origin: 'plugin_internal' as const,
+      ownerType: 'SYSTEM' as const,
+      ownerId: 'SYSTEM',
+      updatedAt: new Date().toISOString(),
+    };
+    this.templates.set(normalized.id, normalized);
+    await this.templatesRepository.upsert(normalized);
+    return this.withCurrentVersionSummary(normalized);
+  }
+
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);

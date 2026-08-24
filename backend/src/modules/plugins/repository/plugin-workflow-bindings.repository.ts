@@ -18,7 +18,9 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
     await this.db.query(`insert into unified_plugin_workflow_bindings
       (plugin_version_id,owner_type,owner_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      on conflict (plugin_version_id,capability_key) do nothing`, [
+      on conflict (plugin_version_id,capability_key) do update set
+        owner_type=excluded.owner_type,
+        owner_id=excluded.owner_id`, [
       record.pluginVersionId, record.ownerType ?? 'SYSTEM', record.ownerId ?? null, record.capabilityKey,
       record.workflowResourcePath, record.workflowTemplateId, record.workflowVersionId, record.workflowContentSha256, record.createdAt,
     ]);
