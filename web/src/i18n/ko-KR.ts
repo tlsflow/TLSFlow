@@ -694,6 +694,7 @@ export default {
     actions: {
       install: '플러그인 설치',
       detail: '상세 정보',
+      create: '만들기',
       refresh: '마켓 새로고침',
       refreshing: '새로고침 중...',
       createWorkflow: '워크플로 만들기',

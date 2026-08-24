@@ -720,6 +720,7 @@ export default {
     actions: {
       install: "安裝外掛",
       detail: "詳情",
+      create: "建立",
       refresh: "重新整理市場",
       refreshing: "重新整理中...",
       createWorkflow: "建立工作流程",

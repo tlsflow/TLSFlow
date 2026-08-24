@@ -728,6 +728,7 @@ export default {
     actions: {
       install: '安装插件',
       detail: '详情',
+      create: '创建',
       refresh: '刷新市场',
       refreshing: '刷新中...',
       createWorkflow: '创建工作流',

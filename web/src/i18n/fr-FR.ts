@@ -728,6 +728,7 @@ export default {
     actions: {
       install: 'Install plugin',
       detail: 'Details',
+      create: 'Créer',
       refresh: 'Refresh market',
       refreshing: 'Refreshing...',
       createWorkflow: 'Créer un workflow',

@@ -694,6 +694,7 @@ export default {
     actions: {
       install: 'Установить плагин',
       detail: 'Детали',
+      create: 'Создать',
       refresh: 'Обновить каталог',
       refreshing: 'Обновление...',
       createWorkflow: 'Создать процесс',

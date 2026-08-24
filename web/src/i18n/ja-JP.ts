@@ -720,6 +720,7 @@ export default {
     actions: {
       install: 'インストールプラグイン',
       detail: '詳細',
+      create: '作成',
       refresh: 'マーケットを更新',
       refreshing: '更新中...',
       createWorkflow: 'ワークフローを作成',
