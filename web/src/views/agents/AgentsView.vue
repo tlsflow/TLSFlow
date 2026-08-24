@@ -604,16 +604,10 @@ function formatHealthStatus(value: unknown): string {
   return status ? status.toUpperCase() : EMPTY_TEXT
 }
 
-function formatBooleanText(value: unknown): string {
-  if (value === true) return t('agents.common.yes')
-  if (value === false) return t('agents.common.no')
-  return EMPTY_TEXT
-}
-
 function resolveHealthStatus(data: ApiRecord): string {
   const agentStatus = readValue(data, ['agent.status', 'agent.state', 'status'], '').toUpperCase()
   if (agentStatus === 'OFFLINE' || readPath(data, 'health.offline') === true) {
-    return t('common.status.OFFLINE')
+    return t('designSystem.status.OFFLINE')
   }
   return formatHealthStatus(readPath(data, 'health.status'))
 }
@@ -1799,6 +1793,7 @@ const config = computed<BusinessPageConfig>(() => ({
                     v-for="field in section.fields"
                     :key="`${section.title}-${field.label}`"
                     class="agent-detail-modal__item"
+                    :data-detail-field="field.label"
                     :data-emphasis="field.emphasis ? 'true' : 'false'"
                   >
                     <dt>{{ field.label }}</dt>

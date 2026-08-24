@@ -468,8 +468,9 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('最近心跳')
     expect(wrapper.text()).toContain('最近上报时间')
     expect(wrapper.text()).toContain('2026-06-21 08:29')
-    expect(wrapper.text()).toContain('异常摘要')
-    expect(wrapper.text()).toContain('pending_results:2')
+    expect(wrapper.text()).not.toContain('已判定离线')
+    expect(wrapper.text()).not.toContain('异常摘要')
+    expect(wrapper.text()).not.toContain('pending_results:2')
     expect(wrapper.text()).not.toContain('失败计数')
     expect(wrapper.text()).not.toContain('最近任务拉取')
 
@@ -496,6 +497,47 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('证书指纹')
     expect(wrapper.text()).toContain('AABBCCDDEEFF00112233445566778899AABBCCDD')
     expect(wrapper.text()).toContain('portal.example.com')
+  })
+
+  it('Agent 离线时健康状态优先显示离线并隐藏重复诊断字段', async () => {
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-1',
+          agentKey: 'agent-prod-1',
+          status: 'OFFLINE',
+          descriptor: { hostname: 'prod-1', osType: 'WINDOWS' },
+        },
+        latestHeartbeat: { receivedAt: '2026-06-21T00:30:00.000Z' },
+        health: {
+          status: 'healthy',
+          offline: true,
+          lastHeartbeatAt: '2026-06-21T00:30:00.000Z',
+          lastTaskResultAt: '2026-06-21T00:29:30.000Z',
+          offlineEvidence: [
+            'agent.status=OFFLINE',
+            'heartbeatAgeSeconds=2522',
+            'offlineTimeoutSeconds=180',
+          ],
+        },
+        lifecycle: { canPullTasks: false },
+      },
+      requestId: 'req_agent_detail_offline',
+      timestamp: '2026-06-21T00:31:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const healthStatusField = wrapper.find('[data-detail-field="健康状态"]')
+    expect(healthStatusField.find('dd').text()).toBe('离线')
+    expect(wrapper.text()).not.toContain('已判定离线')
+    expect(wrapper.text()).not.toContain('异常摘要')
+    expect(wrapper.text()).not.toContain('heartbeatAgeSeconds=2522')
   })
 
   it('详情页支持发起手动重扫任务', async () => {
