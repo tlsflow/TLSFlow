@@ -129,5 +129,67 @@ describe('GcDeploymentWizard 证书产物配置选择', () => {
 
     expect([...certificateSelect.options].map((option) => option.textContent?.trim())).toEqual(['*.jacksonz.cn'])
     expect([...versionSelect.options].map((option) => option.value)).toEqual(['__LATEST__', 'certver-new', 'certver-old'])
+    expect(versionSelect.options[0]?.textContent).toContain('始终自动选择最新可部署证书')
+  })
+
+  it('编辑 LATEST_AUTO 计划时保留自动跟随最新版本语义，而不是回填成固定版本', async () => {
+    const wrapper = mount(GcDeploymentWizard, {
+      props: {
+        certificates: [
+          { id: 'cert-1', primaryDomain: '*.jacksonz.cn' },
+        ],
+        certificateVersions: [
+          {
+            id: 'certver-old',
+            certificateAssetId: 'cert-1',
+            notBefore: '2026-01-01T00:00:00.000Z',
+            notAfter: '2026-04-01T00:00:00.000Z',
+          },
+          {
+            id: 'certver-new',
+            certificateAssetId: 'cert-1',
+            notBefore: '2026-06-09T00:00:00.000Z',
+            notAfter: '2026-09-07T00:00:00.000Z',
+          },
+        ],
+        certificateFormats: [
+          {
+            id: 'fmt-new',
+            certificateVersionId: 'certver-new',
+            format: 'pfx',
+            containsPrivateKey: true,
+            parameters: { configName: 'Windows-IIS-PFX' },
+          },
+        ],
+        targets: [
+          {
+            id: 'target-1',
+            applicationAssetId: 'asset-1',
+            name: 'test.local',
+            siteName: 'TEST02.jacksonz.cn',
+            bindingSummary: '*:443:test.local',
+          },
+        ],
+        initialPlan: {
+          certificateId: 'cert-1',
+          certificateVersionId: 'certver-old',
+          certificateFormatId: 'fmt-new',
+          applicationAssetId: 'asset-1',
+          selectionMode: 'LATEST_AUTO',
+        },
+      },
+    })
+
+    const versionSelect = wrapper.findAll('select')[1].element as HTMLSelectElement
+    expect(versionSelect.value).toBe('__LATEST__')
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '保存计划')!.trigger('click')
+
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      selectionMode: 'LATEST_AUTO',
+      certificateVersionId: 'certver-new',
+    })
   })
 })

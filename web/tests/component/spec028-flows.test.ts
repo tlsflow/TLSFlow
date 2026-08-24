@@ -18,6 +18,7 @@ const deploymentMocks = vi.hoisted(() => ({
   streamExecutionDetail: vi.fn(),
   createDeploymentPlan: vi.fn(),
   createDeploymentPlanFromApplicationAsset: vi.fn(),
+  updateDeploymentPlanFromApplicationAsset: vi.fn(),
   cancelDeploymentPlan: vi.fn(),
   deleteDraftDeploymentPlan: vi.fn(),
   dryRunDeploymentPlan: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock('@/api/modules/deployments.api', () => ({
   listDeploymentPlans: deploymentMocks.listDeploymentPlans,
   createDeploymentPlan: deploymentMocks.createDeploymentPlan,
   createDeploymentPlanFromApplicationAsset: deploymentMocks.createDeploymentPlanFromApplicationAsset,
+  updateDeploymentPlanFromApplicationAsset: deploymentMocks.updateDeploymentPlanFromApplicationAsset,
   cancelDeploymentPlan: deploymentMocks.cancelDeploymentPlan,
   deleteDraftDeploymentPlan: deploymentMocks.deleteDraftDeploymentPlan,
   dryRunDeploymentPlan: deploymentMocks.dryRunDeploymentPlan,
@@ -115,6 +117,13 @@ function clickBodyButton(text: string) {
   const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent?.trim() === text) as HTMLButtonElement | undefined
   expect(button).toBeTruthy()
   button!.click()
+}
+
+function fillConfirmText(value: string) {
+  const input = [...document.body.querySelectorAll('input')].find((item) => item.closest('.gc-confirm')) as HTMLInputElement | undefined
+  expect(input).toBeTruthy()
+  input!.value = value
+  input!.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 function bodyText() {
@@ -195,6 +204,11 @@ describe('spec028 前端闭环', () => {
     deploymentMocks.createDeploymentPlanFromApplicationAsset.mockResolvedValue({
       data: { id: 'plan-1' },
       requestId: 'req_create',
+      timestamp: '2026-06-08T00:00:00.000Z',
+    })
+    deploymentMocks.updateDeploymentPlanFromApplicationAsset.mockResolvedValue({
+      data: { id: 'plan-draft-1' },
+      requestId: 'req_update',
       timestamp: '2026-06-08T00:00:00.000Z',
     })
     deploymentMocks.dryRunDeploymentPlan.mockResolvedValue({
@@ -300,6 +314,136 @@ describe('spec028 前端闭环', () => {
     expect(bodyText()).toContain('任务进度')
   })
 
+  it('部署计划草稿可以用创建视图回填并保存编辑', async () => {
+    deploymentMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-1',
+        address: 'a.example.com',
+        displayName: 'a.example.com',
+        targetBinding: { managedTargetId: 'target-1', siteAssetId: 'site-1' },
+        targetBindingDetail: {
+          siteAsset: {
+            siteName: 'SITE-1',
+            bindingInformation: '*:443:a.example.com',
+          },
+          certificateBindings: [{ id: 'binding-1' }],
+        },
+      },
+    ]))
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-draft-1',
+        name: 'a.example.com 证书部署',
+        status: 'DRAFT',
+        risk: 'MEDIUM',
+        certificateVersionId: 'certver-1',
+        certificateFormatId: 'fmt-1',
+        targets: [{ certificateBindingId: 'binding-1', executionTargetId: 'target-1' }],
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    clickBodyButton('编辑计划')
+    await flushPromises()
+
+    expect(bodyText()).toContain('部署向导')
+    expect(bodyText()).toContain('Linux-NGINX-PEM')
+
+    clickBodyButton('下一步')
+    await flushPromises()
+    clickBodyButton('下一步')
+    await flushPromises()
+    clickBodyButton('保存计划')
+    await flushPromises()
+
+    expect(deploymentMocks.deleteDraftDeploymentPlan).not.toHaveBeenCalled()
+    expect(deploymentMocks.updateDeploymentPlanFromApplicationAsset).toHaveBeenCalledWith(expect.objectContaining({
+      planId: 'plan-draft-1',
+      applicationAssetId: 'asset-1',
+      targetCertificateVersionId: 'certver-1',
+      certificateFormatId: 'fmt-1',
+      selectionMode: 'EXPLICIT',
+    }))
+  })
+
+  it('已执行部署计划进入编辑视图后会直接更新原计划', async () => {
+    deploymentMocks.updateDeploymentPlanFromApplicationAsset.mockClear()
+    deploymentMocks.createDeploymentPlanFromApplicationAsset.mockClear()
+    deploymentMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-1',
+        address: 'a.example.com',
+        displayName: 'a.example.com',
+        targetBinding: { managedTargetId: 'target-1', siteAssetId: 'site-1' },
+        targetBindingDetail: {
+          siteAsset: {
+            siteName: 'SITE-1',
+            bindingInformation: '*:443:a.example.com',
+          },
+          certificateBindings: [{ id: 'binding-1' }],
+        },
+      },
+    ]))
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-success-1',
+        name: 'a.example.com 证书部署',
+        status: 'SUCCESS',
+        risk: 'MEDIUM',
+        certificateVersionId: 'certver-1',
+        certificateFormatId: 'fmt-1',
+        targets: [{ certificateBindingId: 'binding-1', executionTargetId: 'target-1' }],
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    clickBodyButton('编辑计划')
+    await flushPromises()
+
+    expect(bodyText()).toContain('部署向导')
+    expect(bodyText()).not.toContain('创建新的部署草稿')
+
+    clickBodyButton('下一步')
+    await flushPromises()
+    clickBodyButton('下一步')
+    await flushPromises()
+    clickBodyButton('保存计划')
+    await flushPromises()
+
+    expect(deploymentMocks.createDeploymentPlanFromApplicationAsset).not.toHaveBeenCalled()
+    expect(deploymentMocks.updateDeploymentPlanFromApplicationAsset).toHaveBeenCalledWith(expect.objectContaining({
+      planId: 'plan-success-1',
+      applicationAssetId: 'asset-1',
+      targetCertificateVersionId: 'certver-1',
+      certificateFormatId: 'fmt-1',
+      selectionMode: 'EXPLICIT',
+    }))
+  })
+
   it('执行部署缺少有效 dry-run 时，会弹出前端确认模态框引导用户先做 dry-run', async () => {
     deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
       {
@@ -332,7 +476,9 @@ describe('spec028 前端闭环', () => {
     })
     await flushPromises()
 
-    clickBodyButton('重新执行')
+    clickBodyButton('执行部署')
+    await flushPromises()
+    fillConfirmText('EXECUTE')
     await flushPromises()
     clickBodyButton('确认')
     await flushPromises()
@@ -385,8 +531,60 @@ describe('spec028 前端闭环', () => {
     expect(wrapper.text()).toContain('生产证书部署')
     expect(wrapper.text()).toContain('失败计划')
     expect(wrapper.text()).toContain('执行部署')
-    expect(wrapper.text()).toContain('重试执行')
+    expect(wrapper.text()).not.toContain('重新执行')
+    expect(wrapper.text()).not.toContain('重试执行')
     expect(wrapper.text()).toContain('回滚执行')
+  })
+
+  it('执行部署模态框不会继承上一次 dry-run 的错误文案', async () => {
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-ready-1',
+        name: '跨适配器计划',
+        status: 'SUCCESS',
+        risk: 'HIGH',
+        latestRunId: 'run-dry-success-1',
+        latestRun: { id: 'run-dry-success-1', status: 'SUCCESS', type: 'dry_run' },
+      },
+    ]))
+    deploymentMocks.dryRunDeploymentPlan.mockRejectedValueOnce(
+      new ApiClientError('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload', {
+        errorCode: 'VALIDATION_FAILED',
+        requestId: 'req_dry_failed',
+        status: 400,
+      }),
+    )
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    clickBodyButton('Dry-run 影响预览')
+    await flushPromises()
+
+    expect(bodyText()).toContain('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload')
+
+    clickBodyButton('关闭')
+    await flushPromises()
+
+    clickBodyButton('执行部署')
+    await flushPromises()
+    fillConfirmText('EXECUTE')
+    await flushPromises()
+    clickBodyButton('确认')
+    await flushPromises()
+
+    expect(bodyText()).toContain('证书更新执行')
+    expect(bodyText()).not.toContain('NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload')
   })
 
   it('风险卡片会跳转到证书上下文页面', async () => {
@@ -406,7 +604,7 @@ describe('spec028 前端闭环', () => {
     expect(router.currentRoute.value.fullPath).toBe('/certificates?certificateId=cert-1')
   })
 
-  it('工作流模板详情可加载版本并发布草稿版本', async () => {
+  it('工作流详情可加载版本并发布草稿版本', async () => {
     const wrapper = mount(WorkflowTemplatesView, {
       attachTo: document.body,
       global: { stubs: { teleport: true, Teleport: true } },
@@ -416,7 +614,8 @@ describe('spec028 前端闭环', () => {
     clickBodyButton('详情')
     await flushPromises()
 
-    expect(bodyText()).toContain('工作流模板')
+    expect(bodyText()).toContain('工作流')
+    expect(bodyText()).not.toContain('工作流模板')
     clickBodyButton('版本')
     await flushPromises()
     expect(bodyText()).toContain('初始草稿')

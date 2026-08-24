@@ -18,7 +18,7 @@ export const mainMenuItems: MenuItem[] = [
     description: '证书库、绑定关系和到期状态',
     children: [
       { title: '证书资产', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', description: '证书、私钥引用、指纹和到期时间' },
-      { title: '证书格式配置', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则配置' }
+      { title: '证书格式配置', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则' }
     ]
   },
   {
@@ -40,11 +40,11 @@ export const mainMenuItems: MenuItem[] = [
     module: 'automation',
     permission: 'deployment.plan.read',
     icon: 'bolt',
-    description: '部署计划、执行记录、模板和插件',
+    description: '部署计划、执行记录、工作流和插件',
     children: [
       { title: '部署计划', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', description: '证书部署计划和审批入口' },
       { title: '执行记录', path: '/executions', module: 'execution', permission: 'execution.read', description: '执行步骤、日志、失败和回滚' },
-      { title: '工作流模板', path: '/workflow-templates', module: 'workflow', permission: 'workflow.template.read', description: '模板变量、能力声明和发布' },
+      { title: '工作流', path: '/workflow-templates', module: 'workflow', permission: 'workflow.template.read', description: '画布草稿、变量、能力声明和发布' },
       { title: '插件', path: '/plugins', module: 'plugin', permission: 'plugin.read', description: 'Provider、执行器和沙箱状态' }
     ]
   },

@@ -182,13 +182,13 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'workflow.template.list',
     component: () => import('@/views/workflows/WorkflowTemplatesView.vue'),
     meta: {
-      title: '工作流模板',
+      title: '工作流',
       module: 'workflow',
       requiresAuth: true,
       permission: 'workflow.template.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
-      breadcrumb: ['工作流模板'],
+      breadcrumb: ['工作流'],
       keepAlive: true,
       featureFlag: 'template.dsl.editor'
     }
