@@ -344,7 +344,9 @@ describe('资产与证书产物视图', () => {
     expect(card.find('.asset-page__card-certificate-remaining').text()).toMatch(/\d+ 天/)
     expect(card.find('.asset-page__card-certificate-state').text()).toBe('正常')
     expect(wrapper.find('.asset-page__workspace-selected-count').exists()).toBe(false)
-    expect(card.find('[data-testid="asset-card-deploy-asset-card-1"]').text()).toContain('证书部署')
+    const latestAction = card.find('[data-testid="asset-card-deploy-asset-card-1"]')
+    expect(latestAction.text()).toContain('证书最新')
+    expect(latestAction.classes()).toContain('asset-page__card-deploy-button--latest')
     expect(card.find('[data-testid="asset-card-detail-asset-card-1"] svg').exists()).toBe(true)
     expect(card.find('[data-testid="asset-card-edit-asset-card-1"] svg').exists()).toBe(true)
     expect(card.find('[data-testid="asset-card-delete-asset-card-1"] svg').exists()).toBe(true)
@@ -461,7 +463,7 @@ describe('资产与证书产物视图', () => {
     expect(action.classes()).toContain('asset-page__card-deploy-button--update')
   })
 
-  it('已过期证书显示绿色的证书更新入口', async () => {
+  it('已过期证书显示蓝色的证书更新入口', async () => {
     usePermissionStore().setPermissions([
       'service_asset.read',
       'service_asset.manage',
