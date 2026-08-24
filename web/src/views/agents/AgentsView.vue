@@ -147,17 +147,44 @@ async function generateInstallCommand() {
   }
 }
 
+// 优先使用 Clipboard API（需要 secure context：HTTPS 或 localhost），
+// 不满足时降级为 textarea + execCommand('copy')，兼容内网 HTTP 部署场景。
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 继续走降级路径
+    }
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 async function copyToken() {
   const token = installSession.value?.bootstrapTokenPreview
   if (!token) return
-  await navigator.clipboard.writeText(token)
-  copiedText.value = 'token'
+  const ok = await copyToClipboard(token)
+  if (ok) copiedText.value = 'token'
 }
 
 async function copyInstallCommand() {
   if (!installCommand.value) return
-  await navigator.clipboard.writeText(installCommand.value)
-  copiedText.value = 'command'
+  const ok = await copyToClipboard(installCommand.value)
+  if (ok) copiedText.value = 'command'
 }
 
 function rewriteInstallUrlWithBrowserOrigin(rawUrl: string): string {
@@ -191,6 +218,7 @@ const config: BusinessPageConfig = {
   resourceName: 'Agent',
   defaultStatus: 'ONLINE',
   defaultRisk: 'MEDIUM',
+  showMetrics: false,
   columns: [
     { key: 'name', title: 'Agent 名称', candidates: ['name', 'hostname', 'agentKey', 'descriptor.hostname'] },
     { key: 'status', title: '在线状态', candidates: ['status', 'state'] },
@@ -236,6 +264,8 @@ const config: BusinessPageConfig = {
     title="安装 Agent"
     description="选择平台与版本，生成一次性安装命令。安装码 10 分钟内有效，且只能使用一次。"
     size="lg"
+    :close-on-backdrop="false"
+    width="60vw"
   >
     <section class="agent-install-modal">
       <div class="agent-install-modal__field">
@@ -305,6 +335,10 @@ const config: BusinessPageConfig = {
         <p class="agent-install-modal__hint">
           同一个安装码一旦被请求 bootstrap 脚本，就会立即失效，不能重复使用。
         </p>
+
+        <p v-if="copiedText" class="agent-install-modal__copied">
+          {{ copiedText === 'token' ? '安装码已复制' : '安装命令已复制' }}
+        </p>
       </div>
     </section>
 
@@ -323,8 +357,6 @@ const config: BusinessPageConfig = {
         :disabled="!installCommand"
         @click="copyInstallCommand"
       >复制安装命令</button>
-      <span v-if="copiedText === 'token'" class="agent-install-modal__copied">安装码已复制</span>
-      <span v-else-if="copiedText === 'command'" class="agent-install-modal__copied">安装命令已复制</span>
     </template>
   </GcModal>
 </template>
@@ -473,7 +505,9 @@ const config: BusinessPageConfig = {
 }
 
 .agent-install-modal__copied {
+  margin: 0;
   color: var(--gc-color-success);
-  font-weight: 850;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
 }
 </style>
