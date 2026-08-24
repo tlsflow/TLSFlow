@@ -35,7 +35,7 @@ The host owns publication state, approval, credential and artifact Grants, audit
 
 For every built-in package, `manifest.json.version` is the sole source of truth for the plugin version. Startup and hot reload scan packages, then derive Registry entries, database `PluginVersion` records, and Workflow Bindings. Those derived records must never define or overwrite a package version. The same `pluginId@version` with the same digest is idempotent; a different digest must reject startup or reload; a higher Manifest version creates a new record while preserving history.
 
-The historical P2 release catalog has been retired and removed from the repository. The current boundary is the package Manifest, digests derived by the Registry, and Policy/Execution Grant authorization; a workflow `metadata.version` belongs to the workflow itself and is not a copy of the plugin version.
+The historical P2 release catalog has been retired and removed from the repository. The current boundary is the package Manifest, digests derived by the Registry, and Policy/Execution Grant authorization; for Workflow DSL plugins, every workflow `metadata.version` must equal the Manifest plugin version, and each new plugin version must create a new internal WorkflowVersion.
 
 User-plugin publisher cryptographic verification is still `todo`; do not use a user-provided signature state as a trusted-publisher guarantee.
 

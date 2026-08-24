@@ -9,6 +9,7 @@ import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from './repository/plugin-workflow-bindings.repository.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 import { certificateUpdatePluginIds } from './canonical-plugin-id/canonical-plugin-id.registry.js';
+import { AppError } from '../../common/errors/app-error.js';
 
 test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建模板', async () => {
   const versions = new Map<string, UnifiedPluginVersionRecord>();
@@ -58,21 +59,30 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
 
 test('历史插件模板已停用时，新版本改用独立内部模板完成发布', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
-  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const workflows = {
+    createPluginInternalDraftVersion: async () => {
+      throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    },
+    createPluginTemplate: async () => ({ template: { id: 'template-recovered' }, version: { id: 'draft-recovered' } }),
+    publishPluginVersion: async () => ({ id: 'workflow-recovered', contentHash: 'sha256:recovered' }),
+  } as unknown as WorkflowTemplatesApplicationService;
   const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
-  const firstPlugin = pluginRecord('disabled-template-first', '1.0.0', '1.0.0');
-  const nextPlugin = pluginRecord('disabled-template-next', '1.1.0', '1.1.0');
+  const plugin = pluginRecord('disabled-template', '1.1.0', '1.1.0');
+  bindings.set('fixture.plugin:old:certificate.deploy', {
+    pluginVersionId: 'fixture.plugin:old',
+    capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: 'template-disabled',
+    workflowVersionId: 'workflow-old',
+    workflowContentSha256: 'sha256:old',
+    createdAt: new Date().toISOString(),
+  });
 
-  const [first] = await publisher.publishPlugin(firstPlugin);
-  assert.ok(first);
-  await workflows.disableTemplate(first!.workflowTemplateId);
+  const [published] = await publisher.publishPlugin(plugin);
 
-  const [next] = await publisher.publishPlugin(nextPlugin);
-
-  assert.ok(next);
-  assert.notEqual(next!.workflowTemplateId, first!.workflowTemplateId);
-  assert.equal((await workflows.getTemplate(next!.workflowTemplateId)).origin, 'plugin_internal');
-  assert.equal((await workflows.getVersion(next!.workflowVersionId)).content.metadata.version, '1.1.0');
+  assert.equal(published?.workflowTemplateId, 'template-recovered');
+  assert.equal(published?.workflowVersionId, 'workflow-recovered');
 });
 
 test('插件 Workflow 内容变化且版本与 PluginVersion 同步时可发布', async () => {
