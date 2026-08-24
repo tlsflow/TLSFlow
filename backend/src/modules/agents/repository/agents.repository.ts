@@ -66,9 +66,11 @@ export interface AgentsRepository {
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined>;
   listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]>;
   createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession>;
+  updateInstallSession(sessionId: string, patch: Partial<AgentInstallSession>): Promise<AgentInstallSession>;
   getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined>;
   findInstallSessionByTokenHash(tenantId: string, tokenHash: string): Promise<AgentInstallSession | undefined>;
   findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined>;
+  consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession | undefined>;
 }
 
 type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
@@ -94,6 +96,7 @@ function compareVersions(left: string, right: string): number {
 
 export class PgAgentsRepository implements AgentsRepository {
   readonly moduleName = 'agents' as const;
+  private readonly db: DatabasePort;
 
   private readonly enrollmentTokens: PgDocumentRepository<EnrollmentToken>;
   private readonly registrations: PgDocumentRepository<AgentRegistration>;
@@ -111,6 +114,7 @@ export class PgAgentsRepository implements AgentsRepository {
   private readonly installSessions: PgDocumentRepository<AgentInstallSession>;
 
   constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.db = db;
     this.enrollmentTokens = new PgDocumentRepository(db, 'agents:enrollmentTokens');
     this.registrations = new PgDocumentRepository(db, 'agents:registrations');
     this.sessions = new PgDocumentRepository(db, 'agents:sessions');
@@ -319,6 +323,10 @@ export class PgAgentsRepository implements AgentsRepository {
     return this.installSessions.upsert(session);
   }
 
+  async updateInstallSession(sessionId: string, patch: Partial<AgentInstallSession>): Promise<AgentInstallSession> {
+    return this.installSessions.update(sessionId, patch);
+  }
+
   async getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined> {
     const row = await this.installSessions.get(sessionId);
     return row?.tenantId === tenantId ? row : undefined;
@@ -330,5 +338,29 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined> {
     return (await this.installSessions.list((item) => item.bootstrapTokenHash === tokenHash))[0];
+  }
+
+  async consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession | undefined> {
+    const result = await this.db.query<{ document_id: string; payload: AgentInstallSession }>(
+      `update pg_documents
+          set payload =
+            jsonb_set(
+              jsonb_set(payload, '{usedAt}', to_jsonb($3::text), true),
+              '{usedByIp}',
+              to_jsonb($4::text),
+              true
+            ),
+              updated_at = now()
+        where namespace = $1
+          and payload->>'bootstrapTokenHash' = $2
+          and ($5::text is null or payload->>'tenantId' = $5)
+          and coalesce(payload->>'usedAt', '') = ''
+          and (payload->>'expiresAt')::timestamptz >= now()
+        returning document_id, payload`,
+      ['agents:installSessions', tokenHash, usedAt, usedByIp ?? null, tenantId ?? null],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return structuredClone({ ...row.payload, id: row.document_id });
   }
 }

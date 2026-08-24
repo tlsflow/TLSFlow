@@ -7,6 +7,9 @@ function New-GcacExecutionContext {
     [pscustomobject]$Config,
 
     [Parameter(Mandatory = $true)]
+    [string]$ConfigPath,
+
+    [Parameter(Mandatory = $true)]
     [string]$LogDir
   )
 
@@ -23,6 +26,7 @@ function New-GcacExecutionContext {
 
   return [pscustomobject]@{
     Config = $Config
+    ConfigPath = $ConfigPath
     LogDir = $LogDir
     DataDir = $dataDir
     WorkDir = $workDir
@@ -82,4 +86,16 @@ function Write-GcacRuntimeLog {
   }
 }
 
-Export-ModuleMember -Function New-GcacExecutionContext, Invoke-GcacProvider, Write-GcacRuntimeLog
+function Save-GcacConfig {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Context
+  )
+
+  $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+  $json = $Context.Config | ConvertTo-Json -Depth 10
+  [System.IO.File]::WriteAllText($Context.ConfigPath, $json, $utf8Bom)
+}
+
+Export-ModuleMember -Function New-GcacExecutionContext, Invoke-GcacProvider, Write-GcacRuntimeLog, Save-GcacConfig

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "full-agent.linux-go.config.v1",
+  "tenantId": "CHANGE_ME_TENANT_ID",
+  "agentKey": "CHANGE_ME_AGENT_KEY",
+  "controlPlaneUrl": "https://gcac.example.invalid",
+  "heartbeatIntervalSeconds": 30,
+  "paths": {
+    "linux": {
+      "configPath": "/etc/gcac/linux-agent/agent.config.json",
+      "dataDir": "/var/lib/gcac/linux-agent",
+      "logDir": "/var/log/gcac/linux-agent"
+    }
+  },
+  "service": {
+    "name": "gcac-linux-agent",
+    "displayName": "GCAC Linux Go Full Agent"
+  }
+}

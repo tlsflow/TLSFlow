@@ -144,37 +144,39 @@ export class AgentsController {
 
   private async getWindowsPowerShellBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
+    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
+    const manifest = await this.service.buildWindowsPowerShellInstallManifest(session);
     return {
       statusCode: 200,
       headers: {
         'content-type': 'text/plain; charset=utf-8',
       },
-      body: renderWindowsPowerShellBootstrapScript(`${inferBaseUrl(request)}/api/v1/agents/install/windows/manifest?token=${encodeURIComponent(token)}`),
+      body: renderWindowsPowerShellBootstrapScript(manifest),
     };
   }
 
   private async getWindowsPowerShellManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
+    const session = await this.service.getInstallSessionByToken(token);
     return this.service.buildWindowsPowerShellInstallManifest(session);
   }
 
   private async getLinuxGoBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    await this.service.getInstallSessionByToken(token);
+    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
+    const manifest = this.service.buildLinuxGoInstallManifest(session, inferBaseUrl(request));
     return {
       statusCode: 200,
       headers: {
         'content-type': 'text/x-shellscript; charset=utf-8',
       },
-      body: renderLinuxBootstrapScript(`${inferBaseUrl(request)}/api/v1/agents/install/linux/manifest?token=${encodeURIComponent(token)}`),
+      body: renderLinuxBootstrapScript(manifest),
     };
   }
 
   private async getLinuxGoManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.getInstallSessionByToken(token);
+    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
     return this.service.buildLinuxGoInstallManifest(session, inferBaseUrl(request));
   }
 
@@ -499,12 +501,15 @@ function inferBaseUrl(request: HttpRequest): string {
   return `${proto}://${host ?? 'localhost'}`;
 }
 
-function renderWindowsPowerShellBootstrapScript(manifestUrl: string): string {
+function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
+  const manifestJson = JSON.stringify(manifest, null, 2);
   return [
     '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
-    '$manifest = Invoke-RestMethod -Method Get -Uri ' + toPsSingleQuoted(manifestUrl),
+    '$manifest = @\'',
+    manifestJson,
+    '\'@ | ConvertFrom-Json',
     '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
     "$root = Join-Path $env:TEMP ('gcac-winps-agent-' + $manifest.sessionId)",
     'New-Item -ItemType Directory -Force -Path $root | Out-Null',
@@ -529,14 +534,39 @@ function renderWindowsPowerShellBootstrapScript(manifestUrl: string): string {
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
     'New-Item -ItemType Directory -Force -Path $manifest.dataDir | Out-Null',
     "$installScript = Join-Path $root 'install-service.ps1'",
+    "$entryScript = Join-Path $root 'Start-GcacFullAgent.ps1'",
+    "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
+    "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
     '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; LogDir = [string]$manifest.logDir }',
-    'if ($manifest.startAfterInstall -eq $true) { $params.StartAfterInstall = $true }',
     '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
+    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -SelfCheck -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $selfCheckPath",
+    "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap self-check failed after service installation.' }",
+    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -RunOnce -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $runOncePath",
+    "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap first registration run failed.' }",
+    "$installMetadataPath = Join-Path $manifest.configDir 'service.install.json'",
+    'if (Test-Path -LiteralPath $installMetadataPath) {',
+    '  $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
+    '  $installMetadata.LastBootstrapSelfCheckPath = $selfCheckPath',
+    '  $installMetadata.LastBootstrapRunOncePath = $runOncePath',
+    '  [System.IO.File]::WriteAllText($installMetadataPath, ($installMetadata | ConvertTo-Json -Depth 10), $utf8Bom)',
+    '}',
+    "Write-Warning 'Automatic Start-Service is disabled for the current PowerShell skeleton service registration model. Start the wrapper-based service after service host integration is added.'",
     "Write-Host 'Bootstrap completed. Files staged at:' $root",
   ].join('\r\n')
 }
 
-function renderLinuxBootstrapScript(manifestUrl: string): string {
+function renderLinuxBootstrapScript(manifest: unknown): string {
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  const installManifest = manifest as {
+    bundleUrl?: string;
+    serviceName?: string;
+    displayName?: string;
+    installRoot?: string;
+    configDir?: string;
+    dataDir?: string;
+    logDir?: string;
+    startAfterInstall?: boolean;
+  };
   return [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
@@ -546,12 +576,13 @@ function renderLinuxBootstrapScript(manifestUrl: string): string {
     '  exit 1',
     'fi',
     '',
-    `MANIFEST_URL=${toShSingleQuoted(manifestUrl)}`,
     'WORKDIR="$(mktemp -d /tmp/gcac-linux-agent-XXXXXX)"',
     'cleanup() { rm -rf "$WORKDIR"; }',
     'trap cleanup EXIT',
     '',
-    'curl -fsSL "$MANIFEST_URL" -o "$WORKDIR/manifest.json"',
+    "cat <<'JSON' > \"$WORKDIR/manifest.json\"",
+    manifestJson,
+    'JSON',
     'MANIFEST_PATH="$WORKDIR/manifest.json" node <<\'NODE\'',
     'const fs = require("node:fs");',
     'const path = process.env.MANIFEST_PATH;',
@@ -579,27 +610,24 @@ function renderLinuxBootstrapScript(manifestUrl: string): string {
     'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',
     'NODE',
     '',
-    'BUNDLE_URL="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.bundleUrl);\' "$WORKDIR/manifest.json")"',
-    'SERVICE_NAME="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.serviceName);\' "$WORKDIR/manifest.json")"',
-    'DISPLAY_NAME="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.displayName);\' "$WORKDIR/manifest.json")"',
-    'INSTALL_ROOT="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.installRoot);\' "$WORKDIR/manifest.json")"',
-    'CONFIG_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.configDir);\' "$WORKDIR/manifest.json")"',
-    'DATA_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.dataDir);\' "$WORKDIR/manifest.json")"',
-    'LOG_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.logDir);\' "$WORKDIR/manifest.json")"',
+    `BUNDLE_URL=${toBashSingleQuoted(installManifest.bundleUrl ?? '')}`,
+    `SERVICE_NAME=${toBashSingleQuoted(installManifest.serviceName ?? 'gcac-linux-agent')}`,
+    `DISPLAY_NAME=${toBashSingleQuoted(installManifest.displayName ?? 'GCAC Linux Go Full Agent')}`,
+    `INSTALL_ROOT=${toBashSingleQuoted(installManifest.installRoot ?? '/opt/gcac/linux-agent')}`,
+    `CONFIG_DIR=${toBashSingleQuoted(installManifest.configDir ?? '/etc/gcac/linux-agent')}`,
+    `DATA_DIR=${toBashSingleQuoted(installManifest.dataDir ?? '/var/lib/gcac/linux-agent')}`,
+    `LOG_DIR=${toBashSingleQuoted(installManifest.logDir ?? '/var/log/gcac/linux-agent')}`,
+    `START_AFTER_INSTALL=${toBashSingleQuoted(installManifest.startAfterInstall === true ? 'true' : 'false')}`,
     '',
     'curl -fsSL "$BUNDLE_URL" -o "$WORKDIR/bundle.tar.gz"',
     'tar -xzf "$WORKDIR/bundle.tar.gz" -C "$WORKDIR"',
     'install -d "$WORKDIR/config"',
     'install -m 0644 "$WORKDIR/manifest.json" "$WORKDIR/config/agent.config.template.json"',
     'chmod +x "$WORKDIR/linux/install-systemd.sh"',
-    'SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="true" bash "$WORKDIR/linux/install-systemd.sh"',
+    'SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="$START_AFTER_INSTALL" bash "$WORKDIR/linux/install-systemd.sh"',
   ].join('\n')
 }
 
-function toPsSingleQuoted(value: string): string {
-  return "'" + value.replace(/'/gu, "''") + "'"
-}
-
-function toShSingleQuoted(value: string): string {
-  return "'" + value.replace(/'/gu, `'\\''`) + "'"
+function toBashSingleQuoted(value: string): string {
+  return `'${value.replace(/'/gu, `'\\''`)}'`
 }

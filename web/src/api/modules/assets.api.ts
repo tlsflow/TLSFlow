@@ -104,6 +104,14 @@ export function createAgentEnrollmentToken(payload: ApiBody) {
   return postAction(`${AGENTS_PATH}/enrollment-tokens`, payload, 'agent_enrollment_token')
 }
 
+export function createLinuxGoInstallSession(payload: ApiBody) {
+  return postAction(`${AGENTS_PATH}/install-sessions/linux-go`, payload, 'agent_linux_go_install_session')
+}
+
+export function createWindowsPowerShellInstallSession(payload: ApiBody) {
+  return postAction(`${AGENTS_PATH}/install-sessions/windows-powershell`, payload, 'agent_windows_ps_install')
+}
+
 export function startDiscovery(payload: ApiBody) {
   return postAction(DISCOVERY_RUNS_PATH, payload, 'asset_discovery')
 }

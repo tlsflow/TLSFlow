@@ -142,6 +142,42 @@ function Get-GcacRegistrationIdentity {
   }
 }
 
+function Get-GcacCapabilitySnapshot {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Context,
+
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Registration
+  )
+
+  return @{
+    agentId = [string]$Registration.Detail.AgentId
+    compatibilityLevel = "L1"
+    capabilities = @(
+      @{
+        capabilityKey = "full_agent"
+        value = $true
+        confidence = 1.0
+        evidence = @{ source = "powershell-agent" }
+      },
+      @{
+        capabilityKey = "windows.powershell"
+        value = $true
+        confidence = 1.0
+        evidence = @{ source = "powershell-agent" }
+      },
+      @{
+        capabilityKey = "windows.service"
+        value = $true
+        confidence = 0.9
+        evidence = @{ source = "service-skeleton" }
+      }
+    )
+  }
+}
+
 function Register-GcacControlPlaneAgent {
   [CmdletBinding()]
   param(
@@ -178,6 +214,10 @@ function Register-GcacControlPlaneAgent {
     zone = if ($null -ne $Context.Config.PSObject.Properties["zone"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.Config.zone)) { [string]$Context.Config.zone } else { "local" }
   }
 
+  if ($null -ne $Context.Config.PSObject.Properties["enrollmentToken"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.Config.enrollmentToken)) {
+    $body.enrollmentToken = [string]$Context.Config.enrollmentToken
+  }
+
   $response = Invoke-GcacControlPlaneRequest -Method "POST" -Context $Context -Path "/api/v1/agents/register" -Body $body
   if (-not $response.Success) {
     return [pscustomobject]@{
@@ -205,6 +245,62 @@ function Register-GcacControlPlaneAgent {
       Mode = "http"
       ControlPlaneUrl = $Context.Config.controlPlaneUrl
       RequestId = $response.RequestId
+    }
+    Logs = @()
+  }
+}
+
+function Report-GcacCapabilities {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Context,
+
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Registration
+  )
+
+  $mode = Get-GcacControlPlaneMode -Context $Context
+  if ($mode -eq "placeholder") {
+    return [pscustomobject]@{
+      Success = $true
+      ErrorCode = $null
+      ErrorMessage = $null
+      Detail = [pscustomobject]@{
+        AgentId = $Registration.Detail.AgentId
+        Mode = "placeholder"
+        CapabilityCount = 3
+      }
+      Logs = @()
+    }
+  }
+
+  $body = Get-GcacCapabilitySnapshot -Context $Context -Registration $Registration
+  $response = Invoke-GcacControlPlaneRequest -Method "POST" -Context $Context -Path "/api/v1/agents/capabilities" -Body $body
+  if (-not $response.Success) {
+    return [pscustomobject]@{
+      Success = $false
+      ErrorCode = "CONTROL_PLANE_REPORT_CAPABILITIES_FAILED"
+      ErrorMessage = $response.ErrorMessage
+      Detail = [pscustomobject]@{
+        AgentId = $Registration.Detail.AgentId
+        Mode = "http"
+        RequestId = $response.RequestId
+      }
+      Logs = @()
+    }
+  }
+
+  return [pscustomobject]@{
+    Success = $true
+    ErrorCode = $null
+    ErrorMessage = $null
+    Detail = [pscustomobject]@{
+      AgentId = $Registration.Detail.AgentId
+      Mode = "http"
+      CapabilityCount = 3
+      RequestId = $response.RequestId
+      Response = $response.Response
     }
     Logs = @()
   }
@@ -270,6 +366,77 @@ function Send-GcacHeartbeat {
       Mode = "http"
       RequestId = $response.RequestId
       Response = $response.Response
+    }
+    Logs = @()
+  }
+}
+
+function Submit-GcacTaskLogs {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Context,
+
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Registration,
+
+    [Parameter(Mandatory = $true)]
+    [object]$Task,
+
+    [Parameter(Mandatory = $true)]
+    [array]$Logs
+  )
+
+  $mode = Get-GcacControlPlaneMode -Context $Context
+  if ($mode -eq "placeholder") {
+    return [pscustomobject]@{
+      Success = $true
+      ErrorCode = $null
+      ErrorMessage = $null
+      Detail = [pscustomobject]@{
+        AgentId = $Registration.Detail.AgentId
+        TaskId = [string]$Task.TaskId
+        Mode = "placeholder"
+        LogCount = $Logs.Count
+        LastAckedSequence = if ($Logs.Count -gt 0) { $Logs[-1].sequence } else { 0 }
+      }
+      Logs = @()
+    }
+  }
+
+  $response = Invoke-GcacControlPlaneRequest -Method "POST" -Context $Context -Path "/api/v1/agents/tasks/log-batches" -Body @{
+    agentId = [string]$Registration.Detail.AgentId
+    taskId = [string]$Task.TaskId
+    logs = $Logs
+  }
+
+  if (-not $response.Success) {
+    return [pscustomobject]@{
+      Success = $false
+      ErrorCode = "CONTROL_PLANE_SUBMIT_LOGS_FAILED"
+      ErrorMessage = $response.ErrorMessage
+      Detail = [pscustomobject]@{
+        AgentId = $Registration.Detail.AgentId
+        TaskId = [string]$Task.TaskId
+        Mode = "http"
+        RequestId = $response.RequestId
+      }
+      Logs = @()
+    }
+  }
+
+  return [pscustomobject]@{
+    Success = $true
+    ErrorCode = $null
+    ErrorMessage = $null
+    Detail = [pscustomobject]@{
+      AgentId = $Registration.Detail.AgentId
+      TaskId = [string]$Task.TaskId
+      Mode = "http"
+      LogCount = $Logs.Count
+      RequestId = $response.RequestId
+      Response = $response.Response
+      LastAckedSequence = $response.Response.lastAckedSequence
     }
     Logs = @()
   }
@@ -471,4 +638,4 @@ function Submit-GcacTaskResult {
   }
 }
 
-Export-ModuleMember -Function Register-GcacControlPlaneAgent, Send-GcacHeartbeat, Get-GcacPendingTask, Submit-GcacTaskResult
+Export-ModuleMember -Function Register-GcacControlPlaneAgent, Report-GcacCapabilities, Send-GcacHeartbeat, Submit-GcacTaskLogs, Get-GcacPendingTask, Submit-GcacTaskResult

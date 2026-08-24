@@ -246,6 +246,8 @@ export interface AgentInstallSession {
   startAfterInstall: boolean;
   createdAt: string;
   expiresAt: string;
+  usedAt?: string;
+  usedByIp?: string;
   serviceName: string;
   displayName: string;
   installRoot: string;

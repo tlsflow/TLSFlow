@@ -6,6 +6,7 @@ import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLi
 import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
+const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -46,7 +47,7 @@ export class AgentsDomainService {
       ttlSeconds: 1800,
       createdBy: 'system',
     }, requestId);
-    const bootstrapToken = `${newId('boot')}.${randomBytes(12).toString('hex')}`;
+    const bootstrapToken = createInstallBootstrapToken();
     const now = new Date();
     const id = newId('aginst');
     const serviceName = normalizeServiceName(input.serviceName ?? `gcac-full-agent-ps-${id.slice(-6)}`);
@@ -63,7 +64,7 @@ export class AgentsDomainService {
       platform: 'windows_powershell_service',
       bootstrapToken,
       bootstrapTokenHash: sha256Hex(bootstrapToken),
-      bootstrapTokenPreview: `${bootstrapToken.slice(0, 10)}...${bootstrapToken.slice(-6)}`,
+      bootstrapTokenPreview: bootstrapToken,
       enrollmentTokenRecord,
       enrollmentToken: enrollmentTokenRecord.token,
       agentKey,
@@ -71,7 +72,7 @@ export class AgentsDomainService {
       zone,
       startAfterInstall: input.startAfterInstall === true,
       createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
       serviceName,
       displayName,
       installRoot,
@@ -94,7 +95,7 @@ export class AgentsDomainService {
       ttlSeconds: 1800,
       createdBy: 'system',
     }, requestId);
-    const bootstrapToken = `${newId('boot')}.${randomBytes(12).toString('hex')}`;
+    const bootstrapToken = createInstallBootstrapToken();
     const now = new Date();
     const id = newId('aginst');
     const serviceName = normalizeServiceName(input.serviceName ?? 'gcac-linux-agent');
@@ -111,7 +112,7 @@ export class AgentsDomainService {
       platform: 'linux_go_systemd',
       bootstrapToken,
       bootstrapTokenHash: sha256Hex(bootstrapToken),
-      bootstrapTokenPreview: `${bootstrapToken.slice(0, 10)}...${bootstrapToken.slice(-6)}`,
+      bootstrapTokenPreview: bootstrapToken,
       enrollmentTokenRecord,
       enrollmentToken: enrollmentTokenRecord.token,
       agentKey,
@@ -119,7 +120,7 @@ export class AgentsDomainService {
       zone,
       startAfterInstall: true,
       createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
       serviceName,
       displayName,
       installRoot,
@@ -652,6 +653,16 @@ function normalizeUnixPath(value: string, field: string): string {
   const normalized = normalizeRequired(value, field);
   if (!normalized.startsWith('/')) throw new AppError('VALIDATION_FAILED', `${field} 必须是 Linux 绝对路径`, { field });
   return normalized.length > 1 ? normalized.replace(/\/+$/u, '') : normalized;
+}
+
+function createInstallBootstrapToken(length = 8): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnopqrstuvwxyz';
+  const bytes = randomBytes(length);
+  let token = '';
+  for (let index = 0; index < length; index += 1) {
+    token += alphabet[bytes[index] % alphabet.length];
+  }
+  return token;
 }
 
 function sha256Hex(value: string | Buffer): string {

@@ -55,7 +55,7 @@ function Test-GcacAgentSelfCheck {
   try {
     $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
     Assert-GcacAgentConfig -Config $config
-    $context = New-GcacExecutionContext -Config $config -LogDir $LogDir
+    $context = New-GcacExecutionContext -Config $config -ConfigPath $ConfigPath -LogDir $LogDir
 
     return New-GcacAgentResult -Success $true -Detail @{
       ConfigPath = $ConfigPath

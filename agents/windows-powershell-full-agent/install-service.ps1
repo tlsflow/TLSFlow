@@ -21,6 +21,7 @@ $entrySource = Join-Path $sourceRoot "Start-GcacFullAgent.ps1"
 $moduleSource = Join-Path $sourceRoot "modules"
 $configSource = Join-Path $sourceRoot "config"
 $scriptSource = Join-Path $sourceRoot "scripts"
+$serviceHostSource = Join-Path $sourceRoot "service-host\Gcac.WindowsServiceHost.cs"
 $configTemplate = Join-Path $configSource "agent.config.template.json"
 
 if (-not (Test-Path -LiteralPath $entrySource)) {
@@ -33,6 +34,10 @@ if (-not (Test-Path -LiteralPath $moduleSource)) {
 
 if (-not (Test-Path -LiteralPath $configTemplate)) {
   throw "Agent config template not found: $configTemplate"
+}
+
+if (-not (Test-Path -LiteralPath $serviceHostSource)) {
+  throw "Windows service host source not found: $serviceHostSource"
 }
 
 New-Item -ItemType Directory -Force -Path $InstallRoot, $ConfigDir, $LogDir | Out-Null
@@ -57,7 +62,22 @@ if ($null -ne $service) {
 
 $powershellExe = Join-Path $PSHOME "powershell.exe"
 $entryPath = Join-Path $InstallRoot "Start-GcacFullAgent.ps1"
-$binaryPath = '"' + $powershellExe + '" -NoProfile -ExecutionPolicy Bypass -File "' + $entryPath + '" -ConfigPath "' + $configTarget + '" -LogDir "' + $LogDir + '"'
+$serviceHostExe = Join-Path $InstallRoot "Gcac.WindowsServiceHost.exe"
+$frameworkCsc = @(
+  "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+  "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+
+if ([string]::IsNullOrWhiteSpace($frameworkCsc)) {
+  throw "Unable to find csc.exe for compiling the Windows service host."
+}
+
+& $frameworkCsc /nologo /t:exe /out:$serviceHostExe /r:System.ServiceProcess.dll /r:System.dll /r:System.Core.dll $serviceHostSource | Out-Null
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $serviceHostExe)) {
+  throw "Failed to compile Gcac.WindowsServiceHost.exe"
+}
+
+$binaryPath = '"' + $serviceHostExe + '" --service-name "' + $ServiceName + '" --powershell-exe "' + $powershellExe + '" --entry-path "' + $entryPath + '" --config-path "' + $configTarget + '" --log-dir "' + $LogDir + '"'
 
 & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $entryPath -SelfCheck -ConfigPath $configTarget -LogDir $LogDir | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -76,8 +96,12 @@ $metadata = [pscustomobject]@{
   LogDir = $LogDir
   EntryPath = $entryPath
   PowerShellExe = $powershellExe
+  ServiceHostExe = $serviceHostExe
+  ServiceHostSource = $serviceHostSource
   InstalledAt = (Get-Date).ToString("o")
-  Mode = "skeleton"
+  Mode = "windows_service_host"
+  LastBootstrapSelfCheckPath = $null
+  LastBootstrapRunOncePath = $null
 }
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 6), $utf8Bom)
@@ -95,4 +119,5 @@ Write-Host "Stop command: Stop-Service -Name '$ServiceName'"
 Write-Host "Status command: Get-Service -Name '$ServiceName'"
 Write-Host "Self-check command: & '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$entryPath' -SelfCheck -ConfigPath '$configTarget' -LogDir '$LogDir'"
 Write-Host "Health-check command: & '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$entryPath' -HealthCheck -ConfigPath '$configTarget' -LogDir '$LogDir'"
-Write-Host "Note: this is still a skeleton host without business deployment logic."
+Write-Host "Service host executable: $serviceHostExe"
+Write-Host "Note: PowerShell remains the agent runtime; Windows service hosting now uses a real SCM-compatible host."

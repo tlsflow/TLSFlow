@@ -446,6 +446,8 @@ export class AgentsApplicationService {
       startAfterInstall: session.startAfterInstall,
       createdAt: session.createdAt,
       expiresAt: session.expiresAt,
+      usedAt: session.usedAt,
+      usedByIp: session.usedByIp,
       serviceName: session.serviceName,
       displayName: session.displayName,
       installRoot: session.installRoot,
@@ -455,14 +457,13 @@ export class AgentsApplicationService {
     });
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
     const bootstrapUrl = `${baseUrl}/api/v1/agents/install/windows/bootstrap.ps1?token=${token}`;
-    const manifestUrl = `${baseUrl}/api/v1/agents/install/windows/manifest?token=${token}`;
     return {
       sessionId: session.id,
       platform: 'windows_powershell_service',
       expiresAt: session.expiresAt,
       bootstrapUrl,
-      manifestUrl,
       installCommand: `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${bootstrapUrl}' | iex"`,
+      bootstrapTokenPreview: session.bootstrapTokenPreview,
       enrollmentToken: session.enrollmentToken,
       serviceName: session.serviceName,
       displayName: session.displayName,
@@ -493,6 +494,8 @@ export class AgentsApplicationService {
       startAfterInstall: session.startAfterInstall,
       createdAt: session.createdAt,
       expiresAt: session.expiresAt,
+      usedAt: session.usedAt,
+      usedByIp: session.usedByIp,
       serviceName: session.serviceName,
       displayName: session.displayName,
       installRoot: session.installRoot,
@@ -502,16 +505,15 @@ export class AgentsApplicationService {
     });
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
     const bootstrapUrl = `${baseUrl}/api/v1/agents/install/linux/bootstrap.sh?token=${token}`;
-    const manifestUrl = `${baseUrl}/api/v1/agents/install/linux/manifest?token=${token}`;
     const bundleUrl = `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`;
     return {
       sessionId: session.id,
       platform: 'linux_go_systemd',
       expiresAt: session.expiresAt,
       bootstrapUrl,
-      manifestUrl,
       bundleUrl,
       installCommand: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
+      bootstrapTokenPreview: session.bootstrapTokenPreview,
       serviceName: session.serviceName,
       displayName: session.displayName,
       installRoot: session.installRoot,
@@ -529,6 +531,7 @@ export class AgentsApplicationService {
     const session = await this.repository.findInstallSessionByTokenHash(tenantId, sha256(bootstrapToken));
     if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
     if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
+    if (session.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
     return session;
   }
 
@@ -536,7 +539,16 @@ export class AgentsApplicationService {
     const session = await this.repository.findInstallSessionByTokenHashAnyTenant(sha256(bootstrapToken));
     if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
     if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
+    if (session.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
     return session;
+  }
+
+  async consumeWindowsPowerShellInstallSessionByToken(tenantId: string, bootstrapToken: string, usedByIp?: string): Promise<AgentInstallSession> {
+    return this.consumeInstallSession(sha256(bootstrapToken), usedByIp, tenantId);
+  }
+
+  async consumeInstallSessionByToken(bootstrapToken: string, usedByIp?: string): Promise<AgentInstallSession> {
+    return this.consumeInstallSession(sha256(bootstrapToken), usedByIp);
   }
 
   async buildWindowsPowerShellInstallManifest(session: AgentInstallSession) {
@@ -670,6 +682,20 @@ export class AgentsApplicationService {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task || task.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
     return task;
+  }
+
+  private async consumeInstallSession(tokenHash: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession> {
+    const usedAt = new Date().toISOString();
+    const consumed = await this.repository.consumeInstallSessionByTokenHash(tokenHash, usedAt, usedByIp, tenantId);
+    if (consumed) return consumed;
+
+    const existing = tenantId
+      ? await this.repository.findInstallSessionByTokenHash(tenantId, tokenHash)
+      : await this.repository.findInstallSessionByTokenHashAnyTenant(tokenHash);
+    if (!existing) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
+    if (new Date(existing.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
+    if (existing.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
+    throw new AppError('RESOURCE_VERSION_CONFLICT', '安装会话消费冲突');
   }
 
   private async syncGatewayRegistry(tenantId: string, agent: AgentRegistration): Promise<void> {

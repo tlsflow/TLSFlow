@@ -24,7 +24,7 @@ export const router = createRouter({
             hiddenInMenu: true,
             breadcrumb: ['登录']
           }
-        }
+        },
       ]
     },
     {

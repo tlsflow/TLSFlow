@@ -262,8 +262,8 @@ export interface AgentInstallSessionBootstrapProjection {
   platform: 'windows_powershell_service' | 'linux_go_systemd';
   expiresAt: string;
   bootstrapUrl: string;
-  manifestUrl: string;
   installCommand: string;
+  bootstrapTokenPreview: string;
   enrollmentToken?: string;
   serviceName: string;
   displayName: string;

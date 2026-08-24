@@ -23,7 +23,7 @@ function Invoke-GcacAgentLoop {
 
   $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
   Assert-GcacAgentConfig -Config $config
-  $context = New-GcacExecutionContext -Config $config -LogDir $LogDir
+  $context = New-GcacExecutionContext -Config $config -ConfigPath $ConfigPath -LogDir $LogDir
 
   if ($RunOnce) {
     return (Invoke-GcacAgentIteration -Context $context)
@@ -51,6 +51,13 @@ function Invoke-GcacAgentIteration {
     return $registration
   }
 
+  Clear-GcacEnrollmentTokenIfNeeded -Context $Context -Registration $registration
+
+  $capabilities = Report-GcacCapabilities -Context $Context -Registration $registration
+  if (-not $capabilities.Success) {
+    return $capabilities
+  }
+
   $heartbeat = Send-GcacHeartbeat -Context $Context -Registration $registration
   if (-not $heartbeat.Success) {
     return $heartbeat
@@ -70,6 +77,24 @@ function Invoke-GcacAgentIteration {
   Save-GcacLocalState -Context $Context -State $state
 
   if ($task.Detail.TaskId) {
+    $submittedLogs = Submit-GcacTaskLogs -Context $Context -Registration $registration -Task $task.Detail -Logs @(
+      @{
+        sequence = 1
+        level = "info"
+        message = "Task accepted by PowerShell Full Agent skeleton"
+        emittedAt = (Get-Date).ToString("o")
+      },
+      @{
+        sequence = 2
+        level = "info"
+        message = "Task executed by placeholder runtime"
+        emittedAt = (Get-Date).ToString("o")
+      }
+    )
+    if (-not $submittedLogs.Success) {
+      return $submittedLogs
+    }
+
     $submit = Submit-GcacTaskResult -Context $Context -Registration $registration -Task $task.Detail -Result @{
       success = $true
       mode = "skeleton"
@@ -92,6 +117,7 @@ function Invoke-GcacAgentIteration {
         ControlPlaneUrl = $Context.Config.controlPlaneUrl
       }
       Registration = $registration
+      Capabilities = $capabilities
       Heartbeat = $heartbeat
       Task = $task
       LocalStatePath = $Context.StatePath
@@ -130,6 +156,31 @@ function Save-GcacLocalState {
   $json = $State | ConvertTo-Json -Depth 6
   $utf8Bom = New-Object System.Text.UTF8Encoding($true)
   [System.IO.File]::WriteAllText($Context.StatePath, $json, $utf8Bom)
+}
+
+function Clear-GcacEnrollmentTokenIfNeeded {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Context,
+
+    [Parameter(Mandatory = $true)]
+    [pscustomobject]$Registration
+  )
+
+  $hasTokenProperty = $null -ne $Context.Config.PSObject.Properties["enrollmentToken"]
+  if (-not $hasTokenProperty) {
+    return
+  }
+
+  $currentToken = [string]$Context.Config.enrollmentToken
+  if ([string]::IsNullOrWhiteSpace($currentToken)) {
+    return
+  }
+
+  $Context.Config.enrollmentToken = ""
+  Save-GcacConfig -Context $Context
+  Write-GcacRuntimeLog -Context $Context -Level "INFO" -Message ("Enrollment token consumed and cleared after successful registration for agent " + [string]$Registration.Detail.AgentId)
 }
 
 Export-ModuleMember -Function Invoke-GcacAgentLoop, Invoke-GcacAgentIteration, Assert-GcacAgentConfig, Save-GcacLocalState
