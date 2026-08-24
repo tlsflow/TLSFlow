@@ -1,0 +1,13 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "fixture-mock-kubernetes-deploy", "version": "1.0.0" },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": { "targetName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" } },
+    "connections": {},
+    "credentials": {},
+    "artifacts": { "certificate": { "kind": "certificate", "required": true, "configurationMode": "required", "lifecycle": "pre_execution", "artifactContract": { "outputs": { "leafPem": { "role": "public_certificate", "required": true }, "privateKeyPem": { "role": "private_key", "required": true, "sensitive": true } } } } }
+  },
+  "steps": [{ "name": "record-target", "type": "transform", "stage": "install", "transform": { "engine": "jsonata", "input": { "target": "${variables.targetName}" }, "outputs": { "result": { "expression": "target" } } } }]
+}

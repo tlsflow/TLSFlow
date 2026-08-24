@@ -1,0 +1,27 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "fixture.mock-kubernetes",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.fixture.mockKubernetes.name",
+  "descriptionKey": "plugin.fixture.mockKubernetes.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "fixture",
+  "runtime": "WORKFLOW_DSL",
+  "source": "USER",
+  "scope": "MANAGED",
+  "trust": "UNSIGNED",
+  "support": "SELF_MANAGED",
+  "capabilities": [
+    { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] }
+  ],
+  "permissions": [],
+  "compatibility": { "productFamilies": ["fixture.mock-kubernetes"], "frameworkTypes": ["kubernetes.cluster"], "targetTypes": ["tls.binding"], "managementMethods": ["MANUAL", "PLUGIN"], "executionLocations": ["CONTROL_PLANE"], "artifactContracts": ["certificate.deploy.v1"] },
+  "resources": {
+    "workflows": { "certificate.deploy": "workflows/deploy.json" },
+    "forms": { "device": "forms/device.json" },
+    "presentations": { "device": "presentations/device.json" },
+    "locales": { "zh-CN": "locales/zh-CN.json" },
+    "discoveryMappings": { "default": "discovery/default.json" }
+  }
+}

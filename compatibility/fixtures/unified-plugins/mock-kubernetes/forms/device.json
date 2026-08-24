@@ -1,0 +1,1 @@
+{ "schemaVersion": "gcac.plugin-form/v1", "mode": "BOTH", "sections": [{ "id": "target", "titleKey": "plugin.fixture.mockKubernetes.form.target.title", "fields": [{ "key": "targetName", "type": "text", "labelKey": "plugin.fixture.mockKubernetes.form.target.label" }] }] }

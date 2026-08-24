@@ -1,0 +1,1 @@
+{ "plugin.fixture.mockNas.name": "模拟 NAS 插件", "plugin.fixture.mockNas.description": "用于验证未知设备扩展性的测试插件", "plugin.fixture.mockNas.form.target.title": "目标", "plugin.fixture.mockNas.form.target.label": "目标名称", "plugin.fixture.mockNas.presentation.identity": "设备信息", "plugin.fixture.mockNas.presentation.family": "产品族", "plugin.fixture.mockNas.presentation.sites": "站点" }
