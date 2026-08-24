@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
@@ -39,6 +39,9 @@ import {
   createInputBindingsV1,
   readInputBindingsV1,
 } from './asset-input-bindings.model'
+import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
+import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
+import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -156,6 +159,10 @@ const detailTabs = computed(() => [
   { value: 'snapshots', label: t('assets.detail.tabs.snapshots') },
 ])
 const createDialogOpen = ref(false)
+const onboardingDialogOpen = ref(false)
+const deviceOnboardingOpen = ref(false)
+const resumeApplicationOnboarding = ref(false)
+const deviceOnboardingInitialSelection = ref<DeviceOnboardingInitialSelection>()
 const createLoading = ref(false)
 const createError = ref('')
 const createRequestId = ref('')
@@ -854,6 +861,41 @@ async function openCreateDialog() {
   createRequestId.value = ''
   await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   selectUserModeDefaults()
+}
+
+function setOnboardingDialogOpen(open: boolean): void {
+  onboardingDialogOpen.value = open
+  if (open || route.query.onboarding !== '1') return
+  const query = { ...route.query }
+  delete query.onboarding
+  delete query.session
+  void router.replace({ query })
+}
+
+async function openCustomManualCreateDialog(): Promise<void> {
+  setOnboardingDialogOpen(false)
+  await nextTick()
+  await openCreateDialog()
+}
+
+function openDeviceOnboardingFromApplication(initialSelection: DeviceOnboardingInitialSelection): void {
+  resumeApplicationOnboarding.value = true
+  deviceOnboardingInitialSelection.value = initialSelection
+  onboardingDialogOpen.value = false
+  deviceOnboardingOpen.value = true
+}
+
+function setDeviceOnboardingOpen(open: boolean): void {
+  deviceOnboardingOpen.value = open
+  if (open || !resumeApplicationOnboarding.value) return
+  resumeApplicationOnboarding.value = false
+  deviceOnboardingInitialSelection.value = undefined
+  void nextTick().then(() => setOnboardingDialogOpen(true))
+}
+
+function completeDeviceOnboarding(): void {
+  void loadAssetOverviewPage(assetOverviewPage.value)
+  if (resumeApplicationOnboarding.value) setDeviceOnboardingOpen(false)
 }
 
 function navigateUserFlow(stepId: string) {
@@ -2283,6 +2325,27 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => route.query.onboarding,
+  (value) => {
+    if (value === '1') onboardingDialogOpen.value = true
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.query.create,
+  (value) => {
+    if (value !== '1' || createDialogOpen.value) return
+    void openCreateDialog().finally(() => {
+      const query = { ...route.query }
+      delete query.create
+      void router.replace({ query })
+    })
+  },
+  { immediate: true },
+)
+
 watch([isUserViewMode, deviceItems, certificateFormatItems], () => {
   selectUserModeDefaults()
 }, { deep: true })
@@ -2474,6 +2537,9 @@ function managedTargetLabel(target: ApiRecord): string {
         @select="navigateUserFlow"
       >
         <template #actions>
+          <GcPermissionButton class="gc-button gc-button--secondary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
+            {{ t('applicationOnboarding.actions.openWizard') }}
+          </GcPermissionButton>
           <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
             {{ t('assets.userView.addAction') }}
           </GcPermissionButton>
@@ -2559,6 +2625,9 @@ function managedTargetLabel(target: ApiRecord): string {
             </span>
           </div>
           <div class="asset-page__workspace-actions">
+            <GcPermissionButton class="gc-button gc-button--secondary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
+              {{ t('applicationOnboarding.actions.openWizard') }}
+            </GcPermissionButton>
             <GcButton
               variant="secondary"
               :aria-expanded="assetOverviewFiltersVisible"
@@ -3491,6 +3560,18 @@ function managedTargetLabel(target: ApiRecord): string {
         </button>
       </template>
     </GcModal>
+    <ApplicationOnboardingModal
+      :open="onboardingDialogOpen"
+      @update:open="setOnboardingDialogOpen"
+      @custom-manual="openCustomManualCreateDialog"
+      @add-device="openDeviceOnboardingFromApplication"
+    />
+    <DeviceOnboardingWizard
+      :open="deviceOnboardingOpen"
+      :initial-selection="deviceOnboardingInitialSelection"
+      @update:open="setDeviceOnboardingOpen"
+      @completed="completeDeviceOnboarding"
+    />
   </section>
 </template>
 

@@ -10,11 +10,12 @@ import {
   buildDeviceOnboardingPayload,
   normalizeDeviceOnboardingResult,
   validateDeviceOnboarding,
+  type DeviceOnboardingInitialSelection,
   type DeviceOnboardingPlatform,
   type DeviceOnboardingResultView,
 } from './device-onboarding.model'
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; initialSelection?: DeviceOnboardingInitialSelection }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; completed: [] }>()
 const { t, locale } = useI18n()
 const platforms = ref<DeviceOnboardingPlatform[]>([])
@@ -29,6 +30,7 @@ const error = ref('')
 const result = ref<DeviceOnboardingResultView | null>(null)
 const commandCopied = ref(false)
 const step = ref<1 | 2 | 3>(1)
+let platformLoadPromise: Promise<void> | null = null
 
 const selected = computed(() => platforms.value.find((item) => item.key === selectedKey.value))
 const missingFields = computed(() => {
@@ -50,34 +52,65 @@ const platformGroups = computed(() => [
   })),
 ].filter((group) => group.platforms.length > 0))
 
-watch(() => props.open, async (open) => {
+watch(() => props.open, (open) => {
   if (!open) return
+  void initializeWizard()
+}, { immediate: true })
+
+async function initializeWizard(): Promise<void> {
   step.value = 1
   selectedKey.value = ''
   values.value = { tlsVerify: true }
   result.value = null
   commandCopied.value = false
   failedPlatformLogos.value = new Set()
-  if (platforms.value.length > 0) return
   error.value = ''
-  try {
-    const [agentResponse, catalogResponse] = await Promise.all([
-      listDeviceOnboardingPlatforms(),
-      listPluginCatalog({ page: 1, pageSize: 500 }),
-    ])
-    const agentPlatforms = [...(agentResponse.data ?? [])] as unknown as DeviceOnboardingPlatform[]
-    const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
-    const localized = await Promise.all(pluginPlatforms.map(async (platform) => {
-      const response = await getUnifiedPluginUiResources(platform.pluginVersionId ?? '', locale.value)
-      const messages = asRecord(asRecord(response.data).locale).messages
-      return [platform.key, String(asRecord(messages)[platform.displayNameKey] ?? platform.productFamily)] as const
-    }))
-    pluginDisplayNames.value = Object.fromEntries(localized)
-    platforms.value = [...agentPlatforms, ...pluginPlatforms]
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
+  await loadPlatforms()
+  if (!props.open || !props.initialSelection) return
+  const platformKey = resolveInitialPlatformKey(props.initialSelection)
+  if (!platformKey) {
+    error.value = t('devices.onboarding.unsupported')
+    return
   }
-}, { immediate: true })
+  await selectPlatform(platformKey)
+}
+
+async function loadPlatforms(): Promise<void> {
+  if (platforms.value.length > 0) return
+  if (platformLoadPromise) return platformLoadPromise
+  platformLoadPromise = (async () => {
+    error.value = ''
+    try {
+      const [agentResponse, catalogResponse] = await Promise.all([
+        listDeviceOnboardingPlatforms(),
+        listPluginCatalog({ page: 1, pageSize: 500 }),
+      ])
+      const agentPlatforms = [...(agentResponse.data ?? [])] as unknown as DeviceOnboardingPlatform[]
+      const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
+      const localized = await Promise.all(pluginPlatforms.map(async (platform) => {
+        const response = await getUnifiedPluginUiResources(platform.pluginVersionId ?? '', locale.value)
+        const messages = asRecord(asRecord(response.data).locale).messages
+        return [platform.key, String(asRecord(messages)[platform.displayNameKey] ?? platform.productFamily)] as const
+      }))
+      pluginDisplayNames.value = Object.fromEntries(localized)
+      platforms.value = [...agentPlatforms, ...pluginPlatforms]
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
+    }
+  })()
+  try {
+    await platformLoadPromise
+  } finally {
+    platformLoadPromise = null
+  }
+}
+
+function resolveInitialPlatformKey(initialSelection: DeviceOnboardingInitialSelection): string | undefined {
+  if (initialSelection.kind === 'AGENT_INSTALL') {
+    return platforms.value.find((platform) => platform.onboardingKind === 'AGENT_INSTALL' && platform.key === initialSelection.platformKey)?.key
+  }
+  return platforms.value.find((platform) => platform.pluginId === initialSelection.pluginId)?.key
+}
 
 function platformLabel(platform: DeviceOnboardingPlatform): string {
   if (platform.pluginVersionId) return pluginDisplayNames.value[platform.key] ?? platform.productFamily

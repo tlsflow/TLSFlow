@@ -463,7 +463,6 @@ export default {
       PROVIDER_OPERATION: '云服务操作',
       AGENT_INSTALL: 'Agent安装',
       AGENT_UPDATE: 'Agent更新',
-      AGENT_CAPABILITY_RESCAN: 'Agent能力重扫',
       PLUGIN_REFERENCE_REFRESH: '插件引用刷新',
       DEPLOYMENT_PLAN_REFRESH: '部署计划刷新',
       MONITORING_BATCH: '监控批次',
@@ -4853,6 +4852,16 @@ export default {
     wizard: { title: '添加证书颁发机构', description: '先选择签发方式，再逐步配置签发后端、CA 参数和安全边界。', stepsAria: 'CA 创建步骤', entryStep: '选择方式', backendStep: '配置后端', parentStep: '选择父 CA', authorityStep: '配置 CA', reviewStep: '确认创建', completed: '已完成', inProgress: '进行中', pending: '待填写', entryEyebrow: '第一步', entryTitle: '这套 CA 由谁负责签发？', entryDescription: '选择最符合部署边界的入口。内置 CA 使用受管执行边界。', recommended: '推荐起步', builtinTitle: '直接创建 CA', builtinDescription: '由当前 GCAC 服务内置的通用证书签发执行面完成。', builtinFeature1: '无需部署额外节点', builtinFeature2: '适合开发和中小规模内部环境', managedTitle: '部署 GCAC CA Node', managedDescription: '将 CA 私钥和签发执行面隔离到独立 Windows 或 Linux 机器。', managedFeature1: '一次性令牌注册节点', managedFeature2: '为 HSM 与冗余部署预留边界', backendEyebrow: '签发后端', builtinBackendTitle: '使用 GCAC 内置签发后端', builtinBackendDescription: '系统自动创建或复用租户内置执行后端，用户只需要配置 CA。', managed_nodeBackendTitle: '配置独立 GCAC CA Node', managed_nodeBackendDescription: '创建节点签发后端并生成短期一次性注册令牌。', builtinAutomaticTitle: '无需单独创建执行后端', builtinAutomaticDescription: '创建 CA 时系统会自动确保内置签发执行后端存在，并绑定到当前 CA。', authorityEyebrow: '证书机构', rootConfigurationTitle: '配置根 CA', rootConfigurationDescription: '定义新的根信任边界、名称、主题和是否启用中间 CA。', intermediateConfigurationTitle: '配置中间 CA', intermediateConfigurationDescription: '先选择父根 CA，再配置承担日常签发的中间证书颁发机构。', advancedSubjectTitle: '高级证书主题设置', commonNameHelp: '写入 CA 证书主题，用于证书链识别，不是域名。', builtinSecurityNote: '软件私钥由 GCAC SecretService 托管，不等同于不可导出 HSM 密钥。', managed_nodeSecurityNote: '私钥位于独立节点；只有节点注册并通过能力验证后才应投入生产。', reviewEyebrow: '最终确认', reviewTitle: '检查信任边界与签发方式', reviewDescription: '确认 CA 名称、信任域、签发后端和风险提示后再创建。', enrollmentTitle: 'CA Node 一次性注册令牌', enrollmentDescription: '令牌仅用于独立节点首次注册，请通过安全通道复制到目标机器。', enrollmentExpiresAt: '令牌到期时间：{time}', builtinProviderName: 'GCAC 内置签发后端', managedProviderName: 'GCAC 独立 CA Node', rootTitle: '根 CA', rootDescription: '创建新的独立根信任锚点，并可同时创建首个中间 CA。', intermediateTitle: '中间 CA', intermediateDescription: '挂载到已有根 CA 下承担日常签发，不创建新的根信任边界。', noWarnings: '未发现额外的拓扑风险警告。' },
     riskTypes: { certificate_fingerprint_reuse: '同一证书跨资产复用', public_key_reuse: '同一公钥跨资产复用' },
     common: { unknown: '未知' }, aria: { tabs: '内部 CA 功能导航' }
+  },
+  applicationOnboarding: {
+    eyebrow: '应用接入向导', title: '添加应用资产', description: '选择业务平台，按向导完成设备、站点和证书配置。', stepsAria: '应用接入步骤',
+    steps: { platform: '平台', device: '设备', target: '站点', certificate: '证书', complete: '完成' },
+    platforms: { customManual: '自定义手动创建', manualHint: '使用传统手动创建流程', pluginHint: '由平台插件提供固定流程', capabilityVersion: '接入能力版本', compatibility: '支持的平台版本', requiredInformation: '接入前需提供', inReview: '正在进行能力验证，暂不可接入' },
+    device: { title: '连接业务平台', existing: '使用已有设备', new: '新增设备', deviceId: '设备 ID', selectPlaceholder: '请选择设备', noExisting: '没有可用于该平台的健康设备。', existingLoading: '正在加载兼容设备。', refreshExisting: '刷新设备', newDescription: '将打开统一设备接入向导，完成 Agent 注册或设备接入后返回本向导。', newHint: '返回后系统会重新加载该平台已发现的可用站点设备。', newAction: '打开设备接入向导', username: '用户名', password: '密码', host: '地址', port: '端口' },
+    target: { title: '选择业务站点', siteName: '站点名称', listenAddress: '监听地址', listenPort: '监听端口', protocol: '协议', selectable: '可选择的受管目标', notSelectable: '不可选择', unavailableReason: '不可选择原因', missingValue: '未提供', reasons: { managedTargetInactive: '这个受管目标已经停用。', workflowCapabilityMissing: '这个目标不具备当前平台所需的工作流执行能力。', targetEndpointMissing: '这个目标缺少完整的监听地址、端口或协议。', unknown: '这个目标当前不符合选择条件。' } }, certificate: { title: '选择证书版本', asset: '证书资产', version: '证书版本' },
+    complete: { title: '接入已完成', description: '应用资产和部署计划已创建，可以开始证书更新。' },
+    actions: { customManual: '传统手动创建', openWizard: '使用接入向导', previous: '上一步', continue: '继续', refresh: '刷新站点', review: '确认证书', complete: '完成接入', cancel: '取消向导' },
+    messages: { requestFailed: '接入请求失败，请检查权限和输入。', noPlatforms: '暂无可用业务平台。' }
   },
   tenantArchitecture: {
     nav: '集团架构', eyebrow: '多租户治理', title: '集团架构', description: '管理集团、子公司及其管理员关系。',

@@ -145,20 +145,15 @@ async function executePluginAction(capabilityKey: string) {
   try {
     const response = await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
     const result = response.data as Record<string, unknown> | undefined
-    const mode = result?.mode
-    if (mode !== 'queued') {
-      const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
-      if (refreshed.data) {
-        detail.value = refreshed.data
-        loadedIncludes.value = new Set(DETAIL_RESOURCE_INCLUDES)
-        sitesByFrameworkId.value = new Map()
-      }
+    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
+    if (refreshed.data) {
+      detail.value = refreshed.data
+      loadedIncludes.value = new Set(DETAIL_RESOURCE_INCLUDES)
+      sitesByFrameworkId.value = new Map()
     }
     discoveryFeedback.value = {
-      tone: mode === 'queued' ? 'info' : 'success',
-      message: mode === 'queued'
-        ? t('devices.unifiedDetail.discovery.queued')
-        : t(capabilityKey === 'device.discover' ? 'devices.unifiedDetail.discovery.success' : 'devices.unifiedDetail.action.success'),
+      tone: 'success',
+      message: t(capabilityKey === 'device.discover' ? 'devices.unifiedDetail.discovery.success' : 'devices.unifiedDetail.action.success'),
     }
   } catch (cause) {
     discoveryFeedback.value = { tone: 'danger', message: cause instanceof Error ? cause.message : t('devices.unifiedDetail.discovery.requestFailed') }

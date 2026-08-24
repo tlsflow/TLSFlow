@@ -163,6 +163,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/assets/onboarding',
+    name: 'asset.onboarding',
+    redirect: (to) => ({ path: '/assets', query: { ...to.query, onboarding: '1' } }),
+    meta: {
+      title: 'Application onboarding',
+      titleKey: 'applicationOnboarding.title',
+      module: 'asset',
+      requiresAuth: true,
+      permission: 'service_asset.manage',
+      resourceType: 'service_asset',
+      riskLevel: 'low',
+      breadcrumbKeys: ['nav.assets', 'applicationOnboarding.title'],
+      hiddenInMenu: true,
+    },
+  },
+  {
     path: '/assets',
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
