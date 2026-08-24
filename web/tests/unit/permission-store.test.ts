@@ -11,7 +11,7 @@ describe('权限 Store', () => {
 
   it('按权限过滤菜单', () => {
     const store = usePermissionStore()
-    store.setPermissions(['dashboard.read'])
+    store.setPermissions([])
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard'])
   })
 
@@ -36,25 +36,27 @@ describe('权限 Store', () => {
   it('通知读取权限会显示设置下的通知中心标签', () => {
     const store = usePermissionStore()
     store.setPermissions(['notification.channel.read'])
-    expect(store.visibleMenuItems).toHaveLength(1)
-    expect(store.visibleMenuItems[0]?.path).toBe('/settings/notifications')
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/settings/notifications'])
+    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/settings/notifications'])
+    const notifications = store.visibleMenuItems.find((item) => item.path === '/settings/notifications')
+    expect(notifications?.children?.map((item) => item.path)).toEqual(['/settings/notifications'])
   })
 
   it('证书部署和工作流作为顶层菜单按权限展示', () => {
     const store = usePermissionStore()
 
     store.setPermissions(['execution.read'])
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.deployments'])
-    expect(store.visibleMenuItems[0]?.path).toBe('/executions')
-    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.deployments'])
+    const deployments = store.visibleMenuItems.find((item) => item.titleKey === 'nav.deployments')
+    expect(deployments?.path).toBe('/executions')
+    expect(deployments?.activePaths).toEqual(['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'])
+    expect(deployments?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
 
     store.setPermissions(['plugin.read'])
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.plugins'])
-    expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
-    expect(store.visibleMenuItems[0]?.activePaths).toBeUndefined()
-    expect(store.visibleMenuItems[0]?.children).toBeUndefined()
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.plugins'])
+    const plugins = store.visibleMenuItems.find((item) => item.titleKey === 'nav.plugins')
+    expect(plugins?.path).toBe('/plugins')
+    expect(plugins?.activePaths).toBeUndefined()
+    expect(plugins?.children).toBeUndefined()
   })
 
   it('报表暂时不显示主菜单入口', () => {
@@ -74,7 +76,31 @@ describe('权限 Store', () => {
     const store = usePermissionStore()
     await store.loadPermissions()
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
-    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/certificates'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/certificates', '/ca-operations', '/internal-ca', '/acme'])
+    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates'])
+    const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
+    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/ca-operations', '/internal-ca', '/acme'])
+  })
+
+  it('对象级证书和应用资产权限会隐式放开对应页面入口', async () => {
+    const store = usePermissionStore()
+    store.$patch({
+      permissions: [],
+      objectSets: [
+        { id: 'oset_cert', objectTypes: ['certificate'] },
+        { id: 'oset_asset', objectTypes: ['service_asset'] }
+      ],
+      roleBindings: [],
+      objectPermissionVersion: 'test',
+      expiresAt: new Date('2026-08-07T12:00:00.000Z').toISOString(),
+      loadedAt: new Date('2026-08-07T11:55:00.000Z').toISOString()
+    })
+
+    expect(store.hasPermission('certificate.asset.read')).toBe(true)
+    expect(store.hasPermission('service_asset.read')).toBe(true)
+    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates', '/assets'])
+    const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
+    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates'])
+    const assets = store.visibleMenuItems.find((item) => item.path === '/assets')
+    expect(assets?.children?.map((item) => item.path)).toEqual(['/assets'])
   })
 })

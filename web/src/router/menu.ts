@@ -6,7 +6,6 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.dashboard',
     path: '/dashboard',
     module: 'dashboard',
-    permission: 'dashboard.read',
     icon: 'dashboard',
     descriptionKey: 'nav.dashboardDesc'
   },
@@ -19,9 +18,9 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.certificatesDesc',
     children: [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
-      { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'caOperations.description' },
-      { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'internalCa.description' },
-      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'acme.description' },
+      { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'caOperations.description' },
+      { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'internalCa.description' },
+      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'acme.description' },
       { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
     ]
   },
@@ -34,7 +33,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.assetCenterDesc',
     children: [
       { titleKey: 'nav.assets', path: '/assets', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
-      { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'service_asset.read', descriptionKey: 'providers.page.description' },
+      { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'service_asset.read', allowInferredPermission: false, descriptionKey: 'providers.page.description' },
       { titleKey: 'nav.devices', path: '/assets/devices', module: 'asset', permission: 'host.read', descriptionKey: 'devices.page.description' },
       { titleKey: 'nav.gateways', path: '/gateways', module: 'gateway', permission: 'gateway.read', descriptionKey: 'nav.gatewaysDesc' }
     ]

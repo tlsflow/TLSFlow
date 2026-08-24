@@ -10,7 +10,6 @@ export const coreRoutes: GcRouteRecord[] = [
       titleKey: 'app.dashboard',
       module: 'dashboard',
       requiresAuth: true,
-      permission: 'dashboard.read',
       resourceType: 'dashboard',
       riskLevel: 'low',
       breadcrumbKeys: ['app.dashboard'],

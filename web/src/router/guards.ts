@@ -34,7 +34,10 @@ export function registerRouterGuards(router: Router): void {
     }
 
     const permission = to.meta.permission
-    if (typeof permission === 'string' && !permissionStore.hasPermission(permission)) {
+    if (
+      typeof permission === 'string'
+      && !permissionStore.hasPermission(permission, { explicitOnly: to.meta.allowInferredPermission === false })
+    ) {
       return {
         name: 'error.forbidden',
         query: { from: to.fullPath, permission }

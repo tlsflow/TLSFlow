@@ -8,6 +8,7 @@ export interface GcRouteMeta {
   readonly module: string
   readonly requiresAuth?: boolean
   readonly permission?: string
+  readonly allowInferredPermission?: boolean
   readonly resourceType?: string
   readonly riskLevel?: RiskLevel
   readonly breadcrumb?: readonly string[]
@@ -29,6 +30,7 @@ export interface MenuItem {
   readonly module: string
   readonly permission?: string
   readonly permissions?: readonly string[]
+  readonly allowInferredPermission?: boolean
   readonly activePaths?: readonly string[]
   readonly icon?: string
   readonly description?: string

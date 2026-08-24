@@ -96,6 +96,81 @@ describe('路由权限守卫', () => {
     expect(usePermissionStore().hasPermission('secret.read')).toBe(true)
   })
 
+  it('对象级只读范围会隐式放开对应路由', async () => {
+    const router = createRouter({
+      history: createWebHistory(),
+      routes: [
+        { path: '/certificates', name: 'certificate.list', component: { template: '<div />' }, meta: { title: '证书', module: 'certificate', requiresAuth: true, permission: 'certificate.asset.read' } },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
+        { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } }
+      ]
+    })
+    registerRouterGuards(router)
+    useAuthStore().setSession({
+      user: {
+        id: 'user_test',
+        displayName: '测试用户',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        roles: []
+      }
+    })
+    usePermissionStore().$patch({
+      permissions: [],
+      objectSets: [{ id: 'oset_cert', objectTypes: ['certificate'] }],
+      roleBindings: [],
+      objectPermissionVersion: 'test',
+      expiresAt: new Date('2026-08-07T12:00:00.000Z').toISOString(),
+      loadedAt: new Date('2026-08-07T11:55:00.000Z').toISOString()
+    })
+
+    await router.push('/certificates')
+    expect(router.currentRoute.value.name).toBe('certificate.list')
+  })
+
+  it('仅对象级推导权限不能放开显式权限路由', async () => {
+    const router = createRouter({
+      history: createWebHistory(),
+      routes: [
+        {
+          path: '/ca-operations',
+          name: 'ca.operations',
+          component: { template: '<div />' },
+          meta: {
+            title: 'CA 运营管理',
+            module: 'certificate',
+            requiresAuth: true,
+            permission: 'certificate.asset.read',
+            allowInferredPermission: false
+          }
+        },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
+        { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } }
+      ]
+    })
+    registerRouterGuards(router)
+    useAuthStore().setSession({
+      user: {
+        id: 'user_test',
+        displayName: '测试用户',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        roles: []
+      }
+    })
+    usePermissionStore().$patch({
+      permissions: [],
+      objectSets: [{ id: 'oset_cert', objectTypes: ['certificate'] }],
+      roleBindings: [],
+      objectPermissionVersion: 'test',
+      expiresAt: new Date('2026-08-07T12:00:00.000Z').toISOString(),
+      loadedAt: new Date('2026-08-07T11:55:00.000Z').toISOString()
+    })
+
+    await router.push('/ca-operations')
+    expect(router.currentRoute.value.name).toBe('error.forbidden')
+  })
+
   it('小型架构拒绝进入 Browser Runtime 功能路由', async () => {
     vi.mocked(getSystemHealth).mockResolvedValue({
       data: {

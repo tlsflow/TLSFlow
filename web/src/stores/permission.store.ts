@@ -13,20 +13,74 @@ interface PermissionState {
   loadedAt: string | null
 }
 
-function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>): boolean {
-  if (permissionSet.has('*')) return true
-  if (item.permissions?.length) {
-    return item.permissions.some((permission) => permissionSet.has(permission))
-  }
-  return !item.permission || permissionSet.has(item.permission)
+const objectTypePermissionAliases: Record<string, readonly string[]> = {
+  certificate: ['certificate.asset.read'],
+  certificate_asset: ['certificate.asset.read'],
+  certificate_version: ['certificate.asset.read'],
+  certificate_version_format: ['certificate.asset.read'],
+  service_asset: ['service_asset.read'],
+  application_asset: ['service_asset.read'],
+  gateway: ['gateway.read'],
+  agent: ['agent.read'],
+  host: ['host.read'],
+  device_asset: ['host.read'],
+  certificate_binding: ['binding.read'],
+  deployment_plan: ['deployment.plan.read'],
+  execution_run: ['execution.read'],
+  workflow: ['workflow.template.read'],
+  workflow_template: ['workflow.template.read'],
+  plugin_version: ['plugin.read'],
+  monitor_target: ['monitor.read'],
+  notification_channel: ['notification.channel.read']
 }
 
-function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | null {
+function readField(row: ApiRecord | null | undefined, key: string): unknown {
+  return key.split('.').reduce<unknown>((current, part) => {
+    if (!current || typeof current !== 'object') return undefined
+    return (current as Record<string, unknown>)[part]
+  }, row)
+}
+
+function readObjectTypes(row: ApiRecord): string[] {
+  const value = readField(row, 'objectTypes')
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : []
+}
+
+function inferredReadPermissions(objectSets: readonly ApiRecord[]): string[] {
+  const permissions = new Set<string>()
+  for (const objectSet of objectSets) {
+    for (const objectType of readObjectTypes(objectSet)) {
+      for (const permission of objectTypePermissionAliases[objectType] ?? []) {
+        permissions.add(permission)
+      }
+    }
+  }
+  return [...permissions]
+}
+
+function selectPermissionSet(
+  item: Pick<MenuItem, 'allowInferredPermission'>,
+  permissionSet: Set<string>,
+  explicitPermissionSet: Set<string>,
+): Set<string> {
+  return item.allowInferredPermission === false ? explicitPermissionSet : permissionSet
+}
+
+function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>, explicitPermissionSet: Set<string>): boolean {
+  const activePermissionSet = selectPermissionSet(item, permissionSet, explicitPermissionSet)
+  if (activePermissionSet.has('*')) return true
+  if (item.permissions?.length) {
+    return item.permissions.some((permission) => activePermissionSet.has(permission))
+  }
+  return !item.permission || activePermissionSet.has(item.permission)
+}
+
+function filterMenuItem(item: MenuItem, permissionSet: Set<string>, explicitPermissionSet: Set<string>): MenuItem | null {
   const children = item.children
-    ?.map((child) => filterMenuItem(child, permissionSet))
+    ?.map((child) => filterMenuItem(child, permissionSet, explicitPermissionSet))
     .filter((child): child is MenuItem => Boolean(child)) ?? []
 
-  if (!hasOwnMenuPermission(item, permissionSet) && children.length === 0) {
+  if (!hasOwnMenuPermission(item, permissionSet, explicitPermissionSet) && children.length === 0) {
     return null
   }
 
@@ -50,10 +104,11 @@ export const usePermissionStore = defineStore('permission', {
   }),
   getters: {
     isLoaded: (state) => Boolean(state.loadedAt),
-    permissionSet: (state) => new Set(state.permissions),
+    explicitPermissionSet: (state) => new Set(state.permissions),
+    permissionSet: (state) => new Set([...state.permissions, ...inferredReadPermissions(state.objectSets)]),
     visibleMenuItems(): readonly MenuItem[] {
       return mainMenuItems
-        .map((item) => filterMenuItem(item, this.permissionSet))
+        .map((item) => filterMenuItem(item, this.permissionSet, this.explicitPermissionSet))
         .filter((item): item is MenuItem => Boolean(item))
     }
   },
@@ -80,8 +135,9 @@ export const usePermissionStore = defineStore('permission', {
       this.expiresAt = null
       this.loadedAt = new Date().toISOString()
     },
-    hasPermission(permission: string): boolean {
-      return this.permissions.includes('*') || this.permissions.includes(permission)
+    hasPermission(permission: string, options?: { explicitOnly?: boolean }): boolean {
+      const activePermissionSet = options?.explicitOnly ? this.explicitPermissionSet : this.permissionSet
+      return activePermissionSet.has('*') || activePermissionSet.has(permission)
     }
   }
 })
