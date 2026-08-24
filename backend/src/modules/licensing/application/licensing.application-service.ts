@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes } from 'node:crypto';
 import { GCAC_VERSION, compareSemVer } from '../../../common/version.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
@@ -40,6 +39,12 @@ const CURRENT_REVOCATION_LIST_ID = 'current';
 const CLOCK_ROLLBACK_TOLERANCE_MS = 5 * 60_000;
 const ACTIVATION_REQUEST_TTL_MS = 7 * 86_400_000;
 const DEFAULT_UPGRADE_GRACE_DAYS = 30;
+const LICENSE_TRUST_KEYS_ENV = 'GCAC_LICENSE_TRUST_KEYS_JSON';
+const DEVELOPMENT_LICENSE_KEY_ID_PATTERN = new RegExp(
+  `(?:^|[-_])(?:${['builtin', 'dev'].join('-')}|${['gcac', 'development'].join('-')}|${['default', 'development'].join('-')}|development|${['dev', 'key'].join('-')})(?:[-_]|$)`,
+  'i',
+);
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const NONE_PLAN = findPlan('none');
 const NONE_QUOTAS: LicenseQuotas = normalizeLicenseQuotas(NONE_PLAN?.quotas);
 const NONE_FEATURES = [...(NONE_PLAN?.features ?? [])];
@@ -577,39 +582,56 @@ function assertStatusUsable(status: LicenseStatus): void {
 }
 
 function loadTrustKeys(): TrustKeyDirectory {
-  const bundled = loadBundledTrustKeys();
-  const configured = process.env.GCAC_LICENSE_TRUST_KEYS_JSON?.trim();
-  if (!configured) return bundled;
-  try {
-    const parsed = JSON.parse(configured) as Record<string, string>;
-    const merged = new Map(bundled);
-    for (const [keyId, encoded] of Object.entries(parsed)) {
-      merged.set(keyId, Buffer.from(encoded, 'base64url'));
+  const configured = process.env[LICENSE_TRUST_KEYS_ENV]?.trim();
+  if (!configured) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`生产环境缺少 ${LICENSE_TRUST_KEYS_ENV}`);
     }
-    return merged;
-  } catch {
-    throw new Error('GCAC_LICENSE_TRUST_KEYS_JSON 格式无效');
+    return new Map();
   }
-}
 
-function loadBundledTrustKeys(): TrustKeyDirectory {
-  const raw = readFileSync(new URL('../resources/trust-key-bundle.json', import.meta.url), 'utf8');
-  const parsed = JSON.parse(raw) as { keys?: Array<{ keyId: string; publicKey: string }> };
-  const entries = Array.isArray(parsed.keys)
-    ? parsed.keys
-      .filter((item) => typeof item?.keyId === 'string' && typeof item?.publicKey === 'string')
-      .map((item) => [item.keyId, Buffer.from(item.publicKey, 'base64url')] as const)
-    : [];
-  return new Map(entries);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configured);
+  } catch {
+    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 格式无效`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 必须是 keyId 到 Ed25519 公钥的 JSON 对象`);
+  }
+
+  const trustKeys = new Map<string, Buffer>();
+  for (const [keyId, encoded] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!keyId.trim() || typeof encoded !== 'string' || !BASE64URL_PATTERN.test(encoded)) {
+      throw new Error(`${LICENSE_TRUST_KEYS_ENV} 包含无效的许可证信任根`);
+    }
+    if (process.env.NODE_ENV === 'production' && DEVELOPMENT_LICENSE_KEY_ID_PATTERN.test(keyId)) {
+      throw new Error('生产环境禁止使用默认开发许可证信任根');
+    }
+
+    const publicKey = Buffer.from(encoded, 'base64url');
+    try {
+      const keyObject = createPublicKey({ key: publicKey, format: 'der', type: 'spki' });
+      if (keyObject.asymmetricKeyType !== 'ed25519') {
+        throw new Error('信任根算法不是 Ed25519');
+      }
+    } catch {
+      throw new Error(`${LICENSE_TRUST_KEYS_ENV} 包含无效的 Ed25519 公钥`);
+    }
+    trustKeys.set(keyId, publicKey);
+  }
+  if (trustKeys.size === 0) {
+    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 不得为空`);
+  }
+  return trustKeys;
 }
 
 function loadStorageKey(): Buffer {
   const configured = process.env.GCAC_LICENSE_STORAGE_KEY?.trim() || process.env.GCAC_SECRET_KEK?.trim();
-  if (configured) return createHash('sha256').update(configured, 'utf8').digest();
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('生产环境缺少 GCAC_LICENSE_STORAGE_KEY');
+  if (!configured) {
+    throw new Error('缺少 GCAC_LICENSE_STORAGE_KEY 或 GCAC_SECRET_KEK，拒绝初始化许可证服务');
   }
-  return createHash('sha256').update(`gcac-license-dev-${process.pid}`, 'utf8').digest();
+  return createHash('sha256').update(configured, 'utf8').digest();
 }
 
 export function createDefaultLicensingService(db: DatabasePort, audit?: AuditService): LicensingApplicationService {

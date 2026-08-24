@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -10,6 +10,26 @@ import { parseSecretRef } from './secret-ref.js';
 import { SecretService } from './secret.service.js';
 import { ExecutionGrantService } from '../executions/execution-grant.service.js';
 import { AuditService } from '../audits/audit.service.js';
+
+const previousSecretKek = process.env.GCAC_SECRET_KEK;
+before(() => {
+  process.env.GCAC_SECRET_KEK = 'test-secret-kek-for-key-manager';
+});
+after(() => {
+  if (previousSecretKek === undefined) delete process.env.GCAC_SECRET_KEK;
+  else process.env.GCAC_SECRET_KEK = previousSecretKek;
+});
+
+test('KeyManager 缺少 GCAC_SECRET_KEK 时拒绝初始化', () => {
+  const current = process.env.GCAC_SECRET_KEK;
+  delete process.env.GCAC_SECRET_KEK;
+  try {
+    assert.throws(() => new KeyManager(), /GCAC_SECRET_KEK 未配置/);
+  } finally {
+    if (current === undefined) delete process.env.GCAC_SECRET_KEK;
+    else process.env.GCAC_SECRET_KEK = current;
+  }
+});
 
 test('SecretRef 可以解析 current 和版本号', () => {
   assert.deepEqual(parseSecretRef('secret://ssh_key/sec_123#current'), {

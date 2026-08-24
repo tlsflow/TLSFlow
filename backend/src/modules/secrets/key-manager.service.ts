@@ -15,7 +15,7 @@ export class KeyManager {
     const version = 'kek_v1';
     const materials = initialKey
       ? [createMaterial(version, Buffer.from(initialKey))]
-      : loadDefaultKek(version);
+      : loadConfiguredKek(version);
     this.currentVersion = version;
     this.keys.set(version, materials);
   }
@@ -50,13 +50,10 @@ export class KeyManager {
   }
 }
 
-function loadDefaultKek(version: string): KekMaterial[] {
+function loadConfiguredKek(version: string): KekMaterial[] {
   const configured = process.env.GCAC_SECRET_KEK?.trim();
-  if (configured) {
-    return normalizeConfiguredKek(version, configured);
-  }
-  // 保证重启后仍能解密既有 Secret；生产环境应显式配置 GCAC_SECRET_KEK。
-  return [createMaterial(version, createHash('sha256').update('gcac-default-secret-kek-v1', 'utf8').digest())];
+  if (!configured) throw new Error('GCAC_SECRET_KEK 未配置，拒绝初始化密钥管理器');
+  return normalizeConfiguredKek(version, configured);
 }
 
 function normalizeConfiguredKek(version: string, value: string): KekMaterial[] {
@@ -72,7 +69,7 @@ function normalizeConfiguredKek(version: string, value: string): KekMaterial[] {
         candidates.push(decoded);
       }
     } catch {
-      // ignore and fallback to hash
+      // 无法按 Base64 解析时，继续保留历史字符串哈希兼容语义。
     }
   }
 
