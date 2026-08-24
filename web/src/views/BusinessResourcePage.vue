@@ -13,6 +13,7 @@ import {
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 import { readNumber, readPath, readString, useBusinessPage, type ViewRow } from '@/composables/useBusinessPage'
+import { formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
 import type { BusinessAction, BusinessPageConfig } from './business-page.types'
 
 const props = defineProps<{ config: BusinessPageConfig }>()
@@ -44,6 +45,7 @@ const showHeader = computed(() => props.config.showHeader !== false)
 const showMetrics = computed(() => props.config.showMetrics !== false)
 const showEmptyState = computed(() => props.config.showEmptyState !== false)
 const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
+const showToolbarDangerHint = computed(() => props.config.showToolbarDangerHint !== false)
 const showDetailPanel = computed(() => props.config.showDetailPanel === true)
 const showActionPanel = computed(() => props.config.showActionPanel === true)
 const hasRowDangerAction = computed(() => (props.config.rowActions ?? []).some((action) => action.danger))
@@ -128,7 +130,7 @@ async function clearFilters() {
 }
 
 function detailValue(row: ViewRow, candidates: readonly string[]): string {
-  return readString(row.raw, candidates)
+  return formatMaybeLocalTimeByCandidates(readString(row.raw, candidates), candidates)
 }
 
 function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | null {
@@ -213,7 +215,12 @@ defineExpose({
             >
               {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
             </GcPermissionButton>
-            <span v-if="hasDangerAction || hasRowDangerAction" class="business-page__pill business-page__pill--danger">高危操作需确认</span>
+            <span
+              v-if="showToolbarDangerHint && (hasDangerAction || hasRowDangerAction)"
+              class="business-page__pill business-page__pill--danger"
+            >
+              高危操作需确认
+            </span>
             <button class="gc-button" type="button" @click="state.reload">刷新</button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ApiRecord } from '@/api/modules/common'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { CapabilityMatrixItem } from './GcCapabilityMatrix.vue'
 import GcCapabilityMatrix from './GcCapabilityMatrix.vue'
 import GcDryRunChecklist from './GcDryRunChecklist.vue'
@@ -218,13 +219,7 @@ function targetLabel(item: ApiRecord): string {
 
 function formatDate(value: string): string {
   if (!value) return ''
-  const time = Date.parse(value)
-  if (!Number.isFinite(time)) return value
-  const date = new Date(time)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return formatBrowserLocalTime(value, { includeTime: false }) || value
 }
 
 function readPath(record: ApiRecord | null | undefined, path: string): unknown {

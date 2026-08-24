@@ -1,6 +1,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ApiClientError } from '@/api/client'
 import type { ApiPage, ApiPageResult, ApiRecord } from '@/api/modules/common'
+import { formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 
 export interface ViewRow extends Record<string, unknown> {
@@ -63,7 +64,7 @@ function toRows(page: ApiPage | undefined, config: BusinessPageConfig): ViewRow[
       if (column.key === 'name') row[column.key] = name
       else if (column.key === 'status') row[column.key] = status
       else if (column.key === 'risk') row[column.key] = risk
-      else row[column.key] = readString(record, column.candidates)
+      else row[column.key] = formatMaybeLocalTimeByCandidates(readString(record, column.candidates), column.candidates)
     })
     return row as ViewRow
   })

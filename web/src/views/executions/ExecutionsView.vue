@@ -5,6 +5,7 @@ import { GcModal, GcStatusTag } from '@/design-system/components'
 import { listExecutions, rollbackExecution } from '@/api/modules/executions.api'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 
@@ -162,11 +163,11 @@ function openExecutionDetail(row: ViewRow) {
             </div>
             <div>
               <dt>开始时间</dt>
-              <dd>{{ readString(detailRow.raw, ['startedAt', 'createdAt']) }}</dd>
+              <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['startedAt', 'createdAt'])) || readString(detailRow.raw, ['startedAt', 'createdAt']) }}</dd>
             </div>
             <div>
               <dt>结束时间</dt>
-              <dd>{{ readString(detailRow.raw, ['finishedAt', 'updatedAt']) }}</dd>
+              <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['finishedAt', 'updatedAt'])) || readString(detailRow.raw, ['finishedAt', 'updatedAt']) }}</dd>
             </div>
             <div>
               <dt>错误码</dt>

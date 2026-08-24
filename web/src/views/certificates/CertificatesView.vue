@@ -29,6 +29,7 @@ import {
   resetCertificateImportDraft,
 } from './certificate-import.shared'
 import { readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 interface CertificateVersionRow extends Record<string, string> {
   readonly id: string
@@ -213,9 +214,7 @@ function readAssetSubtitle(record: ApiRecord) {
 }
 
 function formatDateOnly(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toISOString().slice(0, 10)
+  return formatBrowserLocalTime(value, { includeTime: false }) || value
 }
 
 async function loadAssets() {

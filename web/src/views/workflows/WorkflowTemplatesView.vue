@@ -10,6 +10,7 @@ import {
 } from '@/api/modules/workflow-templates.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 
@@ -209,8 +210,8 @@ function createDefaultTemplate(name = 'workflow-template') {
             <div><dt>模板名称</dt><dd>{{ readString(detailRow.raw, ['name']) }}</dd></div>
             <div><dt>当前状态</dt><dd>{{ readString(detailRow.raw, ['status']) }}</dd></div>
             <div><dt>当前版本 ID</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
-            <div><dt>创建时间</dt><dd>{{ readString(detailRow.raw, ['createdAt']) }}</dd></div>
-            <div><dt>更新时间</dt><dd>{{ readString(detailRow.raw, ['updatedAt']) }}</dd></div>
+            <div><dt>创建时间</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['createdAt'])) || readString(detailRow.raw, ['createdAt']) }}</dd></div>
+            <div><dt>更新时间</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['updatedAt'])) || readString(detailRow.raw, ['updatedAt']) }}</dd></div>
           </dl>
         </section>
 
@@ -225,7 +226,7 @@ function createDefaultTemplate(name = 'workflow-template') {
                 <GcStatusTag :status="readString(item, ['status'])" />
               </div>
               <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
-              <small>{{ readString(item, ['createdAt']) }}</small>
+              <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
               <button
                 v-if="readString(item, ['status']) !== 'published'"
                 class="gc-button"

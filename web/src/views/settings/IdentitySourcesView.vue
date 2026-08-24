@@ -13,6 +13,7 @@ import {
   updateIdentitySource,
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal } from '@/design-system/components'
+import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 type IdentitySourceKind = 'active_directory' | 'ldap'
 type IdentityProtocol = 'ldap' | 'ldaps'
@@ -317,8 +318,7 @@ async function removeSource(sourceId: string) {
 }
 
 function displayValue(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '—'
-  return String(value)
+  return formatMaybeLocalTime(value)
 }
 
 onMounted(async () => {

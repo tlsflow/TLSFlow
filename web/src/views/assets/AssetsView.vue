@@ -7,6 +7,7 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag } from '@/design-system/components'
+import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 
@@ -578,10 +579,7 @@ function splitCsv(value: string): string[] {
 }
 
 function renderValue(value: unknown, fallback = '—'): string {
-  if (value === undefined || value === null || value === '') return fallback
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(', ')
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  return formatMaybeLocalTime(value, fallback)
 }
 
 function readNested(value: unknown, path: string[]): unknown {

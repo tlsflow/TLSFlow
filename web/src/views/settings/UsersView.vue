@@ -4,6 +4,7 @@ import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
 import { createUser, deleteUser, listRoles, listUsers, updateUser } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal } from '@/design-system/components'
+import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 interface UserDraft {
   userId: string
@@ -172,8 +173,7 @@ function isBuiltinAdmin(item: ApiRecord): boolean {
 }
 
 function displayValue(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '—'
-  return String(value)
+  return formatMaybeLocalTime(value)
 }
 
 onMounted(async () => {

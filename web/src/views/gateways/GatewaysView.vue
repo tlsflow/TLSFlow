@@ -6,12 +6,13 @@ import { createAgentEnrollmentToken } from '@/api/modules/assets.api'
 import { listGateways, probeGateway } from '@/api/modules/gateways.api'
 import { readNumber, readPath, readString, type ViewRow } from '@/composables/useBusinessPage'
 import type { ApiRecord } from '@/api/modules/common'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const enrollmentToken = ref<Record<string, unknown> | null>(null)
 const selectedGateway = ref<ViewRow | null>(null)
 const tokenValue = computed(() => String(enrollmentToken.value?.token ?? ''))
 const tokenPreview = computed(() => String(enrollmentToken.value?.tokenPreview ?? ''))
-const tokenExpiresAt = computed(() => String(enrollmentToken.value?.expiresAt ?? ''))
+const tokenExpiresAt = computed(() => formatBrowserLocalTime(enrollmentToken.value?.expiresAt) || String(enrollmentToken.value?.expiresAt ?? ''))
 const tokenAuditRef = computed(() => String(enrollmentToken.value?.auditRef ?? ''))
 const gatewayRaw = computed<ApiRecord | null>(() => selectedGateway.value?.raw ?? null)
 const reachableTargets = computed(() => normalizeList(gatewayRaw.value, ['reachableTargets', 'targets', 'targetCidrs', 'targetZones']))

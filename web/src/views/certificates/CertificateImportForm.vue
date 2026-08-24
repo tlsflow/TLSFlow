@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type {
   CertificateImportDraft,
   CertificateImportValidationResult,
@@ -176,16 +177,7 @@ function roleLabel(role: 'leaf' | 'intermediate' | 'root') {
 
 function formatDateTime(value: string | undefined) {
   if (!value) return '无'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  const second = String(date.getSeconds()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+  return formatBrowserLocalTime(value) || value
 }
 
 function submitValidation() {

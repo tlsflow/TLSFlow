@@ -8,11 +8,13 @@ import {
 import type { ApiRecord } from '@/api/modules/common'
 import { GcDataTable, GcEmptyState } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { readPath, readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 
 const props = defineProps<{
   assetId: string
   versionId: string
+  contextUsages?: ApiRecord[]
 }>()
 
 type DetailTabKey = 'detail' | 'usage'
@@ -30,16 +32,41 @@ interface DetailField {
   readonly value: string
 }
 
+interface CertificateUsageRow extends ApiRecord {
+  readonly id: string
+  readonly resourceId: string
+  readonly resourceName: string
+  readonly targetName: string
+  readonly domainName: string
+  readonly bindingType: string
+  readonly usageSource: string
+  readonly status: string
+}
+
 const loading = ref(false)
 const error = ref<CertificatePageError | null>(null)
 const activeTab = ref<DetailTabKey>('detail')
 const asset = ref<ApiRecord | null>(null)
 const version = ref<ApiRecord | null>(null)
-const usages = ref<ApiRecord[]>([])
+const usages = ref<CertificateUsageRow[]>([])
+
+const mergedUsages = computed<CertificateUsageRow[]>(() => {
+  const items = [
+    ...(props.contextUsages ?? []).map((item) => normalizeUsageRow(item, 'Agent上下文')),
+    ...usages.value.map((item) => normalizeUsageRow(item, '平台绑定记录')),
+  ]
+  const deduped = new Map<string, CertificateUsageRow>()
+  for (const item of items) {
+    const key = [item.resourceId, item.domainName, item.bindingType, item.usageSource].join('|')
+    if (!deduped.has(key)) deduped.set(key, item)
+  }
+  return [...deduped.values()]
+})
 
 const usageColumns: DataTableColumn<ApiRecord>[] = [
   { key: 'domainName', title: '域名/目标' },
   { key: 'bindingType', title: '绑定类型', width: '140px' },
+  { key: 'usageSource', title: '来源', width: '140px' },
   { key: 'status', title: '状态', width: '120px' },
 ]
 
@@ -140,14 +167,7 @@ watch(
 
 function formatToMinute(value: string) {
   if (!value) return '未知'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hour}:${minute}`
+  return formatBrowserLocalTime(value, { includeSeconds: false }) || value
 }
 
 function readSanValue() {
@@ -157,6 +177,67 @@ function readSanValue() {
 
 function readUsageField(record: ApiRecord, candidates: string[], fallback: string) {
   return readString(record, candidates, fallback)
+}
+
+function normalizeUsageRow(record: ApiRecord, fallbackSource: string): CertificateUsageRow {
+  const binding = readPath(record, 'binding')
+  const serviceAsset = readPath(record, 'serviceAsset')
+  const service = readPath(record, 'service')
+  const host = readPath(record, 'host')
+
+  const bindingRecord = binding && typeof binding === 'object' ? binding as ApiRecord : null
+  const serviceAssetRecord = serviceAsset && typeof serviceAsset === 'object' ? serviceAsset as ApiRecord : null
+  const serviceRecord = service && typeof service === 'object' ? service as ApiRecord : null
+  const hostRecord = host && typeof host === 'object' ? host as ApiRecord : null
+
+  const resourceId = readString(record, ['resourceId', 'id'], '')
+    || readString(bindingRecord, ['id', 'bindingKey'], '')
+    || readString(serviceAssetRecord, ['id'], '')
+    || readString(serviceRecord, ['id'], '')
+    || readString(hostRecord, ['id'], '')
+
+  const domainName = readString(record, ['domainName', 'targetName', 'assetName', 'resourceName'], '')
+    || readString(bindingRecord, ['domainName', 'domain'], '')
+    || readString(serviceAssetRecord, ['address'], '')
+    || readString(serviceRecord, ['displayName'], '')
+    || readString(hostRecord, ['hostname', 'primaryIp'], '')
+
+  const targetName = readString(record, ['targetName', 'resourceName'], '')
+    || readString(serviceRecord, ['displayName'], '')
+    || readString(serviceAssetRecord, ['address'], '')
+    || readString(hostRecord, ['hostname', 'primaryIp'], '')
+    || domainName
+
+  const resourceName = readString(record, ['resourceName', 'assetName'], '')
+    || readString(serviceAssetRecord, ['address'], '')
+    || readString(serviceRecord, ['displayName'], '')
+    || readString(hostRecord, ['hostname', 'primaryIp'], '')
+    || targetName
+
+  const bindingType = readString(record, ['bindingType', 'resourceType', 'type'], '')
+    || readString(bindingRecord, ['bindingType'], '')
+    || '未知类型'
+
+  const status = readString(record, ['status', 'state'], '')
+    || readString(bindingRecord, ['status'], '')
+    || readString(serviceAssetRecord, ['status'], '')
+    || readString(serviceRecord, ['status'], '')
+    || readString(hostRecord, ['status'], '')
+    || '未知'
+
+  const usageSource = readString(record, ['usageSource'], '') || fallbackSource
+
+  return {
+    ...record,
+    id: resourceId || `${bindingType}:${domainName}:${usageSource}`,
+    resourceId: resourceId || `${bindingType}:${domainName}`,
+    resourceName: resourceName || domainName || '未知资源',
+    targetName: targetName || domainName || '未知目标',
+    domainName: domainName || '未知目标',
+    bindingType,
+    usageSource,
+    status,
+  }
 }
 
 function roleLabel(role: CertificateChainItem['role']) {
@@ -181,7 +262,9 @@ async function loadDetail() {
     ])
     asset.value = assetResult.data ?? null
     version.value = versionResult.data ?? null
-    usages.value = Array.isArray(usageResult.data?.usages) ? usageResult.data.usages as ApiRecord[] : []
+    usages.value = Array.isArray(usageResult.data?.usages)
+      ? (usageResult.data.usages as ApiRecord[]).map((item) => normalizeUsageRow(item, '平台绑定记录'))
+      : []
   } catch (cause) {
     error.value = toErrorState(cause)
     asset.value = null
@@ -269,13 +352,16 @@ async function loadDetail() {
       </section>
 
       <section v-else class="certificate-detail-panel__tab-panel">
-        <GcDataTable :columns="usageColumns" :rows="usages" empty-text="暂无关联资产">
+        <GcDataTable :columns="usageColumns" :rows="mergedUsages" empty-text="暂无关联资产">
           <template #toolbar><strong>关联资产</strong></template>
           <template #cell-domainName="{ row }">
             {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], '未知目标') }}
           </template>
           <template #cell-bindingType="{ row }">
             {{ readUsageField(row, ['bindingType', 'resourceType', 'type'], '未知类型') }}
+          </template>
+          <template #cell-usageSource="{ row }">
+            {{ readUsageField(row, ['usageSource'], '平台绑定记录') }}
           </template>
           <template #cell-status="{ row }">
             {{ readUsageField(row, ['status', 'state'], '未知') }}
