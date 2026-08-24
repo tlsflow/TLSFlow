@@ -15,6 +15,7 @@ import { PgBindingsRepository } from '../bindings/repository/bindings.repository
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import { DeploymentInputSnapshotsRepository } from '../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { DeploymentPlansApplicationService } from './application/deployment-plans.application-service.js';
 import { GatewaysApplicationService } from '../gateways/application/gateways.application-service.js';
 import { DeploymentPlansRepository } from './repository/deployment-plans.repository.js';
@@ -978,9 +979,14 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.plan.status, 'RUNNING');
     assert.equal(body.run.status, 'DISPATCHED');
     assert.ok(body.jobId);
-    assert.equal(body.steps.length, 1);
-    assert.equal(body.steps[0]?.stepType, 'CUSTOM');
-    assert.equal(body.steps[0]?.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+    assert.deepEqual(
+      body.steps.map((step) => step.stepType),
+      ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'],
+    );
+    assert.equal(
+      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      true,
+    );
   });
 
   it('dry-run 创建执行运行，步骤全部标记 dryRun=true 且不推进计划到 RUNNING', async () => {
@@ -994,7 +1000,10 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.plan.status, 'READY');
     assert.equal(body.run.type, 'dry_run');
     assert.equal(body.run.status, 'DISPATCHED');
-    assert.deepEqual(body.steps.map((step) => step.stepType), ['CUSTOM']);
+    assert.deepEqual(
+      body.steps.map((step) => step.stepType),
+      ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'],
+    );
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
@@ -1018,13 +1027,18 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
     const body = response.body as {
       run: { status: string };
-      steps: Array<{ stepType: string; status: string; inputSnapshot: { resultDetail?: { dryRunChecks?: Array<{ key: string; status: string; evidence?: Record<string, unknown> }> } } }>;
+      steps: Array<{ stepType: string; status: string; inputSnapshot: { resultDetail?: { dryRunChecks?: Array<{ key: string; status: string; evidence?: Record<string, unknown> }>; operationResults?: unknown[] } } }>;
     };
     assert.equal(body.run.status, 'DISPATCHED');
     assert.equal(body.steps.every((step) => step.status === 'PENDING'), true);
 
     assert.ok(body.steps.length > 0);
-    assert.equal(body.steps[0]?.inputSnapshot.resultDetail?.dryRunChecks, undefined);
+    const staticChecks = body.steps.flatMap((step) => step.inputSnapshot.resultDetail?.dryRunChecks ?? []);
+    assert.equal(staticChecks.some((check) => check.key === 'certificate_already_active' && check.status === 'warning'), true);
+    assert.equal(
+      body.steps.every((step) => step.inputSnapshot.resultDetail?.operationResults === undefined),
+      true,
+    );
   });
 
   it('历史计划目标缺少 target.tenantId 时，仍可使用 plan.tenantId 发起 dry-run', async () => {
@@ -1088,12 +1102,19 @@ describe('部署计划与执行编排 API', () => {
     const body = rollback.body as { sourceRun: { status: string }; rollbackRun: { status: string }; steps: Array<{ stepType: string; inputSnapshot: Record<string, unknown> }>; jobId: string };
     assert.equal(body.sourceRun.status, 'ROLLBACK_RUNNING');
     assert.equal(body.rollbackRun.status, 'DISPATCHED');
-    assert.equal(body.steps.length, 1);
-    const rollbackStep = body.steps.find((step) => step.stepType === 'CUSTOM');
-    assert.ok(rollbackStep);
-    assert.equal(rollbackStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-    assert.equal(typeof rollbackStep!.inputSnapshot.sourceRunId, 'string');
-    assert.equal(typeof (rollbackStep!.inputSnapshot.rollbackContext as { sourceRunId?: string } | undefined)?.sourceRunId, 'string');
+    assert.deepEqual(body.steps.map((step) => step.stepType), ['ROLLBACK', 'VERIFY']);
+    assert.equal(
+      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      true,
+    );
+    assert.equal(
+      body.steps.every((step) => typeof step.inputSnapshot.sourceRunId === 'string'),
+      true,
+    );
+    assert.equal(
+      body.steps.every((step) => typeof (step.inputSnapshot.rollbackContext as { sourceRunId?: string } | undefined)?.sourceRunId === 'string'),
+      true,
+    );
     assert.ok(body.jobId);
   });
 
@@ -1816,7 +1837,7 @@ describe('部署计划与执行编排 API', () => {
       },
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; executionTargetId?: string; strategyPayload?: Record<string, unknown> }> };
+    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; executionTargetId?: string; strategyPayload?: { deploymentInputSnapshotRef?: { snapshotId?: string }; deploymentStrategy?: unknown } }> };
     assert.equal(plan.certificateFormatId, certificateFormatId);
     assert.equal(plan.targets[0]?.certificateBindingId, undefined);
     assert.equal(plan.targets[0]?.executionTargetId, managedTargetId);
@@ -1831,8 +1852,18 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: (created.body as { id: string }).id, idempotencyKey: 'idem_application_asset_plan_without_binding_dry_run' },
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: { deploymentArtifact?: { certificateFormatId?: string } } }> };
-    assert.equal(dryRunBody.steps[0]?.inputSnapshot.deploymentArtifact?.certificateFormatId, certificateFormatId);
+    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: { actionType?: string; deploymentArtifact?: unknown; resolvedDeploymentInput?: unknown } }> };
+    assert.equal(
+      dryRunBody.steps.some((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      true,
+    );
+    assert.equal(dryRunBody.steps.every((step) => step.inputSnapshot.deploymentArtifact === undefined), true);
+    assert.equal(dryRunBody.steps.every((step) => step.inputSnapshot.resolvedDeploymentInput === undefined), true);
+    const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
+      'tenant_1',
+      String(plan.targets[0]?.strategyPayload?.deploymentInputSnapshotRef?.snapshotId),
+    );
+    assert.equal(runtimeSnapshot?.deploymentArtifact.certificateFormatId, certificateFormatId);
   });
 
 
@@ -2173,12 +2204,8 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(executed.statusCode, 200);
     const executedBody = executed.body as { run: { id: string }; steps: Array<{ id: string; stepType: string }> };
     const runId = executedBody.run.id;
-    const atomicStep = executedBody.steps.find((step) => step.stepType === 'CUSTOM');
-    assert.ok(atomicStep);
-
-    const adapterResult = await (app.getResource('executionsService') as ExecutionsApplicationService)
-      .runDispatchedExecution(runId, 'user_1', 'tenant_1');
-    assert.equal(adapterResult.success, true, JSON.stringify(adapterResult));
+    const verifyStep = executedBody.steps.find((step) => step.stepType === 'VERIFY');
+    assert.ok(verifyStep);
 
     const resultSync = app.getResource<any>('executionResultSync');
     resultSync.setContinuationRunner(async () => undefined);
@@ -2196,7 +2223,7 @@ describe('部署计划与执行编排 API', () => {
     await resultSync.applyAgentTaskResult({
       tenantId: 'tenant_1',
       executionRunId: runId,
-      executionStepId: atomicStep!.id,
+      executionStepId: verifyStep!.id,
       actorId: agentId,
       success: true,
       detail: {
@@ -2250,7 +2277,7 @@ describe('部署计划与执行编排 API', () => {
       resourceTypes: ['host', 'service_instance', 'site_asset', 'managed_target', 'certificate_binding', 'secret', 'certificate_version', 'certificate_version_format', 'service_asset'],
       scope: { tenantId: 'tenant_1' },
     });
-    const { app } = await createMigratedTestApp({ security });
+    const { app, db } = await createMigratedTestApp({ security });
     const chain = createPemChainFixture('format-target.example.com');
 
     const registered = await app.inject({
@@ -2389,31 +2416,38 @@ describe('部署计划与执行编排 API', () => {
       },
     });
     assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as { id: string; certificateVersionId: string; certificateFormatId?: string };
+    const plan = created.body as {
+      id: string;
+      certificateVersionId: string;
+      certificateFormatId?: string;
+      targets: Array<{ strategyPayload?: { deploymentInputSnapshotRef?: { snapshotId?: string } } }>;
+    };
     assert.equal(plan.certificateVersionId, certificateVersionId);
     assert.equal(plan.certificateFormatId, formatAId);
 
     const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
     assert.equal(submitted.statusCode, 200);
-    await completeAgentDryRun(app, { planId: plan.id, agentId, idempotencyKey: 'idem_application_asset_format_dry_run' });
-
-    const executed = await app.inject({
+    const dryRun = await app.inject({
       method: 'POST',
-      path: '/api/v1/deployment-plans/execute',
+      path: '/api/v1/deployment-plans/dry-run',
       headers: userHeaders,
-      body: { planId: plan.id, idempotencyKey: 'idem_application_asset_execute_with_format' },
+      body: { planId: plan.id, idempotencyKey: 'idem_application_asset_format_dry_run' },
     });
-    assert.equal(executed.statusCode, 200, JSON.stringify(executed.body));
-    const executeBody = executed.body as { run: { id: string }; steps: Array<{ id: string; stepType: string; inputSnapshot: any }> };
-    const atomicStep = executeBody.steps.find((step) => step.stepType === 'CUSTOM');
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
+    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: Record<string, unknown> }> };
+    const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
     assert.ok(atomicStep);
-    assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, formatAId);
-    assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pfx');
-    assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.containsPrivateKey, true);
+    assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
+    assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
     assert.equal(typeof atomicStep!.inputSnapshot.pfxBase64, 'undefined');
 
-    assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
-    assert.equal(typeof atomicStep!.inputSnapshot.pluginRuntimeCapability.pluginVersionId, 'string');
+    const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
+      'tenant_1',
+      String(plan.targets[0]?.strategyPayload?.deploymentInputSnapshotRef?.snapshotId),
+    );
+    assert.equal(runtimeSnapshot?.deploymentArtifact.certificateFormatId, formatAId);
+    assert.equal(runtimeSnapshot?.deploymentArtifact.format, 'pfx');
+    assert.equal(runtimeSnapshot?.deploymentArtifact.containsPrivateKey, true);
   });
 
   it('Agent Atomic dry-run 执行结果回传后会把 operationResults 转换为统一预检结果', async () => {
