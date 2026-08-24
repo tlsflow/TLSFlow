@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CloudAccountAsset } from '../dto/providers.dto.js';
-import { AliyunProviderExtension, HuaweiProviderExtension } from './cloud-provider-extensions.js';
+import { AliyunProviderExtension, HuaweiProviderExtension, TencentProviderExtension, VolcengineProviderExtension } from './cloud-provider-extensions.js';
 import type { ProviderCredentialResolver, ProviderHttpRequest, ProviderHttpResponse, ProviderTransport } from './provider-runtime.js';
 
 class FixtureTransport implements ProviderTransport {
@@ -26,6 +26,12 @@ const credentials: ProviderCredentialResolver = {
     if (asset.providerKey === 'cloud.aliyun') {
       result.accessKeyId = 'ak';
       result.accessKeySecret = 'sk';
+    } else if (asset.providerKey === 'cloud.tencent') {
+      result.secretId = 'sid';
+      result.secretKey = 'ssk';
+    } else if (asset.providerKey === 'cloud.volcengine') {
+      result.accessKeyId = 'vak';
+      result.secretAccessKey = 'vsk';
     } else {
       result.accessKey = 'ak';
       result.secretKey = 'sk';
@@ -62,7 +68,7 @@ test('阿里云扩展部署结果包含可用于回滚的 checkpoint', async () 
   );
   assert.equal(result.status, 'SUCCESS');
   assert.equal((result.resultSummary?.checkpoint as { previous: { certificateId: string } }).previous.certificateId, 'old-cert');
-  assert.equal(transport.requests.length, 3);
+  assert.equal(transport.requests.length, 2);
 });
 
 test('华为云扩展读取旧配置后保留旧配置字段再提交', async () => {
@@ -80,6 +86,74 @@ test('华为云扩展读取旧配置后保留旧配置字段再提交', async ()
   assert.equal(requestBody.certificateId, 'new-cert');
 });
 
+test('腾讯云 CLB 扩展会按监听器路由证书并返回回滚点', async () => {
+  const transport = new TencentFixtureTransport();
+  const extension = new TencentProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.tencent') },
+    { frameworkType: 'cloud.tencent.clb', resourceId: 'lb-1', listenerId: 'listener-1', domain: 'example.test', metadata: { loadBalancerId: 'lb-1' } },
+    { certificateId: 'cert-new' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  assert.equal((result.resultSummary?.checkpoint as { previous: { certificateId: string } }).previous.certificateId, 'cert-old');
+});
+
+test('火山引擎 CLB 扩展会按监听器更新证书', async () => {
+  const transport = new VolcengineFixtureTransport();
+  const extension = new VolcengineProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.volcengine') },
+    { frameworkType: 'cloud.volcengine.clb', resourceId: 'lb-1', listenerId: 'listener-1', domain: 'example.test', metadata: { loadBalancerId: 'lb-1' } },
+    { certificateId: 'cert-new' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  const requestBody = JSON.parse(transport.requests.at(-1)?.body ?? '{}') as Record<string, unknown>;
+  assert.equal(requestBody.CertificateId, 'cert-new');
+});
+
 function response(payload: Record<string, unknown>): ProviderHttpResponse {
   return { status: 200, headers: {}, body: JSON.stringify(payload), json: payload };
+}
+
+class TencentFixtureTransport implements ProviderTransport {
+  readonly requests: ProviderHttpRequest[] = [];
+
+  async request(request: ProviderHttpRequest): Promise<ProviderHttpResponse> {
+    this.requests.push(request);
+    const action = request.headers?.['x-tc-action'];
+    if (action === 'DescribeLoadBalancers') {
+      return response({ Response: { LoadBalancerSet: [{ LoadBalancerId: 'lb-1', LoadBalancerName: 'lb-one' }] } });
+    }
+    if (action === 'DescribeListeners') {
+      return response({ Response: { ListenerSet: [{ ListenerId: 'listener-1', ListenerName: 'listener-one', CertificateId: 'cert-old', Domain: 'example.test', Port: 443, Protocol: 'HTTPS' }] } });
+    }
+    if (action === 'ModifyListener') {
+      return response({ RequestId: 'req-modify', Response: { RequestId: 'req-modify' } });
+    }
+    if (action === 'DescribeDomainConfig') {
+      return response({ Response: { Status: 'SUCCESS' } });
+    }
+    return response({});
+  }
+}
+
+class VolcengineFixtureTransport implements ProviderTransport {
+  readonly requests: ProviderHttpRequest[] = [];
+
+  async request(request: ProviderHttpRequest): Promise<ProviderHttpResponse> {
+    this.requests.push(request);
+    const action = request.headers?.['x-action'];
+    if (action === 'DescribeLoadBalancers') {
+      return response({ Result: { LoadBalancers: [{ LoadBalancerId: 'lb-1', LoadBalancerName: 'lb-one' }] } });
+    }
+    if (action === 'DescribeListeners') {
+      return response({ Result: { Listeners: [{ ListenerId: 'listener-1', ListenerName: 'listener-one', CertificateId: 'cert-old', Domain: 'example.test', ListenerPort: 443, ListenerProtocol: 'HTTPS' }] } });
+    }
+    if (action === 'ModifyListener') {
+      return response({ Result: { RequestId: 'req-modify' } });
+    }
+    return response({});
+  }
 }

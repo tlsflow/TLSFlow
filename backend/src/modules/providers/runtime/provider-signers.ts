@@ -14,9 +14,11 @@ export function signAliyunRpc(input: {
   accessKeySecret: string;
   action: string;
   version: string;
-  params?: Record<string, string | number | undefined>;
+  params?: Record<string, unknown>;
   scope: ProviderScope;
+  endpoint?: string;
 }): SignedRequest {
+  const aliyunParams = normalizeAliyunRpcParams(input.params);
   const params: Record<string, string> = {
     Format: 'JSON',
     Version: input.version,
@@ -26,7 +28,7 @@ export function signAliyunRpc(input: {
     SignatureVersion: '1.0',
     Signature: '',
     Action: input.action,
-    ...Object.fromEntries(Object.entries(input.params ?? {}).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])),
+    ...aliyunParams,
   };
   const canonicalized = Object.keys(params)
     .filter((key) => key !== 'Signature')
@@ -38,9 +40,18 @@ export function signAliyunRpc(input: {
   const query = Object.keys(params).sort().map((key) => `${percentEncode(key)}=${percentEncode(params[key]!)}`).join('&');
   return {
     method: 'GET',
-    url: `${scopeEndpoint(input.scope, 'https://cdn.aliyuncs.com')}?${query}`,
+    url: `${scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.aliyuncs.com')}?${query}`,
     headers: { accept: 'application/json' },
   };
+}
+
+function normalizeAliyunRpcParams(input?: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input ?? {})) {
+    if (value === undefined || value === null) continue;
+    result[key] = String(value);
+  }
+  return result;
 }
 
 export function signTencentTc3(input: {
@@ -52,12 +63,13 @@ export function signTencentTc3(input: {
   region?: string;
   payload?: Record<string, unknown>;
   scope: ProviderScope;
+  endpoint?: string;
   now?: Date;
 }): SignedRequest {
   const body = jsonBody(input.payload ?? {});
   const timestamp = Math.floor((input.now ?? new Date()).getTime() / 1000);
   const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-  const host = new URL(scopeEndpoint(input.scope, `https://${input.service}.tencentcloudapi.com`)).host;
+  const host = new URL(scopeEndpoint(input.scope, input.endpoint ?? `https://${input.service}.tencentcloudapi.com`)).host;
   const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${host}\n`;
   const signedHeaders = 'content-type;host';
   const hashedPayload = sha256(body);
@@ -71,7 +83,7 @@ export function signTencentTc3(input: {
   const signature = hmac(secretSigning, stringToSign, 'hex');
   return {
     method: 'POST',
-    url: scopeEndpoint(input.scope, `https://${input.service}.tencentcloudapi.com`),
+    url: scopeEndpoint(input.scope, input.endpoint ?? `https://${input.service}.tencentcloudapi.com`),
     headers: {
       'content-type': 'application/json; charset=utf-8',
       host,
@@ -93,10 +105,11 @@ export function signHuaweiRequest(input: {
   query?: Record<string, string | undefined>;
   payload?: unknown;
   scope: ProviderScope;
+  endpoint?: string;
   now?: Date;
 }): SignedRequest {
   const body = jsonBody(input.payload ?? {});
-  const host = new URL(scopeEndpoint(input.scope, 'https://cdn.myhuaweicloud.com')).host;
+  const host = new URL(scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.myhuaweicloud.com')).host;
   const sdkDate = formatBasicDate(input.now ?? new Date());
   const query = Object.keys(input.query ?? {})
     .filter((key) => input.query?.[key] !== undefined)
@@ -110,7 +123,7 @@ export function signHuaweiRequest(input: {
   const signature = createHmac('sha256', input.secretKey).update(stringToSign).digest('hex');
   return {
     method: input.method,
-    url: `${scopeEndpoint(input.scope, 'https://cdn.myhuaweicloud.com')}${input.path}${query ? `?${query}` : ''}`,
+    url: `${scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.myhuaweicloud.com')}${input.path}${query ? `?${query}` : ''}`,
     headers: {
       'content-type': 'application/json',
       host,
@@ -129,10 +142,11 @@ export function signVolcengineRequest(input: {
   action: string;
   payload?: Record<string, unknown>;
   scope: ProviderScope;
+  endpoint?: string;
   now?: Date;
 }): SignedRequest {
   const body = jsonBody(input.payload ?? {});
-  const host = new URL(scopeEndpoint(input.scope, `https://${input.service}.volcengineapi.com`)).host;
+  const host = new URL(scopeEndpoint(input.scope, input.endpoint ?? `https://${input.service}.volcengineapi.com`)).host;
   const date = input.now ?? new Date();
   const xDate = formatVolcDate(date);
   const credentialScope = `${xDate.slice(0, 8)}/${input.region ?? input.scope.regions?.[0] ?? 'cn-north-1'}/${input.service}/request`;
@@ -144,7 +158,7 @@ export function signVolcengineRequest(input: {
   const signature = hmac(hmac(serviceKey, 'request'), stringToSign, 'hex');
   return {
     method: 'POST',
-    url: scopeEndpoint(input.scope, `https://${input.service}.volcengineapi.com`),
+    url: scopeEndpoint(input.scope, input.endpoint ?? `https://${input.service}.volcengineapi.com`),
     headers: {
       'content-type': 'application/json',
       host,

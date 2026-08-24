@@ -18,7 +18,7 @@ import {
 import type { ProviderAsyncState } from './provider-async-waiter.js';
 
 export interface CloudCertificateInput {
-  certificatePem: string;
+  certificatePem?: string;
   privateKeyPem?: string;
   chainPem?: string;
   certificateId?: string;
@@ -94,8 +94,8 @@ export abstract class CloudProviderExtension implements ProviderExtension {
     if (operationKey === 'certificate.deploy') {
       const certificate = readCertificateInput(input);
       const before = await this.readTargetState(context, target);
-      const uploaded = await this.uploadCertificate(context, certificate);
-      const applied = await this.applyCertificate(context, target, uploaded.certificateId, certificate);
+      const uploaded = await this.uploadCertificate(context, target, certificate, before);
+      const applied = await this.applyCertificate(context, target, uploaded.certificateId, certificate, before);
       const asyncOperation = readAsyncOperation(applied);
       const asyncResult = asyncOperation
         ? await this.waitForAsyncOperation(context, target, asyncOperation, input)
@@ -131,8 +131,19 @@ export abstract class CloudProviderExtension implements ProviderExtension {
   protected abstract call(context: ProviderContext, action: string, payload?: Record<string, unknown>): Promise<ProviderHttpResponse>;
   protected abstract discoverTargets(context: ProviderContext, frameworkTypes?: string[]): Promise<DiscoveryTargets>;
   protected abstract readTargetState(context: ProviderContext, target: ProviderTargetRef): Promise<CloudTargetState>;
-  protected abstract uploadCertificate(context: ProviderContext, certificate: CloudCertificateInput): Promise<{ certificateId: string }>;
-  protected abstract applyCertificate(context: ProviderContext, target: ProviderTargetRef, certificateId: string, certificate: CloudCertificateInput): Promise<Record<string, unknown>>;
+  protected abstract uploadCertificate(
+    context: ProviderContext,
+    target: ProviderTargetRef,
+    certificate: CloudCertificateInput,
+    previous: CloudTargetState,
+  ): Promise<{ certificateId: string }>;
+  protected abstract applyCertificate(
+    context: ProviderContext,
+    target: ProviderTargetRef,
+    certificateId: string,
+    certificate: CloudCertificateInput,
+    previous: CloudTargetState,
+  ): Promise<Record<string, unknown>>;
   protected abstract verifyCertificate(context: ProviderContext, target: ProviderTargetRef, input: Record<string, unknown>): Promise<boolean>;
   protected abstract restoreCertificate(context: ProviderContext, target: ProviderTargetRef, certificateId: string, previous: CloudTargetState): Promise<void>;
 
@@ -178,12 +189,15 @@ export interface DiscoveryTargets {
 
 function readCertificateInput(input: Record<string, unknown>): CloudCertificateInput {
   const certificatePem = stringValue(input.certificatePem);
-  if (!certificatePem) throw new AppError('VALIDATION_FAILED', '证书部署缺少 certificatePem');
+  const certificateId = stringValue(input.certificateId);
+  if (!certificatePem && !certificateId) {
+    throw new AppError('VALIDATION_FAILED', '证书部署至少需要 certificatePem 或 certificateId');
+  }
   return {
     certificatePem,
     privateKeyPem: stringValue(input.privateKeyPem),
     chainPem: stringValue(input.chainPem),
-    certificateId: stringValue(input.certificateId),
+    certificateId,
   };
 }
 

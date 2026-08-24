@@ -11,18 +11,20 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import type { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
 
 const providerDefinitions: ProviderDefinition[] = [
-  definition('cloud.aliyun', 'aliyun', 'V4'),
-  definition('cloud.tencent', 'tencent', 'V4'),
-  definition('cloud.huawei', 'huawei', 'HMAC'),
-  definition('cloud.volcengine', 'volcengine', 'HMAC'),
+  definition('cloud.aliyun', 'aliyun', 'V4', ['cloud.aliyun.cdn', 'cloud.aliyun.alb', 'cloud.aliyun.clb']),
+  definition('cloud.tencent', 'tencent', 'V4', ['cloud.tencent.cdn', 'cloud.tencent.clb']),
+  definition('cloud.huawei', 'huawei', 'HMAC', ['cloud.huawei.cdn', 'cloud.huawei.elb']),
+  definition('cloud.volcengine', 'volcengine', 'HMAC', ['cloud.volcengine.cdn', 'cloud.volcengine.alb', 'cloud.volcengine.clb']),
 ];
 
-const capabilities: ProviderCapabilityPlugin[] = providerDefinitions.flatMap((provider) => [
-  capability(provider.providerKey, `${provider.providerKey}.cdn`, 'certificate.discover', 'provider.capabilities.cdnDiscover', 'MANUAL_REQUIRED'),
-  capability(provider.providerKey, `${provider.providerKey}.cdn`, 'certificate.deploy', 'provider.capabilities.cdnDeploy', 'MANUAL_REQUIRED'),
-  capability(provider.providerKey, `${provider.providerKey}.cdn`, 'certificate.verify', 'provider.capabilities.cdnVerify', 'UNSUPPORTED'),
-  capability(provider.providerKey, `${provider.providerKey}.cdn`, 'certificate.rollback', 'provider.capabilities.cdnRollback', 'MANUAL_REQUIRED'),
-]);
+const capabilities: ProviderCapabilityPlugin[] = providerDefinitions.flatMap((provider) =>
+  provider.supportedProducts.flatMap((frameworkType) => [
+    capability(provider.providerKey, frameworkType, 'certificate.discover', 'provider.capabilities.cdnDiscover', 'MANUAL_REQUIRED'),
+    capability(provider.providerKey, frameworkType, 'certificate.deploy', 'provider.capabilities.cdnDeploy', 'MANUAL_REQUIRED'),
+    capability(provider.providerKey, frameworkType, 'certificate.verify', 'provider.capabilities.cdnVerify', 'UNSUPPORTED'),
+    capability(provider.providerKey, frameworkType, 'certificate.rollback', 'provider.capabilities.cdnRollback', 'MANUAL_REQUIRED'),
+  ]),
+);
 
 export function createDefaultProviderRegistry(extensions: ProviderExtension[] = []): ProviderExtensionRegistry {
   const registry = new ProviderExtensionRegistry();
@@ -59,14 +61,14 @@ export function listDefaultProviderCapabilities(): ProviderCapabilityPlugin[] {
   return structuredClone(capabilities);
 }
 
-function definition(providerKey: string, extensionKey: string, signerType: ProviderDefinition['signerType']): ProviderDefinition {
+function definition(providerKey: string, extensionKey: string, signerType: ProviderDefinition['signerType'], supportedProducts: string[]): ProviderDefinition {
   return {
     providerKey,
     displayNameKey: `provider.${extensionKey}.name`,
     capabilityPluginId: `gcac.provider.${extensionKey}`,
     providerExtensionKey: `gcac.provider-extension.${extensionKey}`,
     providerExtensionVersion: '1.0.0',
-    supportedProducts: [`${providerKey}.cdn`, `${providerKey}.oss`, `${providerKey}.alb`, `${providerKey}.clb`],
+    supportedProducts,
     supportedOperations: ['provider.connection.test', 'provider.discovery', 'certificate.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback', 'certificate.upload', 'certificate.binding.apply', 'certificate.binding.verify', 'certificate.binding.restore'],
     credentialSchemaId: `gcac.${extensionKey}.credential/v1`,
     scopeSchemaId: `gcac.${extensionKey}.scope/v1`,
