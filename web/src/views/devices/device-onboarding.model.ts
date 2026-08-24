@@ -9,9 +9,11 @@ export interface DeviceOnboardingPlatform {
   readonly displayNameKey: string
   readonly productFamily: string
   readonly managementMethod: string
+  readonly group?: 'WINDOWS' | 'OTHER'
   readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
   readonly supportStatus: 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED'
   readonly formSchema: readonly DeviceOnboardingField[]
+  readonly logoUrl?: string
   readonly pluginVersionId?: string
   readonly pluginId?: string
 }

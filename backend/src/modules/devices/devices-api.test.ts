@@ -642,14 +642,16 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
   assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings.length, 1);
   assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
-test('Spec033 平台 Registry 只保留 Agent 安装入口', () => {
+test('Spec033 平台 Registry 按 Windows Server 版本提供 Agent 安装入口，并兼容旧请求键', () => {
   const registry = new DevicePlatformRegistry();
   const platforms = registry.list();
-  assert.equal(platforms.length, 3);
+  assert.equal(platforms.length, 4);
   assert.deepEqual(platforms.filter((item) => item.supportStatus === 'SUPPORTED').map((item) => item.key), [
-    'windows', 'windows-compatibility', 'linux',
+    'windows-server-2008-r2', 'windows-server-2012-r2', 'windows-server-2016-plus', 'linux',
   ]);
   assert.ok(platforms.every((item) => item.onboardingKind === 'AGENT_INSTALL'));
+  assert.equal(registry.requireSupported('windows').key, 'windows-server-2016-plus');
+  assert.equal(registry.requireSupported('windows-compatibility').key, 'windows-server-2012-r2');
 });
 
 test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
@@ -682,6 +684,12 @@ test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
   assert.equal('enrollmentToken' in windows, false);
   assert.equal('installMaterials' in windows, false);
   assert.equal('installCommand' in windows, false);
+
+  const windows2008 = await service.onboard('tenant-onboarding', {
+    platformKey: 'windows-server-2008-r2',
+  }, 'user-onboarding', 'request-onboarding-2008', 'https://gcac.example.test');
+  if (windows2008.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装会话');
+  assert.match(windows2008.installSession.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "\(New-Object System\.Net\.WebClient\)\.DownloadString\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=12345678'\) \| iex"$/);
 });
 
 test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', async () => {

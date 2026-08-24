@@ -194,10 +194,12 @@ export interface DeviceOnboardingPlatformDescriptor {
   displayNameKey: string;
   productFamily: string;
   managementMethod: string;
+  group: 'WINDOWS' | 'OTHER';
   onboardingKind: DeviceOnboardingKind;
   supportStatus: DevicePlatformSupportStatus;
   formSchema: DeviceOnboardingFieldDescriptor[];
   handlerKey?: string;
+  installCommandProfile?: 'WINDOWS_POWERSHELL_2';
 }
 
 export interface CreateManagedDeviceOnboardingDto {

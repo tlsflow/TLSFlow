@@ -105,7 +105,13 @@ export class DevicesApplicationService {
         platform: installPlatform,
         role: 'full_agent',
       }, requestId, installBaseUrl ?? 'http://localhost');
-      return { onboardingKind: 'AGENT_INSTALL' as const, installSession };
+      return {
+        onboardingKind: 'AGENT_INSTALL' as const,
+        installSession: {
+          ...installSession,
+          installCommand: resolveDeviceInstallCommand(platform.installCommandProfile, installSession.bootstrapUrl, installSession.installCommand),
+        },
+      };
     }
     return this.onboardPluginDevice(tenantId, input, actorId);
   }
@@ -386,6 +392,15 @@ function resolveAgentInstallPlatform(handlerKey: string | undefined): 'windows_g
     case 'LINUX_GO': return 'linux_go';
     default: throw new AppError('VALIDATION_FAILED', '设备平台没有对应的 Agent 安装材料类型', { handlerKey });
   }
+}
+
+function resolveDeviceInstallCommand(
+  profile: DeviceOnboardingPlatformDescriptor['installCommandProfile'],
+  bootstrapUrl: string,
+  defaultCommand: string,
+): string {
+  if (profile !== 'WINDOWS_POWERSHELL_2') return defaultCommand;
+  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(New-Object System.Net.WebClient).DownloadString('${bootstrapUrl}') | iex"`;
 }
 
 function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {

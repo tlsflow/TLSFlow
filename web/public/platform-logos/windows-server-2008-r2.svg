@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img" aria-labelledby="title">
+  <title id="title">Windows Server 2008 R2</title>
+  <path d="M12 15c8-4 17-5 25-4v25c-8-1-17 0-25 4V15Z" fill="#F25022"/>
+  <path d="M42 10c9-2 17-2 26 1v25c-9-3-17-3-26-1V10Z" fill="#7FBA00"/>
+  <path d="M12 45c8-4 17-5 25-4v25c-8-1-17 0-25 4V45Z" fill="#00A4EF"/>
+  <path d="M42 40c9-2 17-2 26 1v25c-9-3-17-3-26-1V40Z" fill="#FFB900"/>
+  <path d="M16 18c6-2 12-3 18-2M46 14c6-1 12-1 18 1" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-opacity=".28" stroke-width="2"/>
+</svg>

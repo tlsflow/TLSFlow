@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcModal, GcPluginForm, GcStatusTag, type PluginFormSchema } from '@/design-system/components'
+import { GcModal, GcPluginForm, type PluginFormSchema } from '@/design-system/components'
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -23,6 +23,7 @@ const values = ref<Record<string, unknown>>({})
 const pluginForm = ref<PluginFormSchema | null>(null)
 const pluginMessages = ref<Record<string, string>>({})
 const pluginDisplayNames = ref<Record<string, string>>({})
+const failedPlatformLogos = ref(new Set<string>())
 const pending = ref(false)
 const error = ref('')
 const result = ref<DeviceOnboardingResultView | null>(null)
@@ -37,6 +38,17 @@ const missingFields = computed(() => {
 })
 const canSubmit = computed(() => Boolean(selected.value) && missingFields.value.length === 0 && !pending.value)
 const isAgentInstall = computed(() => selected.value?.onboardingKind === 'AGENT_INSTALL')
+const platformGroupDefinitions = [
+  { key: 'windows', platformGroup: 'WINDOWS', titleKey: 'devices.onboarding.groups.windows' },
+  { key: 'other', platformGroup: 'OTHER', titleKey: 'devices.onboarding.groups.other' },
+] as const
+const platformGroups = computed(() => [
+  ...platformGroupDefinitions.map((definition) => ({
+    key: definition.key,
+    title: t(definition.titleKey),
+    platforms: platforms.value.filter((platform) => platform.group === definition.platformGroup),
+  })),
+].filter((group) => group.platforms.length > 0))
 
 watch(() => props.open, async (open) => {
   if (!open) return
@@ -45,6 +57,7 @@ watch(() => props.open, async (open) => {
   values.value = { tlsVerify: true }
   result.value = null
   commandCopied.value = false
+  failedPlatformLogos.value = new Set()
   if (platforms.value.length > 0) return
   error.value = ''
   try {
@@ -69,6 +82,32 @@ watch(() => props.open, async (open) => {
 function platformLabel(platform: DeviceOnboardingPlatform): string {
   if (platform.pluginVersionId) return pluginDisplayNames.value[platform.key] ?? platform.productFamily
   return t(platform.displayNameKey)
+}
+
+function platformLogoUrl(platform: DeviceOnboardingPlatform): string | undefined {
+  const staticLogos: Record<string, string> = {
+    'windows-server-2008-r2': '/platform-logos/windows-server-2008-r2.svg',
+    'windows-server-2012-r2': '/platform-logos/windows-server-2012-r2.svg',
+    'windows-server-2016-plus': '/platform-logos/windows-server-2016-plus.svg',
+    linux: '/platform-logos/linux.svg',
+  }
+  const value = platform.logoUrl ?? staticLogos[platform.key]
+  if (!value || failedPlatformLogos.value.has(platform.key) || typeof window === 'undefined') return undefined
+  try {
+    const url = new URL(value, window.location.origin)
+    if (url.origin !== window.location.origin) return undefined
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return undefined
+  }
+}
+
+function platformInitial(platform: DeviceOnboardingPlatform): string {
+  return platformLabel(platform).trim().slice(0, 1).toLocaleUpperCase()
+}
+
+function markPlatformLogoFailed(platformKey: string) {
+  failedPlatformLogos.value = new Set([...failedPlatformLogos.value, platformKey])
 }
 
 function fieldLabel(key: string): string {
@@ -148,6 +187,8 @@ function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {
     onboardingKind: 'API_CONNECTION',
     supportStatus: 'SUPPORTED',
     formSchema: [],
+    group: 'OTHER',
+    logoUrl: typeof item.logoUrl === 'string' ? item.logoUrl : undefined,
     pluginVersionId,
     pluginId: String(item.pluginId ?? ''),
   }
@@ -224,7 +265,8 @@ async function copyToClipboard(text: string): Promise<boolean> {
     :open="open"
     :title="t('devices.onboarding.title')"
     :description="t('devices.onboarding.description')"
-    size="xl"
+    size="xxl"
+    max-height="calc(100vh - var(--gc-space-10))"
     @update:open="emit('update:open', $event)"
   >
     <div class="device-wizard">
@@ -253,20 +295,30 @@ async function copyToClipboard(text: string): Promise<boolean> {
         </li>
       </ol>
 
-      <div v-if="step === 1" class="device-wizard__platforms" :aria-label="t('devices.onboarding.platformAria')">
-        <button
-          v-for="platform in platforms"
-          :key="platform.key"
-          type="button"
-          class="device-wizard__platform"
-          :class="{ 'device-wizard__platform--active': selectedKey === platform.key }"
-          :disabled="pending"
-          @click="selectPlatform(platform.key)"
-        >
-          <strong>{{ platformLabel(platform) }}</strong>
-          <span>{{ platform.productFamily }}</span>
-          <GcStatusTag :status="platform.supportStatus" />
-        </button>
+      <div v-if="step === 1" class="device-wizard__platform-groups" :aria-label="t('devices.onboarding.platformAria')">
+        <section v-for="group in platformGroups" :key="group.key" class="device-wizard__platform-group">
+          <h3>{{ group.title }}</h3>
+          <div class="device-wizard__platforms">
+            <button
+              v-for="platform in group.platforms"
+              :key="platform.key"
+              type="button"
+              class="device-wizard__platform"
+              :class="{ 'device-wizard__platform--active': selectedKey === platform.key }"
+              :disabled="pending"
+              @click="selectPlatform(platform.key)"
+            >
+              <span class="device-wizard__platform-logo" :class="{ 'device-wizard__platform-logo--fallback': !platformLogoUrl(platform) }">
+                <img v-if="platformLogoUrl(platform)" :src="platformLogoUrl(platform)" alt="" @error="markPlatformLogoFailed(platform.key)">
+                <span v-else aria-hidden="true">{{ platformInitial(platform) }}</span>
+              </span>
+              <span class="device-wizard__platform-copy">
+                <strong>{{ platformLabel(platform) }}</strong>
+                <span>{{ platform.productFamily }}</span>
+              </span>
+            </button>
+          </div>
+        </section>
       </div>
 
       <p v-if="error" class="device-wizard__error">{{ error }}</p>
@@ -349,10 +401,21 @@ async function copyToClipboard(text: string): Promise<boolean> {
 .device-wizard__steps li.active .device-wizard__step-marker { color: var(--gc-color-primary); }
 .device-wizard__steps li.done .device-wizard__step-marker { color: var(--gc-color-text-inverse); background: var(--gc-color-success); }
 .device-wizard__step-marker svg { inline-size: var(--gc-space-4); block-size: var(--gc-space-4); stroke: currentColor; stroke-width: var(--gc-border-width-thick); stroke-linecap: round; stroke-linejoin: round; }
-.device-wizard__platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
-.device-wizard__platform { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); text-align: left; color: var(--gc-color-text); background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
-.device-wizard__platform--active { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }
-.device-wizard__platform span { color: var(--gc-color-text-muted); }
+.device-wizard__platform-groups { display: grid; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-section); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.device-wizard__platform-group { display: grid; gap: var(--gc-space-3); }
+.device-wizard__platform-group h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-heading-xs); font-weight: var(--gc-font-weight-semibold); }
+.device-wizard__platforms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.device-wizard__platform { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-2); padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.device-wizard__platform:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
+.device-wizard__platform:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
+.device-wizard__platform:disabled { cursor: wait; opacity: var(--gc-opacity-disabled); }
+.device-wizard__platform--active { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-primary); }
+.device-wizard__platform-logo { display: flex; align-items: center; justify-content: flex-start; inline-size: calc(var(--gc-space-4) * 3); block-size: calc(var(--gc-space-4) * 3); overflow: hidden; background: var(--gc-color-surface); border: var(--gc-space-hairline) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-control); }
+.device-wizard__platform-logo img { max-inline-size: none; inline-size: auto; block-size: 100%; }
+.device-wizard__platform-logo--fallback { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); font-size: var(--gc-font-size-heading-sm); font-weight: var(--gc-font-weight-semibold); }
+.device-wizard__platform-copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
+.device-wizard__platform-copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
+.device-wizard__platform-copy > span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .device-wizard__form { display: grid; gap: var(--gc-space-3); }
 .device-wizard__form label { display: grid; gap: var(--gc-space-2); }
 .device-wizard__form input { padding: var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); }
@@ -372,7 +435,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
 .device-wizard__copy-button svg { inline-size: var(--gc-space-5); block-size: var(--gc-space-5); stroke: currentColor; stroke-width: var(--gc-border-width-thick); stroke-linecap: round; stroke-linejoin: round; }
 .device-wizard__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
+@media (max-width: 64rem) {
+  .device-wizard__platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 48rem) {
+  .device-wizard__platform-groups { max-block-size: none; padding-inline-end: 0; overflow: visible; }
   .device-wizard__platforms { grid-template-columns: 1fr; }
   .device-wizard__command { grid-template-columns: 1fr; }
 }
