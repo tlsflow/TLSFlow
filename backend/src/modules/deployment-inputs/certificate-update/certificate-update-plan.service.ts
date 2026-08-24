@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from '../../agents/security/policy-version.constants.js';
 import { allowedAgentOperationTypes, computeAgentPlanDigest, agentSecurityContractVersion, type AgentPlanV1, type AgentPlanOperationV1 } from '../../agents/security/agent-security.contract.js';
 import type { ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
 import type { CertificateUpdateResolvedSnapshotV1 } from './certificate-update-input.service.js';
@@ -44,10 +45,13 @@ export function compileCertificateUpdatePlanTemplate(input: {
   if (template.capability !== 'certificate.verify' && !template.writeEffect) fail('PLAN', 'Deploy/Rollback Agent Plan 必须声明写入副作用');
   let operations = expandOperations(template.operations, input.snapshot, input.workflowVersionId, input.resourceHash);
   if (input.resolvedInput) {
-    operations = bindCertificateArtifactContent(operations, input.snapshot, input.resolvedInput);
+    operations = bindCertificateArtifactContent(operations, input.snapshot, input.resolvedInput, template.capability);
   }
   if (operations.length === 0) fail('PLAN', 'Agent Plan 模板没有操作');
   const operationTypes = [...new Set(operations.map((operation) => operation.operationType))];
+  const commandRules = operations
+    .filter((operation) => operation.operationType === 'command.execute_allowlisted')
+    .map((operation) => toCommandRule(operation.input));
   const plan: AgentPlanV1 = {
     planVersion: agentSecurityContractVersion,
     planId: template.planId,
@@ -67,11 +71,12 @@ export function compileCertificateUpdatePlanTemplate(input: {
   plan.planDigest = computeAgentPlanDigest(plan);
   const authorization = {
     grantId: template.authorization?.grantId ?? 'certificate-update-grant',
-    policyRef: template.authorization?.policyRef ?? 'certificate-update-policy',
-    policyVersion: template.authorization?.policyVersion ?? 'v1',
+    policyRef: template.authorization?.policyRef ?? CERTIFICATE_UPDATE_POLICY_REF,
+    policyVersion: template.authorization?.policyVersion ?? CERTIFICATE_UPDATE_POLICY_VERSION,
     actions: operationTypes,
     allowedPaths: [...new Set([...input.snapshot.paths, input.snapshot.sourceConfigPath, input.snapshot.programPath, input.snapshot.workingDirectory])],
     allowedServices: [input.snapshot.serviceName],
+    commandRules,
     // 证书材料和配置检查程序都是 Agent 实际执行的不可变输入，两个摘要都必须进入
     // 同一份授权范围；否则输入门禁虽然能生成计划，Agent 仍会拒绝真实程序。
     artifactDigests: [...new Set([input.snapshot.artifactDigest, input.snapshot.programSha256])],
@@ -79,6 +84,44 @@ export function compileCertificateUpdatePlanTemplate(input: {
     lifetimeSeconds: template.authorization?.lifetimeSeconds ?? 300,
   };
   return { plan, authorization };
+}
+
+function toCommandRule(input: Record<string, unknown>): {
+  executablePath: string;
+  executableSha256: string;
+  argumentTemplate: string[];
+  environmentAllowlist: string[];
+  workingDirectory: string;
+  networkScopes: string[];
+  childProcessPolicy: 'deny' | 'allow-listed';
+  timeoutSeconds: number;
+  outputLimitBytes: number;
+} {
+  if (typeof input.executablePath !== 'string'
+    || typeof input.executableSha256 !== 'string'
+    || !Array.isArray(input.argumentTemplate)
+    || !input.argumentTemplate.every((value) => typeof value === 'string')
+    || !Array.isArray(input.environmentAllowlist)
+    || !input.environmentAllowlist.every((value) => typeof value === 'string')
+    || typeof input.workingDirectory !== 'string'
+    || !Array.isArray(input.networkScopes)
+    || !input.networkScopes.every((value) => typeof value === 'string')
+    || (input.childProcessPolicy !== 'deny' && input.childProcessPolicy !== 'allow-listed')
+    || !Number.isInteger(input.timeoutSeconds)
+    || !Number.isInteger(input.outputLimitBytes)) {
+    throw new AppError('VALIDATION_FAILED', '证书更新计划命令缺少完整 commandRules 字段');
+  }
+  return {
+    executablePath: input.executablePath,
+    executableSha256: input.executableSha256,
+    argumentTemplate: [...input.argumentTemplate],
+    environmentAllowlist: [...input.environmentAllowlist],
+    workingDirectory: input.workingDirectory,
+    networkScopes: [...input.networkScopes],
+    childProcessPolicy: input.childProcessPolicy,
+    timeoutSeconds: input.timeoutSeconds as number,
+    outputLimitBytes: input.outputLimitBytes as number,
+  };
 }
 
 /**
@@ -90,7 +133,7 @@ export function bindCertificateUpdatePlanArtifacts(
   snapshot: CertificateUpdateResolvedSnapshotV1,
   resolvedInput: ResolvedDeploymentInputV1,
 ): AgentPlanV1 {
-  const operations = bindCertificateArtifactContent(plan.operations, snapshot, resolvedInput);
+  const operations = bindCertificateArtifactContent(plan.operations, snapshot, resolvedInput, plan.capability);
   const boundPlan = { ...plan, operations, planDigest: '' };
   boundPlan.planDigest = computeAgentPlanDigest(boundPlan);
   return boundPlan;
@@ -100,6 +143,7 @@ function bindCertificateArtifactContent(
   operations: AgentPlanOperationV1[],
   snapshot: CertificateUpdateResolvedSnapshotV1,
   resolvedInput: ResolvedDeploymentInputV1,
+  capability: string,
 ): AgentPlanOperationV1[] {
   const artifactName = resolvedInput.assetContext.deployment.certificateResourceName;
   const artifact = resolvedInput.artifacts.certificateArtifact

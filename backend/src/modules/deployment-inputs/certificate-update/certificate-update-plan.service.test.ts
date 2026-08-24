@@ -63,9 +63,41 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       'workingDirectory',
     ].sort());
     assert.deepEqual(result.authorization.allowedServices, [snapshot.serviceName]);
-    assert.deepEqual(result.authorization.artifactDigests, [snapshot.artifactDigest, snapshot.programSha256]);
+  assert.deepEqual(result.authorization.artifactDigests, [snapshot.artifactDigest, snapshot.programSha256]);
+  const commandRules = result.authorization.commandRules as Array<Record<string, unknown>>;
+  assert.equal(commandRules.length, result.plan.operations.filter((operation) => operation.operationType === 'command.execute_allowlisted').length);
+  assert.deepEqual(commandRules[0], {
+    executablePath: snapshot.programPath,
+    executableSha256: snapshot.programSha256,
+    argumentTemplate: snapshot.configCheckArgsTemplate,
+    environmentAllowlist: [],
+    workingDirectory: snapshot.workingDirectory,
+    networkScopes: [],
+    childProcessPolicy: 'deny',
+    timeoutSeconds: 60,
+    outputLimitBytes: 65536,
+  });
     assert.equal(result.authorization.lifetimeSeconds, 300);
   }
+});
+
+test('证书目标内容会同时绑定到备份和替换操作，供 Agent 判断幂等 no-op', () => {
+  const pluginId = 'web.apache.linux';
+  const resolvedInput = createResolvedCertificateUpdateInput(pluginId);
+  const snapshot = createCertificateUpdateSnapshot(pluginId);
+  const result = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+    snapshot,
+    resolvedInput,
+    pluginVersionId: `${pluginId}-version-1`,
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  const backups = result.plan.operations.filter((operation) => operation.operationType === 'filesystem.backup');
+  const replacements = result.plan.operations.filter((operation) => operation.operationType === 'filesystem.atomic_replace');
+  assert.equal(backups.length, replacements.length);
+  assert.ok(backups.every((operation) => typeof operation.input.contentBase64 === 'string' && operation.input.contentBase64.length > 0));
+  assert.ok(replacements.every((operation) => typeof operation.input.contentBase64 === 'string' && operation.input.contentBase64.length > 0));
 });
 
 test('六个回滚计划先恢复同一次账本，再检查配置、刷新服务和验证状态', () => {
