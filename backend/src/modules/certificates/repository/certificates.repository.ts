@@ -181,9 +181,10 @@ export class PgCertificatesRepository implements CertificatesRepository {
                certificate_request_id = $27,
                certificate_profile_version_id = $28,
                key_reference_id = $29,
-               key_custody_mode = $30
+              key_custody_mode = $30
+              ,activation_state = $31
          where id = $1
-           and ($31::text is null or tenant_id = $31)`,
+           and ($32::text is null or tenant_id = $32)`,
       [
         id,
         next.certificateAssetId,
@@ -215,6 +216,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.certificateProfileVersionId ?? null,
         next.keyReferenceId ?? null,
         next.keyCustodyMode ?? null,
+        next.activationState ?? 'promoted',
         scopedTenantId ?? null,
       ],
     );
@@ -230,12 +232,26 @@ export class PgCertificatesRepository implements CertificatesRepository {
       const asset = await repository.getAsset(version.certificateAssetId, scopedTenantId);
       if (!asset) throw new Error(`certificate asset not found: ${version.certificateAssetId}`);
       const now = new Date().toISOString();
-      const promoted = version;
+      await tx.query(
+        `update pg_certificate_versions
+            set activation_state = 'staged'
+          where certificate_asset_id = $1
+            and id <> $2
+            and ($3::text is null or tenant_id = $3)`,
+        [asset.id, certificateVersionId, scopedTenantId ?? null],
+      );
+      await tx.query(
+        `update pg_certificate_versions
+            set activation_state = 'promoted'
+          where id = $1
+            and ($2::text is null or tenant_id = $2)`,
+        [version.id, scopedTenantId ?? null],
+      );
       await repository.updateAsset(asset.id, {
-        currentVersionId: promoted.id,
+        currentVersionId: version.id,
         updatedAt: now,
       }, scopedTenantId);
-      return promoted;
+      return { ...version, activationState: 'promoted' };
     });
   }
 
@@ -272,12 +288,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
          id, tenant_id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
          not_before, not_after, fingerprint_sha256, public_key_fingerprint_sha256, public_key_algorithm, signature_algorithm,
          leaf_storage_ref, private_key_secret_ref, chain_certificate_refs, chain_order, chain_diagnostics,
-          chain_status, deployable, source_type, status, created_by, created_at,
+          chain_status, deployable, source_type, status, activation_state, created_by, created_at,
          issuing_ca_id, certificate_request_id, certificate_profile_version_id, key_reference_id, key_custody_mode
        ) values (
          $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz, $11::timestamptz,
-          $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22, $23, $24, $25, $26::timestamptz,
-          $27, $28, $29, $30, $31
+          $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22, $23, $24, $25, $26, $27::timestamptz,
+          $28, $29, $30, $31, $32
        )`,
       [
         entity.id,
@@ -304,6 +320,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.deployable,
         entity.sourceType,
         entity.status,
+        entity.activationState ?? 'promoted',
         entity.createdBy,
         entity.createdAt,
         entity.issuingCaId ?? null,
@@ -571,6 +588,7 @@ type CertificateVersionRow = {
   deployable: boolean;
   source_type: CertificateVersionEntity['sourceType'];
   status: CertificateVersionEntity['status'];
+  activation_state: CertificateVersionEntity['activationState'];
   created_by: string;
   created_at: DbTime;
 };
@@ -639,6 +657,7 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
     chainStatus: row.chain_status,
     deployable: row.deployable,
     sourceType: row.source_type,
+    activationState: row.activation_state ?? 'promoted',
     status: row.status,
     createdBy: row.created_by,
     createdAt: toIsoText(row.created_at),

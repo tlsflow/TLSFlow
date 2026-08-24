@@ -65,12 +65,18 @@ test('Agent 能力重扫在外部 Agent 未回报时延后，不伪造成功', a
   assert.equal(result.errorCode, 'AGENT_CAPABILITY_RESCAN_PENDING');
 });
 
-test('退役 ACME 和 Provider 执行器不会被重新注册', () => {
-  const registry = createTaskExecutorRegistry({});
-  for (const executorKey of ['acme.issue', 'acme.renewal', 'acme.challenge', 'provider.operation']) {
+test('宿主 ACME 签发和续签执行器恢复，独立 Challenge 与 Provider 执行器保持退役', () => {
+  const registry = createTaskExecutorRegistry({
+    acme: {
+      runJob: async () => undefined,
+    } as never,
+  });
+  for (const executorKey of ['acme.challenge', 'provider.operation']) {
     assert.equal(registry.has(executorKey), false, executorKey);
     assert.throws(() => registry.get(executorKey), /任务执行器未注册/);
   }
+  assert.equal(registry.has('acme.issue'), true);
+  assert.equal(registry.has('acme.renewal'), true);
 });
 
 test('执行任务遇到异步步骤时延后，不提前完成统一任务', async () => {

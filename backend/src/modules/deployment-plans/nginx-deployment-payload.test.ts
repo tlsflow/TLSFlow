@@ -875,8 +875,10 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'FIXED');
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
 
-  const persistedSteps = await db.query<{ input_snapshot: unknown }>(
-    `select input_snapshot from pg_execution_steps where execution_run_id=$1 order by step_no`,
+  const persistedSteps = await db.query<{ payload: unknown }>(
+    `select payload from pg_documents
+      where namespace='executions:steps' and payload->>'executionRunId'=$1
+      order by (payload->>'stepNo')::int`,
     [dryRunBody.run.id],
   );
   const persistedStepJson = JSON.stringify(persistedSteps.rows);

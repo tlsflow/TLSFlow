@@ -6,7 +6,9 @@ import type { AutomationsApplicationService } from '../automations/application/a
 import type { ExecutorRegistry } from '../executions/application/executors.js';
 import type { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
 import type { InternalCaApplicationService } from '../internal-ca/application/internal-ca.application-service.js';
+import type { AcmeRenewalWorker } from '../internal-ca/application/acme-renewal-worker.js';
 import type { CaSyncWorker } from '../internal-ca/application/ca-sync-worker.js';
+import type { AcmeRepository } from '../internal-ca/repository/acme.repository.js';
 import type { MonitorsApplicationService } from '../monitors/application/monitors.application-service.js';
 import type { NotificationWorker } from '../notifications/application/notification-worker.js';
 import type { ReportExportService } from '../reports/application/report-export.service.js';
@@ -28,6 +30,8 @@ export interface BuiltinPluginCatalogRefresher {
 }
 
 export interface TaskWorkerAdapterDependencies {
+  acme?: Pick<AcmeRenewalWorker, 'runJob'>;
+  acmeJobs?: Pick<AcmeRepository, 'getRenewalJob'>;
   executions?: Pick<ExecutionsApplicationService, 'runDispatchedExecution'>;
   executionRegistry?: ExecutorRegistry;
   caSync?: Pick<CaSyncWorker, 'runRun'>;
@@ -53,6 +57,34 @@ export function createTaskExecutorRegistry(
   executorKeys: readonly string[] = [],
 ): TaskExecutorRegistry {
   const registry = new TaskExecutorRegistry();
+  const acme = dependencyExecutor('ACME Worker', dependencies.acme, async (task) => {
+    const renewalJobId = requiredPayloadString(task, 'renewalJobId');
+    const result = await dependencies.acme!.runJob(task.tenantId, renewalJobId, task.requestedBy ?? 'task-worker');
+    const current = result ?? await dependencies.acmeJobs?.getRenewalJob(task.tenantId, renewalJobId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });
+    if (['completed', 'issued_waiting_for_installation'].includes(current.status)) {
+      return { success: true, detail: { renewalJobId, status: current.status, claimed: Boolean(result) } };
+    }
+    if (['failed', 'cancelled'].includes(current.status)) {
+      return {
+        success: false,
+        errorCode: current.failureCode ?? 'ACME_RENEWAL_FAILED',
+        errorMessage: current.failureMessage ?? `ACME 续签任务以 ${current.status} 结束`,
+        detail: { renewalJobId, status: current.status },
+      };
+    }
+    return {
+      success: false,
+      defer: true,
+      nextAttemptAt: current.nextAttemptAt,
+      errorCode: 'ACME_RENEWAL_PENDING',
+      errorMessage: `ACME 续签任务仍处于 ${current.status} 状态`,
+      detail: { renewalJobId, status: current.status },
+    };
+  });
+  registry.register('acme.issue', acme);
+  registry.register('acme.renewal', acme);
+
   const execution = dependencyExecutor('Execution Worker', dependencies.executions, async (task) => {
     const runId = requiredPayloadString(task, 'runId');
     const result = await dependencies.executions!.runDispatchedExecution(

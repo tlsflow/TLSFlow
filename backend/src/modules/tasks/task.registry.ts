@@ -10,6 +10,8 @@ const defaultDefinitions: TaskDefinition[] = [
   ['AGENT_UPDATE', 'EXECUTION', 'tasks.types.agentUpdate', 'agent.update', 'agent.write'],
   ['AGENT_CAPABILITY_RESCAN', 'EXECUTION', 'tasks.types.agentCapabilityRescan', 'agent.capability-rescan', 'agent.write'],
   ['CA_NODE_TASK', 'SYSTEM', 'tasks.types.caNodeTask', 'ca.node-task', 'ca.operations.read'],
+  ['ACME_CERTIFICATE_ISSUE', 'SYSTEM', 'tasks.types.acmeCertificateIssue', 'acme.issue', 'ca.request.retry'],
+  ['ACME_CERTIFICATE_RENEWAL', 'SYSTEM', 'tasks.types.acmeCertificateRenewal', 'acme.renewal', 'ca.request.retry'],
   ['PLUGIN_REFERENCE_REFRESH', 'EXECUTION', 'tasks.types.pluginReferenceRefresh', 'plugin.reference-refresh', 'plugin.manage'],
   ['DEPLOYMENT_PLAN_REFRESH', 'EXECUTION', 'tasks.types.deploymentPlanRefresh', 'deployment.plan.refresh', 'deployment.plan.write'],
   ['MONITORING_BATCH', 'MONITORING', 'tasks.types.monitoringBatch', 'monitoring.batch', 'monitor.dashboard.read'],

@@ -42,8 +42,10 @@ test('执行步骤错误详情通过新迁移写入并从数据库完整回读',
   const stored = await repository.getStepOrThrow(step.id, step.tenantId);
 
   assert.deepEqual(stored.lastErrorDetails, { issues });
-  await assert.rejects(
-    () => db.query(`update pg_execution_steps set last_error_details = '[]'::jsonb where id = $1`, [step.id]),
-    /check constraint/i,
+  const persisted = await db.query<{ payload: Record<string, unknown> }>(
+    `select payload from pg_documents
+      where namespace = 'executions:steps' and document_id = $1`,
+    [step.id],
   );
+  assert.deepEqual(persisted.rows[0]?.payload.lastErrorDetails, { issues });
 });

@@ -4,6 +4,7 @@ import type {
   CertificateSourceType,
   CertificateVersionEntity,
   CertificateVersionFormatEntity,
+  CertificateActivationState,
 } from '../schema/certificates.schema.js';
 import type { RootCertificateRecordDto } from '../trust-roots/dto/trust-roots.dto.js';
 
@@ -44,6 +45,7 @@ export interface CertificateVersionDto {
   chainStatus: string;
   deployable: boolean;
   sourceType: CertificateSourceType;
+  activationState: CertificateActivationState;
   status: string;
   createdBy: string;
   createdAt: string;
@@ -158,6 +160,7 @@ export interface ImportCertificateVersionInput {
   privateKeyPem?: string;
   existingPrivateKeySecretRef?: string;
   allowCertificateOnly?: boolean;
+  activationState?: CertificateActivationState;
   issuingCaId?: string;
   certificateRequestId?: string;
   certificateProfileVersionId?: string;
@@ -280,7 +283,7 @@ export function toCertificateVersionDto(entity: CertificateVersionEntity): Certi
   // API 不返回私钥材料，也不暴露私钥 SecretRef。
   const { privateKeySecretRef, ...safeEntity } = entity;
   void privateKeySecretRef;
-  return { ...safeEntity, hasPrivateKey: Boolean(entity.privateKeySecretRef) };
+  return { ...safeEntity, activationState: entity.activationState ?? 'promoted', hasPrivateKey: Boolean(entity.privateKeySecretRef) };
 }
 
 export function toCertificateVersionFormatDto(entity: CertificateVersionFormatEntity): CertificateVersionFormatDto {

@@ -11,7 +11,7 @@ export interface CertificateVersionCreatedEvent extends AutomationTriggerContext
   eventId: string;
   certificateAssetId: string;
   certificateVersionId: string;
-  sourceType: 'external_source' | 'manual_import';
+  sourceType: 'external_source' | 'manual_import' | 'acme_issue';
   domains: string[];
   tags: string[];
   occurredAt: string;

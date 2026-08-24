@@ -23,9 +23,12 @@ test('任务注册表拒绝重复、无效和未注册类型', () => {
   assert.throws(() => registry.register(definition), (error: unknown) => error instanceof AppError && error.errorCode === 'RESOURCE_ALREADY_EXISTS');
   assert.throws(() => new TaskRegistry([{ ...definition, taskType: '', version: 2 }]), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
   assert.throws(() => registry.get('UNKNOWN_TASK'), (error: unknown) => error instanceof AppError && error.errorCode === 'TASK_TYPE_NOT_REGISTERED');
-  for (const retiredTaskType of ['ACME_CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_RENEWAL', 'ACME_CHALLENGE', 'PROVIDER_OPERATION']) {
+  for (const retiredTaskType of ['ACME_CHALLENGE', 'PROVIDER_OPERATION']) {
     assert.throws(() => registry.get(retiredTaskType), (error: unknown) => error instanceof AppError && error.errorCode === 'TASK_TYPE_NOT_REGISTERED');
   }
+  const defaultRegistry = new TaskRegistry();
+  assert.equal(defaultRegistry.get('ACME_CERTIFICATE_ISSUE').executorKey, 'acme.issue');
+  assert.equal(defaultRegistry.get('ACME_CERTIFICATE_RENEWAL').executorKey, 'acme.renewal');
 });
 
 test('数据库迁移前初始化错误向调用方传播并标记任务控制面失败', async () => {

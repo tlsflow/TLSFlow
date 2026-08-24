@@ -1,12 +1,14 @@
-export const certificateSourceTypes = ['manual', 'internal_ca', 'enterprise_ca', 'external_api'] as const;
+export const certificateSourceTypes = ['manual', 'internal_ca', 'enterprise_ca', 'external_api', 'acme'] as const;
 export const certificateAssetStatuses = ['active', 'archived', 'deleted'] as const;
 export const certificateVersionStatuses = ['active', 'archived', 'revoked', 'deleted'] as const;
+export const certificateActivationStates = ['staged', 'promoted'] as const;
 export const certificateChainStatuses = ['valid', 'incomplete', 'invalid', 'unknown'] as const;
 export const certificateFormats = ['pem', 'pfx', 'jks', 'p7b', 'der'] as const;
 
 export type CertificateSourceType = (typeof certificateSourceTypes)[number];
 export type CertificateAssetStatus = (typeof certificateAssetStatuses)[number];
 export type CertificateVersionStatus = (typeof certificateVersionStatuses)[number];
+export type CertificateActivationState = (typeof certificateActivationStates)[number];
 export type CertificateChainStatus = (typeof certificateChainStatuses)[number];
 export type CertificateFormat = (typeof certificateFormats)[number];
 
@@ -64,6 +66,7 @@ export interface CertificateVersionEntity {
   chainStatus: CertificateChainStatus;
   deployable: boolean;
   sourceType: CertificateSourceType;
+  activationState?: CertificateActivationState;
   status: CertificateVersionStatus;
   createdBy: string;
   createdAt: string;

@@ -208,7 +208,7 @@ export class CertificatesApplicationService {
     tenantId?: string;
   }): Promise<CertificateVersionEntity> {
     const version = await this.getExistingVersion(input.certificateVersionId, input.tenantId);
-    if (version.status !== 'active') {
+    if (version.status !== 'active' || version.activationState !== 'staged') {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '证书版本当前不允许 Promotion', {
         certificateVersionId: version.id,
         status: version.status,
@@ -314,14 +314,16 @@ export class CertificatesApplicationService {
     if (privateKeyPem) {
       this.domain.assertPrivateKeyMatchesCertificate(privateKeyPem, parsed);
       privateKeyMatched = true;
-      privateKeySecretRef = (await this.dependencies.secrets.create({
-        tenantId: input.tenantId,
-        name: `证书私钥 ${parsed.commonName ?? parsed.fingerprintSha256.slice(0, 12)}`,
-        type: 'certificate_private_key',
-        scopeType: 'global',
-        plainText: privateKeyPem,
-        createdBy: input.createdBy,
-      }, context)).secretRef;
+      if (!privateKeySecretRef) {
+        privateKeySecretRef = (await this.dependencies.secrets.create({
+          tenantId: input.tenantId,
+          name: `证书私钥 ${parsed.commonName ?? parsed.fingerprintSha256.slice(0, 12)}`,
+          type: 'certificate_private_key',
+          scopeType: 'global',
+          plainText: privateKeyPem,
+          createdBy: input.createdBy,
+        }, context)).secretRef;
+      }
     }
 
     const asset = input.certificateAssetId
@@ -373,6 +375,7 @@ export class CertificatesApplicationService {
         || (input.allowCertificateOnly && input.keyReferenceId)
       )),
       sourceType,
+      activationState: input.activationState ?? 'promoted',
       status: 'active',
       createdBy: input.createdBy,
       createdAt: now,
@@ -380,7 +383,7 @@ export class CertificatesApplicationService {
     await this.trustRoots.syncImportedVersionRoot(version, bundle, input.createdBy);
 
     const updatedAsset = await this.repository.updateAsset(asset.id, {
-      currentVersionId: version.id,
+      ...(version.activationState === 'promoted' ? { currentVersionId: version.id } : {}),
       sans: uniqueStrings([...asset.sans, ...parsed.sans.map(normalizeCertificateDomain)]),
       updatedAt: now,
     }, input.tenantId);
@@ -402,7 +405,7 @@ export class CertificatesApplicationService {
       },
     }).catch(() => undefined);
 
-    const eventSourceType: 'manual_import' = 'manual_import';
+    const eventSourceType: 'manual_import' | 'acme_issue' = sourceType === 'acme' ? 'acme_issue' : 'manual_import';
     const eventTenantId = input.tenantId ?? asset.tenantId ?? version.tenantId ?? updatedAsset.tenantId;
     if (!eventTenantId) throw new AppError('VALIDATION_FAILED', '证书版本事件缺少 tenantId');
     void this.dependencies.versionEvents?.publishCertificateVersionCreated({
