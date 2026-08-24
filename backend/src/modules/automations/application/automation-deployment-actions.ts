@@ -4,6 +4,7 @@ import type { DeploymentPlansApplicationService } from '../../deployment-plans/a
 import type { AutomationRunTargetDto, CreateDeploymentPlanActionConfigDto } from '../dto/automations.dto.js';
 
 export interface AutomationDeploymentPort {
+  get?(planId: string, tenantId: string): Promise<DeploymentPlanDto>;
   create(input: {
     name: string;
     certificateVersionId?: string;
@@ -24,6 +25,7 @@ export interface AutomationDeploymentPort {
 export class DeploymentPlansAutomationAdapter implements AutomationDeploymentPort {
   constructor(private readonly deploymentPlans: DeploymentPlansApplicationService) {}
 
+  get(planId: string, tenantId: string): Promise<DeploymentPlanDto> { return this.deploymentPlans.get(planId, tenantId); }
   create(input: Parameters<AutomationDeploymentPort['create']>[0], context?: RequestContext): Promise<DeploymentPlanDto> {
     return this.deploymentPlans.create(input, context);
   }
@@ -35,6 +37,11 @@ export class DeploymentPlansAutomationAdapter implements AutomationDeploymentPor
 
 export class AutomationDeploymentActionService {
   constructor(private readonly deployment: AutomationDeploymentPort) {}
+
+  getPlan(planId: string, tenantId: string): Promise<DeploymentPlanDto> {
+    if (!this.deployment.get) throw new Error('AUTOMATION_DEPLOYMENT_STATUS_UNAVAILABLE');
+    return this.deployment.get(planId, tenantId);
+  }
 
   async createPlan(input: {
     runId: string;

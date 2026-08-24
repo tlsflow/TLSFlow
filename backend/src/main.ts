@@ -7,6 +7,7 @@ import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
 import type { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
+import type { AutomationScheduler } from './modules/automations/application/automation-scheduler.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -98,6 +99,28 @@ async function start(): Promise<void> {
     };
     tick();
     setInterval(tick, monitorIntervalMs);
+  }
+
+  const automationScheduler = app.getResource<AutomationScheduler>('automationScheduler');
+  if (automationScheduler) {
+    const automationIntervalMs = Number(process.env.AUTOMATION_SCHEDULER_INTERVAL_MS ?? '5000');
+    const maxRunsPerTick = Number(process.env.AUTOMATION_SCHEDULER_MAX_RUNS_PER_TICK ?? '10');
+    let scheduling = false;
+    const tick = () => {
+      if (scheduling) return;
+      scheduling = true;
+      void automationScheduler.runOnce(maxRunsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('Automation scheduler failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'automation-scheduler' });
+        })
+        .finally(() => {
+          scheduling = false;
+        });
+    };
+    tick();
+    setInterval(tick, automationIntervalMs);
   }
 
   const server = app.createNodeServer();

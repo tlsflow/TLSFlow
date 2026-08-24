@@ -119,6 +119,12 @@ export class AutomationsRepository {
     return result.rows.map(mapAutomation);
   }
 
+  async listAutomationTenantIds(): Promise<string[]> {
+    const result = await this.db.query<{ tenant_id: string }>(`select distinct tenant_id from automation_definitions where status <> 'deleted'
+      union select distinct tenant_id from automation_runs where status in ('queued', 'running', 'waiting_approval') order by tenant_id`);
+    return result.rows.map((row) => String(row.tenant_id));
+  }
+
   async updateAutomation(id: string, tenantId: string, patch: Partial<AutomationEntity>): Promise<AutomationEntity> {
     const current = await this.getAutomationOrThrow(id, tenantId, true);
     const next = { ...current, ...structuredClone(patch), id, tenantId, version: current.version + 1 };
@@ -185,6 +191,13 @@ export class AutomationsRepository {
   async listRuns(tenantId: string, automationId?: string): Promise<AutomationRunEntity[]> {
     const result = await this.db.query<AutomationRow>(`select * from automation_runs where tenant_id=$1
       ${automationId ? 'and automation_id=$2' : ''} order by created_at desc`, automationId ? [tenantId, automationId] : [tenantId]);
+    return result.rows.map(mapRun);
+  }
+
+  async listRunnableRuns(limit: number): Promise<AutomationRunEntity[]> {
+    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1;
+    const result = await this.db.query<AutomationRow>(`select * from automation_runs
+      where status in ('queued', 'running', 'waiting_approval') order by created_at asc limit $1`, [normalizedLimit]);
     return result.rows.map(mapRun);
   }
 

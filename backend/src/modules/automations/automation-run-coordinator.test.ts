@@ -24,9 +24,20 @@ test('完整动作链成功并保存稳定动作结果', async () => {
   assert.equal((await repository.listActionResults('r', 't')).length, 9);
 });
 
-test('审批阻塞保留 waiting_approval 状态', async () => {
-  const { coordinator } = await setup(async ({ action }) => action.type === 'execute_deployment_plan' ? { status: 'waiting_approval' } : { status: 'succeeded' });
+test('审批阻塞后从当前动作恢复且不重放计划创建', async () => {
+  let approved = false;
+  const calls: string[] = [];
+  const { repository, coordinator } = await setup(async ({ action }) => {
+    calls.push(action.type);
+    if (action.type === 'execute_deployment_plan' && !approved) return { status: 'waiting_approval' };
+    return { status: 'succeeded' };
+  });
   assert.equal((await coordinator.execute('r', 't')).status, 'waiting_approval');
+  const firstPassCreateCount = calls.filter((type) => type === 'create_deployment_plan').length;
+  approved = true;
+  assert.equal((await coordinator.execute('r', 't')).status, 'succeeded');
+  assert.equal(calls.filter((type) => type === 'create_deployment_plan').length, firstPassCreateCount);
+  assert.equal((await repository.listActionResults('r', 't')).filter((result) => result.status === 'running').length, 0);
 });
 
 test('验证失败与回滚失败映射稳定失败阶段，阈值停止剩余目标', async () => {

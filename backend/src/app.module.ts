@@ -43,6 +43,7 @@ import {
 } from './persistence/core-persistence.js';
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
+import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetSelector, AutomationsController, AutomationsRepository, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts } from './modules/automations/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -177,6 +178,21 @@ export function createApp(dependencies: AppDependencies = {}): App {
     repository: new PgProvidersRepository(appDb),
   });
   const pluginsService = new PluginsApplicationService(new PgPluginsRepository(appDb));
+  const automationsRepository = new AutomationsRepository(appDb);
+  const automationTargetSelector = new AutomationTargetSelector(
+    certificateServices.certificates.getRepository(),
+    bindingsService.getRepository(),
+    assetsService.getRepository(),
+  );
+  const automationsService = new AutomationsApplicationService(automationsRepository, undefined, undefined, automationTargetSelector);
+  const automationDeployment = new AutomationDeploymentActionService(new DeploymentPlansAutomationAdapter(deploymentPlans.getApplicationService()));
+  const automationNotifications = new AutomationNotificationActionService(new FakeNotificationPort());
+  const automationCoordinator = new AutomationRunCoordinator(
+    automationsRepository,
+    new AutomationConfiguredActionExecutor(automationDeployment, automationNotifications),
+  );
+  const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator);
+  app.setResource('automationScheduler', automationScheduler);
   new AssetsController(security, assetsService).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
@@ -200,6 +216,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new CompatibilityCatalogController().register(app.router);
   new PluginsController(pluginsService).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
+  new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService.getRepository(),
     certificates: certificateServices.certificates.getRepository(),
@@ -248,6 +265,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getCompatibilityCatalogRouteContracts(),
     ...getPluginsRouteContracts(),
     ...getWorkflowTemplateRouteContracts(),
+    ...getAutomationRouteContracts(),
     ...getDashboardRouteContracts(),
     ...getMonitorRouteContracts(),
     {

@@ -7,6 +7,15 @@ export interface AutomationClock {
   now(): Date;
 }
 
+export interface AutomationRunExecutionPort {
+  execute(runId: string, tenantId: string): Promise<unknown>;
+}
+
+export interface AutomationSchedulerResult {
+  createdRunIds: string[];
+  executedRunIds: string[];
+}
+
 const defaultClock: AutomationClock = { now: () => new Date() };
 
 export function cronMatches(cron: string, date: Date, timeZone: string): boolean {
@@ -37,9 +46,25 @@ export class AutomationScheduler {
   constructor(
     private readonly repository: AutomationsRepository,
     private readonly service: AutomationsApplicationService,
+    private readonly executor: AutomationRunExecutionPort,
     private readonly ownerId = newId('scheduler'),
     private readonly clock: AutomationClock = defaultClock,
   ) {}
+
+  async runOnce(maxRuns = 10): Promise<AutomationSchedulerResult> {
+    const createdRunIds: string[] = [];
+    for (const tenantId of await this.repository.listAutomationTenantIds()) {
+      createdRunIds.push(...await this.scan(tenantId));
+    }
+    const executedRunIds: string[] = [];
+    for (const run of await this.repository.listRunnableRuns(maxRuns)) {
+      const leasedUntil = new Date(this.clock.now().getTime() + 300_000);
+      if (!await this.repository.acquireSchedulerLease(`automation-run:${run.id}`, this.ownerId, leasedUntil)) continue;
+      await this.executor.execute(run.id, run.tenantId);
+      executedRunIds.push(run.id);
+    }
+    return { createdRunIds, executedRunIds };
+  }
 
   async scan(tenantId: string): Promise<string[]> {
     const now = this.clock.now();

@@ -223,6 +223,53 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/automations',
+    name: 'automation.list',
+    component: () => import('@/views/automations/AutomationsView.vue'),
+    meta: {
+      title: 'Automations',
+      titleKey: 'nav.automations',
+      module: 'automation',
+      requiresAuth: true,
+      permission: 'automation.read',
+      resourceType: 'automation',
+      riskLevel: 'high',
+      breadcrumbKeys: ['nav.workflows', 'nav.automations'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/automation-runs',
+    name: 'automation.run.list',
+    component: () => import('@/views/automations/AutomationRunsView.vue'),
+    meta: {
+      title: 'Automation Runs',
+      titleKey: 'automations.runs.title',
+      module: 'automation',
+      requiresAuth: true,
+      permission: 'automation.read',
+      resourceType: 'automationRun',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.workflows', 'nav.automations', 'automations.runs.title'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/automation-runs/:id',
+    name: 'automation.run.detail',
+    component: () => import('@/views/automations/AutomationRunDetail.vue'),
+    meta: {
+      title: 'Automation Run Detail',
+      titleKey: 'automations.runDetail.title',
+      module: 'automation',
+      requiresAuth: true,
+      permission: 'automation.read',
+      resourceType: 'automationRun',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.workflows', 'nav.automations', 'automations.runDetail.title']
+    }
+  },
+  {
     path: '/monitors',
     name: 'monitor.list',
     component: () => import('@/views/monitoring/MonitorsView.vue'),

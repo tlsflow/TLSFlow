@@ -28,6 +28,10 @@ export class DeploymentPlansController {
     return this.service.getRepository();
   }
 
+  getApplicationService(): DeploymentPlansApplicationService {
+    return this.service;
+  }
+
   register(router: Router): void {
     router.get('/api/v1/deployment-plans', '查询部署计划', ['DeploymentPlans'], (request) => this.list(request));
     router.post('/api/v1/deployment-plans', '创建部署计划', ['DeploymentPlans'], (request) => this.create(request));

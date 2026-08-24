@@ -51,12 +51,13 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.workflows',
     path: '/workflow-templates',
     module: 'workflow',
-    permissions: ['workflow.template.read', 'plugin.read'],
-    activePaths: ['/workflow-templates', '/plugins'],
+    permissions: ['workflow.template.read', 'automation.read', 'plugin.read'],
+    activePaths: ['/workflow-templates', '/automations', '/automation-runs', '/plugins'],
     icon: 'workflow',
     descriptionKey: 'nav.workflowsDesc',
     children: [
       { titleKey: 'nav.workflowTemplates', path: '/workflow-templates', module: 'workflow-template', permission: 'workflow.template.read', descriptionKey: 'nav.workflowTemplatesDesc' },
+      { titleKey: 'nav.automations', path: '/automations', module: 'automation', permission: 'automation.read', descriptionKey: 'nav.automationsDesc' },
       { titleKey: 'nav.plugins', path: '/plugins', module: 'plugin', permission: 'plugin.read', descriptionKey: 'nav.pluginsDesc' }
     ]
   },

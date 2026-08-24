@@ -55,15 +55,19 @@ export class AutomationRunCoordinator {
     const targets = await this.repository.listRunTargets(run.id, tenantId);
     let consecutiveFailures = 0;
     for (const target of targets) {
-      if (target.status !== 'pending') continue;
+      if (!['pending', 'running', 'waiting_approval'].includes(target.status)) continue;
       const latestRun = await this.requireRun(run.id, tenantId);
       if (latestRun.status === 'stopped') break;
       try {
         await this.repository.updateRunTarget(target.id, tenantId, { status: 'running', startedAt: this.clock().toISOString(), updatedAt: this.clock().toISOString() });
         let terminal: 'succeeded' | 'running' | 'waiting_approval' = 'succeeded';
-        for (const action of orderedActions) {
-          const resultId = newId('aar');
-          await this.repository.createActionResult({ id: resultId, tenantId, runId, runTargetId: target.id, actionType: action.type, actionPosition: action.position, status: 'running', startedAt: this.clock().toISOString(), createdAt: this.clock().toISOString() });
+        const resumeIndex = target.currentAction ? orderedActions.findIndex((action) => action.type === target.currentAction) : 0;
+        for (const action of orderedActions.slice(Math.max(resumeIndex, 0))) {
+          const existingResult = target.currentAction === action.type
+            ? (await this.repository.listActionResults(run.id, tenantId)).slice().reverse().find((item) => item.runTargetId === target.id && item.actionType === action.type && item.status === 'running')
+            : undefined;
+          const resultId = existingResult?.id ?? newId('aar');
+          if (!existingResult) await this.repository.createActionResult({ id: resultId, tenantId, runId, runTargetId: target.id, actionType: action.type, actionPosition: action.position, status: 'running', startedAt: this.clock().toISOString(), createdAt: this.clock().toISOString() });
           try {
             const result = await this.actions.execute({ run, target: (await this.repository.getRunTarget(target.id, tenantId))!, action, requireApproval: version.guardrails.requireApproval });
             terminal = result.status;

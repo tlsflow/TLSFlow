@@ -418,6 +418,8 @@ const zhCN = {
     workflowsDesc: '工作流和插件',
     workflowTemplates: '工作流',
     workflowTemplatesDesc: '画布草稿、变量、能力声明和发布',
+    automations: '自动化',
+    automationsDesc: '定时、按需和批量执行证书更新计划',
     plugins: '插件',
     pluginsDesc: 'Provider、执行器和沙箱状态',
     monitoring: '监控',
@@ -437,6 +439,133 @@ const zhCN = {
     identitySources: '身份源',
     identitySourcesDesc: 'AD/LDAP 服务配置',
     groupRoleMappings: '组角色映射'
+  },
+  automations: {
+    title: '自动化',
+    description: '集中管理证书更新计划的定时、按需和批量执行。',
+    empty: '暂无自动化配置。',
+    emptyDescription: '未填写说明',
+    common: {
+      notAvailable: '暂无'
+    },
+    fields: {
+      name: '名称',
+      description: '说明',
+      trigger: '触发方式',
+      cron: 'Cron 表达式',
+      timeZone: '时区',
+      expiresWithinDays: '到期天数范围',
+      environments: '目标环境（逗号分隔）',
+      maxTargets: '单次最大目标数',
+      concurrency: '并发数',
+      failureCount: '失败数量阈值',
+      requireDryRun: '执行前必须完成 Dry Run',
+      requireApproval: '执行前必须审批',
+      startedAt: '开始时间',
+      finishedAt: '结束时间',
+      failureStage: '失败阶段',
+      parentRun: '父运行'
+    },
+    actions: {
+      create: '新建自动化',
+      edit: '编辑',
+      delete: '删除',
+      cancel: '取消',
+      save: '保存',
+      copy: '复制',
+      enable: '启用',
+      disable: '停用',
+      preview: '预览目标',
+      history: '运行历史',
+      confirmRun: '确认执行',
+      stop: '停止运行',
+      retryFailed: '重试失败目标',
+      openPlan: '查看部署计划',
+      openExecution: '查看执行记录'
+    },
+    columns: {
+      trigger: '触发方式',
+      targets: '目标上限',
+      actions: '执行动作',
+      nextRun: '下次运行',
+      lastRun: '最近运行'
+    },
+    triggers: {
+      onDemand: '按需执行',
+      schedule: '定时执行'
+    },
+    triggerTypes: {
+      on_demand: '按需执行',
+      schedule: '定时执行',
+      retry: '失败重试'
+    },
+    actionTypes: {
+      create_deployment_plan: '创建证书更新计划',
+      execute_deployment_plan: '执行证书更新计划',
+      send_notification: '发送通知'
+    },
+    summaries: {
+      targets: '最多 {count} 个目标'
+    },
+    preview: {
+      title: '目标预览',
+      description: '确认启动时将被冻结的目标快照及排除原因。',
+      matched: '匹配 {count} 项',
+      executable: '可执行 {count} 项',
+      excluded: '排除 {count} 项',
+      ready: '可执行'
+    },
+    exclusions: {
+      permission_denied: '无目标权限',
+      missing_version: '缺少证书版本',
+      version_not_deployable: '证书版本不可部署',
+      binding_not_managed: '绑定未纳管',
+      environment_not_allowed: '环境不在允许范围',
+      unknown: '未知排除原因'
+    },
+    failureStages: {
+      selection: '目标选择',
+      plan_creation: '计划创建',
+      dry_run: 'Dry Run',
+      approval: '审批',
+      execution: '执行',
+      verification: '验证',
+      rollback: '回滚',
+      notification: '通知'
+    },
+    progress: {
+      total: '总数',
+      pending: '等待中',
+      running: '执行中',
+      waitingApproval: '等待审批',
+      succeeded: '成功',
+      failed: '失败',
+      skipped: '已跳过',
+      cancelled: '已取消'
+    },
+    editor: {
+      createTitle: '新建自动化',
+      editTitle: '编辑自动化',
+      description: '配置触发方式、目标选择条件、执行动作和安全护栏。'
+    },
+    runs: {
+      title: '自动化运行历史',
+      description: '查看运行级状态、不可变目标快照和失败阶段。',
+      progress: '{succeeded}/{total} 成功'
+    },
+    runDetail: {
+      title: '自动化运行详情',
+      description: '配置版本 {version}',
+      noFailure: '未发生失败'
+    },
+    aria: {
+      preview: '自动化目标预览',
+      runs: '自动化运行列表',
+      progress: '自动化运行进度'
+    },
+    errors: {
+      loadFailed: '自动化列表加载失败'
+    }
   },
   routes: {
     certificateImport: '导入证书',
@@ -3012,7 +3141,7 @@ const zhCN = {
 const zhTW = {
   ...zhCN,
   app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板' },
-  common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
+  common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', cancel: '取消', save: '儲存', edit: '編輯', delete: '刪除', notAvailable: '暫無', unknownError: '未知錯誤', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: '確認{action}', impactCount: '影響資源數量：{count}', defaultRisk: '此操作可能觸發部署、重試、回滾或不可逆變更。', typeToConfirm: '輸入 {text} 二次確認', cancel: '取消', confirm: '確認' },
@@ -3050,6 +3179,27 @@ const zhTW = {
   preferences: { ...zhCN.preferences, theme: '主題', language: '語言', themeLight: '日間模式', themeDark: '夜間模式', title: '顯示偏好', description: '主題和語言會儲存到目前使用者的後端偏好。' },
   userMenu: { ...zhCN.userMenu, currentUser: '目前使用者', changePassword: '修改密碼', logout: '登出' },
   password: { ...zhCN.password, title: '修改密碼', description: '修改目前登入使用者的本機密碼。', current: '目前密碼', new: '新密碼', confirm: '確認新密碼', submit: '儲存密碼', success: '密碼已更新', failed: '密碼修改失敗', mismatch: '兩次輸入的新密碼不一致' },
+  nav: { ...zhCN.nav, automations: '自動化', automationsDesc: '定時、按需和批次執行憑證更新計畫' },
+  automations: {
+    ...zhCN.automations,
+    title: '自動化',
+    description: '集中管理憑證更新計畫的定時、按需和批次執行。',
+    empty: '暫無自動化設定。',
+    emptyDescription: '未填寫說明',
+    fields: { ...zhCN.automations.fields, name: '名稱', description: '說明', trigger: '觸發方式', timeZone: '時區', environments: '目標環境（逗號分隔）', maxTargets: '單次最大目標數', concurrency: '並行數', failureCount: '失敗數量閾值', requireDryRun: '執行前必須完成 Dry Run', requireApproval: '執行前必須審批', startedAt: '開始時間', finishedAt: '結束時間', failureStage: '失敗階段', parentRun: '父執行' },
+    actions: { ...zhCN.automations.actions, create: '新增自動化', copy: '複製', enable: '啟用', disable: '停用', preview: '預覽目標', history: '執行歷史', confirmRun: '確認執行', stop: '停止執行', retryFailed: '重試失敗目標', openPlan: '查看部署計畫', openExecution: '查看執行記錄' },
+    columns: { trigger: '觸發方式', targets: '目標上限', actions: '執行動作', nextRun: '下次執行', lastRun: '最近執行' },
+    triggers: { onDemand: '按需執行', schedule: '定時執行' },
+    triggerTypes: { on_demand: '按需執行', schedule: '定時執行', retry: '失敗重試' },
+    summaries: { targets: '最多 {count} 個目標' },
+    preview: { ...zhCN.automations.preview, title: '目標預覽', description: '確認啟動時將被凍結的目標快照及排除原因。', matched: '符合 {count} 項', executable: '可執行 {count} 項', excluded: '排除 {count} 項', ready: '可執行' },
+    progress: { total: '總數', pending: '等待中', running: '執行中', waitingApproval: '等待審批', succeeded: '成功', failed: '失敗', skipped: '已跳過', cancelled: '已取消' },
+    editor: { createTitle: '新增自動化', editTitle: '編輯自動化', description: '設定觸發方式、目標選擇條件、執行動作和安全護欄。' },
+    runs: { title: '自動化執行歷史', description: '查看執行級狀態、不可變目標快照和失敗階段。', progress: '{succeeded}/{total} 成功' },
+    runDetail: { title: '自動化執行詳情', description: '設定版本 {version}', noFailure: '未發生失敗' },
+    aria: { preview: '自動化目標預覽', runs: '自動化執行列表', progress: '自動化執行進度' },
+    errors: { loadFailed: '自動化列表載入失敗' }
+  },
   routes: { certificateImport: '匯入憑證', certificateDetail: '憑證詳情', certificateUsages: '使用關係', certificateFormats: '格式產物' },
   businessPage: {
     request: {
@@ -3305,6 +3455,8 @@ const enUS = {
     workflowsDesc: 'Workflows and plugins',
     workflowTemplates: 'Workflows',
     workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
+    automations: 'Automations',
+    automationsDesc: 'Scheduled, on-demand, and batch certificate renewal plans',
     plugins: 'Plugins',
     pluginsDesc: 'Provider, executor, and sandbox status',
     monitoring: 'Monitoring',
@@ -3324,6 +3476,33 @@ const enUS = {
     identitySources: 'Identity sources',
     identitySourcesDesc: 'AD/LDAP service configuration',
     groupRoleMappings: 'Group role mappings'
+  },
+  automations: {
+    title: 'Automations',
+    description: 'Manage scheduled, on-demand, and batch certificate renewal plan execution.',
+    empty: 'No automations yet.',
+    emptyDescription: 'No description',
+    common: { notAvailable: 'Not available' },
+    fields: {
+      name: 'Name', description: 'Description', trigger: 'Trigger', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Require Dry Run before execution', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run'
+    },
+    actions: {
+      create: 'Create automation', edit: 'Edit', delete: 'Delete', cancel: 'Cancel', save: 'Save', copy: 'Copy', enable: 'Enable', disable: 'Disable', preview: 'Preview targets', history: 'Run history', confirmRun: 'Confirm run', stop: 'Stop run', retryFailed: 'Retry failed targets', openPlan: 'Open deployment plan', openExecution: 'Open execution run'
+    },
+    columns: { trigger: 'Trigger', targets: 'Target limit', actions: 'Actions', nextRun: 'Next run', lastRun: 'Last run' },
+    triggers: { onDemand: 'On demand', schedule: 'Scheduled' },
+    triggerTypes: { on_demand: 'On demand', schedule: 'Scheduled', retry: 'Failed-target retry' },
+    actionTypes: { create_deployment_plan: 'Create certificate renewal plan', execute_deployment_plan: 'Execute certificate renewal plan', send_notification: 'Send notification' },
+    summaries: { targets: 'Up to {count} targets' },
+    preview: { title: 'Target preview', description: 'Review the target snapshot and exclusions that will be frozen at startup.', matched: '{count} matched', executable: '{count} executable', excluded: '{count} excluded', ready: 'Ready' },
+    exclusions: { permission_denied: 'Target permission denied', missing_version: 'Certificate version missing', version_not_deployable: 'Certificate version is not deployable', binding_not_managed: 'Binding is unmanaged', environment_not_allowed: 'Environment is not allowed', unknown: 'Unknown exclusion reason' },
+    failureStages: { selection: 'Target selection', plan_creation: 'Plan creation', dry_run: 'Dry Run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification' },
+    progress: { total: 'Total', pending: 'Pending', running: 'Running', waitingApproval: 'Waiting approval', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled' },
+    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure triggers, target selection, actions, and safety guardrails.' },
+    runs: { title: 'Automation run history', description: 'Review run-level status, immutable target snapshots, and failure stages.', progress: '{succeeded}/{total} succeeded' },
+    runDetail: { title: 'Automation run details', description: 'Configuration version {version}', noFailure: 'No failure' },
+    aria: { preview: 'Automation target preview', runs: 'Automation run list', progress: 'Automation run progress' },
+    errors: { loadFailed: 'Failed to load automations' }
   },
   login: {
     visualLabel: 'Product overview',
@@ -5926,6 +6105,7 @@ const jaJP = {
   assets: enUS.assets,
   certificates: enUS.certificates,
   workflows: enUS.workflows,
+  automations: enUS.automations,
   monitoring: enUS.monitoring,
   errors: { ...enUS.errors, forbiddenTitle: '403 権限がありません', notFoundTitle: '404 ページがありません', backDashboard: 'ダッシュボードへ戻る' }
 }
@@ -5974,6 +6154,7 @@ const frFR = {
   assets: enUS.assets,
   certificates: enUS.certificates,
   workflows: enUS.workflows,
+  automations: enUS.automations,
   monitoring: enUS.monitoring,
   errors: { ...enUS.errors, forbiddenTitle: '403 Accès refusé', notFoundTitle: '404 Page introuvable', backDashboard: 'Retour au tableau de bord' }
 }
@@ -6022,6 +6203,7 @@ const ruRU = {
   assets: enUS.assets,
   certificates: enUS.certificates,
   workflows: enUS.workflows,
+  automations: enUS.automations,
   monitoring: enUS.monitoring,
   errors: { ...enUS.errors, forbiddenTitle: '403 Нет доступа', notFoundTitle: '404 Страница не найдена', backDashboard: 'Вернуться на панель' }
 }
@@ -6070,6 +6252,7 @@ const ptBR = {
   assets: enUS.assets,
   certificates: enUS.certificates,
   workflows: enUS.workflows,
+  automations: enUS.automations,
   monitoring: enUS.monitoring,
   errors: { ...enUS.errors, forbiddenTitle: '403 Sem permissão', notFoundTitle: '404 Página não encontrada', backDashboard: 'Voltar ao painel' }
 }
@@ -6118,6 +6301,7 @@ const koKR = {
   assets: enUS.assets,
   certificates: enUS.certificates,
   workflows: enUS.workflows,
+  automations: enUS.automations,
   monitoring: enUS.monitoring,
   errors: { ...enUS.errors, forbiddenTitle: '403 권한 없음', notFoundTitle: '404 페이지 없음', backDashboard: '대시보드로 돌아가기' }
 }
