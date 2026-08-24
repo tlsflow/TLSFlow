@@ -287,6 +287,7 @@ export class AcmeRepository {
          failure_message, policy_snapshot, payload, scheduled_at, created_at, updated_at
        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,$21,$22,$23)
        on conflict (id) do update set
+         certificate_version_id = excluded.certificate_version_id,
          status = excluded.status, certificate_request_id = excluded.certificate_request_id,
          policy_id = excluded.policy_id, source_certificate_version_id = excluded.source_certificate_version_id,
          acme_order_id = excluded.acme_order_id, deployment_plan_id = excluded.deployment_plan_id,
@@ -297,8 +298,8 @@ export class AcmeRepository {
          policy_snapshot = excluded.policy_snapshot, payload = excluded.payload,
          scheduled_at = excluded.scheduled_at, updated_at = excluded.updated_at`,
       [
-        entity.id, entity.tenantId, entity.certificateVersionId, entity.renewalWindowKey, entity.status,
-        entity.certificateRequestId ?? null, entity.policyId ?? null, entity.sourceCertificateVersionId,
+        entity.id, entity.tenantId, entity.certificateVersionId ?? null, entity.renewalWindowKey, entity.status,
+        entity.certificateRequestId ?? null, entity.policyId ?? null, entity.sourceCertificateVersionId ?? null,
         entity.acmeOrderId ?? null, entity.deploymentPlanId ?? null, entity.executionRunId ?? null,
         entity.promotionStatus, entity.attemptCount, entity.nextAttemptAt ?? null, entity.leaseOwner ?? null,
         entity.leaseExpiresAt ?? null, entity.failureCode ?? null, entity.failureMessage ?? null,
@@ -317,12 +318,27 @@ export class AcmeRepository {
     return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
   }
 
-  async getRenewalJobByWindow(tenantId: string, sourceCertificateVersionId: string, renewalWindowKey: string): Promise<AcmeRenewalJobEntity | undefined> {
+  async getRenewalJobByWindow(tenantId: string, sourceCertificateVersionId: string | undefined, renewalWindowKey: string): Promise<AcmeRenewalJobEntity | undefined> {
     const result = await this.db.query<Record<string, unknown>>(
       `select * from pg_certificate_renewal_jobs
-       where tenant_id = $1 and source_certificate_version_id = $2 and renewal_window_key = $3
+       where tenant_id = $1
+         and source_certificate_version_id is not distinct from $2
+         and renewal_window_key = $3
        order by created_at desc limit 1`,
-      [tenantId, sourceCertificateVersionId, renewalWindowKey],
+      [tenantId, sourceCertificateVersionId ?? null, renewalWindowKey],
+    );
+    return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
+  }
+
+  async getActiveRenewalJobBySourceVersion(tenantId: string, sourceCertificateVersionId: string): Promise<AcmeRenewalJobEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `select * from pg_certificate_renewal_jobs
+       where tenant_id = $1
+         and source_certificate_version_id = $2
+         and status not in ('completed','failed','rollback_required','cancelled')
+       order by scheduled_at desc, created_at desc
+       limit 1`,
+      [tenantId, sourceCertificateVersionId],
     );
     return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
   }
@@ -339,6 +355,7 @@ export class AcmeRepository {
     const result = await this.db.query<Record<string, unknown>>(
       `update pg_certificate_renewal_jobs
        set status = 'scheduled',
+           promotion_status = 'not_required',
            attempt_count = 0,
            next_attempt_at = $3::timestamptz,
            lease_owner = null,
@@ -360,7 +377,7 @@ export class AcmeRepository {
       `update pg_certificate_renewal_jobs
        set lease_owner = $3, lease_expires_at = $4::timestamptz, updated_at = $5::timestamptz
        where tenant_id = $1 and id = $2
-         and status not in ('completed','failed','rollback_required','cancelled')
+         and status not in ('completed','failed','rollback_required','cancelled','issued_waiting_for_installation')
          and (next_attempt_at is null or next_attempt_at <= $5::timestamptz)
          and (lease_expires_at is null or lease_expires_at <= $5::timestamptz or lease_owner = $3)
        returning *`,
@@ -372,7 +389,7 @@ export class AcmeRepository {
   async listDueRenewalJobs(now: string, limit: number): Promise<AcmeRenewalJobEntity[]> {
     const result = await this.db.query<Record<string, unknown>>(
       `select * from pg_certificate_renewal_jobs
-       where status not in ('completed','failed','rollback_required','cancelled')
+       where status not in ('completed','failed','rollback_required','cancelled','issued_waiting_for_installation')
          and (next_attempt_at is null or next_attempt_at <= $1::timestamptz)
          and (lease_expires_at is null or lease_expires_at <= $1::timestamptz)
        order by scheduled_at asc, id asc limit $2`,
@@ -504,8 +521,8 @@ function renewalJobFromRow(row: Record<string, unknown>): AcmeRenewalJobEntity {
     ...(payload as Partial<AcmeRenewalJobEntity>),
     id: String(row.id),
     tenantId: String(row.tenant_id),
-    certificateVersionId: String(row.certificate_version_id),
-    sourceCertificateVersionId: String(row.source_certificate_version_id ?? row.certificate_version_id),
+    certificateVersionId: optionalString(row.certificate_version_id),
+    sourceCertificateVersionId: optionalString(row.source_certificate_version_id ?? row.certificate_version_id),
     renewalWindowKey: String(row.renewal_window_key),
     status: row.status as AcmeRenewalJobEntity['status'],
     certificateRequestId: optionalString(row.certificate_request_id),

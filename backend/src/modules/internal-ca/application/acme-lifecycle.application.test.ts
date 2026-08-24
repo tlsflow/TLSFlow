@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
+import { AppError } from '../../../common/errors/app-error.js';
 import { AcmeAccountService } from './acme-account.service.js';
 import { AcmeChallengeService } from './acme-challenge.service.js';
 import { AcmeOrderService } from './acme-order.service.js';
+import { AcmeRenewalPolicyService } from './acme-renewal-policy.service.js';
 import { AcmeRenewalScheduler } from './acme-renewal-scheduler.js';
 import { AcmeRenewalWorker } from './acme-renewal-worker.js';
-import { CertificatePromotionService } from './certificate-promotion.service.js';
 import type { AcmeAuthorizationSnapshot, AcmeProviderAdapter } from '../providers/acme-provider.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type {
@@ -221,6 +222,39 @@ test('ACME Challenge Service 对 presented/processing 只刷新 CA 状态，不�
   assert.equal(savedChallenges.length, 1);
 });
 
+test('ACME 续签策略忽略历史安装模式输入并固定为兼容值', async () => {
+  let savedPolicy: AcmeRenewalPolicyEntity | undefined;
+  const repository = {
+    getAccount: async () => accountEntity(),
+    getPolicy: async () => savedPolicy,
+    savePolicy: async (policy: AcmeRenewalPolicyEntity) => {
+      savedPolicy = structuredClone(policy);
+      return savedPolicy;
+    },
+  };
+  const service = new AcmeRenewalPolicyService(
+    repository as unknown as AcmeRepository,
+    { getProvider: async () => providerEntity() } as never,
+  );
+  const created = await service.create({
+    tenantId,
+    certificateAssetId: 'asset-acme-application',
+    providerId: providerEntity().id,
+    accountId: accountEntity().id,
+    challengeType: 'dns-01',
+    actorId: 'user-acme',
+    deploymentMode: 'automatic',
+  } as Parameters<AcmeRenewalPolicyService['create']>[0] & { deploymentMode: string });
+
+  const updated = await service.update(tenantId, created.id, {
+    actorId: 'user-acme',
+    deploymentMode: 'approval',
+  } as Parameters<AcmeRenewalPolicyService['update']>[2] & { deploymentMode: string });
+
+  assert.equal(created.deploymentMode, 'manual');
+  assert.equal(updated.deploymentMode, 'manual');
+});
+
 test('ACME Renewal Worker 失败时按策略退避并释放租约，旧证书不被触碰', async () => {
   let currentJob = renewalJobEntity();
   const policy = policyEntity();
@@ -258,7 +292,71 @@ test('ACME Renewal Worker 失败时按策略退避并释放租约，旧证书不
   assert.equal(result[0]?.nextAttemptAt, '2026-08-05T00:05:00.000Z');
 });
 
-test('ACME Renewal Worker 的 DNS-01 使用本次续签生成的 CSR 交给 Certbot', async () => {
+test('ACME Renewal Worker 首次申请无需旧证书版本即可创建真实 Order', async () => {
+  let currentJob: AcmeRenewalJobEntity = {
+    ...renewalJobEntity(),
+    id: 'renewal-acme-initial',
+    certificateVersionId: undefined,
+    sourceCertificateVersionId: undefined,
+    certificateRequestId: 'request-acme-initial',
+    status: 'scheduled',
+  };
+  const initialRequest = {
+    ...requestEntity(),
+    id: 'request-acme-initial',
+    status: 'approved' as const,
+    certificateVersionId: undefined,
+  };
+  let createdOrderInput: Record<string, unknown> | undefined;
+  const repository = {
+    listDueRenewalJobs: async () => [currentJob],
+    claimRenewalJob: async () => currentJob,
+    getPolicy: async () => policyEntity(),
+    getRenewalJob: async () => currentJob,
+    listChallenges: async () => [],
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
+    },
+  };
+  const internalCa = {
+    getRepository: () => ({
+      getRequest: async () => initialRequest,
+    }),
+  };
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {} as never,
+    internalCa: internalCa as never,
+    orders: {
+      create: async (input: Record<string, unknown>) => {
+        createdOrderInput = input;
+        return { id: 'order-acme-initial' };
+      },
+      getEntity: async () => ({
+        ...orderEntity(),
+        id: 'order-acme-initial',
+        status: 'pending' as const,
+      }),
+      reconcile: async () => ({
+        ...orderEntity(),
+        id: 'order-acme-initial',
+        status: 'pending' as const,
+      }),
+    } as never,
+    challenges: {} as never,
+    leaseOwner: 'worker-acme',
+    now: () => new Date(now),
+  });
+
+  const result = await worker.runOnce(1, 'worker-acme');
+
+  assert.equal(result[0]?.status, 'issuing');
+  assert.equal(createdOrderInput?.certificateRequestId, 'request-acme-initial');
+  assert.equal(currentJob.acmeOrderId, 'order-acme-initial');
+});
+
+test('ACME Renewal Worker 的 DNS-01 使用本次续签生成的 CSR 交给 lego', async () => {
   let currentJob: AcmeRenewalJobEntity = renewalJobEntity();
   const sourceRequest = {
     ...requestEntity(),
@@ -274,7 +372,7 @@ test('ACME Renewal Worker 的 DNS-01 使用本次续签生成的 CSR 交给 Cert
     certificateVersionId: undefined,
     csrPem: 'RENEWED CSR',
   };
-  let certbotRequest: CertificateRequestEntity | undefined;
+  let legoRequest: CertificateRequestEntity | undefined;
   const policy = {
     ...policyEntity(),
     challengeType: 'dns-01' as const,
@@ -321,33 +419,199 @@ test('ACME Renewal Worker 的 DNS-01 使用本次续签生成的 CSR 交给 Cert
     internalCa: internalCa as never,
     orders: {} as never,
     challenges: {} as never,
-    certbot: {
+    lego: {
       issue: async (input: { request: CertificateRequestEntity }) => {
-        certbotRequest = input.request;
+        legoRequest = input.request;
         return {
           certificatePem: 'CERTIFICATE',
           certificateChainPem: 'FULLCHAIN',
-          certificateUrl: 'certbot://renewal-acme-application',
+          certificateUrl: 'lego://renewal-acme-application',
         };
       },
     } as never,
-    deployments: {
-      createFromApplicationAsset: async () => ({ id: 'plan-acme-renewed' }),
-      get: async () => ({ id: 'plan-acme-renewed', status: 'SUCCESS' }),
-      execute: async () => ({ run: { id: 'run-acme-renewed' } }),
-    } as never,
-    executions: {} as never,
-    promotion: {} as never,
     leaseOwner: 'worker-acme',
     now: () => new Date(now),
   });
 
   const result = await worker.runOnce(1, 'worker-acme');
 
-  assert.equal(result[0]?.status, 'verifying');
-  assert.equal(certbotRequest?.id, renewedRequest.id);
-  assert.equal(certbotRequest?.csrPem, 'RENEWED CSR');
-  assert.notEqual(certbotRequest?.csrPem, sourceRequest.csrPem);
+  assert.equal(result[0]?.status, 'completed');
+  assert.equal(result[0]?.promotionStatus, 'not_required');
+  assert.equal(legoRequest?.id, renewedRequest.id);
+  assert.equal(legoRequest?.csrPem, 'RENEWED CSR');
+  assert.notEqual(legoRequest?.csrPem, sourceRequest.csrPem);
+});
+
+test('ACME Renewal Worker 为历史手工证书补建申请上下文后交给 lego', async () => {
+  let currentJob: AcmeRenewalJobEntity = {
+    ...renewalJobEntity(),
+    id: 'renewal-acme-manual-source',
+    certificateVersionId: 'version-acme-manual-source',
+    sourceCertificateVersionId: 'version-acme-manual-source',
+    certificateRequestId: undefined,
+    status: 'scheduled',
+  };
+  const asset = {
+    id: 'asset-acme-manual-source',
+    primaryDomain: '*.example.com',
+    sans: ['api.example.com'],
+  };
+  const renewedRequest = {
+    ...requestEntity(),
+    id: 'request-acme-manual-renewal',
+    applicationAssetId: asset.id,
+    status: 'approved' as const,
+    certificateVersionId: undefined,
+    csrPem: 'RENEWED CSR FROM MANUAL ASSET',
+  };
+  const policy = {
+    ...policyEntity(),
+    challengeType: 'dns-01' as const,
+    certificateAssetId: asset.id,
+    maintenanceWindow: {
+      dnsProvider: 'alidns',
+      dnsCredentialId: 'credential-alidns',
+      contactEmail: 'ops@example.com',
+      domains: ['*.edited.example.com', 'api.edited.example.com'],
+    },
+  };
+  let requestInput: Record<string, unknown> | undefined;
+  let legoRequest: CertificateRequestEntity | undefined;
+  const repository = {
+    listDueRenewalJobs: async () => [currentJob],
+    claimRenewalJob: async () => currentJob,
+    getPolicy: async () => policy,
+    getRenewalJob: async () => currentJob,
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
+    },
+  };
+  const internalCa = {
+    getRepository: () => ({
+    getIssuanceByCertificateVersion: async () => undefined,
+      getRequest: async (_tenantId: string, requestId: string) => requestId === renewedRequest.id ? renewedRequest : undefined,
+      getProvider: async () => providerEntity(),
+    }),
+    ensureAcmeIssuanceContext: async () => ({
+      caId: 'ca-acme',
+      trustDomainId: 'trust-acme',
+      profileVersionId: 'profile-version-acme',
+    }),
+    createCertificateRequest: async (_tenantId: string, input: Record<string, unknown>) => {
+      requestInput = input;
+      return renewedRequest;
+    },
+    importAcmeCertificate: async () => ({
+      ...renewedRequest,
+      status: 'issued' as const,
+      certificateVersionId: 'version-acme-manual-renewed',
+    }),
+  };
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {
+      getAsset: async () => asset,
+    } as never,
+    internalCa: internalCa as never,
+    orders: {} as never,
+    challenges: {} as never,
+    lego: {
+      issue: async (input: { request: CertificateRequestEntity }) => {
+        legoRequest = input.request;
+        return {
+          certificatePem: 'CERTIFICATE',
+          certificateChainPem: 'FULLCHAIN',
+          certificateUrl: 'lego://renewal-acme-manual-source',
+        };
+      },
+    } as never,
+    leaseOwner: 'worker-acme',
+    now: () => new Date(now),
+  });
+
+  const result = await worker.runOnce(1, 'worker-acme');
+
+  assert.equal(result[0]?.status, 'completed');
+  assert.equal(result[0]?.promotionStatus, 'not_required');
+  assert.equal(result[0]?.certificateRequestId, renewedRequest.id);
+  assert.equal(requestInput?.applicationAssetId, asset.id);
+  assert.equal(requestInput?.commonName, '*.edited.example.com');
+  assert.deepEqual(requestInput?.sans, ['api.edited.example.com']);
+  assert.equal(legoRequest?.id, renewedRequest.id);
+  assert.equal(legoRequest?.csrPem, renewedRequest.csrPem);
+});
+
+test('ACME Renewal Worker 签发成功后直接完成续签任务并保留暂存版本', async () => {
+  let currentJob: AcmeRenewalJobEntity = {
+    ...renewalJobEntity(),
+    id: 'renewal-acme-initial-no-target',
+    certificateVersionId: undefined,
+    sourceCertificateVersionId: undefined,
+    certificateRequestId: 'request-acme-initial-no-target',
+    status: 'scheduled',
+  };
+  const request = {
+    ...requestEntity(),
+    id: 'request-acme-initial-no-target',
+    status: 'approved' as const,
+    certificateVersionId: undefined,
+  };
+  const policy = {
+    ...policyEntity(),
+    challengeType: 'dns-01' as const,
+    maintenanceWindow: {
+      dnsProvider: 'cloudflare',
+      dnsCredentialId: 'credential-cloudflare',
+      contactEmail: 'ops@example.com',
+    },
+  };
+  const issuedRequest = {
+    ...request,
+    status: 'issued' as const,
+    certificateVersionId: 'version-acme-initial-no-target',
+  };
+  const repository = {
+    listDueRenewalJobs: async () => [currentJob],
+    claimRenewalJob: async () => currentJob,
+    getPolicy: async () => policy,
+    getRenewalJob: async () => currentJob,
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
+    },
+  };
+  const internalCa = {
+    getRepository: () => ({
+      getRequest: async () => request,
+      getProvider: async () => providerEntity(),
+    }),
+    importAcmeCertificate: async () => issuedRequest,
+  };
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {} as never,
+    internalCa: internalCa as never,
+    orders: {} as never,
+    challenges: {} as never,
+    lego: {
+      issue: async () => ({
+        certificatePem: 'CERTIFICATE',
+        certificateChainPem: 'FULLCHAIN',
+        certificateUrl: 'lego://renewal-acme-initial-no-target',
+      }),
+    } as never,
+    leaseOwner: 'worker-acme',
+    now: () => new Date(now),
+  });
+
+  const result = await worker.runOnce(1, 'worker-acme');
+
+  assert.equal(result[0]?.status, 'completed');
+  assert.equal(result[0]?.certificateVersionId, issuedRequest.certificateVersionId);
+  assert.equal(result[0]?.promotionStatus, 'not_required');
+  assert.equal(result[0]?.failureCode, undefined);
+  assert.equal(result[0]?.failureMessage, undefined);
 });
 
 test('ACME Renewal Scheduler 支持按 Binding 当前版本创建续签任务', async () => {
@@ -393,7 +657,121 @@ test('ACME Renewal Scheduler 支持按 Binding 当前版本创建续签任务', 
   assert.equal(savedJob?.certificateVersionId, sourceVersion.id);
 });
 
-test('ACME Renewal Worker 在证书已暂存后恢复部署，不重复下载或导入证书', async () => {
+test('ACME Renewal Scheduler 会为历史 ACME 资产补建首次申请任务', async () => {
+  const policy = policyEntity();
+  const asset = {
+    id: 'asset-app',
+    name: 'app.example.com',
+    primaryDomain: 'app.example.com',
+    sans: ['api.example.com'],
+    sourceType: 'acme' as const,
+    status: 'active' as const,
+    tags: ['acme'],
+    createdBy: 'user-acme',
+    createdAt: now,
+    updatedAt: now,
+  };
+  let createdRequestInput: Record<string, unknown> | undefined;
+  let savedJob: AcmeRenewalJobEntity | undefined;
+  const scheduler = new AcmeRenewalScheduler(
+    {
+      listActivePolicies: async () => [policy],
+      getRenewalJobByWindow: async () => undefined,
+      saveRenewalJob: async (job: AcmeRenewalJobEntity) => {
+        savedJob = structuredClone(job);
+        return job;
+      },
+    } as unknown as AcmeRepository,
+    {
+      getAsset: async () => asset,
+    } as never,
+    undefined,
+    {
+      ensureAcmeIssuanceContext: async () => ({
+        caId: 'ca-acme',
+        profileVersionId: 'profile-version-acme',
+      }),
+      createCertificateRequest: async (_tenantId: string, input: Record<string, unknown>) => {
+        createdRequestInput = input;
+        return { id: 'request-acme-backfill' };
+      },
+    } as never,
+  );
+
+  const result = await scheduler.runOnce(1, new Date(now));
+
+  assert.equal(result.length, 1);
+  assert.equal(savedJob?.certificateRequestId, 'request-acme-backfill');
+  assert.equal(savedJob?.sourceCertificateVersionId, undefined);
+  assert.equal(savedJob?.status, 'scheduled');
+  assert.equal(createdRequestInput?.idempotencyKey, 'acme-initial-request:asset-app');
+});
+
+test('ACME Renewal Scheduler 支持指定证书立即手动续签，并避免重复排队', async () => {
+  const policy = policyEntity();
+  const sourceVersion = {
+    ...versionEntity(),
+    id: 'version-acme-manual-source',
+    notAfter: '2027-08-20T00:00:00.000Z',
+    activationState: 'promoted' as const,
+  };
+  let savedJob: AcmeRenewalJobEntity | undefined;
+  const repository = {
+    listPolicies: async () => [policy],
+    getRenewalJobByWindow: async () => undefined,
+    getActiveRenewalJobBySourceVersion: async () => savedJob,
+    saveRenewalJob: async (job: AcmeRenewalJobEntity) => {
+      savedJob = structuredClone(job);
+      return savedJob;
+    },
+  };
+  const scheduler = new AcmeRenewalScheduler(
+    repository as unknown as AcmeRepository,
+    {
+      getAsset: async () => ({ id: policy.certificateAssetId, currentVersionId: sourceVersion.id }),
+      getVersion: async () => sourceVersion,
+    } as never,
+  );
+
+  const first = await scheduler.scheduleManualRenewal(tenantId, policy.certificateAssetId!, 'user-acme', new Date(now));
+  const second = await scheduler.scheduleManualRenewal(tenantId, policy.certificateAssetId!, 'user-acme', new Date('2026-08-05T00:01:00.000Z'));
+
+  assert.equal(first.status, 'scheduled');
+  assert.match(first.renewalWindowKey, /^manual:version-acme-manual-source:/);
+  assert.equal(second.id, first.id);
+});
+
+test('ACME Renewal Scheduler 不会把历史待安装终态误判为活动任务', async () => {
+  const policy = policyEntity();
+  const sourceVersion = {
+    ...versionEntity(),
+    id: 'version-acme-waiting-installation',
+    activationState: 'promoted' as const,
+  };
+  let saveCalls = 0;
+  const scheduler = new AcmeRenewalScheduler(
+    {
+      listPolicies: async () => [policy],
+      getActiveRenewalJobBySourceVersion: async () => undefined,
+      saveRenewalJob: async (job: AcmeRenewalJobEntity) => {
+        saveCalls += 1;
+        return job;
+      },
+    } as unknown as AcmeRepository,
+    {
+      getAsset: async () => ({ id: policy.certificateAssetId, currentVersionId: sourceVersion.id }),
+      getVersion: async () => sourceVersion,
+    } as never,
+  );
+
+  const result = await scheduler.scheduleManualRenewal(tenantId, policy.certificateAssetId!, 'user-acme', new Date(now));
+
+  assert.equal(result.status, 'scheduled');
+  assert.equal(result.promotionStatus, 'not_required');
+  assert.equal(saveCalls, 1);
+});
+
+test('ACME Renewal Worker 遇到历史已暂存任务时直接完成，不重复下载或导入证书', async () => {
   let currentJob: AcmeRenewalJobEntity = {
     ...renewalJobEntity(),
     certificateRequestId: 'request-acme-issued',
@@ -402,8 +780,6 @@ test('ACME Renewal Worker 在证书已暂存后恢复部署，不重复下载或
     deploymentPlanId: 'plan-1',
     executionRunId: 'run-1',
   };
-  let promoted = false;
-  let markedActive = false;
   const issuedRequest: CertificateRequestEntity = {
     ...requestEntity(),
     id: 'request-acme-issued',
@@ -428,32 +804,6 @@ test('ACME Renewal Worker 在证书已暂存后恢复部署，不重复下载或
     importAcmeCertificate: async () => {
       throw new Error('已暂存证书不应重复导入');
     },
-    markRequestActive: async () => {
-      markedActive = true;
-      return issuedRequest;
-    },
-  };
-  const deployments = {
-    get: async () => ({
-      id: 'plan-1',
-      certificateVersionId: issuedRequest.certificateVersionId,
-      status: 'SUCCESS',
-    }),
-  };
-  const executions = {
-    getRun: async () => ({ id: 'run-1', deploymentPlanId: 'plan-1', status: 'SUCCESS' }),
-    listSteps: async () => [{
-      stepType: 'VERIFY',
-      status: 'SUCCESS',
-      inputSnapshot: {
-        resultDetail: {
-          verify: {
-            success: true,
-            remoteCertificateSha256: versionEntity().fingerprintSha256,
-          },
-        },
-      },
-    }],
   };
   const worker = new AcmeRenewalWorker({
     repository: repository as unknown as AcmeRepository,
@@ -463,15 +813,6 @@ test('ACME Renewal Worker 在证书已暂存后恢复部署，不重复下载或
       getEntity: async () => { throw new Error('已暂存证书不应读取 ACME Order'); },
     } as never,
     challenges: {} as never,
-    deployments: deployments as never,
-    executions: executions as never,
-    promotion: {
-      promote: async (input: { certificateVersionId: string }) => {
-        assert.equal(input.certificateVersionId, issuedRequest.certificateVersionId);
-        promoted = true;
-        return versionEntity();
-      },
-    } as never,
     leaseOwner: 'worker-acme',
     now: () => new Date(now),
   });
@@ -479,69 +820,93 @@ test('ACME Renewal Worker 在证书已暂存后恢复部署，不重复下载或
   const result = await worker.runOnce(1, 'worker-acme');
 
   assert.equal(result[0]?.status, 'completed');
-  assert.equal(promoted, true);
-  assert.equal(markedActive, true);
+  assert.equal(result[0]?.promotionStatus, 'not_required');
   assert.equal(currentJob.certificateVersionId, issuedRequest.certificateVersionId);
 });
 
-test('Certificate Promotion Service 只接受匹配的部署、执行和 TLS Verify 结果', async () => {
-  let promoted = false;
-  const stagedVersion = {
-    ...versionEntity(),
-    activationState: 'staged' as const,
+test('ACME Renewal Worker 可按任务 ID 立即唤醒，且不依赖 due 列表排序', async () => {
+  let currentJob: AcmeRenewalJobEntity = {
+    ...renewalJobEntity(),
+    id: 'renewal-acme-immediate',
+    status: 'scheduled',
   };
-  const certificates = {
-    getRepository: () => ({
-      getVersion: async () => stagedVersion,
-    }),
-    promoteVersion: async () => {
-      promoted = true;
-      return { ...stagedVersion, activationState: 'promoted' as const };
+  let claimedId: string | undefined;
+  let leaseExpiresAt: string | undefined;
+  const repository = {
+    listDueRenewalJobs: async () => {
+      throw new Error('按任务唤醒不应读取 due 列表');
+    },
+    claimRenewalJob: async (_tenantId: string, id: string, _leaseOwner: string, expiresAt: string) => {
+      claimedId = id;
+      leaseExpiresAt = expiresAt;
+      return currentJob;
+    },
+    getPolicy: async () => undefined,
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
     },
   };
-  const deploymentPlans = {
-    getPlan: async () => ({
-      id: 'plan-1',
-      certificateVersionId: stagedVersion.id,
-      status: 'SUCCESS',
-    }),
-  };
-  const executions = {
-    getRun: async () => ({
-      id: 'run-1',
-      deploymentPlanId: 'plan-1',
-      status: 'SUCCESS',
-    }),
-  };
-  const service = new CertificatePromotionService(
-    certificates as never,
-    deploymentPlans as never,
-    executions as never,
-  );
-
-  await assert.rejects(
-    () => service.promote({
-      tenantId,
-      certificateVersionId: stagedVersion.id,
-      deploymentPlanId: 'plan-1',
-      executionRunId: 'run-1',
-      tlsVerify: { success: true, certificateFingerprintSha256: 'wrong-fingerprint' },
-      actorId: 'user-acme',
-    }),
-    (error: unknown) => error instanceof Error && error.message.includes('TLS Verify 指纹'),
-  );
-  assert.equal(promoted, false);
-
-  const result = await service.promote({
-    tenantId,
-    certificateVersionId: stagedVersion.id,
-    deploymentPlanId: 'plan-1',
-    executionRunId: 'run-1',
-    tlsVerify: { success: true, certificateFingerprintSha256: stagedVersion.fingerprintSha256 },
-    actorId: 'user-acme',
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {} as never,
+    internalCa: {} as never,
+    orders: {} as never,
+    challenges: {} as never,
+    leaseOwner: 'worker-acme-immediate',
+    now: () => new Date(now),
   });
-  assert.equal(result.activationState, 'promoted');
-  assert.equal(promoted, true);
+
+  const result = await worker.runJob(tenantId, currentJob.id, 'user-acme');
+
+  assert.equal(claimedId, currentJob.id);
+  assert.equal(leaseExpiresAt, '2026-08-05T00:15:00.000Z');
+  assert.equal(result?.status, 'retry_waiting');
+  assert.equal(currentJob.status, 'retry_waiting');
+  assert.equal(currentJob.failureMessage, '续签策略不存在或已停用');
+});
+
+test('ACME Renewal Worker 遇到确定性配置错误时立即失败，不进入退避重试', async () => {
+  let currentJob: AcmeRenewalJobEntity = {
+    ...renewalJobEntity(),
+    id: 'renewal-acme-invalid-provider',
+    status: 'scheduled',
+  };
+  const repository = {
+    claimRenewalJob: async () => currentJob,
+    getPolicy: async () => policyEntity(),
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
+    },
+  };
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {} as never,
+    internalCa: {
+      getRepository: () => ({
+        getIssuanceByCertificateVersion: async () => {
+          throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'DNS Provider 未注册', {
+            reason: 'provider code alidns is unavailable',
+          });
+        },
+      }),
+    } as never,
+    orders: {} as never,
+    challenges: {} as never,
+    leaseOwner: 'worker-acme-invalid-provider',
+    now: () => new Date(now),
+  });
+
+  const result = await worker.runJob(tenantId, currentJob.id, 'user-acme');
+
+  assert.equal(result?.status, 'failed');
+  assert.equal(result?.promotionStatus, 'not_required');
+  assert.equal(result?.attemptCount, 1);
+  assert.equal(result?.nextAttemptAt, undefined);
+  assert.equal(result?.leaseOwner, undefined);
+  assert.equal(result?.failureCode, 'ACME_PROVIDER_CONFIG_INVALID');
+  assert.equal(result?.failureMessage, 'DNS Provider 未注册：provider code alidns is unavailable');
 });
 
 function providerEntity(): CaProviderEntity {

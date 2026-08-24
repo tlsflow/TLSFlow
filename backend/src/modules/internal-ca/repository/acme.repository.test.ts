@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { runMigrations } from '../../../database/migration-runner.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { AcmeRepository } from './acme.repository.js';
@@ -51,6 +52,48 @@ test('ACME 迁移创建生命周期表、索引和证书版本 activation_state 
 
   const version = await db.query<{ activation_state: string }>('select activation_state from pg_certificate_versions where id = $1', ['certver-acme-old']);
   assert.equal(version.rows[0]?.activation_state, 'promoted');
+});
+
+test('ACME 纯续签迁移将历史安装阶段任务收敛为完成', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  await insertFixtureRows(db);
+  const repository = new AcmeRepository(db);
+  await repository.saveAccount(accountEntity());
+  const policy = await repository.savePolicy(policyEntity());
+
+  for (const [index, status] of ['deploying', 'verifying', 'issued_waiting_for_installation'].entries()) {
+    await repository.saveRenewalJob({
+      ...renewalJobEntity(),
+      id: `renewal-acme-legacy-install-${index}`,
+      renewalWindowKey: `legacy-install-${index}`,
+      status: status as AcmeRenewalJobEntity['status'],
+      policyId: policy.id,
+      certificateVersionId: 'certver-acme-old',
+      sourceCertificateVersionId: 'certver-acme-old',
+      promotionStatus: 'blocked',
+      failureCode: 'ACME_INSTALL_TARGET_REQUIRED',
+      failureMessage: '历史安装阶段',
+    });
+  }
+
+  const migration = await readFile('src/database/migrations/20260806000200_acme_renewal_only.sql', 'utf8');
+  await db.exec(migration);
+  const result = await db.query<{
+    status: string;
+    promotion_status: string;
+    failure_code: string | null;
+  }>(`
+    select status, promotion_status, failure_code
+    from pg_certificate_renewal_jobs
+    where id like 'renewal-acme-legacy-install-%'
+    order by id
+  `);
+
+  assert.equal(result.rows.length, 3);
+  assert.ok(result.rows.every((row) => row.status === 'completed'));
+  assert.ok(result.rows.every((row) => row.promotion_status === 'not_required'));
+  assert.ok(result.rows.every((row) => row.failure_code === null));
 });
 
 test('ACME Repository 按 tenant 隔离 Account/Order/Policy，并保护活动 Order 唯一性', async () => {
@@ -139,8 +182,45 @@ test('ACME RenewalJob 原子 claim 遵守 nextAttemptAt、lease 和状态边界'
   assert.equal(await repository.claimRenewalJob(tenantId, job.id, 'worker-b', '2026-08-05T00:05:00.000Z', '2026-08-05T00:01:00.000Z'), undefined);
   assert.equal((await repository.claimRenewalJob(tenantId, job.id, 'worker-b', '2026-08-05T00:10:00.000Z', '2026-08-05T00:06:00.000Z'))?.leaseOwner, 'worker-b');
 
-  await repository.saveRenewalJob({ ...job, status: 'completed', leaseOwner: undefined, leaseExpiresAt: undefined, updatedAt: '2026-08-05T00:07:00.000Z' });
+  await repository.saveRenewalJob({
+    ...job,
+    certificateVersionId: undefined,
+    status: 'completed',
+    leaseOwner: undefined,
+    leaseExpiresAt: undefined,
+    updatedAt: '2026-08-05T00:07:00.000Z',
+  });
+  assert.equal((await repository.getRenewalJob(tenantId, job.id))?.certificateVersionId, undefined);
   assert.equal(await repository.claimRenewalJob(tenantId, job.id, 'worker-c', '2026-08-05T00:15:00.000Z', '2026-08-05T00:08:00.000Z'), undefined);
+});
+
+test('ACME RenewalJob 失败终态不会阻塞同一证书的新手动任务', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  await insertFixtureRows(db);
+  const repository = new AcmeRepository(db);
+  await repository.saveAccount(accountEntity());
+  await repository.savePolicy(policyEntity());
+
+  await repository.saveRenewalJob({
+    ...renewalJobEntity(),
+    id: 'renew-acme-failed',
+    status: 'failed',
+    failureCode: 'ACME_RENEWAL_FAILED',
+    failureMessage: 'DNS Provider 未注册',
+  });
+  const scheduled = await repository.saveRenewalJob({
+    ...renewalJobEntity(),
+    id: 'renew-acme-manual',
+    renewalWindowKey: 'manual:certver-acme-old:2026-08-05T00:01:00.000Z',
+    status: 'scheduled',
+    nextAttemptAt: undefined,
+  });
+
+  const due = await repository.listDueRenewalJobs(now, 10);
+  assert.deepEqual(due.map((item) => item.id), [scheduled.id]);
+  assert.equal((await repository.getActiveRenewalJobBySourceVersion(tenantId, 'certver-acme-old'))?.id, scheduled.id);
+  assert.equal((await repository.claimRenewalJob(tenantId, scheduled.id, 'worker-new', '2026-08-05T00:05:00.000Z', now))?.id, scheduled.id);
 });
 
 test('ACME RenewalJob 失败重试会清除旧租约并恢复为 scheduled', async () => {
@@ -167,6 +247,7 @@ test('ACME RenewalJob 失败重试会清除旧租约并恢复为 scheduled', asy
   assert.equal(retried.attemptCount, 0);
   assert.equal(retried.nextAttemptAt, now);
   assert.equal(retried.leaseOwner, undefined);
+  assert.equal(retried.promotionStatus, 'not_required');
   assert.equal(retried.failureCode, undefined);
   assert.equal(retried.failureMessage, undefined);
 });

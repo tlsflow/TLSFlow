@@ -4,7 +4,6 @@ import { AcmeDomainService } from '../domain/acme.domain-service.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import type {
-  AcmeRenewalDeploymentMode,
   AcmeRenewalPolicyEntity,
   AcmeChallengeType,
 } from '../schema/acme.schema.js';
@@ -19,7 +18,6 @@ export interface CreateAcmeRenewalPolicyInput {
   renewalWindowDays?: number;
   challengeType: AcmeChallengeType;
   rotateKeyOnRenewal?: boolean;
-  deploymentMode?: AcmeRenewalDeploymentMode;
   maxAttempts?: number;
   backoffSeconds?: number;
   maintenanceWindow?: Record<string, unknown>;
@@ -52,7 +50,8 @@ export class AcmeRenewalPolicyService {
       renewalWindowDays: input.renewalWindowDays ?? 30,
       challengeType: input.challengeType,
       rotateKeyOnRenewal: input.rotateKeyOnRenewal !== false,
-      deploymentMode: input.deploymentMode ?? 'automatic',
+      // 历史数据库列保留兼容值，ACME 续签策略不再控制证书安装。
+      deploymentMode: 'manual',
       maxAttempts: input.maxAttempts ?? 5,
       backoffSeconds: input.backoffSeconds ?? 300,
       maintenanceWindow: input.maintenanceWindow,
@@ -69,7 +68,11 @@ export class AcmeRenewalPolicyService {
   async update(tenantId: string, id: string, patch: Partial<Omit<CreateAcmeRenewalPolicyInput, 'tenantId' | 'actorId'>> & { actorId: string }): Promise<AcmeRenewalPolicyEntity> {
     const current = await this.repository.getPolicy(tenantId, id);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签策略不存在');
-    const { actorId: _actorId, ...policyPatch } = patch;
+    const {
+      actorId: _actorId,
+      deploymentMode: _ignoredDeploymentMode,
+      ...policyPatch
+    } = patch as typeof patch & { deploymentMode?: unknown };
     const next: AcmeRenewalPolicyEntity = {
       ...current,
       ...policyPatch,

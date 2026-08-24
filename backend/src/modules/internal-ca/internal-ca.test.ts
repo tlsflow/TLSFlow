@@ -49,6 +49,16 @@ test('标准 REST 删除路由可以读取最后一个路径段作为资源 ID',
   }), 'caprov_update_me');
 });
 
+test('ACME 手动续签路由可以读取 renew 前的证书资产 ID', () => {
+  assert.equal(pathId({
+    method: 'POST',
+    path: '/api/v1/acme/certificates/certasset_renew_me/renew',
+    query: {},
+    context: { requestId: 'req_acme_renew_path', traceId: 'trace_acme_renew_path' },
+    headers: {},
+  }), 'certasset_renew_me');
+});
+
 test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间隔', () => {
   const script = renderAdcsAgentInstallScript({
     controlPlaneUrl: 'https://gcac.example.test', tenantId: 'tenant-1', providerId: 'provider-1', token: 'token-1',

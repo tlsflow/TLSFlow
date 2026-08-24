@@ -47,6 +47,40 @@ describe('证书资产 API', () => {
     assert.equal((duplicated.body as any).errorCode, 'CERT_DUPLICATE_VERSION');
   });
 
+  it('ACME 管理的证书资产允许手动导入新版本', async () => {
+    const manualFixture = createPemChainFixture();
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const certificates = new CertificatesApplicationService({
+      db,
+      secrets: {
+        create: async () => ({
+          secretRef: 'secret://certificate_private_key/manual#current',
+        }),
+      } as never,
+    });
+    const asset = await certificates.createAsset({
+      name: 'leaf.example.test',
+      primaryDomain: 'leaf.example.test',
+      sans: ['api.example.test'],
+      sourceType: 'acme',
+      tags: ['acme'],
+      createdBy: 'user_acme_manual',
+    });
+    const imported = await certificates.importVersion({
+      certificateAssetId: asset.id,
+      certificatePem: manualFixture.pem,
+      privateKeyPem: manualFixture.privateKeyPem,
+      sourceType: 'manual',
+      createdBy: 'user_acme_manual',
+    });
+
+    assert.equal(imported.asset.id, asset.id);
+    assert.equal(imported.asset.sourceType, 'acme');
+    assert.equal(imported.version.sourceType, 'manual');
+    assert.equal(imported.asset.currentVersionId, imported.version.id);
+  });
+
   it('多证书 PEM 能识别 leaf、链顺序和链状态', async () => {
     const chain = createPemChainFixture();
     const { app } = await createAuthorizedApp('user_chain');

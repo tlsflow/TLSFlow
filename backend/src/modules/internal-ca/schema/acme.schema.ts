@@ -140,14 +140,15 @@ export interface AcmeRenewalPolicyEntity {
   updatedAt: string;
 }
 
-export interface AcmeRenewalJobEntity extends Omit<CertificateRenewalJobEntity, 'status'> {
-  status: CertificateRenewalJobEntity['status'] | 'retry_waiting' | 'cancelled';
+export interface AcmeRenewalJobEntity extends Omit<CertificateRenewalJobEntity, 'status' | 'certificateVersionId'> {
+  status: CertificateRenewalJobEntity['status'] | 'retry_waiting' | 'cancelled' | 'issued_waiting_for_installation';
+  certificateVersionId?: string;
   policyId?: string;
-  sourceCertificateVersionId: string;
+  sourceCertificateVersionId?: string;
   acmeOrderId?: string;
   deploymentPlanId?: string;
   executionRunId?: string;
-  promotionStatus: 'pending' | 'verified' | 'promoted' | 'blocked';
+  promotionStatus: 'pending' | 'verified' | 'promoted' | 'blocked' | 'failed' | 'not_required';
   attemptCount: number;
   nextAttemptAt?: string;
   leaseOwner?: string;

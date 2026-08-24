@@ -42,7 +42,6 @@ import {
   CaAutoSyncScheduler,
   CaOperationsRepository,
   CaSyncWorker,
-  CertificatePromotionService,
   getInternalCaRouteContracts,
   InternalCaApplicationService,
   InternalCaController,
@@ -186,9 +185,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
       'http-01': new Http01ChallengeAdapter(http01Responder),
     },
   });
+  const legoTimeoutMs = positiveInteger(process.env.GCAC_LEGO_TIMEOUT_MS, 600_000);
+  const acmeRenewalLeaseMs = Math.max(
+    positiveInteger(process.env.ACME_RENEWAL_JOB_LEASE_MS, 900_000),
+    legoTimeoutMs + 60_000,
+  );
   const legoDnsIssuer = new LegoDnsIssuer({
     credentials: credentialsService,
     secrets: security.secrets,
+    timeoutMs: legoTimeoutMs,
   });
   const acmeRenewalPolicyService = new AcmeRenewalPolicyService(
     acmeRepository,
@@ -412,25 +417,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('executionDetailStream', executionDetailStream);
   new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
 
-  const acmePromotionService = new CertificatePromotionService(
-    certificateServices.certificates,
-    deploymentPlans.getRepository(),
-    executionsService.getRepository(),
-  );
   const acmeRenewalWorker = new AcmeRenewalWorker({
     repository: acmeRepository,
     certificates: certificateServices.certificates.getRepository(),
     internalCa: internalCaService,
     orders: acmeOrderService,
     challenges: acmeChallengeService,
-    deployments: deploymentPlans.getApplicationService(),
-    executions: executionsService,
-    promotion: acmePromotionService,
     lego: legoDnsIssuer,
-    hasDeploymentTarget: async (tenantId, applicationAssetId) => Boolean(
-      await assetsService.getRepository().getApplicationAssetTargetByApplicationAssetId(tenantId, applicationAssetId),
-    ),
     leaseOwner: `acme-renewal-worker-${process.pid}`,
+    leaseDurationMs: acmeRenewalLeaseMs,
   });
   const acmeServices = {
     accounts: acmeAccountService,
@@ -450,7 +445,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     repository: acmeRepository,
     scheduler: acmeRenewalScheduler,
     worker: acmeRenewalWorker,
-    promotion: acmePromotionService,
   };
   app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
   app.setResource('acmeRenewalWorker', acmeRenewalWorker);
@@ -697,6 +691,11 @@ function errorCodeOf(error: unknown): string {
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 export function getRouteContracts(): RouteContract[] {

@@ -780,6 +780,85 @@ export class InternalCaApplicationService {
     return { profile, version };
   }
 
+  /**
+   * 为简化 ACME 入口准备内部申请上下文。
+   * ACME 是外部签发者，用户不应被迫手工创建逻辑 Authority 和 Profile。
+   */
+  async ensureAcmeIssuanceContext(tenantId: string, providerId: string, actorId: string): Promise<{
+    caId: string;
+    profileVersionId: string;
+    trustDomainId?: string;
+  }> {
+    const provider = await this.requireProvider(tenantId, providerId);
+    if (provider.type !== 'acme') {
+      throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前 Provider 不是 ACME Provider', { providerId });
+    }
+
+    const authorities = await this.repository.listAuthorities(tenantId);
+    let authority = authorities.find((item) => (
+      item.providerId === provider.id
+      && item.topologyMode === 'external_managed'
+      && item.status === 'active'
+    ));
+    if (!authority) {
+      const preview = this.previewAuthority({
+        topologyMode: 'external_managed',
+        deploymentMode: 'external',
+        runtimePlatform: 'external',
+        availabilityMode: 'single',
+        keyBackend: 'secret',
+      });
+      const created = await this.createAuthority(tenantId, {
+        providerId: provider.id,
+        topologyMode: 'external_managed',
+        deploymentMode: 'external',
+        runtimePlatform: 'external',
+        availabilityMode: 'single',
+        keyBackend: 'secret',
+        name: `ACME ${provider.name} Issuer`,
+        commonName: `${provider.name} ACME Issuer`,
+        securityDomain: 'acme',
+        confirmationToken: preview.confirmationToken,
+        actorId,
+      });
+      authority = await this.repository.getAuthority(tenantId, created[0]!.id);
+    }
+    if (!authority) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'ACME 逻辑证书机构创建失败', { providerId });
+
+    const profiles = await this.listProfiles(tenantId);
+    const profileEntry = profiles.find((item) => (
+      item.profile.securityDomain === 'acme'
+      && item.profile.trustDomainId === authority!.trustDomainId
+      && item.profile.status === 'active'
+    ));
+    const version = profileEntry?.versions
+      .slice()
+      .sort((left, right) => right.versionNo - left.versionNo)[0]
+      ?? (await this.createProfile(tenantId, {
+        name: `ACME ${provider.name} Server Certificate Profile`,
+        securityDomain: 'acme',
+        trustDomainId: authority.trustDomainId,
+        rules: {
+          allowedSanTypes: ['dns', 'ip'],
+          keyAlgorithms: ['rsa'],
+          minimumRsaBits: 2048,
+          maximumValidityDays: 397,
+          renewalWindowDays: 7,
+          rotateKeyOnRenewal: true,
+          allowWildcard: true,
+          requireApproval: false,
+          extendedKeyUsages: ['serverAuth'],
+        },
+        actorId,
+      })).version;
+
+    return {
+      caId: authority.id,
+      profileVersionId: version.id,
+      trustDomainId: authority.trustDomainId,
+    };
+  }
+
   async createProfileVersion(tenantId: string, profileId: string, rules: Partial<CertificateProfileRules>, actorId: string): Promise<CertificateProfileVersionEntity> {
     const profile = await this.repository.getProfile(tenantId, profileId);
     if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId });

@@ -1,58 +1,1837 @@
 /**
- * Nginx Proxy Manager dns-plugins.json 的 GCAC 内置镜像。
- *
- * 该注册表只描述 Certbot DNS 插件和凭据模板，不保存任何租户密钥。
- * 模板中的值均为上游示例占位符，用户实际凭据必须通过 SecretRef 提供。
+ * lego 原生 DNS Provider 目录。该文件由 lego 的 dnshelp 输出生成。
+ * 凭据模板只包含 lego 的 Credentials 段，不包含 Certbot 或 Python 元数据。
  */
 export interface AcmeDnsProviderDefinition {
   readonly id: string;
   readonly name: string;
-  readonly fullPluginName: string;
-  readonly packageName: string;
-  readonly version: string;
-  readonly dependencies?: string;
+  readonly credentialKeys: readonly string[];
   readonly credentialTemplate: string;
 }
 
-export const acmeDnsProviderDefinitions: readonly AcmeDnsProviderDefinition[] = [{"id":"acmedns","name":"ACME-DNS","fullPluginName":"dns-acmedns","packageName":"certbot-dns-acmedns","version":"~=0.1.0","credentialTemplate":"dns_acmedns_api_url = http://acmedns-server/\ndns_acmedns_registration_file = /data/acme-registration.json"},{"id":"active24","name":"Active24","fullPluginName":"dns-active24","packageName":"certbot-dns-active24","version":"~=2.0.0","credentialTemplate":"dns_active24_api_key = <identifier>\ndns_active24_secret = <secret>"},{"id":"aliyun","name":"Aliyun","fullPluginName":"dns-aliyun","packageName":"certbot-dns-aliyun","version":"~=2.0.0","credentialTemplate":"dns_aliyun_access_key = 12345678\ndns_aliyun_access_key_secret = 1234567890abcdef1234567890abcdef"},{"id":"arvan","name":"ArvanCloud","fullPluginName":"dns-arvan","packageName":"certbot-dns-arvan","version":">=0.1.0","credentialTemplate":"dns_arvan_key = Apikey xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"},{"id":"azure","name":"Azure","fullPluginName":"dns-azure","packageName":"certbot-dns-azure","version":"~=2.6.1","credentialTemplate":"# This plugin supported API authentication using either Service Principals or utilizing a Managed Identity assigned to the virtual machine.\n# Regardless which authentication method used, the identity will need the “DNS Zone Contributor” role assigned to it.\n# As multiple Azure DNS Zones in multiple resource groups can exist, the config file needs a mapping of zone to resource group ID. Multiple zones -> ID mappings can be listed by using the key dns_azure_zoneX where X is a unique number. At least 1 zone mapping is required.\n\n# Using a service principal (option 1)\ndns_azure_sp_client_id = 912ce44a-0156-4669-ae22-c16a17d34ca5\ndns_azure_sp_client_secret = E-xqXU83Y-jzTI6xe9fs2YC~mck3ZzUih9\ndns_azure_tenant_id = ed1090f3-ab18-4b12-816c-599af8a88cf7\n\n# Using used assigned MSI (option 2)\n# dns_azure_msi_client_id = 912ce44a-0156-4669-ae22-c16a17d34ca5\n\n# Using system assigned MSI (option 3)\n# dns_azure_msi_system_assigned = true\n\n# Zones (at least one always required)\ndns_azure_zone1 = example.com:/subscriptions/c135abce-d87d-48df-936c-15596c6968a5/resourceGroups/dns1\ndns_azure_zone2 = example.org:/subscriptions/99800903-fb14-4992-9aff-12eaf2744622/resourceGroups/dns2"},{"id":"baidu","name":"baidu","fullPluginName":"dns-baidu","packageName":"certbot-dns-baidu","version":"~=0.1.1","credentialTemplate":"dns_baidu_access_key = 12345678\ndns_baidu_secret_key = 1234567890abcdef1234567890abcdef"},{"id":"beget","name":"Beget","fullPluginName":"beget-plugin","packageName":"certbot-beget-plugin","version":"~=1.0.0.dev9","credentialTemplate":"# Beget API credentials used by Certbot\nbeget_plugin_username = username\nbeget_plugin_password = password"},{"id":"bunny","name":"bunny.net","fullPluginName":"dns-bunny","packageName":"certbot-dns-bunny","version":"~=0.0.9","credentialTemplate":"# Bunny API token used by Certbot (see https://dash.bunny.net/account/settings)\ndns_bunny_api_key = xxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxx"},{"id":"cdmon","name":"cdmon","fullPluginName":"dns-cdmon","packageName":"certbot-dns-cdmon","version":"~=0.4.1","credentialTemplate":"dns_cdmon_api_key=your-cdmon-api-token\ndns_cdmon_domain=your_domain_is_optional"},{"id":"cloudflare","name":"Cloudflare","fullPluginName":"dns-cloudflare","packageName":"certbot-dns-cloudflare","version":"=={{certbot-version}}","credentialTemplate":"# Cloudflare API token\ndns_cloudflare_api_token=0123456789abcdef0123456789abcdef01234567"},{"id":"cloudns","name":"ClouDNS","fullPluginName":"dns-cloudns","packageName":"certbot-dns-cloudns","version":"~=0.7.0","credentialTemplate":"# Target user ID (see https://www.cloudns.net/api-settings/)\n\tdns_cloudns_auth_id=1234\n\t# Alternatively, one of the following two options can be set:\n\t# dns_cloudns_sub_auth_id=1234\n\t# dns_cloudns_sub_auth_user=foobar\n\n\t# API password\n\tdns_cloudns_auth_password=password1"},{"id":"cloudxns","name":"CloudXNS","fullPluginName":"dns-cloudxns","packageName":"certbot-dns-cloudxns","version":"~=1.32.0","credentialTemplate":"dns_cloudxns_api_key = 1234567890abcdef1234567890abcdef\ndns_cloudxns_secret_key = 1122334455667788"},{"id":"constellix","name":"Constellix","fullPluginName":"dns-constellix","packageName":"certbot-dns-constellix","version":"~=0.2.1","credentialTemplate":"dns_constellix_apikey = 5fb4e76f-ac91-43e5-f982458bc595\ndns_constellix_secretkey = 47d99fd0-32e7-4e07-85b46d08e70b\ndns_constellix_endpoint = https://api.dns.constellix.com/v1"},{"id":"corenetworks","name":"Core Networks","fullPluginName":"dns-corenetworks","packageName":"certbot-dns-corenetworks","version":"~=0.1.4","credentialTemplate":"dns_corenetworks_username = asaHB12r\ndns_corenetworks_password = secure_password"},{"id":"cpanel","name":"cPanel","fullPluginName":"cpanel","packageName":"certbot-dns-cpanel","version":"~=0.4.0","credentialTemplate":"cpanel_url = https://cpanel.example.com:2083\ncpanel_username = your_username\ncpanel_password = your_password\ncpanel_token = your_api_token"},{"id":"ddnss","name":"DDNSS","fullPluginName":"dns-ddnss","packageName":"certbot-dns-ddnss","version":"~=1.1.0","credentialTemplate":"dns_ddnss_token = YOUR_DDNSS_API_TOKEN"},{"id":"desec","name":"deSEC","fullPluginName":"dns-desec","packageName":"certbot-dns-desec","version":"~=1.3.2","credentialTemplate":"dns_desec_token = YOUR_DESEC_API_TOKEN\ndns_desec_endpoint = https://desec.io/api/v1/"},{"id":"digitalocean","name":"DigitalOcean","fullPluginName":"dns-digitalocean","packageName":"certbot-dns-digitalocean","version":"=={{certbot-version}}","credentialTemplate":"dns_digitalocean_token = 0000111122223333444455556666777788889999aaaabbbbccccddddeeeeffff"},{"id":"directadmin","name":"DirectAdmin","fullPluginName":"directadmin","packageName":"certbot-dns-directadmin","version":"~=0.0.23","credentialTemplate":"directadmin_url = https://my.directadminserver.com:2222\ndirectadmin_username = username\ndirectadmin_password = aSuperStrongPassword"},{"id":"dnsimple","name":"DNSimple","fullPluginName":"dns-dnsimple","packageName":"certbot-dns-dnsimple","version":"=={{certbot-version}}","credentialTemplate":"dns_dnsimple_token = MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"},{"id":"dnsmadeeasy","name":"DNS Made Easy","fullPluginName":"dns-dnsmadeeasy","packageName":"certbot-dns-dnsmadeeasy","version":"=={{certbot-version}}","credentialTemplate":"dns_dnsmadeeasy_api_key = 1c1a3c91-4770-4ce7-96f4-54c0eb0e457a\ndns_dnsmadeeasy_secret_key = c9b5625f-9834-4ff8-baba-4ed5f32cae55"},{"id":"dnsmulti","name":"DnsMulti","fullPluginName":"dns-multi","packageName":"certbot-dns-multi","version":"~=4.9","credentialTemplate":"# See https://go-acme.github.io/lego/dns/#dns-providers for list of providers and their settings\n# Example provider configuration for DreamHost\n# dns_multi_provider = dreamhost\n# DREAMHOST_API_KEY = ABCDEFG1234"},{"id":"dnspod","name":"DNSPod","fullPluginName":"dns-dnspod","packageName":"certbot-dns-dnspod","version":"~=0.1.0","credentialTemplate":"dns_dnspod_email = \"email@example.com\"\ndns_dnspod_api_token = \"id,key\""},{"id":"domainoffensive","name":"DomainOffensive (do.de)","fullPluginName":"dns-domainoffensive","packageName":"certbot-dns-domainoffensive","version":"~=2.0.0","credentialTemplate":"dns_domainoffensive_api_token = YOUR_DO_DE_AUTH_TOKEN"},{"id":"domeneshop","name":"Domeneshop","fullPluginName":"dns-domeneshop","packageName":"certbot-dns-domeneshop","version":"~=0.2.8","credentialTemplate":"dns_domeneshop_client_token=YOUR_DOMENESHOP_CLIENT_TOKEN\ndns_domeneshop_client_secret=YOUR_DOMENESHOP_CLIENT_SECRET"},{"id":"duckdns","name":"DuckDNS","fullPluginName":"dns-duckdns","packageName":"certbot-dns-duckdns","version":"~=1.0","credentialTemplate":"dns_duckdns_token=your-duckdns-token"},{"id":"dynu","name":"Dynu","fullPluginName":"dns-dynu","packageName":"certbot-dns-dynu","version":"~=0.0.1","credentialTemplate":"dns_dynu_auth_token = YOUR_DYNU_AUTH_TOKEN"},{"id":"easydns","name":"easyDNS","fullPluginName":"dns-easydns","packageName":"certbot-dns-easydns","version":"~=0.1.2","credentialTemplate":"dns_easydns_usertoken = YOUR_EASYDNS_USERTOKEN\ndns_easydns_userkey = YOUR_EASYDNS_USERKEY\ndns_easydns_endpoint = https://rest.easydns.net"},{"id":"edgedns","name":"Akamai Edge DNS","fullPluginName":"edgedns","packageName":"certbot-plugin-edgedns","version":"~=0.1.0","credentialTemplate":"edgedns_client_secret = as3d1asd5d1a32sdfsdfs2d1asd5=\nedgedns_host = sdflskjdf-dfsdfsdf-sdfsdfsdf.luna.akamaiapis.net\nedgedns_access_token = kjdsi3-34rfsdfsdf-234234fsdfsdf\nedgedns_client_token = dkfjdf-342fsdfsd-23fsdfsdfsdf"},{"id":"eurodns","name":"EuroDNS","fullPluginName":"dns-eurodns","packageName":"certbot-dns-eurodns","version":"~=1.8.2","credentialTemplate":"dns_eurodns_applicationId = myuser\ndns_eurodns_apiKey = mysecretpassword\ndns_eurodns_endpoint = https://rest-api.eurodns.com/dns-zones/"},{"id":"firstdomains","name":"First Domains","fullPluginName":"dns-firstdomains","packageName":"certbot-dns-firstdomains","version":">=1.0","credentialTemplate":"dns_firstdomains_username = myremoteuser\ndns_firstdomains_password = verysecureremoteuserpassword"},{"id":"freedns","name":"FreeDNS","fullPluginName":"dns-freedns","packageName":"certbot-dns-freedns","version":"~=0.1.0","credentialTemplate":"dns_freedns_username = myremoteuser\ndns_freedns_password = verysecureremoteuserpassword"},{"id":"gandi","name":"Gandi Live DNS","fullPluginName":"dns-gandi","packageName":"certbot-dns-gandi","version":"~=1.6.1","credentialTemplate":"# Gandi personal access token\ndns_gandi_token=PERSONAL_ACCESS_TOKEN"},{"id":"gcore","name":"Gcore DNS","fullPluginName":"dns-gcore","packageName":"certbot-dns-gcore","version":"~=0.1.8","credentialTemplate":"dns_gcore_apitoken = 0123456789abcdef0123456789abcdef01234567"},{"id":"glesys","name":"Glesys","fullPluginName":"dns-glesys","packageName":"certbot-dns-glesys","version":"~=2.1.0","credentialTemplate":"dns_glesys_user = CL00000\ndns_glesys_password = apikeyvalue"},{"id":"godaddy","name":"GoDaddy","fullPluginName":"dns-godaddy","packageName":"certbot-dns-godaddy","version":"==2.8.0","credentialTemplate":"dns_godaddy_secret = 0123456789abcdef0123456789abcdef01234567\ndns_godaddy_key = abcdef0123456789abcdef01234567abcdef0123"},{"id":"google","name":"Google","fullPluginName":"dns-google","packageName":"certbot-dns-google","version":"=={{certbot-version}}","credentialTemplate":"{\n\"type\": \"service_account\",\n...\n}"},{"id":"googledomains","name":"GoogleDomainsDNS","fullPluginName":"dns-google-domains","packageName":"certbot-dns-google-domains","version":"~=0.1.5","credentialTemplate":"dns_google_domains_access_token = 0123456789abcdef0123456789abcdef01234567\ndns_google_domains_zone = \"example.com\""},{"id":"he","name":"Hurricane Electric","fullPluginName":"dns-he","packageName":"certbot-dns-he","version":"~=1.0.0","credentialTemplate":"dns_he_user = Me\ndns_he_pass = my HE password"},{"id":"he-ddns","name":"Hurricane Electric - DDNS","fullPluginName":"dns-he-ddns","packageName":"certbot-dns-he-ddns","version":"~=0.1.0","credentialTemplate":"dns_he_ddns_password = verysecurepassword"},{"id":"hetzner","name":"Hetzner","fullPluginName":"dns-hetzner","packageName":"certbot-dns-hetzner","version":"~=1.0.4","credentialTemplate":"dns_hetzner_api_token = 0123456789abcdef0123456789abcdef"},{"id":"hetzner-cloud","name":"Hetzner Cloud","fullPluginName":"dns-hetzner-cloud","packageName":"certbot-dns-hetzner-cloud","version":"~=1.0.4","credentialTemplate":"dns_hetzner_cloud_api_token = your_api_token_here"},{"id":"hostinger","name":"Hostinger.com","fullPluginName":"dns-hostinger","packageName":"certbot-dns-hostinger","version":"~=0.1.3","credentialTemplate":"dns_hostinger_api_token = 0123456789abcdef0123456789abcdef"},{"id":"hostingnl","name":"Hosting.nl","fullPluginName":"dns-hostingnl","packageName":"certbot-dns-hostingnl","version":"~=0.1.5","credentialTemplate":"dns_hostingnl_api_key = 0123456789abcdef0123456789abcdef"},{"id":"hover","name":"Hover","fullPluginName":"dns-hover","packageName":"certbot-dns-hover","version":"~=1.2.1","credentialTemplate":"dns_hover_hoverurl = https://www.hover.com\ndns_hover_username = hover-admin-username\ndns_hover_password = hover-admin-password\ndns_hover_totpsecret = 2fa-totp-secret"},{"id":"hosterby","name":"hoster.by","fullPluginName":"dns-hosterby","packageName":"certbot-dns-hosterby","version":"~=0.1.0","credentialTemplate":"dns_hosterby_access_key = YOUR_ACCESS_KEY\ndns_hosterby_secret_key = YOUR_SECRET_KEY"},{"id":"infomaniak","name":"Infomaniak","fullPluginName":"dns-infomaniak","packageName":"certbot-dns-infomaniak","version":"~=0.2.2","credentialTemplate":"dns_infomaniak_token = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"},{"id":"inwx","name":"INWX","fullPluginName":"dns-inwx","packageName":"certbot-dns-inwx","version":"~=2.1.2","credentialTemplate":"dns_inwx_url = https://api.domrobot.com/xmlrpc/\ndns_inwx_username = your_username\ndns_inwx_password = your_password\ndns_inwx_shared_secret = your_shared_secret optional"},{"id":"ionos","name":"IONOS","fullPluginName":"dns-ionos","packageName":"certbot-dns-ionos","version":"==2022.11.24","credentialTemplate":"dns_ionos_prefix = myapikeyprefix\ndns_ionos_secret = verysecureapikeysecret\ndns_ionos_endpoint = https://api.hosting.ionos.com"},{"id":"ispconfig","name":"ISPConfig","fullPluginName":"dns-ispconfig","packageName":"certbot-dns-ispconfig","version":"~=0.2.0","credentialTemplate":"dns_ispconfig_username = myremoteuser\ndns_ispconfig_password = verysecureremoteuserpassword\ndns_ispconfig_endpoint = https://localhost:8080"},{"id":"isset","name":"Isset","fullPluginName":"dns-isset","packageName":"certbot-dns-isset","version":"~=0.0.3","credentialTemplate":"dns_isset_endpoint=\"https://customer.isset.net/api\"\ndns_isset_token=\"<token>\""},{"id":"joker","name":"Joker","fullPluginName":"dns-joker","packageName":"certbot-dns-joker","version":"~=1.1.0","credentialTemplate":"dns_joker_username = <Dynamic DNS Authentication Username>\ndns_joker_password = <Dynamic DNS Authentication Password>\ndns_joker_domain = <Dynamic DNS Domain>"},{"id":"kas","name":"All-Inkl","fullPluginName":"dns-kas","packageName":"certbot-dns-kas","version":"~=0.1.1","credentialTemplate":"dns_kas_user = your_kas_user\ndns_kas_password = your_kas_password"},{"id":"leaseweb","name":"LeaseWeb","fullPluginName":"dns-leaseweb","packageName":"certbot-dns-leaseweb","version":"~=1.0.3","credentialTemplate":"dns_leaseweb_api_token = 01234556789"},{"id":"linode","name":"Linode","fullPluginName":"dns-linode","packageName":"certbot-dns-linode","version":"=={{certbot-version}}","credentialTemplate":"dns_linode_key = 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ64\ndns_linode_version = [<blank>|3|4]"},{"id":"loopia","name":"Loopia","fullPluginName":"dns-loopia","packageName":"certbot-dns-loopia","version":"~=1.0.0","credentialTemplate":"dns_loopia_user = user@loopiaapi\ndns_loopia_password = abcdef0123456789abcdef01234567abcdef0123"},{"id":"luadns","name":"LuaDNS","fullPluginName":"dns-luadns","packageName":"certbot-dns-luadns","version":"=={{certbot-version}}","credentialTemplate":"dns_luadns_email = user@example.com\ndns_luadns_token = 0123456789abcdef0123456789abcdef"},{"id":"mchost24","name":"MC-HOST24","fullPluginName":"dns-mchost24","packageName":"certbot-dns-mchost24","version":"","credentialTemplate":"# Obtain API token using https://github.com/JoeJoeTV/mchost24-api-python\ndns_mchost24_api_token=<insert obtained API token here>"},{"id":"mijnhost","name":"mijn.host","fullPluginName":"dns-mijn-host","packageName":"certbot-dns-mijn-host","version":"~=0.0.4","credentialTemplate":"dns_mijn_host_api_key=0123456789abcdef0123456789abcdef"},{"id":"namecheap","name":"Namecheap","fullPluginName":"dns-namecheap","packageName":"certbot-dns-namecheap","version":"~=1.0.0","credentialTemplate":"dns_namecheap_username  = 123456\ndns_namecheap_api_key      = 0123456789abcdef0123456789abcdef01234567"},{"id":"namecom","name":"Name.com","fullPluginName":"dns-namecom","packageName":"certbot-dns-namecom","version":"~=1.0.0","credentialTemplate":"dns_namecom_username = myusername\ndns_namecom_token = 0123456789abcdef0123456789abcdef01234567"},{"id":"netcup","name":"netcup","fullPluginName":"dns-netcup","packageName":"certbot-dns-netcup","version":"~=1.0.0","credentialTemplate":"dns_netcup_customer_id  = 123456\ndns_netcup_api_key      = 0123456789abcdef0123456789abcdef01234567\ndns_netcup_api_password = abcdef0123456789abcdef01234567abcdef0123"},{"id":"nicru","name":"nic.ru","fullPluginName":"dns-nicru","packageName":"certbot-dns-nicru","version":"~=1.0.3","credentialTemplate":"dns_nicru_client_id = application-id\ndns_nicru_client_secret = application-token\ndns_nicru_username = 0001110/NIC-D\ndns_nicru_password = password\ndns_nicru_scope = .+:.+/zones/example.com(/.+)?\ndns_nicru_service = DNS_SERVICE_NAME\ndns_nicru_zone = example.com"},{"id":"njalla","name":"Njalla","fullPluginName":"dns-njalla","packageName":"certbot-dns-njalla","version":"~=1.0.0","credentialTemplate":"dns_njalla_token = 0123456789abcdef0123456789abcdef01234567"},{"id":"nsone","name":"NS1","fullPluginName":"dns-nsone","packageName":"certbot-dns-nsone","version":"=={{certbot-version}}","credentialTemplate":"dns_nsone_api_key = MDAwMDAwMDAwMDAwMDAw"},{"id":"oci","name":"Oracle Cloud Infrastructure DNS","fullPluginName":"dns-oci","packageName":"certbot-dns-oci","version":"~=0.3.6","credentialTemplate":"[DEFAULT]\nuser = ocid1.user.oc1...\nfingerprint = xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx\ntenancy = ocid1.tenancy.oc1...\nregion = us-ashburn-1\nkey_file = ~/.oci/oci_api_key.pem"},{"id":"ovh","name":"OVH","fullPluginName":"dns-ovh","packageName":"certbot-dns-ovh","version":"=={{certbot-version}}","credentialTemplate":"dns_ovh_endpoint = ovh-eu\ndns_ovh_application_key = MDAwMDAwMDAwMDAw\ndns_ovh_application_secret = MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw\ndns_ovh_consumer_key = MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"},{"id":"plesk","name":"Plesk","fullPluginName":"dns-plesk","packageName":"certbot-dns-plesk","version":"~=0.3.0","credentialTemplate":"dns_plesk_username = your-username\ndns_plesk_password = secret\ndns_plesk_api_url = https://plesk-api-host:8443"},{"id":"porkbun","name":"Porkbun","fullPluginName":"dns-porkbun","packageName":"certbot-dns-porkbun","version":"~=0.11.0","credentialTemplate":"dns_porkbun_key=your-porkbun-api-key\ndns_porkbun_secret=your-porkbun-api-secret"},{"id":"powerdns","name":"PowerDNS","fullPluginName":"dns-powerdns","packageName":"certbot-dns-powerdns","version":"~=0.2.1","credentialTemplate":"dns_powerdns_api_url = https://api.mypowerdns.example.org\ndns_powerdns_api_key = AbCbASsd!@34"},{"id":"regru","name":"reg.ru","fullPluginName":"dns","packageName":"certbot-regru","version":"~=1.0.2","credentialTemplate":"dns_username=username\ndns_password=password"},{"id":"rfc2136","name":"RFC 2136","fullPluginName":"dns-rfc2136","packageName":"certbot-dns-rfc2136","version":"=={{certbot-version}}","credentialTemplate":"# Target DNS server\ndns_rfc2136_server = 192.0.2.1\n# Target DNS port\ndns_rfc2136_port = 53\n# TSIG key name\ndns_rfc2136_name = keyname.\n# TSIG key secret\ndns_rfc2136_secret = 4q4wM/2I180UXoMyN4INVhJNi8V9BCV+jMw2mXgZw/CSuxUT8C7NKKFs AmKd7ak51vWKgSl12ib86oQRPkpDjg==\n# TSIG key algorithm\ndns_rfc2136_algorithm = HMAC-SHA512"},{"id":"rockenstein","name":"rockenstein AG","fullPluginName":"dns-rockenstein","packageName":"certbot-dns-rockenstein","version":"~=1.0.0","credentialTemplate":"dns_rockenstein_token=<token>"},{"id":"route53","name":"Route 53 (Amazon)","fullPluginName":"dns-route53","packageName":"certbot-dns-route53","version":"=={{certbot-version}}","credentialTemplate":"[default]\naws_access_key_id=AWS_ACCESS_KEY_ID_EXAMPLE\naws_secret_access_key=AWS_SECRET_ACCESS_KEY_EXAMPLE"},{"id":"selectelv2","name":"Selectel api v2","fullPluginName":"dns-selectel-api-v2","packageName":"certbot-dns-selectel-api-v2","version":"~=0.3.0","credentialTemplate":"dns_selectel_api_v2_account_id = your_account_id\ndns_selectel_api_v2_project_name = your_project\ndns_selectel_api_v2_username = your_username\ndns_selectel_api_v2_password = your_password"},{"id":"simply","name":"Simply","fullPluginName":"dns-simply","packageName":"certbot-dns-simply","version":"~=0.1.2","credentialTemplate":"dns_simply_account_name = UExxxxxx\ndns_simply_api_key = DsHJdsjh2812872sahj"},{"id":"spaceship","name":"Spaceship","fullPluginName":"dns-spaceship","packageName":"certbot-dns-spaceship","version":"~=1.0.4","credentialTemplate":"[spaceship]\napi_key=your_api_key\napi_secret=your_api_secret"},{"id":"strato","name":"Strato","fullPluginName":"dns-strato","packageName":"certbot-dns-strato","version":"~=0.2.2","credentialTemplate":"dns_strato_username = user\ndns_strato_password = pass\n# uncomment if youre using two factor authentication:\n# dns_strato_totp_devicename = 2fa_device\n# dns_strato_totp_secret = 2fa_secret\n#\n# uncomment if domain name contains special characters\n# insert domain display name as seen on your account page here\n# dns_strato_domain_display_name = my-punicode-url.de\n#\n# if youre not using strato.de or another special endpoint you can customise it below\n# you will probably only need to adjust the host, but you can also change the complete endpoint url\n# dns_strato_custom_api_scheme = https\n# dns_strato_custom_api_host = www.strato.de\n# dns_strato_custom_api_port = 443\n# dns_strato_custom_api_path = \"/apps/CustomerService\""},{"id":"tencentcloud","name":"Tencent Cloud","fullPluginName":"dns-tencentcloud","packageName":"certbot-dns-tencentcloud","version":"~=2.0.2","credentialTemplate":"dns_tencentcloud_secret_id  = TENCENT_CLOUD_SECRET_ID\ndns_tencentcloud_secret_key = TENCENT_CLOUD_SECRET_KEY"},{"id":"timeweb","name":"Timeweb Cloud","fullPluginName":"dns-timeweb","packageName":"certbot-dns-timeweb","version":"~=1.0.1","credentialTemplate":"dns_timeweb_api_key = XXXXXXXXXXXXXXXXXXX"},{"id":"transip","name":"TransIP","fullPluginName":"dns-transip","packageName":"certbot-dns-transip","version":"~=0.5.2","credentialTemplate":"dns_transip_username = my_username\ndns_transip_key_file = /etc/letsencrypt/transip-rsa.key"},{"id":"vultr","name":"Vultr","fullPluginName":"dns-vultr","packageName":"certbot-dns-vultr","version":"~=1.1.0","credentialTemplate":"dns_vultr_key = YOUR_VULTR_API_KEY"},{"id":"websupport","name":"Websupport.sk","fullPluginName":"dns-websupport","packageName":"certbot-dns-websupport","version":"~=2.0.1","credentialTemplate":"dns_websupport_identifier = <api_key>\ndns_websupport_secret_key = <secret>"},{"id":"wedos","name":"Wedos","fullPluginName":"dns-wedos","packageName":"certbot-dns-wedos","version":"~=2.2","credentialTemplate":"dns_wedos_user = <wedos_registration>\ndns_wedos_auth = <wapi_password>"},{"id":"zoneedit","name":"ZoneEdit","fullPluginName":"dns-zoneedit","packageName":"certbot-dns-zoneedit","version":"~=0.3.2","credentialTemplate":"dns_zoneedit_user = <login-user-id>\ndns_zoneedit_token = <dyn-authentication-token>"},{"id":"rcode0","name":"RcodeZero","fullPluginName":"dns-rcode0","packageName":"certbot-dns-rcode0","version":"~=0.0.0.2","credentialTemplate":"dns_rcode0_api_key = acme_0123456789abcdef0123456789abcdef01234567"}];
+interface LegoProviderSeed {
+  readonly id: string;
+  readonly name: string;
+  readonly credentialKeys: readonly string[];
+}
+
+const legoProviderSeeds: readonly LegoProviderSeed[] = [
+  {
+    "id": "abion",
+    "credentialKeys": [
+      "ABION_API_KEY",
+      "ABION_HTTP_TIMEOUT",
+      "ABION_POLLING_INTERVAL"
+    ],
+    "name": "Abion"
+  },
+  {
+    "id": "acmedns",
+    "credentialKeys": [
+      "ACME_DNS_STORAGE_BASE_URL",
+      "ACME_DNS_STORAGE_PATH"
+    ],
+    "name": "Acmedns"
+  },
+  {
+    "id": "active24",
+    "credentialKeys": [
+      "ACTIVE24_SECRET"
+    ],
+    "name": "Active 24"
+  },
+  {
+    "id": "alidns",
+    "credentialKeys": [
+      "ALICLOUD_ACCESS_KEY",
+      "ALICLOUD_RAM_ROLE",
+      "ALICLOUD_SECRET_KEY",
+      "ALICLOUD_SECURITY_TOKEN"
+    ],
+    "name": "阿里云 DNS"
+  },
+  {
+    "id": "aliesa",
+    "credentialKeys": [
+      "ALIESA_RAM_ROLE",
+      "ALIESA_SECRET_KEY",
+      "ALIESA_SECURITY_TOKEN"
+    ],
+    "name": "Aliesa"
+  },
+  {
+    "id": "allinkl",
+    "credentialKeys": [
+      "ALL_INKL_PASSWORD"
+    ],
+    "name": "Allinkl"
+  },
+  {
+    "id": "alwaysdata",
+    "credentialKeys": [
+      "ALWAYSDATA_API_KEY",
+      "ALWAYSDATA_ACCOUNT",
+      "ALWAYSDATA_HTTP_TIMEOUT"
+    ],
+    "name": "Alwaysdata"
+  },
+  {
+    "id": "anexia",
+    "credentialKeys": [
+      "ANEXIA_TOKEN",
+      "ANEXIA_API_URL",
+      "ANEXIA_HTTP_TIMEOUT"
+    ],
+    "name": "Anexia"
+  },
+  {
+    "id": "artfiles",
+    "credentialKeys": [
+      "ARTFILES_USERNAME"
+    ],
+    "name": "Artfiles"
+  },
+  {
+    "id": "arvancloud",
+    "credentialKeys": [
+      "ARVANCLOUD_API_KEY",
+      "ARVANCLOUD_HTTP_TIMEOUT",
+      "ARVANCLOUD_POLLING_INTERVAL"
+    ],
+    "name": "Arvancloud"
+  },
+  {
+    "id": "auroradns",
+    "credentialKeys": [
+      "AURORA_SECRET"
+    ],
+    "name": "Auroradns"
+  },
+  {
+    "id": "autodns",
+    "credentialKeys": [
+      "AUTODNS_API_USER"
+    ],
+    "name": "Autodns"
+  },
+  {
+    "id": "axelname",
+    "credentialKeys": [
+      "AXELNAME_TOKEN"
+    ],
+    "name": "Axelname"
+  },
+  {
+    "id": "azion",
+    "credentialKeys": [
+      "AZION_PERSONAL_TOKEN",
+      "AZION_HTTP_TIMEOUT",
+      "AZION_PAGE_SIZE"
+    ],
+    "name": "Azion"
+  },
+  {
+    "id": "azuredns",
+    "credentialKeys": [
+      "AZURE_CLIENT_ID",
+      "AZURE_CLIENT_SECRET",
+      "AZURE_TENANT_ID"
+    ],
+    "name": "Azuredns"
+  },
+  {
+    "id": "baiducloud",
+    "credentialKeys": [
+      "BAIDUCLOUD_SECRET_ACCESS_KEY"
+    ],
+    "name": "百度智能云"
+  },
+  {
+    "id": "beget",
+    "credentialKeys": [
+      "BEGET_USERNAME"
+    ],
+    "name": "Beget"
+  },
+  {
+    "id": "binarylane",
+    "credentialKeys": [
+      "BINARYLANE_API_TOKEN",
+      "BINARYLANE_HTTP_TIMEOUT",
+      "BINARYLANE_POLLING_INTERVAL"
+    ],
+    "name": "Binarylane"
+  },
+  {
+    "id": "bindman",
+    "credentialKeys": [
+      "BINDMAN_MANAGER_ADDRESS",
+      "BINDMAN_HTTP_TIMEOUT",
+      "BINDMAN_POLLING_INTERVAL"
+    ],
+    "name": "Bindman"
+  },
+  {
+    "id": "bluecat",
+    "credentialKeys": [
+      "BLUECAT_DNS_VIEW",
+      "BLUECAT_PASSWORD",
+      "BLUECAT_SERVER_URL",
+      "BLUECAT_USER_NAME"
+    ],
+    "name": "Bluecat"
+  },
+  {
+    "id": "bluecatv2",
+    "credentialKeys": [
+      "BLUECATV2_PASSWORD",
+      "BLUECATV2_SERVER_URL",
+      "BLUECATV2_USERNAME",
+      "BLUECATV2_VIEW_NAME"
+    ],
+    "name": "Bluecatv 2"
+  },
+  {
+    "id": "bookmyname",
+    "credentialKeys": [
+      "BOOKMYNAME_USERNAME"
+    ],
+    "name": "Bookmyname"
+  },
+  {
+    "id": "bunny",
+    "credentialKeys": [
+      "BUNNY_API_KEY",
+      "BUNNY_HTTP_TIMEOUT",
+      "BUNNY_POLLING_INTERVAL"
+    ],
+    "name": "Bunny"
+  },
+  {
+    "id": "checkdomain",
+    "credentialKeys": [
+      "CHECKDOMAIN_TOKEN",
+      "CHECKDOMAIN_ENDPOINT",
+      "CHECKDOMAIN_HTTP_TIMEOUT"
+    ],
+    "name": "Checkdomain"
+  },
+  {
+    "id": "civo",
+    "credentialKeys": [
+      "CIVO_TOKEN",
+      "CIVO_HTTP_TIMEOUT",
+      "CIVO_POLLING_INTERVAL"
+    ],
+    "name": "Civo"
+  },
+  {
+    "id": "clouddns",
+    "credentialKeys": [
+      "CLOUDDNS_EMAIL",
+      "CLOUDDNS_PASSWORD"
+    ],
+    "name": "Clouddns"
+  },
+  {
+    "id": "cloudflare",
+    "credentialKeys": [
+      "CF_API_KEY",
+      "CF_DNS_API_TOKEN",
+      "CF_ZONE_API_TOKEN",
+      "CLOUDFLARE_API_KEY",
+      "CLOUDFLARE_DNS_API_TOKEN",
+      "CLOUDFLARE_EMAIL",
+      "CLOUDFLARE_ZONE_API_TOKEN"
+    ],
+    "name": "Cloudflare"
+  },
+  {
+    "id": "cloudns",
+    "credentialKeys": [
+      "CLOUDNS_AUTH_PASSWORD"
+    ],
+    "name": "Cloudns"
+  },
+  {
+    "id": "cloudru",
+    "credentialKeys": [
+      "CLOUDRU_SECRET",
+      "CLOUDRU_SERVICE_INSTANCE_ID"
+    ],
+    "name": "Cloudru"
+  },
+  {
+    "id": "com35",
+    "credentialKeys": [
+      "COM35_USERNAME"
+    ],
+    "name": "Com 35"
+  },
+  {
+    "id": "connbyte",
+    "credentialKeys": [
+      "CONNBYTE_TOKEN",
+      "CONNBYTE_HTTP_TIMEOUT",
+      "CONNBYTE_POLLING_INTERVAL"
+    ],
+    "name": "Connbyte"
+  },
+  {
+    "id": "conoha",
+    "credentialKeys": [
+      "CONOHA_API_USERNAME",
+      "CONOHA_TENANT_ID"
+    ],
+    "name": "Conoha"
+  },
+  {
+    "id": "conohav3",
+    "credentialKeys": [
+      "CONOHAV3_API_USER_ID",
+      "CONOHAV3_TENANT_ID"
+    ],
+    "name": "Conohav 3"
+  },
+  {
+    "id": "constellix",
+    "credentialKeys": [
+      "CONSTELLIX_SECRET_KEY"
+    ],
+    "name": "Constellix"
+  },
+  {
+    "id": "corenetworks",
+    "credentialKeys": [
+      "CORENETWORKS_PASSWORD"
+    ],
+    "name": "Corenetworks"
+  },
+  {
+    "id": "cpanel",
+    "credentialKeys": [
+      "CPANEL_TOKEN",
+      "CPANEL_USERNAME"
+    ],
+    "name": "Cpanel"
+  },
+  {
+    "id": "curanet",
+    "credentialKeys": [
+      "CURANET_API_KEY",
+      "CURANET_HTTP_TIMEOUT",
+      "CURANET_POLLING_INTERVAL"
+    ],
+    "name": "Curanet"
+  },
+  {
+    "id": "czechia",
+    "credentialKeys": [
+      "CZECHIA_TOKEN",
+      "CZECHIA_HTTP_TIMEOUT",
+      "CZECHIA_POLLING_INTERVAL"
+    ],
+    "name": "Czechia"
+  },
+  {
+    "id": "dandomain",
+    "credentialKeys": [
+      "DANDOMAIN_API_KEY",
+      "DANDOMAIN_HTTP_TIMEOUT",
+      "DANDOMAIN_POLLING_INTERVAL"
+    ],
+    "name": "Dandomain"
+  },
+  {
+    "id": "ddnss",
+    "credentialKeys": [
+      "DDNSS_KEY",
+      "DDNSS_HTTP_TIMEOUT",
+      "DDNSS_POLLING_INTERVAL"
+    ],
+    "name": "Ddnss"
+  },
+  {
+    "id": "derak",
+    "credentialKeys": [
+      "DERAK_API_KEY",
+      "DERAK_HTTP_TIMEOUT",
+      "DERAK_POLLING_INTERVAL"
+    ],
+    "name": "Derak"
+  },
+  {
+    "id": "desec",
+    "credentialKeys": [
+      "DESEC_TOKEN",
+      "DESEC_HTTP_TIMEOUT",
+      "DESEC_POLLING_INTERVAL"
+    ],
+    "name": "Desec"
+  },
+  {
+    "id": "designate",
+    "credentialKeys": [
+      "OS_APPLICATION_CREDENTIAL_NAME",
+      "OS_APPLICATION_CREDENTIAL_SECRET",
+      "OS_AUTH_URL",
+      "OS_PASSWORD",
+      "OS_PROJECT_NAME",
+      "OS_REGION_NAME",
+      "OS_USERNAME",
+      "OS_USER_ID"
+    ],
+    "name": "Designate"
+  },
+  {
+    "id": "digitalocean",
+    "credentialKeys": [
+      "DO_AUTH_TOKEN",
+      "DO_API_URL",
+      "DO_HTTP_TIMEOUT"
+    ],
+    "name": "Digitalocean"
+  },
+  {
+    "id": "dinahosting",
+    "credentialKeys": [
+      "DINAHOSTING_USERNAME"
+    ],
+    "name": "Dinahosting"
+  },
+  {
+    "id": "directadmin",
+    "credentialKeys": [
+      "DIRECTADMIN_PASSWORD",
+      "DIRECTADMIN_USERNAME"
+    ],
+    "name": "Directadmin"
+  },
+  {
+    "id": "dns51",
+    "credentialKeys": [
+      "DNS51_API_SECRET"
+    ],
+    "name": "Dns 51"
+  },
+  {
+    "id": "dnscale",
+    "credentialKeys": [
+      "DNSCALE_API_TOKEN",
+      "DNSCALE_HTTP_TIMEOUT",
+      "DNSCALE_POLLING_INTERVAL"
+    ],
+    "name": "Dnscale"
+  },
+  {
+    "id": "dnsexit",
+    "credentialKeys": [
+      "DNSEXIT_API_KEY",
+      "DNSEXIT_HTTP_TIMEOUT",
+      "DNSEXIT_POLLING_INTERVAL"
+    ],
+    "name": "Dnsexit"
+  },
+  {
+    "id": "dnshomede",
+    "credentialKeys": [
+      "DNSHOMEDE_CREDENTIALS",
+      "DNSHOMEDE_HTTP_TIMEOUT",
+      "DNSHOMEDE_POLLING_INTERVAL"
+    ],
+    "name": "Dnshomede"
+  },
+  {
+    "id": "dnsimple",
+    "credentialKeys": [
+      "DNSIMPLE_OAUTH_TOKEN",
+      "DNSIMPLE_BASE_URL",
+      "DNSIMPLE_POLLING_INTERVAL"
+    ],
+    "name": "Dnsimple"
+  },
+  {
+    "id": "dnsla",
+    "credentialKeys": [
+      "DNSLA_API_SECRET"
+    ],
+    "name": "Dnsla"
+  },
+  {
+    "id": "dnsmadeeasy",
+    "credentialKeys": [
+      "DNSMADEEASY_API_SECRET"
+    ],
+    "name": "Dnsmadeeasy"
+  },
+  {
+    "id": "dnsservices",
+    "credentialKeys": [
+      "DNSSERVICES_USERNAME"
+    ],
+    "name": "Dnsservices"
+  },
+  {
+    "id": "dnsupdate",
+    "credentialKeys": [
+      "DNSUPDATE_NAMESERVER",
+      "DNSUPDATE_DNS_TIMEOUT",
+      "DNSUPDATE_POLLING_INTERVAL"
+    ],
+    "name": "Dnsupdate"
+  },
+  {
+    "id": "dode",
+    "credentialKeys": [
+      "DODE_TOKEN",
+      "DODE_HTTP_TIMEOUT",
+      "DODE_POLLING_INTERVAL"
+    ],
+    "name": "Dode"
+  },
+  {
+    "id": "domeneshop",
+    "credentialKeys": [
+      "DOMENESHOP_API_TOKEN"
+    ],
+    "name": "Domeneshop"
+  },
+  {
+    "id": "dreamhost",
+    "credentialKeys": [
+      "DREAMHOST_API_KEY",
+      "DREAMHOST_HTTP_TIMEOUT",
+      "DREAMHOST_POLLING_INTERVAL"
+    ],
+    "name": "Dreamhost"
+  },
+  {
+    "id": "duckdns",
+    "credentialKeys": [
+      "DUCKDNS_TOKEN",
+      "DUCKDNS_HTTP_TIMEOUT",
+      "DUCKDNS_POLLING_INTERVAL"
+    ],
+    "name": "Duckdns"
+  },
+  {
+    "id": "dyn",
+    "credentialKeys": [
+      "DYN_PASSWORD",
+      "DYN_USER_NAME"
+    ],
+    "name": "Dyn"
+  },
+  {
+    "id": "dynadot",
+    "credentialKeys": [
+      "DYNADOT_API_SECRET"
+    ],
+    "name": "Dynadot"
+  },
+  {
+    "id": "dyndnsfree",
+    "credentialKeys": [
+      "DYNDNSFREE_USERNAME"
+    ],
+    "name": "Dyndnsfree"
+  },
+  {
+    "id": "dynu",
+    "credentialKeys": [
+      "DYNU_API_KEY",
+      "DYNU_HTTP_TIMEOUT",
+      "DYNU_POLLING_INTERVAL"
+    ],
+    "name": "Dynu"
+  },
+  {
+    "id": "easydns",
+    "credentialKeys": [
+      "EASYDNS_TOKEN"
+    ],
+    "name": "Easydns"
+  },
+  {
+    "id": "edgecenter",
+    "credentialKeys": [
+      "EDGECENTER_PERMANENT_API_TOKEN",
+      "EDGECENTER_HTTP_TIMEOUT",
+      "EDGECENTER_POLLING_INTERVAL"
+    ],
+    "name": "Edgecenter"
+  },
+  {
+    "id": "edgedns",
+    "credentialKeys": [
+      "AKAMAI_CLIENT_SECRET",
+      "AKAMAI_CLIENT_TOKEN",
+      "AKAMAI_EDGERC",
+      "AKAMAI_EDGERC_SECTION",
+      "AKAMAI_HOST"
+    ],
+    "name": "Edgedns"
+  },
+  {
+    "id": "edgeone",
+    "credentialKeys": [
+      "EDGEONE_SECRET_KEY"
+    ],
+    "name": "Edgeone"
+  },
+  {
+    "id": "efficientip",
+    "credentialKeys": [
+      "EFFICIENTIP_HOSTNAME",
+      "EFFICIENTIP_PASSWORD",
+      "EFFICIENTIP_USERNAME"
+    ],
+    "name": "Efficientip"
+  },
+  {
+    "id": "epik",
+    "credentialKeys": [
+      "EPIK_SIGNATURE",
+      "EPIK_HTTP_TIMEOUT",
+      "EPIK_POLLING_INTERVAL"
+    ],
+    "name": "Epik"
+  },
+  {
+    "id": "eurodns",
+    "credentialKeys": [
+      "EURODNS_APP_ID"
+    ],
+    "name": "Eurodns"
+  },
+  {
+    "id": "euserv",
+    "credentialKeys": [
+      "EUSERV_ORDER_ID",
+      "EUSERV_PASSWORD"
+    ],
+    "name": "Euserv"
+  },
+  {
+    "id": "excedo",
+    "credentialKeys": [
+      "EXCEDO_API_URL"
+    ],
+    "name": "Excedo"
+  },
+  {
+    "id": "exec",
+    "credentialKeys": [],
+    "name": "Exec"
+  },
+  {
+    "id": "exoscale",
+    "credentialKeys": [
+      "EXOSCALE_API_SECRET"
+    ],
+    "name": "Exoscale"
+  },
+  {
+    "id": "f5xc",
+    "credentialKeys": [
+      "F5XC_GROUP_NAME",
+      "F5XC_TENANT_NAME"
+    ],
+    "name": "F 5xc"
+  },
+  {
+    "id": "fornex",
+    "credentialKeys": [
+      "FORNEX_API_KEY",
+      "FORNEX_HTTP_TIMEOUT",
+      "FORNEX_POLLING_INTERVAL"
+    ],
+    "name": "Fornex"
+  },
+  {
+    "id": "freemyip",
+    "credentialKeys": [
+      "FREEMYIP_TOKEN",
+      "FREEMYIP_HTTP_TIMEOUT",
+      "FREEMYIP_POLLING_INTERVAL"
+    ],
+    "name": "Freemyip"
+  },
+  {
+    "id": "gandi",
+    "credentialKeys": [
+      "GANDI_API_KEY",
+      "GANDI_HTTP_TIMEOUT",
+      "GANDI_POLLING_INTERVAL"
+    ],
+    "name": "Gandi"
+  },
+  {
+    "id": "gandiv5",
+    "credentialKeys": [
+      "GANDIV5_PERSONAL_ACCESS_TOKEN"
+    ],
+    "name": "Gandiv 5"
+  },
+  {
+    "id": "gcloud",
+    "credentialKeys": [
+      "GCE_PROJECT",
+      "GCE_SERVICE_ACCOUNT",
+      "GCE_SERVICE_ACCOUNT_FILE"
+    ],
+    "name": "Gcloud"
+  },
+  {
+    "id": "gcore",
+    "credentialKeys": [
+      "GCORE_PERMANENT_API_TOKEN",
+      "GCORE_HTTP_TIMEOUT",
+      "GCORE_POLLING_INTERVAL"
+    ],
+    "name": "Gcore"
+  },
+  {
+    "id": "gehirn",
+    "credentialKeys": [
+      "GEHIRN_TOKEN_SECRET"
+    ],
+    "name": "Gehirn"
+  },
+  {
+    "id": "gigahostno",
+    "credentialKeys": [
+      "GIGAHOSTNO_PASSWORD",
+      "GIGAHOSTNO_USERNAME"
+    ],
+    "name": "Gigahostno"
+  },
+  {
+    "id": "glesys",
+    "credentialKeys": [
+      "GLESYS_API_USER"
+    ],
+    "name": "Glesys"
+  },
+  {
+    "id": "gname",
+    "credentialKeys": [
+      "GNAME_APP_KEY"
+    ],
+    "name": "Gname"
+  },
+  {
+    "id": "godaddy",
+    "credentialKeys": [
+      "GODADDY_API_SECRET"
+    ],
+    "name": "Godaddy"
+  },
+  {
+    "id": "gravity",
+    "credentialKeys": [
+      "GRAVITY_SERVER_URL",
+      "GRAVITY_USERNAME"
+    ],
+    "name": "Gravity"
+  },
+  {
+    "id": "hetzner",
+    "credentialKeys": [
+      "HETZNER_API_TOKEN",
+      "HETZNER_HTTP_TIMEOUT",
+      "HETZNER_POLLING_INTERVAL"
+    ],
+    "name": "Hetzner"
+  },
+  {
+    "id": "hostingde",
+    "credentialKeys": [
+      "HOSTINGDE_API_KEY",
+      "HOSTINGDE_HTTP_TIMEOUT",
+      "HOSTINGDE_POLLING_INTERVAL"
+    ],
+    "name": "Hostingde"
+  },
+  {
+    "id": "hostinger",
+    "credentialKeys": [
+      "HOSTINGER_API_TOKEN",
+      "HOSTINGER_HTTP_TIMEOUT",
+      "HOSTINGER_POLLING_INTERVAL"
+    ],
+    "name": "Hostinger"
+  },
+  {
+    "id": "hostingnl",
+    "credentialKeys": [
+      "HOSTINGNL_API_KEY",
+      "HOSTINGNL_HTTP_TIMEOUT",
+      "HOSTINGNL_POLLING_INTERVAL"
+    ],
+    "name": "Hostingnl"
+  },
+  {
+    "id": "hosttech",
+    "credentialKeys": [
+      "HOSTTECH_PASSWORD"
+    ],
+    "name": "Hosttech"
+  },
+  {
+    "id": "hostup",
+    "credentialKeys": [
+      "HOSTUP_API_KEY",
+      "HOSTUP_HTTP_TIMEOUT",
+      "HOSTUP_POLLING_INTERVAL"
+    ],
+    "name": "Hostup"
+  },
+  {
+    "id": "httpnet",
+    "credentialKeys": [
+      "HTTPNET_API_KEY",
+      "HTTPNET_HTTP_TIMEOUT",
+      "HTTPNET_POLLING_INTERVAL"
+    ],
+    "name": "Httpnet"
+  },
+  {
+    "id": "httpreq",
+    "credentialKeys": [
+      "HTTPREQ_MODE"
+    ],
+    "name": "Httpreq"
+  },
+  {
+    "id": "huaweicloud",
+    "credentialKeys": [
+      "HUAWEICLOUD_REGION",
+      "HUAWEICLOUD_SECRET_ACCESS_KEY"
+    ],
+    "name": "Huaweicloud"
+  },
+  {
+    "id": "hurricane",
+    "credentialKeys": [
+      "HURRICANE_TOKENS",
+      "HURRICANE_HTTP_TIMEOUT",
+      "HURRICANE_POLLING_INTERVAL"
+    ],
+    "name": "Hurricane"
+  },
+  {
+    "id": "hyperone",
+    "credentialKeys": [
+      "HYPERONE_API_URL",
+      "HYPERONE_HTTP_TIMEOUT",
+      "HYPERONE_LOCATION_ID"
+    ],
+    "name": "Hyperone"
+  },
+  {
+    "id": "ibmcloud",
+    "credentialKeys": [
+      "SOFTLAYER_USERNAME"
+    ],
+    "name": "Ibmcloud"
+  },
+  {
+    "id": "iijdpf",
+    "credentialKeys": [
+      "IIJ_DPF_DPM_SERVICE_CODE"
+    ],
+    "name": "Iijdpf"
+  },
+  {
+    "id": "infoblox",
+    "credentialKeys": [
+      "INFOBLOX_PASSWORD",
+      "INFOBLOX_USERNAME"
+    ],
+    "name": "Infoblox"
+  },
+  {
+    "id": "infomaniak",
+    "credentialKeys": [
+      "INFOMANIAK_ACCESS_TOKEN",
+      "INFOMANIAK_ENDPOINT",
+      "INFOMANIAK_HTTP_TIMEOUT"
+    ],
+    "name": "Infomaniak"
+  },
+  {
+    "id": "internetbs",
+    "credentialKeys": [
+      "INTERNET_BS_PASSWORD"
+    ],
+    "name": "Internetbs"
+  },
+  {
+    "id": "inwx",
+    "credentialKeys": [
+      "INWX_USERNAME"
+    ],
+    "name": "Inwx"
+  },
+  {
+    "id": "ionos",
+    "credentialKeys": [
+      "IONOS_API_KEY",
+      "IONOS_HTTP_TIMEOUT",
+      "IONOS_POLLING_INTERVAL"
+    ],
+    "name": "Ionos"
+  },
+  {
+    "id": "ionoscloud",
+    "credentialKeys": [
+      "IONOSCLOUD_API_TOKEN",
+      "IONOSCLOUD_HTTP_TIMEOUT",
+      "IONOSCLOUD_POLLING_INTERVAL"
+    ],
+    "name": "Ionoscloud"
+  },
+  {
+    "id": "ipv64",
+    "credentialKeys": [
+      "IPV64_API_KEY",
+      "IPV64_HTTP_TIMEOUT",
+      "IPV64_POLLING_INTERVAL"
+    ],
+    "name": "Ipv 64"
+  },
+  {
+    "id": "ispconfig",
+    "credentialKeys": [
+      "ISPCONFIG_SERVER_URL",
+      "ISPCONFIG_USERNAME"
+    ],
+    "name": "Ispconfig"
+  },
+  {
+    "id": "ispconfigddns",
+    "credentialKeys": [
+      "ISPCONFIG_DDNS_TOKEN"
+    ],
+    "name": "Ispconfigddns"
+  },
+  {
+    "id": "jdcloud",
+    "credentialKeys": [
+      "JDCLOUD_ACCESS_KEY_SECRET"
+    ],
+    "name": "Jdcloud"
+  },
+  {
+    "id": "joker",
+    "credentialKeys": [
+      "JOKER_API_MODE",
+      "JOKER_PASSWORD",
+      "JOKER_USERNAME"
+    ],
+    "name": "Joker"
+  },
+  {
+    "id": "katapult",
+    "credentialKeys": [
+      "KATAPULT_API_KEY",
+      "KATAPULT_HTTP_TIMEOUT",
+      "KATAPULT_POLLING_INTERVAL"
+    ],
+    "name": "Katapult"
+  },
+  {
+    "id": "keyhelp",
+    "credentialKeys": [
+      "KEYHELP_BASE_URL"
+    ],
+    "name": "Keyhelp"
+  },
+  {
+    "id": "leaseweb",
+    "credentialKeys": [
+      "LEASEWEB_API_KEY",
+      "LEASEWEB_HTTP_TIMEOUT",
+      "LEASEWEB_POLLING_INTERVAL"
+    ],
+    "name": "Leaseweb"
+  },
+  {
+    "id": "liara",
+    "credentialKeys": [
+      "LIARA_API_KEY",
+      "LIARA_HTTP_TIMEOUT",
+      "LIARA_POLLING_INTERVAL"
+    ],
+    "name": "Liara"
+  },
+  {
+    "id": "lightsail",
+    "credentialKeys": [
+      "AWS_SECRET_ACCESS_KEY",
+      "DNS_ZONE"
+    ],
+    "name": "Lightsail"
+  },
+  {
+    "id": "limacity",
+    "credentialKeys": [
+      "LIMACITY_API_KEY",
+      "LIMACITY_HTTP_TIMEOUT",
+      "LIMACITY_POLLING_INTERVAL"
+    ],
+    "name": "Limacity"
+  },
+  {
+    "id": "linode",
+    "credentialKeys": [
+      "LINODE_TOKEN",
+      "LINODE_HTTP_TIMEOUT",
+      "LINODE_POLLING_INTERVAL"
+    ],
+    "name": "Linode"
+  },
+  {
+    "id": "liquidweb",
+    "credentialKeys": [
+      "LWAPI_USERNAME"
+    ],
+    "name": "Liquidweb"
+  },
+  {
+    "id": "loopia",
+    "credentialKeys": [
+      "LOOPIA_API_USER"
+    ],
+    "name": "Loopia"
+  },
+  {
+    "id": "luadns",
+    "credentialKeys": [
+      "LUADNS_API_USERNAME"
+    ],
+    "name": "Luadns"
+  },
+  {
+    "id": "mailinabox",
+    "credentialKeys": [
+      "MAILINABOX_EMAIL",
+      "MAILINABOX_PASSWORD"
+    ],
+    "name": "Mailinabox"
+  },
+  {
+    "id": "manageengine",
+    "credentialKeys": [
+      "MANAGEENGINE_CLIENT_SECRET"
+    ],
+    "name": "Manageengine"
+  },
+  {
+    "id": "manual",
+    "credentialKeys": [
+      "MANUAL_POLLING_INTERVAL",
+      "MANUAL_PROPAGATION_TIMEOUT"
+    ],
+    "name": "Manual"
+  },
+  {
+    "id": "metaname",
+    "credentialKeys": [
+      "METANAME_API_KEY"
+    ],
+    "name": "Metaname"
+  },
+  {
+    "id": "metaregistrar",
+    "credentialKeys": [
+      "METAREGISTRAR_API_TOKEN",
+      "METAREGISTRAR_HTTP_TIMEOUT",
+      "METAREGISTRAR_POLLING_INTERVAL"
+    ],
+    "name": "Metaregistrar"
+  },
+  {
+    "id": "mijnhost",
+    "credentialKeys": [
+      "MIJNHOST_API_KEY",
+      "MIJNHOST_HTTP_TIMEOUT",
+      "MIJNHOST_POLLING_INTERVAL"
+    ],
+    "name": "Mijnhost"
+  },
+  {
+    "id": "mittwald",
+    "credentialKeys": [
+      "MITTWALD_TOKEN",
+      "MITTWALD_HTTP_TIMEOUT",
+      "MITTWALD_POLLING_INTERVAL"
+    ],
+    "name": "Mittwald"
+  },
+  {
+    "id": "myaddr",
+    "credentialKeys": [
+      "MYADDR_PRIVATE_KEYS_MAPPING",
+      "MYADDR_HTTP_TIMEOUT",
+      "MYADDR_POLLING_INTERVAL"
+    ],
+    "name": "Myaddr"
+  },
+  {
+    "id": "mydnsjp",
+    "credentialKeys": [
+      "MYDNSJP_PASSWORD"
+    ],
+    "name": "Mydnsjp"
+  },
+  {
+    "id": "mythicbeasts",
+    "credentialKeys": [
+      "MYTHICBEASTS_USERNAME"
+    ],
+    "name": "Mythicbeasts"
+  },
+  {
+    "id": "namecheap",
+    "credentialKeys": [
+      "NAMECHEAP_API_USER"
+    ],
+    "name": "Namecheap"
+  },
+  {
+    "id": "namedotcom",
+    "credentialKeys": [
+      "NAMECOM_USERNAME"
+    ],
+    "name": "Name.com"
+  },
+  {
+    "id": "namesilo",
+    "credentialKeys": [
+      "NAMESILO_API_KEY",
+      "NAMESILO_POLLING_INTERVAL",
+      "NAMESILO_PROPAGATION_TIMEOUT"
+    ],
+    "name": "Namesilo"
+  },
+  {
+    "id": "namesurfer",
+    "credentialKeys": [
+      "NAMESURFER_API_SECRET",
+      "NAMESURFER_BASE_URL"
+    ],
+    "name": "Namesurfer"
+  },
+  {
+    "id": "nearlyfreespeech",
+    "credentialKeys": [
+      "NEARLYFREESPEECH_LOGIN"
+    ],
+    "name": "Nearlyfreespeech"
+  },
+  {
+    "id": "nederhost",
+    "credentialKeys": [
+      "NEDERHOST_API_KEY",
+      "NEDERHOST_HTTP_TIMEOUT",
+      "NEDERHOST_POLLING_INTERVAL"
+    ],
+    "name": "Nederhost"
+  },
+  {
+    "id": "neodigit",
+    "credentialKeys": [
+      "NEODIGIT_TOKEN",
+      "NEODIGIT_HTTP_TIMEOUT",
+      "NEODIGIT_POLLING_INTERVAL"
+    ],
+    "name": "Neodigit"
+  },
+  {
+    "id": "netcup",
+    "credentialKeys": [
+      "NETCUP_API_PASSWORD",
+      "NETCUP_CUSTOMER_NUMBER"
+    ],
+    "name": "Netcup"
+  },
+  {
+    "id": "netlify",
+    "credentialKeys": [
+      "NETLIFY_TOKEN",
+      "NETLIFY_HTTP_TIMEOUT",
+      "NETLIFY_POLLING_INTERVAL"
+    ],
+    "name": "Netlify"
+  },
+  {
+    "id": "netnod",
+    "credentialKeys": [
+      "NETNOD_TOKEN",
+      "NETNOD_HTTP_TIMEOUT",
+      "NETNOD_POLLING_INTERVAL"
+    ],
+    "name": "Netnod"
+  },
+  {
+    "id": "nexdns",
+    "credentialKeys": [
+      "NEXDNS_API_TOKEN",
+      "NEXDNS_HTTP_TIMEOUT",
+      "NEXDNS_POLLING_INTERVAL"
+    ],
+    "name": "Nexdns"
+  },
+  {
+    "id": "ngenix",
+    "credentialKeys": [
+      "NGENIX_TOKEN",
+      "NGENIX_USERNAME"
+    ],
+    "name": "Ngenix"
+  },
+  {
+    "id": "nicmanager",
+    "credentialKeys": [
+      "NICMANAGER_API_LOGIN",
+      "NICMANAGER_API_PASSWORD",
+      "NICMANAGER_API_USERNAME"
+    ],
+    "name": "Nicmanager"
+  },
+  {
+    "id": "nicru",
+    "credentialKeys": [
+      "NICRU_SECRET",
+      "NICRU_SERVICE_ID",
+      "NICRU_USER"
+    ],
+    "name": "Nicru"
+  },
+  {
+    "id": "nifcloud",
+    "credentialKeys": [
+      "NIFCLOUD_SECRET_ACCESS_KEY"
+    ],
+    "name": "Nifcloud"
+  },
+  {
+    "id": "njalla",
+    "credentialKeys": [
+      "NJALLA_TOKEN",
+      "NJALLA_HTTP_TIMEOUT",
+      "NJALLA_POLLING_INTERVAL"
+    ],
+    "name": "Njalla"
+  },
+  {
+    "id": "nodion",
+    "credentialKeys": [
+      "NODION_API_TOKEN",
+      "NODION_HTTP_TIMEOUT",
+      "NODION_POLLING_INTERVAL"
+    ],
+    "name": "Nodion"
+  },
+  {
+    "id": "ns1",
+    "credentialKeys": [
+      "NS1_API_KEY",
+      "NS1_HTTP_TIMEOUT",
+      "NS1_POLLING_INTERVAL"
+    ],
+    "name": "NS1"
+  },
+  {
+    "id": "octenium",
+    "credentialKeys": [
+      "OCTENIUM_API_KEY",
+      "OCTENIUM_HTTP_TIMEOUT",
+      "OCTENIUM_POLLING_INTERVAL"
+    ],
+    "name": "Octenium"
+  },
+  {
+    "id": "omglol",
+    "credentialKeys": [
+      "OMGLOL_API_KEY",
+      "OMGLOL_HTTP_TIMEOUT",
+      "OMGLOL_POLLING_INTERVAL"
+    ],
+    "name": "Omglol"
+  },
+  {
+    "id": "onecloudru",
+    "credentialKeys": [
+      "ONECLOUDRU_TOKEN",
+      "ONECLOUDRU_HTTP_TIMEOUT",
+      "ONECLOUDRU_POLLING_INTERVAL"
+    ],
+    "name": "Onecloudru"
+  },
+  {
+    "id": "onlinenet",
+    "credentialKeys": [
+      "ONLINENET_API_TOKEN",
+      "ONLINENET_HTTP_TIMEOUT",
+      "ONLINENET_POLLING_INTERVAL"
+    ],
+    "name": "Onlinenet"
+  },
+  {
+    "id": "openprovider",
+    "credentialKeys": [
+      "OPENPROVIDER_USERNAME"
+    ],
+    "name": "Openprovider"
+  },
+  {
+    "id": "opusdns",
+    "credentialKeys": [
+      "OPUSDNS_API_KEY",
+      "OPUSDNS_HTTP_TIMEOUT",
+      "OPUSDNS_POLLING_INTERVAL"
+    ],
+    "name": "Opusdns"
+  },
+  {
+    "id": "oraclecloud",
+    "credentialKeys": [
+      "OCI_FINGERPRINT",
+      "OCI_PRIVATE_KEY_PASSWORD",
+      "OCI_PRIVATE_KEY_PATH",
+      "OCI_REGION",
+      "OCI_TENANCY_OCID",
+      "OCI_USER_OCID"
+    ],
+    "name": "Oracle Cloud Infrastructure DNS"
+  },
+  {
+    "id": "otc",
+    "credentialKeys": [
+      "OTC_PASSWORD",
+      "OTC_PROJECT_NAME",
+      "OTC_USER_NAME"
+    ],
+    "name": "Otc"
+  },
+  {
+    "id": "ovh",
+    "credentialKeys": [
+      "OVH_APPLICATION_KEY",
+      "OVH_APPLICATION_SECRET",
+      "OVH_CLIENT_ID",
+      "OVH_CLIENT_SECRET",
+      "OVH_CONSUMER_KEY",
+      "OVH_ENDPOINT"
+    ],
+    "name": "Ovh"
+  },
+  {
+    "id": "pdns",
+    "credentialKeys": [
+      "PDNS_API_URL"
+    ],
+    "name": "PowerDNS"
+  },
+  {
+    "id": "plesk",
+    "credentialKeys": [
+      "PLESK_SERVER_BASE_URL",
+      "PLESK_USERNAME"
+    ],
+    "name": "Plesk"
+  },
+  {
+    "id": "pointdns",
+    "credentialKeys": [
+      "POINTDNS_USERNAME"
+    ],
+    "name": "Pointdns"
+  },
+  {
+    "id": "porkbun",
+    "credentialKeys": [
+      "PORKBUN_SECRET_API_KEY"
+    ],
+    "name": "Porkbun"
+  },
+  {
+    "id": "poweradmin",
+    "credentialKeys": [
+      "POWERADMIN_BASE_URL"
+    ],
+    "name": "Poweradmin"
+  },
+  {
+    "id": "rackspace",
+    "credentialKeys": [
+      "RACKSPACE_USER"
+    ],
+    "name": "Rackspace"
+  },
+  {
+    "id": "rage4",
+    "credentialKeys": [
+      "RAGE4_USERNAME"
+    ],
+    "name": "Rage 4"
+  },
+  {
+    "id": "rainyun",
+    "credentialKeys": [
+      "RAINYUN_API_KEY",
+      "RAINYUN_HTTP_TIMEOUT",
+      "RAINYUN_POLLING_INTERVAL"
+    ],
+    "name": "Rainyun"
+  },
+  {
+    "id": "rcodezero",
+    "credentialKeys": [
+      "RCODEZERO_API_TOKEN",
+      "RCODEZERO_HTTP_TIMEOUT",
+      "RCODEZERO_POLLING_INTERVAL"
+    ],
+    "name": "Rcodezero"
+  },
+  {
+    "id": "regfish",
+    "credentialKeys": [
+      "REGFISH_API_KEY",
+      "REGFISH_HTTP_TIMEOUT",
+      "REGFISH_POLLING_INTERVAL"
+    ],
+    "name": "Regfish"
+  },
+  {
+    "id": "regru",
+    "credentialKeys": [
+      "REGRU_USERNAME"
+    ],
+    "name": "Regru"
+  },
+  {
+    "id": "rimuhosting",
+    "credentialKeys": [
+      "RIMUHOSTING_API_KEY",
+      "RIMUHOSTING_HTTP_TIMEOUT",
+      "RIMUHOSTING_POLLING_INTERVAL"
+    ],
+    "name": "Rimuhosting"
+  },
+  {
+    "id": "route53",
+    "credentialKeys": [
+      "AWS_ASSUME_ROLE_ARN",
+      "AWS_EXTERNAL_ID",
+      "AWS_HOSTED_ZONE_ID",
+      "AWS_PROFILE",
+      "AWS_REGION",
+      "AWS_SDK_LOAD_CONFIG",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_WAIT_FOR_RECORD_SETS_CHANGED"
+    ],
+    "name": "Route 53 (Amazon)"
+  },
+  {
+    "id": "safedns",
+    "credentialKeys": [
+      "SAFEDNS_AUTH_TOKEN",
+      "SAFEDNS_HTTP_TIMEOUT",
+      "SAFEDNS_POLLING_INTERVAL"
+    ],
+    "name": "Safedns"
+  },
+  {
+    "id": "sakuracloud",
+    "credentialKeys": [
+      "SAKURACLOUD_ACCESS_TOKEN_SECRET"
+    ],
+    "name": "Sakuracloud"
+  },
+  {
+    "id": "scaleway",
+    "credentialKeys": [
+      "SCW_SECRET_KEY"
+    ],
+    "name": "Scaleway"
+  },
+  {
+    "id": "scannet",
+    "credentialKeys": [
+      "SCANNET_API_KEY",
+      "SCANNET_HTTP_TIMEOUT",
+      "SCANNET_POLLING_INTERVAL"
+    ],
+    "name": "Scannet"
+  },
+  {
+    "id": "selectel",
+    "credentialKeys": [
+      "SELECTEL_API_TOKEN",
+      "SELECTEL_HTTP_TIMEOUT",
+      "SELECTEL_POLLING_INTERVAL"
+    ],
+    "name": "Selectel"
+  },
+  {
+    "id": "selectelv2",
+    "credentialKeys": [
+      "SELECTELV2_PASSWORD",
+      "SELECTELV2_PROJECT_ID",
+      "SELECTELV2_USERNAME"
+    ],
+    "name": "Selectelv 2"
+  },
+  {
+    "id": "selfhostde",
+    "credentialKeys": [
+      "SELFHOSTDE_RECORDS_MAPPING",
+      "SELFHOSTDE_USERNAME"
+    ],
+    "name": "Selfhostde"
+  },
+  {
+    "id": "servercow",
+    "credentialKeys": [
+      "SERVERCOW_USERNAME"
+    ],
+    "name": "Servercow"
+  },
+  {
+    "id": "shellrent",
+    "credentialKeys": [
+      "SHELLRENT_USERNAME"
+    ],
+    "name": "Shellrent"
+  },
+  {
+    "id": "simply",
+    "credentialKeys": [
+      "SIMPLY_API_KEY"
+    ],
+    "name": "Simply"
+  },
+  {
+    "id": "sonic",
+    "credentialKeys": [
+      "SONIC_USER_ID"
+    ],
+    "name": "Sonic"
+  },
+  {
+    "id": "spaceship",
+    "credentialKeys": [
+      "SPACESHIP_API_SECRET"
+    ],
+    "name": "Spaceship"
+  },
+  {
+    "id": "stackpath",
+    "credentialKeys": [
+      "STACKPATH_CLIENT_SECRET",
+      "STACKPATH_STACK_ID"
+    ],
+    "name": "Stackpath"
+  },
+  {
+    "id": "syse",
+    "credentialKeys": [
+      "SYSE_CREDENTIALS",
+      "SYSE_HTTP_TIMEOUT",
+      "SYSE_POLLING_INTERVAL"
+    ],
+    "name": "Syse"
+  },
+  {
+    "id": "technitium",
+    "credentialKeys": [
+      "TECHNITIUM_SERVER_BASE_URL"
+    ],
+    "name": "Technitium"
+  },
+  {
+    "id": "tele3",
+    "credentialKeys": [
+      "TELE3_SECRET"
+    ],
+    "name": "Tele 3"
+  },
+  {
+    "id": "tencentcloud",
+    "credentialKeys": [
+      "TENCENTCLOUD_SECRET_KEY"
+    ],
+    "name": "腾讯云"
+  },
+  {
+    "id": "timewebcloud",
+    "credentialKeys": [
+      "TIMEWEBCLOUD_AUTH_TOKEN",
+      "TIMEWEBCLOUD_HTTP_TIMEOUT",
+      "TIMEWEBCLOUD_POLLING_INTERVAL"
+    ],
+    "name": "Timeweb Cloud"
+  },
+  {
+    "id": "todaynic",
+    "credentialKeys": [
+      "TODAYNIC_AUTH_USER_ID"
+    ],
+    "name": "Todaynic"
+  },
+  {
+    "id": "transip",
+    "credentialKeys": [
+      "TRANSIP_PRIVATE_KEY_PATH"
+    ],
+    "name": "Transip"
+  },
+  {
+    "id": "ucloud",
+    "credentialKeys": [
+      "UCLOUD_PUBLIC_KEY"
+    ],
+    "name": "Ucloud"
+  },
+  {
+    "id": "ultradns",
+    "credentialKeys": [
+      "ULTRADNS_USERNAME"
+    ],
+    "name": "Ultradns"
+  },
+  {
+    "id": "uniteddomains",
+    "credentialKeys": [
+      "UNITEDDOMAINS_API_KEY",
+      "UNITEDDOMAINS_HTTP_TIMEOUT",
+      "UNITEDDOMAINS_POLLING_INTERVAL"
+    ],
+    "name": "Uniteddomains"
+  },
+  {
+    "id": "variomedia",
+    "credentialKeys": [
+      "VARIOMEDIA_API_TOKEN",
+      "VARIOMEDIA_HTTP_TIMEOUT",
+      "VARIOMEDIA_POLLING_INTERVAL"
+    ],
+    "name": "Variomedia"
+  },
+  {
+    "id": "veesp",
+    "credentialKeys": [
+      "VEESP_USERNAME"
+    ],
+    "name": "Veesp"
+  },
+  {
+    "id": "vegadns",
+    "credentialKeys": [
+      "SECRET_VEGADNS_SECRET",
+      "VEGADNS_URL"
+    ],
+    "name": "Vegadns"
+  },
+  {
+    "id": "vercel",
+    "credentialKeys": [
+      "VERCEL_API_TOKEN",
+      "VERCEL_HTTP_TIMEOUT",
+      "VERCEL_POLLING_INTERVAL"
+    ],
+    "name": "Vercel"
+  },
+  {
+    "id": "versio",
+    "credentialKeys": [
+      "VERSIO_USERNAME"
+    ],
+    "name": "Versio"
+  },
+  {
+    "id": "vinyldns",
+    "credentialKeys": [
+      "VINYLDNS_HOST",
+      "VINYLDNS_SECRET_KEY"
+    ],
+    "name": "Vinyldns"
+  },
+  {
+    "id": "virtualname",
+    "credentialKeys": [
+      "VIRTUALNAME_TOKEN",
+      "VIRTUALNAME_HTTP_TIMEOUT",
+      "VIRTUALNAME_POLLING_INTERVAL"
+    ],
+    "name": "Virtualname"
+  },
+  {
+    "id": "vkcloud",
+    "credentialKeys": [
+      "VK_CLOUD_PROJECT_ID",
+      "VK_CLOUD_USERNAME"
+    ],
+    "name": "Vkcloud"
+  },
+  {
+    "id": "volcengine",
+    "credentialKeys": [
+      "VOLC_SECRETKEY"
+    ],
+    "name": "Volcengine"
+  },
+  {
+    "id": "vscale",
+    "credentialKeys": [
+      "VSCALE_API_TOKEN",
+      "VSCALE_HTTP_TIMEOUT",
+      "VSCALE_POLLING_INTERVAL"
+    ],
+    "name": "Vscale"
+  },
+  {
+    "id": "vultr",
+    "credentialKeys": [
+      "VULTR_API_KEY",
+      "VULTR_HTTP_TIMEOUT",
+      "VULTR_POLLING_INTERVAL"
+    ],
+    "name": "Vultr"
+  },
+  {
+    "id": "wannafind",
+    "credentialKeys": [
+      "WANNAFIND_API_KEY",
+      "WANNAFIND_HTTP_TIMEOUT",
+      "WANNAFIND_POLLING_INTERVAL"
+    ],
+    "name": "Wannafind"
+  },
+  {
+    "id": "webnamesca",
+    "credentialKeys": [
+      "WEBNAMESCA_API_USER"
+    ],
+    "name": "Webnamesca"
+  },
+  {
+    "id": "webnamesru",
+    "credentialKeys": [
+      "WEBNAMESRU_API_KEY",
+      "WEBNAMESRU_HTTP_TIMEOUT",
+      "WEBNAMESRU_POLLING_INTERVAL"
+    ],
+    "name": "Webnamesru"
+  },
+  {
+    "id": "websupport",
+    "credentialKeys": [
+      "WEBSUPPORT_SECRET"
+    ],
+    "name": "Websupport"
+  },
+  {
+    "id": "wedos",
+    "credentialKeys": [
+      "WEDOS_WAPI_PASSWORD"
+    ],
+    "name": "Wedos"
+  },
+  {
+    "id": "westcn",
+    "credentialKeys": [
+      "WESTCN_USERNAME"
+    ],
+    "name": "Westcn"
+  },
+  {
+    "id": "xinnet",
+    "credentialKeys": [
+      "XINNET_SECRET"
+    ],
+    "name": "Xinnet"
+  },
+  {
+    "id": "yandex",
+    "credentialKeys": [
+      "YANDEX_PDD_TOKEN",
+      "YANDEX_HTTP_TIMEOUT",
+      "YANDEX_POLLING_INTERVAL"
+    ],
+    "name": "Yandex"
+  },
+  {
+    "id": "yandex360",
+    "credentialKeys": [
+      "YANDEX360_ORG_ID"
+    ],
+    "name": "Yandex 360"
+  },
+  {
+    "id": "yandexcloud",
+    "credentialKeys": [
+      "YANDEX_CLOUD_IAM_TOKEN"
+    ],
+    "name": "Yandexcloud"
+  },
+  {
+    "id": "zilore",
+    "credentialKeys": [
+      "ZILORE_ACCESS_KEY",
+      "ZILORE_HTTP_TIMEOUT",
+      "ZILORE_POLLING_INTERVAL"
+    ],
+    "name": "Zilore"
+  },
+  {
+    "id": "zoneedit",
+    "credentialKeys": [
+      "ZONEEDIT_USER"
+    ],
+    "name": "Zoneedit"
+  },
+  {
+    "id": "zoneee",
+    "credentialKeys": [
+      "ZONEEE_API_USER"
+    ],
+    "name": "Zoneee"
+  },
+  {
+    "id": "zonomi",
+    "credentialKeys": [
+      "ZONOMI_API_KEY",
+      "ZONOMI_HTTP_TIMEOUT",
+      "ZONOMI_POLLING_INTERVAL"
+    ],
+    "name": "Zonomi"
+  }
+];
+
+const legoCredentialTemplateOverrides: Readonly<Record<string, string>> = Object.freeze({
+  alidns: 'ALICLOUD_ACCESS_KEY=your-access-key\nALICLOUD_SECRET_KEY=your-secret-key',
+  cloudflare: 'CLOUDFLARE_DNS_API_TOKEN=your-api-token',
+});
+
+export const acmeDnsProviderDefinitions: readonly AcmeDnsProviderDefinition[] = Object.freeze(
+  legoProviderSeeds.map(({ id, name, credentialKeys }) => ({
+    id,
+    name,
+    credentialKeys,
+    credentialTemplate: legoCredentialTemplateOverrides[id] ?? credentialKeys.map((key) => `${key}=your-${key.toLowerCase().replaceAll('_', '-')}`).join('\n'),
+  })),
+);
 
 export function listAcmeDnsProviders(): AcmeDnsProviderDefinition[] {
-  return acmeDnsProviderDefinitions.map((provider) => ({
-    ...provider,
-    ...(acmeDnsProviderDependencies[provider.id] ? { dependencies: acmeDnsProviderDependencies[provider.id] } : {}),
-  }));
+  return acmeDnsProviderDefinitions.map((provider) => ({ ...provider }));
 }
 
 export function findAcmeDnsProvider(id: string): AcmeDnsProviderDefinition | undefined {
   const provider = acmeDnsProviderDefinitions.find((item) => item.id === id);
-  return provider
-    ? {
-        ...provider,
-        ...(acmeDnsProviderDependencies[provider.id] ? { dependencies: acmeDnsProviderDependencies[provider.id] } : {}),
-      }
-    : undefined;
+  return provider ? { ...provider } : undefined;
 }
-
-/**
- * NPM 上游对部分插件声明的额外 pip 依赖。
- *
- * 依赖单独维护，避免把生成的 86 项 Provider 清单重新手工展开；
- * 值只来自受信任的内置注册表，不接受租户输入。
- */
-const acmeDnsProviderDependencies: Readonly<Record<string, string>> = Object.freeze({
-  azure: 'azure-mgmt-dns==8.2.0',
-  cloudflare: 'acme=={{certbot-version}}',
-  digitalocean: 'acme=={{certbot-version}}',
-  dnsimple: 'acme=={{certbot-version}}',
-  dnsmadeeasy: 'acme=={{certbot-version}}',
-  kas: 'kasserver',
-  linode: 'acme=={{certbot-version}}',
-  luadns: 'acme=={{certbot-version}}',
-  nsone: 'acme=={{certbot-version}}',
-  oci: 'oci',
-  ovh: 'acme=={{certbot-version}}',
-  powerdns: 'acme=={{certbot-version}}',
-  rfc2136: 'acme=={{certbot-version}}',
-  route53: 'acme=={{certbot-version}}',
-  zoneedit: '--no-deps dnspython',
-});

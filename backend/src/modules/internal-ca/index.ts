@@ -25,6 +25,5 @@ export * from './providers/acme-dns-provider.registry.js';
 export * from './providers/acme-provider.catalog.js';
 export * from './application/acme-renewal-scheduler.js';
 export * from './application/acme-renewal-worker.js';
-export * from './application/certificate-promotion.service.js';
 export * from './domain/acme.domain-service.js';
 export * from './controller/internal-ca.controller.js';

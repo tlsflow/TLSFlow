@@ -1,7 +1,4 @@
-import type {
-  AcmeChallengeType,
-  AcmeRenewalDeploymentMode,
-} from '../schema/acme.schema.js';
+import type { AcmeChallengeType } from '../schema/acme.schema.js';
 
 export interface CreateAcmeProviderDto {
   name: string;
@@ -40,7 +37,6 @@ export interface CreateAcmeRenewalPolicyDto {
   renewalWindowDays?: number;
   challengeType: AcmeChallengeType;
   rotateKeyOnRenewal?: boolean;
-  deploymentMode?: AcmeRenewalDeploymentMode;
   maxAttempts?: number;
   backoffSeconds?: number;
   maintenanceWindow?: Record<string, unknown>;
@@ -63,10 +59,8 @@ export interface AcmeOrderView {
 export interface AcmeRenewalView {
   id: string;
   status: string;
-  sourceCertificateVersionId: string;
+  sourceCertificateVersionId?: string;
   acmeOrderId?: string;
-  deploymentPlanId?: string;
-  promotionStatus: string;
   attemptCount: number;
   nextAttemptAt?: string;
   failureCode?: string;

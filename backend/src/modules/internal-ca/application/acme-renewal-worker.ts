@@ -1,8 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { RequestContext } from '../../../shared/security-types.js';
-import type { DeploymentPlansApplicationService } from '../../deployment-plans/application/deployment-plans.application-service.js';
-import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
-import type { ExecutionStepDto } from '../../executions/dto/executions.dto.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { AcmeRenewalJobEntity, AcmeRenewalPolicyEntity } from '../schema/acme.schema.js';
@@ -10,8 +7,15 @@ import type { InternalCaApplicationService } from './internal-ca.application-ser
 import type { CertificateRequestEntity } from '../schema/internal-ca.schema.js';
 import { AcmeChallengeService } from './acme-challenge.service.js';
 import { AcmeOrderService } from './acme-order.service.js';
-import { CertificatePromotionService } from './certificate-promotion.service.js';
-import type { CertbotDnsIssuer } from '../providers/certbot-dns-issuer.js';
+import type { LegoDnsIssuer } from '../providers/lego-dns-issuer.js';
+
+const nonRetryableRenewalErrorCodes = new Set<string>([
+  'VALIDATION_FAILED',
+  'RESOURCE_NOT_FOUND',
+  'CAPABILITY_MISSING',
+  'ACME_PROVIDER_CONFIG_INVALID',
+  'ACME_KEY_ROTATION_UNSUPPORTED',
+]);
 
 export interface AcmeRenewalWorkerDependencies {
   repository: AcmeRepository;
@@ -19,49 +23,99 @@ export interface AcmeRenewalWorkerDependencies {
   internalCa: InternalCaApplicationService;
   orders: AcmeOrderService;
   challenges: AcmeChallengeService;
-  deployments?: DeploymentPlansApplicationService;
-  executions?: ExecutionsApplicationService;
-  promotion?: CertificatePromotionService;
-  certbot?: CertbotDnsIssuer;
+  lego?: LegoDnsIssuer;
   leaseOwner: string;
+  leaseDurationMs?: number;
   now?: () => Date;
 }
 
 export class AcmeRenewalWorker {
   private readonly now: () => Date;
+  private readonly leaseDurationMs: number;
+  private runChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly dependencies: AcmeRenewalWorkerDependencies) {
     this.now = dependencies.now ?? (() => new Date());
+    this.leaseDurationMs = dependencies.leaseDurationMs ?? 900_000;
   }
 
   async runOnce(limit = 10, actorId = 'system:acme-renewal-worker', context?: RequestContext): Promise<AcmeRenewalJobEntity[]> {
-    const completed: AcmeRenewalJobEntity[] = [];
-    const now = this.now();
-    for (const candidate of await this.dependencies.repository.listDueRenewalJobs(now.toISOString(), limit)) {
-      const claimed = await this.dependencies.repository.claimRenewalJob(
-        candidate.tenantId,
-        candidate.id,
-        this.dependencies.leaseOwner,
-        new Date(now.getTime() + 120_000).toISOString(),
-        now.toISOString(),
-      );
-      if (!claimed) continue;
-      try {
-        completed.push(await this.process(claimed, actorId, context));
-      } catch (error) {
-        completed.push(await this.failOrRetry(claimed, error));
+    return this.withRunLock(async () => {
+      const completed: AcmeRenewalJobEntity[] = [];
+      const now = this.now();
+      for (const candidate of await this.dependencies.repository.listDueRenewalJobs(now.toISOString(), limit)) {
+        const claimed = await this.claim(candidate.tenantId, candidate.id, now);
+        if (!claimed) continue;
+        completed.push(await this.processClaimed(claimed, actorId, context));
       }
+      return completed;
+    });
+  }
+
+  /**
+   * 手动触发指定任务时直接按 ID claim，避免通用 due 查询先处理了其他任务。
+   * 任务是否仍可执行由数据库中的状态、退避时间和租约条件最终决定。
+   */
+  async runJob(
+    tenantId: string,
+    jobId: string,
+    actorId = 'system:acme-renewal-worker',
+    context?: RequestContext,
+  ): Promise<AcmeRenewalJobEntity | undefined> {
+    return this.withRunLock(async () => {
+      const now = this.now();
+      const claimed = await this.claim(tenantId, jobId, now);
+      if (!claimed) return undefined;
+      return this.processClaimed(claimed, actorId, context);
+    });
+  }
+
+  private async claim(tenantId: string, jobId: string, now: Date): Promise<AcmeRenewalJobEntity | undefined> {
+    return this.dependencies.repository.claimRenewalJob(
+      tenantId,
+      jobId,
+      this.dependencies.leaseOwner,
+      new Date(now.getTime() + this.leaseDurationMs).toISOString(),
+      now.toISOString(),
+    );
+  }
+
+  private async processClaimed(
+    claimed: AcmeRenewalJobEntity,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<AcmeRenewalJobEntity> {
+    try {
+      return await this.process(claimed, actorId, context);
+    } catch (error) {
+      return this.failOrRetry(claimed, error);
     }
-    return completed;
+  }
+
+  private async withRunLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.runChain;
+    let release!: () => void;
+    this.runChain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   private async process(job: AcmeRenewalJobEntity, actorId: string, context?: RequestContext): Promise<AcmeRenewalJobEntity> {
     const policy = await this.requirePolicy(job);
-    const sourceIssuance = await this.dependencies.internalCa.getRepository().getIssuanceByCertificateVersion(job.tenantId, job.sourceCertificateVersionId);
-    const sourceRequest = sourceIssuance?.certificateRequestId
+    const configuredDomains = stringValues(policy.maintenanceWindow?.domains);
+    const initialIssuance = !job.sourceCertificateVersionId;
+    const sourceIssuance = initialIssuance
+      ? undefined
+      : await this.dependencies.internalCa.getRepository().getIssuanceByCertificateVersion(job.tenantId, job.sourceCertificateVersionId!);
+    let sourceRequest = sourceIssuance?.certificateRequestId
       ? await this.dependencies.internalCa.getRepository().getRequest(job.tenantId, sourceIssuance.certificateRequestId)
       : undefined;
-    if (!sourceRequest) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源证书申请上下文');
 
     let current = job;
     let requestId = job.certificateRequestId;
@@ -76,23 +130,49 @@ export class AcmeRenewalWorker {
         issuedRequest = resumedRequest;
       }
     }
-    if (!issuedRequest && !requestId) {
-      const sourceKey = await this.dependencies.internalCa.getRepository().getKeyReference(job.tenantId, sourceRequest.keyReferenceId);
+    if (!issuedRequest && !requestId && !initialIssuance && !sourceRequest) {
+      const assetId = policy.certificateAssetId;
+      const asset = assetId ? await this.dependencies.certificates.getAsset(assetId) : undefined;
+      if (!asset) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源证书申请上下文');
+      const issuanceContext = await this.dependencies.internalCa.ensureAcmeIssuanceContext(
+        job.tenantId,
+        policy.providerId,
+        actorId,
+      );
+      const request = await this.dependencies.internalCa.createCertificateRequest(job.tenantId, {
+        applicationAssetId: asset.id,
+        caId: issuanceContext.caId,
+        trustDomainId: issuanceContext.trustDomainId,
+        profileVersionId: issuanceContext.profileVersionId,
+        commonName: configuredDomains[0] ?? asset.primaryDomain,
+        sans: configuredDomains.length > 0 ? configuredDomains.slice(1) : asset.sans,
+        requestedValidityDays: 90,
+        custodyMode: 'managed_secret',
+        deferIssuance: true,
+        idempotencyKey: `acme-renewal-request:${job.id}`,
+        actorId,
+      }, context);
+      requestId = request.id;
+      current = await this.saveJob({ ...current, certificateRequestId: request.id, status: 'issuing' });
+      sourceRequest = request;
+    }
+    if (!issuedRequest && !requestId && !initialIssuance) {
+      const sourceKey = await this.dependencies.internalCa.getRepository().getKeyReference(job.tenantId, sourceRequest!.keyReferenceId);
       if (!sourceKey) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源密钥引用');
       if (policy.rotateKeyOnRenewal && !['managed_secret', 'external_key'].includes(sourceKey.custodyMode)) {
         throw new AppError('ACME_KEY_ROTATION_UNSUPPORTED', '当前密钥托管方式不支持自动轮换');
       }
       const request = await this.dependencies.internalCa.createCertificateRequest(job.tenantId, {
-        applicationAssetId: sourceRequest.applicationAssetId,
-        caId: sourceRequest.caId,
-        trustDomainId: sourceRequest.trustDomainId,
-        profileVersionId: sourceRequest.profileVersionId,
-        commonName: sourceRequest.subjectCommonName,
-        sans: sourceRequest.sans,
-        requestedValidityDays: sourceRequest.requestedValidityDays,
+        applicationAssetId: sourceRequest!.applicationAssetId,
+        caId: sourceRequest!.caId,
+        trustDomainId: sourceRequest!.trustDomainId,
+        profileVersionId: sourceRequest!.profileVersionId,
+        commonName: configuredDomains[0] ?? sourceRequest!.subjectCommonName,
+        sans: configuredDomains.length > 0 ? configuredDomains.slice(1) : sourceRequest!.sans,
+        requestedValidityDays: sourceRequest!.requestedValidityDays,
         custodyMode: policy.rotateKeyOnRenewal ? 'managed_secret' : sourceKey.custodyMode,
         ...(policy.rotateKeyOnRenewal ? {} : {
-          csrPem: sourceRequest.csrPem,
+          csrPem: sourceRequest!.csrPem,
           opaqueKeyReference: sourceKey.secretRef ?? sourceKey.opaqueReference,
           keyBackend: sourceKey.backendType,
           exportability: sourceKey.exportability,
@@ -108,15 +188,15 @@ export class AcmeRenewalWorker {
 
     if (!issuedRequest) {
       if (policy.challengeType === 'dns-01') {
-        if (!this.dependencies.certbot) {
-          throw new AppError('ACME_DEPLOYMENT_BLOCKED', 'DNS-01 Certbot 执行器未接入');
+        if (!this.dependencies.lego) {
+          throw new AppError('CAPABILITY_MISSING', 'DNS-01 lego 执行器未接入');
         }
         const dnsProvider = textValue(policy.maintenanceWindow?.dnsProvider);
         const dnsCredentialId = textValue(policy.maintenanceWindow?.dnsCredentialId);
         const contactEmail = textValue(policy.maintenanceWindow?.contactEmail);
         const propagationSeconds = numberValue(policy.maintenanceWindow?.dnsPropagationSeconds);
         if (!dnsProvider || !dnsCredentialId || !contactEmail) {
-          throw new AppError('ACME_RENEWAL_FAILED', 'DNS-01 策略缺少 Certbot 所需配置');
+          throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'DNS-01 策略缺少 lego 所需配置');
         }
         const provider = await this.dependencies.internalCa.getRepository().getProvider(job.tenantId, policy.providerId);
         if (!provider || provider.type !== 'acme') {
@@ -126,7 +206,7 @@ export class AcmeRenewalWorker {
         if (!issuanceRequest) {
           throw new AppError('ACME_RENEWAL_FAILED', 'DNS-01 续签缺少待签发证书申请');
         }
-        const material = await this.dependencies.certbot.issue({
+        const material = await this.dependencies.lego.issue({
           tenantId: job.tenantId,
           jobId: job.id,
           request: issuanceRequest,
@@ -141,20 +221,24 @@ export class AcmeRenewalWorker {
           job.tenantId,
           requestId!,
           material,
-          `certbot:${job.id}`,
+          `lego:${job.id}`,
           actorId,
           context,
         );
         if (!issuedRequest.certificateVersionId) {
-          throw new AppError('ACME_RENEWAL_FAILED', 'Certbot 签发结果缺少证书版本');
+          throw new AppError('ACME_RENEWAL_FAILED', 'lego 签发结果缺少证书版本');
         }
         current = await this.saveJob({
           ...current,
           certificateRequestId: issuedRequest.id,
           certificateVersionId: issuedRequest.certificateVersionId,
-          status: 'deploying',
-          promotionStatus: 'pending',
+          status: 'completed',
+          promotionStatus: 'not_required',
+          failureCode: undefined,
+          failureMessage: undefined,
           nextAttemptAt: undefined,
+          leaseOwner: undefined,
+          leaseExpiresAt: undefined,
         });
       }
     }
@@ -233,72 +317,29 @@ export class AcmeRenewalWorker {
         ...current,
         certificateRequestId: issuedRequest.id,
         certificateVersionId: issuedRequest.certificateVersionId,
-        status: 'deploying',
-        promotionStatus: 'pending',
+        status: 'completed',
+        promotionStatus: 'not_required',
+        failureCode: undefined,
+        failureMessage: undefined,
         nextAttemptAt: undefined,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
       });
     }
-    if (!this.dependencies.deployments || !this.dependencies.executions || !this.dependencies.promotion) {
-      throw new AppError('ACME_DEPLOYMENT_BLOCKED', 'ACME 证书已暂存，但部署与 Promotion 服务未接入');
-    }
-
-    let planId = current.deploymentPlanId;
-    if (!planId) {
-      const plan = await this.dependencies.deployments.createFromApplicationAsset({
-        applicationAssetId: issuedRequest.applicationAssetId,
-        targetCertificateVersionId: issuedRequest.certificateVersionId,
-        selectionMode: 'EXPLICIT',
-        planType: 'UPDATE',
-        policy: {
-          approvalRequired: policy.deploymentMode === 'approval',
-          failurePolicy: 'rollback',
-          riskLevel: 'high',
-          retry: { maxAttempts: 2, backoffSeconds: policy.backoffSeconds },
-        },
-        idempotencyKey: `acme-renewal-plan:${job.id}`,
-        actorId,
-        tenantId: job.tenantId,
-      }, context);
-      planId = plan.id;
-      current = await this.saveJob({ ...current, deploymentPlanId: plan.id });
-    }
-    let plan = await this.dependencies.deployments.get(planId, job.tenantId);
-    if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
-      plan = await this.dependencies.deployments.submit({ planId, actorId, tenantId: job.tenantId }, context);
-    }
-    if (plan.status === 'PENDING_APPROVAL') {
-      return this.saveJob({ ...current, status: 'deploying', nextAttemptAt: new Date(this.now().getTime() + 300_000).toISOString() });
-    }
-    if (!current.executionRunId) {
-      const execution = await this.dependencies.deployments.execute({
-        planId,
-        actorId,
-        tenantId: job.tenantId,
-        idempotencyKey: `acme-renewal-execution:${job.id}`,
-      }, context);
-      return this.saveJob({ ...current, status: 'verifying', executionRunId: execution.run.id, nextAttemptAt: new Date(this.now().getTime() + 15_000).toISOString() });
-    }
-    const run = await this.dependencies.executions.getRun(current.executionRunId, job.tenantId);
-    if (run.status !== 'SUCCESS') {
-      if (['FAILED', 'TIMEOUT', 'CANCELLED'].includes(run.status)) throw new AppError('ACME_DEPLOYMENT_BLOCKED', '自动续签部署执行失败', { status: run.status });
-      return this.saveJob({ ...current, status: 'verifying', nextAttemptAt: new Date(this.now().getTime() + 15_000).toISOString() });
-    }
-    const steps: ExecutionStepDto[] = await this.dependencies.executions.listSteps({ tenantId: job.tenantId, executionRunId: current.executionRunId });
-    const verification = steps
-      .filter((step) => step.stepType === 'VERIFY' && step.status === 'SUCCESS')
-      .map((step) => readVerification(step.inputSnapshot))
-      .find((value): value is { success: true; certificateFingerprintSha256: string } => Boolean(value?.success && value.certificateFingerprintSha256));
-    if (!verification) throw new AppError('ACME_VERIFY_FAILED', '自动续签部署缺少成功的 TLS Verify 证据');
-    await this.dependencies.promotion.promote({
-      tenantId: job.tenantId,
-      certificateVersionId: issuedRequest.certificateVersionId!,
-      deploymentPlanId: plan.id,
-      executionRunId: current.executionRunId,
-      tlsVerify: verification,
-      actorId,
-    });
-    await this.dependencies.internalCa.markRequestActive(job.tenantId, issuedRequest.id);
-    return this.saveJob({ ...current, status: 'completed', promotionStatus: 'promoted', nextAttemptAt: undefined });
+    return current.status === 'completed'
+      ? current
+      : this.saveJob({
+        ...current,
+        certificateRequestId: issuedRequest.id,
+        certificateVersionId: issuedRequest.certificateVersionId,
+        status: 'completed',
+        promotionStatus: 'not_required',
+        failureCode: undefined,
+        failureMessage: undefined,
+        nextAttemptAt: undefined,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+      });
   }
 
   private async requirePolicy(job: AcmeRenewalJobEntity): Promise<AcmeRenewalPolicyEntity> {
@@ -316,13 +357,14 @@ export class AcmeRenewalWorker {
     const policy = job.policyId ? await this.dependencies.repository.getPolicy(job.tenantId, job.policyId) : undefined;
     const attemptCount = job.attemptCount + 1;
     const maxAttempts = policy?.maxAttempts ?? 5;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = renewalFailureMessage(error);
     const failureCode = error instanceof AppError ? error.errorCode : 'ACME_RENEWAL_FAILED';
-    if (attemptCount >= maxAttempts) {
+    if (!isRetryableRenewalError(error) || attemptCount >= maxAttempts) {
       return this.saveJob({
         ...job,
         attemptCount,
         status: 'failed',
+        promotionStatus: 'not_required',
         failureCode,
         failureMessage: message.slice(0, 500),
         leaseOwner: undefined,
@@ -344,23 +386,30 @@ export class AcmeRenewalWorker {
   }
 }
 
-function readVerification(input: Record<string, unknown>): { success: true; certificateFingerprintSha256: string } | undefined {
-  const detail = input.resultDetail;
-  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
-  const verify = (detail as Record<string, unknown>).verify;
-  const source = verify && typeof verify === 'object' && !Array.isArray(verify)
-    ? verify as Record<string, unknown>
-    : detail as Record<string, unknown>;
-  const fingerprint = source.remoteCertificateSha256 ?? source.certificateFingerprintSha256 ?? source.fingerprintSha256;
-  return source.success === true && typeof fingerprint === 'string' && fingerprint.trim()
-    ? { success: true, certificateFingerprintSha256: fingerprint.trim() }
-    : undefined;
-}
-
 function textValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.map(String).map((item) => item.trim().toLowerCase()).filter(Boolean))]
+    : [];
+}
+
+function isRetryableRenewalError(error: unknown): boolean {
+  if (!(error instanceof AppError)) return true;
+  return !nonRetryableRenewalErrorCodes.has(error.errorCode);
+}
+
+function renewalFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!(error instanceof AppError) || !error.details || typeof error.details !== 'object' || Array.isArray(error.details)) {
+    return message;
+  }
+  const reason = textValue((error.details as Record<string, unknown>).reason);
+  return reason ? `${message}：${reason}` : message;
 }
