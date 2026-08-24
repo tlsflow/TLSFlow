@@ -27,6 +27,7 @@ export interface TlsInspectorTargetRecord {
   readonly lastInspectedAt?: string | null
   readonly latestSnapshotId?: string | null
   readonly latestStatus?: string | null
+  readonly latestRating?: string | null
   readonly latestSummary?: TlsInspectionSummary | null
 }
 

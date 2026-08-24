@@ -18,7 +18,6 @@ import {
   updateMonitorTarget,
 } from '@/api/modules/monitors.api'
 import {
-  getLatestTlsInspection,
   listTlsInspectorTargets,
   type TlsInspectionSnapshot,
   type TlsInspectorTargetRecord,
@@ -146,9 +145,9 @@ const selectedTlsInspectorTarget = computed(() =>
   selectedTarget.value ? findTlsInspectorTarget(selectedTarget.value.assetId) : null,
 )
 
-const selectedTlsRating = computed(() => computeTlsInspectionRating(
-  selectedTlsInspectorTarget.value ? tlsInspectionsByTargetId.value[selectedTlsInspectorTarget.value.id] : null,
-))
+const selectedTlsRating = computed(() => selectedTlsInspectorTarget.value
+  ? tlsRatingForTarget(selectedTlsInspectorTarget.value)
+  : '—')
 
 const selectedTlsRatingTone = computed(() => tlsRatingTone(selectedTlsRating.value))
 
@@ -160,9 +159,7 @@ const monitorRows = computed(() =>
     const warningReasons = monitorWarningReasons(target.assetId, latestCertificateObservation(target.assetId))
     const status = statusFromProbeAndRisks(probe, assetRisks, warningReasons)
     const tlsInspectorTarget = findTlsInspectorTarget(target.assetId)
-    const tlsRating = computeTlsInspectionRating(
-      tlsInspectorTarget ? tlsInspectionsByTargetId.value[tlsInspectorTarget.id] : null,
-    )
+    const tlsRating = tlsInspectorTarget ? tlsRatingForTarget(tlsInspectorTarget) : '—'
     return {
       target,
       title: assetLabel(asset),
@@ -273,7 +270,6 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     certificateVersions.value = [...(certificateVersionResult.data?.items ?? [])]
     if (tlsInspectorResult) {
       tlsInspectorTargets.value = [...(tlsInspectorResult.data?.items ?? [])]
-      await refreshTlsInspectionRatings(tlsInspectorTargets.value)
     }
     await refreshCertificateObservations()
     if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
@@ -679,27 +675,28 @@ function handleTlsInspectionUpdated(snapshot: TlsInspectionSnapshot) {
           latestSnapshotId: snapshot.id,
           latestStatus: snapshot.status,
           latestSummary: snapshot.summary,
+          latestRating: computeTlsInspectionRating(snapshot),
           lastInspectedAt: snapshot.finishedAt,
         }
       : target
   ))
 }
 
-async function refreshTlsInspectionRatings(targets: readonly TlsInspectorTargetRecord[]) {
-  const entries = await Promise.all(targets.map(async (target) => {
-    const cached = tlsInspectionsByTargetId.value[target.id]
-    if (cached && (!target.latestSnapshotId || cached.id === target.latestSnapshotId)) {
-      return [target.id, cached] as const
-    }
+function tlsRatingForTarget(target: TlsInspectorTargetRecord): string {
+  const snapshot = tlsInspectionsByTargetId.value[target.id]
+  return target.latestRating
+    ?? (snapshot ? computeTlsInspectionRating(snapshot) : ratingFromTlsSummary(target.latestSummary))
+}
 
-    const result = await getLatestTlsInspection(target.id).catch(() => null)
-    const inspection = result?.data ?? cached
-    return inspection ? [target.id, inspection] as const : null
-  }))
-
-  tlsInspectionsByTargetId.value = Object.fromEntries(
-    entries.filter((entry): entry is readonly [string, TlsInspectionSnapshot] => Boolean(entry)),
-  )
+function ratingFromTlsSummary(summary: TlsInspectorTargetRecord['latestSummary']): string {
+  if (!summary) return '—'
+  let score = 100
+  if (!summary.tls13Supported) score -= 20
+  if (summary.legacyProtocolEnabled) score -= 35
+  score -= Math.min((summary.trustPathIssueCount ?? 0) * 4, 12)
+  score -= Math.min((summary.simulationFailedCount ?? 0) * 2, 16)
+  if (summary.weakCipherDetected) score -= 8
+  return score >= 97 ? 'A+' : score >= 92 ? 'A' : score >= 85 ? 'B' : score >= 72 ? 'C' : score >= 60 ? 'D' : 'F'
 }
 
 function endpointHost(asset: ApiRecord | null): string {
@@ -1221,9 +1218,9 @@ function trimProbeStateToTargets() {
       :open="tlsDialogOpen"
       :title="t('monitoring.tls.detailTitle')"
       size="xxl"
-      width="calc(100vw - var(--gc-space-2))"
-      max-height="calc(100vh - var(--gc-space-2))"
-      edge-to-edge
+      width="calc(100vw - var(--gc-space-10) - var(--gc-space-chip-block) - var(--gc-space-10) - var(--gc-space-chip-block))"
+      max-height="calc(100vh - var(--gc-space-10) - var(--gc-space-chip-block) - var(--gc-space-10) - var(--gc-space-chip-block))"
+      dialog-class="monitor-tls-modal"
       @update:open="tlsDialogOpen = $event"
     >
       <MonitorTlsDetailView
@@ -1274,6 +1271,14 @@ function trimProbeStateToTargets() {
 </template>
 
 <style scoped>
+:global(.gc-modal.monitor-tls-modal .gc-modal__body) {
+  padding: var(--gc-space-modal-detail-y);
+}
+
+:global(.gc-modal.monitor-tls-modal .gc-modal__header) {
+  padding: var(--gc-space-modal-detail-y);
+}
+
 .monitor-page {
   display: grid;
   gap: var(--gc-space-4);

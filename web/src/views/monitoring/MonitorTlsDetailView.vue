@@ -1335,7 +1335,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 }
 
 .monitor-tls-page__header {
-  padding: var(--gc-space-5);
+  padding: calc(var(--gc-space-5) / 2) var(--gc-space-5) var(--gc-space-5);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
   background: var(--gc-color-surface-glass);
@@ -1379,6 +1379,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   display: grid;
   gap: var(--gc-space-6);
   padding: var(--gc-space-6);
+}
+
+.tls-report-page.monitor-tls-report--embedded {
+  padding: 0;
 }
 
 .tls-report-page__header,
