@@ -13,5 +13,8 @@ export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"
 
+echo "[backend] 执行数据库迁移"
+npm run migrate
+
 echo "[backend] 启动热重载服务：http://${HOST}:${PORT}"
 exec npm run dev
