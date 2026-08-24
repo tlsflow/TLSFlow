@@ -28,14 +28,14 @@
     "(?:^|/).*(?:\\.exe|\\.dll|\\.pdb)$"
   ],
   "sensitiveFilePatterns": [
-    "(?:^|/)(?:\\.env(?:\\.|$)|id_rsa|id_ed25519|credentials|secrets?)(?:$|\\.)",
+    "(?:^|/)(?:\\.env(?:\\.|$)|id_rsa|id_ed25519)(?:$|\\.)",
     "\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der)$"
   ],
   "sensitiveContentPatterns": [
-    "-----BEGIN [^-\\n]*PRIVATE KEY-----",
+    "-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----\\s*(?:[A-Za-z0-9+/=]{40,}\\s*){2,}-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
     "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b",
-    "\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b",
-    "\\bgithub_pat_[A-Za-z0-9_]{20,}\\b",
-    "\\bsk-[A-Za-z0-9]{20,}\\b"
+    "\\bgh[pousr]_[A-Za-z0-9_]{30,}\\b",
+    "\\bgithub_pat_[A-Za-z0-9_]{30,}\\b",
+    "\\bsk-(?:proj-)?[A-Za-z0-9_-]{40,}\\b"
   ]
 }
