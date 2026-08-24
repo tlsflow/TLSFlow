@@ -30,15 +30,25 @@ export type AuthTokenResolver = (
   | undefined;
 export type PersistenceFlusher = { flush: () => Promise<void> };
 
+export interface AppOptions {
+  config?: AppConfig;
+  /**
+   * 仅供旧测试入口显式开启，真实 HTTP Server 永远不会使用请求头装配身份。
+   */
+  allowLegacyHeaderContext?: boolean;
+}
+
 export class App {
   readonly router = new Router();
   readonly config: AppConfig;
+  private readonly allowLegacyHeaderContext: boolean;
   private authTokenResolver?: AuthTokenResolver;
   private readonly persistenceFlushers: PersistenceFlusher[] = [];
   private readonly resources = new Map<string, unknown>();
 
-  constructor(config: AppConfig = loadAppConfig()) {
-    this.config = config;
+  constructor(options: AppOptions = {}) {
+    this.config = options.config ?? loadAppConfig();
+    this.allowLegacyHeaderContext = options.allowLegacyHeaderContext === true;
   }
 
   setAuthTokenResolver(resolver: AuthTokenResolver): void {
@@ -81,7 +91,7 @@ export class App {
     const requestId = input.headers ? readHeader(input.headers, 'x-request-id') ?? generateRequestId() : generateRequestId();
     let context: RequestContext;
     try {
-      context = await this.createContext(input.headers ?? {}, '127.0.0.1');
+      context = await this.createContext(input.headers ?? {}, '127.0.0.1', this.allowLegacyHeaderContext);
     } catch (error) {
       const handled = toErrorResponse(error, requestId);
       return this.respond(handled.statusCode, handled.body, {
@@ -106,7 +116,7 @@ export class App {
       const url = new URL(req.url ?? '/', `http://${host}`);
       let context: RequestContext;
       try {
-        context = await this.createContext(req.headers, req.socket.remoteAddress);
+        context = await this.createContext(req.headers, req.socket.remoteAddress, false);
       } catch (error) {
         const requestId = readHeader(req.headers, 'x-request-id') ?? generateRequestId();
         const traceId = readHeader(req.headers, 'x-trace-id') ?? generateTraceId();
@@ -132,17 +142,32 @@ export class App {
     });
   }
 
-  private async createContext(headers: Record<string, string | string[] | undefined>, ip?: string): Promise<RequestContext> {
+  private async createContext(
+    headers: Record<string, string | string[] | undefined>,
+    ip?: string,
+    allowLegacyHeaderContext = false,
+  ): Promise<RequestContext> {
     const requestId = readHeader(headers, 'x-request-id') ?? generateRequestId();
     const traceId = readHeader(headers, 'x-trace-id') ?? generateTraceId();
-    const tokenIdentity = await this.authTokenResolver?.(readHeader(headers, 'authorization'), readHeader(headers, 'cookie'));
+    const authorization = readHeader(headers, 'authorization');
+    const cookie = readHeader(headers, 'cookie');
+    const tokenIdentity = await this.authTokenResolver?.(authorization, cookie);
+    const hasAuthenticationMaterial = Boolean(authorization?.trim() || cookie?.trim());
+    const legacyContext = allowLegacyHeaderContext && !hasAuthenticationMaterial
+      ? {
+        tenantId: readHeader(headers, 'x-tenant-id'),
+        actorId: readHeader(headers, 'x-actor-id'),
+      }
+      : {};
     return {
       requestId,
       traceId,
-      tenantId: tokenIdentity?.tenantId ?? readHeader(headers, 'x-tenant-id'),
+      tenantId: tokenIdentity?.tenantId ?? legacyContext.tenantId,
       tenantContextVersion: tokenIdentity?.contextVersion,
-      actorId: tokenIdentity?.actorId ?? readHeader(headers, 'x-actor-id'),
-      actorType: readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
+      actorId: tokenIdentity?.actorId ?? legacyContext.actorId,
+      actorType: tokenIdentity
+        ? 'USER'
+        : readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
       ip,
       userAgent: readHeader(headers, 'user-agent'),
     };

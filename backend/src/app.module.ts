@@ -109,6 +109,10 @@ import { CertbotDnsIssuer } from './modules/internal-ca/providers/certbot-dns-is
 export interface AppDependencies {
   db?: DatabasePort;
   corePersistence?: CorePersistenceProfile;
+  /**
+   * 仅供旧测试入口显式开启；生产 HTTP Server 不启用请求头身份兼容。
+   */
+  allowLegacyHeaderContext?: boolean;
   security?: SecurityServices;
   deploymentPlans?: DeploymentPlansController;
   deploymentPersistence?: DeploymentPersistenceOptions;
@@ -125,7 +129,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     throw new Error(buildCorePersistenceErrorMessage(missingPersistence));
   }
 
-  const app = new App();
+  const app = new App({ allowLegacyHeaderContext: dependencies.allowLegacyHeaderContext });
   const appDb = dependencies.db ?? new PgliteDatabase();
   app.setResource('database', appDb);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;

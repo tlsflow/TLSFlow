@@ -693,7 +693,7 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['secret'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security });
+    const app = createApp({ security, allowLegacyHeaderContext: true });
 
     const created = await app.inject({
       method: 'POST',
@@ -762,7 +762,7 @@ describe('安全 API 最小闭环', () => {
       context: { requestId: 'req_new' },
     });
 
-    const app = createApp({ security });
+    const app = createApp({ security, allowLegacyHeaderContext: true });
     const response = await app.inject({
       method: 'GET',
       path: '/api/v1/audit-events?resourceType=audit_sort_probe&page=1&pageSize=1',
@@ -788,7 +788,7 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['secret'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security });
+    const app = createApp({ security, allowLegacyHeaderContext: true });
 
     const password = await app.inject({
       method: 'POST',
@@ -838,7 +838,7 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['approval'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security });
+    const app = createApp({ security, allowLegacyHeaderContext: true });
 
     const created = await app.inject({
       method: 'POST',
