@@ -1302,6 +1302,100 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-asset-targets: 
+    get: 
+      operationId: "listApplicationAssetTargets"
+      summary: "查询 ApplicationAssetTarget 列表"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                required: 
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    post: 
+      operationId: "createApplicationAssetTarget"
+      summary: "创建 ApplicationAssetTarget"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    patch: 
+      operationId: "updateApplicationAssetTarget"
+      summary: "更新 ApplicationAssetTarget"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-asset-targets/delete: 
+    post: 
+      operationId: "deleteApplicationAssetTarget"
+      summary: "软删除 ApplicationAssetTarget"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/site-assets: 
     get: 
       operationId: "listSiteAssets"
@@ -2508,6 +2602,46 @@ paths:
     patch: 
       operationId: "updateCertificateVersionFormat"
       summary: "更新证书格式产物记录"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-version-formats/export-plan: 
+    post: 
+      operationId: "planCertificateVersionFormatExport"
+      summary: "规划证书格式导出"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-version-formats/export: 
+    post: 
+      operationId: "exportCertificateVersionFormatArtifact"
+      summary: "生成证书格式导出产物"
       tags: 
         - "Certificates"
       responses: 
@@ -4014,6 +4148,66 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/workflow-file-templates: 
+    get: 
+      operationId: "listWorkflowFileTemplates"
+      summary: "扫描 data/workflows 工作流文件模板"
+      tags: 
+        - "WorkflowTemplates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/workflow-file-templates/create: 
+    post: 
+      operationId: "createWorkflowTemplateFromFile"
+      summary: "基于工作流文件模板创建草稿"
+      tags: 
+        - "WorkflowTemplates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/workflow-file-templates/apply: 
+    post: 
+      operationId: "applyWorkflowTemplateFromFile"
+      summary: "用工作流文件模板覆盖现有草稿"
+      tags: 
+        - "WorkflowTemplates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/workflow-template-versions: 
     get: 
       operationId: "listWorkflowTemplateVersions"
@@ -4116,7 +4310,7 @@ paths:
   /api/v1/workflow-template-runs/test-step: 
     post: 
       operationId: "testWorkflowTemplateStep"
-      summary: "执行单节点模拟运行"
+      summary: "执行单节点测试运行"
       tags: 
         - "WorkflowTemplates"
       responses: 
@@ -4139,6 +4333,100 @@ paths:
       summary: "查询总览聚合"
       tags: 
         - "Dashboard"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/monitors/targets: 
+    get: 
+      operationId: "listMonitorTargets"
+      summary: "查询监控目标"
+      tags: 
+        - "Monitors"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                required: 
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    post: 
+      operationId: "createMonitorTarget"
+      summary: "创建监控目标"
+      tags: 
+        - "Monitors"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    patch: 
+      operationId: "updateMonitorTarget"
+      summary: "更新监控目标"
+      tags: 
+        - "Monitors"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/monitors/targets/delete: 
+    post: 
+      operationId: "deleteMonitorTarget"
+      summary: "删除监控目标"
+      tags: 
+        - "Monitors"
       responses: 
         200: 
           description: "成功"
@@ -4447,4 +4735,4 @@ tags:
   - 
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-03T05:45:58.117Z"
+x-generatedAt: "2026-07-03T13:57:32.987Z"
