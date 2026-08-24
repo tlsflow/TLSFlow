@@ -103,10 +103,15 @@ export const acmeZhCN = {
   },
   challengeTypes: { 'http-01': 'HTTP-01', 'dns-01': 'DNS-01', 'tls-alpn-01': 'TLS-ALPN-01' },
   common: { notAvailable: '暂无', yes: '是', no: '否', unknown: '未知' },
+  countdown: {
+    remainingDays: '剩余 {days} 天',
+    today: '今天',
+    windowStarted: '已进入续签窗口',
+  },
   summary: { certificates: '已配置证书', inProgress: '正在处理', failures: '需要处理的失败' },
   list: {
     empty: '暂无 ACME 证书，请新增一个证书开始配置。',
-    columns: { name: '名称', domains: '域名', status: '状态', expiresAt: '到期时间', renewal: '自动续签', actions: '操作' },
+    columns: { name: '名称', domains: '域名', status: '状态', expiresAt: '到期时间', nextRenewalIn: '下次续签', renewal: '自动续签', actions: '操作' },
     values: { enabled: '已启用', disabled: '已停用', notConfigured: '未配置' },
   },
   create: {
@@ -198,10 +203,11 @@ export const acmeZhCN = {
   },
   detail: {
     description: '查看这张证书的验证方式、续签任务和订单状态。',
-    fields: { domains: '域名', expiresAt: '到期时间', challenge: '验证方式', renewalWindow: '提前续签' },
+    fields: { domains: '域名', expiresAt: '到期时间', provider: 'ACME 提供者', challenge: '验证方式', renewalWindow: '提前续签', nextRenewalIn: '下次续签' },
     columns: { domains: '域名', status: '状态', nextAttemptAt: '下次尝试', failure: '失败信息', updatedAt: '更新时间' },
     emptyJobs: '暂无续签任务。',
     emptyOrders: '暂无 ACME 订单。',
+    emptyOrdersDns01: '当前 DNS-01 由 lego 直接向 ACME CA 申请证书，GCAC 暂未落本地 ACME 订单记录。',
   },
   aria: { refresh: '刷新 ACME 数据', add: '新增 ACME 证书', scan: '扫描 ACME 续签任务', run: '运行 ACME 续签任务' },
 } as const
@@ -214,6 +220,12 @@ export const acmeZhTW = {
   sections: { ...acmeZhCN.sections, provider: 'ACME Provider', account: 'ACME Account', policy: '續期策略', job: '續期工作', timeline: '生命週期時間線', quickActions: '執行操作' },
   actions: { ...acmeZhCN.actions, refresh: '重新整理', createAccount: '建立 Account', createPolicy: '建立策略', scan: '掃描到期憑證', run: '執行續期工作', retry: '重試工作', reconcile: '恢復訂單狀態', finalize: '提交 CSR' },
   common: { notAvailable: '暫無', yes: '是', no: '否', unknown: '未知' },
+  countdown: { remainingDays: '剩餘 {days} 天', today: '今天', windowStarted: '已進入續期窗口' },
+  detail: {
+    ...acmeZhCN.detail,
+    fields: { ...acmeZhCN.detail.fields, provider: 'ACME 提供者' },
+    emptyOrdersDns01: '目前 DNS-01 由 lego 直接向 ACME CA 申請憑證，GCAC 暫未保存本地 ACME 訂單記錄。',
+  },
 } as const
 
 export const acmeEnUS = {
@@ -227,15 +239,16 @@ export const acmeEnUS = {
   statuses: { pending: 'Pending', active: 'Active', error: 'Error', processing: 'Processing', presented: 'Presented', valid: 'Valid', invalid: 'Invalid', ready: 'Ready', issuing: 'Issuing', completed: 'Completed', retry_waiting: 'Waiting for retry', failed: 'Failed', scheduled: 'Scheduled', disabled: 'Disabled', cancelled: 'Cancelled', rollback_required: 'Rollback required' },
   challengeTypes: { 'http-01': 'HTTP-01', 'dns-01': 'DNS-01', 'tls-alpn-01': 'TLS-ALPN-01' },
   common: { notAvailable: 'Not available', yes: 'Yes', no: 'No', unknown: 'Unknown' },
+  countdown: { remainingDays: '{days} days remaining', today: 'Today', windowStarted: 'Renewal window started' },
   summary: { certificates: 'Configured certificates', inProgress: 'In progress', failures: 'Failures needing attention' },
-  list: { empty: 'No ACME certificates configured.', columns: { name: 'Name', domains: 'Domains', status: 'Status', expiresAt: 'Expires', renewal: 'Auto renewal', actions: 'Actions' }, values: { enabled: 'Enabled', disabled: 'Disabled', notConfigured: 'Not configured' } },
+  list: { empty: 'No ACME certificates configured.', columns: { name: 'Name', domains: 'Domains', status: 'Status', expiresAt: 'Expires', nextRenewalIn: 'Next renewal', renewal: 'Auto renewal', actions: 'Actions' }, values: { enabled: 'Enabled', disabled: 'Disabled', notConfigured: 'Not configured' } },
   create: { title: 'Add ACME certificate', description: 'Enter the domains and challenge method. GCAC will manage renewals according to the saved policy.', fields: { domains: 'Domains', email: 'Contact email', name: 'Certificate name', acmeProvider: 'ACME issuer', dnsProvider: 'lego DNS provider', dnsCredentialTemplate: 'Credential example', dnsCredential: 'DNS global credential', credentialConfig: 'lego environment file', dnsPropagation: 'DNS propagation wait seconds', keyType: 'Certificate key type', renewalWindow: 'Renewal window days', autoRenew: 'Enable automatic renewal', terms: 'I agree to the ACME terms of service' }, placeholders: { domains: 'For example: example.com, *.example.com', name: 'Uses the primary domain when empty', acmeProvider: 'Select an ACME issuer', dnsProvider: 'Select a lego DNS provider', dnsCredential: 'Select a saved DNS credential', credentialValue: 'Paste the lego environment file, for example ALICLOUD_ACCESS_KEY=...' }, hints: { domains: 'Separate multiple domains with commas or spaces. Domains must point to the validation environment.' }, values: { ecdsa: 'ECDSA', rsa: 'RSA (default)' }, actions: { createCredential: 'Create credential', saveCredential: 'Save credential' }, messages: { credentialsLoadFailed: 'Failed to load DNS credentials.', credentialFieldsRequired: 'Enter the complete lego environment file.', credentialCreateFailed: 'Failed to create the DNS credential.', selectedCredential: 'Selected: {name}' }, note: 'Use the native environment variable format of the selected lego Provider. The initial issuance job is created immediately after saving; the background lifecycle validates the domains, performs real issuance, and stores a new staged certificate version.' },
   edit: { title: 'Edit ACME certificate automation', description: 'Update domains, validation, credentials, and renewal settings. The new configuration applies to the next renewal.' },
   delete: { title: 'Delete ACME certificate automation', description: 'The renewal policy and certificate asset will be disabled and soft-deleted. Historical jobs, orders, and audit records are retained.', confirmation: 'Delete ACME automation for “{name}”?' },
   provider: { title: 'ACME issuer settings', description: 'Choose a certificate authority and maintain its ACME Directory. DNS provider credentials remain separate and are only used for DNS-01.', createTitle: 'Add issuer', editTitle: 'Edit issuer', editorDescription: 'Configure the ACME Directory, challenge methods, and default issuer. DNS provider credentials remain separate.', empty: 'No ACME issuer configured.', fields: { preset: 'Issuer type', name: 'Configuration name', directoryUrl: 'ACME Directory URL', termsOfServiceUrl: 'Terms of service URL', allowedChallenges: 'Allowed challenge methods', isDefault: 'Set as default issuer' }, placeholders: { termsOfServiceUrl: 'Optional: terms of service page' }, values: { default: 'Default', builtIn: 'Built-in' }, actions: { settings: 'Provider settings', add: 'Add issuer', edit: 'Edit', save: 'Save configuration', test: 'Test connection', testing: 'Testing…' }, hints: { eabRequired: 'This issuer commonly requires EAB. Provide the EAB Key ID and HMAC in the ACME Account configuration.', accountSetup: 'Create an ACME Account for this issuer before requesting certificates.' }, messages: { requiredFields: 'Enter a name and Directory URL, then select at least one challenge method.', saved: 'ACME issuer configuration saved.', testSucceeded: 'ACME issuer connection test succeeded.', testFailed: 'ACME issuer connection test failed.' }, presets: { letsencrypt: "Let's Encrypt", zerossl: 'ZeroSSL', 'google-trust-services': 'Google Trust Services', digicert: 'DigiCert', sectigo: 'Sectigo', 'ssl-com': 'SSL.com', 'step-ca': 'step-ca', ejbca: 'EJBCA', custom: 'Custom ACME CA' } },
   terms: { title: 'ACME Terms of Service', description: 'Read the following terms and confirm the responsibility boundaries for automated issuance and renewal.', intro: 'The ACME service submits domain certificate requests to the configured certificate authority and runs renewals according to the saved policy.', responsibility: 'You must control the requested domains and keep the network, DNS, and account permissions required by HTTP-01 or DNS-01 validation available.', credentials: 'DNS provider credentials can modify DNS records. Use least-privilege credentials and manage them through the global credential manager. Do not put keys directly in business forms or logs.', renewal: 'Automatic renewal does not guarantee immediate issuance. CA rate limits, validation failures, or DNS propagation delays can fail a renewal; GCAC keeps the previous certificate and records the failed job.', readConfirm: 'I have read and understood the ACME terms above', confirm: 'Confirm and agree' },
   advanced: { title: 'Advanced diagnostics', description: 'Use this area to inspect accounts, orders, and renewal jobs. Normal certificate management does not require these internal objects.', providers: 'Providers: {count}', accounts: 'Accounts: {count}', orders: 'Orders: {count}', jobs: 'Jobs: {count}' },
-  detail: { description: 'Review the challenge method, renewal jobs, and order state for this certificate.', fields: { domains: 'Domains', expiresAt: 'Expires', challenge: 'Challenge', renewalWindow: 'Renewal window' }, columns: { domains: 'Domains', status: 'Status', nextAttemptAt: 'Next attempt', failure: 'Failure', updatedAt: 'Updated' }, emptyJobs: 'No renewal jobs.', emptyOrders: 'No ACME orders.' },
+  detail: { description: 'Review the challenge method, renewal jobs, and order state for this certificate.', fields: { domains: 'Domains', expiresAt: 'Expires', provider: 'ACME provider', challenge: 'Challenge', renewalWindow: 'Renewal window', nextRenewalIn: 'Next renewal' }, columns: { domains: 'Domains', status: 'Status', nextAttemptAt: 'Next attempt', failure: 'Failure', updatedAt: 'Updated' }, emptyJobs: 'No renewal jobs.', emptyOrders: 'No ACME orders.', emptyOrdersDns01: 'DNS-01 is currently issued directly through lego, so GCAC does not store a local ACME order record yet.' },
   aria: { refresh: 'Refresh ACME data', add: 'Add ACME certificate', scan: 'Scan ACME renewal jobs', run: 'Run ACME renewal jobs' },
 } as const
 

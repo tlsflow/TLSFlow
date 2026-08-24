@@ -3,13 +3,15 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type AcmeProviderPreset, type AcmeProviderPresetKey, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { listCertificates } from '@/api/modules/certificates.api'
+import { listCertificateVersions, listCertificates } from '@/api/modules/certificates.api'
 import { GcAcmeDnsCredentialSelect, GcDataTable, GcModal, GcPageHeader } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { ApiRecord } from '@/api/modules/common'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
+const VERSION_PAGE_SIZE = 200
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
 const loading = ref(false)
 const actionPending = ref(false)
@@ -21,6 +23,7 @@ const dnsProviders = ref<InternalCaRecord[]>([])
 const policies = ref<InternalCaRecord[]>([])
 const orders = ref<InternalCaRecord[]>([])
 const jobs = ref<InternalCaRecord[]>([])
+const certificateVersions = ref<ApiRecord[]>([])
 const acmeProviderPresets = ref<AcmeProviderPreset[]>([])
 const createDialogOpen = ref(false)
 const editDialogOpen = ref(false)
@@ -100,6 +103,7 @@ const assetColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'domains', title: t('acme.list.columns.domains') },
   { key: 'status', title: t('acme.list.columns.status') },
   { key: 'expiresAt', title: t('acme.list.columns.expiresAt') },
+  { key: 'nextRenewalIn', title: t('acme.list.columns.nextRenewalIn') },
   { key: 'renewal', title: t('acme.list.columns.renewal') },
   { key: 'actions', title: t('acme.list.columns.actions') },
 ])
@@ -129,8 +133,9 @@ async function loadAll(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const [assetResult, providerResult, accountResult, providerSettingsResult, dnsProviderResult, policyResult, orderResult, jobResult] = await Promise.all([
+    const [assetResult, versionItems, providerResult, accountResult, providerSettingsResult, dnsProviderResult, policyResult, orderResult, jobResult] = await Promise.all([
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listAllAcmeCertificateVersions(),
       internalCaApi.listProviders(),
       internalCaApi.listAcmeAccounts(),
       internalCaApi.listAcmeProviderSettings(),
@@ -140,6 +145,7 @@ async function loadAll(): Promise<void> {
       internalCaApi.listAcmeRenewalJobs(),
     ])
     assets.value = [...(assetResult.data?.items ?? [])]
+    certificateVersions.value = [...versionItems]
     providers.value = providerResult.data ?? []
     accounts.value = accountResult.data ?? []
     acmeProviderPresets.value = providerSettingsResult.data?.presets ?? []
@@ -153,6 +159,28 @@ async function loadAll(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function listAllAcmeCertificateVersions(): Promise<ApiRecord[]> {
+  const items: ApiRecord[] = []
+  let page = 1
+
+  while (true) {
+    const result = await listCertificateVersions({
+      page,
+      pageSize: VERSION_PAGE_SIZE,
+      sort: 'createdAt:desc',
+      filters: { sourceType: 'acme' },
+    })
+    const pageItems = [...(result.data?.items ?? [])]
+    items.push(...pageItems)
+
+    const total = Number(result.data?.total ?? 0)
+    if (pageItems.length < VERSION_PAGE_SIZE || items.length >= total) break
+    page += 1
+  }
+
+  return items
 }
 
 function openCreateDialog(): void {
@@ -509,9 +537,13 @@ function jobsForAsset(asset: ApiRecord | null): InternalCaRecord[] {
 }
 
 function ordersForAsset(asset: ApiRecord | null): InternalCaRecord[] {
+  const assetId = text(asset?.id)
   const assetJobs = jobsForAsset(asset)
-  const orderIds = new Set(assetJobs.map((job) => text(job.acmeOrderId)))
-  return orders.value.filter((order) => orderIds.has(text(order.id)))
+  const orderIds = new Set(assetJobs.map((job) => text(job.acmeOrderId)).filter(Boolean))
+  return orders.value.filter((order) => {
+    const orderAssetId = text(order.certificateAssetId)
+    return orderAssetId === assetId || orderIds.has(text(order.id))
+  })
 }
 
 function normalizeDomains(value: string): string[] {
@@ -522,10 +554,34 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function timeValue(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function providerConfiguration(provider: InternalCaRecord | null | undefined): InternalCaRecord {
   return provider?.configuration && typeof provider.configuration === 'object' && !Array.isArray(provider.configuration)
     ? provider.configuration as InternalCaRecord
     : {}
+}
+
+function acmeProviderForAsset(asset: ApiRecord | null): InternalCaRecord | undefined {
+  const providerId = text(policyForAsset(asset)?.providerId)
+  if (!providerId) return undefined
+  return acmeProviders.value.find((provider) => text(provider.id) === providerId)
+}
+
+function providerLabelForAsset(asset: ApiRecord | null): string {
+  const provider = acmeProviderForAsset(asset)
+  return text(provider?.name, text(provider?.id, t('acme.common.notAvailable')))
 }
 
 function localTime(value: unknown): string {
@@ -533,7 +589,38 @@ function localTime(value: unknown): string {
 }
 
 function dateFromAsset(asset: ApiRecord): string {
-  return localTime(asset.currentVersion && typeof asset.currentVersion === 'object' ? (asset.currentVersion as InternalCaRecord).notAfter : asset.notAfter)
+  const version = latestVersionForAsset(asset)
+  return localTime(version?.notAfter)
+}
+
+function renewalWindowDaysOf(asset: ApiRecord | null): number | null {
+  return numberValue(policyForAsset(asset)?.renewalWindowDays)
+}
+
+function renewalWindowLabel(asset: ApiRecord | null): string {
+  const days = renewalWindowDaysOf(asset)
+  return days === null ? t('acme.common.notAvailable') : String(days)
+}
+
+function renewalAtTimeOf(asset: ApiRecord | null): number | null {
+  const notAfterTime = timeValue(latestVersionForAsset(asset)?.notAfter)
+  const renewalWindowDays = renewalWindowDaysOf(asset)
+  if (notAfterTime === null || renewalWindowDays === null) return null
+  return notAfterTime - (renewalWindowDays * MILLISECONDS_PER_DAY)
+}
+
+// 这里展示的是“距离进入续签窗口还有多久”，不是策略配置本身。
+function renewalCountdownFromAsset(asset: ApiRecord | null): string {
+  const renewalAtTime = renewalAtTimeOf(asset)
+  if (renewalAtTime === null) return t('acme.common.notAvailable')
+
+  const difference = renewalAtTime - Date.now()
+  if (difference < 0) return t('acme.countdown.windowStarted')
+  if (difference < MILLISECONDS_PER_DAY) return t('acme.countdown.today')
+
+  return t('acme.countdown.remainingDays', {
+    days: Math.ceil(difference / MILLISECONDS_PER_DAY),
+  })
 }
 
 function domainsOf(asset: ApiRecord): string {
@@ -580,6 +667,30 @@ function orderIdentifiers(order: InternalCaRecord): string {
     .filter(Boolean)
     .join(', ') || t('acme.common.notAvailable')
 }
+
+function detailOrderEmptyText(asset: ApiRecord | null): string {
+  const policy = policyForAsset(asset)
+  if (text(policy?.challengeType) === 'dns-01') return t('acme.detail.emptyOrdersDns01')
+  return t('acme.detail.emptyOrders')
+}
+
+function latestVersionForAsset(asset: ApiRecord | null): InternalCaRecord | undefined {
+  if (!asset) return undefined
+  const currentVersion = asset.currentVersion && typeof asset.currentVersion === 'object'
+    ? asset.currentVersion as InternalCaRecord
+    : undefined
+  if (text(currentVersion?.notAfter)) return currentVersion
+
+  const currentVersionId = text(asset.currentVersionId, text(currentVersion?.id))
+  if (currentVersionId) {
+    const matched = certificateVersions.value.find((version) => text(version.id) === currentVersionId)
+    if (matched) return matched as InternalCaRecord
+  }
+
+  const assetId = text(asset.id)
+  if (!assetId) return undefined
+  return certificateVersions.value.find((version) => text(version.certificateAssetId) === assetId) as InternalCaRecord | undefined
+}
 </script>
 
 <template>
@@ -597,7 +708,7 @@ function orderIdentifiers(order: InternalCaRecord): string {
     <div class="acme-summary" aria-live="polite">
       <div><strong>{{ configuredAssets.length }}</strong><span>{{ t('acme.summary.certificates') }}</span></div>
       <div><strong>{{ dueJobs.length }}</strong><span>{{ t('acme.summary.inProgress') }}</span></div>
-      <div><strong>{{ failedJobs.length }}</strong><span>{{ t('acme.summary.failures') }}</span></div>
+      <div data-tone="danger"><strong>{{ failedJobs.length }}</strong><span>{{ t('acme.summary.failures') }}</span></div>
       <button class="gc-button" type="button" :disabled="actionPending" @click="runDueJobs">{{ t('acme.actions.run') }}</button>
     </div>
 
@@ -608,6 +719,7 @@ function orderIdentifiers(order: InternalCaRecord): string {
       <template #cell-domains="{ row }"><span class="acme-domains">{{ domainsOf(row) }}</span></template>
       <template #cell-status="{ row }"><span class="acme-status" :data-status="assetStatus(row)">{{ statusLabel(assetStatus(row)) }}</span></template>
       <template #cell-expiresAt="{ row }">{{ dateFromAsset(row) }}</template>
+      <template #cell-nextRenewalIn="{ row }">{{ renewalCountdownFromAsset(row) }}</template>
       <template #cell-renewal="{ row }"><span class="acme-status" :data-status="renewalLabel(row)">{{ renewalLabel(row) }}</span></template>
       <template #cell-actions="{ row }">
         <div class="acme-row-actions">
@@ -832,15 +944,17 @@ function orderIdentifiers(order: InternalCaRecord): string {
         <dl class="acme-detail__facts">
           <div><dt>{{ t('acme.detail.fields.domains') }}</dt><dd>{{ selectedAsset ? domainsOf(selectedAsset) : t('acme.common.notAvailable') }}</dd></div>
           <div><dt>{{ t('acme.detail.fields.expiresAt') }}</dt><dd>{{ selectedAsset ? dateFromAsset(selectedAsset) : t('acme.common.notAvailable') }}</dd></div>
+          <div><dt>{{ t('acme.detail.fields.provider') }}</dt><dd>{{ providerLabelForAsset(selectedAsset) }}</dd></div>
           <div><dt>{{ t('acme.detail.fields.challenge') }}</dt><dd>{{ challengeLabel(policyForAsset(selectedAsset)?.challengeType) }}</dd></div>
-          <div><dt>{{ t('acme.detail.fields.renewalWindow') }}</dt><dd>{{ text(policyForAsset(selectedAsset)?.renewalWindowDays, t('acme.common.notAvailable')) }}</dd></div>
+          <div><dt>{{ t('acme.detail.fields.renewalWindow') }}</dt><dd>{{ renewalWindowLabel(selectedAsset) }}</dd></div>
+          <div><dt>{{ t('acme.detail.fields.nextRenewalIn') }}</dt><dd>{{ renewalCountdownFromAsset(selectedAsset) }}</dd></div>
         </dl>
         <GcDataTable :columns="detailJobColumns" :rows="jobsForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyJobs')">
           <template #cell-status="{ row }"><span class="acme-status" :data-status="normalizedJobStatus(row.status)">{{ statusLabel(row.status) }}</span></template>
           <template #cell-nextAttemptAt="{ row }">{{ localTime(row.nextAttemptAt) }}</template>
           <template #cell-failureMessage="{ row }">{{ text(row.failureMessage, t('acme.messages.noFailure')) }}</template>
         </GcDataTable>
-        <GcDataTable :columns="detailOrderColumns" :rows="ordersForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyOrders')">
+        <GcDataTable :columns="detailOrderColumns" :rows="ordersForAsset(selectedAsset)" :loading="loading" :empty-text="detailOrderEmptyText(selectedAsset)">
           <template #cell-identifiers="{ row }">{{ orderIdentifiers(row) }}</template>
           <template #cell-status="{ row }"><span class="acme-status" :data-status="text(row.status)">{{ statusLabel(row.status) }}</span></template>
           <template #cell-updatedAt="{ row }">{{ localTime(row.updatedAt) }}</template>
@@ -873,6 +987,7 @@ function orderIdentifiers(order: InternalCaRecord): string {
 .acme-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
 .acme-summary > div { display: grid; gap: var(--gc-space-1); min-width: var(--gc-size-card-min); }
 .acme-summary strong { color: var(--gc-color-primary); font-size: var(--gc-font-size-2xl); }
+.acme-summary > div[data-tone='danger'] strong { color: var(--gc-color-danger); }
 .acme-summary span, .acme-advanced p, .acme-form-hint, .acme-form-note { color: var(--gc-color-text-muted); }
 .acme-asset-name { display: grid; gap: var(--gc-space-1); }
 .acme-asset-name small, .acme-form-hint, .acme-form-note { font-size: var(--gc-font-size-sm); }
