@@ -21,7 +21,7 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
   assert.equal(citrix?.status, 'ENABLED');
-  assert.equal(citrix?.version, '1.1.25');
+  assert.equal(citrix?.version, '1.1.37');
   assert.equal(apache?.version, '1.2.6');
   assert.equal(synology?.version, '1.2.6');
   assert.equal(agent?.version, '1.0.14');
@@ -115,7 +115,7 @@ test('内置插件导入、审批和启用失败时只告警并继续处理其�
       errorCode: (event.details as { errorCode: string }).errorCode,
     })),
     [
-      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.1.25', errorCode: 'RESOURCE_VERSION_CONFLICT' },
+      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.1.37', errorCode: 'RESOURCE_VERSION_CONFLICT' },
       { phase: 'approvePermissions', pluginId: 'builtin.workflow.apache-8444-cert-switch', version: '1.2.6', errorCode: 'PLUGIN_PERMISSION_DENIED' },
       { phase: 'enable', pluginId: 'builtin.linux.nginx.pem', version: '1.0.14', errorCode: 'PLUGIN_PERMISSION_DENIED' },
     ],

@@ -74,6 +74,12 @@ test('Citrix ADC 所有 Workflow 只声明统一部署输入协议', async () =>
   const deploy = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
   assert.deepEqual(deploy.inputContract.variables.targetVirtualServers.source, { kind: 'asset', path: 'deployment.targets' });
   assert.deepEqual(deploy.inputContract.variables.certificateKeyName.source, { kind: 'derived', resolver: 'certificate_resource_name' });
+  assert.equal(deploy.inputContract.variables.allowInsecureTls.type, 'boolean');
+  assert.equal(deploy.inputContract.variables.allowInsecureTls.required, true);
+  assert.equal(deploy.inputContract.variables.allowInsecureTls.configurationMode, 'required');
+  assert.deepEqual(deploy.inputContract.variables.allowInsecureTls.source, { kind: 'binding' });
+  assert.equal(deploy.inputContract.variables.allowInsecureTls.lifecycle, 'pre_execution');
+  assert.equal(deploy.inputContract.variables.allowInsecureTls.bindingPolicy, 'required_binding');
   assert.deepEqual(Object.keys(deploy.inputContract.artifacts), ['certificate']);
   assert.equal(JSON.stringify(deploy).includes('deviceHost'), false);
   assert.equal(JSON.stringify(deploy).includes('managementPort'), false);
@@ -329,8 +335,8 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
     mockResponses: deploymentResponses(),
   });
   assert.equal(result.status, 'success');
-  assert.deepEqual(result.stepResults.map((item) => item.name).slice(-4), [
-    'bindTargets', 'removeOldBindings', 'saveConfiguration', 'verifyCertificateControlPlane',
+  assert.deepEqual(result.stepResults.map((item) => item.name).slice(-6), [
+    'bindTargets', 'prepareOldBindingRemoval', 'selectOldBindingsToRemove', 'removeOldBindings', 'saveConfiguration', 'verifyCertificateControlPlane',
   ]);
   const remove = result.stepResults.find((item) => item.name === 'removeOldBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:old-cert/);
@@ -354,6 +360,68 @@ test('Citrix ADC Dry-run 对运行时发现结果延迟展开 foreach', async ()
   assert.equal((result.stepResults.find((item) => item.name === 'deploymentCheckpoint')?.plan as { deferred?: boolean }).deferred, true);
   assert.match(result.stepResults.find((item) => item.name === 'removeOldBindings')?.logs[0] ?? '', /:deferred:/);
   assert.equal((result.stepResults.find((item) => item.name === 'installIntermediates')?.plan as { itemCount?: number }).itemCount, 2);
+});
+
+test('Citrix ADC 部署目标缺少 SNI 元数据时默认 false，并继承已有 SNI 绑定', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const variables = deploymentVariables();
+  variables.targetVirtualServers = [
+    { name: 'lb-default', metadata: {} },
+    { name: 'lb-sni', metadata: {} },
+  ];
+  const responses = deploymentResponses();
+  responses.readOldBindings = {
+    statusCode: 200,
+    body: {
+      errorcode: 0,
+      sslvserver_sslcertkey_binding: [
+        { vservername: 'lb-default', certkeyname: 'old-default', snicert: false },
+        { vservername: 'lb-sni', certkeyname: 'old-sni', snicert: true },
+      ],
+    },
+  };
+
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(variables),
+    mockResponses: responses,
+  });
+
+  const targets = result.stepResults.find((item) => item.name === 'selectLiveBindings')?.extracted.deploymentTargets as Array<{ name: string; metadata: { sniCertificate: boolean } }>;
+  assert.deepEqual(targets.map((target) => ({ name: target.name, sniCertificate: target.metadata.sniCertificate })), [
+    { name: 'lb-default', sniCertificate: false },
+    { name: 'lb-sni', sniCertificate: true },
+  ]);
+});
+
+test('Citrix ADC 长业务资源名会派生为短 Citrix certkey 并用于多级链路', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const variables = deploymentVariables();
+  variables.certificateKeyName = 'certificate-lb-test01-jacksonz-cn-5579902569';
+  const responses = deploymentResponses();
+  responses.verifyIntermediateLink = { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-5579902569-ca-1', linkcertkeyname: 'gcac-5579902569-ca-2' }] } };
+  responses.verifyLeafChainLink = { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-5579902569', linkcertkeyname: 'gcac-5579902569-ca-1' }] } };
+  responses.verifyNewBinding = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'gcac-5579902569' }] } };
+  responses.verifyCertificateControlPlane = { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-5579902569', status: 'Valid', linkcertkeyname: 'gcac-5579902569-ca-1' }] } };
+
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(variables),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.stepResults.find((item) => item.name === 'deriveCitrixNames')?.extracted.citrixCertificateKeyName, 'gcac-5579902569');
+  assert.match(JSON.stringify(result.stepResults.find((item) => item.name === 'linkIntermediates')?.children), /gcac-5579902569-ca-1/);
+  assert.equal(JSON.stringify(result).includes('certificate-lb-test01-jacksonz-cn-5579902569-ca-1'), false);
 });
 
 test('Citrix ADC 旧证书键在零条和单条绑定时始终为数组', async () => {
@@ -384,6 +452,7 @@ test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接
   deviceBinding.connections.management = { host: '10.0.0.1', port: 443, tls: { verifyPeer: false } };
   deviceBinding.credentials.credential = { credentialId: 'cred_fixture' };
   const assetBinding = emptyInputBindingsV1();
+  assetBinding.variables.allowInsecureTls = true;
   assetBinding.artifacts.certificate = {
     certificateFormatId: 'format_citrix_pem',
     outputBindings: {
@@ -426,6 +495,7 @@ test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接
   assert.equal(resolvedInput.executable, true);
   assert.deepEqual(resolvedInput.variables.targetVirtualServers, resolvedInput.assetContext.deployment?.targets);
   assert.equal(resolvedInput.variables.certificateKeyName, 'gcac-leaf-20260724');
+  assert.equal(resolvedInput.variables.allowInsecureTls, true);
   assert.equal(resolvedInput.connections.management.host, '10.0.0.1');
   assert.equal(resolvedInput.credentials.credential?.credentialId, 'cred_fixture');
 
@@ -446,6 +516,7 @@ test('Citrix ADC systemfile 接受 200 且绑定失败时不执行保存', async
   responses.uploadPrivateKey = { statusCode: 200, body: {} };
   responses.bindNewCertificate = { statusCode: 500, body: { errorcode: 999, message: 'fixture failure' } };
   responses.readCurrentVersion = responses.preflight;
+  responses.readBindingsBeforeRestore = responses.readOldBindings;
   responses.restoreOldBinding = { statusCode: 201, body: { errorcode: 0 } };
   responses.readBindingsAfterRestore = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }] } };
   responses.removeNewBinding = { statusCode: 200, body: { errorcode: 0 } };
@@ -463,6 +534,138 @@ test('Citrix ADC systemfile 接受 200 且绑定失败时不执行保存', async
   assert.equal(result.stepResults.find((item) => item.name === 'uploadLeafCertificate')?.status, 'success');
   assert.equal(result.stepResults.find((item) => item.name === 'uploadPrivateKey')?.status, 'success');
   assert.equal(result.rollbackResults.every((item) => item.status !== 'failed'), true);
+  assert.equal(result.rollbackResults.find((item) => item.name === 'decideRollbackPersistence')?.extracted.bindingMutationCount, 0);
+  assert.equal(result.rollbackResults.find((item) => item.name === 'saveConfiguration')?.status, 'skipped');
+});
+
+test('Citrix ADC 中间证书 certkey 已存在时继续逐级 link 并验证收敛', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const responses = deploymentResponses();
+  responses.createIntermediateCertKey = { statusCode: 500, body: { errorcode: 273, message: 'Resource already exists' } };
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  const install = result.stepResults.find((item) => item.name === 'installIntermediates');
+  assert.equal(install?.status, 'success');
+  const link = result.stepResults.find((item) => item.name === 'linkIntermediates');
+  assert.equal(link?.status, 'success');
+  assert.equal(link?.children?.some((item) => item.name.includes('verifyIntermediateLink') && item.status === 'success'), true);
+});
+
+test('Citrix ADC 中间证书 NITRO 599 已存在响应后继续逐级 link 并验证收敛', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const responses = deploymentResponses();
+  responses.createIntermediateCertKey = { statusCode: 599, body: { errorcode: 273, message: 'Resource already exists' } };
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  const installIndex = result.stepResults.findIndex((item) => item.name === 'installIntermediates');
+  const linkIndex = result.stepResults.findIndex((item) => item.name === 'linkIntermediates');
+  assert.equal(installIndex >= 0 && linkIndex > installIndex, true);
+  const link = result.stepResults[linkIndex];
+  assert.equal(link?.children?.some((item) => item.name.includes('verifyIntermediateLink') && item.status === 'success'), true);
+});
+
+test('Citrix ADC 中间证书同内容已存在时复用设备返回的 certkey 名', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const variables = deploymentVariables();
+  const certificate = variables.certificate as Record<string, unknown>;
+  certificate.orderedIntermediates = [
+    { sequence: 1, hasNext: false, pemBase64: Buffer.from('ca-1').toString('base64') },
+  ];
+  const responses = deploymentResponses();
+  responses.createIntermediateCertKey = {
+    statusCode: 409,
+    body: { errorcode: 273, message: 'Resource already exists [certkeyName Contents, ca1]', severity: 'ERROR' },
+  };
+  responses.verifyLeafChainLink = {
+    statusCode: 200,
+    body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-leaf-20260724', linkcertkeyname: 'ca1' }] },
+  };
+
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(variables),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  const resolved = result.stepResults.find((item) => item.name === 'resolveIntermediateCertKeyNames');
+  assert.equal((resolved?.extracted.effectiveIntermediates as Array<{ certkeyName: string }>)[0]?.certkeyName, 'ca1');
+  const leafLink = result.stepResults.find((item) => item.name === 'linkLeafCertKey');
+  assert.match(JSON.stringify(leafLink?.plan), /"linkcertkeyname":"ca1"/);
+});
+
+test('Citrix ADC 删除旧绑定时只编码 certkey 参数值', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const responses = deploymentResponses();
+  responses.readOldBindings = {
+    statusCode: 200,
+    body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: '*,weichai.com-2026', snicert: false }] },
+  };
+  responses.prepareOldBindingRemoval = responses.readOldBindings;
+  responses.readOldCertKey = {
+    statusCode: 200,
+    body: { errorcode: 0, sslcertkey: [{ certkey: '*,weichai.com-2026', cert: '/nsconfig/ssl/old.pem', key: '/nsconfig/ssl/old.key', status: 'Valid' }] },
+  };
+
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  const remove = result.stepResults.find((item) => item.name === 'removeOldBindings')?.children?.[0];
+  assert.match(JSON.stringify(remove?.plan), /args=certkeyname:%2A%2Cweichai.com-2026/);
+});
+
+test('Citrix ADC 绑定新证书后旧绑定已消失时不再执行删除', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const responses = deploymentResponses();
+  responses.prepareOldBindingRemoval = {
+    statusCode: 200,
+    body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'gcac-leaf-20260724', snicert: false }] },
+  };
+
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  const remove = result.stepResults.find((item) => item.name === 'removeOldBindings');
+  assert.equal((remove?.plan as { itemCount?: number }).itemCount, 0);
+  assert.equal(remove?.children?.length, 0);
 });
 
 test('Citrix ADC 自动补偿失败时不得伪装为已回滚', async () => {
@@ -473,6 +676,7 @@ test('Citrix ADC 自动补偿失败时不得伪装为已回滚', async () => {
   const responses = deploymentResponses();
   responses.bindNewCertificate = { statusCode: 500, body: { errorcode: 999 } };
   responses.readCurrentVersion = responses.preflight;
+  responses.readBindingsBeforeRestore = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [] } };
   responses.restoreOldBinding = { statusCode: 500, body: { errorcode: 998 } };
   const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(deploymentVariables()), mockResponses: responses });
   assert.equal(result.status, 'failed');
@@ -495,11 +699,42 @@ test('Citrix ADC 回滚恢复旧绑定、移除新绑定并验证集合语义等
   });
   assert.equal(result.status, 'success');
   assert.deepEqual(result.rollbackResults.map((item) => item.name).slice(-4), [
-    'readFinalBindings', 'compareFinalBindings', 'requireFinalBindingsEquivalent', 'saveConfiguration',
+    'compareFinalBindings', 'requireFinalBindingsEquivalent', 'decideRollbackPersistence', 'saveConfiguration',
   ]);
   const remove = result.rollbackResults.find((item) => item.name === 'removeNewBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:gcac-leaf-20260724/);
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
+});
+
+test('Citrix ADC 回滚校验允许 NITRO 旧绑定响应缺少 priority', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const snapshot = recoverySnapshot();
+  const responses = recoveryResponses();
+  responses.readBindingsAfterRestore = {
+    statusCode: 200,
+    body: {
+      errorcode: 0,
+      sslvserver_sslcertkey_binding: [
+        { vservername: 'lb-one', certkeyname: 'old-cert', snicert: false },
+        { vservername: 'lb-one', certkeyname: 'gcac-leaf-20260724', snicert: false },
+      ],
+    },
+  };
+  responses.readFinalBindings = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false }] } };
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    executionBranch: 'rollback',
+    resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }),
+    stepOutputs: rollbackStepOutputs(snapshot),
+    mockResponses: responses,
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.rollbackResults.find((item) => item.name === 'requireOldBindingsRestored')?.status, 'success');
 });
 
 test('Citrix ADC 回滚快照哈希损坏时在首个写操作前停止', async () => {
@@ -532,6 +767,7 @@ test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async 
 
 function deploymentVariables(): Record<string, unknown> {
   return {
+    allowInsecureTls: true,
     certificateKeyName: 'gcac-leaf-20260724',
     certificate: {
       leafPemBase64: Buffer.from('leaf').toString('base64'),
@@ -556,10 +792,13 @@ function deploymentResponses(): Record<string, WorkflowMockStepOutput> {
     uploadIntermediate: { statusCode: 201, body: {} },
     createIntermediateCertKey: { statusCode: 201, body: { errorcode: 0 } },
     linkIntermediateCertKey: { statusCode: 200, body: { errorcode: 0 } },
+    verifyIntermediateLink: { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-leaf-20260724-ca-1', linkcertkeyname: 'gcac-leaf-20260724-ca-2' }] } },
     createLeafCertKey: { statusCode: 201, body: { errorcode: 0 } },
     linkLeafCertKey: { statusCode: 200, body: { errorcode: 0 } },
+    verifyLeafChainLink: { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-leaf-20260724', linkcertkeyname: 'gcac-leaf-20260724-ca-1' }] } },
     bindNewCertificate: { statusCode: 201, body: { errorcode: 0 } },
     verifyNewBinding: { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'gcac-leaf-20260724' }] } },
+    prepareOldBindingRemoval: { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }, { vservername: 'lb-one', certkeyname: 'gcac-leaf-20260724', snicert: false, priority: 2 }] } },
     removeOldBinding: { statusCode: 200, body: { errorcode: 0 } },
     saveConfiguration: { statusCode: 200, body: { errorcode: 0 } },
     verifyCertificateControlPlane: { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: 'gcac-leaf-20260724', status: 'Valid', linkcertkeyname: 'gcac-leaf-20260724-ca-1' }] } },
@@ -600,6 +839,7 @@ function recoveryResponses(): Record<string, WorkflowMockStepOutput> {
   const oldBinding = { vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 };
   return {
     readCurrentVersion: { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } },
+    readBindingsBeforeRestore: { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [] } },
     restoreOldBinding: { statusCode: 201, body: { errorcode: 0 } },
     readBindingsAfterRestore: { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [oldBinding, { vservername: 'lb-one', certkeyname: 'gcac-leaf-20260724', snicert: false, priority: 2 }] } },
     removeNewBinding: { statusCode: 200, body: { errorcode: 0 } },

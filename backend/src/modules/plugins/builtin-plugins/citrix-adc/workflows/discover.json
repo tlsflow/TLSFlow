@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "citrix-adc-discover", "displayName": "Citrix ADC discovery", "category": "device", "version": "1.0.12", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "citrix-adc-discover", "displayName": "Citrix ADC discovery", "category": "device", "version": "1.1.8", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {},

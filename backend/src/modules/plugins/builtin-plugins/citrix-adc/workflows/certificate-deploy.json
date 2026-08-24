@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-deploy",
     "displayName": "Citrix ADC certificate deployment",
     "category": "certificate",
-    "version": "1.1.6",
+    "version": "1.1.17",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -15,6 +15,7 @@
     "variables": {
       "targetVirtualServers": { "type": "array", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.targets" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "certificateKeyName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "allowInsecureTls": { "type": "boolean", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
       "recoverySnapshot": { "type": "object", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "sensitive": true },
       "recoverySnapshotHash": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" }
     },
@@ -83,6 +84,21 @@
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
     },
     {
+      "name": "deriveCitrixNames",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "certificateResourceName": "{{variables.certificateKeyName}}"
+        },
+        "outputs": {
+          "citrixCertificateKeyName": { "expression": "$length(certificateResourceName) <= 24 ? certificateResourceName : 'gcac-' & $split(certificateResourceName, '-')[$count($split(certificateResourceName, '-')) - 1]" }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
       "name": "selectLiveBindings",
       "type": "transform",
       "stage": "backup",
@@ -91,11 +107,12 @@
         "input": {
           "bindings": "{{steps.readOldBindings.output.body.sslvserver_sslcertkey_binding}}",
           "targets": "{{variables.targetVirtualServers}}",
-          "newCertificateKeyName": "{{variables.certificateKeyName}}"
+          "newCertificateKeyName": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}"
         },
         "outputs": {
           "targetBindings": { "expression": "$append([], $filter(bindings, function($binding) { $binding.vservername in targets.name }))" },
-          "oldCertificateKeys": { "expression": "$append([], $map($distinct($filter(bindings, function($binding) { $binding.vservername in targets.name and $binding.certkeyname != newCertificateKeyName }).certkeyname), function($name) { {'name': $name} }))" }
+          "oldCertificateKeys": { "expression": "$append([], $map($distinct($filter(bindings, function($binding) { $binding.vservername in targets.name and $binding.certkeyname != newCertificateKeyName }).certkeyname), function($name) { {'name': $name} }))" },
+          "deploymentTargets": { "expression": "$append([], $map(targets, function($target) { $merge([$target, {'metadata': $merge([{}, $target.metadata, {'sniCertificate': $exists($target.metadata.sniCertificate) ? $boolean($target.metadata.sniCertificate) : $count($filter(bindings, function($binding) { $binding.vservername = $target.name and $binding.snicert = true })) > 0}])}]) }))" }
         },
         "timeoutMs": 1000
       }
@@ -137,8 +154,8 @@
           "allBindings": "{{steps.readOldBindings.output.body.sslvserver_sslcertkey_binding}}",
           "bindings": "{{steps.selectLiveBindings.extracted.targetBindings}}",
           "certkeyIterations": "{{steps.readOldCertKeys.output.iterations}}",
-          "targets": "{{variables.targetVirtualServers}}",
-          "newCertificateKeyName": "{{variables.certificateKeyName}}",
+          "targets": "{{steps.selectLiveBindings.extracted.deploymentTargets}}",
+          "newCertificateKeyName": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}",
           "targetFingerprintSha256": "{{artifacts.certificate.outputs.fingerprintSha256}}"
         },
         "outputs": {
@@ -170,11 +187,12 @@
         "method": "POST",
         "connectionRef": "management",
         "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+        "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
-        "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.leafPemBase64}}", "fileencoding": "BASE64" } },
+        "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.leafPemBase64}}", "fileencoding": "BASE64" } },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-        "successStatusCodes": [200, 201]
+        "successStatusCodes": [200, 201, 209]
       }
     },
     {
@@ -185,11 +203,12 @@
         "method": "POST",
         "connectionRef": "management",
         "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+        "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
-        "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
+        "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-        "successStatusCodes": [200, 201]
+        "successStatusCodes": [200, 201, 209]
       }
     },
     {
@@ -208,11 +227,12 @@
               "method": "POST",
               "connectionRef": "management",
               "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+              "query": { "override": "yes" },
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
-              "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{intermediate.pemBase64}}", "fileencoding": "BASE64" } },
+              "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}-ca-{{intermediate.sequence}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{intermediate.pemBase64}}", "fileencoding": "BASE64" } },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-              "successStatusCodes": [200, 201]
+              "successStatusCodes": [200, 201, 209]
             }
           },
           {
@@ -224,11 +244,47 @@
               "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
-              "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}", "cert": "/nsconfig/ssl/{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}.pem" } },
+              "body": { "sslcertkey": { "certkey": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}-ca-{{intermediate.sequence}}", "cert": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}-ca-{{intermediate.sequence}}.pem" } },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-              "successStatusCodes": [200, 201]
+              "successStatusCodes": [200, 201, 209, 400, 409, 500, 599]
+            },
+            "extract": {
+              "statusCode": { "type": "statusCode", "optional": true },
+              "nitroErrorCode": { "type": "jsonPath", "path": "$.errorcode", "optional": true },
+              "nitroMessage": { "type": "jsonPath", "path": "$.message", "optional": true }
             }
-          },
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolveIntermediateCertKeyNames",
+      "type": "transform",
+      "stage": "install",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "intermediates": "{{artifacts.certificate.outputs.orderedIntermediates}}",
+          "iterations": "{{steps.installIntermediates.output.iterations}}",
+          "newCertificateKeyName": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}"
+        },
+        "outputs": {
+          "effectiveIntermediates": {
+            "expression": "($requests := $append([], $map(intermediates, function($item) { $merge([$item, {'requestedCertkeyName': newCertificateKeyName & '-ca-' & $string($item.sequence)}]) })); $names := $append([], $map($requests, function($item, $index) { ($create := $filter(iterations[$index].outputs, function($output) { $output.name = 'createIntermediateCertKey' })[0]; $message := $string($create.output.body.message); $candidate := $replace($message, /^.*certkeyName Contents,\\s*([^\\]]+)\\].*$/, '$1'); $contains($message, 'Resource already exists [certkeyName Contents,') and $candidate != $message ? $candidate : $item.requestedCertkeyName) })); $append([], $map($requests, function($item, $index) { $merge([$item, {'certkeyName': $names[$index], 'nextCertkeyName': $names[$index + 1]}]) })))"
+          }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
+      "name": "linkIntermediates",
+      "type": "foreach",
+      "stage": "install",
+      "foreach": {
+        "itemsPath": "steps.resolveIntermediateCertKeyNames.extracted.effectiveIntermediates",
+        "itemVariable": "intermediate",
+        "maxItems": 16,
+        "steps": [
           {
             "name": "linkIntermediateCertKey",
             "type": "http",
@@ -240,10 +296,32 @@
               "query": { "action": "link" },
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
-              "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}", "linkcertkeyname": "{{variables.certificateKeyName}}-ca-{{intermediate.nextSequence}}" } },
+              "body": { "sslcertkey": { "certkey": "{{intermediate.certkeyName}}", "linkcertkeyname": "{{intermediate.nextCertkeyName}}" } },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-              "successStatusCodes": [200, 201]
+              "successStatusCodes": [200, 201, 209, 400, 409, 500, 599]
+            },
+            "extract": {
+              "statusCode": { "type": "statusCode", "optional": true },
+              "nitroErrorCode": { "type": "jsonPath", "path": "$.errorcode", "optional": true },
+              "nitroMessage": { "type": "jsonPath", "path": "$.message", "optional": true }
             }
+          },
+          {
+            "name": "verifyIntermediateLink",
+            "type": "http",
+            "when": { "variable": "intermediate.hasNext", "equals": true },
+            "request": {
+              "method": "GET",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{intermediate.certkeyName}}",
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
+              "successStatusCodes": [200]
+            },
+            "assert": [
+              { "type": "jsonPath", "path": "$.errorcode", "equals": 0 },
+              { "type": "contains", "value": "{{intermediate.nextCertkeyName}}" }
+            ]
           }
         ]
       }
@@ -258,16 +336,16 @@
         "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
-        "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}", "cert": "/nsconfig/ssl/{{variables.certificateKeyName}}.pem", "key": "/nsconfig/ssl/{{variables.certificateKeyName}}.key" } },
+        "body": { "sslcertkey": { "certkey": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}", "cert": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.pem", "key": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.key" } },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-        "successStatusCodes": [200, 201]
+        "successStatusCodes": [200, 201, 209, 400, 409, 500, 599]
       }
     },
     {
       "name": "linkLeafCertKey",
       "type": "http",
       "stage": "install",
-      "when": { "variable": "artifacts.certificate.outputs.orderedIntermediates.0.sequence", "exists": true },
+      "when": { "variable": "steps.resolveIntermediateCertKeyNames.extracted.effectiveIntermediates.0.certkeyName", "exists": true },
       "request": {
         "method": "POST",
         "connectionRef": "management",
@@ -275,17 +353,40 @@
         "query": { "action": "link" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
-        "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}", "linkcertkeyname": "{{variables.certificateKeyName}}-ca-1" } },
+        "body": { "sslcertkey": { "certkey": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}", "linkcertkeyname": "{{steps.resolveIntermediateCertKeyNames.extracted.effectiveIntermediates.0.certkeyName}}" } },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-        "successStatusCodes": [200, 201]
+        "successStatusCodes": [200, 201, 209, 400, 409, 500, 599]
+      },
+      "extract": {
+        "statusCode": { "type": "statusCode", "optional": true },
+        "nitroErrorCode": { "type": "jsonPath", "path": "$.errorcode", "optional": true },
+        "nitroMessage": { "type": "jsonPath", "path": "$.message", "optional": true }
       }
+    },
+    {
+      "name": "verifyLeafChainLink",
+      "type": "http",
+      "stage": "install",
+      "when": { "variable": "steps.resolveIntermediateCertKeyNames.extracted.effectiveIntermediates.0.certkeyName", "exists": true },
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}",
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [
+        { "type": "jsonPath", "path": "$.errorcode", "equals": 0 },
+        { "type": "contains", "value": "{{steps.resolveIntermediateCertKeyNames.extracted.effectiveIntermediates.0.certkeyName}}" }
+      ]
     },
     {
       "name": "bindTargets",
       "type": "foreach",
       "stage": "refresh",
       "foreach": {
-        "itemsPath": "variables.targetVirtualServers",
+        "itemsPath": "steps.selectLiveBindings.extracted.deploymentTargets",
         "itemVariable": "target",
         "maxItems": 1000,
         "steps": [
@@ -298,9 +399,9 @@
               "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
-              "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{variables.certificateKeyName}}", "snicert": "{{target.metadata.sniCertificate}}" } },
+              "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}", "snicert": "{{target.metadata.sniCertificate}}" } },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
-              "successStatusCodes": [200, 201]
+              "successStatusCodes": [200, 201, 209, 409, 599]
             }
           },
           {
@@ -316,10 +417,44 @@
             },
             "assert": [
               { "type": "jsonPath", "path": "$.errorcode", "equals": 0 },
-              { "type": "contains", "value": "{{variables.certificateKeyName}}" }
+              { "type": "contains", "value": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}" }
             ]
           }
         ]
+      }
+    },
+    {
+      "name": "prepareOldBindingRemoval",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "query": { "bulkbindings": "yes" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "selectOldBindingsToRemove",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "bindings": "{{steps.prepareOldBindingRemoval.output.body.sslvserver_sslcertkey_binding}}",
+          "targets": "{{steps.selectLiveBindings.extracted.deploymentTargets}}",
+          "newCertificateKeyName": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}"
+        },
+        "outputs": {
+          "oldBindingsToRemove": {
+            "expression": "($encode := function($value) { ($v := $string($value); $replace($replace($replace($replace($replace($replace($replace($replace($replace($replace($replace($v, /%/, '%25'), / /, '%20'), /\\*/, '%2A'), /,/, '%2C'), /#/, '%23'), /\\?/, '%3F'), /&/, '%26'), /=/, '%3D'), /\\+/, '%2B'), /\\//, '%2F'), /:/, '%3A')) }; $append([], $map($filter(bindings, function($binding) { $binding.vservername in targets.name and $binding.certkeyname != newCertificateKeyName }), function($binding) { $merge([$binding, {'encodedVserverName': $encode($binding.vservername), 'encodedCertkeyName': $encode($binding.certkeyname)}]) })))"
+          }
+        },
+        "timeoutMs": 1000
       }
     },
     {
@@ -327,18 +462,18 @@
       "type": "foreach",
       "stage": "refresh",
       "foreach": {
-        "itemsPath": "steps.selectLiveBindings.extracted.targetBindings",
+        "itemsPath": "steps.selectOldBindingsToRemove.extracted.oldBindingsToRemove",
         "itemVariable": "oldBinding",
         "maxItems": 1000,
         "steps": [
           {
             "name": "removeOldBinding",
             "type": "http",
-            "when": { "variable": "oldBinding.certkeyname", "notEquals": "{{variables.certificateKeyName}}" },
+            "when": { "variable": "oldBinding.certkeyname", "notEquals": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}" },
             "request": {
               "method": "DELETE",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.vservername}}?args=certkeyname:{{oldBinding.certkeyname}}",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.encodedVserverName}}?args=certkeyname:{{oldBinding.encodedCertkeyName}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
@@ -361,8 +496,7 @@
         "body": { "nsconfig": {} },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
-      },
-      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+      }
     },
     {
       "name": "verifyCertificateControlPlane",
@@ -371,7 +505,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{variables.certificateKeyName}}",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -413,11 +547,42 @@
       "description": "设备版本或 Build 漂移时停止自动回滚"
     },
     {
+      "name": "readBindingsBeforeRestore",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "query": { "bulkbindings": "yes" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "selectMissingOldBindings",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "expected": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.bindings}}",
+          "actual": "{{steps.readBindingsBeforeRestore.output.body.sslvserver_sslcertkey_binding}}"
+        },
+        "outputs": {
+          "missingOldBindings": { "expression": "($bindable := function($b){$merge([{'vservername':$b.vservername,'certkeyname':$b.certkeyname,'snicert':$exists($b.snicert) ? $boolean($b.snicert) : false}, $exists($b.priority) ? {'priority':$b.priority} : {}])}; $append([], $map($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and ($exists($item.priority) and $exists($candidate.priority) ? $candidate.priority = $item.priority : true) })) = 0 }), $bindable)))" }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
       "name": "restoreOldBindings",
       "type": "foreach",
       "stage": "refresh",
       "foreach": {
-        "itemsPath": "steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.bindings",
+        "itemsPath": "steps.selectMissingOldBindings.extracted.missingOldBindings",
         "itemVariable": "oldBinding",
         "maxItems": 1000,
         "steps": [
@@ -464,7 +629,7 @@
           "actual": "{{steps.readBindingsAfterRestore.output.body.sslvserver_sslcertkey_binding}}"
         },
         "outputs": {
-          "oldBindingsRestored": { "expression": "$count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and $candidate.priority = $item.priority })) = 1 })) = $count(expected)" }
+          "oldBindingsRestored": { "expression": "$count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and ($exists($item.priority) and $exists($candidate.priority) ? $candidate.priority = $item.priority : true) })) = 1 })) = $count(expected)" }
         },
         "timeoutMs": 1000
       }
@@ -477,12 +642,29 @@
       "description": "旧绑定未完整恢复时停止自动回滚"
     },
     {
+      "name": "selectNewBindingsAfterRestore",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "actual": "{{steps.readBindingsAfterRestore.output.body.sslvserver_sslcertkey_binding}}",
+          "newCertificateKeyName": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.newCertificateKeyName}}",
+          "targets": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.targets}}"
+        },
+        "outputs": {
+          "newBindings": { "expression": "$append([], $map($filter(actual, function($binding) { $binding.certkeyname = newCertificateKeyName and $binding.vservername in targets.name }), function($binding) { {'vservername':$binding.vservername,'certkeyname':$binding.certkeyname} }))" }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
       "name": "removeNewBindings",
       "type": "foreach",
       "stage": "refresh",
       "foreach": {
-        "itemsPath": "steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.targets",
-        "itemVariable": "target",
+        "itemsPath": "steps.selectNewBindingsAfterRestore.extracted.newBindings",
+        "itemVariable": "newBinding",
         "maxItems": 1000,
         "steps": [
           {
@@ -491,7 +673,7 @@
             "request": {
               "method": "DELETE",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}?args=certkeyname:{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.newCertificateKeyName}}",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{newBinding.vservername}}?args=certkeyname:{{newBinding.certkeyname}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
@@ -527,7 +709,7 @@
           "targets": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.targets}}"
         },
         "outputs": {
-          "finalBindingsEquivalent": { "expression": "$count($filter(actual, function($item) { $item.vservername in targets.name })) = $count(expected) and $count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and $candidate.priority = $item.priority })) = 1 })) = $count(expected)" }
+          "finalBindingsEquivalent": { "expression": "$count($filter(actual, function($item) { $item.vservername in targets.name })) = $count(expected) and $count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and ($exists($item.priority) and $exists($candidate.priority) ? $candidate.priority = $item.priority : true) })) = 1 })) = $count(expected)" }
         },
         "timeoutMs": 1000
       }
@@ -540,9 +722,26 @@
       "description": "最终绑定集合与回滚快照不等价时停止并进入人工介入"
     },
     {
+      "name": "decideRollbackPersistence",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "missingOldBindings": "{{steps.selectMissingOldBindings.extracted.missingOldBindings}}",
+          "newBindings": "{{steps.selectNewBindingsAfterRestore.extracted.newBindings}}"
+        },
+        "outputs": {
+          "bindingMutationCount": { "expression": "$count(missingOldBindings) + $count(newBindings)" }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
       "name": "saveConfiguration",
       "type": "http",
       "stage": "verify",
+      "when": { "variable": "steps.decideRollbackPersistence.extracted.bindingMutationCount", "notEquals": 0 },
       "request": {
         "method": "POST",
         "connectionRef": "management",
@@ -553,8 +752,7 @@
         "body": { "nsconfig": {} },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
-      },
-      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+      }
     }
   ]
 }
