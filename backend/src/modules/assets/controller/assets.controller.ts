@@ -33,6 +33,7 @@ import type {
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
   DeploymentStrategyDto,
+  WorkflowBindingProjectionRequestDto,
 } from '../dto/assets.dto.js';
 
 const tags = ['Assets'];
@@ -56,6 +57,7 @@ export class AssetsController {
     router.patch('/api/v1/service-assets', '更新 ServiceAsset', tags, (request) => this.updateServiceAsset(request));
     router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
+    router.post('/api/v1/service-assets/workflow-binding-projection', '生成工作流绑定配置投影', tags, (request) => this.projectWorkflowBinding(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
     router.post('/api/v1/application-asset-targets', '创建 ApplicationAssetTarget', tags, (request) => this.createApplicationAssetTarget(request));
@@ -352,6 +354,13 @@ export class AssetsController {
         return updated;
       }),
     );
+  }
+
+  private async projectWorkflowBinding(request: HttpRequest) {
+    const body = validateObject(request.body, { workflowId: { type: 'string', required: true }, workflowVersionId: { type: 'string' }, serviceAssetId: { type: 'string' }, asset: { type: 'object' }, target: { type: 'object' }, connectionBindings: { type: 'object' }, parameterBindings: { type: 'object' }, credentialRefs: { type: 'object' } }) as unknown as WorkflowBindingProjectionRequestDto;
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, body.serviceAssetId);
+    return this.service.projectWorkflowBinding(tenantId(request), body);
   }
 
   private async deleteServiceAsset(request: HttpRequest) {
@@ -852,6 +861,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-assets', operationId: 'updateServiceAsset', summary: '更新 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/service-assets/workflow-binding-projection', operationId: 'projectWorkflowBinding', summary: '生成工作流绑定配置投影', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/application-asset-targets', operationId: 'createApplicationAssetTarget', summary: '创建 ApplicationAssetTarget', tags, responseSchema: objectSchema() },

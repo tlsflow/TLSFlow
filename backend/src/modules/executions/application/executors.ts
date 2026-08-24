@@ -11,7 +11,7 @@ import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor, type CurlExecutionReq
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
@@ -258,8 +258,12 @@ export class WorkflowExecutorAdapter implements Executor {
     const runtimeInput = {
       templateVersionId: workflowVersionId,
       mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
-      userVariables: readRecord(request.variableBindings) ?? {},
+      userVariables: {
+        ...(readRecord(request.variableBindings) ?? {}),
+        ...(readRecord(request.parameterBindings) ?? {}),
+      },
       assetVariables: buildWorkflowAssetVariables(input.step.inputSnapshot, request),
+      connectionBindings: (readRecord(request.connectionBindings) ?? {}) as Record<string, WorkflowConnectionBinding>,
       certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
     };
     try {
@@ -743,6 +747,7 @@ function workflowChildStep(parent: ExecutionStepEntity, suffix: string, inputSna
 }
 
 function buildWorkflowAssetVariables(snapshot: Record<string, unknown>, request: Record<string, unknown>): Record<string, unknown> {
+  const target = readRecord(request.target) ?? {};
   return {
     applicationAssetId: request.applicationAssetId,
     managedTargetId: request.managedTargetId,
@@ -750,7 +755,15 @@ function buildWorkflowAssetVariables(snapshot: Record<string, unknown>, request:
     certificateBindingId: request.certificateBindingId ?? snapshot.certificateBindingId,
     deploymentPlanId: snapshot.deploymentPlanId,
     deploymentPlanTargetId: snapshot.deploymentPlanTargetId,
-    verifyUrl: snapshot.verifyUrl,
+    target,
+    frameworkType: target.frameworkType,
+    siteName: target.siteName,
+    bindingInformation: target.bindingInformation,
+    hostHeader: target.hostHeader,
+    port: target.port,
+    protocol: target.protocol,
+    verifyUrl: target.verifyUrl ?? snapshot.verifyUrl,
+    sniName: target.sniName,
   };
 }
 

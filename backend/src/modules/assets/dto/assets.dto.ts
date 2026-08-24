@@ -57,12 +57,39 @@ export interface WorkflowDeploymentStrategyDto {
     sniName?: string;
   };
   credentialRefs?: Record<string, string>;
+  connectionBindings?: Record<string, {
+    host?: string;
+    port?: number;
+    username?: string;
+    credentialRef?: string;
+    credential?: {
+      id: string;
+      kind: 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
+      type: 'password' | 'ssh_key' | 'api_token';
+      username?: string;
+      apiKeyName?: string;
+      apiKeyIn?: 'header' | 'query';
+    };
+    expectedHostKeyFingerprint?: string;
+  }>;
+  parameterBindings?: Record<string, unknown>;
   variableBindings?: Record<string, unknown>;
   certificateArtifactBindings?: Record<string, {
     certificateFormatId: string;
     outputBindings: Record<string, string>;
   }>;
   rollbackWorkflowVersionId?: string;
+}
+
+export interface WorkflowBindingProjectionRequestDto {
+  serviceAssetId?: string;
+  workflowId: string;
+  workflowVersionId?: string;
+  asset?: Record<string, unknown>;
+  target?: Record<string, unknown>;
+  connectionBindings?: WorkflowDeploymentStrategyDto['connectionBindings'];
+  parameterBindings?: Record<string, unknown>;
+  credentialRefs?: Record<string, string>;
 }
 
 export interface DeploymentStrategyDto {

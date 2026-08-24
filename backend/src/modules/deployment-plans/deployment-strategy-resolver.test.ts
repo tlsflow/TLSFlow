@@ -67,6 +67,52 @@ describe('DeploymentStrategyResolver', () => {
       },
     );
   });
+
+  it('工作流策略会把结构化连接和参数绑定传给执行请求', () => {
+    const resolver = new DeploymentStrategyResolver();
+    const resolved = resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: 'workflow_apache',
+            workflowVersionId: 'wfver_apache_7',
+            runner: 'CONTROL_PLANE',
+            connectionBindings: {
+              targetSsh: {
+                host: '10.255.0.127',
+                port: 22,
+                username: 'root',
+                credentialRef: 'sec_ssh',
+                credential: { id: 'sec_ssh', kind: 'ssh_key', type: 'ssh_key' },
+              },
+            },
+            parameterBindings: {
+              certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt',
+            },
+            variableBindings: {
+              deviceHost: '10.255.0.127',
+            },
+          },
+        },
+      }),
+      certificateBinding: certificateBinding(),
+    });
+    const workflowRequest = resolved.payload.workflowRequest as Record<string, unknown>;
+    assert.deepEqual(workflowRequest.connectionBindings, {
+      targetSsh: {
+        host: '10.255.0.127',
+        port: 22,
+        username: 'root',
+        credentialRef: 'sec_ssh',
+        credential: { id: 'sec_ssh', kind: 'ssh_key', type: 'ssh_key' },
+      },
+    });
+    assert.deepEqual(workflowRequest.parameterBindings, {
+      certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt',
+    });
+    assert.deepEqual(workflowRequest.variableBindings, { deviceHost: '10.255.0.127' });
+  });
 });
 
 function serviceAsset(patch: Partial<ServiceAssetDto> = {}): ServiceAssetDto {

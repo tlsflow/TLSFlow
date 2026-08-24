@@ -48,6 +48,8 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),
         credentialRefs,
+        connectionBindings: normalizeWorkflowConnectionBindings(workflow.connectionBindings),
+        parameterBindings: isRecord(workflow.parameterBindings) ? workflow.parameterBindings : workflow.parameterBindings === undefined ? undefined : strategyError('workflow.parameterBindings 必须是对象'),
         certificateArtifactBindings: normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
         variableBindings: isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
@@ -58,6 +60,48 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   }
 
   throw strategyError('deploymentStrategy.type 只支持 AGENT/WORKFLOW');
+}
+
+function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return strategyError('workflow.connectionBindings 必须是对象');
+  return Object.fromEntries(Object.entries(value).map(([name, rawBinding]) => {
+    if (!isRecord(rawBinding)) return strategyError(`workflow.connectionBindings.${name} 必须是对象`);
+    const port = rawBinding.port === undefined ? undefined : Number(rawBinding.port);
+    if (port !== undefined && (!Number.isInteger(port) || port <= 0 || port > 65535)) {
+      return strategyError(`workflow.connectionBindings.${name}.port 必须是有效端口`);
+    }
+    const credential = normalizeWorkflowCredentialBinding(rawBinding.credential, `workflow.connectionBindings.${name}.credential`);
+    const binding = {
+      host: optionalNonEmpty(rawBinding.host),
+      port,
+      username: optionalNonEmpty(rawBinding.username),
+      credentialRef: optionalNonEmpty(rawBinding.credentialRef) ?? credential?.id,
+      credential,
+      expectedHostKeyFingerprint: optionalNonEmpty(rawBinding.expectedHostKeyFingerprint),
+    };
+    return [name, Object.fromEntries(Object.entries(binding).filter(([, item]) => item !== undefined))];
+  }));
+}
+
+function normalizeWorkflowCredentialBinding(value: unknown, path: string): NonNullable<NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings']>[string]['credential'] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return strategyError(`${path} 必须是对象`);
+  const id = requireNonEmpty(value.id, `${path}.id`);
+  const kind = value.kind;
+  const type = value.type;
+  if (!['username_password', 'ssh_key', 'curl_bearer', 'curl_api_key'].includes(String(kind))) return strategyError(`${path}.kind 不支持`);
+  if (!['password', 'ssh_key', 'api_token'].includes(String(type))) return strategyError(`${path}.type 不支持`);
+  const apiKeyIn = value.apiKeyIn;
+  if (apiKeyIn !== undefined && apiKeyIn !== 'header' && apiKeyIn !== 'query') return strategyError(`${path}.apiKeyIn 不支持`);
+  return {
+    id,
+    kind: kind as 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key',
+    type: type as 'password' | 'ssh_key' | 'api_token',
+    username: optionalNonEmpty(value.username),
+    apiKeyName: optionalNonEmpty(value.apiKeyName),
+    apiKeyIn,
+  };
 }
 
 function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
