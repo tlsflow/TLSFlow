@@ -30,8 +30,18 @@ describe('权限 Store', () => {
       '/settings'
     ])
     const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
-    expect(settings?.children?.map((item) => item.path)).toContain('/settings/version')
-    expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
+    expect(settings?.children?.map((item) => item.path)).toEqual([
+      '/settings',
+      '/settings/users',
+      '/settings/roles',
+      '/settings/credentials',
+      '/settings/notifications',
+      '/settings/licensing',
+      '/settings/identity-sources'
+    ])
+    expect(settings?.children?.map((item) => item.path)).not.toContain('/settings/version')
+    expect(settings?.children?.map((item) => item.path)).not.toContain('/settings/tenant-architecture')
+    expect(settings?.activePaths).toEqual(['/settings/tenant-architecture', '/settings/version'])
     const monitoring = store.visibleMenuItems.find((item) => item.path === '/monitors')
     expect(monitoring?.children).toBeUndefined()
     expect(store.visibleMenuItems.find((item) => item.path === '/audits')).toBeTruthy()
