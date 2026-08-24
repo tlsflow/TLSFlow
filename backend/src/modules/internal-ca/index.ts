@@ -1,6 +1,7 @@
 export * from './schema/internal-ca.schema.js';
 export * from './schema/acme.schema.js';
 export * from './repository/internal-ca.repository.js';
+export * from './repository/acme.repository.js';
 export * from './providers/openssl-ca.js';
 export * from './providers/ca-provider.js';
 export * from './providers/acme-provider.js';
