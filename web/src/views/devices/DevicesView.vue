@@ -66,11 +66,10 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'managementMethod', title: t('devices.columns.managementMethod'), candidates: ['managementMethod'], width: '10%' },
     { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '13%' },
     { key: 'status', title: t('devices.columns.liveness'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
-    { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '8%' },
+    { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '20ch', truncate: true },
     { key: 'controlVersion', title: t('devices.columns.controlVersion'), candidates: ['controlVersion'], width: '8%' },
     { key: 'applicationAssetCount', title: t('devices.columns.applications'), candidates: ['applicationAssetCount'], kind: 'count', width: '6%' },
-    { key: 'lastSeenAt', title: t('devices.columns.lastContact'), candidates: ['lastContactAt'], kind: 'date', width: '8%' },
-    { key: 'actions', title: t('devices.columns.actions'), candidates: [], width: '7%' },
+    { key: 'actions', title: t('devices.columns.actions'), candidates: [], width: '15%' },
   ],
   metrics: [
     { title: t('devices.metrics.total'), description: t('devices.metrics.totalDescription'), status: 'HEALTHY', risk: 'MEDIUM', kind: 'total' },
@@ -124,5 +123,15 @@ const config = computed<BusinessPageConfig>(() => ({
 .devices-page {
   display: grid;
   gap: var(--gc-space-3);
+}
+
+.devices-page :deep(.business-page__row-actions) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.devices-page :deep(.business-page__row-actions > *) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 </style>
