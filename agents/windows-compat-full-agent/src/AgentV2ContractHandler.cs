@@ -27,7 +27,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         internal static bool IsWrite(string action)
         {
-            return string.Equals(action, PlanExecute, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(action, PlanExecute, StringComparison.Ordinal);
         }
     }
 
@@ -93,6 +93,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
 
                 AgentV2Authorization executionAuthorization = AgentV2Authorizer.Validate(task, runtimeConfig, runtimeAgentId, true);
+                AgentV2Authorizer.EnsureReceiptSigner(executionAuthorization);
                 AgentV2Authorizer.ConsumeNonce(executionAuthorization);
                 DateTime startedAt = DateTime.UtcNow;
                 List<Dictionary<string, object>> operationResults = new List<Dictionary<string, object>>();

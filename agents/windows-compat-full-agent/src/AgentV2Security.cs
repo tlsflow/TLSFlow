@@ -84,6 +84,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private readonly AgentConfig config;
         private readonly Func<string> agentIdProvider;
+        private AgentReceiptSigner receiptSigner;
 
         internal AgentV2Security(AgentConfig config, Func<string> agentIdProvider)
         {
@@ -110,6 +111,8 @@ namespace GCAC.WindowsCompatibilityAgent
             Dictionary<string, object> token = RequiredDictionary(payload, "token");
             Dictionary<string, object> decision = RequiredDictionary(payload, "policyDecision");
             PolicyMaterial material = PolicyMaterialLoader.Load(config, agentId, tenantId);
+            if (TextUtility.IsBlank(config.receiptKeyId) || RequiredIdentifier(material.LocalPolicy, "receiptKeyId") != config.receiptKeyId)
+                Reject("AGENT_V2_POLICY_UNAVAILABLE", "Agent 本地策略未绑定当前 Receipt 签名密钥");
             ValidateTokenAndDecision(token, decision, material, agentId, tenantId, pluginId, pluginVersionId, capability);
             string requestedPlanDigest = RequiredDigest(payload, "planDigest");
             if (!string.Equals(requestedPlanDigest, RequiredDigest(token, "planDigest"), StringComparison.Ordinal)
@@ -213,7 +216,7 @@ namespace GCAC.WindowsCompatibilityAgent
             return result.ToArray();
         }
 
-        internal Dictionary<string, object> LoadReceipt(string planId, string planDigest)
+        internal Dictionary<string, object> LoadReceipt(string planId, string planDigest, string tokenId, string nonce)
         {
             string path = ReceiptPath(config.dataDirectory, planId, planDigest);
             if (!File.Exists(path)) throw new AgentV2SecurityException("AGENT_RECEIPT_NOT_FOUND", "Agent 未找到本地执行回执", false);
@@ -222,14 +225,18 @@ namespace GCAC.WindowsCompatibilityAgent
             catch { throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 本地执行回执无法解析", false); }
             if (receipt == null) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 本地执行回执格式无效", false);
             ValidateReceipt(receipt, planId, planDigest);
+            ValidateNonceReceiptBinding(receipt, tokenId, nonce, planDigest);
+            ReceiptSigner().Verify(receipt);
             return receipt;
         }
 
-        internal void SaveReceipt(Dictionary<string, object> receipt)
+        internal void SaveReceipt(Dictionary<string, object> receipt, string tokenId, string nonce)
         {
             string planId = RequiredIdentifier(receipt, "planId");
             string planDigest = RequiredDigest(receipt, "planDigest");
             ValidateReceipt(receipt, planId, planDigest);
+            ValidateNonceReceiptBinding(receipt, tokenId, nonce, planDigest);
+            ReceiptSigner().Verify(receipt);
             string directory = Path.Combine(config.dataDirectory, "agent-v2-receipts");
             Directory.CreateDirectory(directory);
             string path = ReceiptPath(config.dataDirectory, planId, planDigest);
@@ -263,8 +270,9 @@ namespace GCAC.WindowsCompatibilityAgent
             return result;
         }
 
-        internal static Dictionary<string, object> BuildReceipt(string operationId, string planId, string planDigest, string agentId, string tenantId, string tokenId, string status, string errorCode, string unknownReason, IList operationResults, bool nonceConsumed, DateTime startedAtUtc, DateTime completedAtUtc)
+        internal static Dictionary<string, object> BuildReceipt(string operationId, string planId, string planDigest, string agentId, string tenantId, string tokenId, string status, string errorCode, string unknownReason, IList operationResults, bool nonceConsumed, DateTime startedAtUtc, DateTime completedAtUtc, AgentReceiptSigner signer)
         {
+            if (signer == null) throw new AgentV2SecurityException("AGENT_RECEIPT_SIGNER_UNAVAILABLE", "Agent Receipt 签名器未装配", false);
             Dictionary<string, object> receipt = new Dictionary<string, object>();
             receipt["receiptVersion"] = ContractVersion;
             receipt["operationId"] = operationId;
@@ -280,7 +288,9 @@ namespace GCAC.WindowsCompatibilityAgent
             receipt["nonceConsumed"] = nonceConsumed;
             if (!TextUtility.IsBlank(errorCode)) receipt["errorCode"] = errorCode;
             if (!TextUtility.IsBlank(unknownReason)) receipt["unknownReason"] = unknownReason;
+            receipt["agentKeyId"] = signer.KeyId;
             receipt["digest"] = ComputeDigest(receipt);
+            signer.Sign(receipt);
             return receipt;
         }
 
@@ -562,6 +572,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static void ValidateReceipt(Dictionary<string, object> receipt, string planId, string planDigest)
         {
+            EnsureExact(receipt, new string[] { "receiptVersion", "operationId", "planId", "planDigest", "agentId", "tenantId", "tokenId", "status", "startedAt", "completedAt", "operationResults", "nonceConsumed", "errorCode", "unknownReason", "digest", "agentKeyId", "signature" });
             if (RequiredString(receipt, "receiptVersion") != ContractVersion || RequiredIdentifier(receipt, "operationId") == string.Empty || RequiredIdentifier(receipt, "planId") != planId || RequiredDigest(receipt, "planDigest") != planDigest || RequiredIdentifier(receipt, "agentId") == string.Empty || RequiredIdentifier(receipt, "tenantId") == string.Empty || RequiredIdentifier(receipt, "tokenId") == string.Empty || !DigestPattern.IsMatch(RequiredDigest(receipt, "digest")))
                 throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执绑定无效", false);
             string status = RequiredString(receipt, "status");
@@ -573,8 +584,34 @@ namespace GCAC.WindowsCompatibilityAgent
             if (ListValue(receipt, "operationResults").Count > MaximumPlanOperations) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执操作结果超出限制", false);
             if (status == "UNKNOWN" && TextUtility.IsBlank(OptionalString(receipt, "unknownReason"))) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "UNKNOWN 回执缺少原因", false);
             if (status == "SUCCESS" && receipt.ContainsKey("errorCode") && !TextUtility.IsBlank(OptionalString(receipt, "errorCode"))) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "SUCCESS 回执不能包含错误码", false);
-            Dictionary<string, object> unsigned = CopyWithout(receipt, new string[] { "digest" });
+            RequiredIdentifier(receipt, "agentKeyId");
+            RequiredString(receipt, "signature");
+            Dictionary<string, object> unsigned = CopyWithout(receipt, new string[] { "digest", "signature" });
             if (ComputeDigest(unsigned) != RequiredDigest(receipt, "digest")) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执摘要不匹配", false);
+        }
+
+        private void ValidateNonceReceiptBinding(Dictionary<string, object> receipt, string tokenId, string nonce, string planDigest)
+        {
+            if (TextUtility.IsBlank(tokenId) || TextUtility.IsBlank(nonce)) throw new AgentV2SecurityException("AGENT_V2_AUTHORIZATION_REJECTED", "Receipt Nonce 绑定材料缺失", false);
+            string directory = Path.Combine(config.dataDirectory, "agent-v2-nonces");
+            string path = Path.Combine(directory, Sha256String(nonce) + ".json");
+            if (!File.Exists(path)) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Receipt 缺少已消费的 Nonce 记录", false);
+            Dictionary<string, object> record;
+            try { record = Serializer.DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>; }
+            catch { throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Nonce 消费记录无法解析", false); }
+            if (record == null || RequiredString(record, "recordVersion") != ContractVersion || RequiredIdentifier(record, "tokenId") != tokenId || RequiredIdentifier(record, "nonce") != nonce || RequiredDigest(record, "resultDigest") != planDigest || RequiredIdentifier(receipt, "tokenId") != tokenId)
+                throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Nonce 消费记录与 Receipt 不匹配", false);
+        }
+
+        private AgentReceiptSigner ReceiptSigner()
+        {
+            if (receiptSigner == null) receiptSigner = AgentReceiptSigner.Load(config, agentIdProvider == null ? null : agentIdProvider());
+            return receiptSigner;
+        }
+
+        internal AgentReceiptSigner LoadReceiptSigner()
+        {
+            return ReceiptSigner();
         }
 
         private static bool VerifyPolicyPayload(Dictionary<string, object> value, Dictionary<string, object> key, string signature)

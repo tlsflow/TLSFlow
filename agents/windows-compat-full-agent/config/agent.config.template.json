@@ -15,5 +15,8 @@
   "localPolicyPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\local-policy.json",
   "revokedTokenIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-tokens.json",
   "revokedDecisionIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-decisions.json",
-  "revokedKeyIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-keys.json"
+  "revokedKeyIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-keys.json",
+  "receiptKeyId": "agent-receipt-key-id",
+  "receiptSigningKeyPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\agent-receipt-signing-key.txt",
+  "receiptKeySetPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\agent-receipt-keyset.json"
 }

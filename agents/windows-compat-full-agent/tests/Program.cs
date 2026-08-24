@@ -35,6 +35,7 @@ internal static class Tests
         Run("注册动作集合严格限定为 Agent v2 合同", RuntimeActionsMatchAgentV2Contract);
         Run("Agent v2 合同不回退旧执行器", AgentV2ContractDoesNotFallback);
         Run("Ed25519 RFC8032 签名正例通过", Ed25519SignaturePositive);
+        Run("Ed25519 RFC8032 签名生成通过", Ed25519SignatureGeneration);
         Run("Ed25519 篡改签名负例拒绝", Ed25519SignatureTamperingRejected);
         Run("客户端不得提交伪造 Receipt", ClientReceiptIsRejected);
         Run("Agent v2 Nonce 账本跨重启拒绝重复消费", AgentV2NonceLedgerPersistsReplayRejection);
@@ -332,6 +333,14 @@ internal static class Tests
         const string publicKeyPem = "-----BEGIN PUBLIC KEY-----MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=-----END PUBLIC KEY-----";
         const string signature = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100c";
         Assert(!Ed25519Verifier.Verify(publicKeyPem, signature, new byte[0]), "篡改 Ed25519 签名未被拒绝");
+    }
+
+    private static void Ed25519SignatureGeneration()
+    {
+        byte[] seed = HexBytes("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        string signature = Ed25519Verifier.Sign(seed, new byte[0]);
+        string expected = Convert.ToBase64String(HexBytes("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"));
+        Assert(signature == expected, "Ed25519 RFC8032 签名生成结果不匹配");
     }
 
     private static void ClientReceiptIsRejected()
@@ -666,16 +675,55 @@ internal static class Tests
 
     private static void ReceiptStatusesAreValidated()
     {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-receipt-" + Guid.NewGuid().ToString("N"));
         string planDigest = new string('c', 64);
         string[] statuses = new string[] { "SUCCESS", "FAILED", "UNKNOWN", "CANCELLED" };
-        foreach (string status in statuses)
+        try
         {
-            Dictionary<string, object> receipt = AgentV2Security.BuildReceipt(
-                "operation-1", "plan-1", planDigest, "agent-1", "tenant-1", "token-1", status,
-                status == "SUCCESS" ? null : "AGENT_" + status,
-                status == "UNKNOWN" ? "状态未知" : null,
-                new ArrayList(), true, DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow);
-            InvokeSecurity("ValidateReceipt", new object[] { receipt, "plan-1", planDigest });
+            AgentReceiptSigner signer = ReceiptSignerForTests(root);
+            foreach (string status in statuses)
+            {
+                Dictionary<string, object> receipt = AgentV2Security.BuildReceipt(
+                    "operation-1", "plan-1", planDigest, "agent-1", "tenant-1", "token-1", status,
+                    status == "SUCCESS" ? null : "AGENT_" + status,
+                    status == "UNKNOWN" ? "状态未知" : null,
+                    new ArrayList(), true, DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow, signer);
+                InvokeSecurity("ValidateReceipt", new object[] { receipt, "plan-1", planDigest });
+                signer.Verify(receipt);
+            }
+            Dictionary<string, object> persistedReceipt = AgentV2Security.BuildReceipt(
+                "operation-1", "plan-1", planDigest, "agent-1", "tenant-1", "token-1", "SUCCESS", null, null,
+                new ArrayList(), true, DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow, signer);
+            string nonceDirectory = Path.Combine(root, "agent-v2-nonces");
+            Directory.CreateDirectory(nonceDirectory);
+            File.WriteAllText(Path.Combine(nonceDirectory, Sha256ForTest("nonce-1") + ".json"), new JavaScriptSerializer().Serialize(new Dictionary<string, object>
+            {
+                { "recordVersion", AgentV2Security.Version }, { "nonce", "nonce-1" }, { "tokenId", "token-1" },
+                { "consumedAt", DateTime.UtcNow.ToString("o") }, { "resultDigest", planDigest }
+            }));
+            AgentConfig config = TestConfig();
+            config.dataDirectory = root;
+            config.receiptKeyId = "receipt-key-1";
+            config.receiptSigningKeyPath = Path.Combine(root, "receipt-key.txt");
+            config.receiptKeySetPath = Path.Combine(root, "receipt-keyset.json");
+            AgentV2Security security = new AgentV2Security(config, delegate { return "agent-1"; });
+            security.SaveReceipt(persistedReceipt, "token-1", "nonce-1");
+            Dictionary<string, object> loaded = security.LoadReceipt("plan-1", planDigest, "token-1", "nonce-1");
+            Assert(Convert.ToString(loaded["signature"]) == Convert.ToString(persistedReceipt["signature"]), "持久化 Receipt 签名发生变化");
+            AgentExecutionReceiptV1 typed = new JavaScriptSerializer().Deserialize<AgentExecutionReceiptV1>(new JavaScriptSerializer().Serialize(persistedReceipt));
+            security.SaveReceipt(AgentV2Authorizer.ReceiptDictionary(typed), "token-1", "nonce-1");
+            security.LoadReceipt("plan-1", planDigest, "token-1", "nonce-1");
+            persistedReceipt["signature"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("forged"));
+            AssertSecurityRejectsForInstance(security, persistedReceipt, "plan-1", planDigest, "token-1", "nonce-1", "持久化 Receipt 伪造签名未被拒绝");
+            Dictionary<string, object> tampered = AgentV2Security.BuildReceipt(
+                "operation-1", "plan-1", planDigest, "agent-1", "tenant-1", "token-1", "SUCCESS", null, null,
+                new ArrayList(), true, DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow, signer);
+            tampered["agentId"] = "agent-2";
+            AssertSecurityRejects("ValidateReceipt", new object[] { tampered, "plan-1", planDigest }, "Receipt Agent 身份篡改未被拒绝");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 
@@ -737,6 +785,25 @@ internal static class Tests
         catch (AgentV2SecurityException) { }
     }
 
+    private static void AssertSecurityRejectsForInstance(AgentV2Security security, Dictionary<string, object> receipt, string planId, string planDigest, string tokenId, string nonce, string message)
+    {
+        string path = Path.Combine(Path.Combine(securityDataDirectory(security), "agent-v2-receipts"), Sha256ForTest(planId + ":" + planDigest) + ".json");
+        File.WriteAllText(path, new JavaScriptSerializer().Serialize(receipt));
+        try
+        {
+            security.LoadReceipt(planId, planDigest, tokenId, nonce);
+            throw new InvalidOperationException(message);
+        }
+        catch (AgentV2SecurityException) { }
+    }
+
+    private static string securityDataDirectory(AgentV2Security security)
+    {
+        FieldInfo field = typeof(AgentV2Security).GetField("config", BindingFlags.NonPublic | BindingFlags.Instance);
+        AgentConfig config = (AgentConfig)field.GetValue(security);
+        return config.dataDirectory;
+    }
+
     private static AgentConfig TestConfig()
     {
         return new AgentConfig
@@ -747,6 +814,50 @@ internal static class Tests
             controlPlaneUrl = "http://127.0.0.1:5172",
             requiredHotfixes = new string[0]
         };
+    }
+
+    private static AgentReceiptSigner ReceiptSignerForTests(string root)
+    {
+        byte[] seed = HexBytes("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        byte[] publicKey = HexBytes("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
+        string publicKeyPem = "-----BEGIN PUBLIC KEY-----" + Convert.ToBase64String(Concat(HexBytes("302a300506032b6570032100"), publicKey)) + "-----END PUBLIC KEY-----";
+        Directory.CreateDirectory(root);
+        string privatePath = Path.Combine(root, "receipt-key.txt");
+        string keySetPath = Path.Combine(root, "receipt-keyset.json");
+        File.WriteAllText(privatePath, Convert.ToBase64String(seed));
+        File.WriteAllText(keySetPath, new JavaScriptSerializer().Serialize(new Dictionary<string, object>
+        {
+            { "keys", new object[] { new Dictionary<string, object> { { "keyId", "receipt-key-1" }, { "agentId", "agent-1" }, { "algorithm", "Ed25519" }, { "status", "ACTIVE" }, { "publicKeyPem", publicKeyPem } } } }
+        }));
+        AgentConfig config = TestConfig();
+        config.receiptKeyId = "receipt-key-1";
+        config.receiptSigningKeyPath = privatePath;
+        config.receiptKeySetPath = keySetPath;
+        config.dataDirectory = root;
+        return AgentReceiptSigner.Load(config, "agent-1");
+    }
+
+    private static byte[] HexBytes(string value)
+    {
+        byte[] result = new byte[value.Length / 2];
+        for (int index = 0; index < result.Length; index++) result[index] = (byte)((HexValue(value[index * 2]) << 4) | HexValue(value[index * 2 + 1]));
+        return result;
+    }
+
+    private static int HexValue(char value)
+    {
+        if (value >= '0' && value <= '9') return value - '0';
+        if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+        if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+        throw new InvalidOperationException("十六进制测试数据无效");
+    }
+
+    private static byte[] Concat(byte[] left, byte[] right)
+    {
+        byte[] result = new byte[left.Length + right.Length];
+        Buffer.BlockCopy(left, 0, result, 0, left.Length);
+        Buffer.BlockCopy(right, 0, result, left.Length, right.Length);
+        return result;
     }
 
     private static string WriteConfig(string json)

@@ -24,6 +24,9 @@ namespace GCAC.WindowsCompatibilityAgent
         public string revokedTokenIdsPath { get; set; }
         public string revokedDecisionIdsPath { get; set; }
         public string revokedKeyIdsPath { get; set; }
+        public string receiptKeyId { get; set; }
+        public string receiptSigningKeyPath { get; set; }
+        public string receiptKeySetPath { get; set; }
         public string[] requiredHotfixes { get; set; }
 
         public static AgentConfig Load(string path)
@@ -50,6 +53,8 @@ namespace GCAC.WindowsCompatibilityAgent
             if (TextUtility.IsBlank(config.revokedTokenIdsPath)) config.revokedTokenIdsPath = Path.Combine(policyDirectory, "revoked-tokens.json");
             if (TextUtility.IsBlank(config.revokedDecisionIdsPath)) config.revokedDecisionIdsPath = Path.Combine(policyDirectory, "revoked-decisions.json");
             if (TextUtility.IsBlank(config.revokedKeyIdsPath)) config.revokedKeyIdsPath = Path.Combine(policyDirectory, "revoked-keys.json");
+            if (TextUtility.IsBlank(config.receiptKeySetPath)) config.receiptKeySetPath = Path.Combine(policyDirectory, "agent-receipt-keyset.json");
+            if (TextUtility.IsBlank(config.receiptSigningKeyPath)) config.receiptSigningKeyPath = Path.Combine(policyDirectory, "agent-receipt-signing-key.bin");
             return config;
         }
     }

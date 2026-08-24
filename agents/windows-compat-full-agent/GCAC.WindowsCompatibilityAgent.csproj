@@ -22,6 +22,7 @@
     <Compile Include="src\ActionRegistry.cs" />
     <Compile Include="src\AgentConfig.cs" />
     <Compile Include="src\AgentIdentityStore.cs" />
+    <Compile Include="src\AgentReceiptSigner.cs" />
     <Compile Include="src\AgentV2Operations.cs" />
     <Compile Include="src\AgentV2Security.cs" />
     <Compile Include="src\AgentV2ContractHandler.cs" />

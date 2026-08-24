@@ -135,6 +135,8 @@ namespace GCAC.WindowsCompatibilityAgent
         public string errorCode { get; set; }
         public string unknownReason { get; set; }
         public string digest { get; set; }
+        public string agentKeyId { get; set; }
+        public string signature { get; set; }
     }
 
     internal sealed class AgentLocalPathRuleV1
@@ -160,6 +162,7 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public string policyVersion { get; set; }
         public string agentId { get; set; }
+        public string receiptKeyId { get; set; }
         public string[] authorityKeyIds { get; set; }
         public string[] allowedActions { get; set; }
         public List<AgentLocalPathRuleV1> pathRules { get; set; }

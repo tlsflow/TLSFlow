@@ -52,6 +52,130 @@ namespace GCAC.WindowsCompatibilityAgent
             catch { return false; }
         }
 
+        internal static byte[] PublicKeyFromSeed(byte[] privateKey)
+        {
+            byte[] seed = PrivateSeed(privateKey);
+            byte[] hash;
+            using (SHA512 sha = SHA512.Create()) hash = sha.ComputeHash(seed);
+            byte[] scalar = Slice(hash, 0, 32);
+            ClampScalar(scalar);
+            return EdPoint.ScalarMultiply(BasePoint(), scalar).Encode();
+        }
+
+        internal static string Sign(byte[] privateKey, byte[] message)
+        {
+            byte[] seed = PrivateSeed(privateKey);
+            byte[] hash;
+            using (SHA512 sha = SHA512.Create()) hash = sha.ComputeHash(seed);
+            byte[] scalar = Slice(hash, 0, 32);
+            ClampScalar(scalar);
+            byte[] prefix = Slice(hash, 32, 32);
+            byte[] publicKey = EdPoint.ScalarMultiply(BasePoint(), scalar).Encode();
+
+            byte[] randomInput = Join(prefix, message);
+            byte[] r;
+            using (SHA512 sha = SHA512.Create()) r = Reduce(sha.ComputeHash(randomInput));
+            byte[] encodedR = EdPoint.ScalarMultiply(BasePoint(), r).Encode();
+
+            byte[] challengeInput = Join(encodedR, publicKey, message);
+            byte[] challenge;
+            using (SHA512 sha = SHA512.Create()) challenge = Reduce(sha.ComputeHash(challengeInput));
+            byte[] s = AddMod(r, MultiplyMod(challenge, scalar));
+            byte[] signature = new byte[64];
+            Buffer.BlockCopy(encodedR, 0, signature, 0, 32);
+            Buffer.BlockCopy(s, 0, signature, 32, 32);
+            return Convert.ToBase64String(signature);
+        }
+
+        internal static byte[] PublicKeyFromPem(string publicKeyPem)
+        {
+            return ParseSubjectPublicKeyInfo(publicKeyPem);
+        }
+
+        private static EdPoint BasePoint()
+        {
+            EdPoint point;
+            if (!EdPoint.TryDecode(EncodedBasePoint, out point)) throw new InvalidOperationException("Ed25519 基点无效");
+            return point;
+        }
+
+        private static byte[] PrivateSeed(byte[] privateKey)
+        {
+            if (privateKey == null || (privateKey.Length != 32 && privateKey.Length != 64)) throw new InvalidOperationException("Ed25519 私钥必须是 32 字节种子或 64 字节私钥");
+            byte[] seed = Slice(privateKey, 0, 32);
+            if (privateKey.Length == 64 && !SameBytes(Slice(privateKey, 32, 32), PublicKeyFromSeed(seed))) throw new InvalidOperationException("Ed25519 私钥公钥部分不匹配");
+            return seed;
+        }
+
+        private static void ClampScalar(byte[] scalar)
+        {
+            scalar[0] &= 248;
+            scalar[31] &= 63;
+            scalar[31] |= 64;
+        }
+
+        private static byte[] Join(params byte[][] values)
+        {
+            int length = 0;
+            for (int index = 0; index < values.Length; index++) length += values[index] == null ? 0 : values[index].Length;
+            byte[] result = new byte[length];
+            int offset = 0;
+            for (int index = 0; index < values.Length; index++)
+            {
+                if (values[index] == null) continue;
+                Buffer.BlockCopy(values[index], 0, result, offset, values[index].Length);
+                offset += values[index].Length;
+            }
+            return result;
+        }
+
+        private static byte[] AddMod(byte[] left, byte[] right)
+        {
+            byte[] result = new byte[32];
+            int carry = 0;
+            for (int index = 0; index < 32; index++)
+            {
+                int value = left[index] + right[index] + carry;
+                result[index] = (byte)value;
+                carry = value >> 8;
+            }
+            if (carry != 0 || CompareLittleEndian(result, GroupOrder) >= 0) SubtractLittleEndian(result, GroupOrder);
+            return result;
+        }
+
+        private static byte[] MultiplyMod(byte[] left, byte[] right)
+        {
+            ulong[] limbs = new ulong[64];
+            for (int first = 0; first < 16; first++)
+            {
+                ulong leftLimb = (ulong)(left[first * 2] | (left[first * 2 + 1] << 8));
+                ulong carry = 0;
+                for (int second = 0; second < 16; second++)
+                {
+                    ulong rightLimb = (ulong)(right[second * 2] | (right[second * 2 + 1] << 8));
+                    int target = first + second;
+                    ulong value = limbs[target] + leftLimb * rightLimb + carry;
+                    limbs[target] = value & 0xffffUL;
+                    carry = value >> 16;
+                }
+                int targetIndex = first + 16;
+                while (carry != 0)
+                {
+                    ulong value = limbs[targetIndex] + carry;
+                    limbs[targetIndex] = value & 0xffffUL;
+                    carry = value >> 16;
+                    targetIndex++;
+                }
+            }
+            byte[] product = new byte[128];
+            for (int index = 0; index < limbs.Length; index++)
+            {
+                product[index * 2] = (byte)limbs[index];
+                product[index * 2 + 1] = (byte)(limbs[index] >> 8);
+            }
+            return Reduce(product);
+        }
+
         private static byte[] ParseSubjectPublicKeyInfo(string pem)
         {
             if (string.IsNullOrEmpty(pem)) throw new InvalidOperationException("Ed25519 公钥 PEM 缺失");

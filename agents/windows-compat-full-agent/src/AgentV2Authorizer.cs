@@ -27,12 +27,18 @@ namespace GCAC.WindowsCompatibilityAgent
             authorization.Security.ConsumeNonce(authorization);
         }
 
+        internal static void EnsureReceiptSigner(AgentV2Authorization authorization)
+        {
+            if (authorization == null || authorization.Security == null) throw new AgentV2SecurityException("AGENT_RECEIPT_SIGNER_UNAVAILABLE", "Receipt 签名上下文缺失", false);
+            authorization.Security.LoadReceiptSigner();
+        }
+
         internal static AgentExecutionReceiptV1 ValidateClientReceipt(AgentTask task, AgentV2Authorization authorization)
         {
             if (task != null && task.payload != null && task.payload.ContainsKey("receipt"))
                 throw new AgentV2SecurityException("AGENT_RECEIPT_CLIENT_SUPPLIED", "Agent 不接受客户端提交的 Receipt 摘要");
             string planId = RequiredPlanId(task);
-            Dictionary<string, object> raw = authorization.Security.LoadReceipt(planId, authorization.PlanDigest);
+            Dictionary<string, object> raw = authorization.Security.LoadReceipt(planId, authorization.PlanDigest, authorization.Token.tokenId, authorization.Token.nonce);
             AgentExecutionReceiptV1 receipt = Deserialize<AgentExecutionReceiptV1>(raw);
             if (receipt.agentId != authorization.Token.agentId || receipt.tenantId != authorization.Token.tenantId || receipt.tokenId != authorization.Token.tokenId || receipt.planDigest != authorization.PlanDigest)
                 throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "本地 Receipt 绑定不一致");
@@ -55,19 +61,22 @@ namespace GCAC.WindowsCompatibilityAgent
                 operationResults,
                 true,
                 startedAtUtc,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                authorization.Security.LoadReceiptSigner());
             return Deserialize<AgentExecutionReceiptV1>(raw);
         }
 
         internal static void SaveReceipt(AgentV2Authorization authorization, AgentExecutionReceiptV1 receipt)
         {
-            authorization.Security.SaveReceipt(ReceiptDictionary(receipt));
+            authorization.Security.SaveReceipt(ReceiptDictionary(receipt), authorization.Token.tokenId, authorization.Token.nonce);
         }
 
         internal static Dictionary<string, object> ReceiptDictionary(AgentExecutionReceiptV1 receipt)
         {
             Dictionary<string, object> result = Serializer.DeserializeObject(Serializer.Serialize(receipt)) as Dictionary<string, object>;
             if (result == null) throw new InvalidOperationException("Receipt 无法转换为合同对象");
+            if (result.ContainsKey("errorCode") && result["errorCode"] == null) result.Remove("errorCode");
+            if (result.ContainsKey("unknownReason") && result["unknownReason"] == null) result.Remove("unknownReason");
             return result;
         }
 
