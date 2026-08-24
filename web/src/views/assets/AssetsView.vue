@@ -6,7 +6,7 @@ import { createManagedTarget, createServiceAsset, createServiceInstance, createS
 import { rollbackExecution } from '@/api/modules/executions.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { GcModal, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -69,6 +69,10 @@ const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
+const detailTabs = [
+  { value: 'overview', label: '基础信息' },
+  { value: 'snapshots', label: '快照' },
+]
 const createDialogOpen = ref(false)
 const createLoading = ref(false)
 const createError = ref('')
@@ -1056,24 +1060,7 @@ watch(
           </div>
         </header>
 
-        <nav class="asset-detail-modal__tabs" aria-label="应用详情标签页">
-          <button
-            class="asset-detail-modal__tab"
-            type="button"
-            :data-active="activeDetailTab === 'overview'"
-            @click="activeDetailTab = 'overview'"
-          >
-            基础信息
-          </button>
-          <button
-            class="asset-detail-modal__tab"
-            type="button"
-            :data-active="activeDetailTab === 'snapshots'"
-            @click="activeDetailTab = 'snapshots'"
-          >
-            快照
-          </button>
-        </nav>
+        <GcTabs v-model="activeDetailTab" :tabs="detailTabs" aria-label="应用详情标签页" />
 
         <section v-if="activeDetailTab === 'overview'" class="asset-detail-modal__sections">
           <article class="asset-detail-modal__section">
@@ -1352,42 +1339,6 @@ watch(
   gap: var(--gc-space-4);
 }
 
-.asset-page :deep(.gc-data-table th),
-.asset-page :deep(.gc-data-table td) {
-  padding: 10px 12px;
-  font-size: 12px;
-}
-
-.asset-page :deep(.gc-data-table th) {
-  font-size: 11px;
-}
-
-.asset-page :deep(.gc-data-table__toolbar) {
-  padding: 14px 18px;
-}
-
-.asset-page :deep(.business-page__toolbar-title strong) {
-  font-size: 14px;
-}
-
-.asset-page :deep(.business-page__toolbar-title span),
-.asset-page :deep(.gc-data-table__footer) {
-  font-size: 11px;
-}
-
-.asset-page :deep(.business-page__row-actions) {
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.asset-page :deep(.business-page__row-actions .gc-button),
-.asset-page :deep(.business-page__toolbar-actions .gc-button),
-.asset-page :deep(.business-page__toolbar-actions .gc-permission-button) {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .asset-detail-modal {
   display: grid;
   gap: 12px;
@@ -1473,36 +1424,6 @@ watch(
 .asset-detail-modal__sections {
   display: grid;
   gap: 10px;
-}
-
-.asset-detail-modal__tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  padding: 4px;
-  border: 1px solid #dbe6f4;
-  border-radius: 999px;
-  background: #f8fbff;
-}
-
-.asset-detail-modal__tab {
-  min-height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #5b6f88;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.asset-detail-modal__tab[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
 }
 
 .asset-detail-modal__section {

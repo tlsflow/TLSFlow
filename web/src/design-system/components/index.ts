@@ -14,3 +14,4 @@ export { default as GcExecutionProgressPanel } from './GcExecutionProgressPanel.
 export { default as GcDryRunResultModal } from './GcDryRunResultModal.vue'
 export { default as GcDeploymentWizard } from './GcDeploymentWizard.vue'
 export { default as GcModal } from './GcModal.vue'
+export { default as GcTabs } from './GcTabs.vue'
