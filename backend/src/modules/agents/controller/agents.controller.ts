@@ -961,6 +961,8 @@ function renderWindowsCompatibilityBootstrapScript(manifest: WindowsBootstrapMan
     "[System.IO.File]::AppendAllText($bootstrapLogPath, $installOutput, (New-Object System.Text.UTF8Encoding($false)))",
     "if ($installExitCode -ne 0) { throw 'Windows Compatibility Agent service installation failed; see bootstrap.log.' }",
     '$service = Get-Service -Name $serviceName -ErrorAction Stop',
+    "if ([string]$service.Status -ne 'Running') { $service.WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }",
+    '$service = Get-Service -Name $serviceName -ErrorAction Stop',
     "if ([string]$service.Status -ne 'Running') { throw 'Windows Compatibility Agent service is not running; see bootstrap.log.' }",
     "[System.IO.File]::AppendAllText($bootstrapLogPath, ('Service started: ' + $serviceName + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))",
   ].join('\r\n');

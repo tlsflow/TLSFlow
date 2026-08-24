@@ -80,3 +80,13 @@ Set-ItemProperty -LiteralPath $serviceRegistryPath -Name Description -Value "GCA
 if ($LASTEXITCODE -ne 0) { Write-ServiceLog -Message ("Service recovery configuration skipped. exitCode=" + $LASTEXITCODE) }
 Set-DirectControlFirewallRule -ProgramPath $binaryPath
 Start-Service -Name $serviceName -ErrorAction Stop
+$service = Get-Service -Name $serviceName -ErrorAction Stop
+if ([string]$service.Status -ne "Running") {
+    $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+}
+$service = Get-Service -Name $serviceName -ErrorAction Stop
+if ([string]$service.Status -ne "Running") {
+    Write-ServiceLog -Message ("Service did not reach Running after start. status=" + $service.Status)
+    throw ("Service start failed; log=" + $serviceLog)
+}
+Write-ServiceLog -Message ("Service started. status=" + $service.Status)

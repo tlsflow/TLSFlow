@@ -184,6 +184,7 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(body, /executable replacement timed out/);
     assert.match(body, /FromBase64String/);
     assert.match(body, /bootstrap\.log/);
+    assert.match(body, /WaitForStatus\('Running', \[TimeSpan\]::FromSeconds\(30\)\)/);
     assert.ok(body.indexOf('$preflightOutput = & $sourceBinary') < body.indexOf('$uninstallOutput = & powershell'));
     assert.ok(body.indexOf('$uninstallOutput = & powershell') < body.indexOf('Copy-Item -LiteralPath $sourceBinary'));
     assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('$installOutput = & powershell'));
@@ -196,6 +197,8 @@ describe('Agent 安装会话安全约束', () => {
   it('Windows Compatibility Agent 防火墙配置兼容带空格路径并提供端口规则回退', async () => {
     const installScript = await readFile(resolve('../agents/windows-compat-full-agent/install-service.ps1'), 'utf8');
     const upgradeScript = await readFile(resolve('../agents/windows-compat-full-agent/upgrade-service.ps1'), 'utf8');
+    assert.match(installScript, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
+    assert.match(installScript, /Service did not reach Running after start/);
     for (const script of [installScript, upgradeScript]) {
       assert.match(script, /"name=\$firewallRuleName"/);
       assert.match(script, /"program=\$ProgramPath"/);
