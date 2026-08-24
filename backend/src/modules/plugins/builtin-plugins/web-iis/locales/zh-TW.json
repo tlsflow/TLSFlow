@@ -1,5 +1,5 @@
 {
-  "plugin.webIis.name": "IIS PFX 憑證外掛程式",
+  "plugin.webIis.name": "Windows IIS 網站",
   "plugin.webIis.description": "透過獨立 Agent-side Plugin 探索 IIS 網站、更新 HTTPS Binding 並驗證或復原憑證。",
   "plugin.webIis.form.device": "IIS 目標",
   "plugin.webIis.form.certificate": "憑證",

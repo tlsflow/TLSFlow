@@ -1,5 +1,5 @@
 {
-  "plugin.webIis.name": "IIS PFX 证书插件",
+  "plugin.webIis.name": "Windows IIS站点",
   "plugin.webIis.description": "通过独立 Agent-side Plugin 发现 IIS 站点、更新 HTTPS Binding 并验证或回滚证书。",
   "plugin.webIis.form.device": "IIS 目标",
   "plugin.webIis.form.certificate": "证书",

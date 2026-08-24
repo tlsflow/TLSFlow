@@ -19,6 +19,7 @@
   },
   "targetProjection": {
     "targetType": "tls.binding",
+    "frameworkTypes": ["web.iis"],
     "displayFields": ["displayName", "endpoint.port", "frameworkType"],
     "identityFields": ["managedTargetId", "configFingerprint"],
     "selectableWhen": "selectable"

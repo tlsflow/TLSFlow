@@ -1,5 +1,5 @@
 {
-  "plugin.webIis.name": "IIS PFX 인증서 플러그인",
+  "plugin.webIis.name": "Windows IIS 사이트",
   "plugin.webIis.description": "격리된 Agent-side Plugin으로 IIS 사이트를 검색하고 HTTPS Binding을 갱신하며 인증서를 검증하거나 복원합니다.",
   "plugin.webIis.form.device": "IIS 대상",
   "plugin.webIis.form.certificate": "인증서",

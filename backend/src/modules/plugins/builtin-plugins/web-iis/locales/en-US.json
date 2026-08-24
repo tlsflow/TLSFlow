@@ -1,5 +1,5 @@
 {
-  "plugin.webIis.name": "IIS PFX Certificate Plugin",
+  "plugin.webIis.name": "Windows IIS Site",
   "plugin.webIis.description": "Discover IIS sites, update HTTPS bindings, and verify or roll back certificates through an isolated Agent-side Plugin.",
   "plugin.webIis.form.device": "IIS target",
   "plugin.webIis.form.certificate": "Certificate",

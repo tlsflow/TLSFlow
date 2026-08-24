@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-discover", "displayName": "IIS discovery", "category": "application", "version": "1.0.21", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-discover", "displayName": "IIS discovery", "category": "application", "version": "1.0.22", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": {}, "connections": {}, "credentials": {}, "artifacts": {} },
   "steps": [
     {
@@ -10,7 +10,7 @@
       "stage": "prepare",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.21", "operation": "discover", "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.22", "operation": "discover", "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,
