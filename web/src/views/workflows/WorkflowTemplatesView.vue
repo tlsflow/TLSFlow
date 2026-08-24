@@ -11,6 +11,7 @@ import {
   listWorkflowTemplates,
   publishWorkflowTemplateVersion,
 } from '@/api/modules/workflow-templates.api'
+import { createSecret } from '@/api/modules/security.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -47,10 +48,57 @@ const fileTemplatePending = ref(false)
 const fileTemplateError = ref('')
 const selectedFileTemplateId = ref('')
 const fileTemplateTargetRow = ref<ViewRow | null>(null)
+const credentialManagerOpen = ref(false)
+const credentialItems = ref<ManagedCredential[]>([])
+const credentialSaving = ref(false)
+const credentialMessage = ref('')
+const credentialError = ref('')
+const credentialForm = ref<CredentialForm>({
+  name: '',
+  username: 'root',
+  kind: 'username_password',
+  apiKeyName: 'X-API-Key',
+  apiKeyIn: 'header',
+  secretValue: '',
+})
+
+type CredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key'
+type CredentialSecretType = 'ssh_key' | 'password' | 'api_token'
+
+interface CredentialForm {
+  name: string
+  username: string
+  kind: CredentialKind
+  apiKeyName: string
+  apiKeyIn: 'header' | 'query'
+  secretValue: string
+}
+
+interface ManagedCredential {
+  id: string
+  name: string
+  username: string
+  kind: CredentialKind
+  type: CredentialSecretType
+  apiKeyName?: string
+  apiKeyIn?: 'header' | 'query'
+  secretRef: string
+  createdAt: string
+}
+
+const credentialStorageKey = 'gcac.workflow.credentials.v2'
+const credentialKindOptions: readonly { kind: CredentialKind; title: string; subtitle: string; family: '通用' | 'SSH' | 'CURL' }[] = [
+  { kind: 'username_password', title: '用户名 + 密码', subtitle: 'SSH connection / CURL Basic', family: '通用' },
+  { kind: 'ssh_key', title: 'SSH 私钥', subtitle: 'username + private key', family: 'SSH' },
+  { kind: 'curl_bearer', title: 'CURL Bearer', subtitle: 'Authorization token', family: 'CURL' },
+  { kind: 'curl_api_key', title: 'CURL API Key', subtitle: 'header or query key', family: 'CURL' },
+]
 
 const config: BusinessPageConfig = {
   title: '工作流',
   description: '按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。',
+  showHeader: false,
+  showMetrics: false,
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
   primaryActionLabel: '空白新建',
@@ -75,10 +123,7 @@ const config: BusinessPageConfig = {
     { key: 'updatedAt', title: '更新时间', candidates: ['updatedAt', 'createdAt'], kind: 'date' },
     { key: 'actions', title: '操作', candidates: [] },
   ],
-  metrics: [
-    { title: '工作流总数', description: '已登记的自动化工作流。', status: 'READY', risk: 'MEDIUM' },
-    { title: '待发布草稿', description: '仍处于 draft 的工作流。', status: 'PENDING_APPROVAL', risk: 'MEDIUM' },
-  ],
+  metrics: [],
   detailFields: [
     { label: '工作流 ID', candidates: ['id'] },
     { label: '工作流名称', candidates: ['name'] },
@@ -139,6 +184,170 @@ const publishedVersionLabel = computed(() => {
 
 const fileTemplateModalTitle = computed(() => fileTemplateMode.value === 'create' ? '从文件模板新建工作流' : '用文件模板覆盖工作流')
 const fileTemplateActionLabel = computed(() => fileTemplateMode.value === 'create' ? '按模板创建工作流' : '按模板覆盖当前工作流')
+const credentialRequiresUsername = computed(() => ['username_password', 'ssh_key'].includes(credentialForm.value.kind))
+const credentialRequiresApiKeyName = computed(() => credentialForm.value.kind === 'curl_api_key')
+const selectedCredentialKindOption = computed(() => credentialKindOptions.find((item) => item.kind === credentialForm.value.kind) ?? credentialKindOptions[0]!)
+const credentialTargetLabel = computed(() => {
+  if (credentialForm.value.kind === 'username_password') return 'SSH connection / CURL request.auth'
+  return credentialForm.value.kind === 'ssh_key' ? 'SSH connection' : 'CURL request.auth'
+})
+const credentialSecretLabel = computed(() => {
+  if (credentialForm.value.kind === 'ssh_key') return 'SSH 私钥'
+  if (credentialForm.value.kind === 'curl_bearer') return 'Bearer Token'
+  if (credentialForm.value.kind === 'curl_api_key') return 'API Key'
+  return '密码'
+})
+const credentialValuePlaceholder = computed(() => {
+  if (credentialForm.value.kind === 'ssh_key') return '粘贴 PEM 格式私钥'
+  if (credentialForm.value.kind === 'curl_bearer') return '输入 Bearer Token'
+  if (credentialForm.value.kind === 'curl_api_key') return '输入 API Key'
+  return '输入登录密码'
+})
+const credentialCreateDisabled = computed(() => {
+  const form = credentialForm.value
+  return credentialSaving.value
+    || !form.name.trim()
+    || (credentialRequiresUsername.value && !form.username.trim())
+    || (credentialRequiresApiKeyName.value && !form.apiKeyName.trim())
+    || !form.secretValue.trim()
+})
+
+function openCredentialManager() {
+  credentialItems.value = loadStoredCredentials()
+  credentialMessage.value = ''
+  credentialError.value = ''
+  credentialManagerOpen.value = true
+}
+
+function selectCredentialKind(kind: CredentialKind) {
+  credentialForm.value = {
+    ...credentialForm.value,
+    kind,
+    username: ['username_password', 'ssh_key'].includes(kind) ? credentialForm.value.username || 'root' : credentialForm.value.username,
+    apiKeyName: kind === 'curl_api_key' ? credentialForm.value.apiKeyName || 'X-API-Key' : credentialForm.value.apiKeyName,
+  }
+}
+
+async function submitCredential() {
+  if (credentialCreateDisabled.value) return
+  credentialSaving.value = true
+  credentialMessage.value = ''
+  credentialError.value = ''
+  try {
+    const form = credentialForm.value
+    const secretType = secretTypeForCredentialKind(form.kind)
+    const created = await createSecret({
+      name: form.name.trim(),
+      type: secretType,
+      scopeType: 'global',
+      plainText: form.secretValue,
+    })
+    if (!created.data) throw new Error('创建凭据未返回 SecretRef')
+    const item: ManagedCredential = {
+      id: created.data.id,
+      name: form.name.trim(),
+      username: form.username.trim(),
+      kind: form.kind,
+      type: secretType,
+      apiKeyName: form.kind === 'curl_api_key' ? form.apiKeyName.trim() : undefined,
+      apiKeyIn: form.kind === 'curl_api_key' ? form.apiKeyIn : undefined,
+      secretRef: created.data.secretRef,
+      createdAt: new Date().toISOString(),
+    }
+    credentialItems.value = [item, ...credentialItems.value.filter((credential) => credential.id !== item.id)]
+    saveStoredCredentials(credentialItems.value)
+    credentialForm.value = {
+      ...credentialForm.value,
+      name: '',
+      secretValue: '',
+    }
+    credentialMessage.value = '凭据已创建，SecretRef 可直接用于工作流 SSH 或 CURL 验证。'
+  } catch (cause) {
+    credentialError.value = cause instanceof Error ? cause.message : '创建凭据失败'
+  } finally {
+    credentialSaving.value = false
+  }
+}
+
+async function copyCredentialText(text: string, label: string) {
+  try {
+    if (!navigator.clipboard) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(text)
+    credentialMessage.value = `${label} 已复制。`
+    credentialError.value = ''
+  } catch {
+    credentialError.value = '当前浏览器不允许写入剪贴板，请手动复制。'
+  }
+}
+
+function removeStoredCredential(id: string) {
+  credentialItems.value = credentialItems.value.filter((item) => item.id !== id)
+  saveStoredCredentials(credentialItems.value)
+}
+
+function credentialTypeLabel(item: ManagedCredential) {
+  const labels: Record<CredentialKind, string> = {
+    username_password: '用户名 + 密码',
+    ssh_key: 'SSH 私钥',
+    curl_bearer: 'CURL Bearer',
+    curl_api_key: 'CURL API Key',
+  }
+  return labels[item.kind] ?? item.type
+}
+
+function credentialUsageSnippet(item: ManagedCredential) {
+  if (item.kind === 'username_password') {
+    return `"connection": {\n  "username": "${item.username}",\n  "credentialSecretRef": "${item.secretRef}"\n}\n\n"auth": {\n  "type": "basic",\n  "username": "${item.username}",\n  "secretRef": "${item.secretRef}"\n}`
+  }
+  if (item.kind === 'curl_bearer') {
+    return `"auth": {\n  "type": "bearer",\n  "secretRef": "${item.secretRef}"\n}`
+  }
+  if (item.kind === 'curl_api_key') {
+    return `"auth": {\n  "type": "api_key",\n  "name": "${item.apiKeyName ?? 'X-API-Key'}",\n  "in": "${item.apiKeyIn ?? 'header'}",\n  "secretRef": "${item.secretRef}"\n}`
+  }
+  return `"connection": {\n  "username": "${item.username}",\n  "credentialSecretRef": "${item.secretRef}"\n}`
+}
+
+function secretTypeForCredentialKind(kind: CredentialKind): CredentialSecretType {
+  if (kind === 'ssh_key') return 'ssh_key'
+  if (kind === 'curl_bearer' || kind === 'curl_api_key') return 'api_token'
+  return 'password'
+}
+
+function loadStoredCredentials(): ManagedCredential[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(credentialStorageKey) ?? '[]') as Array<Partial<ManagedCredential>>
+    return Array.isArray(parsed)
+      ? parsed.flatMap((item) => {
+        if (!item || typeof item.id !== 'string' || typeof item.secretRef !== 'string' || !isCredentialKind(item.kind)) return []
+        return [{
+          id: item.id,
+          name: typeof item.name === 'string' ? item.name : item.id,
+          username: typeof item.username === 'string' ? item.username : '',
+          kind: item.kind,
+          type: secretTypeForCredentialKind(item.kind),
+          apiKeyName: typeof item.apiKeyName === 'string' ? item.apiKeyName : undefined,
+          apiKeyIn: item.apiKeyIn === 'query' ? 'query' : item.apiKeyIn === 'header' ? 'header' : undefined,
+          secretRef: item.secretRef,
+          createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+        }]
+      })
+      : []
+  } catch {
+    return []
+  }
+}
+
+function isCredentialKind(value: unknown): value is CredentialKind {
+  return value === 'username_password'
+    || value === 'ssh_key'
+    || value === 'curl_bearer'
+    || value === 'curl_api_key'
+}
+
+function saveStoredCredentials(items: ManagedCredential[]) {
+  window.localStorage.setItem(credentialStorageKey, JSON.stringify(items))
+}
 
 async function openDetail(row: ViewRow) {
   detailRow.value = row
@@ -285,14 +494,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 <template>
   <section class="workflow-templates-page">
     <BusinessResourcePage ref="pageRef" :config="config">
-      <template #after-header>
-        <div class="workflow-template-library-bar">
-          <div class="workflow-template-library-bar__copy">
-            <strong>文件模板库</strong>
-            <span>扫描 data/workflows 目录，把 DSL 文件当作工作流模板源。</span>
-          </div>
-          <button class="gc-button" type="button" @click="openFileTemplateModal('create')">从模板新建</button>
-        </div>
+      <template #toolbar-actions-before-refresh>
+        <button class="gc-button" type="button" @click="openFileTemplateModal('create')">模板管理</button>
+        <button class="gc-button" type="button" @click="openCredentialManager">凭据管理</button>
       </template>
     </BusinessResourcePage>
 
@@ -442,6 +646,122 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         </button>
       </template>
     </GcModal>
+
+    <GcModal
+      v-model:open="credentialManagerOpen"
+      title="凭据管理"
+      description="集中创建工作流 SSH 和 CURL 验证凭据。密码、私钥和 Token 只写入后端 Secret，前端仅保留工作流需要引用的非明文信息。"
+      size="xl"
+      width="min(1080px, calc(100vw - 32px))"
+    >
+      <section class="credential-manager">
+        <form class="credential-manager__form" @submit.prevent="submitCredential">
+          <div class="credential-manager__form-head">
+            <div>
+              <strong>新增凭据</strong>
+              <span>{{ selectedCredentialKindOption.family }} / {{ credentialTargetLabel }}</span>
+            </div>
+            <span class="credential-manager__badge">{{ selectedCredentialKindOption.title }}</span>
+          </div>
+
+          <fieldset class="credential-manager__type-picker">
+            <legend>凭据类型</legend>
+            <button
+              v-for="option in credentialKindOptions"
+              :key="option.kind"
+              class="credential-manager__type-option"
+              type="button"
+              :data-active="credentialForm.kind === option.kind"
+              :data-family="option.family"
+              @click="selectCredentialKind(option.kind)"
+            >
+              <span>{{ option.title }}</span>
+              <small>{{ option.subtitle }}</small>
+            </button>
+          </fieldset>
+
+          <div class="credential-manager__grid">
+            <label>
+              <span>凭据名称</span>
+              <input v-model="credentialForm.name" class="gc-input" type="text" placeholder="edge-01 root" />
+            </label>
+            <label v-if="credentialRequiresUsername">
+              <span>用户名</span>
+              <input v-model="credentialForm.username" class="gc-input" type="text" placeholder="root" />
+            </label>
+            <label v-if="credentialRequiresApiKeyName">
+              <span>Header / 参数名</span>
+              <input v-model="credentialForm.apiKeyName" class="gc-input" type="text" placeholder="X-API-Key" />
+            </label>
+            <fieldset v-if="credentialRequiresApiKeyName" class="credential-manager__segmented">
+              <legend>传递位置</legend>
+              <button type="button" :data-active="credentialForm.apiKeyIn === 'header'" @click="credentialForm.apiKeyIn = 'header'">Header</button>
+              <button type="button" :data-active="credentialForm.apiKeyIn === 'query'" @click="credentialForm.apiKeyIn = 'query'">Query</button>
+            </fieldset>
+          </div>
+          <label class="credential-manager__secret">
+            <span>{{ credentialSecretLabel }}</span>
+            <textarea
+              v-model="credentialForm.secretValue"
+              class="gc-input"
+              :placeholder="credentialValuePlaceholder"
+              rows="7"
+              spellcheck="false"
+            />
+          </label>
+          <div class="credential-manager__form-summary">
+            <div>
+              <span>存储类型</span>
+              <strong>{{ secretTypeForCredentialKind(credentialForm.kind) }}</strong>
+            </div>
+            <div>
+              <span>引用位置</span>
+              <strong>{{ credentialTargetLabel }}</strong>
+            </div>
+          </div>
+          <p v-if="credentialMessage" class="credential-manager__message">{{ credentialMessage }}</p>
+          <p v-if="credentialError" class="credential-manager__error">{{ credentialError }}</p>
+          <div class="credential-manager__form-actions">
+            <button class="gc-button gc-button--primary" type="submit" :disabled="credentialCreateDisabled">
+              {{ credentialSaving ? '创建中...' : '创建凭据' }}
+            </button>
+          </div>
+        </form>
+
+        <section class="credential-manager__list-section">
+          <div class="credential-manager__section-head">
+            <strong>已登记凭据</strong>
+            <span>{{ credentialItems.length }} 个</span>
+          </div>
+          <ul v-if="credentialItems.length" class="credential-manager__list">
+            <li v-for="item in credentialItems" :key="item.id" class="credential-manager__item">
+              <div class="credential-manager__item-head">
+                <div>
+                  <strong>{{ item.name }}</strong>
+                  <span>{{ credentialTypeLabel(item) }}<template v-if="item.username"> / {{ item.username }}</template></span>
+                </div>
+                <span class="credential-manager__item-kind">{{ item.kind === 'username_password' ? '通用' : item.kind === 'ssh_key' ? 'SSH' : 'CURL' }}</span>
+                <button class="gc-button" type="button" @click="removeStoredCredential(item.id)">移除记录</button>
+              </div>
+              <dl class="credential-manager__facts">
+                <div><dt>SecretRef</dt><dd>{{ item.secretRef }}</dd></div>
+                <div><dt>工作流片段</dt><dd>{{ item.kind === 'username_password' ? 'SSH connection / CURL request.auth' : item.kind === 'ssh_key' ? 'SSH connection' : 'CURL request.auth' }}</dd></div>
+              </dl>
+              <div class="credential-manager__snippet">{{ credentialUsageSnippet(item) }}</div>
+              <div class="credential-manager__item-actions">
+                <button v-if="item.username" class="gc-button" type="button" @click="copyCredentialText(item.username, '用户名')">复制用户名</button>
+                <button class="gc-button" type="button" @click="copyCredentialText(item.secretRef, 'SecretRef')">复制 SecretRef</button>
+                <button class="gc-button" type="button" @click="copyCredentialText(credentialUsageSnippet(item), '连接片段')">复制连接片段</button>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="credential-manager__empty">暂无本地登记记录。创建凭据后会显示用户名、SecretRef 和工作流连接片段。</p>
+        </section>
+      </section>
+      <template #actions>
+        <button class="gc-button" type="button" @click="credentialManagerOpen = false">关闭</button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -449,32 +769,6 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-templates-page {
   display: grid;
   gap: var(--gc-space-4);
-}
-
-.workflow-template-library-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid #dbe6f4;
-  border-radius: 8px;
-  background: #f8fbff;
-}
-
-.workflow-template-library-bar__copy {
-  display: grid;
-  gap: 2px;
-}
-
-.workflow-template-library-bar__copy strong {
-  color: #0f172a;
-  font-size: 13px;
-}
-
-.workflow-template-library-bar__copy span {
-  color: #64748b;
-  font-size: 12px;
 }
 
 .workflow-template-detail {
@@ -787,12 +1081,326 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   color: #b91c1c;
 }
 
-@media (max-width: 900px) {
-  .workflow-template-library-bar {
-    display: grid;
-    justify-content: stretch;
-  }
+.credential-manager {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.86fr) minmax(0, 1.14fr);
+  gap: 16px;
+  align-items: start;
+}
 
+.credential-manager__form,
+.credential-manager__list-section {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  padding: 16px;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 6%);
+}
+
+.credential-manager__form-head,
+.credential-manager__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.credential-manager__form-head strong,
+.credential-manager__section-head strong,
+.credential-manager__item-head strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.credential-manager__form-head span,
+.credential-manager__section-head span,
+.credential-manager__item-head span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.credential-manager__badge,
+.credential-manager__item-kind {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.credential-manager__type-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.credential-manager__type-picker legend,
+.credential-manager__segmented legend {
+  padding: 0 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.credential-manager__type-option {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  padding: 10px 11px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.credential-manager__type-option:hover,
+.credential-manager__type-option[data-active='true'] {
+  border-color: #60a5fa;
+  background: #f0f7ff;
+  box-shadow: 0 8px 20px rgb(37 99 235 / 10%);
+}
+
+.credential-manager__type-option span {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.credential-manager__type-option small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.credential-manager__type-option[data-family='CURL'][data-active='true'] {
+  border-color: #34d399;
+  background: #f0fdf4;
+  box-shadow: 0 8px 20px rgb(22 163 74 / 10%);
+}
+
+.credential-manager__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.credential-manager label,
+.credential-manager__secret {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.credential-manager label span,
+.credential-manager__secret span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.credential-manager :deep(.gc-input),
+.credential-manager .gc-input {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 13px;
+  outline: none;
+}
+
+.credential-manager :deep(.gc-input:focus),
+.credential-manager .gc-input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+}
+
+.credential-manager__segmented {
+  display: inline-flex;
+  align-self: end;
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #eef4fb;
+}
+
+.credential-manager__segmented legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.credential-manager__segmented button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.credential-manager__segmented button[data-active='true'] {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 10%);
+}
+
+.credential-manager textarea {
+  min-height: 148px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.credential-manager__form-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.credential-manager__form-summary div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.credential-manager__form-summary span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.credential-manager__form-summary strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.credential-manager__message,
+.credential-manager__error,
+.credential-manager__empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.credential-manager__message {
+  color: #166534;
+}
+
+.credential-manager__error {
+  color: var(--gc-color-danger);
+}
+
+.credential-manager__empty {
+  color: #64748b;
+}
+
+.credential-manager__form-actions,
+.credential-manager__item-actions,
+.credential-manager__item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.credential-manager__list {
+  display: grid;
+  gap: 10px;
+  max-height: min(54vh, 620px);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.credential-manager__item {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.credential-manager__facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(140px, 0.65fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.credential-manager__facts div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.credential-manager__facts dt {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.credential-manager__facts dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.credential-manager__snippet {
+  padding: 10px 12px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: #111827;
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
   .workflow-template-detail__hero {
     display: grid;
     grid-template-columns: 1fr;
@@ -812,6 +1420,11 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   .workflow-file-template-modal__head {
     display: grid;
     justify-content: stretch;
+  }
+
+  .credential-manager,
+  .credential-manager__grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

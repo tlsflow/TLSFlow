@@ -150,7 +150,7 @@ export function deleteIdentitySource(id: string): Promise<ApiResult<{ id: string
 
 export function createSecret(body: {
   name: string
-  type: 'password' | 'pfx_password'
+  type: 'ssh_key' | 'password' | 'api_token' | 'pfx_password' | 'private_key' | 'certificate_private_key'
   scopeType: 'global' | 'team' | 'zone' | 'host' | 'plugin'
   plainText: string
   scopeId?: string
