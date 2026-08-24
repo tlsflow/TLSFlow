@@ -24,6 +24,14 @@ const zhSidebar = [
     text: "用户指南",
     items: [
       { text: "用户指南总览", link: "/user-guide/" },
+      { text: "安全、Secret 与审批", link: "/user-guide/security" },
+      { text: "证书资产与 CA", link: "/user-guide/certificates" },
+      { text: "设备与执行通道", link: "/user-guide/devices" },
+      { text: "应用资产与受管目标", link: "/user-guide/assets" },
+      { text: "工作流模板", link: "/user-guide/workflows" },
+      { text: "部署计划与回滚", link: "/user-guide/deployments" },
+      { text: "监控、通知与报表", link: "/user-guide/monitoring" },
+      { text: "自动化、设置与凭据", link: "/user-guide/automation" },
       { text: "设备、证书与部署主流程", link: "/user-guide/main-flow" }
     ]
   },
