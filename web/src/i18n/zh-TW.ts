@@ -483,7 +483,9 @@ export default {
     currentLocation: "目前位置",
     breadcrumb: "麵包屑",
     currentGroupNavigation: "目前分群組導航",
-    backDashboard: "返回儀表板"
+    backDashboard: "返回儀表板",
+    sidebarCollapse: "收合側邊欄",
+    sidebarExpand: "展開側邊欄"
   },
   preferences: {
     theme: "主題",
@@ -529,9 +531,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: "總覽",
+    dashboard: "儀表板",
     dashboardDesc: "應用、憑證、Agent、閘道和審計狀態總覽",
-    certificates: "憑證",
+    certificates: "憑證管理",
     certificatesDesc: "憑證庫、繫結關係和到期狀態",
     certificateAssets: "憑證資產",
     certificateAssetsDesc: "憑證、私密金鑰引用、指紋和到期時間",
@@ -559,9 +561,9 @@ export default {
     workflowTemplatesDesc: "畫布草稿、變數、能力宣告和釋出",
     automations: "自動化",
     automationsDesc: "定時、按需和批次執行憑證更新計畫",
-    plugins: "外掛",
+    plugins: "外掛中心",
     pluginsDesc: "Provider、執行器和沙箱狀態",
-    monitoring: "監控",
+    monitoring: "監控審計",
     monitoringDesc: "警示、審計和憑證狀態",
     monitorAlerts: "監控警示",
     monitorAlertsDesc: "到期、漂移和執行失敗事件",
@@ -569,7 +571,7 @@ export default {
     monitorTlsDesc: "證書認證路徑、協議套件、相容性模擬與協議細節",
     audits: "審計記錄",
     auditsDesc: "操作證據與合規匯出",
-    settings: "設定",
+    settings: "系統設定",
     settingsDesc: "租戶、使用者、權限和系統設定",
     systemSettings: "系統設定",
     systemSettingsDesc: "系統設定和安全後設資料",

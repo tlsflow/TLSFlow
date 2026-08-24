@@ -484,7 +484,9 @@ export default {
     currentLocation: 'Current location',
     breadcrumb: 'Breadcrumb',
     currentGroupNavigation: 'Current group navigation',
-    backDashboard: 'Back to dashboard'
+    backDashboard: 'Back to dashboard',
+    sidebarCollapse: 'Réduire la barre latérale',
+    sidebarExpand: 'Développer la barre latérale'
   },
   preferences: {
     theme: 'Thème',
@@ -530,9 +532,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: 'Overview',
+    dashboard: 'Tableau de bord',
     dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificates',
+    certificates: 'Gestion des certificats',
     certificatesDesc: 'Certificate library, bindings, and expiry status',
     certificateAssets: 'Certificate assets',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
@@ -560,9 +562,9 @@ export default {
     workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
     automations: 'Automatisations',
     automationsDesc: 'Plans de renouvellement de certificats planifiés, à la demande et par lot',
-    plugins: 'Plugins',
+    plugins: 'Centre des plugins',
     pluginsDesc: 'Provider, executor, and sandbox status',
-    monitoring: 'Surveillance',
+    monitoring: 'Surveillance et audit',
     monitoringDesc: 'Alertes, audit et état des certificats',
     monitorAlerts: 'Alertes de surveillance',
     monitorAlertsDesc: 'Événements d’expiration, de dérive et d’échec d’exécution',
@@ -578,7 +580,7 @@ export default {
     riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
     automationEffectivenessReport: 'Automation effectiveness',
     automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
-    settings: 'Settings',
+    settings: 'Paramètres système',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
     systemSettings: 'System settings',
     systemSettingsDesc: 'System configuration and security metadata',

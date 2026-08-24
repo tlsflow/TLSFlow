@@ -483,7 +483,9 @@ export default {
     currentLocation: '当前位置',
     breadcrumb: '面包屑',
     currentGroupNavigation: '当前分组导航',
-    backDashboard: '返回仪表盘'
+    backDashboard: '返回仪表盘',
+    sidebarCollapse: '收起侧边栏',
+    sidebarExpand: '展开侧边栏'
   },
   preferences: {
     theme: '主题',
@@ -529,9 +531,9 @@ export default {
     }
   },
   nav: {
-    dashboard: '总览',
+    dashboard: '仪表盘',
     dashboardDesc: '应用、证书、Agent、网关和审计状态总览',
-    certificates: '证书',
+    certificates: '证书管理',
     certificatesDesc: '证书库、绑定关系和到期状态',
     certificateAssets: '证书资产',
     certificateAssetsDesc: '证书、私钥引用、指纹和到期时间',
@@ -559,9 +561,9 @@ export default {
     workflowTemplatesDesc: '画布草稿、变量、能力声明和发布',
     automations: '自动化',
     automationsDesc: '定时、按需和批量执行证书更新计划',
-    plugins: '插件',
+    plugins: '插件中心',
     pluginsDesc: 'Provider、执行器和沙箱状态',
-    monitoring: '监控',
+    monitoring: '监控审计',
     monitoringDesc: '告警、审计和证书状态',
     monitorAlerts: '监控告警',
     monitorAlertsDesc: '到期、漂移和执行失败事件',
@@ -577,7 +579,7 @@ export default {
     riskResponseReportDesc: '风险确认、解决时长和 SLA',
     automationEffectivenessReport: '自动化成效',
     automationEffectivenessReportDesc: '运行级、目标级成功率和失败阶段',
-    settings: '设置',
+    settings: '系统设置',
     settingsDesc: '租户、用户、权限和系统配置',
     systemSettings: '系统设置',
     systemSettingsDesc: '系统配置和安全元数据',

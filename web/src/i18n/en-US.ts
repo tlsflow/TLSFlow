@@ -483,7 +483,9 @@ export default {
     currentLocation: 'Current location',
     breadcrumb: 'Breadcrumb',
     currentGroupNavigation: 'Current group navigation',
-    backDashboard: 'Back to dashboard'
+    backDashboard: 'Back to dashboard',
+    sidebarCollapse: 'Collapse sidebar',
+    sidebarExpand: 'Expand sidebar'
   },
   preferences: {
     theme: 'Theme',
@@ -529,9 +531,9 @@ export default {
     }
   },
   nav: {
-    dashboard: 'Overview',
+    dashboard: 'Dashboard',
     dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificates',
+    certificates: 'Certificate management',
     certificatesDesc: 'Certificate library, bindings, and expiry status',
     certificateAssets: 'Certificate assets',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
@@ -559,9 +561,9 @@ export default {
     workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
     automations: 'Automations',
     automationsDesc: 'Scheduled, on-demand, and batch certificate renewal plans',
-    plugins: 'Plugins',
+    plugins: 'Plugin center',
     pluginsDesc: 'Provider, executor, and sandbox status',
-    monitoring: 'Monitoring',
+    monitoring: 'Monitoring & audit',
     monitoringDesc: 'Alerts, audit, and certificate status',
     monitorAlerts: 'Monitor alerts',
     monitorAlertsDesc: 'Expiry, drift, and execution failure events',
@@ -577,7 +579,7 @@ export default {
     riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
     automationEffectivenessReport: 'Automation effectiveness',
     automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
-    settings: 'Settings',
+    settings: 'System settings',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
     systemSettings: 'System settings',
     systemSettingsDesc: 'System configuration and security metadata',

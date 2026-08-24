@@ -484,7 +484,9 @@ export default {
     currentLocation: '現在位置',
     breadcrumb: 'パンくずリスト',
     currentGroupNavigation: '現在のグループナビゲーション',
-    backDashboard: 'ダッシュボードへ戻る'
+    backDashboard: 'ダッシュボードへ戻る',
+    sidebarCollapse: 'サイドバーを折りたたむ',
+    sidebarExpand: 'サイドバーを展開'
   },
   preferences: {
     theme: 'テーマ',
@@ -530,9 +532,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: '概要',
+    dashboard: 'ダッシュボード',
     dashboardDesc: 'アプリケーション、証明書、Agent、ゲートウェイと監査ステータス概要',
-    certificates: '証明書',
+    certificates: '証明書管理',
     certificatesDesc: '証明書ライブラリ、バインド関係と期限切れステータス',
     certificateAssets: '証明書アセット',
     certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
@@ -560,9 +562,9 @@ export default {
     workflowTemplatesDesc: 'キャンバスドラフト、変数、機能宣言と公開',
     automations: '自動化',
     automationsDesc: '証明書更新計画のスケジュール、オンデマンド、バッチ実行',
-    plugins: 'プラグイン',
+    plugins: 'プラグインセンター',
     pluginsDesc: 'Provider、Executorとサンドボックスステータス',
-    monitoring: '監視',
+    monitoring: '監視と監査',
     monitoringDesc: 'アラート、監査と証明書ステータス',
     monitorAlerts: '監視アラート',
     monitorAlertsDesc: '期限切れ、ドリフトと実行失敗イベント',
@@ -570,7 +572,7 @@ export default {
     monitorTlsDesc: '証明書認証パス、プロトコル/スイート、互換性シミュレーションとプロトコル詳細',
     audits: '監査ログ',
     auditsDesc: '操作証拠と合规エクスポート',
-    settings: '設定',
+    settings: 'システム設定',
     settingsDesc: 'テナント、ユーザー、権限とシステム設定',
     systemSettings: 'システム設定',
     systemSettingsDesc: 'システム設定と安全元データ',

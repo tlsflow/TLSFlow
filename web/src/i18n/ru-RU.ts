@@ -484,7 +484,9 @@ export default {
     currentLocation: 'Текущее местоположение',
     breadcrumb: 'Навигационная цепочка',
     currentGroupNavigation: 'Навигация текущей группы',
-    backDashboard: 'Вернуться на панель мониторинга'
+    backDashboard: 'Вернуться на панель мониторинга',
+    sidebarCollapse: 'Свернуть боковую панель',
+    sidebarExpand: 'Развернуть боковую панель'
   },
   preferences: {
     theme: 'Тема',
@@ -530,9 +532,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: 'Обзор',
+    dashboard: 'Панель управления',
     dashboardDesc: 'Обзор состояния приложений, сертификатов, Agent, шлюзов и аудита',
-    certificates: 'Сертификаты',
+    certificates: 'Управление сертификатами',
     certificatesDesc: 'Хранилище сертификатов, привязки и срок действия',
     certificateAssets: 'Сертификатные активы',
     certificateAssetsDesc: 'Сертификаты, ссылки на закрытые ключи, отпечатки и сроки действия',
@@ -560,9 +562,9 @@ export default {
     workflowTemplatesDesc: 'Черновики canvas, переменные, декларации возможностей и публикация',
     automations: 'Автоматизация',
     automationsDesc: 'Плановые, ручные и пакетные планы обновления сертификатов',
-    plugins: 'Плагины',
+    plugins: 'Центр плагинов',
     pluginsDesc: 'Provider, исполнители и состояние песочницы',
-    monitoring: 'Мониторинг',
+    monitoring: 'Мониторинг и аудит',
     monitoringDesc: 'Оповещения, аудит и состояние сертификатов',
     monitorAlerts: 'Оповещения мониторинга',
     monitorAlertsDesc: 'События истечения, дрейфа и ошибок выполнения',
@@ -570,7 +572,7 @@ export default {
     monitorTlsDesc: 'Цепочки доверия, наборы протоколов, симуляция совместимости и детали протокола',
     audits: 'Журналы аудита',
     auditsDesc: 'Доказательства операций и экспорт для соответствия',
-    settings: 'Настройки',
+    settings: 'Системные настройки',
     settingsDesc: 'Тенанты, пользователи, права и системная конфигурация',
     systemSettings: 'Системные настройки',
     systemSettingsDesc: 'Системная конфигурация и метаданные безопасности',

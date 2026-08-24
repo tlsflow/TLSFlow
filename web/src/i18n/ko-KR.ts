@@ -484,7 +484,9 @@ export default {
     currentLocation: '현재 위치',
     breadcrumb: '브레드크럼',
     currentGroupNavigation: '현재 그룹 탐색',
-    backDashboard: '대시보드로 돌아가기'
+    backDashboard: '대시보드로 돌아가기',
+    sidebarCollapse: '사이드바 접기',
+    sidebarExpand: '사이드바 펼치기'
   },
   preferences: {
     theme: '테마',
@@ -530,9 +532,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: '개요',
+    dashboard: '대시보드',
     dashboardDesc: '애플리케이션, 인증서, Agent, 게이트웨이 및 감사 상태 요약',
-    certificates: '인증서',
+    certificates: '인증서 관리',
     certificatesDesc: '인증서 라이브러리, 바인딩 관계 및 만료 상태',
     certificateAssets: '인증서 자산',
     certificateAssetsDesc: '인증서, 개인 키 참조, 지문, 만료 시간입니다',
@@ -560,9 +562,9 @@ export default {
     workflowTemplatesDesc: '캔버스 스케치, 변수, 기능 선언 및 배포',
     automations: '자동화',
     automationsDesc: '예약, 요청 및 일괄 인증서 갱신 계획',
-    plugins: '플러그인',
+    plugins: '플러그인 센터',
     pluginsDesc: 'Provider, 실행기 및 샌드박스 상태',
-    monitoring: '모니터링',
+    monitoring: '모니터링 및 감사',
     monitoringDesc: '경보, 감사 및 인증서 상태',
     monitorAlerts: '감시 통제와 경보',
     monitorAlertsDesc: '만료, 드리프트, 실행 실패 이벤트',
@@ -570,7 +572,7 @@ export default {
     monitorTlsDesc: '신뢰 경로, 프로토콜 스위트, 호환성 시뮬레이션 및 프로토콜 세부 정보',
     audits: '감사 로그',
     auditsDesc: '작업 자격 증명와 준법 내보내기',
-    settings: '설정',
+    settings: '시스템 설정',
     settingsDesc: '테넌트, 사용자, 권한, 시스템 설정',
     systemSettings: '시스템 설정',
     systemSettingsDesc: '시스템 구성 및 보안 메타데이터',

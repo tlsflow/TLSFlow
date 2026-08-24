@@ -484,7 +484,9 @@ export default {
     currentLocation: 'Localização atual',
     breadcrumb: 'Trilha de navegação',
     currentGroupNavigation: 'Navegação do grupo atual',
-    backDashboard: 'Voltar ao painel'
+    backDashboard: 'Voltar ao painel',
+    sidebarCollapse: 'Recolher barra lateral',
+    sidebarExpand: 'Expandir barra lateral'
   },
   preferences: {
     theme: 'Tema',
@@ -530,9 +532,9 @@ export default {
         deployments: 'Deployments'
       }
     },
-    dashboard: 'Visão geral',
+    dashboard: 'Painel',
     dashboardDesc: 'Visão geral do status de aplicações, certificados, Agents, gateways e auditoria',
-    certificates: 'Certificados',
+    certificates: 'Gerenciamento de certificados',
     certificatesDesc: 'Biblioteca de certificados, vínculos e status de expiração',
     certificateAssets: 'Ativos de certificado',
     certificateAssetsDesc: 'Certificados, referências de chave privada, impressões digitais e prazos de expiração',
@@ -560,9 +562,9 @@ export default {
     workflowTemplatesDesc: 'Rascunhos do canvas, variáveis, declarações de capacidade e publicação',
     automations: 'Automações',
     automationsDesc: 'Planos de renovação de certificados agendados, sob demanda e em lote',
-    plugins: 'Plugins',
+    plugins: 'Central de plugins',
     pluginsDesc: 'Provider, executores e status do sandbox',
-    monitoring: 'Monitoramento',
+    monitoring: 'Monitoramento e auditoria',
     monitoringDesc: 'Alertas, auditoria e status de certificados',
     monitorAlerts: 'Alertas de monitoramento',
     monitorAlertsDesc: 'Eventos de expiração, desvio e falha de execução',
@@ -570,7 +572,7 @@ export default {
     monitorTlsDesc: 'Cadeias de confiança, suítes de protocolo, simulação de compatibilidade e detalhes do protocolo',
     audits: 'Logs de auditoria',
     auditsDesc: 'Evidências de operação e exportações de conformidade',
-    settings: 'Configurações',
+    settings: 'Configurações do sistema',
     settingsDesc: 'Tenants, usuários, permissões e configuração do sistema',
     systemSettings: 'Configurações do sistema',
     systemSettingsDesc: 'Configuração do sistema e metadados de segurança',
