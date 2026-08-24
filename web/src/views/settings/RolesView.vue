@@ -3,9 +3,6 @@ import SecurityAdminPage, { type SecurityAdminConfig } from './SecurityAdminPage
 import { createRole, listRoles } from '@/api/modules/security.api'
 
 const config: SecurityAdminConfig = {
-  eyebrow: 'SECURITY ROLES',
-  title: '角色管理',
-  description: '角色是权限策略的主要承载体。不要给每个用户单独堆策略，那会很快变成不可维护的垃圾。',
   resourceName: '角色',
   columns: [
     { key: 'id', title: '角色 ID' },

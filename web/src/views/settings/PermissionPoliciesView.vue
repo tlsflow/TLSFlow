@@ -7,9 +7,6 @@ function parseCsv(value: unknown): string[] {
 }
 
 const config: SecurityAdminConfig = {
-  eyebrow: 'SECURITY POLICIES',
-  title: '权限策略',
-  description: '维护 RBAC allow/deny 策略。动作和资源类型用逗号分隔，作用域默认按租户隔离。',
   resourceName: '权限策略',
   columns: [
     { key: 'id', title: '策略 ID' },

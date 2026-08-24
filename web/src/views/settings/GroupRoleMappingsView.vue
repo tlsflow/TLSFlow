@@ -3,9 +3,6 @@ import SecurityAdminPage, { type SecurityAdminConfig } from './SecurityAdminPage
 import { createGroupRoleMapping, listGroupRoleMappings } from '@/api/modules/security.api'
 
 const config: SecurityAdminConfig = {
-  eyebrow: 'GROUP ROLE MAPPING',
-  title: '组角色映射',
-  description: '把 AD/LDAP 外部组映射成本地角色。多个组命中会叠加角色；未命中不会默认给高权限。',
   resourceName: '组映射',
   columns: [
     { key: 'sourceId', title: '身份源 ID' },
