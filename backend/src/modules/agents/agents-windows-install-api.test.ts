@@ -61,6 +61,7 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /authorizationMaterialPath/);
     assert.match(script, /authorizationTrustKeySet/);
     assert.match(script, /agent-trust-material\.json/);
+    assert.match(script, /taskPollIntervalSeconds = 5/);
     assert.match(script, /Go Agent policy directory ACL configuration failed/);
     assert.match(script, /S-1-5-18/);
     assert.match(script, /\$pluginSource = Join-Path \$root "plugins\/windows-runtime-discovery\.exe"/);

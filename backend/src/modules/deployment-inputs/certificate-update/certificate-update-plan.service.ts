@@ -1,6 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from '../../agents/security/policy-version.constants.js';
-import { allowedAgentOperationTypes, computeAgentPlanDigest, agentSecurityContractVersion, type AgentPlanV1, type AgentPlanOperationV1 } from '../../agents/security/agent-security.contract.js';
+import { allowedAgentOperationTypes, computeAgentPlanDigest, sha256Digest, agentSecurityContractVersion, type AgentPlanV1, type AgentPlanOperationV1 } from '../../agents/security/agent-security.contract.js';
 import type { ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
 import type { CertificateUpdateResolvedSnapshotV1 } from './certificate-update-input.service.js';
 
@@ -52,6 +52,12 @@ export function compileCertificateUpdatePlanTemplate(input: {
   const commandRules = operations
     .filter((operation) => operation.operationType === 'command.execute_allowlisted')
     .map((operation) => toCommandRule(operation.input));
+  // IIS 证书库更新只调用固定的 IIS 绑定原语，不读取或写入快照中的文件路径。
+  // sourceConfigPath/programPath/workingDirectory 是发现事实，不是本次计划的
+  // 执行范围；把它们放进 Agent allowedPaths 会让 Windows 本地策略错误拒绝计划。
+  const allowedPaths = input.snapshot.artifactKind === 'WINDOWS_CERTIFICATE_STORE'
+    ? []
+    : [...new Set([...input.snapshot.paths, input.snapshot.sourceConfigPath, input.snapshot.programPath, input.snapshot.workingDirectory])];
   const plan: AgentPlanV1 = {
     planVersion: agentSecurityContractVersion,
     planId: template.planId,
@@ -74,7 +80,7 @@ export function compileCertificateUpdatePlanTemplate(input: {
     policyRef: template.authorization?.policyRef ?? CERTIFICATE_UPDATE_POLICY_REF,
     policyVersion: template.authorization?.policyVersion ?? CERTIFICATE_UPDATE_POLICY_VERSION,
     actions: operationTypes,
-    allowedPaths: [...new Set([...input.snapshot.paths, input.snapshot.sourceConfigPath, input.snapshot.programPath, input.snapshot.workingDirectory])],
+    allowedPaths,
     allowedServices: [input.snapshot.serviceName],
     commandRules,
     // 证书材料和配置检查程序都是 Agent 实际执行的不可变输入，两个摘要都必须进入
@@ -248,6 +254,12 @@ function expandOperations(
     // 通用快照元数据；其余原子动作保留相同的执行身份绑定，供授权和审计校验。
     const hasStrictInputContract = definition.operationType === 'command.execute_allowlisted'
       || definition.operationType.startsWith('certificate.iis.binding.');
+    if (definition.operationType.startsWith('certificate.iis.binding.')) {
+      // IIS 的 bindingInformation 允许 `*:443:host` 等原生格式，不能直接充当
+      // Agent 合同的 bindingKey。这里保留原生字段给插件，把合同标识规范化为
+      // 已持久化的 targetId，必要时再使用确定性摘要，避免历史脏数据阻断执行。
+      input.bindingKey = resolveIisAgentBindingKey(snapshot);
+    }
     if (!hasStrictInputContract) {
       if (workflowVersionId) input.workflowVersionId = workflowVersionId;
       if (resourceHash) input.resourceHash = resourceHash;
@@ -271,6 +283,20 @@ function expandOperations(
     void index;
   }
   return result;
+}
+
+function resolveIisAgentBindingKey(snapshot: CertificateUpdateResolvedSnapshotV1): string {
+  const identifierPattern = /^[A-Za-z0-9._:-]{1,256}$/;
+  const isIdentifier = (value: unknown): value is string => typeof value === 'string' && identifierPattern.test(value);
+  if (isIdentifier(snapshot.targetId)) return snapshot.targetId;
+  if (isIdentifier(snapshot.bindingKey)) return snapshot.bindingKey;
+  return `iis-binding-${sha256Digest({
+    pluginId: snapshot.pluginId,
+    targetId: snapshot.targetId,
+    siteId: snapshot.siteId,
+    siteName: snapshot.siteName,
+    bindingInformation: snapshot.bindingInformation,
+  })}`;
 }
 
 function resolveRefs(value: unknown, snapshot: CertificateUpdateResolvedSnapshotV1, pathIndex?: number): Record<string, unknown> {

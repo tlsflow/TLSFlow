@@ -35,10 +35,10 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.2.0"
+	agentVersion                = "0.2.1"
 	defaultConfigPath           = `C:\ProgramData\GCAC\WindowsCompatibilityAgent\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\WindowsCompatibilityAgent\service.install.json`
-	defaultTaskPoll             = 60
+	defaultTaskPoll             = 5
 	defaultHealthPoll           = 30
 	defaultOfflineTTL           = 180
 	defaultManagementPort       = 18932
@@ -143,29 +143,42 @@ type registerResponse struct {
 
 // 控制面只下发公钥和已签名的本地策略，私钥始终留在 Policy Authority。
 type agentTrustMaterialWire struct {
-	MaterialVersion           string               `json:"materialVersion"`
-	IssuedAt                  string               `json:"issuedAt"`
-	ValidUntil                string               `json:"validUntil"`
-	CapabilityKeySet          map[string]string    `json:"capabilityKeySet"`
-	PolicyAuthorityKeySet     map[string]string    `json:"policyAuthorityKeySet"`
-	LocalPolicy               agentLocalPolicyWire `json:"localPolicy"`
-	LocalPolicyAuthorityKeyID string               `json:"localPolicyAuthorityKeyId"`
-	LocalPolicySignature      string               `json:"localPolicySignature"`
+	MaterialVersion           string                              `json:"materialVersion"`
+	IssuedAt                  string                              `json:"issuedAt"`
+	ValidUntil                string                              `json:"validUntil"`
+	CapabilityKeySet          map[string]string                   `json:"capabilityKeySet"`
+	PolicyAuthorityKeySet     map[string]string                   `json:"policyAuthorityKeySet"`
+	LocalPolicy               agentLocalPolicyWire                `json:"localPolicy"`
+	LocalPolicyAuthorityKeyID string                              `json:"localPolicyAuthorityKeyId"`
+	LocalPolicySignature      string                              `json:"localPolicySignature"`
+	ProvisionedLocalPolicy    *signedAgentLocalPolicyMaterialWire `json:"provisionedLocalPolicy,omitempty"`
 }
 
 type agentLocalPolicyWire struct {
-	PolicyVersion   string   `json:"policyVersion"`
-	AgentID         string   `json:"agentId"`
-	AuthorityKeyIDs []string `json:"authorityKeyIds"`
-	AllowedActions  []string `json:"allowedActions"`
-	PathRules       []struct {
-		Prefix     string   `json:"prefix"`
-		Operations []string `json:"operations"`
-	} `json:"pathRules"`
-	ServiceRules []string `json:"serviceRules"`
-	CommandRules []any    `json:"commandRules"`
-	Disabled     bool     `json:"disabled"`
-	UpdatedAt    string   `json:"updatedAt"`
+	PolicyVersion   string                   `json:"policyVersion"`
+	AgentID         string                   `json:"agentId"`
+	AuthorityKeyIDs []string                 `json:"authorityKeyIds"`
+	AllowedActions  []string                 `json:"allowedActions"`
+	PathRules       []agentLocalPathRuleWire `json:"pathRules"`
+	ServiceRules    []string                 `json:"serviceRules"`
+	CommandRules    []any                    `json:"commandRules"`
+	Disabled        bool                     `json:"disabled"`
+	UpdatedAt       string                   `json:"updatedAt"`
+}
+
+type agentLocalPathRuleWire struct {
+	Prefix     string   `json:"prefix"`
+	Operations []string `json:"operations"`
+}
+
+// provisioning 材料由 Policy Authority 签名，只包含当前 Agent 的稳定能力上限。
+type signedAgentLocalPolicyMaterialWire struct {
+	MaterialVersion string               `json:"materialVersion"`
+	TenantID        string               `json:"tenantId"`
+	AgentID         string               `json:"agentId"`
+	LocalPolicy     agentLocalPolicyWire `json:"localPolicy"`
+	AuthorityKeyID  string               `json:"authorityKeyId"`
+	Signature       string               `json:"signature"`
 }
 
 var agentTrustMaterialState = struct {
@@ -1081,8 +1094,6 @@ func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *a
 		strings.TrimSpace(agentID) == "" ||
 		material.LocalPolicy.AgentID != agentID ||
 		material.LocalPolicy.PolicyVersion != agentSecurityContract ||
-		material.LocalPolicyAuthorityKeyID == "" ||
-		material.LocalPolicySignature == "" ||
 		len(material.CapabilityKeySet) == 0 ||
 		len(material.PolicyAuthorityKeySet) == 0 {
 		return errors.New("Agent 授权材料缺失必要字段")
@@ -1092,20 +1103,86 @@ func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *a
 	if issuedErr != nil || validErr != nil || !validUntil.After(issuedAt) || !time.Now().Before(validUntil) {
 		return errors.New("Agent 授权材料已过期或时间窗无效")
 	}
-	if !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
-		return errors.New("Agent 本地策略未信任签发 Key")
-	}
-	trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
-	if !ok || strings.TrimSpace(trustedKey) == "" {
-		return errors.New("Agent 安装配置未固定本地策略签发 Key")
-	}
-	if err := verifyTrustMaterialSignature(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
-		return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+	if material.ProvisionedLocalPolicy != nil {
+		if err := validateProvisionedLocalPolicy(config, material.ProvisionedLocalPolicy, material.LocalPolicy); err != nil {
+			return err
+		}
+	} else {
+		if material.LocalPolicyAuthorityKeyID == "" || material.LocalPolicySignature == "" || !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
+			return errors.New("Agent 本地策略未信任签发 Key")
+		}
+		trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
+		if !ok || strings.TrimSpace(trustedKey) == "" {
+			return errors.New("Agent 安装配置未固定本地策略签发 Key")
+		}
+		if err := verifyTrustMaterialSignature(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
+			return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+		}
 	}
 	if !sameStringMap(material.CapabilityKeySet, config.AuthorizationTrustKeySet) ||
 		!sameStringMap(material.PolicyAuthorityKeySet, config.AuthorizationTrustKeySet) {
 		return errors.New("Agent 授权材料 KeySet 与安装信任根不匹配")
 	}
+	return nil
+}
+
+func validateProvisionedLocalPolicy(config *AgentConfig, incoming *signedAgentLocalPolicyMaterialWire, policy agentLocalPolicyWire) error {
+	if config == nil || incoming == nil || incoming.MaterialVersion != "gcac.policy-authority-provisioning/v1" || incoming.TenantID != config.TenantID || incoming.AgentID != policy.AgentID || incoming.LocalPolicy.AgentID != policy.AgentID || incoming.LocalPolicy.PolicyVersion != agentSecurityContract || incoming.AuthorityKeyID == "" || incoming.Signature == "" || incoming.LocalPolicy.Disabled || !containsString(incoming.LocalPolicy.AuthorityKeyIDs, incoming.AuthorityKeyID) {
+		return unavailableAgentAuthorizationMaterial("provisioned local policy binding is invalid")
+	}
+	if string(canonicalJSON(incoming.LocalPolicy)) != string(canonicalJSON(policy)) {
+		return unavailableAgentAuthorizationMaterial("provisioned local policy projection was modified")
+	}
+	unsigned := map[string]any{"materialVersion": incoming.MaterialVersion, "tenantId": incoming.TenantID, "agentId": incoming.AgentID, "localPolicy": localPolicyWithoutSignature(incoming.LocalPolicy), "authorityKeyId": incoming.AuthorityKeyID}
+	if err := verifyTrustMaterialSignature(incoming.AuthorityKeyID, incoming.Signature, unsigned, config.AuthorizationTrustKeySet); err != nil {
+		return unavailableAgentAuthorizationMaterial(fmt.Sprintf("provisioned local policy signature invalid: %v", err))
+	}
+	return nil
+}
+
+func persistProvisionedLocalPolicy(config *AgentConfig, agentID string, incoming *signedAgentLocalPolicyMaterialWire) error {
+	if incoming == nil {
+		return unavailableAgentAuthorizationMaterial("provisioned local policy is missing")
+	}
+	if err := validateProvisionedLocalPolicy(config, incoming, incoming.LocalPolicy); err != nil {
+		return err
+	}
+	current := currentAgentTrustMaterial()
+	if current == nil {
+		return unavailableAgentAuthorizationMaterial("existing Agent trust material is unavailable")
+	}
+	if current.ProvisionedLocalPolicy != nil && current.ProvisionedLocalPolicy.Signature == incoming.Signature {
+		return nil
+	}
+	updated := *current
+	updated.LocalPolicy = incoming.LocalPolicy
+	updated.ProvisionedLocalPolicy = incoming
+	updated.LocalPolicyAuthorityKeyID = incoming.AuthorityKeyID
+	updated.LocalPolicySignature = ""
+	if err := validateAgentTrustMaterial(config, agentID, &updated); err != nil {
+		return err
+	}
+	return writeAgentTrustMaterialAtomically(config, &updated)
+}
+
+func writeAgentTrustMaterialAtomically(config *AgentConfig, material *agentTrustMaterialWire) error {
+	path := resolveAgentTrustMaterialPath(config)
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	setAgentTrustMaterial(material)
 	return nil
 }
 
@@ -1369,7 +1446,8 @@ func effectiveHeartbeatSeconds(config *AgentConfig) int {
 
 func effectiveTaskPollSeconds(config *AgentConfig) int {
 	if config.TaskPollIntervalSeconds > 0 {
-		return config.TaskPollIntervalSeconds
+		// 兼容旧安装配置中的 60 秒轮询，避免写任务排队等待整轮扫描。
+		return minInt(config.TaskPollIntervalSeconds, defaultTaskPoll)
 	}
 	return defaultTaskPoll
 }

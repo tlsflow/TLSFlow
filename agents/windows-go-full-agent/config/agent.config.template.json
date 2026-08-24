@@ -5,7 +5,7 @@
   "zone": "default",
   "controlPlaneUrl": "https://gcac.example.invalid",
   "heartbeatIntervalSeconds": 10,
-  "taskPollIntervalSeconds": 60,
+  "taskPollIntervalSeconds": 5,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
   "managementListenAddress": "0.0.0.0",

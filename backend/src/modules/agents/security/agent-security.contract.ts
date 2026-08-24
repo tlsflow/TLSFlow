@@ -640,7 +640,7 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
   }
   if (operationType === 'certificate.iis.binding.update') {
     exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'pfxBase64', 'pfxPassword', 'expectedFingerprintSha256', 'artifactDigest', 'bindingKey', 'configFingerprint'], path);
-    identifier(input.siteName, `${path}.siteName`);
+    iisSiteName(input.siteName, `${path}.siteName`);
     nonEmptyString(input.bindingInformation, `${path}.bindingInformation`);
     exact(input.storeName, 'My', `${path}.storeName`);
     exact(input.storeLocation, 'LocalMachine', `${path}.storeLocation`);
@@ -654,7 +654,7 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
   }
   if (operationType === 'certificate.iis.binding.verify') {
     exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'expectedFingerprintSha256', 'artifactDigest', 'bindingKey', 'configFingerprint'], path);
-    identifier(input.siteName, `${path}.siteName`);
+    iisSiteName(input.siteName, `${path}.siteName`);
     nonEmptyString(input.bindingInformation, `${path}.bindingInformation`);
     exact(input.storeName, 'My', `${path}.storeName`);
     exact(input.storeLocation, 'LocalMachine', `${path}.storeLocation`);
@@ -665,7 +665,7 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
   }
   if (operationType === 'certificate.iis.binding.rollback') {
     exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'previousThumbprint', 'bindingKey', 'configFingerprint'], path);
-    identifier(input.siteName, `${path}.siteName`);
+    iisSiteName(input.siteName, `${path}.siteName`);
     nonEmptyString(input.bindingInformation, `${path}.bindingInformation`);
     exact(input.storeName, 'My', `${path}.storeName`);
     exact(input.storeLocation, 'LocalMachine', `${path}.storeLocation`);
@@ -741,6 +741,11 @@ function record(value: unknown, path: string): Record<string, unknown> { if (!va
 function exactKeys(value: Record<string, unknown>, allowed: string[], path: string): void { const unknown = Object.keys(value).filter((key) => !allowed.includes(key)); if (unknown.length > 0) fail(path, '包含未知字段', { unknown }); }
 function exact(value: unknown, expected: unknown, path: string): void { if (value !== expected) fail(path, '固定值不匹配', { expected }); }
 function identifier(value: unknown, path: string): string { const result = nonEmptyString(value, path); if (!/^[A-Za-z0-9._:-]{1,256}$/.test(result)) fail(path, '标识符格式不合法'); return result; }
+function iisSiteName(value: unknown, path: string): string {
+  const result = nonEmptyString(value, path);
+  if (result.length > 256 || /[\u0000-\u001f\u007f]/u.test(result)) fail(path, 'IIS 站点名称长度或控制字符不合法');
+  return result;
+}
 function canonicalPluginId(value: unknown, path: string): string {
   const result = identifier(value, path);
   if (!new RegExp(canonicalPluginIdPattern).test(result)) {

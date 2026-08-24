@@ -49,7 +49,7 @@ test('AgentExecutorAdapter 将完整 Agent v2 授权材料接线到 plan.execute
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
 });
 
-test('AgentExecutorAdapter 只向 Linux Full Agent 发送 provisioning 材料，Windows 保持原载荷', async () => {
+test('AgentExecutorAdapter 向 Linux 和 Windows Full Agent 发送 provisioning 材料，Gateway 不接收', async () => {
   const materials = v2Materials();
   const localPolicyMaterial = { materialVersion: 'gcac.policy-authority-provisioning/v1', agentId: materials.plan.agentId };
   let linuxPayload: Record<string, unknown> | undefined;
@@ -83,7 +83,7 @@ test('AgentExecutorAdapter 只向 Linux Full Agent 发送 provisioning 材料，
     ...v2RequestSnapshot(materials),
     actionType: 'agent.plan.execute',
   }));
-  assert.equal(windowsPayload?.localPolicyMaterial, undefined);
+  assert.deepEqual(windowsPayload?.localPolicyMaterial, localPolicyMaterial);
 });
 
 test('AgentExecutorAdapter 将根信任安装送入通用 Plan 合同且不要求证书部署输入', async () => {

@@ -79,15 +79,16 @@ export function resolveCertificateUpdateSnapshot(
   );
   if (frameworkType !== contract.frameworkType) fail('FRAMEWORK', '目标框架与插件不匹配或缺失');
   if (!site?.id || !target?.id || !target.key) fail('TARGET', '站点、目标或 TLS 绑定事实缺失');
-  const targetBindingKey = exactFact(
-    'tls.binding',
-    target.bindingKey,
-    target.metadata.bindingKey,
-    target.metadata['tls.binding'],
-  );
+  // Target.bindingKey 是 ManagedTarget 持久化的规范稳定标识；历史 metadata
+  // 中的 bindingKey/tls.binding 可能是旧版原生绑定值，不能拿两个不同语义的
+  // 字段互相比较。只有在规范字段缺失时，才在同一 metadata 域内做一致性校验。
+  const targetBindingKey = readString(target.bindingKey);
+  const metadataBindingKey = targetBindingKey
+    ? undefined
+    : exactFact('tls.binding', target.metadata.bindingKey, target.metadata['tls.binding']);
   // 历史 ManagedTarget 可能没有持久化 bindingKey，但关联 SiteAsset 仍保存了真实绑定信息。
   // Target 绑定事实优先；只有 Target 侧完全缺失时才回退到 SiteAsset，避免不同标识格式被误判为冲突。
-  const bindingKey = targetBindingKey ?? exactFact('tls.binding', site?.bindingInformation);
+  const bindingKey = targetBindingKey ?? metadataBindingKey ?? exactFact('tls.binding', site?.bindingInformation);
   if (!bindingKey) fail('BINDING', 'tls.binding 事实缺失');
   const siteName = exactFact('site', site?.name, target?.metadata.siteName, resolved.variables.siteName);
   const bindingInformation = exactFact(

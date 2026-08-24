@@ -155,6 +155,48 @@ func TestV2FailsClosedWithoutIndependentTrustRoots(t *testing.T) {
 	}
 }
 
+func TestProvisionedLocalPolicyIsAcceptedByTrustMaterialValidation(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedKey := base64.StdEncoding.EncodeToString(publicKey)
+	config := &AgentConfig{TenantID: "tenant-provisioned", AuthorizationTrustKeySet: map[string]string{"authority-key": encodedKey}}
+	now := time.Now().UTC()
+	policy := agentLocalPolicyWire{
+		PolicyVersion:   agentSecurityContract,
+		AgentID:         "agent-provisioned",
+		AuthorityKeyIDs: []string{"authority-key"},
+		AllowedActions:  []string{"certificate.store.install"},
+		PathRules:       []agentLocalPathRuleWire{},
+		ServiceRules:    []string{"W3SVC"},
+		CommandRules:    []any{},
+		UpdatedAt:       now.Format(time.RFC3339Nano),
+	}
+	incoming := &signedAgentLocalPolicyMaterialWire{
+		MaterialVersion: "gcac.policy-authority-provisioning/v1",
+		TenantID:        config.TenantID,
+		AgentID:         policy.AgentID,
+		LocalPolicy:     policy,
+		AuthorityKeyID:  "authority-key",
+	}
+	unsigned := map[string]any{"materialVersion": incoming.MaterialVersion, "tenantId": incoming.TenantID, "agentId": incoming.AgentID, "localPolicy": localPolicyWithoutSignature(policy), "authorityKeyId": incoming.AuthorityKeyID}
+	incoming.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, canonicalJSON(unsigned)))
+	material := &agentTrustMaterialWire{
+		MaterialVersion:           "gcac.agent-trust-material/v1",
+		IssuedAt:                  now.Add(-time.Minute).Format(time.RFC3339Nano),
+		ValidUntil:                now.Add(5 * time.Minute).Format(time.RFC3339Nano),
+		CapabilityKeySet:          map[string]string{"authority-key": encodedKey},
+		PolicyAuthorityKeySet:     map[string]string{"authority-key": encodedKey},
+		LocalPolicy:               policy,
+		ProvisionedLocalPolicy:    incoming,
+		LocalPolicyAuthorityKeyID: incoming.AuthorityKeyID,
+	}
+	if err := validateAgentTrustMaterial(config, policy.AgentID, material); err != nil {
+		t.Fatalf("签名 provisioning 本地策略应通过信任材料校验: %v", err)
+	}
+}
+
 func TestV2AllowsOnlyBoundedControlPlaneClockSkew(t *testing.T) {
 	now := time.Now().UTC()
 	if issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew), now) {

@@ -277,7 +277,7 @@ export class StandardDeviceDiscoveryProjector {
                certificate_version_id, target_certificate_version_id, local_certificate_version_id,
                observed_fingerprint_sha256, desired_fingerprint_sha256, target_fingerprint_sha256,
                cert_path, key_path, chain_path, keystore_path, keystore_type,
-               store_location, store_name, store_thumbprint, local_config_path, remote_endpoint_fingerprint,
+               store_location, store_name, store_thumbprint, local_config_path, local_config_fingerprint, remote_endpoint_fingerprint,
                discovery_source, verify_method, remote_status, checked_at, drift_status, status, metadata,
                created_at, updated_at, version
              ) values (
@@ -285,8 +285,8 @@ export class StandardDeviceDiscoveryProjector {
                $12::text,
                null,
                $12::text,
-               cast($13 as text),null,null,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-               $24,$25,$26,$27,$28,$29,$30::jsonb,$27,$27,1
+               cast($13 as text),null,null,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+               $25,$26,$27,$28,$29,$30,$31::jsonb,$28,$28,1
              )
              on conflict (id) do update set service_instance_id=excluded.service_instance_id,
                site_asset_id=excluded.site_asset_id, managed_target_id=excluded.managed_target_id,
@@ -298,7 +298,7 @@ export class StandardDeviceDiscoveryProjector {
                cert_path=excluded.cert_path, key_path=excluded.key_path, chain_path=excluded.chain_path,
                keystore_path=excluded.keystore_path, keystore_type=excluded.keystore_type,
                store_location=excluded.store_location, store_name=excluded.store_name, store_thumbprint=excluded.store_thumbprint,
-               local_config_path=excluded.local_config_path,
+               local_config_path=excluded.local_config_path, local_config_fingerprint=excluded.local_config_fingerprint,
                remote_endpoint_fingerprint=excluded.remote_endpoint_fingerprint, remote_status=excluded.remote_status,
                checked_at=excluded.checked_at, drift_status=excluded.drift_status,
                status=case when pg_certificate_bindings.status='MANAGED' then 'MANAGED' else 'DISCOVERED' end,
@@ -311,7 +311,7 @@ export class StandardDeviceDiscoveryProjector {
               deploymentTarget?.chainPath ?? null, deploymentTarget?.keystorePath ?? null,
               deploymentTarget?.keystoreType ?? null, deploymentTarget?.storeLocation ?? null,
               deploymentTarget?.storeName ?? null, deploymentTarget?.storeThumbprint ?? null,
-              deploymentTarget?.sourceConfigPath ?? null, observedFingerprint,
+              deploymentTarget?.sourceConfigPath ?? null, deploymentTarget?.configFingerprint ?? null, observedFingerprint,
               context.discoverySource ?? 'AGENT', 'AGENT_CONFIG', observedCertificate ? 'reachable' : 'unknown', discoveredAt,
               driftStatus, 'DISCOVERED', JSON.stringify(bindingMetadata)],
           );
@@ -471,6 +471,14 @@ function capabilityProfile(discovery: StandardDeviceDiscoveryV2) {
 function bindingInformation(site: StandardDeviceDiscoveryV2['sites'][number]) {
   const metadataBindingInformation = site.metadata?.bindingInformation;
   if (typeof metadataBindingInformation === 'string' && metadataBindingInformation.trim()) return metadataBindingInformation.trim();
+  const listeners = Array.isArray(site.metadata?.listeners) ? site.metadata.listeners : [];
+  const listenerBindingInformation = listeners
+    .map((listener) => listener && typeof listener === 'object' && !Array.isArray(listener)
+      ? (listener as Record<string, unknown>)
+      : undefined)
+    .filter((listener): listener is Record<string, unknown> => Boolean(listener))
+    .find((listener) => typeof listener.bindingInformation === 'string' && listener.bindingInformation.trim());
+  if (listenerBindingInformation) return (listenerBindingInformation.bindingInformation as string).trim();
   return [site.addresses[0] ?? '*', site.port ?? '', site.protocol ?? ''].join(':');
 }
 

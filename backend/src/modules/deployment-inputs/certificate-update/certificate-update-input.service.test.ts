@@ -83,10 +83,23 @@ test('Target 缺少 bindingKey 时使用 SiteAsset.bindingInformation 作为 tls
   assert.equal(snapshot.bindingKey, '*:8444:apache.test.local');
 });
 
-test('Target 侧存在冲突 bindingKey 时仍在输入门禁失败关闭', () => {
+test('Target.bindingKey 作为规范稳定标识时忽略历史 metadata 的异义 bindingKey', () => {
   const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
   resolved.assetContext.target!.bindingKey = 'target-binding';
   resolved.assetContext.target!.metadata.bindingKey = 'metadata-binding';
+
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('web.apache.windows'),
+  );
+  assert.equal(snapshot.bindingKey, 'target-binding');
+});
+
+test('Target 缺少规范 bindingKey 时 metadata 内部来源冲突仍失败关闭', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+  delete resolved.assetContext.target!.bindingKey;
+  resolved.assetContext.target!.metadata.bindingKey = 'metadata-binding';
+  resolved.assetContext.target!.metadata['tls.binding'] = 'legacy-binding';
 
   assert.throws(
     () => resolveCertificateUpdateSnapshot(

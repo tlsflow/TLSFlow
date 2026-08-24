@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
 import type { ResolvedManagedTargetTopology } from '../assets/application/managed-target-context.resolver.js';
+import type { CertificateBindingDto } from '../bindings/dto/bindings.dto.js';
 import { deploymentAssetContextBuilder } from './application/deployment-asset-context.builder.js';
 import { resolveCertificateUpdateSnapshot } from './certificate-update/certificate-update-input.service.js';
 import {
@@ -65,6 +66,7 @@ describe('DeploymentAssetContextBuilder', () => {
       frameworkType: 'web.apache',
     };
     topology.managedTarget.bindingKey = sourceTarget.bindingKey;
+    topology.siteAsset!.bindingInformation = sourceTarget.bindingKey;
     topology.managedTarget.metadata = { ...sourceTarget.metadata };
     delete topology.managedTarget.metadata.frameworkType;
     topology.managedTarget.metadata.certificateLocation = sourceTarget.certificateLocation;
@@ -238,6 +240,184 @@ describe('DeploymentAssetContextBuilder', () => {
     }
   });
 
+  it('从历史嵌套 IIS 位置的 listener 事实补齐服务名和配置指纹', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.iis';
+    topology.serviceInstance = {
+      ...topology.serviceInstance!,
+      frameworkType: 'web.iis',
+    };
+    topology.managedTarget.metadata = {
+      frameworkType: 'web.iis',
+      listener: {
+        bindingInformation: '*:443:iis.example.com',
+        serviceName: 'W3SVC',
+        programPath: 'C:/Windows/System32/inetsrv/appcmd.exe',
+        configFingerprint: 'c'.repeat(64),
+      },
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+        sourceConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
+    assert.equal(context.target?.certificateLocation?.programPath, 'C:/Windows/System32/inetsrv/appcmd.exe');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'c'.repeat(64));
+  });
+
+  it('从 Site metadata 补齐旧 IIS Target 的配置指纹并使用固定 IIS 服务默认值', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.iis';
+    topology.serviceInstance = {
+      ...topology.serviceInstance!,
+      frameworkType: 'web.iis',
+      rawFacts: {},
+    };
+    topology.siteAsset = {
+      ...topology.siteAsset!,
+      metadata: {
+        listeners: [{
+          protocol: 'HTTPS',
+          configFingerprint: 'd'.repeat(64),
+          sourceConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+        }],
+      },
+    };
+    topology.managedTarget.metadata = {
+      frameworkType: 'web.iis',
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+        sourceConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
+    assert.equal(context.target?.certificateLocation?.programPath, 'C:/Windows/System32/inetsrv/appcmd.exe');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'd'.repeat(64));
+  });
+
+  it('从历史 CertificateBinding 补齐 IIS 位置和本地配置指纹', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.iis';
+    topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
+    topology.managedTarget.metadata = {
+      frameworkType: 'web.iis',
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+        confidence: 'EXACT',
+      },
+    };
+    const binding = {
+      ...certificateBinding(),
+      localConfigPath: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+      localConfigFingerprint: 'e'.repeat(64),
+      metadata: {
+        deploymentTarget: {
+          serviceName: 'W3SVC',
+          programPath: 'C:/Windows/System32/inetsrv/appcmd.exe',
+        },
+      },
+    } as CertificateBindingDto;
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+      certificateBinding: binding,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
+    assert.equal(context.target?.certificateLocation?.programPath, 'C:/Windows/System32/inetsrv/appcmd.exe');
+    assert.equal(context.target?.certificateLocation?.sourceConfigPath, 'C:/Windows/System32/inetsrv/config/applicationHost.config');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'e'.repeat(64));
+  });
+
+  it('CertificateBinding 不能覆盖 Agent 已确认的 IIS 事实', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.iis';
+    topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
+    topology.managedTarget.metadata = {
+      frameworkType: 'web.iis',
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+        serviceName: 'AgentW3SVC',
+        sourceConfigPath: 'C:/agent/applicationHost.config',
+        configFingerprint: 'a'.repeat(64),
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+      certificateBinding: {
+        ...certificateBinding(),
+        localConfigPath: 'C:/history/applicationHost.config',
+        localConfigFingerprint: 'b'.repeat(64),
+        metadata: { certificateLocation: { serviceName: 'HistoricalW3SVC' } },
+      } as CertificateBindingDto,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'AgentW3SVC');
+    assert.equal(context.target?.certificateLocation?.sourceConfigPath, 'C:/agent/applicationHost.config');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'a'.repeat(64));
+  });
+
+  it('CertificateBinding 没有真实本地配置指纹时不伪造 configFingerprint', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.iis';
+    topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
+    topology.managedTarget.metadata = {
+      frameworkType: 'web.iis',
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+      certificateBinding: certificateBinding(),
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, undefined);
+  });
+
   it('无受管目标时生成可重放的应用资产部署目标', () => {
     const first = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });
     const second = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });
@@ -300,6 +480,22 @@ function applicationAsset() {
     port: 443,
     protocol: 'HTTPS' as const,
     displayName: '示例应用',
+  };
+}
+
+function certificateBinding(): CertificateBindingDto {
+  return {
+    id: 'binding-1',
+    tenantId: 'tenant-1',
+    serviceInstanceId: 'framework-1',
+    bindingKey: '*:443:app.example.com',
+    bindingType: 'WINDOWS_CERT_STORE',
+    verifyMethod: 'STORE_QUERY',
+    status: 'DISCOVERED',
+    metadata: {},
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+    version: 1,
   };
 }
 

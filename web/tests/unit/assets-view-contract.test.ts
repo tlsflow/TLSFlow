@@ -14,7 +14,11 @@ describe('应用资产卡片契约', () => {
     expect(source).toContain("'metadata.currentCertificate.commonName'")
   })
 
-  it('按 CertFlow 卡片布局提供多选和双栏证书事实区', () => {
+  it('按 CertFlow 卡片布局提供多选和三栏证书事实区', () => {
+    expect(source).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expect(source).toContain('padding: var(--gc-space-1);')
+    expect(source).toContain('v-auto-fit-card-fact-text')
+    expect(source).toContain("element.style.whiteSpace = 'nowrap'")
     expect(source).toContain('class="asset-page__card-certificate-remaining"')
     expect(source).toContain('class="asset-page__card-certificate-state"')
     expect(source).toContain("value === true")

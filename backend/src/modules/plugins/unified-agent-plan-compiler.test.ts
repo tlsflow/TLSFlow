@@ -5,7 +5,10 @@ import test from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
 import { computeAgentPlanDigest, NonceStoreV1, signPolicyPayload, type AgentLocalPolicyV1, type AgentPlanV1, type PolicyAuthorityKeySetV1 } from '../agents/security/agent-security.contract.js';
 import { InMemoryPolicyAuthorityRevocationStoreV1, PolicyAuthorityServiceV1, type PolicyAuthorityAuthorizationRequestV1, type PolicyAuthorityEvaluationV1, type PolicyAuthorityTrustRootV1, type SignedPolicyAuthorityKeySetV1 } from '../agents/security/policy-authority.service.js';
-import { UnifiedAgentPlanCompilerService } from './application/unified-agent-plan-compiler.service.js';
+import { compileCertificateUpdatePlanTemplate } from '../deployment-inputs/certificate-update/certificate-update-plan.service.js';
+import { resolveCertificateUpdateSnapshot } from '../deployment-inputs/certificate-update/certificate-update-input.service.js';
+import { createResolvedCertificateUpdateInput, loadCertificateUpdateContract, loadCertificateUpdateResource } from '../deployment-inputs/certificate-update/certificate-update.test-fixtures.js';
+import { collectPlanArtifactDigests, UnifiedAgentPlanCompilerService } from './application/unified-agent-plan-compiler.service.js';
 import type { UnifiedAgentPlanAuthorizationDependenciesV1 } from './application/unified-agent-plan-authorization.port.js';
 
 test('Agent v2 编译缺少完整授权请求时失败关闭', async () => {
@@ -189,10 +192,101 @@ test('调用方携带伪造或外部签发材料时直接失败关闭', async ()
   );
 });
 
+test('证书计划执行授权使用当前计划 Artifact 摘要，不沿用旧授权快照', () => {
+  const artifactDigest = 'c'.repeat(64);
+  const programDigest = 'd'.repeat(64);
+  const digests = collectPlanArtifactDigests({
+    operations: [
+      { operationType: 'certificate.iis.binding.update', input: { artifactDigest } },
+      { operationType: 'command.execute_allowlisted', input: { artifactDigest: programDigest, executableSha256: programDigest } },
+    ],
+  });
+  assert.deepEqual(digests, [artifactDigest, programDigest]);
+});
+
+test('IIS 脱敏计划执行时重新绑定当前 PFX 摘要并覆盖旧授权摘要', async () => {
+  const resolvedInput = createResolvedCertificateUpdateInput('web.iis');
+  const contract = loadCertificateUpdateContract('web.iis');
+  const snapshot = resolveCertificateUpdateSnapshot(resolvedInput, contract, {
+    pluginVersionId: 'plugin-version-iis',
+    resourceHash: `sha256:${'e'.repeat(64)}`,
+  });
+  const templateText = loadCertificateUpdateResource('web.iis', 'agent-plans/deploy.json');
+  const compiled = compileCertificateUpdatePlanTemplate({
+    templateText,
+    snapshot,
+    resolvedInput,
+    pluginVersionId: 'plugin-version-iis',
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  const sanitizedPlan = structuredClone(compiled.plan) as unknown as Record<string, unknown>;
+  const operations = sanitizedPlan.operations as Array<Record<string, unknown>>;
+  const updateInput = operations[0]?.input as Record<string, unknown>;
+  delete updateInput.pfxBase64;
+  delete updateInput.pfxPassword;
+
+  const actions = ['certificate.iis.binding.update', 'certificate.iis.binding.verify'];
+  const authority = createAuthority();
+  const compiler = new UnifiedAgentPlanCompilerService(iisPluginService(), createDependencies({
+    grants: { validate: async () => ({
+      id: 'grant-1', tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'AGENT',
+      allowedActions: actions, status: 'active', expiresAt: '2026-08-08T00:10:00.000Z',
+      createdAt: '2026-08-08T00:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z',
+      allowedSecretRefs: [], allowedArtifactRefs: [],
+    }) },
+    localPolicy: { resolve: async () => ({
+      policyVersion: 'gcac.agent-security/v1', agentId: 'agent-1', authorityKeyIds: ['authority-key-1'],
+      allowedActions: actions, pathRules: [], serviceRules: ['W3SVC'], commandRules: [], disabled: false,
+      updatedAt: '2026-08-08T00:00:00.000Z',
+    }) },
+    issueAuthorization: (request) => authority.issueAuthorization(request),
+  }));
+
+  const result = await compiler.compile({
+    tenantId: 'tenant-1', agentId: 'agent-1', executionRunId: 'run-1', executionStepId: 'step-1',
+    pluginVersionId: 'plugin-version-iis', pluginBindingId: 'binding-iis', resolvedInput,
+    v2Request: {
+      actionType: 'agent.plan.execute',
+      plan: sanitizedPlan,
+      authorization: {
+        ...compiled.authorization,
+        allowedPaths: ['C:/Windows/System32/inetsrv/config', 'C:/Windows/System32/inetsrv'],
+        artifactDigests: ['a'.repeat(64)],
+      },
+    },
+  });
+
+  assert.deepEqual(result.token.artifactDigests, [snapshot.artifactDigest]);
+  assert.deepEqual(result.token.allowedPaths, []);
+  assert.deepEqual(result.policyDecision.allowedPaths, []);
+  assert.equal(result.plan.operations[0]?.input.pfxBase64, 'cA==');
+  assert.equal(result.plan.operations[0]?.input.pfxPassword, 'password');
+});
+
 function pluginService() {
   return { getVersion: async () => ({
     id: 'plugin-version-1', tenantId: 'tenant-1', pluginId: 'web.nginx', version: '1.0.0', source: 'BUILTIN', runtime: 'WORKFLOW', scope: 'BOTH', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL',
     manifest: { pluginId: 'web.nginx' }, status: 'ENABLED',
+  }) } as never;
+}
+
+function iisPluginService() {
+  return { getVersion: async () => ({
+    id: 'plugin-version-iis', tenantId: 'tenant-1', pluginId: 'web.iis', version: '1.0.23', source: 'BUILTIN', runtime: 'WORKFLOW_DSL', scope: 'BOTH', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL',
+    manifest: {
+      pluginId: 'web.iis',
+      resources: {
+        inputContracts: { 'certificate.deploy': 'contracts/deploy.json' },
+        agentPlans: { 'certificate.deploy': 'agent-plans/deploy.json' },
+      },
+    },
+    resources: {
+      'contracts/deploy.json': loadCertificateUpdateResource('web.iis', 'contracts/deploy.json'),
+      'agent-plans/deploy.json': loadCertificateUpdateResource('web.iis', 'agent-plans/deploy.json'),
+    },
+    resourceSha256: {},
+    status: 'ENABLED',
   }) } as never;
 }
 

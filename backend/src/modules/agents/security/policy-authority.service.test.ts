@@ -103,6 +103,113 @@ test('首次 provisioning 自动绑定 PA Key，不要求调用方预先填写�
   assert.equal(JSON.stringify(result.localPolicyMaterial.localPolicy).includes(context.request.artifactDigests[0]), false);
 });
 
+test('生产 provisioning 接受 IIS 绑定、回滚和本机 TLS 验证动作', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const artifactDigest = 'a'.repeat(64);
+  const fingerprint = 'b'.repeat(64);
+  const configFingerprint = 'c'.repeat(64);
+  const basePlan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  const operations = [
+    {
+      ...basePlan.operations[0]!,
+      operationId: 'iis-update',
+      operationType: 'certificate.iis.binding.update' as const,
+      stage: 'execute' as const,
+      input: {
+        siteName: 'Default Web Site',
+        bindingInformation: '*:443:iis.example.test',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        pfxBase64: 'AA==',
+        pfxPassword: 'password',
+        expectedFingerprintSha256: fingerprint,
+        artifactDigest,
+        bindingKey: 'iis.example.test:443',
+        configFingerprint,
+      },
+    },
+    {
+      ...basePlan.operations[0]!,
+      operationId: 'iis-verify',
+      operationType: 'certificate.iis.binding.verify' as const,
+      stage: 'verify' as const,
+      input: {
+        siteName: 'Default Web Site',
+        bindingInformation: '*:443:iis.example.test',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        expectedFingerprintSha256: fingerprint,
+        artifactDigest,
+        bindingKey: 'iis.example.test:443',
+        configFingerprint,
+      },
+    },
+    {
+      ...basePlan.operations[0]!,
+      operationId: 'iis-tls-verify',
+      operationType: 'certificate.tls.verify' as const,
+      stage: 'verify' as const,
+      input: {
+        connectHost: '127.0.0.1',
+        serverName: 'iis.example.test',
+        port: 443,
+        expectedFingerprintSha256: fingerprint,
+        bindingId: 'binding-iis',
+        bindingKey: 'iis.example.test:443',
+        checkedAt: '2026-08-08T00:00:00.000Z',
+      },
+    },
+    {
+      ...basePlan.operations[0]!,
+      operationId: 'iis-rollback',
+      operationType: 'certificate.iis.binding.rollback' as const,
+      stage: 'compensate' as const,
+      input: {
+        siteName: 'Default Web Site',
+        bindingInformation: '*:443:iis.example.test',
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        previousThumbprint: 'A'.repeat(40),
+        bindingKey: 'iis.example.test:443',
+        configFingerprint,
+      },
+    },
+  ];
+  const plan = {
+    ...basePlan,
+    planId: 'iis-certificate-plan',
+    pluginId: 'web.iis',
+    capability: 'certificate.deploy',
+    operations,
+    writeEffect: true,
+    planDigest: '',
+  } as AgentPlanV1;
+  plan.planDigest = computeAgentPlanDigest(plan);
+  const actions = operations.map((operation) => operation.operationType);
+  assert.doesNotThrow(() => service.provisionAgentPlan({
+    ...context.request,
+    pluginId: 'web.iis',
+    capability: 'certificate.deploy',
+    policyRef: 'certificate-update-policy',
+    policyVersion: 'v1',
+    actions,
+    allowedPaths: [],
+    allowedServices: ['W3SVC'],
+    artifactDigests: [artifactDigest],
+    planDigest: plan.planDigest,
+    commandRules: [],
+    currentLocalPolicy: {
+      ...context.localPolicy,
+      allowedActions: actions,
+      pathRules: [],
+      serviceRules: ['W3SVC'],
+      commandRules: [],
+    },
+    compiledPlan: plan,
+  }));
+});
+
 test('provisioning 存在时错误 Plan 摘要不得回退到旧策略评估器', () => {
   const context = createContext();
   const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });

@@ -60,20 +60,67 @@ export class PlatformStageExecutor implements Executor {
         errorMessage: `Unsupported platform lifecycle stage: ${stage}`,
       };
     }
+    const detail: Record<string, unknown> = {
+      mode: 'platform_certificate_lifecycle',
+      stage,
+      dryRun: input.dryRun,
+      operation: stage === 'DISCOVER'
+        ? 'prepare_certificate_update'
+        : stage === 'BACKUP'
+          ? 'prepare_recovery_checkpoint'
+          : 'confirm_service_reload',
+    };
+    if (stage === 'BACKUP' && isIisBindingPlan(input.step.inputSnapshot)) {
+      const certificateFingerprintSha256 = readPreviousCertificateFingerprint(input.step.inputSnapshot);
+      if (!certificateFingerprintSha256) {
+        return {
+          success: false,
+          errorCode: 'CERTIFICATE_BACKUP_FINGERPRINT_MISSING',
+          errorMessage: 'IIS 绑定备份缺少当前证书指纹，拒绝在无法回滚的情况下继续',
+          detail: { ...detail, mode: 'fingerprint_only', checkpointStatus: 'missing_fingerprint' },
+        };
+      }
+      detail.mode = 'fingerprint_only';
+      detail.backupManifest = {
+        mode: 'fingerprint_only',
+        certBackup: { certificateFingerprintSha256 },
+      };
+      detail.checkpoint = {
+        mode: 'fingerprint_only',
+        certificateFingerprintSha256,
+      };
+    }
     return {
       success: true,
-      detail: {
-        mode: 'platform_certificate_lifecycle',
-        stage,
-        dryRun: input.dryRun,
-        operation: stage === 'DISCOVER'
-          ? 'prepare_certificate_update'
-          : stage === 'BACKUP'
-            ? 'prepare_recovery_checkpoint'
-            : 'confirm_service_reload',
-      },
+      detail,
     };
   }
+}
+
+function isIisBindingPlan(snapshot: Record<string, unknown>): boolean {
+  const plan = readRecord(snapshot.plan);
+  const operations = Array.isArray(plan?.operations) ? plan.operations : [];
+  return operations.some((operation) => {
+    const operationType = stringFromSnapshot(readRecord(operation)?.operationType);
+    return operationType === 'certificate.iis.binding.update' || operationType === 'certificate.iis.binding.rollback';
+  });
+}
+
+function readPreviousCertificateFingerprint(snapshot: Record<string, unknown>): string | undefined {
+  const updateSnapshot = readRecord(snapshot.certificateUpdateSnapshot);
+  const target = readRecord(readRecord(readRecord(snapshot.resolvedDeploymentInput)?.assetContext)?.target);
+  const metadata = readRecord(target?.metadata);
+  const listener = readRecord(metadata?.listener);
+  const currentCertificate = readRecord(metadata?.currentCertificate);
+  const configuredCertificate = readRecord(metadata?.configuredCertificate);
+  return [
+    updateSnapshot?.previousFingerprintSha256,
+    metadata?.previousFingerprintSha256,
+    metadata?.certificateFingerprintSha256,
+    listener?.certificateFingerprintSha256,
+    currentCertificate?.fingerprintSha256,
+    configuredCertificate?.fingerprintSha256,
+  ].find((value): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value.trim()))?.trim().toLowerCase();
 }
 
 export class MockExecutor implements Executor {
@@ -392,14 +439,15 @@ function buildAgentV2ControlPayload(
   };
 }
 
-/** 只有 Linux Go Full Agent 的新协议接收 Plan provisioning 材料；Windows 保持既有成功载荷。 */
+/** Full Agent 都接收签名的 Plan provisioning 材料；Gateway 不进入任务队列。 */
 async function shouldDeliverProvisionedLocalPolicy(
   agents: AgentsApplicationService,
   tenantId: string,
   agentId: string,
 ): Promise<boolean> {
   const platform = await agents.getAgentExecutionPlatform(tenantId, agentId);
-  return platform.osType.trim().toLowerCase() === 'linux' && platform.role !== 'gateway';
+  const osType = platform.osType.trim().toLowerCase();
+  return (osType === 'linux' || osType === 'windows') && platform.role !== 'gateway';
 }
 
 type AgentPlanAuthorizationInput = NonNullable<NonNullable<Parameters<UnifiedAgentPlanCompilerService['compile']>[0]['v2Request']>['authorization']>;

@@ -213,7 +213,7 @@ try {
         Assert-True ($null -ne $health.Json) "health 响应不是 JSON"
         Assert-True ([bool]$health.Json.success) "health success 不为 true"
         Assert-Equal $health.Json.status "healthy" "health 状态错误"
-        Assert-Equal $health.Json.agentVersion "0.2.0" "health Agent 版本错误"
+        Assert-Equal $health.Json.agentVersion "0.2.1" "health Agent 版本错误"
     })
 
     $controlPlaneDeadline = (Get-Date).AddSeconds(15)

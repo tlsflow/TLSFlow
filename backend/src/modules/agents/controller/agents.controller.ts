@@ -1513,7 +1513,7 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  zone = [string]$manifest.zone',
     '  controlPlaneUrl = [string]$manifest.controlPlaneUrl',
     '  heartbeatIntervalSeconds = 10',
-    '  taskPollIntervalSeconds = 60',
+    '  taskPollIntervalSeconds = 5',
     '  healthCheckIntervalSeconds = 30',
     '  offlineTimeoutSeconds = 180',
     '  managementListenAddress = "0.0.0.0"',

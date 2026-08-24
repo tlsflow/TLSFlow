@@ -46,7 +46,10 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       );
     }
     const configCheck = result.plan.operations.find((operation) => operation.operationType === 'command.execute_allowlisted');
-    if (pluginId === 'web.iis') continue;
+    if (pluginId === 'web.iis') {
+      assert.deepEqual(result.authorization.allowedPaths, []);
+      continue;
+    }
     assert.equal(configCheck?.input.executablePath, snapshot.programPath);
     assert.equal(configCheck?.input.executableSha256, snapshot.programSha256);
     assert.deepEqual(configCheck?.input.args, snapshot.configCheckArgs);
@@ -215,6 +218,26 @@ test('生成的证书 Agent Plan 满足现有 Agent v2 输入白名单', () => {
     resourceHash: snapshot.resourceHash,
   });
 
+  assert.doesNotThrow(() => validateAgentPlan(result.plan));
+});
+
+test('IIS 原生绑定格式和带空格站点名不会污染 Agent bindingKey 合同', () => {
+  const snapshot = createCertificateUpdateSnapshot('web.iis');
+  snapshot.targetId = '*:443:iis.example.test';
+  snapshot.bindingKey = '*:443:iis.example.test';
+  snapshot.siteName = 'Default Web Site';
+  const result = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource('web.iis', 'agent-plans/deploy.json'),
+    snapshot,
+    pluginVersionId: 'web-iis-version-1',
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  const iisOperations = result.plan.operations.filter((operation) => operation.operationType.startsWith('certificate.iis.binding.'));
+  assert.ok(iisOperations.length > 0);
+  assert.ok(iisOperations.every((operation) => String(operation.input.bindingKey).startsWith('iis-binding-')));
+  assert.ok(iisOperations.every((operation) => /^[A-Za-z0-9._:-]{1,256}$/.test(String(operation.input.bindingKey))));
+  assert.ok(iisOperations.every((operation) => operation.input.siteName === 'Default Web Site'));
   assert.doesNotThrow(() => validateAgentPlan(result.plan));
 });
 

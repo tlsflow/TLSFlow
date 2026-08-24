@@ -152,20 +152,21 @@ type agentPlanV2 = AgentPlanV1
 type agentPlanAction = AgentPlanOperationV1
 
 type agentV2Request struct {
-	Action          string                    `json:"action"`
-	RequestID       string                    `json:"requestId"`
-	AgentID         string                    `json:"agentId"`
-	TenantID        string                    `json:"tenantId"`
-	PluginID        string                    `json:"pluginId"`
-	PluginVersion   string                    `json:"pluginVersion"`
-	Capability      string                    `json:"capability"`
-	Actions         []string                  `json:"actions"`
-	Paths           []string                  `json:"paths"`
-	Services        []string                  `json:"services"`
-	ArtifactDigests []string                  `json:"artifactDigests"`
-	PlanDigest      string                    `json:"planDigest"`
-	Token           AgentCapabilityTokenV1    `json:"token"`
-	PolicyDecision  PolicyAuthorityDecisionV1 `json:"policyDecision"`
+	Action              string                              `json:"action"`
+	RequestID           string                              `json:"requestId"`
+	AgentID             string                              `json:"agentId"`
+	TenantID            string                              `json:"tenantId"`
+	PluginID            string                              `json:"pluginId"`
+	PluginVersion       string                              `json:"pluginVersion"`
+	Capability          string                              `json:"capability"`
+	Actions             []string                            `json:"actions"`
+	Paths               []string                            `json:"paths"`
+	Services            []string                            `json:"services"`
+	ArtifactDigests     []string                            `json:"artifactDigests"`
+	PlanDigest          string                              `json:"planDigest"`
+	Token               AgentCapabilityTokenV1              `json:"token"`
+	PolicyDecision      PolicyAuthorityDecisionV1           `json:"policyDecision"`
+	LocalPolicyMaterial *signedAgentLocalPolicyMaterialWire `json:"localPolicyMaterial,omitempty"`
 	// DiscoverySpec 是旧控制面请求携带的兼容字段。Windows 运行态扫描器不会读取它，
 	// 也不会因为它缺失或内容变化拒绝完整发现。
 	DiscoverySpec       json.RawMessage          `json:"discoverySpec,omitempty"`
@@ -184,6 +185,11 @@ func executeAgentV2(ctx context.Context, request map[string]any, agentID string,
 	var envelope agentV2Request
 	if err := decodeAgentV2Request(encoded, &envelope); err != nil {
 		return false, "AGENT_V2_MESSAGE_INVALID", err.Error(), nil
+	}
+	if incoming := envelope.LocalPolicyMaterial; incoming != nil {
+		if err := persistProvisionedLocalPolicy(firstAgentConfig(configs), agentID, incoming); err != nil {
+			return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), nil
+		}
 	}
 	if err := validateAgentV2Request(envelope, agentID); err != nil {
 		if envelope.Action == agentPlanExecute && errors.Is(err, errAgentAuthorizationMaterialUnavailable) {

@@ -197,7 +197,9 @@ test('标准发现重建稳定键后会释放旧的非托管证书绑定唯一�
     id: string;
     deleted_at: string | null;
     discovery_status: string | null;
+    local_config_fingerprint: string | null;
   }>(`select id, deleted_at, metadata->>'discoveryStatus' as discovery_status
+             , local_config_fingerprint
       from pg_certificate_bindings
       where tenant_id=$1
       order by created_at`, [context.tenantId])).rows;
@@ -205,7 +207,15 @@ test('标准发现重建稳定键后会释放旧的非托管证书绑定唯一�
   assert.ok(rows[0]?.deleted_at, '旧的非托管发现绑定必须释放唯一索引占位');
   assert.equal(rows[0]?.discovery_status, 'STALE');
   assert.equal(rows[1]?.deleted_at, null);
+  assert.equal(rows[1]?.local_config_fingerprint, 'C'.repeat(64));
   assert.equal(rows[1]?.discovery_status, 'ACTIVE');
+  const site = (await db.query<{ binding_information: string | null }>(
+    `select binding_information
+       from pg_site_assets
+      where tenant_id=$1 and status='ACTIVE'`,
+    [context.tenantId],
+  )).rows[0];
+  assert.equal(site?.binding_information, '*:443:rds.example.test');
   const target = (await db.query<{ certificate_location: Record<string, unknown> }>(
     `select metadata->'certificateLocation' as certificate_location
        from pg_managed_targets
@@ -231,7 +241,7 @@ function windowsStoreDiscovery(siteStableKey: string, targetStableKey: string, b
       addresses: ['rds.example.test'],
       port: 443,
       protocol: 'HTTPS',
-      metadata: { listeners: [{ protocol: 'HTTPS', host: 'rds.example.test', port: 443 }] },
+      metadata: { listeners: [{ protocol: 'HTTPS', bindingInformation: '*:443:rds.example.test', host: 'rds.example.test', port: 443 }] },
     }],
     managedTargets: [{
       stableKey: targetStableKey,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
-import { ExecutorRegistry, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import { ExecutorRegistry, PlatformStageExecutor, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
 import { ExecutionGrantService } from './execution-grant.service.js';
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
@@ -18,6 +18,31 @@ class TrackingExecutor implements Executor {
     return { success: true };
   }
 }
+
+test('IIS BACKUP 只记录当前证书指纹，不执行实际备份操作', async () => {
+  const fingerprint = 'a'.repeat(64);
+  const result = await new PlatformStageExecutor().executeStep({
+    step: {
+      stepType: 'BACKUP',
+      inputSnapshot: {
+        plan: {
+          operations: [{ operationType: 'certificate.iis.binding.update' }],
+        },
+        certificateUpdateSnapshot: { previousFingerprintSha256: fingerprint },
+      },
+    } as any,
+    runType: 'apply',
+    dryRun: false,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.detail?.mode, 'fingerprint_only');
+  assert.deepEqual(result.detail?.backupManifest, {
+    mode: 'fingerprint_only',
+    certBackup: { certificateFingerprintSha256: fingerprint },
+  });
+  assert.equal(result.detail?.backupManifestPath, undefined);
+});
 
 test('Apply 与 Dry-run 共用五阶段和一秒间隔，Agent v2 执行器覆盖备份、更新与重载阶段', async () => {
   for (const type of ['apply', 'dry_run'] as const) {
@@ -131,6 +156,11 @@ test('Apply 在目标宿主缺少根信任时先插入独立根信任阶段', as
   assert.deepEqual(steps.map((step) => step.stepType), ['CUSTOM', 'DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
   assert.equal(steps[0]?.inputSnapshot.actionType, 'agent.plan.execute');
   assert.equal(steps[0]?.inputSnapshot.plan?.operations?.[0]?.operationType, 'certificate.store.install');
+  assert.deepEqual(steps[0]?.inputSnapshot.executionAuthorization?.actions, ['certificate.store.install']);
+  assert.deepEqual(steps[0]?.inputSnapshot.executionAuthorization?.allowedPaths, []);
+  assert.deepEqual(steps[0]?.inputSnapshot.executionAuthorization?.allowedServices, []);
+  assert.deepEqual(steps[0]?.inputSnapshot.executionAuthorization?.artifactDigests, []);
+  assert.deepEqual(steps[0]?.inputSnapshot.executionAuthorization?.commandRules, []);
   assert.equal(steps[0]?.name, 'TRUST_INSTALL target_trust_stage');
   assert.deepEqual(agentExecutor.calls, ['CUSTOM', 'BACKUP', 'INSTALL', 'RELOAD']);
   assert.deepEqual(verifyExecutor.calls, ['VERIFY']);

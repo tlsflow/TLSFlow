@@ -45,12 +45,49 @@ test('只有明确使用 Windows 证书库的目标进入根信任，普通无�
   }), true);
 });
 
-test('证书更新快照缺少受支持的 Artifact 类型时拒绝继续部署', () => {
+test('证书更新快照缺少 Artifact 类型且没有统一存储事实时拒绝继续部署', () => {
   assert.throws(
     () => shouldBuildCertificateTrustPlan({ certificateUpdateSnapshot: {} }),
     (error: unknown) => error instanceof Error
       && error.message.includes('证书更新快照缺少受支持的 Artifact 类型'),
   );
+});
+
+test('旧版 IIS 快照缺少 Artifact 类型时从明确的 Windows 证书库事实兼容恢复', () => {
+  const windowsCertificateStoreInput = {
+    resolvedDeploymentInput: {
+      assetContext: {
+        target: { certificateLocation: { storageKind: 'WINDOWS_CERTIFICATE_STORE' } },
+      },
+    },
+  };
+  assert.equal(shouldBuildCertificateTrustPlan({
+    certificateUpdateSnapshot: {},
+  }, windowsCertificateStoreInput.resolvedDeploymentInput), true);
+  assert.equal(shouldBuildCertificateTrustPlan({
+    certificateUpdateSnapshot: { artifactKind: 'WINDOWS_CERTIFICATE_STORE' },
+  }, windowsCertificateStoreInput.resolvedDeploymentInput), true);
+  assert.equal(shouldBuildCertificateTrustPlan({
+    certificateUpdateSnapshot: { artifactKind: 'WINDOWS_CERTIFICATE_STORE' },
+  }, {
+    assetContext: {
+      target: { certificateLocation: { storageKind: 'PEM_FILES' } },
+    },
+  }), false);
+  assert.throws(
+    () => shouldBuildCertificateTrustPlan({
+      certificateUpdateSnapshot: { artifactKind: 'PFX' },
+    }, windowsCertificateStoreInput.resolvedDeploymentInput),
+    (error: unknown) => error instanceof Error
+      && error.message.includes('证书更新快照缺少受支持的 Artifact 类型'),
+  );
+  assert.equal(shouldBuildCertificateTrustPlan({
+    certificateUpdateSnapshot: {},
+  }, {
+    assetContext: {
+      target: { certificateLocation: { storageKind: 'PEM_FILES' } },
+    },
+  }), false);
 });
 
 test('WORKFLOW_DSL 的 Agent Plan 资源也必须识别为 Agent Plan', () => {

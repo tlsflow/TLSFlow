@@ -4,6 +4,7 @@ import { dirname, isAbsolute } from 'node:path';
 
 import { AppError } from '../../../common/errors/app-error.js';
 import {
+  allowedAgentOperationTypes,
   agentSecurityContractVersion,
   authorizeAgentPlan,
   canonicalPluginIdPattern,
@@ -1612,11 +1613,9 @@ function isPathWithin(value: string, prefixes: readonly string[]): boolean {
     return normalized === root || normalized.startsWith(`${root}/`);
   });
 }
-const allowedPolicyActions = new Set([
-  'process.list', 'service.list', 'service.status', 'filesystem.stat', 'filesystem.read', 'filesystem.backup',
-  'filesystem.atomic_replace', 'filesystem.restore', 'certificate.material.validate', 'certificate.store.inspect', 'certificate.store.install',
-  'service.start', 'service.stop', 'service.restart', 'service.reload', 'command.execute_allowlisted',
-]);
+// Policy Authority 与 Agent 合同共用同一份动作集合，避免新增 Agent 原语后
+// 只更新一侧、在 provisioning 阶段被错误拒绝。
+const allowedPolicyActions: ReadonlySet<string> = new Set(allowedAgentOperationTypes);
 function isSafeIdentifier(value: string): boolean {
   return /^[A-Za-z0-9._:-]{1,256}$/.test(value) && !isDevelopmentIdentifier(value);
 }

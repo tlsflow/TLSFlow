@@ -29,7 +29,7 @@ import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plu
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
-import { bindCertificateUpdatePlanArtifacts } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
+import { bindCertificateUpdatePlanArtifacts, compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
 
 export interface AgentV2PlanExecutionEnvelopeV1 {
   actionType: 'agent.plan.validate' | 'agent.plan.execute';
@@ -106,20 +106,21 @@ export class UnifiedAgentPlanCompilerService {
       failClosed(input, '禁止从调用方接收已签发 Token 或 Decision，必须由生产 Policy Authority 接线');
     }
 
+    let plugin: Awaited<ReturnType<UnifiedPluginsApplicationService['getVersion']>> | undefined;
     let plan: AgentPlanV1;
     try {
       plan = validateAgentPlan(request.plan);
     } catch (error) {
-      failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
+      if (!looksLikeSanitizedCertificatePlan(request.plan)) {
+        failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
+      }
+      plugin = await this.getAccessiblePlugin(input);
+      plan = this.rebuildSanitizedCertificatePlan(input, request.plan, plugin, error)
+        ?? failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
     }
 
     if (!plan) failClosed(input, 'Agent v2 Plan 草案缺失');
-    const plugin = await this.plugins.getVersion(input.pluginVersionId);
-    if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED') {
-      throw new AppError('PLUGIN_PERMISSION_DENIED', '固定 PluginVersion 未启用或当前租户不可访问', {
-        pluginVersionId: input.pluginVersionId,
-      });
-    }
+    plugin ??= await this.getAccessiblePlugin(input);
     if (plugin.manifest.pluginId !== plan.pluginId) {
       throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent v2 Plan 与 PluginVersion 身份不一致', {
         pluginId: plan.pluginId,
@@ -156,6 +157,18 @@ export class UnifiedAgentPlanCompilerService {
       }
     }
     const authorization = readAuthorizationRequest(request.authorization, input);
+    if (input.purpose !== 'certificate_trust' && certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+      // 执行时可能从 LATEST_AUTO/密封运行快照重建了新的证书 Artifact，
+      // 不能继续沿用创建计划时的旧 artifactDigests。摘要必须从当前已验证
+      // 的 Plan 重新投影，随后仍由 Policy Authority 对这组范围做最终授权。
+      authorization.artifactDigests = collectPlanArtifactDigests(plan);
+      if (plan.pluginId === 'web.iis') {
+        // IIS 原子操作不携带文件路径；旧执行快照可能仍保存发现阶段的
+        // applicationHost.config/appcmd/工作目录，不能把这些事实继续当成本次
+        // Agent 本地路径授权。
+        authorization.allowedPaths = [];
+      }
+    }
     // commandRules 的唯一事实来源是已验证的 Plan 操作。旧执行快照可能没有该字段，
     // 或仍保留旧版参数模板；继续沿用它会让 PA 在 provisioning 阶段正确拒绝当前命令。
     // 从 Plan 重新投影只会覆盖实际存在的 command.execute_allowlisted 操作，不会扩大权限。
@@ -182,6 +195,80 @@ export class UnifiedAgentPlanCompilerService {
       if (this.authorizationCache.get(cacheKey) === pending) this.authorizationCache.delete(cacheKey);
       throw error;
     }
+  }
+
+  private async getAccessiblePlugin(input: {
+    tenantId: string;
+    pluginVersionId: string;
+  }): Promise<Awaited<ReturnType<UnifiedPluginsApplicationService['getVersion']>>> {
+    const plugin = await this.plugins.getVersion(input.pluginVersionId);
+    if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED') {
+      throw new AppError('PLUGIN_PERMISSION_DENIED', '固定 PluginVersion 未启用或当前租户不可访问', {
+        pluginVersionId: input.pluginVersionId,
+      });
+    }
+    return plugin;
+  }
+
+  /**
+   * 执行步骤持久化时会移除 PFX 密文和密码。执行前必须从密封部署输入与
+   * 固定插件模板重建完整计划，并重新计算摘要；不能把敏感字段写回快照，
+   * 也不能放宽 Agent v2 的原始计划校验。
+   */
+  private rebuildSanitizedCertificatePlan(
+    input: {
+      tenantId: string;
+      agentId: string;
+      pluginVersionId: string;
+      pluginBindingId: string;
+      resolvedInput?: ResolvedDeploymentInputV1;
+      purpose?: 'deployment' | 'certificate_trust';
+    },
+    rawPlan: unknown,
+    plugin: Awaited<ReturnType<UnifiedPluginsApplicationService['getVersion']>>,
+    cause: unknown,
+  ): AgentPlanV1 | undefined {
+    if (input.purpose === 'certificate_trust' || !input.resolvedInput) return undefined;
+    const candidate = readRecord(rawPlan);
+    const pluginId = readStringValue(candidate?.pluginId);
+    const capability = readStringValue(candidate?.capability);
+    const operations = Array.isArray(candidate?.operations) ? candidate.operations : [];
+    if (!pluginId || !capability || !certificateUpdatePluginIds.includes(pluginId as never)
+      || plugin.manifest.pluginId !== pluginId
+      || !['certificate.deploy', 'certificate.rollback', 'certificate.verify'].includes(capability)
+      || !operations.some((operation) => {
+        const operationType = readStringValue(readRecord(operation)?.operationType);
+        return operationType?.startsWith('certificate.') === true;
+      })) return undefined;
+
+    const contractPath = plugin.manifest.resources.inputContracts?.[capability];
+    const templatePath = plugin.manifest.resources.agentPlans?.[capability];
+    const contractText = contractPath ? plugin.resources[contractPath] : undefined;
+    const templateText = templatePath ? plugin.resources[templatePath] : undefined;
+    if (!contractText || !templateText) {
+      failClosed(input, '证书更新插件缺少固定输入合同或 Agent Plan 模板', cause);
+    }
+    let rawContract: unknown;
+    try {
+      rawContract = JSON.parse(contractText);
+    } catch (error) {
+      failClosed(input, '证书更新输入合同 JSON 无效', error);
+    }
+    const contract = validateCertificateUpdateInputContract(rawContract);
+    const snapshot = resolveCertificateUpdateSnapshot(input.resolvedInput, contract, {
+      pluginVersionId: input.pluginVersionId,
+      resourceHash: canonicalResourceHash(plugin.resourceSha256),
+    });
+    const compiled = compileCertificateUpdatePlanTemplate({
+      templateText,
+      snapshot,
+      resolvedInput: input.resolvedInput,
+      pluginVersionId: input.pluginVersionId,
+      agentId: input.agentId,
+      tenantId: input.tenantId,
+      resourceHash: canonicalResourceHash(plugin.resourceSha256),
+    });
+    return validateAgentPlan(compiled.plan);
   }
 
   private async issueAndBind(
@@ -327,6 +414,27 @@ export class UnifiedAgentPlanCompilerService {
       failClosed(input, 'Agent v2 生产授权签发或绑定失败', error);
     }
   }
+}
+
+export function collectPlanArtifactDigests(plan: { operations: ReadonlyArray<{ operationType: string; input: Record<string, unknown> }> }): string[] {
+  return [...new Set(plan.operations.flatMap((operation) => {
+    const values: string[] = [];
+    if (typeof operation.input.artifactDigest === 'string') values.push(operation.input.artifactDigest);
+    if (operation.operationType === 'command.execute_allowlisted' && typeof operation.input.executableSha256 === 'string') {
+      values.push(operation.input.executableSha256);
+    }
+    return values;
+  }))];
+}
+
+function looksLikeSanitizedCertificatePlan(value: unknown): boolean {
+  const candidate = readRecord(value);
+  const pluginId = readStringValue(candidate?.pluginId);
+  const capability = readStringValue(candidate?.capability);
+  const operations = Array.isArray(candidate?.operations) ? candidate.operations : [];
+  return Boolean(pluginId && certificateUpdatePluginIds.includes(pluginId as never)
+    && capability && ['certificate.deploy', 'certificate.rollback', 'certificate.verify'].includes(capability)
+    && operations.some((operation) => readStringValue(readRecord(operation)?.operationType)?.startsWith('certificate.') === true));
 }
 
 function localPolicyCoversAuthorization(
@@ -479,7 +587,13 @@ function assertDraftBindings(
     const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
     if (serviceName && !request.allowedServices.includes(serviceName)) failClosed(input, '授权 allowedServices 未覆盖计划服务');
     const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;
-    if (artifactDigest && !request.artifactDigests.includes(artifactDigest)) failClosed(input, '授权 artifactDigests 未覆盖计划 Artifact');
+    if (artifactDigest && !request.artifactDigests.includes(artifactDigest)) {
+      throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '授权 artifactDigests 未覆盖计划 Artifact', {
+        field: 'artifactDigests',
+        planArtifactDigest: artifactDigest,
+        authorizedArtifactDigests: [...request.artifactDigests],
+      });
+    }
     if (operation.operationType === 'command.execute_allowlisted') {
       const executablePath = typeof operation.input.executablePath === 'string' ? operation.input.executablePath : undefined;
       const workingDirectory = typeof operation.input.workingDirectory === 'string' ? operation.input.workingDirectory : undefined;
@@ -491,7 +605,11 @@ function assertDraftBindings(
         failClosed(input, '授权 allowedPaths 未覆盖配置检查工作目录');
       }
       if (!executableSha256 || !request.artifactDigests.includes(executableSha256)) {
-        failClosed(input, '授权 artifactDigests 未覆盖配置检查程序摘要');
+        throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '授权 artifactDigests 未覆盖配置检查程序摘要', {
+          field: 'artifactDigests',
+          executableSha256,
+          authorizedArtifactDigests: [...request.artifactDigests],
+        });
       }
     }
   }
@@ -537,6 +655,14 @@ function normalizeComparablePath(value: string): string {
 
 function readActionType(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function assertBinding(field: string, expected: string, ...actual: string[]): void {

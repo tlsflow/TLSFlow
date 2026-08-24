@@ -1812,6 +1812,8 @@ function isMonolithicAgentPlanPayload(payload: Record<string, unknown>): boolean
     const operationType = readString(readRecord(operation)?.operationType);
     return operationType === 'filesystem.atomic_replace'
       || operationType === 'certificate.store.install'
+      || operationType === 'certificate.iis.binding.update'
+      || operationType === 'certificate.iis.binding.rollback'
       || operationType === 'service.start'
       || operationType === 'service.stop'
       || operationType === 'service.restart'
@@ -1974,6 +1976,12 @@ function buildCertificateTrustAuthorization(
   return {
     ...source,
     actions: ['certificate.store.install'],
+    // 根信任安装只写入 Agent 的根证书存储，不读取部署文件、服务或 Artifact。
+    // 不能继承证书部署计划的范围，否则 Agent 会按部署路径执行本地策略校验并拒绝。
+    allowedPaths: [],
+    allowedServices: [],
+    artifactDigests: [],
+    commandRules: [],
     actionSchemaVersion: trustPlan.actionSchemaVersion,
   };
 }

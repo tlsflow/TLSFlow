@@ -599,11 +599,22 @@ export class DeploymentPlansApplicationService {
     const managedTargetContext = managedTargetId
       ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
       : undefined;
+    const applicationAssetDetail = managedTargetId
+      ? await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId)
+      : undefined;
+    const certificateBinding = managedTargetId && applicationAssetDetail
+      ? await this.tryResolveApplicationAssetCertificateBinding(
+        input.tenantId,
+        applicationAssetDetail.targetBindingDetail?.certificateBindings ?? [],
+        input.applicationAssetId,
+        managedTargetId,
+      )
+      : undefined;
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(version);
     const projection = this.deploymentInputResolver.resolveProjectionResult({
       phase: 'configure',
       contract,
-      assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext }),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext, certificateBinding }),
       bindingLayers: {
         assetOverride: {
           pluginVersionId: input.workflow.pluginVersionId?.trim() || `workflow-preview:${workflowVersionId}`,
@@ -959,11 +970,11 @@ export class DeploymentPlansApplicationService {
     const effectiveBinding = this.deploymentInputResolver.resolveProjectionResult({
       phase: 'configure',
       contract: new DeploymentInputContractLoader().fromWorkflowVersion(await this.workflows!.getVersion(workflowVersionId)),
-      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context, certificateBinding }),
       bindingLayers: { assetOverride: { pluginVersionId: binding.pluginVersionId, inputBindings: binding.inputBindings } },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
     }).effectiveBinding;
-    const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context)).resolvedInput;
+    const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context, undefined, certificateBinding)).resolvedInput;
     const materializedAsset: ServiceAssetDto = {
       ...asset,
       deploymentStrategy: {
@@ -1089,7 +1100,7 @@ export class DeploymentPlansApplicationService {
     });
     // 计划编译属于部署前预检，必须按 preflight 解析并密封 pre_execution 输入，
     // 让证书 Artifact、凭据和运行事实在生成 Agent Plan 时完成门禁。
-    const inputResult = await this.resolveCapabilityDeploymentInput('preflight', tenantId, capability, context, asset, artifact);
+    const inputResult = await this.resolveCapabilityDeploymentInput('preflight', tenantId, capability, context, asset, artifact, certificateBinding);
     const resolvedInput = inputResult.resolvedInput;
     const runtime = await this.pluginRuntimeAdapters.compile({
       tenantId,
@@ -1152,13 +1163,14 @@ export class DeploymentPlansApplicationService {
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     asset: ServiceAssetDto,
     artifact?: DeploymentArtifactSnapshotDto,
+    certificateBinding?: CertificateBindingDto,
   ): Promise<{ resolvedInput: ResolvedDeploymentInputV1; effectiveBinding: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1 }> {
     const contract = new DeploymentInputContractLoader().fromPlugin(capability.plugin, capability.assignment.capabilityKey);
     const bindingLayers = await this.resolveCapabilityBindingLayers(tenantId, capability, context, asset.id, contract);
     const request = {
       phase,
       contract,
-      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context, certificateBinding }),
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
       artifactSnapshots: artifact
@@ -1210,6 +1222,7 @@ export class DeploymentPlansApplicationService {
       strategyPayload?: Record<string, unknown>;
     },
     artifact: DeploymentArtifactSnapshotDto,
+    certificateBinding?: CertificateBindingDto,
   ): Promise<ResolvedDeploymentInputMaterial | undefined> {
     const strategyPayload = target.strategyPayload ?? {};
     const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
@@ -1241,7 +1254,7 @@ export class DeploymentPlansApplicationService {
         ? await this.managedTargetContextResolver.resolve(tenantId, managedTargetId)
         : undefined;
       const binding = await this.workflowExecutionBindings.get(tenantId, workflowBindingId);
-      return this.resolveWorkflowBindingDeploymentInput(phase, tenantId, binding, workflowVersionId, applicationAsset, context, artifact);
+      return this.resolveWorkflowBindingDeploymentInput(phase, tenantId, binding, workflowVersionId, applicationAsset, context, artifact, certificateBinding);
     }
     if (!this.pluginBindings || !this.unifiedPlugins || !this.managedTargetContextResolver) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '统一部署输入解析依赖未完整接入', {
@@ -1328,7 +1341,7 @@ export class DeploymentPlansApplicationService {
     const request = {
       phase,
       contract,
-      assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
       artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts)),
@@ -1346,6 +1359,7 @@ export class DeploymentPlansApplicationService {
     asset: ServiceAssetDto,
     context?: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     artifact?: DeploymentArtifactSnapshotDto,
+    certificateBinding?: CertificateBindingDto,
   ): Promise<ResolvedDeploymentInputMaterial> {
     if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
     const version = await this.workflows.getVersion(workflowVersionId);
@@ -1353,7 +1367,7 @@ export class DeploymentPlansApplicationService {
     const request = {
       phase,
       contract,
-      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context, certificateBinding }),
       bindingLayers: {
         assetOverride: {
           pluginVersionId: binding.pluginVersionId,
@@ -1625,6 +1639,7 @@ export class DeploymentPlansApplicationService {
       plan,
       targets,
       agentPayloadByTargetId,
+      runtimeSnapshots,
       input.actorId,
       context.requestId ?? input.idempotencyKey,
     );
@@ -1930,7 +1945,9 @@ export class DeploymentPlansApplicationService {
       createdBy: input.actorId,
       version: 1,
     }, certificateVersionId, input.certificateFormatId, input.tenantId);
-    const resolvedMaterial = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact);
+    const certificateBinding = target.binding
+      ?? (target.certificateBindingId ? await this.tryGetBinding(input.tenantId!, target.certificateBindingId) : undefined);
+    const resolvedMaterial = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact, certificateBinding);
     if (resolvedMaterial) {
       const { contract, effectiveBinding, resolvedInput } = resolvedMaterial;
       validateDiscoveredLocationConsistency(
@@ -2316,7 +2333,7 @@ export class DeploymentPlansApplicationService {
       serviceAssetId: target.serviceAssetId,
       managedTargetId: resolveRuntimeManagedTargetId(target),
       strategyPayload: target.strategyPayload,
-    }, artifact);
+    }, artifact, binding);
 
     if (!material) {
       return this.buildAndPersistDeferredRuntimeSnapshot(plan, target, certificateVersionId);
@@ -2433,6 +2450,7 @@ export class DeploymentPlansApplicationService {
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
     agentPayloadByTargetId: Map<string, Record<string, unknown>>,
+    runtimeSnapshots: Map<string, DeploymentInputRuntimeSnapshotV1>,
     actorId: string,
     requestId: string,
   ): Promise<Map<string, CertificateTrustPlanSnapshot>> {
@@ -2441,7 +2459,7 @@ export class DeploymentPlansApplicationService {
     for (const target of targets) {
       const agentPayload = agentPayloadByTargetId.get(target.id);
       if (!agentPayload) continue;
-      if (!shouldBuildCertificateTrustPlan(agentPayload)) continue;
+      if (!shouldBuildCertificateTrustPlan(agentPayload, runtimeSnapshots.get(target.id)?.resolvedDeploymentInput)) continue;
       const tenantId = target.tenantId ?? plan.tenantId;
       if (!tenantId) continue;
       const agentId = await this.resolveTrustInspectionAgentId(target, agentPayload, tenantId);
@@ -4112,12 +4130,22 @@ export function resolveBoundCertificateOutput(
  * certificateLocation 为准。普通工作流若没有存储事实，保留历史兜底，避免旧计划
  * 因新增门禁而改变行为；一旦有明确事实，就不能把 PEM/KeyStore 猜成 Windows Root Store。
  */
-export function shouldBuildCertificateTrustPlan(agentPayload: Record<string, unknown>): boolean {
-  const storageKind = readDeploymentCertificateStorageKind(agentPayload);
+export function shouldBuildCertificateTrustPlan(
+  agentPayload: Record<string, unknown>,
+  sealedResolvedDeploymentInput?: unknown,
+): boolean {
+  const storageKind = readDeploymentCertificateStorageKind(agentPayload, sealedResolvedDeploymentInput);
   if (Object.prototype.hasOwnProperty.call(agentPayload, 'certificateUpdateSnapshot')) {
     const snapshot = readRecord(agentPayload.certificateUpdateSnapshot);
     const artifactKind = readOptionalString(snapshot?.artifactKind);
+    // 旧版计划可能已经持久化了快照容器，但没有保存 artifactKind。
+    // 只允许用统一部署输入中明确的证书库类型兼容恢复，不能把 PFX 产物格式
+    // 当成部署存储类型，也不能在没有存储事实时猜测。
+    if (!artifactKind && storageKind) return storageKind === 'WINDOWS_CERTIFICATE_STORE';
     if (artifactKind === 'PEM_FILES') return false;
+    if (artifactKind === 'WINDOWS_CERTIFICATE_STORE') {
+      return !storageKind || storageKind === 'WINDOWS_CERTIFICATE_STORE';
+    }
     if (artifactKind === 'KEYSTORE') return storageKind === 'WINDOWS_CERTIFICATE_STORE';
     throw new AppError('VALIDATION_FAILED', '证书更新快照缺少受支持的 Artifact 类型，拒绝继续部署', {
       code: 'CERTIFICATE_ARTIFACT_KIND_INVALID',
@@ -4134,20 +4162,28 @@ export function shouldBuildCertificateTrustPlan(agentPayload: Record<string, unk
 
 function readDeploymentCertificateStorageKind(
   agentPayload: Record<string, unknown>,
+  sealedResolvedDeploymentInput?: unknown,
 ): 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE' | undefined {
-  const resolvedInput = readRecord(agentPayload.resolvedDeploymentInput);
-  const assetContext = readRecord(resolvedInput?.assetContext);
-  const target = readRecord(assetContext?.target);
-  const deployment = readRecord(assetContext?.deployment);
-  const deploymentTargets = Array.isArray(deployment?.targets) ? deployment.targets : [];
-  const locations = [
-    readRecord(target?.certificateLocation),
-    ...deploymentTargets.map((item) => readRecord(readRecord(item)?.certificateLocation)),
+  const resolvedInputs = [
+    readRecord(agentPayload.resolvedDeploymentInput),
+    readRecord(sealedResolvedDeploymentInput),
+    readRecord(readRecord(agentPayload.executionRuntimeSnapshot)?.resolvedDeploymentInput),
   ];
-  for (const location of locations) {
-    const storageKind = readOptionalString(location?.storageKind);
-    if (storageKind === 'PEM_FILES' || storageKind === 'KEYSTORE' || storageKind === 'WINDOWS_CERTIFICATE_STORE') {
-      return storageKind;
+  for (const resolvedInput of resolvedInputs) {
+    if (!resolvedInput) continue;
+    const assetContext = readRecord(resolvedInput.assetContext);
+    const target = readRecord(assetContext?.target);
+    const deployment = readRecord(assetContext?.deployment);
+    const deploymentTargets = Array.isArray(deployment?.targets) ? deployment.targets : [];
+    const locations = [
+      readRecord(target?.certificateLocation),
+      ...deploymentTargets.map((item) => readRecord(readRecord(item)?.certificateLocation)),
+    ];
+    for (const location of locations) {
+      const storageKind = readOptionalString(location?.storageKind);
+      if (storageKind === 'PEM_FILES' || storageKind === 'KEYSTORE' || storageKind === 'WINDOWS_CERTIFICATE_STORE') {
+        return storageKind;
+      }
     }
   }
   return undefined;

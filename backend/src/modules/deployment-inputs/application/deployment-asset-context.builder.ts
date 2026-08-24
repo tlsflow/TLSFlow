@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetTopology } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
+import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import {
   DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
   type DeploymentAssetContextV1,
@@ -22,6 +23,8 @@ export interface BuildDeploymentAssetContextInput {
     metadata?: Record<string, unknown>;
   };
   managedTargetContext?: ResolvedManagedTargetTopology;
+  /** 历史 CertificateBinding 可能保存比 ManagedTarget 投影更完整的部署位置事实。 */
+  certificateBinding?: CertificateBindingDto;
 }
 
 // ManagedTarget 是部署输入的边界资源；元数据缺失时无法判断证书位置，禁止静默转换为空对象。
@@ -46,13 +49,25 @@ export class DeploymentAssetContextBuilder {
     const managedTarget = topology?.managedTarget;
     const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
     const targetMetadata = managedTargetMetadata
-      ? mergeFrameworkTypeFact(mergeManagedTargetListenerFacts(managedTargetMetadata), topology?.frameworkType)
+      ? mergeFrameworkTypeFact(
+        mergeManagedTargetListenerFacts(
+          mergeSiteRuntimeFacts(
+            mergeCertificateBindingFacts(managedTargetMetadata, input.certificateBinding),
+            site?.metadata,
+          ),
+        ),
+        topology?.frameworkType,
+      )
       : undefined;
+    const targetFrameworkType = readNonEmptyString(targetMetadata?.frameworkType) ?? topology?.frameworkType;
     const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
     const certificateLocation = targetMetadata
-      ? readCertificateLocation(
-        mergeFrameworkRuntimeFacts(targetMetadata, topology?.serviceInstance?.rawFacts),
-        managedTarget?.updatedAt || new Date(0).toISOString(),
+      ? withIisCertificateLocationDefaults(
+        readCertificateLocation(
+          mergeFrameworkRuntimeFacts(targetMetadata, topology?.serviceInstance?.rawFacts),
+          managedTarget?.updatedAt || new Date(0).toISOString(),
+        ),
+        targetFrameworkType,
       )
       : undefined;
     const deploymentTargetName = site?.siteName
@@ -187,6 +202,24 @@ function mergeFrameworkTypeFact(metadata: Record<string, unknown>, frameworkType
 }
 
 /**
+ * 标准发现会把框架运行摘要同时写入 Site metadata。旧 Target 只有证书位置时，
+ * 允许 Site 事实补齐缺失字段，但不覆盖 Target 自己已经确认的值。
+ */
+function mergeSiteRuntimeFacts(metadata: Record<string, unknown>, siteMetadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!siteMetadata) return { ...metadata };
+  const listeners = Array.isArray(siteMetadata.listeners)
+    ? siteMetadata.listeners.map(asRecord).filter((value): value is Record<string, unknown> => Boolean(value))
+    : [];
+  const listener = listeners.find((value) => readNonEmptyString(value.protocol)?.toUpperCase() === 'HTTPS') ?? listeners[0];
+  const siteFacts = {
+    ...pickCertificateLocationRuntimeFacts(listener),
+    ...pickCertificateLocationRuntimeFacts(siteMetadata),
+  };
+  const promoted = Object.fromEntries(Object.entries(siteFacts).filter(([key, value]) => metadata[key] === undefined && value !== undefined));
+  return { ...metadata, ...promoted };
+}
+
+/**
  * 旧版发现结果可能只把证书路径写入 Target，运行参数仍保留在同一
  * Framework 的 rawFacts 中。这里仅补齐缺失事实，绝不覆盖 Target 已确认值。
  */
@@ -212,6 +245,48 @@ function mergeFrameworkRuntimeFacts(
     };
   }
   return { ...rawFacts, ...metadata };
+}
+
+/**
+ * 旧版资产投影可能没有把 CertificateBinding 的部署位置提升到 ManagedTarget。
+ * 绑定是补充事实源：只补齐缺失字段，不能覆盖 Agent 已确认的 Target 事实。
+ */
+function mergeCertificateBindingFacts(
+  metadata: Record<string, unknown>,
+  binding: CertificateBindingDto | undefined,
+): Record<string, unknown> {
+  if (!binding) return { ...metadata };
+  const bindingMetadata = asRecord(binding.metadata);
+  const bindingLocation = asRecord(bindingMetadata?.certificateLocation)
+    ?? asRecord(bindingMetadata?.deploymentTarget);
+  const topLevelLocation = {
+    ...(binding.keystorePath ? { keystorePath: binding.keystorePath } : {}),
+    ...(binding.keystoreType ? { keystoreType: binding.keystoreType } : {}),
+    ...(binding.certPath ? { certificatePath: binding.certPath } : {}),
+    ...(binding.keyPath ? { privateKeyPath: binding.keyPath } : {}),
+    ...(binding.chainPath ? { chainPath: binding.chainPath } : {}),
+    ...(binding.storeLocation ? { storeLocation: binding.storeLocation } : {}),
+    ...(binding.storeName ? { storeName: binding.storeName } : {}),
+    ...(binding.storeThumbprint ? { storeThumbprint: binding.storeThumbprint } : {}),
+    ...(binding.localConfigPath ? { sourceConfigPath: binding.localConfigPath } : {}),
+    ...(binding.localConfigFingerprint ? { configFingerprint: binding.localConfigFingerprint } : {}),
+    ...(binding.reloadCommand ? { reloadCommand: binding.reloadCommand } : {}),
+  };
+  const bindingFacts = {
+    ...pickCertificateLocationRuntimeFacts(bindingMetadata),
+    ...topLevelLocation,
+    ...pickCertificateLocationRuntimeFacts(bindingLocation),
+  };
+  const currentLocation = asRecord(metadata.certificateLocation);
+  const promoted = Object.fromEntries(Object.entries(bindingFacts).filter(([key, value]) => metadata[key] === undefined && value !== undefined));
+  const mergedLocation = Object.keys(bindingFacts).length > 0 || currentLocation
+    ? { ...bindingFacts, ...currentLocation }
+    : undefined;
+  return {
+    ...metadata,
+    ...promoted,
+    ...(mergedLocation ? { certificateLocation: mergedLocation } : {}),
+  };
 }
 
 /**
@@ -244,6 +319,18 @@ function pickCertificateLocationRuntimeFacts(source: Record<string, unknown> | u
     if (key === 'configPath' && source.sourceConfigPath !== undefined) return [];
     return [[key === 'configPath' ? 'sourceConfigPath' : key, value]];
   }));
+}
+
+function withIisCertificateLocationDefaults(
+  location: ReturnType<typeof readCertificateLocation>,
+  frameworkType: string | undefined,
+): ReturnType<typeof readCertificateLocation> {
+  if (!location || frameworkType !== 'web.iis' || location.storageKind !== 'WINDOWS_CERTIFICATE_STORE') return location;
+  return {
+    ...location,
+    serviceName: location.serviceName ?? 'W3SVC',
+    programPath: location.programPath ?? 'C:/Windows/System32/inetsrv/appcmd.exe',
+  };
 }
 
 /**
