@@ -59,7 +59,7 @@ export class PgDevicesRepository implements DevicesRepository {
       statusReason: row.last_error_code ?? undefined,
       allowedActions: summary.extensionType === 'AGENT'
         ? ['VIEW_APPLICATIONS', 'VIEW_RUNTIME', 'UPGRADE_AGENT', 'DISABLE_DEVICE']
-        : ['VIEW_APPLICATIONS', 'TEST_CONNECTION', 'REFRESH_DISCOVERY', 'EDIT_CONNECTION', 'DISABLE_DEVICE'],
+        : ['VIEW_APPLICATIONS', 'EDIT_CONNECTION', 'DISABLE_DEVICE'],
       publicSummary: {
         hostname: row.hostname ?? undefined,
         osType: row.os_type,
@@ -81,8 +81,8 @@ export class PgDevicesRepository implements DevicesRepository {
       logs: resources?.logs ?? [],
       extension: summary.extensionType === 'AGENT'
         ? { type: 'AGENT', agentId: row.agent_id ?? '' }
-        : row.device_family?.toUpperCase().includes('NETSCALER') || row.device_family?.toUpperCase().includes('CITRIX') || row.device_family?.toUpperCase().includes('ADC')
-          ? { type: 'CITRIX_ADC', deviceAssetId: row.device_asset_id ?? '', deviceFamily: row.device_family }
+        : row.plugin_version_id && row.plugin_binding_id
+          ? { type: 'PLUGIN', deviceAssetId: row.device_asset_id ?? '', pluginVersionId: row.plugin_version_id, pluginBindingId: row.plugin_binding_id }
           : { type: 'GENERIC', rawType: row.device_family ?? undefined },
       extensionSummary: summary.extensionType === 'AGENT'
         ? { agentId: row.agent_id, descriptor: asRecord(asRecord(row.agent_payload).descriptor) }
@@ -380,6 +380,8 @@ const DEVICE_LIST_SQL = `
     device.software_build,
     device.support_tier,
     device.capability_profile,
+    device.plugin_version_id,
+    device.plugin_binding_id,
     device.last_discovered_at as device_last_discovered_at,
     device.last_error_code,
     service.address as device_address,
@@ -420,6 +422,8 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   software_build: string | null;
   support_tier: string | null;
   capability_profile: Record<string, unknown> | null;
+  plugin_version_id: string | null;
+  plugin_binding_id: string | null;
   device_last_discovered_at: string | null;
   last_error_code: string | null;
   device_address: string | null;

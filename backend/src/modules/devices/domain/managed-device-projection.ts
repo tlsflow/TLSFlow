@@ -43,14 +43,6 @@ const SERVER_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = {
   LINUX: 'Linux Server',
 };
 
-const DEVICE_PRODUCT_FAMILY_BY_TYPE: Readonly<Record<string, string>> = {
-  NETSCALER_ADC: 'Citrix ADC',
-};
-
-const DEVICE_MANAGEMENT_METHOD_BY_TYPE: Readonly<Record<string, string>> = {
-  NETSCALER_ADC: 'NITRO_API',
-};
-
 export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProjectionAdapter {
   readonly key = 'AGENT';
 
@@ -81,11 +73,11 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
   }
 }
 
-export class CitrixAdcManagedDeviceProjectionAdapter implements ManagedDeviceProjectionAdapter {
-  readonly key = 'NETSCALER_ADC';
+export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjectionAdapter {
+  readonly key = 'PLUGIN';
 
   supports(source: ManagedDeviceProjectionSource): boolean {
-    return source.networkAppliance?.deviceFamily === this.key;
+    return source.networkAppliance !== undefined;
   }
 
   project(source: ManagedDeviceProjectionSource): ManagedDeviceSummaryDto {
@@ -102,8 +94,8 @@ export class CitrixAdcManagedDeviceProjectionAdapter implements ManagedDevicePro
       id: source.id,
       displayName: source.displayName ?? appliance.managementAddress ?? source.id,
       category: 'NETWORK_APPLIANCE',
-      productFamily: appliance.productName ?? DEVICE_PRODUCT_FAMILY_BY_TYPE[appliance.deviceFamily] ?? appliance.deviceFamily,
-      managementMethod: DEVICE_MANAGEMENT_METHOD_BY_TYPE[appliance.deviceFamily] ?? 'API',
+      productFamily: appliance.productName ?? appliance.deviceFamily,
+      managementMethod: 'PLUGIN',
       managementAddress: appliance.managementAddress ?? source.primaryIp ?? source.hostname,
       health: mapNetworkDeviceHealth(
         source.hostStatus,
@@ -125,7 +117,7 @@ export class ManagedDeviceProjectionRegistry {
   constructor(
     private readonly adapters: readonly ManagedDeviceProjectionAdapter[] = [
       new AgentManagedDeviceProjectionAdapter(),
-      new CitrixAdcManagedDeviceProjectionAdapter(),
+      new PluginManagedDeviceProjectionAdapter(),
     ],
   ) {}
 

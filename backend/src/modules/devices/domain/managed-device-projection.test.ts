@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { ManagedDeviceSummaryDto } from '../dto/devices.dto.js';
 import {
   AgentManagedDeviceProjectionAdapter,
-  CitrixAdcManagedDeviceProjectionAdapter,
+  PluginManagedDeviceProjectionAdapter,
   ManagedDeviceProjectionRegistry,
   type ManagedDeviceProjectionAdapter,
   type ManagedDeviceProjectionSource,
@@ -110,7 +110,7 @@ test('统一设备投影从 Windows 能力快照兼容读取存量系统版本',
 });
 
 test('统一设备投影为 Citrix ADC 输出固件版本和 Build', () => {
-  const result = new CitrixAdcManagedDeviceProjectionAdapter().project({
+  const result = new PluginManagedDeviceProjectionAdapter().project({
     ...commonSource,
     managementMode: 'API',
     networkAppliance: {
@@ -148,7 +148,7 @@ test('统一设备投影 Registry 支持注册新的设备类型适配器', () =
   const registry = new ManagedDeviceProjectionRegistry([
     f5Adapter,
     new AgentManagedDeviceProjectionAdapter(),
-    new CitrixAdcManagedDeviceProjectionAdapter(),
+    new PluginManagedDeviceProjectionAdapter(),
   ]);
 
   const result = registry.project({

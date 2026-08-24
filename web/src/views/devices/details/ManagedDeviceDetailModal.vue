@@ -2,16 +2,16 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
-import { getManagedDevice, refreshManagedDeviceDiscovery } from '@/api/modules/devices.api'
+import { executeManagedDeviceCapability, getManagedDevice, refreshManagedDeviceDiscovery } from '@/api/modules/devices.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcModal, GcStatusTag } from '@/design-system/components'
+import { GcDevicePresentation, GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
 import { DeviceDetailAdapterRegistry } from './device-detail.adapter'
 import { deviceDetailTabRegistry } from './device-detail.providers'
 import type { DeviceBoundCertificateView, DeviceCertificateSelection } from './device-detail.model'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const opened = ref(false)
 const loading = ref(false)
 const rediscovering = ref(false)
@@ -31,6 +31,18 @@ const adapterRegistry = new DeviceDetailAdapterRegistry()
 const context = computed(() => detail.value ? adapterRegistry.buildContext(detail.value) : null)
 const tabs = computed(() => context.value ? deviceDetailTabRegistry.resolve(context.value) : [])
 const activeDescriptor = computed(() => tabs.value.find(tab => tab.key === activeTab.value) ?? tabs.value[0])
+const pluginUi = computed(() => asRecord(detail.value?.pluginUi))
+const pluginPresentation = computed(() => {
+  const value = pluginUi.value.presentation
+  return value && typeof value === 'object' ? value as DevicePresentationSchema : null
+})
+const pluginMessages = computed(() => asRecord(pluginUi.value.messages) as Record<string, string>)
+const pluginTabRows = computed(() => ({
+  frameworks: arrayRecords(detail.value?.frameworks),
+  sites: arrayRecords(detail.value?.sites),
+  certificates: arrayRecords(detail.value?.certificates),
+  logs: arrayRecords(detail.value?.logs),
+}))
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
 const status = computed(() => String(detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
@@ -69,7 +81,7 @@ async function open(deviceId: string) {
   discoveryFeedback.value = null
   detail.value = null
   try {
-    const response = await getManagedDevice(deviceId)
+    const response = await getManagedDevice(deviceId, locale.value)
     detail.value = response.data ?? null
     if (!detail.value) error.value = t('devices.errors.detailLoadFailed')
   } catch {
@@ -86,7 +98,7 @@ async function refreshDiscovery() {
   try {
     const response = await refreshManagedDeviceDiscovery(deviceAssetId.value)
     const result = response.data ?? {}
-    const refreshed = await getManagedDevice(openedDeviceId.value)
+    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
     if (refreshed.data) detail.value = refreshed.data
     const succeeded = result.reachable === true && result.authenticated === true && result.productMatched === true
     const certificateCount = Number(result.certificateCount ?? 0)
@@ -110,6 +122,22 @@ async function refreshDiscovery() {
     }
   } catch {
     discoveryFeedback.value = { tone: 'danger', message: t('devices.unifiedDetail.discovery.requestFailed') }
+  } finally {
+    rediscovering.value = false
+  }
+}
+
+async function executePluginAction(capabilityKey: string) {
+  if (!openedDeviceId.value || rediscovering.value) return
+  rediscovering.value = true
+  discoveryFeedback.value = null
+  try {
+    await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
+    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
+    if (refreshed.data) detail.value = refreshed.data
+    discoveryFeedback.value = { tone: 'success', message: t('devices.onboarding.completed') }
+  } catch (cause) {
+    discoveryFeedback.value = { tone: 'danger', message: cause instanceof Error ? cause.message : t('devices.unifiedDetail.discovery.requestFailed') }
   } finally {
     rediscovering.value = false
   }
@@ -206,6 +234,10 @@ function asRecord(value: unknown): ApiRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as ApiRecord : {}
 }
 
+function arrayRecords(value: unknown): ApiRecord[] {
+  return Array.isArray(value) ? value.filter((item): item is ApiRecord => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
+}
+
 defineExpose({ open })
 </script>
 
@@ -226,15 +258,6 @@ defineExpose({ open })
           <span>{{ heroSubtitle }}</span>
         </div>
         <div class="agent-detail-modal__hero-side">
-          <button
-            v-if="canRefreshDiscovery"
-            class="gc-button agent-detail-modal__discover"
-            type="button"
-            :disabled="rediscovering"
-            @click="refreshDiscovery"
-          >
-            {{ rediscovering ? t('devices.unifiedDetail.discovery.refreshing') : t('devices.detail.actions.REFRESH_DISCOVERY') }}
-          </button>
           <GcStatusTag :status="status" />
           <div class="agent-detail-modal__spotlight">
             <small>{{ t('devices.unifiedDetail.deviceType') }}</small>
@@ -253,7 +276,17 @@ defineExpose({ open })
 
       <p v-if="loading" class="agent-detail-modal__loading">{{ t('common.loading') }}</p>
 
-      <template v-if="detail && context && !loading">
+      <GcDevicePresentation
+        v-if="detail && pluginPresentation && !loading"
+        v-model:active-tab="activeTab"
+        :schema="pluginPresentation"
+        :data="detail"
+        :tab-rows="pluginTabRows"
+        :plugin-messages="pluginMessages"
+        @action="executePluginAction"
+      />
+
+      <template v-else-if="detail && context && !loading">
         <nav class="agent-detail-modal__tabs" :aria-label="t('devices.unifiedDetail.aria.tabs')">
           <button
             v-for="tab in tabs"

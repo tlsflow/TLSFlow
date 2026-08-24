@@ -158,14 +158,18 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginsService = new PluginsApplicationService(pluginsRepository);
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
+  const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const devicesService = new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
     agentsService,
     appDb,
     unifiedPluginsService,
+    undefined,
+    pluginBindingsService,
+    pluginWorkflowPublisher,
+    workflowTemplatesService,
   );
-  const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);

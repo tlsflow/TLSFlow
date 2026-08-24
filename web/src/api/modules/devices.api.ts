@@ -8,8 +8,9 @@ export function listManagedDevices(query: BusinessListQuery = {}): Promise<ApiPa
   return apiClient.get<ApiPage>(buildListPath(DEVICES_PATH, query))
 }
 
-export function getManagedDevice(deviceId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}`)
+export function getManagedDevice(deviceId: string, locale?: string): Promise<ApiRecordResult> {
+  const query = locale ? `?locale=${encodeURIComponent(locale)}` : ''
+  return apiClient.get<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}${query}`)
 }
 
 export function listDeviceOnboardingPlatforms() {
@@ -19,6 +20,12 @@ export function listDeviceOnboardingPlatforms() {
 export function onboardManagedDevice(payload: ApiBody): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(`${toClientPath(DEVICES_PATH)}/onboarding`, payload, {
     idempotencyKey: createIdempotencyKey('device_onboarding'),
+  })
+}
+
+export function executeManagedDeviceCapability(deviceId: string, capabilityKey: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}/actions`, { capabilityKey }, {
+    idempotencyKey: createIdempotencyKey('device_capability'),
   })
 }
 

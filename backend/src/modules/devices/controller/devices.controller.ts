@@ -19,6 +19,7 @@ export class DevicesController {
     router.get('/api/v1/devices', '查询统一设备列表', tags, (request) => this.list(request));
     router.get('/api/v1/devices/onboarding-platforms', '查询设备添加平台', tags, () => this.service.listOnboardingPlatforms());
     router.post('/api/v1/devices/onboarding', '添加受管设备', tags, (request) => this.onboard(request));
+    router.post('/api/v1/devices/:deviceId/actions', '执行设备插件能力', tags, (request) => this.executeCapability(request));
     router.get('/api/v1/devices/:deviceId', '查询统一设备详情', tags, (request) => this.get(request));
   }
 
@@ -58,7 +59,19 @@ export class DevicesController {
     await this.security?.rbac.assertCan(subject, 'host.read', {
       type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
-    return this.service.get(tenantId(request), deviceId);
+    const locale = Array.isArray(request.query.locale) ? request.query.locale[0] : request.query.locale;
+    return this.service.get(tenantId(request), deviceId, locale ?? 'zh-CN');
+  }
+
+  private async executeCapability(request: HttpRequest) {
+    const deviceId = request.path.match(/^\/api\/v1\/devices\/([^/]+)\/actions$/)?.[1];
+    const capabilityKey = String((request.body as Record<string, unknown> | undefined)?.capabilityKey ?? '').trim();
+    if (!deviceId || !capabilityKey) throw new AppError('VALIDATION_FAILED', 'deviceId 和 capabilityKey 不能为空');
+    const subject = this.subjectFromRequest(request);
+    await this.security?.rbac.assertCan(subject, 'host.update', {
+      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+    return this.service.executeCapability(tenantId(request), deviceId, capabilityKey);
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
@@ -74,6 +87,13 @@ export function getDeviceRouteContracts(): RouteContract[] {
     path: '/api/v1/devices',
     operationId: 'listManagedDevices',
     summary: '查询统一设备列表',
+    tags,
+    responseSchema: { type: 'object' },
+  }, {
+    method: 'POST',
+    path: '/api/v1/devices/:deviceId/actions',
+    operationId: 'executeManagedDeviceCapability',
+    summary: '执行设备插件能力',
     tags,
     responseSchema: { type: 'object' },
   }, {

@@ -118,8 +118,19 @@ export interface ManagedDeviceLogDto {
 
 export type ManagedDeviceExtensionDto =
   | { type: 'AGENT'; agentId: string; agentType?: string }
-  | { type: 'CITRIX_ADC'; deviceAssetId: string; deviceFamily: string }
+  | { type: 'PLUGIN'; deviceAssetId: string; pluginVersionId?: string; pluginBindingId?: string }
   | { type: 'GENERIC'; rawType?: string };
+
+export interface ManagedDevicePluginUiDto {
+  pluginVersionId: string;
+  pluginBindingId: string;
+  pluginId: string;
+  version: string;
+  source: string;
+  capabilities: string[];
+  presentation?: Record<string, unknown>;
+  messages: Record<string, string>;
+}
 
 export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   statusReason?: string;
@@ -137,6 +148,7 @@ export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   logs: ManagedDeviceLogDto[];
   extension: ManagedDeviceExtensionDto;
   extensionSummary: Record<string, unknown>;
+  pluginUi?: ManagedDevicePluginUiDto;
 }
 
 export type DeviceOnboardingKind = 'AGENT_INSTALL' | 'API_CONNECTION';

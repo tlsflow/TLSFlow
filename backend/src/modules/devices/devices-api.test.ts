@@ -325,7 +325,7 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === host.id)?.health, 'HEALTHY');
   assert.equal(result.items.find((item) => item.id === host.id)?.softwareVersion, 'Windows Server 2022 21H2');
   assert.equal(result.items.find((item) => item.id === host.id)?.lastContactAt, '2026-07-22T08:00:00.000Z');
-  assert.equal(result.items.find((item) => item.id === adc.hostId)?.managementMethod, 'NITRO_API');
+  assert.equal(result.items.find((item) => item.id === adc.hostId)?.managementMethod, 'PLUGIN');
 });
 
 test('Spec033 统一设备列表支持筛选、分页和 Host 权限范围', async () => {
@@ -395,7 +395,7 @@ test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边
   const detail = await new PgDevicesRepository(database).get('tenant_spec033_device_detail', device.hostId);
 
   assert.equal(detail?.extensionType, 'NETWORK_APPLIANCE');
-  assert.ok(detail?.allowedActions.includes('TEST_CONNECTION'));
+  assert.ok(!detail?.allowedActions.includes('device.connection.test'));
   assert.ok(!detail?.allowedActions.includes('UPGRADE_AGENT'));
   assert.equal(detail?.publicSummary.managementMode, 'AGENTLESS');
 });
@@ -556,6 +556,13 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.equal(result.binding.secretBindings.credential, 'secret://password/sec_adc#v1');
   assert.equal(result.assignments.length, 6);
   assert.ok(!JSON.stringify(result).includes('"password":"'));
+  const detail = await service.get(tenantId, result.device.hostId, 'zh-CN');
+  assert.equal(detail.extension.type, 'PLUGIN');
+  assert.equal(detail.pluginUi?.pluginId, 'citrix.netscaler-adc');
+  assert.equal(detail.pluginUi?.source, 'BUILTIN');
+  assert.deepEqual(detail.pluginUi?.capabilities, result.assignments.map((item) => item.capabilityKey).sort());
+  const actions = (detail.pluginUi?.presentation?.actions ?? []) as Array<{ capabilityKey: string }>;
+  assert.ok(actions.every((action) => detail.pluginUi?.capabilities.includes(action.capabilityKey)));
 });
 
 test('Spec033 设备资产软删除后不再出现在统一设备列表', async () => {

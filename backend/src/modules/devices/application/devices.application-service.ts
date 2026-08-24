@@ -13,6 +13,8 @@ import { PluginPackageResourcesService } from '../../plugins/application/plugin-
 import { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from '../../plugins/repository/plugin-bindings.repository.js';
 import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js';
+import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
+import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
 
@@ -24,19 +26,53 @@ export class DevicesApplicationService {
     private readonly db: DatabasePort = new PgliteDatabase(),
     private readonly unifiedPlugins?: UnifiedPluginsApplicationService,
     private readonly packageResources = new PluginPackageResourcesService(),
+    private readonly pluginBindings?: PluginBindingsApplicationService,
+    private readonly pluginWorkflows?: PluginWorkflowPublisherService,
+    private readonly workflows?: WorkflowTemplatesApplicationService,
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
     return this.repository.list(tenantId, query);
   }
 
-  async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto> {
+  async get(tenantId: string, deviceId: string, locale = 'zh-CN'): Promise<ManagedDeviceDetailDto> {
     const device = await this.repository.get(tenantId, deviceId);
     if (!device) throw new AppError('RESOURCE_NOT_FOUND', '设备不存在', { deviceId });
     if (device.extension.type === 'AGENT' && device.extension.agentId && this.agents) {
       return enrichAgentDetail(device, await this.agents.getAgentDetail(tenantId, device.extension.agentId));
     }
-    return device;
+    if (device.extension.type !== 'PLUGIN' || !device.extension.pluginVersionId || !device.extension.pluginBindingId || !this.unifiedPlugins) return device;
+    const [plugin, ui, assignmentRows] = await Promise.all([
+      this.unifiedPlugins.getVersion(device.extension.pluginVersionId),
+      this.unifiedPlugins.getUiResources(device.extension.pluginVersionId, locale),
+      this.db.query<{ capability_key: string }>(
+        `select capability_key from plugin_capability_assignments
+         where tenant_id=$1 and owner_type='DEVICE' and owner_id=$2 and plugin_binding_id=$3 and status='ACTIVE'
+         order by capability_key`,
+        [tenantId, device.extension.deviceAssetId, device.extension.pluginBindingId],
+      ),
+    ]);
+    if (plugin.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', '设备插件不存在', { deviceId });
+    const capabilities = assignmentRows.rows.map((row) => row.capability_key);
+    const presentation = ui.presentations.device;
+    return {
+      ...device,
+      allowedActions: [...new Set([...device.allowedActions, ...capabilities])],
+      capabilities,
+      pluginUi: {
+        pluginVersionId: plugin.id,
+        pluginBindingId: device.extension.pluginBindingId,
+        pluginId: plugin.pluginId,
+        version: plugin.version,
+        source: plugin.source,
+        capabilities,
+        presentation: presentation ? {
+          ...presentation,
+          actions: presentation.actions.filter((action) => capabilities.includes(action.capabilityKey)),
+        } as unknown as Record<string, unknown> : undefined,
+        messages: ui.locale?.messages ?? {},
+      },
+    };
   }
 
   listOnboardingPlatforms(): DeviceOnboardingPlatformDescriptor[] {
@@ -58,6 +94,28 @@ export class DevicesApplicationService {
       return { ...installSession, onboardingKind: 'AGENT_INSTALL' as const, installSession };
     }
     return this.onboardPluginDevice(tenantId, input, actorId);
+  }
+
+  async executeCapability(tenantId: string, deviceId: string, capabilityKey: string) {
+    if (!this.pluginBindings || !this.pluginWorkflows || !this.workflows) throw new AppError('CAPABILITY_MISSING', '插件工作流执行服务未注册');
+    if (!['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.discover'].includes(capabilityKey)) {
+      throw new AppError('VALIDATION_FAILED', '该设备动作必须通过部署计划执行', { capabilityKey });
+    }
+    const device = await this.get(tenantId, deviceId);
+    if (device.extension.type !== 'PLUGIN' || !device.extension.pluginBindingId) throw new AppError('CAPABILITY_MISSING', '设备未绑定统一插件');
+    const assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.extension.deviceAssetId });
+    if (!assignment || assignment.pluginBindingId !== device.extension.pluginBindingId) {
+      throw new AppError('CAPABILITY_MISSING', '设备未分配该插件能力', { capabilityKey });
+    }
+    const [binding, workflow] = await Promise.all([
+      this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
+      this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
+    ]);
+    return this.workflows.testRun({
+      templateVersionId: workflow.workflowVersionId,
+      mode: 'real_test',
+      userVariables: { ...binding.variableBindings, ...binding.secretBindings },
+    });
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {
