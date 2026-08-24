@@ -1639,6 +1639,47 @@ export default {
       total: '{count} total'
     }
   },
+  notifications: {
+    title: 'Notification Management',
+    description: 'Manage notification channels, routes, templates, silences, and reliable delivery records.',
+    tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
+    sections: { channels: 'Channel records', deliveries: 'Delivery records' },
+    channels: { createTitle: 'Create notification channel' },
+    settings: { privateOriginsTitle: 'Private deployment endpoints', privateOriginsDescription: 'Configure private HTTPS Origins that Notification Management may access for WeCom, Feishu, and DingTalk.' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Generic Webhook' },
+    deploymentModes: { public: 'Public cloud', private: 'Private deployment' },
+    fields: {
+      name: 'Channel name', type: 'Channel type', deploymentMode: 'Deployment mode', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
+      smtpSecurity: 'Connection security', smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', secretValuePlaceholder: 'Enter the secret value',
+      optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      feishuWebhookUrl: 'Feishu custom bot Webhook URL', dingtalkWebhookUrl: 'DingTalk custom bot Webhook URL', feishuSigningSecret: 'Feishu signing secret',
+      dingtalkSigningSecret: 'DingTalk signing secret', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (optional)',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete Webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
+      webhookHeadersPlaceholder: 'Example: x-source = gcac', signingSecret: 'HMAC-SHA256 signing secret', testTarget: 'Test recipient',
+      testTargetPlaceholder: 'Email recipients can be comma-separated', lastSuccess: 'Last success', latency: 'Latency (ms)',
+      createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
+      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale',
+      titleTemplate: 'Title template', bodyTemplate: 'Body template', reason: 'Silence reason', startsAt: 'Starts at', endsAt: 'Ends at',
+      wecomPrivateOrigins: 'WeCom private Origins', feishuPrivateOrigins: 'Feishu private Origins', dingtalkPrivateOrigins: 'DingTalk private Origins', privateOriginsPlaceholder: 'One per line, for example https://notify.example.internal'
+    },
+    actions: {
+      createChannel: 'New channel', createRoute: 'New route', createTemplate: 'New template', createSilence: 'New silence',
+      confirmCreate: 'Create', cancel: 'Cancel', saveSettings: 'Save settings', test: 'Send test', testChannel: 'Test channel: {name}', retry: 'Retry delivery', enable: 'Enable', disable: 'Disable'
+    },
+    rules: { createRoute: 'Create notification route', createTemplate: 'Create notification template', createSilence: 'Create silence rule' },
+    summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules', recordCount: '{count} records' },
+    empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
+    values: { notAvailable: '—' },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret', botToken: 'Bot Token' } },
+    messages: {
+      loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.',
+      secretStoredHint: 'This value is encrypted and will not be shown again after creation.', createSecretFailed: 'Failed to save the encrypted value', invalidHeaders: 'Fixed headers must be a valid JSON object',
+      smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required', botTokenRequired: 'Telegram Bot Token is required',
+      chatIdRequired: 'Telegram Chat ID is required', feishuWebhookUrlInvalid: 'Enter an official Feishu custom bot Webhook URL', dingtalkWebhookUrlInvalid: 'Enter an official DingTalk custom bot Webhook URL',
+      wecomWebhookUrlInvalid: 'Enter a valid WeCom bot HTTPS Webhook URL', telegramBotTokenInvalid: 'The Telegram Bot Token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram Topic ID must be a positive integer',
+      privateDeploymentAllowlistHint: 'Private endpoints must first be added to the trusted HTTPS Origin list above, otherwise testing and delivery are rejected.', privateOriginInvalid: 'A private endpoint must be an exact HTTPS Origin without a path, query, user information, or fragment.', privateOriginsSecurityHint: 'Enter only the scheme, host, and optional port. Full Webhook URLs, tokens, and signing secrets remain encrypted in the Secret service.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving Webhook.'
+    }
+  },
   settings: {
     securityLabel: 'Security settings entry',
     permissionPolicies: {

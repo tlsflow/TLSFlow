@@ -29,6 +29,16 @@ describe('权限 Store', () => {
       '/reports/incident-window',
       '/settings'
     ])
+    const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
+    expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
+  })
+
+  it('通知读取权限会显示设置下的通知中心标签', () => {
+    const store = usePermissionStore()
+    store.setPermissions(['notification.channel.read'])
+    expect(store.visibleMenuItems).toHaveLength(1)
+    expect(store.visibleMenuItems[0]?.path).toBe('/settings/notifications')
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/settings/notifications'])
   })
 
   it('证书部署和工作流作为顶层菜单按权限展示', () => {

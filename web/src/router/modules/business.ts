@@ -283,6 +283,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/settings/notifications',
+    name: 'settings.notifications',
+    component: () => import('@/views/settings/NotificationsView.vue'),
+    meta: {
+      title: 'Notification Center',
+      titleKey: 'notifications.title',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'notification.channel.read',
+      resourceType: 'notificationChannel',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.systemSettings', 'notifications.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/settings/users',
     name: 'settings.users',
     component: () => import('@/views/settings/UsersView.vue'),

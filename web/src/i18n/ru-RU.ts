@@ -1639,6 +1639,47 @@ export default {
       total: '{count} total'
     }
   },
+  notifications: {
+    title: 'Управление уведомлениями',
+    description: 'Управление каналами, маршрутами, шаблонами, периодами тишины и доставками.',
+    tabs: { channels: 'Каналы', deliveries: 'Доставки', rules: 'Правила и шаблоны' },
+    sections: { channels: 'Записи каналов', deliveries: 'Записи доставки' },
+    channels: { createTitle: 'Создать канал уведомлений' },
+    settings: { privateOriginsTitle: 'Адреса частного развертывания', privateOriginsDescription: 'Настройте разрешенные частные HTTPS Origin для WeCom, Feishu и DingTalk.' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Универсальный Webhook' },
+    deploymentModes: { public: 'Публичное облако', private: 'Частное развертывание' },
+    fields: {
+      name: 'Имя канала', type: 'Тип канала', deploymentMode: 'Режим развертывания', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
+      smtpSecurity: 'Шифрование соединения', smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', secretValuePlaceholder: 'Введите секретное значение',
+      optionalSecretValuePlaceholder: 'Необязательно; введите секретное значение', wecomWebhookUrl: 'Webhook URL группового робота WeCom', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      feishuWebhookUrl: 'Webhook URL пользовательского робота Feishu', dingtalkWebhookUrl: 'Webhook URL пользовательского робота DingTalk', feishuSigningSecret: 'Секрет подписи Feishu',
+      dingtalkSigningSecret: 'Секрет подписи DingTalk', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (необязательно)',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Введите полный Webhook URL', webhookMethod: 'Метод HTTP', webhookHeaders: 'Фиксированные Header (JSON)',
+      webhookHeadersPlaceholder: 'Пример: x-source = gcac', signingSecret: 'Ключ подписи HMAC-SHA256', testTarget: 'Тестовый получатель',
+      testTargetPlaceholder: 'Email-адреса можно разделить запятыми', lastSuccess: 'Последний успех', latency: 'Задержка (мс)',
+      createdAt: 'Создано', updatedAt: 'Обновлено', failureCategory: 'Категория ошибки', channel: 'Канал уведомлений', selectChannel: 'Выберите канал',
+      source: 'Источник события', priority: 'Приоритет маршрута', dedupeWindow: 'Окно дедупликации (секунды)', templateKey: 'Ключ шаблона', locale: 'Язык',
+      titleTemplate: 'Шаблон заголовка', bodyTemplate: 'Шаблон текста', reason: 'Причина тишины', startsAt: 'Начало', endsAt: 'Окончание',
+      wecomPrivateOrigins: 'Частные Origin WeCom', feishuPrivateOrigins: 'Частные Origin Feishu', dingtalkPrivateOrigins: 'Частные Origin DingTalk', privateOriginsPlaceholder: 'По одному в строке, например https://notify.example.internal'
+    },
+    actions: {
+      createChannel: 'Новый канал', createRoute: 'Новый маршрут', createTemplate: 'Новый шаблон', createSilence: 'Новое правило тишины',
+      confirmCreate: 'Создать', cancel: 'Отмена', saveSettings: 'Сохранить настройки', test: 'Тестовая отправка', testChannel: 'Проверить канал: {name}', retry: 'Повторить доставку', enable: 'Включить', disable: 'Отключить'
+    },
+    rules: { createRoute: 'Создать маршрут уведомлений', createTemplate: 'Создать шаблон уведомлений', createSilence: 'Создать правило тишины' },
+    summary: { routes: 'Маршруты уведомлений', templates: 'Шаблоны уведомлений', silences: 'Правила тишины', recordCount: 'Записей: {count}' },
+    empty: { channels: 'Нет каналов уведомлений', deliveries: 'Нет записей доставки', routes: 'Нет маршрутов уведомлений', templates: 'Нет шаблонов уведомлений', silences: 'Нет правил тишины' },
+    values: { notAvailable: '—' },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', webhookUrl: 'Webhook URL', signingSecret: 'Ключ подписи', botToken: 'Bot Token' } },
+    messages: {
+      loadFailed: 'Не удалось загрузить данные управления уведомлениями', operationFailed: 'Операция управления уведомлениями не выполнена', testUsesChannelTarget: 'Тестовое уведомление будет отправлено на настроенный адрес канала.',
+      secretStoredHint: 'Значение будет сохранено в зашифрованном виде и больше не отобразится открытым текстом.', createSecretFailed: 'Не удалось сохранить секретное значение', invalidHeaders: 'Фиксированные Header должны быть корректным объектом JSON',
+      smtpCredentialsPairRequired: 'Имя пользователя и пароль SMTP необходимо указывать вместе', webhookUrlRequired: 'Webhook URL обязателен', botTokenRequired: 'Telegram Bot Token обязателен',
+      chatIdRequired: 'Telegram Chat ID обязателен', feishuWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота Feishu', dingtalkWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота DingTalk',
+      wecomWebhookUrlInvalid: 'Введите корректный HTTPS Webhook URL робота WeCom', telegramBotTokenInvalid: 'Неверный формат Telegram Bot Token', telegramMessageThreadIdInvalid: 'Telegram Topic ID должен быть положительным целым числом',
+      privateDeploymentAllowlistHint: 'Частные адреса сначала должны быть добавлены в список доверенных HTTPS Origin выше.', privateOriginInvalid: 'Частный адрес должен быть точным HTTPS Origin без пути, запроса, данных пользователя и фрагмента.', privateOriginsSecurityHint: 'Указывайте только схему, хост и необязательный порт. Полные Webhook URL, токены и ключи подписи остаются зашифрованными в сервисе Secret.', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
+    }
+  },
   settings: {
     securityLabel: 'Security settings entry',
     permissionPolicies: {
