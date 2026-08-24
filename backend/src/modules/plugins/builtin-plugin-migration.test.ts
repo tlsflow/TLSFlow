@@ -10,7 +10,7 @@ test('两个原用户插件已作为内置插件注册且保留固定版本身�
 
   assert.equal(migrated.size, 2);
   assert.equal(migrated.get('device.chaitin-safeline-waf')?.version, '0.1.11');
-  assert.equal(migrated.get('device.nginx-proxy-manager')?.version, '0.1.10');
+  assert.equal(migrated.get('device.nginx-proxy-manager')?.version, '0.1.11');
   for (const entry of migrated.values()) {
     assert.equal(entry.manifest.source, 'BUILTIN');
     assert.equal(entry.manifest.trust, 'OFFICIAL_SIGNED');
