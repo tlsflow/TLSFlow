@@ -2,6 +2,7 @@ import type { Router } from 'vue-router'
 import { i18n } from '@/i18n'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { useSystemCapabilitiesStore, type SystemFeature } from '@/stores/system-capabilities.store'
 
 const publicRouteNames = new Set(['login', 'error.forbidden', 'error.notFound'])
 
@@ -9,6 +10,7 @@ export function registerRouterGuards(router: Router): void {
   router.beforeEach(async (to) => {
     const authStore = useAuthStore()
     const permissionStore = usePermissionStore()
+    const systemCapabilities = useSystemCapabilitiesStore()
 
     const routeName = String(to.name ?? '')
     if (publicRouteNames.has(routeName)) {
@@ -27,12 +29,21 @@ export function registerRouterGuards(router: Router): void {
       await permissionStore.loadPermissions()
     }
 
+    if (!systemCapabilities.isLoaded) {
+      await systemCapabilities.load().catch(() => undefined)
+    }
+
     const permission = to.meta.permission
     if (typeof permission === 'string' && !permissionStore.hasPermission(permission)) {
       return {
         name: 'error.forbidden',
         query: { from: to.fullPath, permission }
       }
+    }
+
+    const featureFlag = to.meta.featureFlag
+    if (typeof featureFlag === 'string' && !systemCapabilities.hasFeature(featureFlag as SystemFeature)) {
+      return { name: 'error.notFound', query: { from: to.fullPath } }
     }
 
     return true

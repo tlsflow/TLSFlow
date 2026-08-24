@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import { registerRouterGuards } from '@/router/guards'
@@ -6,6 +6,11 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { resetAuthProviderToMock, setAuthProvider } from '@/providers/auth.provider'
 import { resetPermissionProviderToMock, setPermissionProvider } from '@/providers/permission.provider'
+import { getSystemHealth } from '@/api/modules/system.api'
+
+vi.mock('@/api/modules/system.api', () => ({
+  getSystemHealth: vi.fn()
+}))
 
 describe('路由权限守卫', () => {
   beforeEach(() => {
@@ -13,6 +18,16 @@ describe('路由权限守卫', () => {
     localStorage.clear()
     resetAuthProviderToMock()
     resetPermissionProviderToMock()
+    vi.mocked(getSystemHealth).mockResolvedValue({
+      data: {
+        status: 'OK',
+        service: 'gcac-backend',
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        deploymentArchitecture: 'standard',
+        features: { browserRuntime: true }
+      }
+    } as never)
   })
 
   it('无权限访问受保护路由时跳转 403', async () => {
@@ -79,5 +94,52 @@ describe('路由权限守卫', () => {
     expect(router.currentRoute.value.name).toBe('secret')
     expect(useAuthStore().user?.id).toBe('provider-user')
     expect(usePermissionStore().hasPermission('secret.read')).toBe(true)
+  })
+
+  it('小型架构拒绝进入 Browser Runtime 功能路由', async () => {
+    vi.mocked(getSystemHealth).mockResolvedValue({
+      data: {
+        status: 'OK',
+        service: 'gcac-backend',
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        deploymentArchitecture: 'small',
+        features: { browserRuntime: false }
+      }
+    } as never)
+    const router = createRouter({
+      history: createWebHistory(),
+      routes: [
+        {
+          path: '/browser',
+          name: 'browser',
+          component: { template: '<div />' },
+          meta: {
+            title: 'Browser',
+            module: 'test',
+            requiresAuth: true,
+            permission: 'credential.create',
+            featureFlag: 'browser.runtime'
+          }
+        },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
+        { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } },
+        { path: '/404', name: 'error.notFound', component: { template: '<div />' }, meta: { title: '不存在', module: 'error' } }
+      ]
+    })
+    registerRouterGuards(router)
+    useAuthStore().setSession({
+      user: {
+        id: 'user_test',
+        displayName: '测试用户',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        roles: []
+      }
+    })
+    usePermissionStore().setPermissions(['credential.create'])
+
+    await router.push('/browser')
+    expect(router.currentRoute.value.name).toBe('error.notFound')
   })
 })

@@ -17,6 +17,7 @@ import {
 } from '@/api/modules/credentials.api'
 import { GcModal, GcPageHeader, GcSecretInput, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { useSystemCapabilitiesStore } from '@/stores/system-capabilities.store'
 
 type EditorMode = 'create' | 'edit'
 type UsageItem = CredentialUsage['items'][number]
@@ -34,6 +35,7 @@ interface CredentialFormState {
 }
 
 const { t } = useI18n()
+const systemCapabilities = useSystemCapabilitiesStore()
 const loading = ref(false)
 const loadingSelection = ref(false)
 const saving = ref(false)
@@ -68,6 +70,7 @@ const usageGroups = computed(() => ({
   workflows: usage.value?.items.filter((item) => item.type === 'DEPLOYMENT_PLAN') ?? [],
   plugins: usage.value?.items.filter((item) => item.type === 'PLUGIN_BINDING') ?? [],
 }))
+const browserRuntimeEnabled = computed(() => systemCapabilities.hasFeature('browser.runtime'))
 
 function emptyForm(): CredentialFormState {
   return {
@@ -252,7 +255,10 @@ async function removeSelected(): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void systemCapabilities.load().catch(() => undefined)
+  void load()
+})
 </script>
 
 <template>
@@ -260,7 +266,7 @@ onMounted(load)
     <GcPageHeader :title="t('credentials.title')" :description="t('credentials.description')">
       <template #actions>
         <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
-        <RouterLink class="gc-button" to="/settings/browser-credentials">{{ t('credentials.browser.actions.open') }}</RouterLink>
+        <RouterLink v-if="browserRuntimeEnabled" class="gc-button" to="/settings/browser-credentials">{{ t('credentials.browser.actions.open') }}</RouterLink>
         <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
       </template>
     </GcPageHeader>

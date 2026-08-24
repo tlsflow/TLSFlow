@@ -15,13 +15,22 @@ export const errorResponseSchema: OpenApiSchema = {
 
 export const healthResponseSchema: OpenApiSchema = {
   type: 'object',
-  required: ['status', 'service', 'version', 'timestamp'],
+  required: ['status', 'service', 'version', 'timestamp', 'deploymentArchitecture', 'features'],
   properties: {
     status: { type: 'string', enum: ['OK', 'DEGRADED'] },
     service: { type: 'string' },
     version: { type: 'string' },
     timestamp: { type: 'string', format: 'date-time' },
     dependencies: { type: 'object', additionalProperties: { type: 'string' } },
+    deploymentArchitecture: { type: 'string', enum: ['small', 'standard'] },
+    features: {
+      type: 'object',
+      required: ['browserRuntime'],
+      properties: {
+        browserRuntime: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
   },
 };
 

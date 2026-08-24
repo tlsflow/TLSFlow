@@ -437,6 +437,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'credential.create',
       resourceType: 'credential',
       riskLevel: 'high',
+      featureFlag: 'browser.runtime',
       breadcrumbKeys: ['nav.systemSettings', 'credentials.browser.title'],
       keepAlive: false
     }
