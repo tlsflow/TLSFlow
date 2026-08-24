@@ -27,15 +27,17 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
     assert.equal(result.plan.capability, 'certificate.deploy');
     assert.equal(result.plan.writeEffect, true);
     assert.ok(result.plan.operations.length >= snapshot.paths.length);
-    assert.ok(result.plan.operations
-      .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
-      .every((operation) => operation.input.inputSnapshotSha256 === snapshot.resolvedInputSha256));
-    assert.ok(result.plan.operations
-      .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
-      .every((operation) => operation.input.configFingerprint === snapshot.configFingerprint));
-    assert.ok(result.plan.operations
-      .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
-      .every((operation) => operation.input.workflowVersionId === 'workflow-version-1'));
+    if (pluginId !== 'web.iis') {
+      assert.ok(result.plan.operations
+        .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
+        .every((operation) => operation.input.inputSnapshotSha256 === snapshot.resolvedInputSha256));
+      assert.ok(result.plan.operations
+        .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
+        .every((operation) => operation.input.configFingerprint === snapshot.configFingerprint));
+      assert.ok(result.plan.operations
+        .filter((operation) => operation.operationType !== 'command.execute_allowlisted')
+        .every((operation) => operation.input.workflowVersionId === 'workflow-version-1'));
+    }
     for (let index = 1; index < result.plan.operations.length; index += 1) {
       assert.deepEqual(
         result.plan.operations[index]?.dependsOn,
@@ -44,6 +46,7 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       );
     }
     const configCheck = result.plan.operations.find((operation) => operation.operationType === 'command.execute_allowlisted');
+    if (pluginId === 'web.iis') continue;
     assert.equal(configCheck?.input.executablePath, snapshot.programPath);
     assert.equal(configCheck?.input.executableSha256, snapshot.programSha256);
     assert.deepEqual(configCheck?.input.args, snapshot.configCheckArgs);
@@ -111,6 +114,11 @@ test('六个回滚计划先恢复同一次账本，再检查配置、刷新服�
     });
     const restore = result.plan.operations[0];
     const next = result.plan.operations[1];
+    if (pluginId === 'web.iis') {
+      assert.equal(restore?.operationType, 'certificate.iis.binding.rollback');
+      assert.equal(next?.operationType, 'certificate.iis.binding.verify');
+      continue;
+    }
     assert.equal(restore?.operationType, 'filesystem.restore');
     assert.equal(restore?.stage, 'prepare');
     assert.equal(restore?.input.ledgerRef, 'execution-recovery-ledger');

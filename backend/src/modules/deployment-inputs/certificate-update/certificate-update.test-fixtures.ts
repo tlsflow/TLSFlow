@@ -16,6 +16,7 @@ export const certificateUpdatePluginIds = [
   'web.apache.windows',
   'app.tomcat.linux',
   'app.tomcat.windows',
+  'web.iis',
 ] as const;
 
 export type CertificateUpdateTestPluginId = typeof certificateUpdatePluginIds[number];
@@ -30,16 +31,18 @@ const fixtureOsTypes: Readonly<Record<'linux' | 'windows', string>> = Object.fre
   windows: 'WINDOWS_SERVER_2022',
 });
 
-const fixtureProgramNames: Readonly<Record<'web.nginx' | 'web.apache' | 'app.tomcat', string>> = Object.freeze({
+const fixtureProgramNames: Readonly<Record<'web.nginx' | 'web.apache' | 'app.tomcat' | 'web.iis', string>> = Object.freeze({
   'web.nginx': 'nginx',
   'web.apache': 'apache',
   'app.tomcat': 'java',
+  'web.iis': 'appcmd.exe',
 });
 
-const fixtureConfigCheckArgs: Readonly<Record<'web.nginx' | 'web.apache' | 'app.tomcat', string[]>> = Object.freeze({
+const fixtureConfigCheckArgs: Readonly<Record<'web.nginx' | 'web.apache' | 'app.tomcat' | 'web.iis', string[]>> = Object.freeze({
   'web.nginx': ['-t'],
   'web.apache': ['-t'],
   'app.tomcat': ['--check-config'],
+  'web.iis': [],
 });
 
 export function loadCertificateUpdateContract(pluginId: CertificateUpdateTestPluginId, capability = 'deploy'): CertificateUpdateInputContractV1 {
@@ -57,7 +60,7 @@ export function createResolvedCertificateUpdateInput(
   pluginId: CertificateUpdateTestPluginId,
   overrides: {
     platform?: 'linux' | 'windows';
-    frameworkType?: 'web.nginx' | 'web.apache' | 'app.tomcat';
+    frameworkType?: 'web.nginx' | 'web.apache' | 'app.tomcat' | 'web.iis';
     confidence?: 'EXACT' | 'INFERRED' | 'UNKNOWN';
     configFingerprint?: string;
     secretRefs?: Record<string, string>;
@@ -83,13 +86,18 @@ export function createResolvedCertificateUpdateInput(
       keystoreType: 'PKCS12',
       keyAlias: 'server',
     },
+    WINDOWS_CERTIFICATE_STORE: {
+      storeName: 'My',
+      storeLocation: 'LocalMachine',
+      storeThumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+    },
   });
   const location: CertificateLocationV1 = {
     apiVersion: 'gcac.certificate-location/v1',
     storageKind: contract.artifactKind,
-    sourceConfigPath: path(`${productPath}/conf/server.conf`),
-    serviceName: `${productPath}-confirmed`,
-    programPath: path(`${productPath}/${fixtureProgramNames[frameworkType]}`),
+    sourceConfigPath: frameworkType === 'web.iis' ? 'C:/Windows/System32/inetsrv/config/applicationHost.config' : path(`${productPath}/conf/server.conf`),
+    serviceName: frameworkType === 'web.iis' ? 'W3SVC' : `${productPath}-confirmed`,
+    programPath: frameworkType === 'web.iis' ? 'C:/Windows/System32/inetsrv/appcmd.exe' : path(`${productPath}/${fixtureProgramNames[frameworkType]}`),
     workingDirectory: root,
     configFingerprint,
     confidence: overrides.confidence ?? 'EXACT',
@@ -99,11 +107,13 @@ export function createResolvedCertificateUpdateInput(
   };
   const targetMetadata = {
     frameworkType,
-    bindingKey: 'tls:confirmed-binding',
+    bindingKey: frameworkType === 'web.iis' ? 'iis:confirmed-binding' : 'tls:confirmed-binding',
     programSha256: 'b'.repeat(64),
     workingDirectory: root,
     configCheckArgs: fixtureConfigCheckArgs[frameworkType],
     configCheckArgsTemplate: fixtureConfigCheckArgs[frameworkType],
+    ...(frameworkType === 'web.iis' ? { bindingInformation: '*:443:confirmed.example.test' } : {}),
+    ...(frameworkType === 'web.iis' ? { listener: { certificateFingerprintSha256: '1'.repeat(64) } } : {}),
     ...overrides.targetMetadata,
   };
   const variablesByArtifactKind: Readonly<Record<CertificateUpdateArtifactKind, Record<string, unknown>>> = {
@@ -111,6 +121,14 @@ export function createResolvedCertificateUpdateInput(
       keystorePath: location.keystorePath,
       keystoreType: location.keystoreType,
       keyAlias: location.keyAlias,
+      configPath: location.sourceConfigPath,
+      serviceName: location.serviceName,
+      programPath: location.programPath,
+      configFingerprint,
+    },
+    WINDOWS_CERTIFICATE_STORE: {
+      siteName: 'confirmed.example.test',
+      bindingInformation: '*:443:confirmed.example.test',
       configPath: location.sourceConfigPath,
       serviceName: location.serviceName,
       programPath: location.programPath,
@@ -139,13 +157,21 @@ export function createResolvedCertificateUpdateInput(
       application: { id: 'asset-1', address: 'confirmed.example.test', serverName: 'confirmed.example.test', port: 443, protocol: 'HTTPS' },
       host: { id: 'host-1', hostname: 'confirmed-host', osType: fixtureOsTypes[platform] },
       site: { id: 'site-1', type: 'web.site', name: 'confirmed.example.test', metadata: {} },
-      target: { id: 'target-1', type: 'tls.binding', key: 'tls:confirmed-binding', bindingKey: 'tls:confirmed-binding', certificateLocation: location, metadata: targetMetadata },
+      target: {
+        id: 'target-1',
+        type: 'tls.binding',
+        key: frameworkType === 'web.iis' ? 'target-1' : 'tls:confirmed-binding',
+        bindingKey: frameworkType === 'web.iis' ? 'iis:confirmed-binding' : 'tls:confirmed-binding',
+        certificateLocation: location,
+        metadata: targetMetadata,
+      },
       deployment: { targets: [{ id: 'target-1', name: 'confirmed', certificateLocation: location, metadata: {} }], certificateResourceName: 'certificateArtifact' },
     },
     variables,
     connections: {},
     credentials: {
       KEYSTORE: { keystorePassword: { credentialId: 'credential-1', kind: 'USERNAME_PASSWORD' as const, secretRefs: overrides.secretRefs ?? { password: 'secret://certificate/tomcat-password' } } },
+      WINDOWS_CERTIFICATE_STORE: {},
       PEM_FILES: {},
     }[contract.artifactKind],
     artifacts: {
@@ -154,6 +180,7 @@ export function createResolvedCertificateUpdateInput(
         artifactSha256: `sha256:${'c'.repeat(64)}`,
         outputs: {
           KEYSTORE: { pfxBase64: 'cA==', jksBase64: 'SkVLUw==' },
+          WINDOWS_CERTIFICATE_STORE: { pfxBase64: 'cA==', pfxPassword: 'password', fingerprintSha256: 'f'.repeat(64) },
           PEM_FILES: {
             leafPem: '-----BEGIN CERTIFICATE-----\nZHVtbXk=\n-----END CERTIFICATE-----',
             privateKeyPem: '-----BEGIN PRIVATE KEY-----\nZHVtbXk=\n-----END PRIVATE KEY-----',
@@ -165,6 +192,7 @@ export function createResolvedCertificateUpdateInput(
     provenance,
     sensitivePaths: {
       KEYSTORE: ['credentials.keystorePassword'],
+      WINDOWS_CERTIFICATE_STORE: [],
       PEM_FILES: ['artifacts.certificateArtifact.outputs.privateKeyPem'],
     }[contract.artifactKind],
     issues: [],

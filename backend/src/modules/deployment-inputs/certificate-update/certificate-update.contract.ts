@@ -6,12 +6,12 @@ import type { CertificateUpdatePluginId } from '../../plugins/canonical-plugin-i
 export const CERTIFICATE_UPDATE_INPUT_CONTRACT_API_VERSION = 'gcac.certificate-update-input/v1' as const;
 
 export type CertificateUpdatePlatform = 'linux' | 'windows';
-export type CertificateUpdateArtifactKind = 'PEM_FILES' | 'KEYSTORE';
+export type CertificateUpdateArtifactKind = 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE';
 
 export interface CertificateUpdateInputContractV1 {
   apiVersion: typeof CERTIFICATE_UPDATE_INPUT_CONTRACT_API_VERSION;
   pluginId: CertificateUpdatePluginId;
-  frameworkType: 'web.nginx' | 'web.apache' | 'app.tomcat';
+  frameworkType: 'web.nginx' | 'web.apache' | 'app.tomcat' | 'web.iis';
   platform: CertificateUpdatePlatform;
   artifactKind: CertificateUpdateArtifactKind;
   deploymentInputContract: DeploymentInputContractV1;
@@ -25,6 +25,7 @@ const pluginProfiles: Readonly<Record<CertificateUpdatePluginId, Pick<Certificat
   'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', artifactKind: 'PEM_FILES' },
   'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', artifactKind: 'KEYSTORE' },
   'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', artifactKind: 'KEYSTORE' },
+  'web.iis': { frameworkType: 'web.iis', platform: 'windows', artifactKind: 'WINDOWS_CERTIFICATE_STORE' },
 };
 
 export function certificateUpdateProfile(pluginId: string): Pick<CertificateUpdateInputContractV1, 'frameworkType' | 'platform' | 'artifactKind'> | undefined {
@@ -36,7 +37,7 @@ export function validateCertificateUpdateInputContract(input: unknown): Certific
   exact(value.apiVersion, CERTIFICATE_UPDATE_INPUT_CONTRACT_API_VERSION, 'apiVersion');
   const pluginId = stringValue(value.pluginId, 'pluginId') as CertificateUpdatePluginId;
   const expected = pluginProfiles[pluginId];
-  if (!expected) fail('pluginId', '不是六个证书更新插件 ID');
+  if (!expected) fail('pluginId', '不是当前证书更新插件 ID');
   exact(value.frameworkType, expected.frameworkType, 'frameworkType');
   exact(value.platform, expected.platform, 'platform');
   exact(value.artifactKind, expected.artifactKind, 'artifactKind');
@@ -52,7 +53,16 @@ export function validateCertificateUpdateInputContract(input: unknown): Certific
   if (!deploymentInputContract) fail('deploymentInputContract', '必须嵌入通用 DeploymentInputContractV1');
   const normalizedDeploymentInputContract = validateDeploymentInputContractV1(deploymentInputContract);
   const credentialSlots = Object.keys(normalizedDeploymentInputContract.credentials);
-  if (expected.artifactKind === 'KEYSTORE') {
+  if (expected.artifactKind === 'WINDOWS_CERTIFICATE_STORE') {
+    if (credentialSlots.length > 0) fail('deploymentInputContract.credentials', 'IIS PFX 密码由证书 Artifact 自动提供，不得要求用户绑定凭据');
+    const artifactOutputs = normalizedDeploymentInputContract.artifacts.certificateArtifact?.artifactContract.outputs;
+    if (!artifactOutputs?.pfxBase64 || !artifactOutputs.pfxPassword || !artifactOutputs.fingerprintSha256) {
+      fail('deploymentInputContract.artifacts', 'IIS Artifact 必须声明 pfxBase64、pfxPassword 和 fingerprintSha256 输出');
+    }
+    if (artifactOutputs.pfxPassword.role !== 'pkcs12_password' || artifactOutputs.pfxPassword.sensitive !== true) {
+      fail('deploymentInputContract.artifacts', 'IIS PFX 密码输出必须是敏感 pkcs12_password');
+    }
+  } else if (expected.artifactKind === 'KEYSTORE') {
     if (credentialSlots.length !== 1 || credentialSlots[0] !== 'keystorePassword') {
       fail('deploymentInputContract.credentials', 'KeyStore 插件只能声明 keystorePassword 凭据槽位');
     }

@@ -17,10 +17,15 @@ export interface CertificateUpdateResolvedSnapshotV1 {
   resourceHash?: string;
   frameworkType: string;
   platform: 'linux' | 'windows';
-  artifactKind: 'PEM_FILES' | 'KEYSTORE';
+  artifactKind: 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE';
   targetId: string;
   siteId: string;
+  siteName: string;
+  bindingInformation: string;
   bindingKey: string;
+  storeName?: string;
+  storeLocation?: string;
+  storeThumbprint?: string;
   paths: string[];
   sourceConfigPath: string;
   serviceName: string;
@@ -32,6 +37,8 @@ export interface CertificateUpdateResolvedSnapshotV1 {
   configFingerprint: string;
   observedAt: string;
   artifactDigest: string;
+  expectedFingerprintSha256?: string;
+  previousFingerprintSha256?: string;
   secretRefs: string[];
   provenance: ResolvedDeploymentInputV1['provenance'];
   keystoreType?: 'JKS' | 'PKCS12';
@@ -63,6 +70,7 @@ export function resolveCertificateUpdateSnapshot(
   const site = context.site;
   const target = context.target;
   const location = target?.certificateLocation;
+  const isIisCertificateStore = contract.artifactKind === 'WINDOWS_CERTIFICATE_STORE';
   if (!host?.osType || normalizePlatform(host.osType) !== contract.platform) fail('PLATFORM', '目标平台与插件不匹配或缺失');
   const frameworkType = exactFact(
     'frameworkType',
@@ -81,6 +89,18 @@ export function resolveCertificateUpdateSnapshot(
   // Target 绑定事实优先；只有 Target 侧完全缺失时才回退到 SiteAsset，避免不同标识格式被误判为冲突。
   const bindingKey = targetBindingKey ?? exactFact('tls.binding', site?.bindingInformation);
   if (!bindingKey) fail('BINDING', 'tls.binding 事实缺失');
+  const siteName = exactFact('site', site?.name, target?.metadata.siteName, resolved.variables.siteName);
+  const bindingInformation = exactFact(
+    'tls.binding',
+    site?.bindingInformation,
+    target?.metadata.bindingInformation,
+    resolved.variables.bindingInformation,
+    ...(isIisCertificateStore ? [] : [bindingKey]),
+  );
+  if (!siteName || !bindingInformation) fail('BINDING', 'IIS 站点名称或绑定信息事实缺失');
+  if (isIisCertificateStore && !isIisBindingInformation(bindingInformation)) {
+    fail('BINDING', 'IIS 必须使用 Windows Agent 发现的原生 bindingInformation，不能使用 ManagedTarget 稳定标识');
+  }
   if (!location || location.confidence !== 'EXACT') fail('LOCATION', '证书位置缺失、不可信或 confidence=UNKNOWN');
   if (!location.observedAt || !Number.isFinite(Date.parse(location.observedAt))) fail('FINGERPRINT', '观察时间缺失或格式无效');
   const configFingerprint = rawDigest(location.configFingerprint, 'configFingerprint');
@@ -88,8 +108,10 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalDigestFact(resolved.variables.configFingerprint, configFingerprint, 'configFingerprint');
   assertOptionalDigestFact(target.metadata.configFingerprint, configFingerprint, 'configFingerprint');
   const sourceConfigPath = requiredPath(location.sourceConfigPath, 'sourceConfigPath');
-  const serviceName = requiredIdentifier(location.serviceName, 'serviceName');
-  const programPath = requiredPath(location.programPath, 'programPath');
+  const serviceName = isIisCertificateStore ? (readString(location.serviceName) ?? 'W3SVC') : requiredIdentifier(location.serviceName, 'serviceName');
+  const programPath = isIisCertificateStore
+    ? (readString(location.programPath) ?? 'C:/Windows/System32/inetsrv/appcmd.exe')
+    : requiredPath(location.programPath, 'programPath');
   const metadata = target.metadata;
   assertOptionalPath(resolved.variables.certificatePath, location.certificatePath, 'leafPath', contract.platform);
   assertOptionalPath(resolved.variables.privateKeyPath, location.privateKeyPath, 'privateKeyPath', contract.platform);
@@ -98,15 +120,17 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalPath(resolved.variables.configPath, location.sourceConfigPath, 'sourceConfigPath', contract.platform);
   assertOptionalFact(resolved.variables.serviceName, serviceName, 'serviceName');
   assertOptionalPath(resolved.variables.programPath, programPath, 'programPath', contract.platform);
-  const programSha256 = rawDigest(readString(metadata.programSha256, location.programSha256, location.programPath && readString(metadata.programDigest)), 'programSha256');
+  const programSha256 = isIisCertificateStore
+    ? rawDigest(readString(metadata.programSha256, location.programSha256, '0'.repeat(64)), 'programSha256')
+    : rawDigest(readString(metadata.programSha256, location.programSha256, location.programPath && readString(metadata.programDigest)), 'programSha256');
   const workingDirectory = requiredPath(
-    readString(metadata.workingDirectory, metadata.programWorkingDirectory, location.workingDirectory),
+    readString(metadata.workingDirectory, metadata.programWorkingDirectory, location.workingDirectory, isIisCertificateStore ? 'C:/Windows/System32/inetsrv' : undefined),
     'workingDirectory',
   );
-  const configCheckArgs = stringArray(metadata.configCheckArgs ?? metadata.testArgs, 'configCheckArgs');
-  const configCheckArgsTemplate = stringArray(metadata.configCheckArgsTemplate ?? configCheckArgs, 'configCheckArgsTemplate');
+  const configCheckArgs = isIisCertificateStore ? [] : stringArray(metadata.configCheckArgs ?? metadata.testArgs, 'configCheckArgs');
+  const configCheckArgsTemplate = isIisCertificateStore ? [] : stringArray(metadata.configCheckArgsTemplate ?? configCheckArgs, 'configCheckArgsTemplate');
   if (configCheckArgs.length !== configCheckArgsTemplate.length) fail('PROGRAM', '配置检查参数模板长度不一致');
-  assertSafeProgramFacts(programPath, configCheckArgs, configCheckArgsTemplate);
+  if (!isIisCertificateStore) assertSafeProgramFacts(programPath, configCheckArgs, configCheckArgsTemplate);
   const paths = resolvePaths(location, contract.artifactKind, contract.platform);
   const keystoreType = contract.artifactKind === 'KEYSTORE' && (location.keystoreType === 'JKS' || location.keystoreType === 'PKCS12')
     ? location.keystoreType
@@ -116,6 +140,23 @@ export function resolveCertificateUpdateSnapshot(
     fail('KEYSTORE', 'KeyStore 类型、Alias 或 SecretRef 缺失');
   }
   const artifactDigest = resolveArtifactDigest(resolved, contract.artifactKind, keystoreType);
+  const expectedFingerprintSha256 = contract.artifactKind === 'WINDOWS_CERTIFICATE_STORE'
+    ? rawDigest(readString(
+      resolved.artifacts.certificateArtifact?.outputs?.fingerprintSha256,
+      resolved.artifacts.certificateArtifact?.expectedFingerprintSha256,
+      resolved.artifacts.certificateArtifact?.outputs?.expectedFingerprintSha256,
+    ), 'expectedFingerprintSha256')
+    : undefined;
+  const previousFingerprintSha256 = isIisCertificateStore
+    ? optionalDigest(
+      readString(
+        (target.metadata.listener as Record<string, unknown> | undefined)?.certificateFingerprintSha256,
+        (target.metadata.currentCertificate as Record<string, unknown> | undefined)?.fingerprintSha256,
+        (target.metadata.configuredCertificate as Record<string, unknown> | undefined)?.fingerprintSha256,
+      ),
+      'previousFingerprintSha256',
+    )
+    : undefined;
   const secretRefs = resolveSecretRefs(resolved.credentials, contract);
   if (contract.artifactKind === 'KEYSTORE' && secretRefs.length === 0) fail('KEYSTORE', 'KeyStore 类型、Alias 或 SecretRef 缺失');
   return {
@@ -128,7 +169,12 @@ export function resolveCertificateUpdateSnapshot(
     artifactKind: contract.artifactKind,
     targetId: target.id,
     siteId: site.id,
+    siteName,
+    bindingInformation,
     bindingKey,
+    ...(location.storeName ? { storeName: location.storeName } : {}),
+    ...(location.storeLocation ? { storeLocation: location.storeLocation } : {}),
+    ...(location.storeThumbprint ? { storeThumbprint: location.storeThumbprint } : {}),
     paths,
     sourceConfigPath,
     serviceName,
@@ -140,6 +186,8 @@ export function resolveCertificateUpdateSnapshot(
     configFingerprint,
     observedAt: location.observedAt,
     artifactDigest,
+    ...(expectedFingerprintSha256 ? { expectedFingerprintSha256 } : {}),
+    ...(previousFingerprintSha256 ? { previousFingerprintSha256 } : {}),
     secretRefs,
     provenance: structuredClone(resolved.provenance),
     ...(keystoreType ? { keystoreType } : {}),
@@ -183,6 +231,14 @@ export function assertCertificateUpdatePlanBinding(
   }
   for (const path of planPaths) if (!paths.has(path)) fail('PLAN_PATH', '计划包含不在输入快照中的路径');
   const hasLedger = plan.operations.some((operation) => operation.input.ledgerRef === 'execution-recovery-ledger');
+  const isIisCertificateStore = snapshot.artifactKind === 'WINDOWS_CERTIFICATE_STORE';
+  if (isIisCertificateStore) {
+    const hasIisUpdate = plan.operations.some((operation) => operation.operationType === 'certificate.iis.binding.update');
+    const hasIisBinding = plan.operations.some((operation) => operation.operationType === 'certificate.iis.binding.verify');
+    if (!hasIisUpdate && plan.capability !== 'certificate.verify') fail('PLAN_BINDING', 'IIS 变更计划缺少固定绑定更新原语');
+    if (!hasIisBinding) fail('PLAN_BINDING', 'IIS 计划缺少固定绑定验证原语');
+    return;
+  }
   if (!planPaths.size || !hasFingerprint || !hasArtifact || !hasService) {
     fail('PLAN_BINDING', '计划未绑定路径、配置指纹、Artifact 和服务事实');
   }
@@ -196,6 +252,7 @@ function resolvePaths(
   kind: CertificateUpdateInputContractV1['artifactKind'],
   platform: CertificateUpdateInputContractV1['platform'],
 ): string[] {
+  if (kind === 'WINDOWS_CERTIFICATE_STORE') return [];
   if (kind === 'KEYSTORE') return uniquePaths([requiredPath(location.keystorePath, 'keystorePath')], platform);
   const paths = [requiredPath(location.certificatePath, 'leafPath'), requiredPath(location.privateKeyPath, 'privateKeyPath')];
   if (location.chainPath) paths.push(requiredPath(location.chainPath, 'chainPath'));
@@ -236,6 +293,13 @@ function validateArtifactOutputs(
   kind: CertificateUpdateInputContractV1['artifactKind'],
   keystoreType?: CertificateUpdateResolvedSnapshotV1['keystoreType'],
 ): void {
+  if (kind === 'WINDOWS_CERTIFICATE_STORE') {
+    if (typeof outputs.pfxBase64 !== 'string' || !isBase64(outputs.pfxBase64)) fail('ARTIFACT', 'IIS Artifact 缺少有效的 pfxBase64 输出');
+    if (typeof outputs.pfxPassword !== 'string' || outputs.pfxPassword.length === 0 || outputs.pfxPassword.length > 1024) fail('ARTIFACT', 'IIS Artifact 缺少有效的 pfxPassword 输出');
+    if (typeof outputs.fingerprintSha256 !== 'string') fail('ARTIFACT', 'IIS Artifact 缺少 fingerprintSha256 输出');
+    rawDigest(outputs.fingerprintSha256, 'fingerprintSha256');
+    return;
+  }
   if (kind === 'KEYSTORE') {
     const outputName = keystoreType === 'JKS' ? 'jksBase64' : 'pfxBase64';
     if (typeof outputs[outputName] !== 'string' || !isBase64(outputs[outputName] as string)) {
@@ -286,6 +350,10 @@ function resolveSecretRefs(
     if (actualSlots.length > 0) fail('SECRET', 'PEM 证书更新不得携带凭据或 SecretRef');
     return [];
   }
+  if (contract.artifactKind === 'WINDOWS_CERTIFICATE_STORE') {
+    if (actualSlots.length > 0) fail('SECRET', 'IIS PFX 密码由证书 Artifact 提供，不得携带凭据或 SecretRef');
+    return [];
+  }
 
   if (actualSlots.length !== 1 || actualSlots[0] !== 'keystorePassword') fail('SECRET', 'KeyStore 只允许 keystorePassword 凭据槽位');
   const credential = credentials.keystorePassword;
@@ -324,10 +392,26 @@ function requiredIdentifier(value: unknown, field: string): string {
   return result;
 }
 
+/** IIS BindingInformation 的格式是 ipAddress:port:hostHeader。
+ * 该校验只接受原生 Binding 形态，明确拒绝 iis:*:443:host 这类宿主稳定标识。
+ */
+function isIisBindingInformation(value: string): boolean {
+  const normalized = value.trim();
+  const match = normalized.match(/^(\*|[0-9A-Fa-f:.]+|\[[0-9A-Fa-f:]+\]):(\d{1,5}):(.*)$/u);
+  if (!match) return false;
+  const port = Number(match[2]);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 && !/[\u0000\r\n]/.test(match[3] ?? '');
+}
+
 function rawDigest(value: unknown, field: string): string {
   const result = readString(value)?.replace(/^sha256:/i, '').toLowerCase();
   if (!result || !digestPattern.test(result)) fail('DIGEST', `${field} 必须是 SHA-256 摘要`);
   return result;
+}
+
+function optionalDigest(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  return rawDigest(value, field);
 }
 
 function prefixedDigest(value: unknown, field: string): string {

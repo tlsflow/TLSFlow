@@ -28,7 +28,7 @@ test('六个插件都能从同一类 Agent 事实生成不可变快照', () => {
     assert.equal(snapshot.pluginVersionId, `${pluginId}-version-1`);
     assert.equal(snapshot.resourceHash, `sha256:${'e'.repeat(64)}`);
     assert.equal(snapshot.provenance['variables.configPath']?.source, 'asset');
-    assert.ok(snapshot.paths.length >= 1);
+    if (pluginId !== 'web.iis') assert.ok(snapshot.paths.length >= 1);
   }
 });
 

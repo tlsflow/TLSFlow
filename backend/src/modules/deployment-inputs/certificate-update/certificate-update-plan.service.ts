@@ -155,7 +155,38 @@ function bindCertificateArtifactContent(
   const pathIndex = new Map(snapshot.paths.map((path, index) => [normalizePath(path), index]));
   const outputs = artifact.outputs as Record<string, unknown>;
   return operations.map((operation) => {
-    if (operation.operationType !== 'certificate.material.validate' && operation.operationType !== 'filesystem.atomic_replace') return operation;
+    if (operation.operationType === 'certificate.iis.binding.update') {
+      const pfxBase64 = outputs.pfxBase64;
+      const pfxPassword = outputs.pfxPassword;
+      if (typeof pfxBase64 !== 'string' || typeof pfxPassword !== 'string' || pfxPassword.length === 0) {
+        throw new AppError('VALIDATION_FAILED', 'IIS 证书 Artifact 缺少 PFX 内容或密码');
+      }
+      return {
+        ...operation,
+        input: {
+          ...operation.input,
+          pfxBase64,
+          pfxPassword,
+          artifactDigest: snapshot.artifactDigest,
+          expectedFingerprintSha256: snapshot.expectedFingerprintSha256,
+        },
+      };
+    }
+    if (operation.operationType === 'certificate.iis.binding.verify') {
+      return {
+        ...operation,
+        input: {
+          ...operation.input,
+          artifactDigest: snapshot.artifactDigest,
+          expectedFingerprintSha256: snapshot.pluginId === 'web.iis' && capability === 'certificate.rollback'
+            ? snapshot.previousFingerprintSha256
+            : snapshot.expectedFingerprintSha256,
+        },
+      };
+    }
+    if (operation.operationType !== 'certificate.material.validate'
+      && operation.operationType !== 'filesystem.backup'
+      && operation.operationType !== 'filesystem.atomic_replace') return operation;
     const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
     if (!path) throw new AppError('VALIDATION_FAILED', '证书更新文件操作缺少目标路径');
     const index = pathIndex.get(normalizePath(path));
@@ -213,9 +244,11 @@ function expandOperations(
     const definition = item.definition;
     const operationId = item.pathIndex === undefined ? definition.operationId : `${definition.operationId}-${item.pathIndex + 1}`;
     const input = resolveRefs(definition.input, snapshot, item.pathIndex);
-    // command.execute_allowlisted 使用 Agent 的严格输入白名单，不能混入
-    // 快照元数据；其余原子动作保留相同的执行身份绑定，供授权和审计校验。
-    if (definition.operationType !== 'command.execute_allowlisted') {
+    // command.execute_allowlisted 和 IIS 专用原语都有严格的固定输入合同，不能混入
+    // 通用快照元数据；其余原子动作保留相同的执行身份绑定，供授权和审计校验。
+    const hasStrictInputContract = definition.operationType === 'command.execute_allowlisted'
+      || definition.operationType.startsWith('certificate.iis.binding.');
+    if (!hasStrictInputContract) {
       if (workflowVersionId) input.workflowVersionId = workflowVersionId;
       if (resourceHash) input.resourceHash = resourceHash;
       input.inputSnapshotSha256 = snapshot.resolvedInputSha256;

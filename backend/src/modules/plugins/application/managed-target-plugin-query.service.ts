@@ -34,6 +34,7 @@ import { migrateInputBindingsToContract } from '../../deployment-inputs/applicat
 import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import { certificateFormats } from '../../certificates/schema/certificates.schema.js';
 import { GCAC_VERSION } from '../../../common/version.js';
+import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -59,6 +60,7 @@ export class ManagedTargetPluginQueryService {
   private readonly contractLoader = new DeploymentInputContractLoader();
   private readonly bindingSaves = new DeploymentInputBindingSaveService();
   private readonly inputProjections = new DeploymentInputProjectionService();
+  private readonly onboardingRecipes = new ApplicationOnboardingRecipeLoader();
 
   constructor(private readonly db: DatabasePort) {}
 
@@ -133,11 +135,33 @@ export class ManagedTargetPluginQueryService {
       if (!applicationAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
       const approvalRequired = applicationAsset.deploymentStrategy?.approvalRequired === true;
 
-      const certificateFormatId = input.value.certificateFormatId !== undefined
-        ? input.value.certificateFormatId
-        : applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+      const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
+      const overridePlugin = input.value.pluginOverride
+        ? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId)
+        : undefined;
+      const overrideContract = overridePlugin
+        ? this.contractLoader.fromPlugin(overridePlugin, capabilityKey)
+        : undefined;
+      const overrideUsesFixedPkcs12 = overrideContract ? hasRequiredPkcs12Output(overrideContract) : false;
+      const deploymentDefaults = overridePlugin
+        ? this.resolvePluginDeploymentDefaults(overridePlugin, capabilityKey)
+        : undefined;
+      const submittedCertificateFormatId = input.value.certificateFormatId?.trim() || undefined;
+      const preparedDefaults = deploymentDefaults && overridePlugin
+        ? await this.prepareApplicationOnboardingDefaults({
+          tenantId: input.tenantId,
+          pluginVersionId: overridePlugin.id,
+          defaults: deploymentDefaults,
+          certificateFormatId: overrideUsesFixedPkcs12 ? undefined : submittedCertificateFormatId,
+          inputBindings: input.value.pluginOverride?.inputBindings,
+        })
+        : undefined;
+      // 插件接入配方声明的证书格式是插件合同的一部分，不能被旧资产或页面提交值覆盖。
+      let certificateFormatId = preparedDefaults?.certificateFormatId
+        ?? submittedCertificateFormatId
+        ?? (applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
           ? applicationAsset.deploymentStrategy.managedTarget?.certificateFormatId
-          : undefined;
+          : undefined);
       const currentTarget = await services.assets.getApplicationAssetTargetByApplicationAssetId(input.tenantId, input.applicationAssetId);
       if (input.value.expectedTargetVersion !== undefined && currentTarget?.version !== input.value.expectedTargetVersion) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', 'ApplicationAssetTarget 版本冲突', {
@@ -154,7 +178,6 @@ export class ManagedTargetPluginQueryService {
           ...(input.value.metadata ? { metadata: input.value.metadata } : {}),
         });
 
-      const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
       const executionMode = input.value.executionMode ?? 'PLUGIN';
       if (executionMode === 'WORKFLOW_OVERRIDE') {
         if (input.value.pluginOverride) throw new AppError('EXECUTION_SOURCE_CONFLICT', '工作流覆盖模式不得同时提交插件覆盖');
@@ -208,9 +231,15 @@ export class ManagedTargetPluginQueryService {
           executionLocations: context.availableExecutionLocations,
           compatibility,
         });
-        if (certificateFormatId?.trim()) {
-          const plugin = await services.plugins.getVersion(inherited.pluginVersionId);
-          const artifacts = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim());
+        const plugin = await services.plugins.getVersion(inherited.pluginVersionId);
+        const inheritedDefaults = this.resolvePluginDeploymentDefaults(plugin, capabilityKey);
+        const inheritedContract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+        const inheritedUsesFixedPkcs12 = hasRequiredPkcs12Output(inheritedContract);
+        if ((inheritedUsesFixedPkcs12 || !certificateFormatId) && inheritedDefaults?.certificateFormat) {
+          certificateFormatId = await this.resolveCertificateFormatId(input.tenantId, inheritedDefaults.certificateFormat);
+        }
+        if (certificateFormatId) {
+          const artifacts = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
           const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
             deviceId: context.host.id,
             managedTargetId: context.managedTarget.id,
@@ -257,19 +286,27 @@ export class ManagedTargetPluginQueryService {
         });
         return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
-      const plugin = await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
+      const plugin = overridePlugin ?? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
       const requestedInputBindings = input.value.pluginOverride.inputBindings ?? emptyInputBindingsV1();
-      const artifacts = Object.keys(requestedInputBindings.artifacts).length > 0
-        ? requestedInputBindings.artifacts
-        : certificateFormatId?.trim()
-          ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim())
+      const contract = overrideContract ?? this.contractLoader.fromPlugin(plugin, capabilityKey);
+      const preparedInput = preparedDefaults ?? {
+        inputBindings: requestedInputBindings,
+        ...(certificateFormatId ? { certificateFormatId } : {}),
+      };
+      certificateFormatId = preparedInput.certificateFormatId ?? certificateFormatId;
+      const fixedArtifactFormat = hasRequiredPkcs12Output(contract);
+      const artifacts = fixedArtifactFormat && certificateFormatId
+        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
+        : Object.keys(preparedInput.inputBindings.artifacts).length > 0
+        ? preparedInput.inputBindings.artifacts
+        : certificateFormatId
+          ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
           : {};
       const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
         deviceId: context.host.id,
         managedTargetId: context.managedTarget.id,
         applicationAssetId: input.applicationAssetId,
       });
-      const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
       const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates, plugin.id, contract);
       const validation = this.bindingSaves.validate({
         pluginVersionId: plugin.id,
@@ -278,7 +315,7 @@ export class ManagedTargetPluginQueryService {
         deviceDefault: layers.device,
         targetOverride: layers.target,
         currentAssetOverride: layers.asset,
-        submitted: { ...requestedInputBindings, artifacts },
+        submitted: { ...preparedInput.inputBindings, artifacts },
       });
       if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
       const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);
@@ -426,17 +463,34 @@ export class ManagedTargetPluginQueryService {
     }
 
     const requestedInputBindings = input.inputBindings ?? emptyInputBindingsV1();
-    const artifacts = Object.keys(requestedInputBindings.artifacts).length > 0
-      ? requestedInputBindings.artifacts
-      : input.certificateFormatId?.trim()
-        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, input.certificateFormatId.trim())
+    const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+    const deploymentDefaults = this.resolvePluginDeploymentDefaults(plugin, capabilityKey);
+    const fixedArtifactFormat = hasRequiredPkcs12Output(contract);
+    const preparedInput = deploymentDefaults
+      ? await this.prepareApplicationOnboardingDefaults({
+        tenantId: input.tenantId,
+        pluginVersionId: plugin.id,
+        defaults: deploymentDefaults,
+        // IIS 等固定 PKCS#12 插件必须从接入配方解析 PFX，忽略旧资产提交的格式 ID。
+        certificateFormatId: fixedArtifactFormat ? undefined : input.certificateFormatId,
+        inputBindings: requestedInputBindings,
+      })
+      : {
+        inputBindings: requestedInputBindings,
+        ...(input.certificateFormatId?.trim() ? { certificateFormatId: input.certificateFormatId.trim() } : {}),
+      };
+    const artifacts = fixedArtifactFormat && preparedInput.certificateFormatId
+      ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedInput.certificateFormatId)
+      : Object.keys(preparedInput.inputBindings.artifacts).length > 0
+      ? preparedInput.inputBindings.artifacts
+      : preparedInput.certificateFormatId
+        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedInput.certificateFormatId)
         : {};
     const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
       deviceId: context.host.id,
       managedTargetId: context.managedTarget.id,
       ...(applicationAssetId ? { applicationAssetId } : {}),
     });
-    const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
     const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates, plugin.id, contract);
     const validation = this.bindingSaves.validate({
       pluginVersionId: plugin.id,
@@ -448,7 +502,7 @@ export class ManagedTargetPluginQueryService {
       deviceDefault: layers.device,
       targetOverride: layers.target,
       currentAssetOverride: layers.asset,
-      submitted: { ...requestedInputBindings, artifacts },
+      submitted: { ...preparedInput.inputBindings, artifacts },
     });
     return this.inputProjections.project({
       contract,
@@ -528,6 +582,7 @@ export class ManagedTargetPluginQueryService {
     tenantId: string;
     pluginVersionId: string;
     defaults: ApplicationOnboardingDeploymentDefaultsV1;
+    certificateFormatId?: string;
     inputBindings?: InputBindingsV1;
   }): Promise<{ inputBindings: InputBindingsV1; certificateFormatId?: string }> {
     const inputBindings = emptyInputBindingsV1();
@@ -538,11 +593,20 @@ export class ManagedTargetPluginQueryService {
     const submittedCertificateFormatId = Object.values(input.inputBindings?.artifacts ?? {})
       .map((binding) => binding.certificateFormatId?.trim())
       .find((value): value is string => Boolean(value));
-    const certificateFormatId = submittedCertificateFormatId
+    const certificateFormatId = input.certificateFormatId?.trim()
       ?? (input.defaults.certificateFormat
         ? await this.resolveCertificateFormatId(input.tenantId, input.defaults.certificateFormat)
-        : undefined);
+        : undefined)
+      ?? submittedCertificateFormatId;
     return { inputBindings, ...(certificateFormatId ? { certificateFormatId } : {}) };
+  }
+
+  private resolvePluginDeploymentDefaults(
+    plugin: UnifiedPluginVersionRecord,
+    capabilityKey: string,
+  ): ApplicationOnboardingDeploymentDefaultsV1 | undefined {
+    const recipes = this.onboardingRecipes.loadOptional(plugin);
+    return recipes?.find((item) => item.recipe.deploymentDefaults?.capabilityKey === capabilityKey)?.recipe.deploymentDefaults;
   }
 
   private async createCompatibilityContext(
@@ -627,6 +691,11 @@ function hasBindingValues(bindings: InputBindingsV1): boolean {
     || Object.keys(bindings.connections).length > 0
     || Object.keys(bindings.credentials).length > 0
     || Object.keys(bindings.artifacts).length > 0;
+}
+
+function hasRequiredPkcs12Output(contract: DeploymentInputContractV1): boolean {
+  return Object.values(contract.artifacts).some((definition) => Object.values(definition.artifactContract?.outputs ?? {})
+    .some((output) => output.required !== false && String(output.role ?? '').trim().toLowerCase() === 'pkcs12_bundle'));
 }
 
 function mergeInputBindings(target: InputBindingsV1, patch?: InputBindingsV1): void {

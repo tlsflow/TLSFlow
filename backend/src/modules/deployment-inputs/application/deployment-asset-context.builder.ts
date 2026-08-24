@@ -76,7 +76,10 @@ export class DeploymentAssetContextBuilder {
         type: site.siteType,
         name: site.siteName,
         key: site.siteKey,
-        bindingInformation: site.bindingInformation ?? managedTarget?.bindingKey,
+        // ManagedTarget.bindingKey 是宿主稳定标识（例如 iis:*:443:example.com），
+        // 不是 IIS ServerManager 返回的原生 BindingInformation。原生事实缺失时
+        // 必须让输入门禁失败关闭，不能把稳定标识伪装成可写入的绑定。
+        bindingInformation: site.bindingInformation ?? readNonEmptyString(targetMetadata?.bindingInformation),
         hostHeader: site.hostHeader,
         listenIp: site.listenIp,
         port: site.port,
@@ -191,20 +194,56 @@ function mergeFrameworkRuntimeFacts(
   metadata: Record<string, unknown>,
   rawFacts: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!rawFacts) return metadata;
   const currentLocation = asRecord(metadata.certificateLocation);
-  const frameworkLocation = asRecord(rawFacts.certificateLocation);
+  const frameworkLocation = asRecord(rawFacts?.certificateLocation);
+  const runtimeFacts = {
+    ...pickCertificateLocationRuntimeFacts(metadata),
+    ...pickCertificateLocationRuntimeFacts(rawFacts),
+  };
+  if (!rawFacts && !currentLocation) return metadata;
   if (currentLocation) {
     return {
       ...metadata,
       certificateLocation: {
-        ...rawFacts,
+        ...runtimeFacts,
         ...frameworkLocation,
         ...currentLocation,
       },
     };
   }
   return { ...rawFacts, ...metadata };
+}
+
+/**
+ * 历史投影把证书位置存成嵌套对象，但把运行事实保留在 Target/listener 顶层。
+ * 只提取证书位置合同允许的字段，避免把 listener、厂商字段复制进位置对象。
+ * Framework rawFacts 优先于 Target 顶层事实，当前嵌套 certificateLocation 最终优先。
+ */
+function pickCertificateLocationRuntimeFacts(source: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!source) return {};
+  const keys = [
+    'storageKind',
+    'keystoreType',
+    'keyAlias',
+    'storeName',
+    'storeLocation',
+    'storeThumbprint',
+    'sourceConfigPath',
+    'configPath',
+    'serviceName',
+    'programPath',
+    'programSha256',
+    'workingDirectory',
+    'testCommand',
+    'reloadCommand',
+    'configFingerprint',
+  ] as const;
+  return Object.fromEntries(keys.flatMap((key) => {
+    const value = source[key];
+    if (value === undefined) return [];
+    if (key === 'configPath' && source.sourceConfigPath !== undefined) return [];
+    return [[key === 'configPath' ? 'sourceConfigPath' : key, value]];
+  }));
 }
 
 /**
@@ -216,6 +255,7 @@ function mergeManagedTargetListenerFacts(metadata: Record<string, unknown>): Rec
   const listener = asRecord(metadata.listener);
   if (!listener) return { ...metadata };
   const runtimeFactKeys = [
+    'bindingInformation',
     'serviceName',
     'programPath',
     'programSha256',

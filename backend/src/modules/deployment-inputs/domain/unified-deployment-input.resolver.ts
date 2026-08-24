@@ -366,6 +366,7 @@ function authority(context: DeploymentAssetContextV1): string {
 
 function bindingInformation(context: DeploymentAssetContextV1): string {
   return context.site?.bindingInformation
+    ?? (typeof context.target?.metadata.bindingInformation === 'string' ? context.target.metadata.bindingInformation : undefined)
     ?? context.target?.bindingKey
     ?? `${context.site?.listenIp ?? '*'}:${context.site?.port ?? context.application.port}:${context.site?.hostHeader ?? context.application.serverName}`;
 }

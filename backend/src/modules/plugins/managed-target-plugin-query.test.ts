@@ -530,3 +530,88 @@ test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书�
   assert.equal(linuxPlugin.compatible, false);
   assert.equal(linuxPlugin.reasons.some((reason) => reason.dimension === 'productFamily' && reason.actual === 'WINDOWS_SERVER'), true);
 });
+
+test('Windows Full Agent 的 web.iis ManagedTarget 可选择 IIS 证书更新插件', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations', {
+    checksum: (content) => createHash('sha256').update(content, 'utf8').digest('hex'),
+  });
+  const tenantId = 'tenant-windows-iis-compatibility';
+  const agentId = 'agent-windows-iis-compatibility';
+  const now = new Date().toISOString();
+  await new PgAgentsRepository(db).upsertRegistration({
+    id: agentId,
+    tenantId,
+    agentKey: agentId,
+    descriptor: {
+      agentKey: agentId,
+      hostname: 'win-iis-regression.example.test',
+      version: '0.1.0',
+      osType: 'WINDOWS',
+      ipAddress: '10.20.30.41',
+      labels: [],
+    },
+    status: 'ONLINE',
+    registeredAt: now,
+    updatedAt: now,
+    version: 1,
+  });
+
+  const assets = new PgAssetsRepository(db);
+  const host = await assets.getHost(tenantId, `host_${agentId}`);
+  assert.equal(host?.osType, 'WINDOWS');
+  assert.equal(host?.agentId, agentId);
+  const framework = await assets.createFrameworkInstance(tenantId, {
+    deviceId: host!.id,
+    frameworkType: 'web.iis',
+    frameworkKey: 'web.iis:runtime-effective-config',
+    discoveryProviderKey: `agent:${agentId}`,
+    displayName: 'IIS',
+    frameworkVersion: '10.0',
+    discoverySource: 'AGENT',
+  });
+  const site = await assets.createSiteAsset(tenantId, {
+    frameworkInstanceId: framework.id,
+    deviceId: host!.id,
+    discoveryProviderKey: `agent:${agentId}`,
+    siteType: 'web.site',
+    siteName: 'Default Web Site',
+    siteKey: 'default-web-site',
+    hostHeader: 'iis.example.test',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'AGENT',
+  });
+  const target = await assets.createManagedTarget(tenantId, {
+    deviceId: host!.id,
+    frameworkInstanceId: framework.id,
+    siteId: site.id,
+    discoveryProviderKey: `agent:${agentId}`,
+    targetType: 'tls.binding',
+    targetKey: '*:443:iis.example.test',
+    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+    executionLocations: ['AGENT'],
+  });
+
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
+  const packages = (await new BuiltinUnifiedPluginLoader().loadPackages()).filter((item) => (
+    String((item.manifest as { pluginId?: string }).pluginId) === 'web.iis'
+  ));
+  const installed = await new BuiltinUnifiedPluginLoader().installPackages(plugins, packages);
+  const workflowPublisher = new PluginWorkflowPublisherService(
+    new WorkflowTemplatesApplicationService(),
+    new PluginWorkflowBindingsRepository(db),
+  );
+  for (const plugin of installed) await workflowPublisher.publishPlugin(plugin);
+
+  const compatible = await new ManagedTargetPluginQueryService(db).listCompatiblePlugins({
+    tenantId,
+    managedTargetId: target.id,
+    capabilityKey: 'certificate.deploy',
+    locale: 'zh-CN',
+  });
+  const iisPlugin = compatible.items.find((item) => item.pluginId === 'web.iis');
+  assert.ok(iisPlugin, JSON.stringify(compatible.items));
+  assert.equal(iisPlugin.compatible, true, JSON.stringify(iisPlugin.reasons));
+  assert.deepEqual(iisPlugin.executionLocations, ['AGENT']);
+});
