@@ -208,10 +208,13 @@ export class App {
       return this.respond(404, 'Not Found', context, { 'content-type': 'text/plain; charset=utf-8' });
     }
     const file = await readStaticFile(candidate);
-    const fallback = !file && extname(requestPath) === ''
+    const directoryIndex = !file
+      ? await readStaticFile(resolve(candidate, 'index.html'))
+      : undefined;
+    const fallback = !file && !directoryIndex && extname(requestPath) === ''
       ? await readStaticFile(resolve(normalizedRoot, 'index.html'))
       : undefined;
-    const selected = file ?? fallback;
+    const selected = file ?? directoryIndex ?? fallback;
     if (!selected) return undefined;
     return this.respond(200, headOnly ? '' : selected.content, context, {
       'content-type': selected.contentType,

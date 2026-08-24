@@ -41,7 +41,7 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /src/backend/dist ./dist
 RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js
 COPY --from=build /src/scripts ./scripts
-COPY --from=build /src/backend/src/database/migrations ./src/database/migrations
+COPY --from=build --chown=gcac:gcac /src/backend/src/database/migrations ./src/database/migrations
 COPY --from=build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
 COPY --from=build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows
 COPY build/agent-release-bundle/ /opt/gcac/agent-release-bundle/

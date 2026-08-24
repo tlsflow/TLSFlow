@@ -12,6 +12,7 @@ COPY web/package.json web/package-lock.json ./
 COPY version /src/version
 RUN npm ci
 COPY web ./
+COPY docs/Documentation/.vitepress/dist ./public/docs
 RUN npm run build
 
 FROM ${WEB_IMAGE}

@@ -1,4 +1,5 @@
 import { deploymentFeatures, type DeploymentArchitecture } from '../../../config/deployment-architecture.js';
+import { GCAC_VERSION } from '../../../common/version.js';
 import { HealthDomainService } from '../domain/health.domain-service.js';
 import type { HealthResponseDto } from '../dto/health.dto.js';
 import { StaticHealthRepository, type HealthRepository } from '../repository/health.repository.js';
@@ -18,7 +19,7 @@ export class HealthApplicationService {
     return {
       status: this.domainService.resolveOverallStatus(dependencies),
       service: 'gcac-backend',
-      version: '0.0.1',
+      version: GCAC_VERSION,
       timestamp: new Date().toISOString(),
       dependencies,
       deploymentArchitecture: this.deploymentArchitecture,

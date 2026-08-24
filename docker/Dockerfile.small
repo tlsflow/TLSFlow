@@ -11,6 +11,7 @@ COPY web/package.json web/package-lock.json ./
 COPY version /src/version
 RUN npm ci
 COPY web ./
+COPY docs/Documentation/.vitepress/dist ./public/docs
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS backend-build
@@ -54,7 +55,7 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY --from=backend-build /src/backend/dist ./dist
 RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js
 COPY --from=backend-build /src/scripts ./scripts
-COPY --from=backend-build /src/backend/src/database/migrations ./src/database/migrations
+COPY --from=backend-build --chown=gcac:gcac /src/backend/src/database/migrations ./src/database/migrations
 COPY --from=backend-build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
 COPY --from=backend-build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows
 COPY --from=web-build /src/web/dist ./web
