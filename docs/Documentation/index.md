@@ -29,8 +29,8 @@ TLSFlow（证书生命周期管理平台）把证书资产、CA（证书颁发�
 
 ## 从哪里开始
 
-- 安装部署：进入[安装部署](/installation/)，按需选择[标准部署](/installation/20260822-标准部署)或[单机部署](/installation/20260822-单机部署)。
-- 首次使用：阅读[首次登录](/installation/20260822-首次登录)，再从[用户手册](/manual/)的仪表盘开始。
+- 安装部署：进入[安装部署](/installation/)，按需选择[标准部署](/installation/standard-deployment)或[单机部署](/installation/single-node-deployment)。
+- 首次使用：阅读[首次登录](/installation/first-login)，再从[用户手册](/manual/)的仪表盘开始。
 - 日常管理：按控制台菜单阅读[用户手册](/manual/)，每个一级、二级菜单都有独立页面。
 - 开发扩展：阅读[开发文档](/developer/)；开发文档不是对所有外部厂商环境的兼容承诺。
 

@@ -5,73 +5,73 @@ const zhSidebar = [
     text: "一、安装部署",
     items: [
       { text: "安装部署总览", link: "/installation/" },
-      { text: "快速开始", link: "/installation/20260822-快速开始" },
-      { text: "标准部署", link: "/installation/20260822-标准部署" },
-      { text: "单机部署", link: "/installation/20260822-单机部署" },
-      { text: "部署参数", link: "/installation/20260822-部署参数" },
-      { text: "首次登录", link: "/installation/20260822-首次登录" },
+      { text: "快速开始", link: "/installation/quick-start" },
+      { text: "标准部署", link: "/installation/standard-deployment" },
+      { text: "单机部署", link: "/installation/single-node-deployment" },
+      { text: "部署参数", link: "/installation/deployment-parameters" },
+      { text: "首次登录", link: "/installation/first-login" },
     ]
   },
   {
     text: "二、用户手册",
     items: [
       { text: "用户手册总览", link: "/manual/" },
-      { text: "仪表盘", link: "/manual/20260822-仪表盘" },
-      { text: "快速开始（仪表盘）", link: "/manual/20260822-仪表盘快速开始" },
+      { text: "仪表盘", link: "/manual/dashboard" },
+      { text: "快速开始（仪表盘）", link: "/manual/dashboard-quick-start" },
       {
         text: "证书管理",
         items: [
-          { text: "证书管理总览", link: "/manual/20260822-证书管理" },
-          { text: "证书资产", link: "/manual/20260822-证书资产" },
-          { text: "ACME 自动化", link: "/manual/20260822-ACME自动化" },
-          { text: "CA 操作", link: "/manual/20260822-CA操作" },
-          { text: "证书格式配置", link: "/manual/20260822-证书格式配置" }
+          { text: "证书管理总览", link: "/manual/certificate-management" },
+          { text: "证书资产", link: "/manual/certificate-assets" },
+          { text: "ACME 自动化", link: "/manual/acme-automation" },
+          { text: "CA 操作", link: "/manual/ca-operations" },
+          { text: "证书格式配置", link: "/manual/certificate-format-configuration" }
         ]
       },
       {
         text: "资产中心",
         items: [
-          { text: "资产中心总览", link: "/manual/20260822-资产中心" },
-          { text: "应用资产", link: "/manual/20260822-应用资产" },
-          { text: "云账号", link: "/manual/20260822-云账号" },
-          { text: "设备", link: "/manual/20260822-设备" },
-          { text: "Gateway", link: "/manual/20260822-Gateway" }
+          { text: "资产中心总览", link: "/manual/asset-center" },
+          { text: "应用资产", link: "/manual/application-assets" },
+          { text: "云账号", link: "/manual/cloud-accounts" },
+          { text: "设备", link: "/manual/devices" },
+          { text: "Gateway", link: "/manual/Gateway" }
         ]
       },
       {
         text: "证书部署",
         items: [
-          { text: "证书部署总览", link: "/manual/20260822-证书部署" },
-          { text: "自动化", link: "/manual/20260822-自动化" },
-          { text: "工作流模板", link: "/manual/20260822-工作流模板" },
-          { text: "执行记录", link: "/manual/20260822-执行记录" }
+          { text: "证书部署总览", link: "/manual/certificate-deployment" },
+          { text: "自动化", link: "/manual/automation" },
+          { text: "工作流模板", link: "/manual/workflow-templates" },
+          { text: "执行记录", link: "/manual/execution-records" }
         ]
       },
-      { text: "插件中心", link: "/manual/20260822-插件中心" },
-      { text: "监控分析（含报表入口）", link: "/manual/20260822-监控分析" },
-      { text: "日志审计", link: "/manual/20260822-日志审计" },
+      { text: "插件中心", link: "/manual/plugin-center" },
+      { text: "监控分析（含报表入口）", link: "/manual/monitoring" },
+      { text: "日志审计", link: "/manual/audit-logs" },
       {
         text: "系统设置",
         items: [
-          { text: "系统设置总览", link: "/manual/20260822-系统设置" },
-          { text: "系统设置", link: "/manual/20260822-系统设置页面" },
-          { text: "用户", link: "/manual/20260822-用户" },
-          { text: "角色", link: "/manual/20260822-角色" },
-          { text: "凭据", link: "/manual/20260822-凭据" },
-          { text: "通知", link: "/manual/20260822-通知" },
-          { text: "许可证", link: "/manual/20260822-许可证" }
+          { text: "系统设置总览", link: "/manual/system-settings" },
+          { text: "系统设置", link: "/manual/system-settings-page" },
+          { text: "用户", link: "/manual/users" },
+          { text: "角色", link: "/manual/roles" },
+          { text: "凭据", link: "/manual/credentials" },
+          { text: "通知", link: "/manual/notifications" },
+          { text: "许可证", link: "/manual/licenses" }
         ]
       },
       {
         text: "补充主题",
         items: [
-          { text: "租户与 RBAC", link: "/manual/20260822-租户与RBAC" },
-          { text: "Agent", link: "/manual/20260822-Agent" },
-          { text: "报表", link: "/manual/20260822-报表" },
-          { text: "备份与恢复", link: "/manual/20260822-备份与恢复" },
-          { text: "升级与回滚", link: "/manual/20260822-升级与回滚" },
-          { text: "故障排查", link: "/manual/20260822-故障排查" },
-          { text: "安全注意事项", link: "/manual/20260822-安全注意事项" }
+          { text: "租户与 RBAC", link: "/manual/tenant-and-rbac" },
+          { text: "Agent", link: "/manual/Agent" },
+          { text: "报表", link: "/manual/reports" },
+          { text: "备份与恢复", link: "/manual/backup-and-restore" },
+          { text: "升级与回滚", link: "/manual/upgrade-and-rollback" },
+          { text: "故障排查", link: "/manual/troubleshooting" },
+          { text: "安全注意事项", link: "/manual/security-considerations" }
         ]
       },
     ]
@@ -80,9 +80,9 @@ const zhSidebar = [
     text: "三、开发文档",
     items: [
       { text: "开发文档总览", link: "/developer/" },
-      { text: "插件开发", link: "/developer/20260822-插件开发" },
-      { text: "插件示例：Nginx Proxy Manager", link: "/developer/20260822-插件示例-Nginx-Proxy-Manager" },
-      { text: "工作流开发规范", link: "/developer/20260822-工作流开发规范" },
+      { text: "插件开发", link: "/developer/plugin-development" },
+      { text: "插件示例：Nginx Proxy Manager", link: "/developer/plugin-example-nginx-proxy-manager" },
+      { text: "工作流开发规范", link: "/developer/workflow-development" },
     ]
   }
 ];

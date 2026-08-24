@@ -24,6 +24,8 @@ const localePrefixes: Record<DocLocale, string> = {
   "zh-TW": "zh-TW"
 };
 
+const localePrefixValues = Object.values(localePrefixes).filter(Boolean);
+
 export function localePrefix(locale: DocLocale) {
   return localePrefixes[locale];
 }
@@ -38,10 +40,16 @@ export function relativePathToLink(relativePath: string) {
   return `/${withoutIndex.replace(/\.md$/, "")}`;
 }
 
-export function getAlternateLink(relativePath: string, targetLocale: DocLocale) {
+export function documentKey(relativePath: string) {
+  // 语言目录之外的相对路径就是稳定文档键，中英文页面因此天然一一对应。
   const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const localePrefix = localePrefixValues.find((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  return localePrefix ? normalized.slice(localePrefix.length + 1) : normalized;
+}
+
+export function getAlternateLink(relativePath: string, targetLocale: DocLocale) {
+  const sourcePath = documentKey(relativePath);
   const prefix = localePrefix(targetLocale);
-  const sourcePath = normalized.replace(/^(en|fr|ja|ko|pt|ru|zh-TW)\//, "");
   const targetPath = prefix ? `${prefix}/${sourcePath}` : sourcePath;
   return relativePathToLink(targetPath);
 }

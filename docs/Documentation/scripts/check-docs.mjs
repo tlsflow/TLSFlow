@@ -6,8 +6,16 @@ import { fileURLToPath } from "node:url";
 const documentationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectRoot = path.resolve(documentationRoot, "..", "..");
 const localeDirectories = new Map([
-  ["", "zh-CN"]
+  ["", "zh-CN"],
+  ["en", "en-US"],
+  ["fr", "fr-FR"],
+  ["ja", "ja-JP"],
+  ["ko", "ko-KR"],
+  ["pt", "pt-BR"],
+  ["ru", "ru-RU"],
+  ["zh-TW", "zh-TW"]
 ]);
+const localeDirectoryNames = new Set([...localeDirectories.keys()].filter(Boolean));
 const requiredMetadata = ["title", "description", "docStatus", "productVersion", "sourceLocale", "locale", "specRefs", "codeRefs", "testRefs", "lastVerified"];
 const allowedStatuses = new Set(["implemented", "in_review", "todo"]);
 const sensitivePatterns = [
@@ -94,6 +102,30 @@ function resolveDocLink(sourceFile, target) {
   return path.resolve(path.dirname(sourceFile), cleanTarget);
 }
 
+function getDocumentKey(filePath) {
+  const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
+  const firstSegment = relativePath.split("/")[0];
+  return localeDirectoryNames.has(firstSegment)
+    ? relativePath.slice(firstSegment.length + 1)
+    : relativePath;
+}
+
+function getDocumentLocale(filePath) {
+  const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
+  const firstSegment = relativePath.split("/")[0];
+  return localeDirectories.get(firstSegment) ?? "zh-CN";
+}
+
+function checkFilename(filePath) {
+  const filename = path.basename(filePath);
+  if (!/^[\x20-\x7e]+$/.test(filename)) {
+    errors.push(`${filePath}: 文件名必须只包含 ASCII 字符，中文标题请放在 Frontmatter 或正文中`);
+  }
+  if (/20\d{2}(?:-?\d{2}){2}/.test(filename)) {
+    errors.push(`${filePath}: 文件名不得包含日期，日期请放在 Frontmatter 元数据中`);
+  }
+}
+
 function checkMetadata(filePath, frontmatter) {
   for (const key of requiredMetadata) {
     if (!getMetadata(frontmatter, key)) {
@@ -107,9 +139,7 @@ function checkMetadata(filePath, frontmatter) {
   }
 
   const locale = getMetadata(frontmatter, "locale");
-  const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
-  const directory = relativePath.includes("/") ? relativePath.split("/")[0] : "";
-  const expectedLocale = localeDirectories.get(directory);
+  const expectedLocale = getDocumentLocale(filePath);
   if (expectedLocale && locale !== expectedLocale) {
     errors.push(`${filePath}: locale 应为 ${expectedLocale}，实际为 ${locale}`);
   }
@@ -162,11 +192,30 @@ if (!markdownFiles.length) {
 
 for (const filePath of markdownFiles) {
   const text = fs.readFileSync(filePath, "utf8");
+  checkFilename(filePath);
   const frontmatter = getFrontmatter(text, filePath);
   checkMetadata(filePath, frontmatter);
   checkLinks(filePath, text);
   checkEncoding(filePath);
   checkSensitiveContent(filePath, text);
+}
+
+const documentsByKey = new Map();
+for (const filePath of markdownFiles) {
+  const documentKey = getDocumentKey(filePath);
+  const locale = getDocumentLocale(filePath);
+  if (!documentsByKey.has(documentKey)) {
+    documentsByKey.set(documentKey, new Map());
+  }
+  const localizedDocuments = documentsByKey.get(documentKey);
+  if (locale && localizedDocuments.has(locale)) {
+    errors.push(`${filePath}: 文档路径与 ${localizedDocuments.get(locale)} 重复，语言目录必须使用唯一的同路径页面`);
+  } else if (locale) {
+    localizedDocuments.set(locale, filePath);
+  }
+  if (locale && locale !== "zh-CN" && !localizedDocuments.has("zh-CN")) {
+    errors.push(`${filePath}: 翻译页面缺少同路径的 zh-CN 权威页面：${documentKey}`);
+  }
 }
 
 if (errors.length) {

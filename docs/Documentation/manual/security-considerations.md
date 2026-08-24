@@ -26,4 +26,4 @@ lastVerified: 2026-08-22
 - 外部 Webhook、DNS Provider 和目标主机按租户网络策略限制；不要为了排障长期关闭 TLS 校验。
 - 保留审计事件、执行快照和回滚清单；发生外部状态未知时先确认目标事实，再决定重试或补偿。
 
-另外，标准版的 Web 端口（默认 `8080`）和 Backend 端口（默认 `3003`）职责不同；公网只应发布经过 HTTPS 保护的 Web。Browser Runtime 仅通过 Web 的 `/vnc/` 代理访问，任何直接暴露调试端口的做法都不属于 TLSFlow Compose 的安全配置。
+另外，标准版的 Web 端口（默认 `8085`）和 Backend 端口（默认 `3003`）职责不同；公网只应发布经过 HTTPS 保护的 Web。Browser Runtime 仅通过 Web 的 `/vnc/` 代理访问，任何直接暴露调试端口的做法都不属于 TLSFlow Compose 的安全配置。

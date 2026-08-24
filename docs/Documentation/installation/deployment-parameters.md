@@ -25,7 +25,7 @@ lastVerified: 2026-08-22
 | `GCAC_DEPLOYMENT_ARCHITECTURE` | `standard` | `small` |
 | `GCAC_PERSISTENCE_BACKEND` | `postgres` | `pglite` |
 | 数据库 | `db` 服务、PostgreSQL 16 | PGlite 数据卷 |
-| Web 端口 | `GCAC_PORT`，默认 `8080` | `GCAC_PORT`，默认 `3003` |
+| Web 端口 | `GCAC_PORT`，默认 `8085` | `GCAC_PORT`，默认 `8085` |
 
 ## 必填参数
 
@@ -81,7 +81,7 @@ lastVerified: 2026-08-22
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `GCAC_PORT` | 标准 `8080`，单机 `3003` | Web 对外端口 |
+| `GCAC_PORT` | 标准和单机均为 `8085` | Web 对外端口 |
 | `GCAC_BACKEND_PORT` | `3003` | 标准版 Backend 对外端口 |
 | `POSTGRES_DB` | `gcac` | 数据库名 |
 | `POSTGRES_USER` | `gcac` | 数据库用户 |

@@ -32,4 +32,4 @@ lastVerified: 2026-08-22
 
 刷新插件市场不会改变已创建的部署计划。若插件执行失败，保留插件版本、Binding、请求 ID 和结构化错误，先检查目标兼容性及租户权限；写请求超时按外部状态未知处理。
 
-Nginx Proxy Manager 的完整实现示例见[开发文档中的插件示例](../developer/20260822-插件示例-Nginx-Proxy-Manager.md)。
+Nginx Proxy Manager 的完整实现示例见[开发文档中的插件示例](../developer/plugin-example-nginx-proxy-manager.md)。

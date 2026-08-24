@@ -31,7 +31,7 @@ cd tlsflow
 
 ## 构建并启动
 
-先按[部署参数](./20260822-部署参数.md)准备当前 Shell 或 CI Secret 中的必填变量，再按部署规模执行。标准版和单机版都需要 Agent Release Bundle（Agent 发布包）；它包含 Linux/Windows Agent、Windows Compatibility Agent 安装资源及 SHA-256 清单。先在仓库根目录执行：
+先按[部署参数](./deployment-parameters.md)准备当前 Shell 或 CI Secret 中的必填变量，再按部署规模执行。标准版和单机版都需要 Agent Release Bundle（Agent 发布包）；它包含 Linux/Windows Agent、Windows Compatibility Agent 安装资源及 SHA-256 清单。先在仓库根目录执行：
 
 ```bash
 node docker/build-agent-release-bundle.mjs
@@ -44,7 +44,7 @@ node docker/build-local.mjs --architecture small
 GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)" docker compose --env-file docker/versions.env --profile small -f docker/compose.yml up -d
 ```
 
-标准部署命令见[标准部署](./20260822-标准部署.md)，单机部署命令见[单机部署](./20260822-单机部署.md)。如果使用本地文件保存变量，请先将变量安全导出到当前 Shell，再执行上述命令；不要把密钥提交到仓库。
+标准部署命令见[标准部署](./standard-deployment.md)，单机部署命令见[单机部署](./single-node-deployment.md)。如果使用本地文件保存变量，请先将变量安全导出到当前 Shell，再执行上述命令；不要把密钥提交到仓库。
 
 ## 判断是否启动成功
 

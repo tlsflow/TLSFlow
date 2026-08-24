@@ -22,7 +22,7 @@ lastVerified: 2026-08-22
 
 ## 1. 准备变量
 
-在当前 Shell 或 CI Secret 中至少设置 `POSTGRES_PASSWORD`、`GCAC_TOKEN_SECRET`、`GCAC_INITIAL_ADMIN_PASSWORD`、`GCAC_SECRET_KEK`、`GCAC_CA_CONFIRMATION_SECRET`、`BROWSER_RUNTIME_SHARED_SECRET`，以及插件 Runner 和策略授权进程要求的变量。完整清单见[部署参数](./20260822-部署参数.md)。如果用本地文件保存变量，执行 Compose 前必须先安全导出到当前 Shell。
+在当前 Shell 或 CI Secret 中至少设置 `POSTGRES_PASSWORD`、`GCAC_TOKEN_SECRET`、`GCAC_INITIAL_ADMIN_PASSWORD`、`GCAC_SECRET_KEK`、`GCAC_CA_CONFIRMATION_SECRET`、`BROWSER_RUNTIME_SHARED_SECRET`，以及插件 Runner 和策略授权进程要求的变量。完整清单见[部署参数](./deployment-parameters.md)。如果用本地文件保存变量，执行 Compose 前必须先安全导出到当前 Shell。
 
 ## 2. 构建 Agent 发布包和镜像
 
@@ -51,7 +51,7 @@ GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)" \
 docker compose --env-file docker/versions.env --profile standard -f docker/compose.yml up -d
 ```
 
-如果需要重新构建，追加 `--build`。Web 默认访问端口为 `8080`，Backend 默认端口为 `3003`；对外只建议发布 Web，Backend 端口仅用于受控运维和健康检查。
+如果需要重新构建，追加 `--build`。Web 默认访问端口为 `8085`，Backend 默认端口为 `3003`；对外只建议发布 Web，Backend 端口仅用于受控运维和健康检查。
 
 ## 4. 验证
 
@@ -60,7 +60,7 @@ docker compose --profile standard -f docker/compose.yml ps
 docker compose --profile standard -f docker/compose.yml logs db backend web browser-runtime
 ```
 
-确认 `db` 通过健康检查、Backend 完成迁移并监听 `3003`，Web 和 Browser Runtime 均为健康状态，再访问 `http://<主机地址>:8080/`。Browser Runtime 的 CDP、RFB 和 `8787` 端口不映射到主机；需要远程浏览器会话时只能经 Web 的 `/vnc/` 代理访问。若 Web 无法调用 API，检查反向代理和 Backend 容器网络，不要把 `BROWSER_RUNTIME_URL` 指向公网地址。
+确认 `db` 通过健康检查、Backend 完成迁移并监听 `3003`，Web 和 Browser Runtime 均为健康状态，再访问 `http://<主机地址>:8085/`。Browser Runtime 的 CDP、RFB 和 `8787` 端口不映射到主机；需要远程浏览器会话时只能经 Web 的 `/vnc/` 代理访问。若 Web 无法调用 API，检查反向代理和 Backend 容器网络，不要把 `BROWSER_RUNTIME_URL` 指向公网地址。
 
 ## 运行边界
 

@@ -20,7 +20,7 @@ lastVerified: 2026-08-22
 
 ## 启动
 
-将[部署参数](./20260822-部署参数.md)中的单机变量注入当前 Shell 或 CI Secret 后，在仓库根目录执行：
+将[部署参数](./deployment-parameters.md)中的单机变量注入当前 Shell 或 CI Secret 后，在仓库根目录执行：
 
 ```bash
 node docker/build-local.mjs --architecture small
@@ -28,7 +28,7 @@ GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)" \
 docker compose --env-file docker/versions.env --profile small -f docker/compose.yml up -d
 ```
 
-默认地址为 `http://<主机地址>:3003/`。端口冲突时设置 `GCAC_PORT`，例如 `GCAC_PORT=31003`。单机容器使用 `gcac_small_pglite` 和 `gcac_small_workflows` 命名卷，并以只读根文件系统运行；用户插件从宿主机 `data/plugins/<pluginId>/` 只读挂载。
+默认地址为 `http://<主机地址>:8085/`。端口冲突时设置 `GCAC_PORT`，例如 `GCAC_PORT=8103`。单机容器使用 `gcac_small_pglite` 和 `gcac_small_workflows` 命名卷，并以只读根文件系统运行；用户插件从宿主机 `data/plugins/<pluginId>/` 只读挂载。
 
 ## 验证和限制
 
@@ -37,4 +37,4 @@ docker compose --profile small -f docker/compose.yml ps
 docker compose --profile small -f docker/compose.yml logs small
 ```
 
-确认迁移完成、登录可用后再导入测试证书。单机版不包含标准版的独立 PostgreSQL、Web 反向代理和 Browser Runtime；需要这些能力时改用[标准部署](./20260822-标准部署.md)，不要在运行中的 PGlite 目录上直接复制文件。备份和恢复必须先停止 `small` 容器，再按[备份与恢复](../manual/20260822-备份与恢复.md)处理卷。
+确认迁移完成、登录可用后再导入测试证书。单机版不包含标准版的独立 PostgreSQL、Web 反向代理和 Browser Runtime；需要这些能力时改用[标准部署](./standard-deployment.md)，不要在运行中的 PGlite 目录上直接复制文件。备份和恢复必须先停止 `small` 容器，再按[备份与恢复](../manual/backup-and-restore.md)处理卷。
