@@ -22,42 +22,38 @@ import (
 // 独立端口（管理 18935 / 中继 18934）与独立安装路径（/opt/gcac/gateway 等）。
 // 只承载网关职责：
 //   - TCP 中继：私有密钥认证（ed25519 挑战应答）+ 网络层转发，不解析应用协议；
-//   - 网关探测：gateway.probe（tcp/http/tls 可达性）；
-//   - 网关转发：gateway.forward.agent_task（向目标 Agent 队列转发已授权任务）。
+//   - 注册、心跳、能力上报和健康端口。
 //
 // 不包含 Full Agent 的本地计划执行、事实采集、Web 库存与证书操作。
 
 const (
-	gatewayConfigSchema     = "gcac.gateway-agent.v1"
-	defaultManagementPort   = 18935
-	defaultHeartbeat        = 10
-	defaultTaskPoll         = 60
-	defaultHealthCheck      = 30
-	defaultOfflineTTL       = 180
-	gatewayAdapterAgentTask = "forward.agent_task"
+	gatewayConfigSchema    = "gcac.gateway-agent.v1"
+	defaultManagementPort  = 18935
+	defaultHeartbeat       = 10
+	gatewayRelayAdapter    = "relay.tcp"
+	gatewayRelayCapability = "gateway.relay.tcp"
 )
 
 var agentVersion = "0.1.0"
 
 type AgentConfig struct {
-	SchemaVersion              string                   `json:"schemaVersion"`
-	TenantID                   string                   `json:"tenantId"`
-	AgentKey                   string                   `json:"agentKey"`
-	EnrollmentToken            string                   `json:"enrollmentToken"`
-	Zone                       string                   `json:"zone"`
-	ControlPlane               string                   `json:"controlPlaneUrl"`
-	Heartbeat                  int                      `json:"heartbeatIntervalSeconds"`
-	TaskPollIntervalSeconds    int                      `json:"taskPollIntervalSeconds"`
-	HealthCheckIntervalSeconds int                      `json:"healthCheckIntervalSeconds"`
-	OfflineTimeoutSeconds      int                      `json:"offlineTimeoutSeconds"`
-	ManagementListenAddress    string                   `json:"managementListenAddress"`
-	ManagementPort             int                      `json:"managementPort"`
-	RelayEnabled               bool                     `json:"relayEnabled"`
-	RelayListenAddress         string                   `json:"relayListenAddress"`
-	RelayPort                  int                      `json:"relayPort"`
-	RelayClientPublicKeys      relayClientPublicKeyList `json:"relayClientPublicKeys"`
-	RelayIdleTimeoutSeconds    int                      `json:"relayIdleTimeoutSeconds"`
-	Paths                      struct {
+	SchemaVersion           string                   `json:"schemaVersion"`
+	TenantID                string                   `json:"tenantId"`
+	AgentKey                string                   `json:"agentKey"`
+	EnrollmentToken         string                   `json:"enrollmentToken"`
+	Zone                    string                   `json:"zone"`
+	ControlPlane            string                   `json:"controlPlaneUrl"`
+	Heartbeat               int                      `json:"heartbeatIntervalSeconds"`
+	ManagementListenAddress string                   `json:"managementListenAddress"`
+	ManagementPort          int                      `json:"managementPort"`
+	RelayEnabled            bool                     `json:"relayEnabled"`
+	RelayListenAddress      string                   `json:"relayListenAddress"`
+	RelayPort               int                      `json:"relayPort"`
+	RelayClientPublicKeys   relayClientPublicKeyList `json:"relayClientPublicKeys"`
+	RelayAllowedTargets     []string                 `json:"relayAllowedTargets"`
+	RelayAllowedPorts       []int                    `json:"relayAllowedPorts"`
+	RelayIdleTimeoutSeconds int                      `json:"relayIdleTimeoutSeconds"`
+	Paths                   struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`
 			DataDir    string `json:"dataDir"`
@@ -122,7 +118,7 @@ func usage() {
   gcac-gateway-agent status --config=<path>
   gcac-gateway-agent version
 
-Gateway Agent 独立于 Full Agent：只负责 TCP 中继、网关探测与网关任务转发。
+Gateway Agent 独立于 Full Agent：只负责鉴权后的 TCP 直接转发。
 `, agentVersion)
 }
 
@@ -132,11 +128,11 @@ func isGatewayEnabled(config *AgentConfig) bool {
 }
 
 func gatewayRouteChannels() []string {
-	return []string{"probe.tcp", "probe.http", "probe.agent", gatewayAdapterAgentTask}
+	return []string{gatewayRelayAdapter}
 }
 
 func gatewayCapabilityKeys() []string {
-	return []string{"gateway.probe.tcp", "gateway.probe.http", "gateway.probe.agent", "gateway.forward.agent_task"}
+	return []string{gatewayRelayCapability}
 }
 
 func loadConfig(path string) (*AgentConfig, error) {
@@ -171,27 +167,6 @@ func effectiveHeartbeatSeconds(config *AgentConfig) int {
 		return config.Heartbeat
 	}
 	return defaultHeartbeat
-}
-
-func effectiveTaskPollSeconds(config *AgentConfig) int {
-	if config.TaskPollIntervalSeconds > 0 {
-		return config.TaskPollIntervalSeconds
-	}
-	return defaultTaskPoll
-}
-
-func effectiveHealthCheckSeconds(config *AgentConfig) int {
-	if config.HealthCheckIntervalSeconds > 0 {
-		return config.HealthCheckIntervalSeconds
-	}
-	return defaultHealthCheck
-}
-
-func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
-	if config.OfflineTimeoutSeconds > 0 {
-		return config.OfflineTimeoutSeconds
-	}
-	return defaultOfflineTTL
 }
 
 func isValidControlPlaneURL(value string) bool {
@@ -256,10 +231,10 @@ func buildGatewaySelfChecks(configPath string) []map[string]any {
 		checkItem("service.name", strings.TrimSpace(config.Service.Name) != "", map[string]any{"serviceName": config.Service.Name}),
 		checkItem("controlPlane.url", isValidControlPlaneURL(config.ControlPlane), map[string]any{"value": config.ControlPlane}),
 		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
-		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("management.listen", managementListenAddressAvailable(config), map[string]any{"address": effectiveManagementListenAddress(config), "port": effectiveManagementPort(config)}),
 		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
 		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
+		checkItem("relay.target.policy", !effectiveRelayEnabled(config) || relayTargetPolicyConfigured(config), map[string]any{"targets": len(config.RelayAllowedTargets), "ports": len(config.RelayAllowedPorts)}),
 	}
 }
 
@@ -296,11 +271,23 @@ func handleRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	if config.SchemaVersion != gatewayConfigSchema {
+		return fmt.Errorf("配置 schemaVersion 必须是 %s", gatewayConfigSchema)
+	}
 	if !isValidControlPlaneURL(config.ControlPlane) {
 		return errors.New("controlPlaneUrl 无效或仍是模板占位值，Gateway Agent 无法启动")
 	}
 	if strings.TrimSpace(config.AgentKey) == "" {
 		return errors.New("agentKey 不能为空，Gateway Agent 无法启动")
+	}
+	if !effectiveRelayEnabled(config) {
+		return errors.New("独立 Gateway Agent 必须启用 relayEnabled，禁止以无 Relay 模式启动")
+	}
+	if len(relayClientPublicKeys(config)) == 0 {
+		return errors.New("TCP 中继已启用但未配置有效 relayClientPublicKeys")
+	}
+	if !relayTargetPolicyConfigured(config) {
+		return errors.New("TCP 中继已启用但未配置 relayAllowedTargets/relayAllowedPorts")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -327,8 +314,7 @@ func handleRun(args []string) error {
 		defer relayServer.Close()
 	}
 
-	counters := &runtimeCounters{}
-	if err := postHeartbeat(ctx, client, config, state, counters); err != nil {
+	if err := postHeartbeat(ctx, client, config, state); err != nil {
 		fmt.Fprintf(os.Stderr, "[heartbeat] first report failed: %v\n", err)
 	} else {
 		fmt.Fprintf(os.Stderr, "[heartbeat] first report ok agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
@@ -342,30 +328,17 @@ func handleRun(args []string) error {
 
 	heartbeatTicker := time.NewTicker(time.Duration(effectiveHeartbeatSeconds(config)) * time.Second)
 	defer heartbeatTicker.Stop()
-	taskTicker := time.NewTicker(time.Duration(effectiveTaskPollSeconds(config)) * time.Second)
-	defer taskTicker.Stop()
-
-	pullAndProcessTasks(ctx, client, config, state, counters)
 	for {
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(os.Stderr, "GCAC Gateway Agent stopped\n")
 			return nil
 		case <-heartbeatTicker.C:
-			if err := postHeartbeat(ctx, client, config, state, counters); err != nil {
+			if err := postHeartbeat(ctx, client, config, state); err != nil {
 				fmt.Fprintf(os.Stderr, "[heartbeat] %v\n", err)
 			}
-		case <-taskTicker.C:
-			pullAndProcessTasks(ctx, client, config, state, counters)
 		}
 	}
-}
-
-type runtimeCounters struct {
-	Running   int
-	Queued    int
-	Succeeded int
-	Failed    int
 }
 
 func relayEndpoint(config *AgentConfig) string {

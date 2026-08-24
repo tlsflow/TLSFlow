@@ -98,12 +98,6 @@ type heartbeatRequest struct {
 	ManagementEndpoint string   `json:"managementEndpoint,omitempty"`
 	Adapters           []string `json:"adapters,omitempty"`
 	Capabilities       []string `json:"capabilities,omitempty"`
-	TaskSummary        struct {
-		Running   int `json:"running"`
-		Queued    int `json:"queued"`
-		Succeeded int `json:"succeeded,omitempty"`
-		Failed    int `json:"failed,omitempty"`
-	} `json:"taskSummary"`
 }
 
 type capabilityReportRequest struct {
@@ -118,42 +112,6 @@ type reportedCapability struct {
 	Value         any            `json:"value"`
 	Confidence    float64        `json:"confidence"`
 	Evidence      map[string]any `json:"evidence,omitempty"`
-}
-
-type agentTaskEnvelope struct {
-	ID              string         `json:"id"`
-	AgentID         string         `json:"agentId"`
-	ExecutionRunID  string         `json:"executionRunId"`
-	ExecutionStepID string         `json:"executionStepId"`
-	IdempotencyKey  string         `json:"idempotencyKey"`
-	Payload         map[string]any `json:"payload"`
-	Status          string         `json:"status"`
-	LeaseID         string         `json:"leaseId,omitempty"`
-	Result          map[string]any `json:"result,omitempty"`
-}
-
-type submitResultRequest struct {
-	AgentID      string         `json:"agentId"`
-	TaskID       string         `json:"taskId"`
-	LeaseID      string         `json:"leaseId"`
-	Success      bool           `json:"success"`
-	ErrorCode    string         `json:"errorCode,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Detail       map[string]any `json:"detail,omitempty"`
-}
-
-type ackTaskRequest struct {
-	AgentID string `json:"agentId"`
-	TaskID  string `json:"taskId"`
-	LeaseID string `json:"leaseId"`
-}
-
-type enqueueAgentTaskRequest struct {
-	AgentID         string         `json:"agentId"`
-	ExecutionRunID  string         `json:"executionRunId"`
-	ExecutionStepID string         `json:"executionStepId"`
-	IdempotencyKey  string         `json:"idempotencyKey"`
-	Payload         map[string]any `json:"payload"`
 }
 
 type runtimeState struct {
@@ -267,14 +225,8 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	return &runtimeState{AgentID: response.ID, Hostname: hostname, Version: agentVersion}, nil
 }
 
-func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters) error {
+func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState) error {
 	request := heartbeatRequest{AgentID: state.AgentID, Version: state.Version, Adapters: gatewayRouteChannels(), Capabilities: gatewayCapabilityKeys()}
-	if counters != nil {
-		request.TaskSummary.Running = counters.Running
-		request.TaskSummary.Queued = counters.Queued
-		request.TaskSummary.Succeeded = counters.Succeeded
-		request.TaskSummary.Failed = counters.Failed
-	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
 
@@ -295,96 +247,4 @@ func reportGatewayCapabilities(ctx context.Context, client *http.Client, config 
 		Adapters:           gatewayRouteChannels(),
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
-}
-
-// ---- 任务队列 ----
-
-func pullTasks(ctx context.Context, client *http.Client, config *AgentConfig, agentID string) ([]agentTaskEnvelope, error) {
-	var tasks []agentTaskEnvelope
-	if err := doJSONRequest(ctx, client, config, http.MethodGet, "/api/v1/agents/tasks/pull?agentId="+agentID, nil, &tasks); err != nil {
-		return nil, fmt.Errorf("拉取任务失败: %w", err)
-	}
-	return tasks, nil
-}
-
-func ackTask(ctx context.Context, client *http.Client, config *AgentConfig, agentID, taskID, leaseID string) (*agentTaskEnvelope, error) {
-	var acknowledged agentTaskEnvelope
-	err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/ack", ackTaskRequest{AgentID: agentID, TaskID: taskID, LeaseID: leaseID}, &acknowledged)
-	if err != nil {
-		return nil, fmt.Errorf("ack 任务失败: %w", err)
-	}
-	return &acknowledged, nil
-}
-
-func submitTaskResult(ctx context.Context, client *http.Client, config *AgentConfig, request submitResultRequest) (*agentTaskEnvelope, error) {
-	var response agentTaskEnvelope
-	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/result", request, &response); err != nil {
-		return nil, err
-	}
-	return &response, nil
-}
-
-func newLeaseID(taskID string) string {
-	return fmt.Sprintf("gw_lease_%s_%d", taskID, time.Now().UnixNano())
-}
-
-func pullAndProcessTasks(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters) {
-	tasks, err := pullTasks(ctx, client, config, state.AgentID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[task] pull failed: %v\n", err)
-		return
-	}
-	if counters != nil {
-		counters.Queued = len(tasks)
-	}
-	for _, task := range tasks {
-		if err := processTask(ctx, client, config, state, counters, task); err != nil {
-			fmt.Fprintf(os.Stderr, "[task] taskId=%s error=%v\n", task.ID, err)
-		}
-	}
-	if counters != nil {
-		counters.Queued = 0
-	}
-}
-
-func processTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, task agentTaskEnvelope) error {
-	leaseID := newLeaseID(task.ID)
-	acknowledged, err := ackTask(ctx, client, config, state.AgentID, task.ID, leaseID)
-	if err != nil {
-		return err
-	}
-	if acknowledged.LeaseID != "" && acknowledged.LeaseID != leaseID {
-		fmt.Fprintf(os.Stderr, "[task] skip taskId=%s because it is already owned by another lease\n", task.ID)
-		return nil
-	}
-	if counters != nil {
-		counters.Running++
-		defer func() { counters.Running-- }()
-	}
-	success, errorCode, errorMessage, detail := executeTask(ctx, client, config, state, task)
-	request := submitResultRequest{AgentID: state.AgentID, TaskID: task.ID, LeaseID: leaseID, Success: success, ErrorCode: errorCode, ErrorMessage: errorMessage, Detail: detail}
-	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
-		return fmt.Errorf("上报任务结果失败: %w", err)
-	}
-	if counters != nil {
-		if success {
-			counters.Succeeded++
-		} else {
-			counters.Failed++
-		}
-	}
-	return nil
-}
-
-func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, task agentTaskEnvelope) (bool, string, string, map[string]any) {
-	payload := task.Payload
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
-		return success, code, message, detail
-	}
-	return false, "GATEWAY_TASK_UNSUPPORTED", "Gateway Agent 只处理 gateway.probe 与 gateway.forward.agent_task", map[string]any{
-		"taskId": task.ID, "mode": "gateway.agent.unsupported",
-	}
 }

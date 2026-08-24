@@ -40,9 +40,10 @@ func canonicalAgentV2Action(value string) (string, error) {
 }
 
 // agentV2ContractPayload 保留 Agent v2 的严格合同，同时隔离控制面调度元数据。
+// refreshWebInventory 是已声明的只读发现开关，必须传入 Agent v2 解码结果，
+// 否则完整 Web 扫描分支永远不会执行；requestedBy 仍只属于控制面元数据。
 func agentV2ContractPayload(payload map[string]any) map[string]any {
 	contractPayload := cloneMap(payload)
-	delete(contractPayload, "refreshWebInventory")
 	delete(contractPayload, "requestedBy")
 	return contractPayload
 }

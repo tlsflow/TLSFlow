@@ -36,6 +36,9 @@ test('openGatewayRelayTunnel 完成私有密钥握手并双向转发字节', asy
     targetHost: '127.0.0.1',
     targetPort: echoServer.port,
     identity,
+    allowedTargets: ['127.0.0.1'],
+    allowedPorts: [echoServer.port],
+    authorizationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
   });
   assert.ok(tunnel.socket, '应返回可用 socket');
   assert.equal(tunnel.sessionId, 'relay-test');
@@ -60,6 +63,9 @@ test('openGatewayRelayTunnel 收到拒绝响应时抛 AUTH_FORBIDDEN', async () 
       targetHost: '127.0.0.1',
       targetPort: 443,
       identity,
+      allowedTargets: ['127.0.0.1'],
+      allowedPorts: [443],
+      authorizationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     }),
     (error: unknown) => {
       assert.ok(error instanceof Error);
@@ -81,8 +87,80 @@ test('openGatewayRelayTunnel 目标端口非法时直接拒绝', async () => {
       targetHost: '127.0.0.1',
       targetPort: 0,
       identity,
+      allowedTargets: ['127.0.0.1'],
+      allowedPorts: [443],
+      authorizationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     }),
     /目标端口不合法/u,
+  );
+});
+
+test('openGatewayRelayTunnel 在目标越界时拒绝签发握手', async () => {
+  const identityDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gcac-relay-identity-'));
+  const identity = await loadOrCreateGatewayRelayIdentity(identityDir);
+  await assert.rejects(
+    openGatewayRelayTunnel({
+      gatewayHost: '127.0.0.1',
+      gatewayPort: 18934,
+      targetHost: '10.0.0.8',
+      targetPort: 22,
+      identity,
+      allowedTargets: ['10.0.0.9'],
+      allowedPorts: [22],
+      authorizationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { errorCode?: string }).errorCode, 'AUTH_FORBIDDEN');
+      assert.match(error.message, /目标不在 Relay 授权范围内/u);
+      return true;
+    },
+  );
+});
+
+test('openGatewayRelayTunnel 在控制面策略缺失时失败关闭', async () => {
+  const identityDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gcac-relay-identity-'));
+  const identity = await loadOrCreateGatewayRelayIdentity(identityDir);
+  await assert.rejects(
+    openGatewayRelayTunnel({
+      gatewayHost: '127.0.0.1',
+      gatewayPort: 18934,
+      targetHost: '10.0.0.8',
+      targetPort: 22,
+      identity,
+      allowedTargets: [],
+      allowedPorts: [],
+      authorizationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { errorCode?: string }).errorCode, 'AUTH_FORBIDDEN');
+      assert.match(error.message, /Relay 目标和端口授权策略不能为空/u);
+      return true;
+    },
+  );
+});
+
+test('openGatewayRelayTunnel 过期 RelayAuthorization 直接拒绝', async () => {
+  const identityDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gcac-relay-identity-'));
+  const identity = await loadOrCreateGatewayRelayIdentity(identityDir);
+  await assert.rejects(
+    openGatewayRelayTunnel({
+      gatewayHost: '127.0.0.1',
+      gatewayPort: 18934,
+      targetHost: '10.0.0.8',
+      targetPort: 22,
+      identity,
+      allowedTargets: ['10.0.0.8'],
+      allowedPorts: [22],
+      authorizationExpiresAt: new Date(Date.now() - 1000).toISOString(),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { errorCode?: string }).errorCode, 'AUTH_FORBIDDEN');
+      assert.match(error.message, /已过期/u);
+      return true;
+    },
   );
 });
 

@@ -1,6 +1,6 @@
 import { AppError } from '../../common/errors/app-error.js';
 import { newId } from '../../shared/id.js';
-import { assertGatewayRouteChannel, assertGatewayTaskType, type ForwardingGrant, type GatewayAdapterType, type GatewayTaskType } from './gateway-agent.types.js';
+import { gatewayRelayOnlyError, type ForwardingGrant, type GatewayAdapterType, type GatewayTaskType } from './gateway-agent.types.js';
 
 export interface IssueForwardingGrantInput {
   gatewayId: string;
@@ -30,27 +30,8 @@ export interface ValidateV2ForwardingGrantInput {
 
 export class ForwardingGrantService {
   issue(input: IssueForwardingGrantInput): ForwardingGrant {
-    const taskType = assertGatewayTaskType(input.taskType, 'taskType');
-    const routeChannel = assertGatewayRouteChannel(input.routeChannel, 'routeChannel');
-    const now = input.now ?? new Date();
-    const ttlSeconds = normalizeTtl(input.ttlSeconds ?? 900);
-    const maxUses = normalizeUses(input.maxUses ?? 1);
-    return {
-      id: newId('fwgrt'),
-      gatewayId: input.gatewayId,
-      delegatedTargetId: input.delegatedTargetId,
-      delegatedAgentId: input.delegatedAgentId,
-      tenantId: input.tenantId,
-      taskType,
-      routeChannel,
-      executionRunId: input.executionRunId,
-      stepId: input.stepId,
-      maxUses,
-      remainingUses: maxUses,
-      expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString(),
-      status: 'active',
-      issuedAt: now.toISOString(),
-    };
+    void input;
+    throw gatewayRelayOnlyError('ForwardingGrantService.issue');
   }
 
   validate(grant: ForwardingGrant | undefined, expected: {
@@ -62,26 +43,9 @@ export class ForwardingGrantService {
     stepId: string;
     now?: Date;
   }): ForwardingGrant {
-    const taskType = assertGatewayTaskType(expected.taskType, 'taskType');
-    const routeChannel = assertGatewayRouteChannel(expected.routeChannel, 'routeChannel');
-    if (!grant) throw new AppError('AUTH_FORBIDDEN', 'Gateway 转发缺少 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_REQUIRED' });
-    const now = expected.now ?? new Date();
-    if (grant.status !== 'active') throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 不可用', { reason: 'GATEWAY_FORWARDING_GRANT_DENIED', grantId: grant.id, status: grant.status });
-    if (new Date(grant.expiresAt).getTime() <= now.getTime()) throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 已过期', { reason: 'GATEWAY_FORWARDING_GRANT_EXPIRED', grantId: grant.id });
-    if (grant.remainingUses <= 0) throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 使用次数已耗尽', { reason: 'GATEWAY_FORWARDING_GRANT_DENIED', grantId: grant.id });
-    if (grant.gatewayId !== expected.gatewayId
-      || grant.delegatedTargetId !== expected.delegatedTargetId
-      || grant.taskType !== taskType
-      || grant.routeChannel !== routeChannel
-      || grant.executionRunId !== expected.executionRunId
-      || grant.stepId !== expected.stepId) {
-      throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 与当前转发任务不匹配', {
-        reason: 'GATEWAY_FORWARDING_GRANT_DENIED',
-        grantId: grant.id,
-        expected,
-      });
-    }
-    return grant;
+    void grant;
+    void expected;
+    throw gatewayRelayOnlyError('ForwardingGrantService.validate');
   }
 
   /**
@@ -103,22 +67,9 @@ export class ForwardingGrantService {
   }
 
   consume(grant: ForwardingGrant, now = new Date()): ForwardingGrant {
-    this.validate(grant, {
-      gatewayId: grant.gatewayId,
-      delegatedTargetId: grant.delegatedTargetId,
-      taskType: grant.taskType,
-      routeChannel: grant.routeChannel,
-      executionRunId: grant.executionRunId,
-      stepId: grant.stepId,
-      now,
-    });
-    const remainingUses = grant.remainingUses - 1;
-    return {
-      ...grant,
-      remainingUses,
-      status: remainingUses <= 0 ? 'used' : 'active',
-      usedAt: now.toISOString(),
-    };
+    void grant;
+    void now;
+    throw gatewayRelayOnlyError('ForwardingGrantService.consume');
   }
 }
 

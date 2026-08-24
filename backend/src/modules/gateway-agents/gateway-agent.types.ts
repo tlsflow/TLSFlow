@@ -10,8 +10,11 @@ import type {
 
 export type ZoneType = 'production' | 'dmz' | 'office' | 'device' | 'custom';
 export type GatewayStatus = 'online' | 'offline' | 'disabled' | 'revoked' | 'upgrading';
-export const GatewayRouteChannels = ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'] as const;
+/** 新 Gateway 数据面只允许 relay.tcp；其余值仅供历史记录反序列化。 */
+export const GatewayRouteChannels = ['relay.tcp', 'probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'] as const;
 export type GatewayRouteChannel = (typeof GatewayRouteChannels)[number];
+export const GatewayRelayRouteChannels = ['relay.tcp'] as const;
+export type GatewayRelayRouteChannel = 'relay.tcp';
 export type GatewayAdapterType = GatewayRouteChannel | string;
 export const GatewayTaskTypes = ['gateway.probe', 'gateway.forward.agent_task'] as const;
 export type GatewayTaskType = (typeof GatewayTaskTypes)[number];
@@ -25,6 +28,31 @@ export function assertGatewayRouteChannel(value: unknown, field = 'routeChannel'
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (GatewayRouteChannels.includes(normalized as GatewayRouteChannel)) return normalized as GatewayRouteChannel;
   throw new AppError('VALIDATION_FAILED', `Gateway 路由通道不受支持：${String(value)}`, { field, value });
+}
+
+/** 生产 Relay 路由的严格门禁；历史任务反序列化继续使用 assertGatewayRouteChannel。 */
+export function assertGatewayRelayRouteChannel(value: unknown, field = 'routeChannel'): GatewayRelayRouteChannel {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'relay.tcp') return normalized;
+  throw new AppError('VALIDATION_FAILED', 'Gateway 生产路由只允许 relay.tcp，旧业务通道已退役', {
+    field,
+    value,
+    reason: 'GATEWAY_RELAY_ONLY',
+  });
+}
+
+/**
+ * 统一拒绝已退役的 Gateway 业务执行入口。
+ *
+ * 历史模块仍需保留类型和只读迁移能力，但任何创建任务、签发业务 Grant、
+ * 回写 Receipt 或启动 Agent v2 进程的调用都必须在这里失败关闭。
+ */
+export function gatewayRelayOnlyError(operation: string): AppError {
+  return new AppError('VALIDATION_FAILED', 'Gateway 仅支持鉴权后的 TCP Relay，旧业务转发入口已退役', {
+    reason: 'GATEWAY_RELAY_ONLY',
+    operation,
+    fallback: false,
+  });
 }
 
 export function assertGatewayTaskType(value: unknown, field = 'taskType'): GatewayTaskType {
@@ -49,6 +77,10 @@ export interface ZonePolicy {
   requireApproval?: boolean;
   /** Gateway 允许的路由/探测通道。 */
   allowedAdapters?: GatewayAdapterType[];
+  /** 可选的目标 ID 白名单；未配置表示由目标登记关系决定。 */
+  allowedTargets?: string[];
+  /** 可选的端口白名单；未配置表示由 TargetEndpoint 登记端口决定。 */
+  allowedPorts?: number[];
   allowedActions?: string[];
   maxConcurrentTasks?: number;
   maintenanceWindow?: ZoneMaintenanceWindow;
@@ -96,6 +128,28 @@ export interface GatewayTaskTarget {
   zoneId: string;
   host?: string;
   port?: number;
+}
+
+export interface TargetEndpoint {
+  targetId: string;
+  tenantId: string;
+  zoneId?: string;
+  host: string;
+  port: number;
+}
+
+/** 控制面签发的短时网络授权，不承载业务任务或 Agent 授权材料。 */
+export interface RelayAuthorization {
+  routeRef: string;
+  tenantId: string;
+  callerId: string;
+  zoneId: string;
+  gatewayId: string;
+  targetId: string;
+  host: string;
+  port: number;
+  issuedAt: string;
+  expiresAt: string;
 }
 
 export interface ForwardingGrant {
@@ -266,6 +320,8 @@ export interface ZoneRouteRequest {
   zoneId: string;
   targetId: string;
   protocols: GatewayAdapterType[];
+  targetHost?: string;
+  targetPort?: number;
   requiredCapabilities?: string[];
   /** 本次路由动作，用于 ZonePolicy.allowedActions 和审批策略判定。 */
   action?: string;
@@ -286,6 +342,7 @@ export interface GatewayCandidate {
 export interface ZoneRouteResult {
   status: 'selected' | 'blocked' | 'approvalRequired';
   selectedGateway?: GatewayAgentProfile;
+  relayAuthorization?: RelayAuthorization;
   candidateGateways: GatewayCandidate[];
   missingCapabilities: string[];
   fallbackSuggestions: FallbackSuggestion[];
@@ -298,7 +355,11 @@ export interface ZoneRouteResult {
     | 'maintenance_window_closed'
     | 'zone_concurrency_limit'
     | 'action_not_allowed'
-    | 'target_locked';
+    | 'target_locked'
+    | 'target_not_registered'
+    | 'target_endpoint_mismatch'
+    | 'target_not_allowed'
+    | 'port_not_allowed';
   approvalReason?: 'zone_requires_approval';
 }
 

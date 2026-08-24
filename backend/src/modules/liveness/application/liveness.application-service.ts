@@ -1,7 +1,6 @@
 import { createConnection } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
-import type { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
 import { LivenessDomainService } from '../domain/liveness.domain-service.js';
 import { LivenessRepository } from '../repository/liveness.repository.js';
 import type { LivenessProjection, LivenessResourceType, LivenessSignalType } from '../schema/liveness.schema.js';
@@ -24,22 +23,12 @@ interface ProbeTarget {
   gatewayId?: string;
 }
 
-interface PendingGatewayProbe {
-  taskId: string;
-  target: ProbeTarget;
-  dispatchedAt: number;
-}
-
 export class LivenessApplicationService {
   private readonly repository: LivenessRepository;
   private readonly domain = new LivenessDomainService();
-  private readonly pendingGatewayProbes = new Map<string, PendingGatewayProbe>();
   private readonly schedulerOwnerId = `liveness-${process.pid}-${randomUUID()}`;
 
-  constructor(
-    private readonly db: DatabasePort,
-    private readonly gatewayTasks?: GatewayTaskService,
-  ) {
+  constructor(private readonly db: DatabasePort) {
     this.repository = new LivenessRepository(db);
   }
 
@@ -118,24 +107,26 @@ export class LivenessApplicationService {
     const timeoutMs = positiveInteger(options.timeoutMs, 3_000);
     const concurrency = positiveInteger(options.concurrency, 20);
     if (!await this.acquireSchedulerLease(now)) {
-      return { evaluated: 0, succeeded: 0, failed: 0, pendingGateway: this.pendingGatewayProbes.size, skipped: true, evaluatedAt: now.toISOString() };
+      return { evaluated: 0, succeeded: 0, failed: 0, skippedGateway: 0, skipped: true, evaluatedAt: now.toISOString() };
     }
     const targets = await this.listProbeTargets();
-    await this.collectGatewayResults(now, timeoutMs);
     let cursor = 0;
     let succeeded = 0;
     let failed = 0;
+    let skippedGateway = 0;
     const workers = Array.from({ length: Math.min(concurrency, Math.max(targets.length, 1)) }, async () => {
       while (cursor < targets.length) {
         const target = targets[cursor++];
         if (!target) continue;
+        // Gateway 只提供 TCP Relay，不能再由控制面创建 GatewayTask 做业务探测。
+        // 这里保留“未验证”边界，避免把控制面无法到达误写成目标离线。
+        if (target.gatewayId) {
+          skippedGateway += 1;
+          continue;
+        }
         if (!target.host || !target.port) {
           await this.recordProbe(target, false, now, 'MANAGEMENT_ENDPOINT_MISSING');
           failed += 1;
-          continue;
-        }
-        if (target.gatewayId && this.gatewayTasks) {
-          this.dispatchGatewayProbe(target, now);
           continue;
         }
         const result = await probeTcp(target.host, target.port, timeoutMs);
@@ -145,7 +136,7 @@ export class LivenessApplicationService {
       }
     });
     await Promise.all(workers);
-    return { evaluated: targets.length, succeeded, failed, pendingGateway: this.pendingGatewayProbes.size, evaluatedAt: now.toISOString() };
+    return { evaluated: targets.length, succeeded, failed, skippedGateway, evaluatedAt: now.toISOString() };
   }
 
   private async acquireSchedulerLease(now: Date): Promise<boolean> {
@@ -234,40 +225,6 @@ export class LivenessApplicationService {
     });
   }
 
-  private dispatchGatewayProbe(target: ProbeTarget, now: Date): void {
-    const key = targetKey(target);
-    if (this.pendingGatewayProbes.has(key)) return;
-    const task = this.gatewayTasks!.dispatch({
-      idempotencyKey: `liveness:${key}:${Math.floor(now.getTime() / 10_000)}`,
-      tenantId: target.tenantId,
-      executionRunId: `liveness:${target.resourceId}`,
-      stepId: `probe:${now.getTime()}`,
-      gatewayId: target.gatewayId!,
-      delegatedTargetId: target.resourceId,
-      target: { id: target.resourceId, zoneId: 'default', host: target.host, port: target.port },
-      adapter: 'probe.tcp',
-      action: 'gateway.probe',
-      payload: { host: target.host, port: target.port },
-      now,
-    });
-    this.pendingGatewayProbes.set(key, { taskId: task.id, target, dispatchedAt: now.getTime() });
-  }
-
-  private async collectGatewayResults(now: Date, timeoutMs: number): Promise<void> {
-    for (const [key, pending] of this.pendingGatewayProbes) {
-      const task = this.gatewayTasks?.get(pending.taskId);
-      if (task?.result) {
-        await this.recordProbe(pending.target, task.result.success, new Date(task.result.finishedAt), task.result.errorCode, task.result.errorMessage);
-        this.pendingGatewayProbes.delete(key);
-        continue;
-      }
-      if (now.getTime() - pending.dispatchedAt >= timeoutMs) {
-        await this.recordProbe(pending.target, false, now, 'GATEWAY_PROBE_TIMEOUT');
-        this.pendingGatewayProbes.delete(key);
-      }
-    }
-  }
-
   private async recordProbe(target: ProbeTarget, success: boolean, observedAt: Date, reasonCode?: string, reasonDetail?: string): Promise<void> {
     await this.repository.record({
       tenantId: target.tenantId,
@@ -302,10 +259,6 @@ function parseAgentEndpoint(value: string | null): { host?: string; port?: numbe
 function normalizeListenHost(host: string): string | undefined {
   if (!host || host === '0.0.0.0' || host === '::' || host === '[::]') return undefined;
   return host;
-}
-
-function targetKey(target: ProbeTarget): string {
-  return `${target.tenantId}:${target.resourceType}:${target.resourceId}`;
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {

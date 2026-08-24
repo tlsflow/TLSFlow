@@ -33,7 +33,6 @@ import type { ExecutionDetailStreamService } from '../../executions/application/
 import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
-import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
 import { GATEWAY_RELAY_DEFAULT_PORT, loadOrCreateGatewayRelayIdentity } from '../../gateway-agents/gateway-relay.js';
 import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
@@ -52,6 +51,8 @@ export interface AgentInstallMaterialRequest {
   role?: 'full_agent' | 'gateway';
   zone?: string;
   agentKey?: string;
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
 }
 
 interface AgentInstallDescriptor {
@@ -68,12 +69,18 @@ interface AgentInstallDescriptor {
   configDir: string;
   dataDir: string;
   logDir: string;
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
 }
 
 export interface AgentInstallMaterialProjection {
   installationId: string;
   expiresAt: string;
   enrollmentToken: string;
+  role: 'full_agent' | 'gateway';
+  zone: string;
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
   materials: AgentInstallArtifactMaterial[];
   task: AgentInstallTaskProjection;
 }
@@ -110,6 +117,8 @@ export interface AgentInstallTaskProjection {
     configDir: string;
     dataDir: string;
     logDir: string;
+    relayAllowedTargets?: string[];
+    relayAllowedPorts?: number[];
   };
 }
 
@@ -139,6 +148,8 @@ interface AgentInstallSessionManifest {
 	/** gateway 角色时注入的控制面中继公钥（hex ed25519）。 */
 	relayClientPublicKeys?: string[];
 	relayPort?: number;
+	relayAllowedTargets?: string[];
+	relayAllowedPorts?: number[];
 }
 
 const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
@@ -166,7 +177,6 @@ const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatib
 
 export class AgentsApplicationService {
   private readonly offlineTimeoutCounts = new Map<string, number>();
-  private gatewayTaskResultSink?: GatewayTaskResultSink;
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -188,10 +198,6 @@ export class AgentsApplicationService {
     return createModuleMetadata('agents', '/api/v1/agents', '011');
   }
 
-  setGatewayTaskResultSink(sink?: GatewayTaskResultSink): void {
-    this.gatewayTaskResultSink = sink;
-  }
-
   setDiscoveryRequestFactory(factory?: AgentDiscoveryRequestFactory): void {
     this.discoveryRequestFactory = factory;
   }
@@ -209,9 +215,9 @@ export class AgentsApplicationService {
 
   async register(tenantId: string, input: RegisterAgentInput, requestId: string) {
     const descriptor = this.domain.normalizeDescriptor(input);
-    const role = input.role ?? 'full_agent';
     const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId);
-    const gateway = this.domain.normalizeGatewayOnRegister(input, existing?.gateway);
+    const role = input.role ?? existing?.role ?? 'full_agent';
+    const gateway = this.domain.normalizeGatewayOnRegister({ ...input, role }, existing?.gateway);
     let enrollmentTokenId: string | undefined;
     if (input.enrollmentToken) {
       const token = await this.repository.findEnrollmentTokenByHash(tenantId, this.domain.hashEnrollmentToken(input.enrollmentToken));
@@ -516,7 +522,7 @@ export class AgentsApplicationService {
 
   async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string, livenessMode: 'full' | 'management' = 'full'): Promise<AgentTaskEnvelope> {
     assertSupportedAgentTaskPayload(input.payload ?? {});
-    await this.requireAgent(tenantId, input.agentId);
+    await this.requireFullAgentForTask(tenantId, input.agentId);
     if (livenessMode === 'management') await this.assertManagementEndpointReachable(tenantId, input.agentId);
     else await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
@@ -569,7 +575,7 @@ export class AgentsApplicationService {
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
-    const agent = await this.requireAgent(tenantId, agentId);
+    const agent = await this.requireFullAgentForTask(tenantId, agentId);
     if (agent.status === 'DISABLED') return [];
     if (this.liveness) {
       // Agent 任务是主动向控制面轮询的出站链路，不能因为控制面到 Agent
@@ -583,6 +589,7 @@ export class AgentsApplicationService {
   }
 
   async ackTask(tenantId: string, input: AckAgentTaskInput): Promise<AgentTaskEnvelope> {
+    await this.requireFullAgentForTask(tenantId, input.agentId);
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.status === 'queued') {
       const claimed = await this.repository.claimQueuedTask(task.id, input.agentId, input.leaseId, new Date().toISOString());
@@ -601,11 +608,11 @@ export class AgentsApplicationService {
   }
 
   async submitResult(tenantId: string, input: SubmitAgentTaskResultInput): Promise<AgentTaskEnvelope> {
+    await this.requireFullAgentForTask(tenantId, input.agentId);
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.leaseId !== input.leaseId) throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', { taskId: task.id });
     const rawDetail = input.detail ?? {};
-    const actionType = resolveAgentTaskActionType(task.payload)
-      ?? resolveAgentTaskActionType(readOptionalRecord(task.payload.gatewayTask)?.payload as Record<string, unknown> | undefined);
+    const actionType = resolveAgentTaskActionType(task.payload);
     // Receipt 摘要覆盖 tokenId 等绑定标识，必须先按原始合同验证，再执行日志脱敏。
     const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, task.tenantId, input.status, input.success);
     if (['succeeded', 'failed'].includes(task.status)) {
@@ -648,27 +655,6 @@ export class AgentsApplicationService {
       ? { ...rawDetail, pluginFactPipeline: serializePluginFactPipelineResult(pluginFactResult) }
       : rawDetail;
     const sanitizedDetail = this.domain.sanitizeResultDetail(resultDetail);
-    const gatewayTask = readOptionalRecord(task.payload.gatewayTask);
-    const gatewayTaskPayload = readOptionalRecord(gatewayTask?.payload);
-    const gatewayTaskAgentId = readStringValue(readOptionalRecord(gatewayTaskPayload?.token)?.agentId)
-      ?? readStringValue(readOptionalRecord(gatewayTaskPayload?.policyDecision)?.agentId)
-      ?? task.agentId;
-    if (this.gatewayTaskResultSink && actionType && gatewayTask?.id) {
-      await this.gatewayTaskResultSink.recordAgentTaskResult({
-        gatewayTaskId: String(gatewayTask.id),
-        agentTaskId: task.id,
-        tenantId: task.tenantId,
-        agentId: validatedReceipt?.agentId ?? gatewayTaskAgentId,
-        leaseId: input.leaseId,
-        actionType,
-        success,
-        executionStatus: outcome,
-        errorCode,
-        errorMessage,
-        detail: sanitizedDetail,
-        receipt: validatedReceipt,
-      });
-    }
     console.info('[agents.submitResult]', JSON.stringify({
       tenantId,
       agentId: task.agentId,
@@ -847,6 +833,7 @@ export class AgentsApplicationService {
   }
 
   async submitLogs(tenantId: string, input: SubmitAgentTaskLogsInput, requestId: string): Promise<AgentTaskLogAckResult> {
+    await this.requireFullAgentForTask(tenantId, input.agentId);
     await this.requireTask(tenantId, input.agentId, input.taskId);
     const previousCursor = await this.repository.getTaskLogCursor(tenantId, input.agentId, input.taskId);
     const previousAck = previousCursor?.lastAckedSequence ?? 0;
@@ -1030,6 +1017,9 @@ export class AgentsApplicationService {
       agentKey: stored.agentKey,
       zone: stored.zone,
       enrollmentTokenPreview: enrollmentTokenRecord.tokenPreview,
+      role: stored.role,
+      relayAllowedTargets: stored.relayAllowedTargets,
+      relayAllowedPorts: stored.relayAllowedPorts,
       ...optionalBundleUrl(stored),
     };
   }
@@ -1135,6 +1125,8 @@ export class AgentsApplicationService {
           relayPort: relayManifest.relayPort,
           relayClientPublicKeys: relayManifest.relayClientPublicKeys,
           relayIdleTimeoutSeconds: 300,
+          relayAllowedTargets: descriptor.relayAllowedTargets,
+          relayAllowedPorts: descriptor.relayAllowedPorts,
         } : {}),
       },
       expiresAt: descriptor.expiresAt,
@@ -1152,6 +1144,10 @@ export class AgentsApplicationService {
       installationId: descriptor.id,
       expiresAt: descriptor.expiresAt,
       enrollmentToken,
+      role: descriptor.role,
+      zone: descriptor.zone,
+      relayAllowedTargets: descriptor.relayAllowedTargets,
+      relayAllowedPorts: descriptor.relayAllowedPorts,
       materials: [material],
       task,
     };
@@ -1174,6 +1170,8 @@ export class AgentsApplicationService {
       tenantId: session.tenantId,
       enrollmentToken: session.enrollmentToken,
       zone: session.zone,
+      relayAllowedTargets: session.relayAllowedTargets,
+      relayAllowedPorts: session.relayAllowedPorts,
     };
   }
 
@@ -1194,6 +1192,7 @@ export class AgentsApplicationService {
     const id = newId('aginst');
     const zone = normalizeInstallMaterialValue(input.zone ?? 'default', 'zone');
     const agentKey = normalizeInstallMaterialValue(input.agentKey ?? `${input.platform}.${id.toLowerCase()}`, 'agentKey');
+    const relayPolicy = this.domain.normalizeRelayPolicy(role, input.relayAllowedTargets, input.relayAllowedPorts);
     const profile = installMaterialProfile(input.platform, role);
     const enrollmentTokenRecord = this.domain.createEnrollmentToken(tenantId, {
       allowedRoles: [role],
@@ -1209,6 +1208,7 @@ export class AgentsApplicationService {
       agentKey,
       enrollmentTokenRecord,
       expiresAt: enrollmentTokenRecord.expiresAt,
+      ...relayPolicy,
       ...profile,
     };
   }
@@ -1361,7 +1361,7 @@ export class AgentsApplicationService {
   }
 
   async listTaskQueue(tenantId: string, agentId: string, statuses?: AgentTaskEnvelope['status'][]): Promise<AgentTaskQueueProjection> {
-    await this.requireAgent(tenantId, agentId);
+    await this.requireFullAgentForTask(tenantId, agentId);
     const allTasks = await this.repository.listTasks(tenantId, agentId);
     const tasks = statuses?.length ? allTasks.filter((task) => statuses.includes(task.status)) : allTasks;
     return { agentId, counts: countTasks(allTasks), tasks };
@@ -1407,6 +1407,18 @@ export class AgentsApplicationService {
   private async requireAgent(tenantId: string, agentId: string) {
     const agent = await this.repository.getRegistration(tenantId, agentId);
     if (!agent) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
+    return agent;
+  }
+
+  /** Gateway 只提供 relay.tcp，不得进入 Agent Task 队列或提交业务结果。 */
+  private async requireFullAgentForTask(tenantId: string, agentId: string) {
+    const agent = await this.requireAgent(tenantId, agentId);
+    if (agent.role === 'gateway' || agent.gateway) {
+      throw new AppError('AUTH_FORBIDDEN', 'Gateway 仅允许 TCP Relay，不得使用 Agent Task 队列', {
+        reason: 'GATEWAY_RELAY_ONLY',
+        agentId,
+      });
+    }
     return agent;
   }
 
@@ -1720,9 +1732,8 @@ function validateQueuedAgentV2Receipt(
   submittedStatus?: AgentSecurityStatus,
   submittedSuccess = false,
 ): AgentExecutionReceiptV1 | undefined {
-  const gatewayTaskPayload = readOptionalRecord(readOptionalRecord(task.payload.gatewayTask)?.payload);
-  const authorizationPayload = gatewayTaskPayload ?? task.payload;
-  const actionType = resolveAgentTaskActionType(task.payload) ?? resolveAgentTaskActionType(authorizationPayload);
+  const authorizationPayload = task.payload;
+  const actionType = resolveAgentTaskActionType(task.payload);
   const receiptValue = readOptionalRecord(detail.receipt);
   if (!actionType) {
     if (receiptValue) {
@@ -1736,11 +1747,9 @@ function validateQueuedAgentV2Receipt(
 
   const receiptRequired = actionType === 'agent.plan.execute' || actionType === 'agent.execution.receipt';
   const executionStatus = submittedStatus ?? readAgentSecurityStatus(detail.executionStatus);
-  const gatewayResult = readOptionalRecord(detail.gatewayResult);
-  const gatewayPreDispatchFailure = gatewayResult?.forwarded === false && executionStatus === 'FAILED' && submittedSuccess === false;
   if (!receiptValue) {
-    // 授权未离开 Gateway，或已进入 UNKNOWN，均不能凭空生成 Receipt；只落协调结果并失败关闭。
-    if (receiptRequired && executionStatus !== 'UNKNOWN' && !gatewayPreDispatchFailure) {
+    // 已进入 UNKNOWN 时不能凭空生成 Receipt；其它写操作必须由真实 Full Agent 提交回执。
+    if (receiptRequired && executionStatus !== 'UNKNOWN') {
       throw new AppError('VALIDATION_FAILED', 'Agent v2 写操作结果缺少完整 Execution Receipt', {
         reason: 'AGENT_V2_RECEIPT_REQUIRED',
         taskId: task.id,

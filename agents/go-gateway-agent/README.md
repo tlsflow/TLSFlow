@@ -7,10 +7,10 @@
 
 - **TCP 中继（Gateway Relay）**：只做私有密钥认证 + 网络层转发，不解析任何应用协议。
   - 握手协议 `gcac.gateway-relay/v1`：网关下发随机 `challenge`（hex）→ 客户端对 `challenge + ":" + host + ":" + port` 做 Ed25519 签名 → 网关用 `relayClientPublicKeys` 验证 → 通过后返回 `{"ok":true}` 并双向透传原始字节。
-  - 目标租户、Zone、端口、出站 ACL 和 SSRF 防护必须由控制面策略与 Gateway 网络策略共同完成；签名通过不代表可以任意访问内网地址。
-- **网关探测**：如启用，仅用于控制面可达性观测，不承载业务执行和业务结果。
+  - `relayAllowedTargets` 只接受精确主机名、IP 或 CIDR；`relayAllowedPorts` 必须显式列出目标端口。
+  - 签名通过不代表目标获准：Relay 会重新解析 DNS，拒绝回环、私网、链路本地、保留地址和云元数据地址；私网目标只有在显式 IP/CIDR 白名单中才可访问。
 
-`gateway.forward.agent_task`、Agent Task 队列、结果轮询和 Receipt 属于旧业务转发路径，不是当前 Gateway Relay 职责。现有源码中的兼容路径在清退或显式禁用前不得用于生产。
+Gateway 不拉取、确认或提交 Agent Task，不执行探测任务，不生成 Receipt/Evidence，也不轮询业务结果。旧 `GatewayTask`/业务转发代码只能保留为历史兼容或负向测试，不能接入 Gateway 运行时。
 
 ## 独立配置（schema `gcac.gateway-agent.v1`）
 
@@ -23,9 +23,10 @@
 | 服务名 | `gcac-gateway-agent` |
 
 关键配置项：`controlPlaneUrl`、`tenantId`、`agentKey`、`enrollmentToken`、`zone`、
-`relayEnabled`、`relayListenAddress`、`relayPort`、`relayClientPublicKeys`（hex ed25519 公钥，兼容字符串或数组）、`relayIdleTimeoutSeconds`。
+`relayEnabled`、`relayListenAddress`、`relayPort`、`relayClientPublicKeys`（hex ed25519 公钥，兼容字符串或数组）、
+`relayAllowedTargets`、`relayAllowedPorts`、`relayIdleTimeoutSeconds`。
 
-安全边界：缺少客户端公钥时中继启动失败关闭；握手限时 10 秒；并发会话上限 128；空闲超时强制断开。
+安全边界：缺少客户端公钥或目标/端口白名单时中继启动失败关闭；握手限时 10 秒；并发会话上限 128；空闲超时强制断开；进程关闭时主动关闭所有活动连接。
 
 ## 构建
 

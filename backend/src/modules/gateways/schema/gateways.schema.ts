@@ -34,7 +34,34 @@ export const gatewayDetailSchema: OpenApiSchema = {
   },
 };
 
-export const gatewayRouteResultSchema: OpenApiSchema = { type: 'object', additionalProperties: true };
+export const gatewayRouteResultSchema: OpenApiSchema = {
+  type: 'object',
+  additionalProperties: true,
+  properties: {
+    status: { type: 'string', enum: ['selected', 'blocked', 'approvalRequired'] },
+    selectedGateway: gatewaySchema,
+    candidateGateways: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    missingCapabilities: { type: 'array', items: { type: 'string' } },
+    fallbackSuggestions: { type: 'array', items: { type: 'string' } },
+    blockedReason: { type: 'string' },
+    relayAuthorization: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        routeRef: { type: 'string' },
+        tenantId: { type: 'string' },
+        callerId: { type: 'string' },
+        zoneId: { type: 'string' },
+        gatewayId: { type: 'string' },
+        targetId: { type: 'string' },
+        host: { type: 'string' },
+        port: { type: 'number' },
+        issuedAt: { type: 'string' },
+        expiresAt: { type: 'string' },
+      },
+    },
+  },
+};
 export const gatewayReachabilitySchema: OpenApiSchema = { type: 'object', additionalProperties: true };
 export const gatewayTargetHistorySchema: OpenApiSchema = {
   type: 'object',

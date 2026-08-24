@@ -199,6 +199,10 @@ export interface CreateAgentInstallSessionInput {
   dataDir?: string;
   logDir?: string;
   startAfterInstall?: boolean;
+  /** Gateway Relay 出站目标白名单，只对 gateway 角色生效。 */
+  relayAllowedTargets?: string[];
+  /** Gateway Relay 出站端口白名单，只对 gateway 角色生效。 */
+  relayAllowedPorts?: number[];
 }
 
 export interface EnrollmentTokenDto extends EnrollmentToken {
@@ -235,6 +239,9 @@ export interface AgentInstallSessionBootstrapProjection {
   agentKey: string;
   zone: string;
   enrollmentTokenPreview: string;
+  role: 'full_agent' | 'gateway';
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
   bundleUrl?: string;
 }
 

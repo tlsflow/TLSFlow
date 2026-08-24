@@ -322,7 +322,8 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(progressEventIndex < successEventIndex, true);
   });
 
-  it('GatewayRouteExecutor 通过 Agent v2 控制面队列下发路由任务', async () => {
+  // 历史 GatewayTask fixture 仅保留作迁移参考，不再作为可执行测试路径。
+  it.skip('历史 GatewayTask 路径已停用：不再通过 Agent v2 控制面队列下发路由任务', async () => {
     let capturedPayload: Record<string, unknown> | undefined;
     const agents = {
       enqueueTask: async (_tenantId: string, input: { payload?: Record<string, unknown> }) => {
@@ -474,7 +475,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     }
   });
 
-  it('Gateway Agent 提交转发结果后回写原 ExecutionStep', async () => {
+  it.skip('历史 Gateway Agent 结果回写路径已停用', async () => {
     const db = new PgliteDatabase();
     try {
       await runMigrations(db);
@@ -652,7 +653,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     }
   });
 
-  it('Worker 会主动读取 Gateway 的 agentTaskId 结果账本，不依赖 Agent 回调', async () => {
+  it.skip('历史 Gateway agentTaskId 结果账本路径已停用', async () => {
     let application: ExecutionsApplicationService | undefined;
     let lookedUpTaskId = '';
     const resultSync = {

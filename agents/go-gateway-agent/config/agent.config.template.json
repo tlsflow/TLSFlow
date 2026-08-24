@@ -5,15 +5,14 @@
   "zone": "default",
   "controlPlaneUrl": "https://gcac.example.invalid",
   "heartbeatIntervalSeconds": 10,
-  "taskPollIntervalSeconds": 60,
-  "healthCheckIntervalSeconds": 30,
-  "offlineTimeoutSeconds": 180,
   "managementListenAddress": "0.0.0.0",
   "managementPort": 18935,
   "relayEnabled": false,
   "relayListenAddress": "0.0.0.0",
   "relayPort": 18934,
   "relayClientPublicKeys": [],
+  "relayAllowedTargets": [],
+  "relayAllowedPorts": [],
   "relayIdleTimeoutSeconds": 300,
   "paths": {
     "linux": {

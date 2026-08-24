@@ -95,12 +95,17 @@ export class GatewaysController {
     const body = validateObject(request.body, {
       zoneId: { type: 'string', required: true },
       targetId: { type: 'string', required: true },
+      targetHost: { type: 'string' },
+      targetPort: { type: 'number' },
       protocols: { type: 'array', required: true },
       requiredCapabilities: { type: 'array' },
       destructive: { type: 'boolean' },
       action: { type: 'string' },
     });
-    return this.service.route(tenantId(request), normalizeRouteInput(body));
+    return this.service.route(tenantId(request), {
+      ...normalizeRouteInput(body),
+      callerId: this.subjectFromRequest(request).id,
+    });
   }
 
   private async probe(request: HttpRequest) {
@@ -123,8 +128,52 @@ export function getGatewayRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/gateways', operationId: 'listGateways', summary: '查询 Gateway 列表', tags, responseSchema: gatewayPageSchema },
     { method: 'GET', path: '/api/v1/gateways/detail', operationId: 'getGatewayDetail', summary: '查询 Gateway 详情', tags, responseSchema: gatewayDetailSchema },
     { method: 'GET', path: '/api/v1/gateways/target-history', operationId: 'listGatewayTargetHistory', summary: '查询 Gateway 代理目标历史', tags, responseSchema: gatewayTargetHistorySchema },
-    { method: 'POST', path: '/api/v1/gateways/route', operationId: 'routeGateway', summary: '选择可用 Gateway 路由', tags, responseSchema: gatewayRouteResultSchema },
-    { method: 'POST', path: '/api/v1/gateways/probe', operationId: 'probeGatewayReachability', summary: '记录 Gateway 可达性探测', tags, responseSchema: gatewayReachabilitySchema },
+    {
+      method: 'POST',
+      path: '/api/v1/gateways/route',
+      operationId: 'routeGateway',
+      summary: '选择可用 Gateway TCP Relay 路由',
+      tags,
+      requestSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['zoneId', 'targetId', 'protocols'],
+        properties: {
+          zoneId: { type: 'string' },
+          targetId: { type: 'string' },
+          targetHost: { type: 'string' },
+          targetPort: { type: 'number' },
+          protocols: { type: 'array', items: { type: 'string', enum: ['relay.tcp'] } },
+          requiredCapabilities: { type: 'array', items: { type: 'string', enum: ['gateway.relay.tcp'] } },
+          destructive: { type: 'boolean' },
+          action: { type: 'string' },
+        },
+      },
+      responseSchema: gatewayRouteResultSchema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/gateways/probe',
+      operationId: 'probeGatewayReachability',
+      summary: '记录 Gateway Relay TCP 可达性',
+      tags,
+      requestSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['gatewayId', 'targetId', 'protocol'],
+        properties: {
+          gatewayId: { type: 'string' },
+          targetId: { type: 'string' },
+          protocol: { type: 'string', enum: ['relay.tcp'] },
+          port: { type: 'number' },
+          status: { type: 'string', enum: reachabilityStatuses },
+          latencyMs: { type: 'number' },
+          ttlSeconds: { type: 'number' },
+          zoneId: { type: 'string' },
+        },
+      },
+      responseSchema: gatewayReachabilitySchema,
+    },
     { method: 'POST', path: '/api/v1/gateways/status', operationId: 'updateGatewayStatus', summary: '注册或更新 Gateway 状态', tags, responseSchema: gatewaySchema },
   ];
 }
@@ -158,9 +207,15 @@ function normalizeStatusInput(body: Record<string, unknown>): UpdateGatewayStatu
 }
 
 function normalizeRouteInput(body: Record<string, unknown>): RouteGatewayInput {
+  const targetPort = body.targetPort as number | undefined;
+  if (targetPort !== undefined && (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535)) {
+    throw new AppError('VALIDATION_FAILED', 'targetPort 必须是 1-65535 的整数', { field: 'targetPort' });
+  }
   return {
     zoneId: String(body.zoneId),
     targetId: String(body.targetId),
+    targetHost: body.targetHost as string | undefined,
+    targetPort,
     protocols: requiredStringArray(body.protocols, 'protocols') as RouteGatewayInput['protocols'],
     requiredCapabilities: stringArray(body.requiredCapabilities, 'requiredCapabilities'),
     destructive: body.destructive as boolean | undefined,

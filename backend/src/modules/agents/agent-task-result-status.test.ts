@@ -1,16 +1,36 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentsApplicationService } from './application/agents.application-service.js';
-import type { AgentTaskEnvelope } from './schema/agents.schema.js';
+import type { AgentRegistration, AgentTaskEnvelope } from './schema/agents.schema.js';
 import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentExecutionReceiptV1, type AgentPlanV1 } from './security/agent-security.contract.js';
-import type { GatewayAgentTaskResultInput } from '../gateway-agents/gateway-agent.types.js';
 
 const now = '2026-08-09T00:00:00.000Z';
+
+function fullAgentRegistration(task: AgentTaskEnvelope): AgentRegistration {
+  return {
+    id: task.agentId,
+    tenantId: task.tenantId,
+    agentKey: task.agentId,
+    descriptor: {
+      agentKey: task.agentId,
+      hostname: 'result-status-agent',
+      version: '1.0.0',
+      osType: 'LINUX',
+      labels: [],
+    },
+    role: 'full_agent',
+    status: 'ONLINE',
+    registeredAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+}
 
 test('Agent 任务结果拒绝 success 与 UNKNOWN 矛盾的提交', async () => {
   const task = createTask();
   let updateCount = 0;
   const repository = {
+    getRegistration: async () => fullAgentRegistration(task),
     getTask: async () => task,
     updateTask: async () => {
       updateCount += 1;
@@ -36,6 +56,7 @@ test('Agent 任务写操作结果 UNKNOWN 会保留不明状态', async () => {
   const task = createTask();
   let updated: AgentTaskEnvelope | undefined;
   const repository = {
+    getRegistration: async () => fullAgentRegistration(task),
     getTask: async () => updated ?? task,
     updateTask: async (_taskId: string, patch: Partial<AgentTaskEnvelope>) => {
       updated = { ...task, ...patch };
@@ -59,50 +80,11 @@ test('Agent 任务写操作结果 UNKNOWN 会保留不明状态', async () => {
   assert.equal(updated?.result?.success, false);
 });
 
-test('GatewayTask 回写在缺少 Receipt 的失败关闭场景使用 Token 绑定的 Agent', async () => {
-  const task = createTask();
-  const targetAgentId = 'agent-target-from-token';
-  task.payload.gatewayTask = {
-    id: 'gateway-task-result-status',
-    payload: {
-      actionType: 'agent.plan.execute',
-      token: { agentId: targetAgentId },
-      policyDecision: { agentId: targetAgentId },
-    },
-  };
-  let captured: GatewayAgentTaskResultInput | undefined;
-  const repository = {
-    getTask: async () => task,
-    updateTask: async (_taskId: string, patch: Partial<AgentTaskEnvelope>) => ({ ...task, ...patch }),
-  };
-  const service = new AgentsApplicationService(repository as never);
-  service.setGatewayTaskResultSink({
-    recordAgentTaskResult: async (input) => {
-      captured = input;
-      return {} as never;
-    },
-  });
-
-  await service.submitResult('tenant-result-status', {
-    agentId: task.agentId,
-    taskId: task.id,
-    leaseId: task.leaseId!,
-    success: false,
-    status: 'FAILED',
-    errorCode: 'GATEWAY_FORWARD_REJECTED',
-    detail: { gatewayResult: { forwarded: false } },
-  });
-
-  assert.equal(captured?.gatewayTaskId, 'gateway-task-result-status');
-  assert.equal(captured?.agentId, targetAgentId);
-  assert.equal(captured?.executionStatus, 'FAILED');
-  assert.equal(captured?.receipt, undefined);
-});
-
 test('Agent v2 队列拒绝摘要被篡改的 Receipt，不能把伪造结果写入任务', async () => {
   const task = createTask();
   let updateCount = 0;
   const repository = {
+    getRegistration: async () => fullAgentRegistration(task),
     getTask: async () => task,
     updateTask: async () => {
       updateCount += 1;
@@ -135,7 +117,7 @@ test('UNKNOWN 终态拒绝迟到成功 Receipt，不能改写未知写操作', a
     status: 'UNKNOWN',
     detail: { receipt: createReceipt(task, 'UNKNOWN') },
   };
-  const repository = { getTask: async () => task };
+  const repository = { getRegistration: async () => fullAgentRegistration(task), getTask: async () => task };
   const service = new AgentsApplicationService(repository as never);
 
   await assert.rejects(

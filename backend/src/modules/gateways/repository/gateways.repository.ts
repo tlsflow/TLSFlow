@@ -3,7 +3,7 @@ import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagina
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
-import type { GatewayAgentProfile, GatewayAdapterType, GatewayStatus, ReachabilityRecord, Zone } from '../../gateway-agents/index.js';
+import type { GatewayAgentProfile, GatewayAdapterType, GatewayStatus, ReachabilityRecord, TargetEndpoint, Zone } from '../../gateway-agents/index.js';
 import { PgGatewayTargetHistoryRepository, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from '../../gateway-agents/gateway-target-history.service.js';
 import type { GatewayDto, GatewayReachabilityDto, GatewayZoneDto, RegisterGatewayInput } from '../dto/gateways.dto.js';
 
@@ -28,6 +28,7 @@ export interface GatewaysRepository {
   upsertReachability(tenantId: string, input: Omit<GatewayReachabilityDto, 'id' | 'tenantId' | 'checkedAt' | 'expiresAt' | 'createdAt' | 'updatedAt'> & { ttlSeconds: number; now?: Date }): Promise<GatewayReachabilityDto>;
   listReachability(tenantId: string, gatewayId?: string, targetId?: string): Promise<GatewayReachabilityDto[]>;
   findReachability(tenantId: string, gatewayId: string, targetId: string, protocol: GatewayAdapterType, now?: Date): Promise<ReachabilityRecord | undefined>;
+  findTargetEndpoint(tenantId: string, targetId: string): Promise<TargetEndpoint | undefined>;
   toZoneRouterInputs(tenantId: string): Promise<{ zones: Zone[]; gateways: GatewayAgentProfile[] }>;
 }
 
@@ -48,7 +49,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
       defaults.push(await this.upsertZone(tenantId, { id: 'zone_prod', name: '生产区', type: 'production', enabled: true, policy: { priority: 10, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 10 } }));
     }
     if (!existingIds.has('zone_dmz')) {
-      defaults.push(await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'], maxConcurrentTasks: 5 } }));
+      defaults.push(await this.upsertZone(tenantId, { id: 'zone_dmz', name: 'DMZ', type: 'dmz', enabled: true, policy: { priority: 8, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 5 } }));
     }
     return defaults;
   }
@@ -184,6 +185,67 @@ export class PgGatewaysRepository implements GatewaysRepository {
     const persisted = toReachability(record);
     const status = new Date(persisted.expiresAt).getTime() <= now.getTime() ? 'expired' : persisted.status;
     return { id: persisted.id, gatewayId, targetId, protocol, port: persisted.port, status, latencyMs: persisted.latencyMs, checkedAt: persisted.checkedAt, expiresAt: persisted.expiresAt };
+  }
+
+  async findTargetEndpoint(tenantId: string, targetId: string): Promise<TargetEndpoint | undefined> {
+    const result = await this.db.query<{
+      target_id: string;
+      tenant_id: string;
+      zone_id?: string | null;
+      host?: string | null;
+      port?: number | null;
+    }>(
+      `select target.id as target_id,
+              target.tenant_id,
+              host.zone_id,
+              service.address as host,
+              coalesce(device.management_port, service.port) as port
+         from pg_managed_targets target
+         join pg_service_assets service
+           on service.tenant_id = target.tenant_id
+          and service.id = target.service_asset_id
+          and service.deleted_at is null
+         left join pg_device_assets device
+           on device.tenant_id = service.tenant_id
+          and device.service_asset_id = service.id
+         left join pg_hosts host
+           on host.tenant_id = target.tenant_id
+          and host.id = target.device_id
+          and host.deleted_at is null
+        where target.tenant_id = $1
+          and target.id = $2
+          and target.deleted_at is null
+          and target.status not in ('DELETED', 'DISABLED')
+        union all
+       select service.id as target_id,
+              service.tenant_id,
+              host.zone_id,
+              service.address as host,
+              coalesce(device.management_port, service.port) as port
+         from pg_service_assets service
+         left join pg_device_assets device
+           on device.tenant_id = service.tenant_id
+          and device.service_asset_id = service.id
+         left join pg_hosts host
+           on host.tenant_id = service.tenant_id
+          and host.id = service.host_id
+          and host.deleted_at is null
+        where service.tenant_id = $1
+          and service.id = $2
+          and service.deleted_at is null
+          and service.status not in ('DELETED', 'DISABLED')
+        limit 1`,
+      [tenantId, targetId],
+    );
+    const row = result.rows[0];
+    if (!row || !row.host || !Number.isInteger(Number(row.port)) || Number(row.port) < 1 || Number(row.port) > 65535) return undefined;
+    return {
+      targetId: row.target_id,
+      tenantId: row.tenant_id,
+      zoneId: row.zone_id ?? undefined,
+      host: row.host,
+      port: Number(row.port),
+    };
   }
 
   async toZoneRouterInputs(tenantId: string): Promise<{ zones: Zone[]; gateways: GatewayAgentProfile[] }> {
@@ -438,11 +500,11 @@ function normalizeZoneId(value: string): string {
 }
 
 function defaultGatewayRouteChannels(): GatewayAdapterType[] {
-  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'];
+  return ['relay.tcp'];
 }
 
 function defaultGatewayCapabilities(): string[] {
-  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task'];
+  return ['gateway.relay.tcp'];
 }
 
 function normalizeRouteChannels(values: GatewayAdapterType[]): GatewayAdapterType[] {
@@ -451,14 +513,8 @@ function normalizeRouteChannels(values: GatewayAdapterType[]): GatewayAdapterTyp
 
 function normalizeRouteChannel(value: string): GatewayAdapterType {
   const normalized = value.trim().toLowerCase();
-  if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
-  if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
-  if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
-  if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
-  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
-    throw new Error('Gateway 旧 Direct Control 能力已退役，只允许 forward.agent_task');
-  }
-  return normalized as GatewayAdapterType;
+  if (normalized === 'relay.tcp') return normalized;
+  throw new AppError('VALIDATION_FAILED', 'Gateway 只允许 relay.tcp 网络转发能力，旧业务通道已退役', { value, reason: 'GATEWAY_RELAY_ONLY' });
 }
 
 function page<T extends { updatedAt?: string; id: string }>(items: T[], query: PageQuery): PageResult<T> {

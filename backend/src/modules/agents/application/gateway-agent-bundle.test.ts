@@ -48,6 +48,8 @@ test('gateway 角色安装材料使用独立 Gateway Agent 并注入中继配置
     platform: 'linux_go',
     role: 'gateway',
     zone: 'zone_dmz',
+    relayAllowedTargets: ['target.example.test'],
+    relayAllowedPorts: [443],
   }, 'req-gateway-materials');
   assert.equal(result.materials[0]?.version, GATEWAY_AGENT_RELEASE_VERSION);
   const taskInput = result.task.input as Record<string, unknown>;

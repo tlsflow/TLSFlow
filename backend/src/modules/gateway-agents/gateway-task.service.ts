@@ -10,7 +10,7 @@ import {
   type AgentSecurityStatus,
   type PolicyAuthorityDecisionV1,
 } from '../agents/security/agent-security.contract.js';
-import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayAgentTaskResultInput, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
+import { gatewayRelayOnlyError, type GatewayAgentTaskResultInput, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
 import type { GatewayTaskAuditWriter } from './gateway-target-history.service.js';
 import type { DurableGatewayTaskRepositories } from './gateway-task.repository.js';
 
@@ -88,92 +88,37 @@ export class GatewayTaskService {
   }
 
   dispatch(input: GatewayDelegatedTaskInput): GatewayTask {
-    const adapter = assertGatewayRouteChannel(input.adapter, 'adapter');
-    const action = assertGatewayTaskType(input.action, 'action');
-    const existingId = this.idempotencyIndex.get(this.idempotencyKey(input.tenantId, input.idempotencyKey));
-    if (existingId) {
-      const existing = this.tasks.get(existingId)!;
-      if (existing.gatewayId !== input.gatewayId
-        || existing.delegatedTargetId !== input.delegatedTargetId
-        || existing.executionRunId !== input.executionRunId
-        || existing.stepId !== input.stepId
-        || existing.action !== action
-        || existing.adapter !== adapter) {
-        throw new AppError('IDEMPOTENCY_CONFLICT', 'GatewayTask 幂等键与转发范围不一致', {
-          tenantId: input.tenantId,
-          idempotencyKey: input.idempotencyKey,
-          taskId: existing.id,
-        });
-      }
-      return existing;
-    }
-
-    const now = input.now ?? new Date();
-    const task: GatewayTask = {
-      id: input.id ?? newId('gateway_task'),
-      idempotencyKey: input.idempotencyKey,
-      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
-      operatorId: input.operatorId,
-      planId: input.planId,
-      executionRunId: input.executionRunId,
-      stepId: input.stepId,
-      gatewayId: input.gatewayId,
-      delegatedTargetId: input.delegatedTargetId,
-      target: input.target,
-      adapter,
-      action,
-      payload: structuredClone(input.payload ?? {}),
-      grant: input.grant ? structuredClone(input.grant) : undefined,
-      forwardingGrant: input.forwardingGrant ? structuredClone(input.forwardingGrant) : undefined,
-      status: 'queued',
-      evidenceIds: [],
-      evidenceAckCursor: 0,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
-    return this.save(task);
+    void input;
+    throw gatewayRelayOnlyError('GatewayTaskService.dispatch');
   }
 
   ack(taskId: string, leaseId: string, now = new Date()): GatewayTask {
-    const task = this.requireTask(taskId);
-    if (task.leaseId === leaseId && (task.status === 'acknowledged' || task.status === 'running')) return task;
-    if (task.leaseId && task.leaseId !== leaseId) throw new Error('GatewayTask lease 冲突');
-    if (task.status !== 'queued') return task;
-    return this.save({ ...task, leaseId, status: 'acknowledged', acknowledgedAt: now.toISOString(), updatedAt: now.toISOString() });
+    void taskId;
+    void leaseId;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.ack');
   }
 
   markRunning(taskId: string, leaseId: string, now = new Date()): GatewayTask {
-    const task = this.requireLease(taskId, leaseId);
-    if (task.status === 'running') return task;
-    if (task.status !== 'acknowledged') throw new Error(`GatewayTask 状态不允许运行: ${task.status}`);
-    return this.save({ ...task, status: 'running', updatedAt: now.toISOString() });
+    void taskId;
+    void leaseId;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.markRunning');
   }
 
   appendEvidence(input: Omit<GatewayEvidence, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): GatewayEvidence {
-    return this.appendEvidenceInternal(input);
+    void input;
+    throw gatewayRelayOnlyError('GatewayTaskService.appendEvidence');
   }
 
   /** 迟到响应只允许形成拒绝证据，不能改变已经落盘的终态。 */
   recordLateV2Response(taskId: string, leaseId: string, requestId: string, detail: Record<string, unknown>, now = new Date()): GatewayTask {
-    const task = this.requireLease(taskId, leaseId);
-    this.appendEvidenceInternal({
-      taskId,
-      gatewayId: task.gatewayId,
-      delegatedTargetId: task.delegatedTargetId,
-      adapter: task.adapter,
-      forwardingGrantId: task.forwardingGrant?.id,
-      delegatedAgentId: task.forwardingGrant?.delegatedAgentId,
-      executionRunId: task.executionRunId,
-      stepId: task.stepId,
-      action: task.action,
-      result: 'unknown',
-      evidenceRef: `audit://gateway-route/${task.id}/late/${requestId}`,
-      kind: 'response_summary',
-      summary: 'Agent v2 返回迟到 Receipt，Gateway 已拒绝该结果',
-      metadata: { ...detail, requestId, rejected: true, reason: 'GATEWAY_LATE_RECEIPT' },
-      createdAt: now.toISOString(),
-    }, 'unknown');
-    return this.get(task.id)!;
+    void taskId;
+    void leaseId;
+    void requestId;
+    void detail;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.recordLateV2Response');
   }
 
   private appendEvidenceInternal(input: Omit<GatewayEvidence, 'id' | 'createdAt'> & { id?: string; createdAt?: string }, resultOverride?: GatewayEvidence['result']): GatewayEvidence {
@@ -204,25 +149,10 @@ export class GatewayTaskService {
   }
 
   result(taskId: string, leaseId: string, result: Omit<GatewayTaskResult, 'evidenceIds' | 'finishedAt'> & Partial<Pick<GatewayTaskResult, 'evidenceIds' | 'finishedAt'>>): GatewayTask {
-    const task = this.requireLease(taskId, leaseId);
-    if (task.result) return task;
-    assertTaskResultConsistency(result);
-    const finishedAt = result.finishedAt ?? new Date().toISOString();
-    const evidenceIds = result.evidenceIds ?? task.evidenceIds;
-    const firstEvidenceRef = evidenceIds.map((id) => this.evidence.get(id)?.evidenceRef).find((ref): ref is string => Boolean(ref));
-    const completed = this.save({
-      ...task,
-      status: result.status,
-      result: {
-        ...result,
-        evidenceIds,
-        evidenceRef: result.evidenceRef ?? firstEvidenceRef ?? evidenceIds[0],
-        finishedAt,
-      },
-      updatedAt: finishedAt,
-    });
-    this.auditWriter?.recordResult(completed);
-    return completed;
+    void taskId;
+    void leaseId;
+    void result;
+    throw gatewayRelayOnlyError('GatewayTaskService.result');
   }
 
   /**
@@ -231,118 +161,22 @@ export class GatewayTaskService {
    * 不允许通过第二个执行器重新转发任务。
    */
   async recordAgentTaskResult(input: GatewayAgentTaskResultInput): Promise<GatewayTask> {
-    let task = this.requireTask(input.gatewayTaskId);
-    const payload = asRecord(task.payload);
-    const { token, decision, receipt } = assertAgentTaskResultBinding(task, input, payload);
-    if (task.result) {
-      if (receipt) {
-        const existingReceipt = task.result.receipt;
-        if (!existingReceipt || existingReceipt.digest !== receipt.digest) {
-          throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent v2 迟到 Receipt 与已落账结果不一致，拒绝接受', {
-            reason: 'GATEWAY_AGENT_V2_LATE_RECEIPT_REJECTED',
-            gatewayTaskId: input.gatewayTaskId,
-            existingReceiptDigest: existingReceipt?.digest,
-            receiptDigest: receipt.digest,
-          });
-        }
-      }
-      if (task.result.executionStatus === 'UNKNOWN' && input.success) {
-        throw new AppError('RESOURCE_VERSION_CONFLICT', 'GatewayTask UNKNOWN 终态拒绝迟到成功结果', {
-          reason: 'GATEWAY_AGENT_V2_LATE_SUCCESS_REJECTED',
-          gatewayTaskId: input.gatewayTaskId,
-        });
-      }
-      return task;
-    }
-    if (!task.leaseId) {
-      task = this.ack(task.id, input.leaseId);
-      task = this.markRunning(task.id, input.leaseId);
-    }
-
-    if (!task.v2NonceBinding) {
-      const forwardingGrant = task.forwardingGrant;
-      if (!forwardingGrant) {
-        throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 缺少 ForwardingGrant，拒绝接受 Agent v2 Receipt', {
-          reason: 'GATEWAY_FORWARDING_GRANT_REQUIRED',
-          gatewayTaskId: input.gatewayTaskId,
-        });
-      }
-      task = this.consumeV2NonceAndForwardingGrant(task.id, {
-        tenantId: token.tenantId,
-        agentId: token.agentId,
-        tokenId: token.tokenId,
-        nonce: token.nonce,
-        revocationRef: decision.revocationRef,
-      }, {
-        ...forwardingGrant,
-        status: 'used',
-        remainingUses: 0,
-        usedAt: new Date().toISOString(),
-      });
-    } else {
-      assertConsumedV2TaskBinding(task, token, decision);
-    }
-
-    const executionStatus = resolveGatewayAgentExecutionStatus(input, receipt);
-    const status: GatewayTaskResult['status'] = executionStatus === 'SUCCESS'
-      ? 'success'
-      : executionStatus === 'UNKNOWN'
-        ? 'unknown'
-        : executionStatus === 'CANCELLED'
-          ? 'cancelled'
-          : 'failed';
-    const evidence = this.appendEvidenceInternal({
-      taskId: task.id,
-      gatewayId: task.gatewayId,
-      delegatedTargetId: task.delegatedTargetId,
-      adapter: task.adapter,
-      forwardingGrantId: task.forwardingGrant?.id,
-      delegatedAgentId: task.forwardingGrant?.delegatedAgentId,
-      executionRunId: task.executionRunId,
-      stepId: task.stepId,
-      action: task.action,
-      result: status,
-      evidenceRef: `audit://gateway-route/${task.id}/agent-task/${input.agentTaskId}`,
-      kind: 'response_summary',
-      summary: status === 'success' ? 'Gateway Agent v2 返回真实成功 Receipt' : `Gateway Agent v2 返回 ${executionStatus}`,
-      metadata: {
-        agentTaskId: input.agentTaskId,
-        agentId: input.agentId,
-        actionType: input.actionType,
-        detail: input.detail,
-      },
-    });
-    const completed = this.result(task.id, input.leaseId, {
-      success: status === 'success',
-      status,
-      summary: status === 'success' ? 'Gateway Agent v2 已返回真实授权结果' : `Gateway Agent v2 返回 ${executionStatus}`,
-      evidenceIds: [evidence.id],
-      errorCode: status === 'success' ? undefined : input.errorCode ?? (status === 'unknown' ? 'GATEWAY_EXECUTION_UNKNOWN' : 'AGENT_V2_EXECUTION_FAILED'),
-      errorMessage: status === 'success' ? undefined : input.errorMessage,
-      executionStatus,
-      receipt,
-    });
-    await this.flushPersistence();
-    return completed;
+    void input;
+    throw gatewayRelayOnlyError('GatewayTaskService.recordAgentTaskResult');
   }
 
   updateEvidenceAckCursor(taskId: string, ackCursor: number, now = new Date()): GatewayTask {
-    const task = this.requireTask(taskId);
-    const current = task.evidenceAckCursor ?? 0;
-    if (ackCursor <= current) return task;
-    return this.save({ ...task, evidenceAckCursor: ackCursor, updatedAt: now.toISOString() });
+    void taskId;
+    void ackCursor;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.updateEvidenceAckCursor');
   }
 
   updateForwardingGrant(taskId: string, forwardingGrant: GatewayTask['forwardingGrant'], now = new Date()): GatewayTask {
-    const task = this.requireTask(taskId);
-    if (!forwardingGrant) throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 不能清除 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_MUTATION_DENIED' });
-    if (task.forwardingGrant && task.forwardingGrant.id !== forwardingGrant.id) {
-      throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 不能替换已绑定的 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_MUTATION_DENIED', taskId });
-    }
-    if (task.forwardingGrant?.status === 'used' && forwardingGrant.status !== 'used') {
-      throw new AppError('AUTH_FORBIDDEN', '已消费的 ForwardingGrant 不能恢复', { reason: 'GATEWAY_FORWARDING_GRANT_RESTORE_DENIED', taskId });
-    }
-    return this.save({ ...task, forwardingGrant, updatedAt: now.toISOString() });
+    void taskId;
+    void forwardingGrant;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.updateForwardingGrant');
   }
 
   assertV2NonceAvailable(binding: GatewayV2NonceBinding): void {
@@ -352,26 +186,11 @@ export class GatewayTaskService {
   }
 
   consumeV2NonceAndForwardingGrant(taskId: string, binding: GatewayV2NonceBinding, consumedForwardingGrant: NonNullable<GatewayTask['forwardingGrant']>, now = new Date()): GatewayTask {
-    this.assertDurableV2NonceStore();
-    const task = this.requireTask(taskId);
-    assertV2TaskBinding(task, binding);
-    if (consumedForwardingGrant.id !== task.forwardingGrant?.id
-      || consumedForwardingGrant.status !== 'used'
-      || consumedForwardingGrant.remainingUses !== 0
-      || consumedForwardingGrant.tenantId !== task.tenantId
-      || consumedForwardingGrant.gatewayId !== task.gatewayId
-      || consumedForwardingGrant.delegatedTargetId !== task.delegatedTargetId
-      || consumedForwardingGrant.executionRunId !== task.executionRunId
-      || consumedForwardingGrant.stepId !== task.stepId) {
-      throw new AppError('AUTH_FORBIDDEN', 'Gateway v2 Nonce 与已消费 ForwardingGrant 不一致', { reason: 'GATEWAY_V2_COMMIT_BINDING_DENIED', taskId });
-    }
-    this.assertV2NonceAvailable(binding);
-    const nonceBinding = binding;
-    const next = { ...task, v2NonceBinding: { ...nonceBinding, consumedAt: now.toISOString() }, updatedAt: now.toISOString() };
-    next.forwardingGrant = structuredClone(consumedForwardingGrant);
-    const saved = this.save(next);
-    this.v2NonceIndex.set(this.v2NonceKey(binding), taskId);
-    return saved;
+    void taskId;
+    void binding;
+    void consumedForwardingGrant;
+    void now;
+    throw gatewayRelayOnlyError('GatewayTaskService.consumeV2NonceAndForwardingGrant');
   }
 
   get(taskId: string): GatewayTask | undefined {

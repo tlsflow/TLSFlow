@@ -7,7 +7,7 @@ import type {
   ZoneRouteRequest,
   ZoneRouteResult,
 } from './gateway-agent.types.js';
-import { assertGatewayRouteChannel } from './gateway-agent.types.js';
+import { assertGatewayRelayRouteChannel } from './gateway-agent.types.js';
 import { GatewayFailoverService } from './failover.service.js';
 import { ReachabilityService } from './reachability.service.js';
 
@@ -22,12 +22,14 @@ export class ZoneRouter {
   ) {}
 
   route(request: ZoneRouteRequest): ZoneRouteResult {
-    const protocols = request.protocols.map((protocol, index) => assertGatewayRouteChannel(protocol, `protocols[${index}]`));
+    const protocols = request.protocols.map((protocol, index) => assertGatewayRelayRouteChannel(protocol, `protocols[${index}]`));
     const now = request.now ?? new Date();
     const zone = this.zones.find((item) => item.id === request.zoneId);
     if (!zone?.enabled) return this.blocked('zone_disabled');
 
     if (request.lockedTargetIds?.includes(request.targetId)) return this.blocked('target_locked');
+    if (zone.policy.allowedTargets && !zone.policy.allowedTargets.includes(request.targetId)) return this.blocked('target_not_allowed');
+    if (zone.policy.allowedPorts && (!request.targetPort || !zone.policy.allowedPorts.includes(request.targetPort))) return this.blocked('port_not_allowed');
     if (request.action && !this.isActionAllowed(zone.policy.allowedActions, request.action)) return this.blocked('action_not_allowed');
     if (!this.isInsideMaintenanceWindow(zone.policy.maintenanceWindow, now)) return this.blocked('maintenance_window_closed');
 
@@ -52,6 +54,7 @@ export class ZoneRouter {
     const missingCapabilities = new Set<string>();
     let sawExpired = false;
     let sawGatewayWithCapability = false;
+    let sawPortMismatch = false;
 
     for (const gateway of gatewayPool) {
       if (!routableStatuses.includes(gateway.status)) continue;
@@ -72,6 +75,10 @@ export class ZoneRouter {
 
       const record = this.reachability.findAny(gateway.id, request.targetId, protocols, now);
       if (!record) continue;
+      if (request.targetPort !== undefined && record.port !== request.targetPort) {
+        sawPortMismatch = true;
+        continue;
+      }
       if (record.status === 'expired') {
         sawExpired = true;
         continue;
@@ -104,7 +111,13 @@ export class ZoneRouter {
       };
     }
 
-    const blockedReason = sawExpired ? 'reachability_expired' : sawGatewayWithCapability ? 'unreachable' : 'capability_missing';
+    const blockedReason = sawPortMismatch
+      ? 'target_endpoint_mismatch'
+      : sawExpired
+        ? 'reachability_expired'
+        : sawGatewayWithCapability
+          ? 'unreachable'
+          : 'capability_missing';
     return {
       status: 'blocked',
       candidateGateways: [],

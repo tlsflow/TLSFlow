@@ -14,6 +14,7 @@ import { ExecutionsApplicationService } from './modules/executions/application/e
 import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
+import { CurlExecutor, SSHExecutor, SecretServiceCurlResolver, SecretServiceSshResolver } from './modules/executors/index.js';
 import { DeploymentInputSnapshotsRepository } from './modules/deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { WorkflowRecoveryLedgerService } from './modules/executions/application/workflow-recovery-ledger.service.js';
 import { PluginResourceLockService } from './modules/executions/application/plugin-resource-lock.service.js';
@@ -87,7 +88,6 @@ import {
   type PolicyAuthorityProcessClientV1,
 } from './modules/agents/security/policy-authority-process.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
-import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
@@ -190,6 +190,8 @@ export interface AppDependencies {
   pluginRuntimeAdapters?: PluginRuntimeAdapterRegistry;
   /** 测试或受控宿主显式注入 Plugin Runner 执行依赖；生产默认仍从固定环境配置装配。 */
   pluginRunner?: PluginRunnerExecutionDependencies;
+  /** 测试或受控宿主显式注入设备服务；生产默认使用真实装配。 */
+  devices?: DevicesApplicationService;
 }
 
 /** 生成证书产物必须包含私钥的格式码；证书版本本身只保存公钥/私钥材料。 */
@@ -288,10 +290,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     internalCaService.getRepository(),
   );
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
-  const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
-  const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
-  app.setResource('gatewayTasksService', gatewayTasksService);
-  const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
+  // Gateway 只通过独立 Relay Agent 提供 TCP 中继；控制面不再装配 GatewayTask 队列、结果 sink 或业务探测。
+  const livenessService = new LivenessApplicationService(appDb);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
   app.setResource('assetsService', assetsService);
   const licensingService = app.getResource<LicensingApplicationService>('licensingService');
@@ -419,15 +419,27 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasksService,
     pluginFactPipeline,
   );
-  agentsService.setGatewayTaskResultSink(gatewayTasksService);
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
+  // 统一工作流（设备能力执行等）的旧 Curl/SSH 执行器必须由宿主显式注入受控实例：
+  // 复用 SecretService 凭据解析与 ExecutionGrant 授权链，不允许 dispatcher 自行创建或静默 fallback。
+  const workflowStepCurlExecutor = new CurlExecutor({
+    secretResolver: new SecretServiceCurlResolver(security.secrets),
+    executionGrantService: security.grants,
+  });
+  const workflowStepSshExecutor = new SSHExecutor({
+    secretResolver: new SecretServiceSshResolver(security.secrets),
+  });
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
     new WorkflowTemplatesDomainService(
       new PgDocumentRepository(appDb, 'workflow.templates'),
       new PgDocumentRepository(appDb, 'workflow.template_versions'),
     ),
     {
-      stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
+      stepDispatcher: createWorkflowStepDispatcher({
+        curlExecutor: workflowStepCurlExecutor,
+        sshExecutor: workflowStepSshExecutor,
+        executionGrantService: security.grants,
+      }),
     },
     new PluginWorkflowBindingsRepository(appDb),
   );
@@ -457,7 +469,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assetsService.getRepository(),
     pluginWorkflowPublisher,
   );
-  const devicesService = new DevicesApplicationService(
+  const devicesService = dependencies.devices ?? new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
     agentsService,
@@ -559,8 +571,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   ));
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
-    gatewayTasks: gatewayTasksService,
-    gatewayTaskAuditWriter,
     secrets: security.secrets,
     workflows: workflowTemplatesService,
     agentPlanCompiler,
@@ -850,7 +860,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
           await assertCompatibleAgentHost(tenantId, session.deviceId, recipe);
           return;
         }
-        if (session.deviceId) await devicesService.executeCapability(tenantId, session.deviceId, 'device.connection.test', session.actorId, 'application-onboarding');
+        // 非直连配方必须声明连接测试能力；宿主按配方执行，不硬编码能力名，避免破坏其他插件配方。
+        const connectionTestCapability = recipe.recipe.capabilities.connectionTest;
+        if (!connectionTestCapability) {
+          throw new AppError('CAPABILITY_MISSING', '接入配方未声明连接测试能力', {
+            code: 'ONBOARDING_CONNECTION_TEST_MISSING',
+            platformKey: recipe.recipe.platformKey,
+          });
+        }
+        if (session.deviceId) await devicesService.executeCapability(tenantId, session.deviceId, connectionTestCapability, session.actorId, 'application-onboarding');
       },
       discover: async (tenantId, session, recipe) => {
         if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
@@ -1455,13 +1473,6 @@ export async function createAppAsync(
   const app = createApp(dependencies);
   if (options.registerFlushers) {
     await options.registerFlushers(app);
-  }
-  const gatewayTasksService = app.getResource<GatewayTaskService>('gatewayTasksService');
-  const database = app.getResource<DatabasePort>('database');
-  if (gatewayTasksService && database) {
-    const repositories = await createDurableGatewayTaskRepositories(database);
-    await gatewayTasksService.initialize(repositories);
-    app.registerPersistenceFlusher(gatewayTasksService);
   }
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   if (!tasksService) throw new Error('任务控制面服务未完成应用装配');

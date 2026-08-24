@@ -139,6 +139,14 @@ func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
 func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	fixture.Request["requestedBy"] = "user-1"
+	fixture.Request["refreshWebInventory"] = true
+	contractPayload := agentV2ContractPayload(fixture.Request)
+	if !boolFromMap(contractPayload, "refreshWebInventory") {
+		t.Fatalf("完整 Web 发现开关必须进入 Agent v2 合同解码: %+v", contractPayload)
+	}
+	if _, exists := contractPayload["requestedBy"]; exists {
+		t.Fatalf("requestedBy 仍属于控制面元数据，不得进入 Agent v2 合同: %+v", contractPayload)
+	}
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("调度元数据必须在严格合同前剥离: success=%v code=%s", success, code)
 	}
@@ -150,9 +158,16 @@ func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *te
 
 func TestV2AllowsFullWebDiscoveryWithoutPluginDiscoverySpec(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["action"] = agentFactCollect
 	fixture.Request["refreshWebInventory"] = true
-	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
-		t.Fatalf("完整 Web 发现不应依赖插件 discoverySpec: success=%v code=%s", success, code)
+	success, code, message, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+	if !success || code != "" {
+		t.Fatalf("完整 Web 发现不应依赖插件 discoverySpec: success=%v code=%s message=%s detail=%+v", success, code, message, detail)
+	}
+	factEnvelope := mapFromMap(detail, "factEnvelope")
+	inventory := mapFromMap(factEnvelope, "webInventory")
+	if inventory == nil || stringFromMap(inventory, "scope") != fullWebDiscoveryScope {
+		t.Fatalf("refreshWebInventory 未触发完整 Web 库存采集: %+v", detail)
 	}
 }
 

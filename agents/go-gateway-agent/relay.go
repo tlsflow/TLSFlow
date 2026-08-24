@@ -27,8 +27,8 @@ import (
 //   4. 网关用配置的 relayClientPublicKeys 验证签名；
 //   5. 验证通过后网关直连目标 host:port 并双向透传原始字节。
 //
-// 认证通过后允许转发到任意网关可达的 host:port（不做目标白名单），
-// 这是有意保持的简化：网关只负责私有密钥认证 + TCP 转发。
+// 认证通过后仍必须通过本地目标白名单、端口白名单和 DNS/IP 出站策略。
+// 签名只证明客户端身份和本次目标绑定，不代表目标本身已获准访问。
 
 const (
 	gatewayRelayProtocol           = "gcac.gateway-relay/v1"
@@ -67,7 +67,14 @@ type relayServer struct {
 	closeOnce sync.Once
 	wg        sync.WaitGroup
 	sessions  int64
+	accepted  int64
+	rejected  int64
+	mu        sync.Mutex
+	conns     map[net.Conn]struct{}
 }
+
+// lookupRelayIPs 单独抽出解析器，便于安全测试模拟 DNS rebinding。
+var lookupRelayIPs = net.LookupIP
 
 func effectiveRelayEnabled(config *AgentConfig) bool {
 	return config.RelayEnabled
@@ -92,6 +99,143 @@ func effectiveRelayIdleTimeout(config *AgentConfig) time.Duration {
 		return time.Duration(config.RelayIdleTimeoutSeconds) * time.Second
 	}
 	return time.Duration(defaultRelayIdleTimeoutSeconds) * time.Second
+}
+
+func relayTargetPolicyConfigured(config *AgentConfig) bool {
+	if len(config.RelayAllowedTargets) == 0 || len(config.RelayAllowedPorts) == 0 {
+		return false
+	}
+	for _, port := range config.RelayAllowedPorts {
+		if port < 1 || port > 65535 {
+			return false
+		}
+	}
+	for _, raw := range config.RelayAllowedTargets {
+		entry := canonicalRelayHost(raw)
+		if entry == "" || !validRelayTargetEntry(entry) {
+			return false
+		}
+	}
+	return true
+}
+
+func validRelayTargetEntry(value string) bool {
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	if _, _, err := net.ParseCIDR(value); err == nil {
+		return true
+	}
+	if len(value) > 253 || strings.HasPrefix(value, ".") || strings.HasSuffix(value, ".") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func relayPortAllowed(config *AgentConfig, port int) bool {
+	for _, allowed := range config.RelayAllowedPorts {
+		if allowed == port {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalRelayHost(value string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+}
+
+func relayHostAllowlisted(config *AgentConfig, host string) bool {
+	canonical := canonicalRelayHost(host)
+	for _, raw := range config.RelayAllowedTargets {
+		entry := canonicalRelayHost(raw)
+		if entry == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+func relayAddressAllowlisted(config *AgentConfig, ip net.IP) bool {
+	for _, raw := range config.RelayAllowedTargets {
+		entry := strings.TrimSpace(raw)
+		if parsed := net.ParseIP(entry); parsed != nil && parsed.Equal(ip) {
+			return true
+		}
+		if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func restrictedRelayIP(ip net.IP) bool {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	for _, raw := range []string{
+		"0.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+		"::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8", "2001:db8::/32",
+	} {
+		if _, network, err := net.ParseCIDR(raw); err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	// 常见云平台元数据地址，即使部署网络错误配置也不允许访问。
+	for _, raw := range []string{"169.254.169.254", "169.254.170.2", "100.100.100.200"} {
+		if net.ParseIP(raw).Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveRelayTarget(config *AgentConfig, host string, port int) ([]net.IP, string, error) {
+	if !relayPortAllowed(config, port) {
+		return nil, "PORT_NOT_ALLOWED", errors.New("目标 port 未被 Relay 端口白名单允许")
+	}
+	canonical := canonicalRelayHost(host)
+	if canonical == "" || strings.ContainsAny(canonical, "/\\\x00 \t\r\n%") {
+		return nil, "INVALID_TARGET", errors.New("目标 host 不合法")
+	}
+	hostIsIP := net.ParseIP(canonical) != nil
+	if !hostIsIP && !relayHostAllowlisted(config, canonical) {
+		return nil, "TARGET_NOT_ALLOWED", errors.New("目标 host 不在 Relay 白名单")
+	}
+	ips, err := lookupRelayIPs(canonical)
+	if err != nil || len(ips) == 0 {
+		if hostIsIP {
+			ips = []net.IP{net.ParseIP(canonical)}
+		} else {
+			return nil, "TARGET_RESOLUTION_FAILED", fmt.Errorf("目标 host 解析失败: %w", err)
+		}
+	}
+	resolved := make([]net.IP, 0, len(ips))
+	for _, ip := range ips {
+		if ip == nil {
+			return nil, "TARGET_RESOLUTION_FAILED", errors.New("目标 DNS 返回空地址")
+		}
+		ip = append(net.IP(nil), ip...)
+		addressListed := relayAddressAllowlisted(config, ip)
+		if restrictedRelayIP(ip) && !addressListed {
+			return nil, "TARGET_SSRF_BLOCKED", fmt.Errorf("目标解析到受限制地址 %s", ip.String())
+		}
+		if hostIsIP && !addressListed {
+			return nil, "TARGET_NOT_ALLOWED", fmt.Errorf("目标 IP %s 不在 Relay 白名单", ip.String())
+		}
+		resolved = append(resolved, ip)
+	}
+	return resolved, "", nil
 }
 
 // relayClientPublicKeys 解析配置里的 ed25519 公钥（hex）；非法条目直接忽略。
@@ -143,14 +287,14 @@ func relayListenAddressAvailable(config *AgentConfig) bool {
 // startRelayServer 启动网关 TCP 中继；中继未启用时返回 (nil, nil)。
 // 中继依赖 gateway 角色与至少一个客户端公钥，配置不满足时失败关闭。
 func startRelayServer(config *AgentConfig) (*relayServer, error) {
-	if !isGatewayEnabled(config) {
-		return nil, errors.New("TCP 中继要求 Gateway 角色（gatewayEnabled=true）")
-	}
 	if !effectiveRelayEnabled(config) {
 		return nil, nil
 	}
 	if len(relayClientPublicKeys(config)) == 0 {
 		return nil, errors.New("TCP 中继已启用但未配置 relayClientPublicKeys")
+	}
+	if !relayTargetPolicyConfigured(config) {
+		return nil, errors.New("TCP 中继已启用但未配置 relayAllowedTargets/relayAllowedPorts")
 	}
 	address := net.JoinHostPort(effectiveRelayListenAddress(config), fmt.Sprintf("%d", effectiveRelayPort(config)))
 	listener, err := net.Listen("tcp", address)
@@ -161,6 +305,7 @@ func startRelayServer(config *AgentConfig) (*relayServer, error) {
 		listener: listener,
 		config:   config,
 		closed:   make(chan struct{}),
+		conns:    make(map[net.Conn]struct{}),
 	}
 	go server.acceptLoop()
 	fmt.Fprintf(os.Stderr, "[relay] listening on %s\n", address)
@@ -178,18 +323,62 @@ func (server *relayServer) acceptLoop() {
 				continue
 			}
 		}
-		if atomic.LoadInt64(&server.sessions) >= maxRelayConcurrentSessions {
+		if !server.tryAcquireSession() {
 			_ = conn.Close()
+			atomic.AddInt64(&server.rejected, 1)
+			server.audit("rejected", "CONCURRENCY_LIMIT", "", "", 0, 0)
 			continue
 		}
-		atomic.AddInt64(&server.sessions, 1)
+		server.trackConnection(conn)
+		atomic.AddInt64(&server.accepted, 1)
 		server.wg.Add(1)
 		go func() {
 			defer server.wg.Done()
-			defer atomic.AddInt64(&server.sessions, -1)
+			defer server.releaseSession(conn)
 			server.handleConnection(conn)
 		}()
 	}
+}
+
+func (server *relayServer) tryAcquireSession() bool {
+	for {
+		current := atomic.LoadInt64(&server.sessions)
+		if current >= maxRelayConcurrentSessions {
+			return false
+		}
+		if atomic.CompareAndSwapInt64(&server.sessions, current, current+1) {
+			return true
+		}
+	}
+}
+
+func (server *relayServer) trackConnection(conn net.Conn) {
+	server.mu.Lock()
+	server.conns[conn] = struct{}{}
+	server.mu.Unlock()
+}
+
+func (server *relayServer) releaseSession(conn net.Conn) {
+	server.mu.Lock()
+	delete(server.conns, conn)
+	server.mu.Unlock()
+	atomic.AddInt64(&server.sessions, -1)
+}
+
+func (server *relayServer) audit(phase, outcome, sessionID, target string, clientBytes, targetBytes int64) {
+	_ = json.NewEncoder(os.Stderr).Encode(map[string]any{
+		"component":        "gateway-relay",
+		"phase":            phase,
+		"outcome":          outcome,
+		"session":          sessionID,
+		"target":           target,
+		"clientBytes":      clientBytes,
+		"targetBytes":      targetBytes,
+		"activeSessions":   atomic.LoadInt64(&server.sessions),
+		"acceptedSessions": atomic.LoadInt64(&server.accepted),
+		"rejectedSessions": atomic.LoadInt64(&server.rejected),
+		"at":               time.Now().UTC().Format(time.RFC3339Nano),
+	})
 }
 
 func (server *relayServer) Close() error {
@@ -197,6 +386,15 @@ func (server *relayServer) Close() error {
 	server.closeOnce.Do(func() {
 		close(server.closed)
 		closeErr = server.listener.Close()
+		server.mu.Lock()
+		connections := make([]net.Conn, 0, len(server.conns))
+		for conn := range server.conns {
+			connections = append(connections, conn)
+		}
+		server.mu.Unlock()
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
 	})
 	server.wg.Wait()
 	return closeErr
@@ -204,76 +402,149 @@ func (server *relayServer) Close() error {
 
 func (server *relayServer) handleConnection(client net.Conn) {
 	defer client.Close()
+	sessionID := ""
+	targetName := ""
+	outcome := "HANDSHAKE_FAILED"
+	var clientBytes, targetBytes int64
+	defer func() { server.audit("session", outcome, sessionID, targetName, clientBytes, targetBytes) }()
 	_ = client.SetDeadline(time.Now().Add(relayHandshakeTimeout))
 
 	challengeBytes := make([]byte, 32)
 	if _, err := rand.Read(challengeBytes); err != nil {
+		outcome = "CHALLENGE_GENERATION_FAILED"
 		return
 	}
 	challengeHex := hex.EncodeToString(challengeBytes)
-	sessionID := "relay-" + challengeHex[:12]
+	sessionID = "relay-" + challengeHex[:12]
 
 	encoder := json.NewEncoder(client)
 	hello := relayHello{V: gatewayRelayProtocol, Challenge: challengeHex, Session: sessionID}
 	if err := encoder.Encode(hello); err != nil {
+		outcome = "HANDSHAKE_WRITE_FAILED"
 		fmt.Fprintf(os.Stderr, "[relay] session=%s handshake write failed: %v\n", sessionID, err)
 		return
 	}
 
-	reader := bufio.NewReader(io.LimitReader(client, maxRelayRequestFrameBytes))
-	line, err := reader.ReadBytes('\n')
+	reader := bufio.NewReaderSize(client, maxRelayRequestFrameBytes+1)
+	line, err := readRelayFrame(reader, maxRelayRequestFrameBytes)
 	if err != nil {
+		if errors.Is(err, errRelayFrameTooLarge) {
+			outcome = "FRAME_TOO_LARGE"
+		} else if timeoutErr, ok := err.(net.Error); ok && timeoutErr.Timeout() {
+			outcome = "HANDSHAKE_TIMEOUT"
+		} else {
+			outcome = "HANDSHAKE_READ_FAILED"
+		}
 		fmt.Fprintf(os.Stderr, "[relay] session=%s handshake read failed: %v\n", sessionID, err)
 		return
 	}
 	var request relayRequest
 	if err := json.Unmarshal(line, &request); err != nil || request.V != gatewayRelayProtocol {
+		outcome = "INVALID_REQUEST"
 		writeRelayError(encoder, "INVALID_REQUEST", "请求帧格式不合法")
 		fmt.Fprintf(os.Stderr, "[relay] session=%s invalid request frame\n", sessionID)
 		return
 	}
 
-	host := strings.TrimSpace(request.Host)
-	if host == "" || strings.ContainsAny(host, "/\x00 \t\r\n") {
+	host := canonicalRelayHost(request.Host)
+	targetName = net.JoinHostPort(host, strconv.Itoa(request.Port))
+	if host == "" || strings.ContainsAny(host, "/\\\x00 \t\r\n%") {
+		outcome = "INVALID_TARGET"
 		writeRelayError(encoder, "INVALID_TARGET", "目标 host 不合法")
 		return
 	}
 	if request.Port < 1 || request.Port > 65535 {
+		outcome = "INVALID_TARGET"
 		writeRelayError(encoder, "INVALID_TARGET", "目标 port 不合法")
 		return
 	}
 
 	signature, err := hex.DecodeString(strings.TrimSpace(request.Signature))
 	if err != nil || len(signature) != ed25519.SignatureSize {
+		outcome = "AUTH_FAILED"
 		writeRelayError(encoder, "AUTH_FAILED", "签名格式不合法")
 		fmt.Fprintf(os.Stderr, "[relay] session=%s bad signature format\n", sessionID)
 		return
 	}
 	signed := challengeHex + ":" + host + ":" + strconv.Itoa(request.Port)
 	if !verifyRelaySignature(server.config, []byte(signed), signature) {
+		outcome = "AUTH_FAILED"
 		writeRelayError(encoder, "AUTH_FAILED", "私有密钥认证失败")
 		fmt.Fprintf(os.Stderr, "[relay] session=%s auth failed client=%s\n", sessionID, client.RemoteAddr())
 		return
 	}
 
-	target := net.JoinHostPort(host, strconv.Itoa(request.Port))
-	upstream, err := net.DialTimeout("tcp", target, relayDialTimeout)
+	resolvedIPs, policyCode, err := resolveRelayTarget(server.config, host, request.Port)
 	if err != nil {
-		writeRelayError(encoder, "TARGET_UNREACHABLE", fmt.Sprintf("无法连接目标 %s: %v", target, err))
-		fmt.Fprintf(os.Stderr, "[relay] session=%s target unreachable %s: %v\n", sessionID, target, err)
+		outcome = policyCode
+		writeRelayError(encoder, policyCode, err.Error())
+		fmt.Fprintf(os.Stderr, "[relay] session=%s target policy denied %s: %v\n", sessionID, targetName, err)
+		return
+	}
+
+	var upstream net.Conn
+	var dialErr error
+	for _, ip := range resolvedIPs {
+		upstream, dialErr = net.DialTimeout("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(request.Port)), relayDialTimeout)
+		if dialErr == nil {
+			break
+		}
+	}
+	if dialErr != nil {
+		outcome = "TARGET_UNREACHABLE"
+		writeRelayError(encoder, "TARGET_UNREACHABLE", fmt.Sprintf("无法连接目标 %s: %v", targetName, dialErr))
+		fmt.Fprintf(os.Stderr, "[relay] session=%s target unreachable %s: %v\n", sessionID, targetName, dialErr)
 		return
 	}
 	defer upstream.Close()
 
 	if err := encoder.Encode(relayResponse{OK: true}); err != nil {
+		outcome = "HANDSHAKE_WRITE_FAILED"
 		fmt.Fprintf(os.Stderr, "[relay] session=%s ok write failed: %v\n", sessionID, err)
 		return
 	}
 	_ = client.SetDeadline(time.Time{})
 
 	idleTimeout := effectiveRelayIdleTimeout(server.config)
-	pumpRelayBytes(client, upstream, sessionID, target, idleTimeout)
-	fmt.Fprintf(os.Stderr, "[relay] session=%s closed target=%s client=%s\n", sessionID, target, client.RemoteAddr())
+	result := pumpRelayBytes(&bufferedConn{Conn: client, reader: reader}, upstream, idleTimeout)
+	clientBytes = result.clientToTarget
+	targetBytes = result.targetToClient
+	outcome = result.outcome
+	fmt.Fprintf(os.Stderr, "[relay] session=%s closed target=%s client=%s outcome=%s\n", sessionID, targetName, client.RemoteAddr(), outcome)
+}
+
+var errRelayFrameTooLarge = errors.New("Relay 握手帧超出长度限制")
+
+func readRelayFrame(reader *bufio.Reader, maxBytes int) ([]byte, error) {
+	frame := make([]byte, 0, maxBytes)
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		frame = append(frame, chunk...)
+		if len(frame) > maxBytes {
+			return nil, errRelayFrameTooLarge
+		}
+		if err == nil {
+			return frame, nil
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return nil, err
+		}
+	}
+}
+
+// bufferedConn 把握手阶段已经预读的字节交还给 TCP 泵，避免同一写包中的业务字节丢失。
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (conn *bufferedConn) Read(buffer []byte) (int, error) { return conn.reader.Read(buffer) }
+
+func (conn *bufferedConn) CloseWrite() error {
+	if halfCloser, ok := conn.Conn.(closeWriter); ok {
+		return halfCloser.CloseWrite()
+	}
+	return nil
 }
 
 func writeRelayError(encoder *json.Encoder, code, message string) {
@@ -291,41 +562,63 @@ func verifyRelaySignature(config *AgentConfig, signed []byte, signature []byte) 
 
 // pumpRelayBytes 双向透传原始字节；任一端 EOF/错误时只关闭对端写半连接，
 // 保证 SSH 等依赖 half-close 的协议正常结束。idleTimeout 内无任何读写则强制断开。
-func pumpRelayBytes(client net.Conn, upstream net.Conn, sessionID, target string, idleTimeout time.Duration) {
+type relayPumpResult struct {
+	clientToTarget int64
+	targetToClient int64
+	outcome        string
+}
+
+func pumpRelayBytes(client net.Conn, upstream net.Conn, idleTimeout time.Duration) relayPumpResult {
 	left := newActivityConn(client, idleTimeout)
 	right := newActivityConn(upstream, idleTimeout)
 
+	type copyResult struct {
+		clientToTarget int64
+		targetToClient int64
+	}
+	results := make(chan copyResult, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		copyAndHalfClose(right, left)
+		results <- copyResult{clientToTarget: copyAndHalfClose(right, left)}
 	}()
 	go func() {
 		defer wg.Done()
-		copyAndHalfClose(left, right)
+		results <- copyResult{targetToClient: copyAndHalfClose(left, right)}
 	}()
 	wg.Wait()
 	left.close()
 	right.close()
+	first := <-results
+	second := <-results
+	clientToTarget := first.clientToTarget + second.clientToTarget
+	targetToClient := first.targetToClient + second.targetToClient
+	outcome := "PEER_CLOSED"
+	if left.timedOut.Load() || right.timedOut.Load() {
+		outcome = "IDLE_TIMEOUT"
+	}
+	return relayPumpResult{clientToTarget: clientToTarget, targetToClient: targetToClient, outcome: outcome}
 }
 
 type closeWriter interface {
 	CloseWrite() error
 }
 
-func copyAndHalfClose(dst, src net.Conn) {
-	_, _ = io.Copy(dst, src)
+func copyAndHalfClose(dst, src net.Conn) int64 {
+	count, _ := io.Copy(dst, src)
 	if halfCloser, ok := dst.(closeWriter); ok {
 		_ = halfCloser.CloseWrite()
 	}
+	return count
 }
 
 type activityConn struct {
 	net.Conn
-	idle   time.Duration
-	last   atomic.Int64
-	closed atomic.Bool
+	idle     time.Duration
+	last     atomic.Int64
+	closed   atomic.Bool
+	timedOut atomic.Bool
 }
 
 func newActivityConn(conn net.Conn, idle time.Duration) *activityConn {
@@ -374,6 +667,7 @@ func (conn *activityConn) watchdog() {
 			return
 		}
 		if conn.idle > 0 && time.Since(time.Unix(0, conn.last.Load())) > conn.idle {
+			conn.timedOut.Store(true)
 			_ = conn.Conn.Close()
 			return
 		}

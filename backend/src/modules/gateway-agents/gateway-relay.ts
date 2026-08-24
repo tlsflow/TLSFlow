@@ -38,6 +38,10 @@ export interface OpenGatewayRelayTunnelOptions {
   targetHost: string;
   targetPort: number;
   identity: GatewayRelayIdentity;
+  /** 控制面已签发的窄目标策略；缺少任一项都必须失败关闭。 */
+  allowedTargets: readonly string[];
+  allowedPorts: readonly number[];
+  authorizationExpiresAt: string;
   connectTimeoutMs?: number;
   handshakeTimeoutMs?: number;
 }
@@ -88,8 +92,11 @@ export function openGatewayRelayTunnel(options: OpenGatewayRelayTunnelOptions): 
   if (!gatewayHost || !targetHost) {
     return Promise.reject(new AppError('VALIDATION_FAILED', '网关中继需要 gatewayHost 与 targetHost'));
   }
-  if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
-    return Promise.reject(new AppError('VALIDATION_FAILED', '网关中继目标端口不合法'));
+  const normalizedHost = normalizeRelayHost(targetHost);
+  try {
+    assertGatewayRelayTargetPolicy(normalizedHost, targetPort, options);
+  } catch (error) {
+    return Promise.reject(error);
   }
   const privateKey = createPrivateKey(identity.privateKeyPem);
   const connectTimeoutMs = options.connectTimeoutMs ?? 8_000;
@@ -139,12 +146,12 @@ export function openGatewayRelayTunnel(options: OpenGatewayRelayTunnelOptions): 
             return;
           }
           helloSession = typeof hello.session === 'string' ? hello.session : '';
-          const signed = `${hello.challenge}:${targetHost}:${targetPort}`;
+          const signed = `${hello.challenge}:${normalizedHost}:${targetPort}`;
           const signature = sign(null, Buffer.from(signed, 'utf8'), privateKey).toString('hex');
           socket.write(`${JSON.stringify({
             v: GATEWAY_RELAY_PROTOCOL,
             sig: signature,
-            host: targetHost,
+            host: normalizedHost,
             port: targetPort,
           })}\n`);
           phase = 'response';
@@ -177,6 +184,63 @@ export function openGatewayRelayTunnel(options: OpenGatewayRelayTunnelOptions): 
       }
     });
   });
+}
+
+/** 控制面在连接网关前执行的目标和端口门禁。Gateway 仍会再次执行同一策略。 */
+export function assertGatewayRelayTargetPolicy(
+  targetHost: string,
+  targetPort: number,
+  options: Pick<OpenGatewayRelayTunnelOptions, 'allowedTargets' | 'allowedPorts' | 'authorizationExpiresAt'>,
+): void {
+  if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
+    throw new AppError('VALIDATION_FAILED', '网关中继目标端口不合法');
+  }
+  if (!options.authorizationExpiresAt || !Number.isFinite(Date.parse(options.authorizationExpiresAt))) {
+    throw new AppError('AUTH_FORBIDDEN', 'Gateway RelayAuthorization 缺少有效过期时间', { reason: 'RELAY_AUTHORIZATION_REQUIRED' });
+  }
+  if (Date.parse(options.authorizationExpiresAt) <= Date.now()) {
+    throw new AppError('AUTH_FORBIDDEN', 'Gateway RelayAuthorization 已过期', { reason: 'RELAY_AUTHORIZATION_EXPIRED' });
+  }
+  if (!options.allowedTargets.length || !options.allowedPorts.length) {
+    throw new AppError('AUTH_FORBIDDEN', 'Relay 目标和端口授权策略不能为空', { reason: 'RELAY_AUTHORIZATION_REQUIRED' });
+  }
+  if (!options.allowedPorts.includes(targetPort)) {
+    throw new AppError('AUTH_FORBIDDEN', '目标端口不在 Relay 授权范围内', { reason: 'PORT_NOT_ALLOWED', targetPort });
+  }
+  if (!options.allowedTargets.length) {
+    throw new AppError('AUTH_FORBIDDEN', 'Relay 目标白名单为空', { reason: 'TARGET_NOT_ALLOWED' });
+  }
+  const normalized = normalizeRelayHost(targetHost);
+  const exactHost = options.allowedTargets.some((item) => normalizeRelayHost(item) === normalized);
+  const exactAddress = options.allowedTargets.some((item) => relayAddressMatchesEntry(normalized, item));
+  if (!exactHost && !exactAddress) {
+    throw new AppError('AUTH_FORBIDDEN', '目标不在 Relay 授权范围内', { reason: 'TARGET_NOT_ALLOWED', targetHost: normalized });
+  }
+}
+
+function normalizeRelayHost(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/\.$/u, '');
+  if (!normalized || /[\\/\s\u0000%]/u.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', '网关中继目标主机不合法');
+  }
+  return normalized;
+}
+
+function relayAddressMatchesEntry(targetHost: string, entryValue: string): boolean {
+  const entry = entryValue.trim();
+  const targetFamily = net.isIP(targetHost);
+  if (!targetFamily) return false;
+  if (net.isIP(entry) === targetFamily && entry.toLowerCase() === targetHost.toLowerCase()) return true;
+  try {
+    const blockList = new net.BlockList();
+    const [base, prefix] = entry.split('/');
+    const family = net.isIP(base);
+    if (!family || prefix === undefined) return false;
+    blockList.addSubnet(base, Number(prefix), family === 6 ? 'ipv6' : 'ipv4');
+    return blockList.check(targetHost, family === 6 ? 'ipv6' : 'ipv4');
+  } catch {
+    return false;
+  }
 }
 
 function parseJsonFrame(line: string, name: string): Record<string, unknown> {

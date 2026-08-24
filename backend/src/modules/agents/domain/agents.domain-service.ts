@@ -1,4 +1,5 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomInt } from 'node:crypto';
+import { isIP } from 'node:net';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
@@ -73,7 +74,12 @@ export class AgentsDomainService {
 
   normalizeGatewayOnRegister(input: RegisterAgentInput, existing?: AgentGatewayExtension): AgentGatewayExtension | undefined {
     const role = normalizeOptionalKey(input.role ?? '');
-    const gatewaySignal = role === 'gateway' || hasGatewaySignal(input) || Boolean(existing);
+    if (role !== 'gateway' && (hasGatewaySignal(input) || Boolean(existing))) {
+      throw new AppError('VALIDATION_FAILED', 'Full Agent 不允许携带 Gateway/Relay 能力；请使用独立 Gateway Agent', {
+        reason: 'FULL_AGENT_GATEWAY_FIELDS_REJECTED',
+      });
+    }
+    const gatewaySignal = role === 'gateway';
     if (!gatewaySignal) return undefined;
     const zoneIds = normalizeZoneIds(input.zoneIds ?? (input.zone ? [input.zone] : existing?.zoneIds ?? []));
     if ((role === 'gateway' || hasGatewaySignal(input)) && zoneIds.length === 0) {
@@ -93,7 +99,15 @@ export class AgentsDomainService {
   }
 
   normalizeGatewayOnHeartbeat(agent: AgentRegistration, input: { adapters?: string[]; capabilities?: string[]; resourceLimits?: Record<string, unknown>; currentLoad?: number; maxConcurrentTasks?: number; successRate?: number }, receivedAt: string): AgentGatewayExtension | undefined {
-    if (agent.role !== 'gateway' && !agent.gateway) return undefined;
+    if (agent.role !== 'gateway') {
+      if (agent.gateway || hasGatewaySignal(input)) {
+        throw new AppError('VALIDATION_FAILED', 'Full Agent 心跳不允许携带 Gateway/Relay 能力', {
+          reason: 'FULL_AGENT_GATEWAY_FIELDS_REJECTED',
+          agentId: agent.id,
+        });
+      }
+      return undefined;
+    }
     return this.normalizeGatewayExtension({
       existing: agent.gateway,
       zoneIds: agent.gateway?.zoneIds ?? (agent.zone ? [agent.zone] : []),
@@ -109,12 +123,21 @@ export class AgentsDomainService {
   }
 
   normalizeGatewayOnCapabilities(agent: AgentRegistration, input: AgentCapabilitySnapshotInput): AgentGatewayExtension | undefined {
-    if (agent.role !== 'gateway' && !agent.gateway) return undefined;
+    const reportedCapabilities = input.capabilities.map((item) => item.capabilityKey);
+    if (agent.role !== 'gateway') {
+      if (agent.gateway || hasGatewaySignal({ adapters: input.adapters, capabilities: reportedCapabilities })) {
+        throw new AppError('VALIDATION_FAILED', 'Full Agent 能力快照不允许携带 Gateway/Relay 能力', {
+          reason: 'FULL_AGENT_GATEWAY_FIELDS_REJECTED',
+          agentId: agent.id,
+        });
+      }
+      return undefined;
+    }
     return this.normalizeGatewayExtension({
       existing: agent.gateway,
       zoneIds: agent.gateway?.zoneIds ?? (agent.zone ? [agent.zone] : []),
       adapters: input.adapters,
-      capabilities: input.capabilities.map((item) => item.capabilityKey),
+      capabilities: reportedCapabilities,
       resourceLimits: input.resourceLimits,
       currentLoad: input.currentLoad,
       maxConcurrentTasks: input.maxConcurrentTasks,
@@ -155,6 +178,8 @@ export class AgentsDomainService {
       throw new AppError('VALIDATION_FAILED', 'Windows Agent 安装会话只允许 full_agent 角色');
     }
 
+    const relayPolicy = this.normalizeRelayPolicy(role, input.relayAllowedTargets, input.relayAllowedPorts);
+
     const zone = normalizeOptionalKey(input.zone ?? 'default') || 'default';
     const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
       allowedRoles: [role],
@@ -186,8 +211,33 @@ export class AgentsDomainService {
       startAfterInstall: input.startAfterInstall !== false,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
+      ...relayPolicy,
       ...profile,
     };
+  }
+
+  /**
+   * Gateway 安装必须把目标和端口白名单写入配置；Full Agent 不得借安装接口携带任何 Relay 字段。
+   */
+  normalizeRelayPolicy(
+    role: 'full_agent' | 'gateway',
+    targets: string[] | undefined,
+    ports: number[] | undefined,
+  ): { relayAllowedTargets?: string[]; relayAllowedPorts?: number[] } {
+    if (role !== 'gateway') {
+      if (targets !== undefined || ports !== undefined) {
+        throw new AppError('VALIDATION_FAILED', 'Full Agent 安装不允许携带 Relay 白名单', { reason: 'FULL_AGENT_GATEWAY_FIELDS_REJECTED' });
+      }
+      return {};
+    }
+    if (!targets?.length || !ports?.length) {
+      throw new AppError('VALIDATION_FAILED', 'Gateway 安装必须显式提供 relayAllowedTargets 和 relayAllowedPorts', {
+        reason: 'GATEWAY_RELAY_POLICY_REQUIRED',
+      });
+    }
+    const relayAllowedTargets = [...new Set(targets.map((value, index) => normalizeRelayAllowedTarget(value, index)))];
+    const relayAllowedPorts = [...new Set(ports.map((value, index) => normalizeRelayAllowedPort(value, index)))];
+    return { relayAllowedTargets, relayAllowedPorts };
   }
 
   assertMtlsSession(agent: AgentRegistration, certificateFingerprint: string): void {
@@ -444,8 +494,9 @@ export class AgentsDomainService {
     const successRate = normalizeRate(input.successRate ?? input.existing?.successRate ?? 1, 'successRate');
     return {
       zoneIds: input.zoneIds.length ? input.zoneIds : input.existing?.zoneIds ?? [],
-      adapters: normalizeGatewayRouteChannels(input.adapters ?? input.existing?.adapters ?? defaultGatewayRouteChannels()),
-      capabilities: normalizeList(input.capabilities ?? input.existing?.capabilities ?? defaultGatewayCapabilities()),
+      // Gateway 升级后只保留 Relay 能力；旧快照不再继续广播业务转发能力。
+      adapters: input.adapters ? normalizeGatewayRouteChannels(input.adapters) : defaultGatewayRouteChannels(),
+      capabilities: input.capabilities ? normalizeGatewayCapabilities(input.capabilities) : defaultGatewayCapabilities(),
       resourceLimits: sanitizeUnknown(input.resourceLimits ?? input.existing?.resourceLimits ?? {}) as Record<string, unknown>,
       currentLoad,
       maxConcurrentTasks,
@@ -483,25 +534,28 @@ function normalizeManagementEndpoint(value: string | undefined): string | undefi
 }
 
 function defaultGatewayRouteChannels(): string[] {
-  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'];
+  return ['relay.tcp'];
 }
 
 function defaultGatewayCapabilities(): string[] {
-  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task'];
+  return ['gateway.relay.tcp'];
 }
 
 function normalizeGatewayRouteChannels(values: string[]): string[] {
   return normalizeList(values.map((value) => {
     const normalized = normalizeOptionalKey(value);
-    if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
-    if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
-    if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
-    if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
-    if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
-      throw new AppError('VALIDATION_FAILED', 'Gateway 旧 Direct Control 能力已退役，只允许 forward.agent_task', { value });
-    }
-    return normalized;
+    if (normalized === 'relay.tcp') return normalized;
+    throw new AppError('VALIDATION_FAILED', 'Gateway 只允许 relay.tcp 网络转发能力，旧业务通道已退役', { value, reason: 'GATEWAY_RELAY_ONLY' });
   }));
+}
+
+function normalizeGatewayCapabilities(values: string[]): string[] {
+  const normalized = normalizeList(values);
+  if (normalized.length === 0) return defaultGatewayCapabilities();
+  if (normalized.some((value) => value !== 'gateway.relay.tcp')) {
+    throw new AppError('VALIDATION_FAILED', 'Gateway 只允许 gateway.relay.tcp 能力，旧业务能力已退役', { reason: 'GATEWAY_RELAY_ONLY' });
+  }
+  return ['gateway.relay.tcp'];
 }
 
 function hashToken(token: string): string {
@@ -518,11 +572,44 @@ function normalizeZoneIds(values: string[]): string[] {
   return normalizeList(values);
 }
 
-function hasGatewaySignal(input: RegisterAgentInput): boolean {
+function hasGatewaySignal(input: { adapters?: string[]; capabilities?: string[] }): boolean {
   const adapters = normalizeList(input.adapters ?? []);
   const capabilities = normalizeList(input.capabilities ?? []);
-  return adapters.some((item) => item.startsWith('probe.') || item.startsWith('forward.'))
+  return adapters.includes('relay.tcp')
+    || capabilities.includes('gateway.relay.tcp')
+    || adapters.some((item) => item.startsWith('probe.') || item.startsWith('forward.'))
     || capabilities.some((item) => item.startsWith('gateway.'));
+}
+
+function normalizeRelayAllowedTarget(value: string, index: number): string {
+  if (typeof value !== 'string') {
+    throw new AppError('VALIDATION_FAILED', `relayAllowedTargets[${index}] 必须是字符串`);
+  }
+  const normalized = value.trim().toLowerCase().replace(/\.$/u, '');
+  if (!normalized || normalized.length > 253 || /[\u0000-\u001f\u007f\s%]/u.test(normalized) || normalized.includes('*')) {
+    throw new AppError('VALIDATION_FAILED', `relayAllowedTargets[${index}] 不是合法主机名、IP 或 CIDR`, { value });
+  }
+  const slashIndex = normalized.indexOf('/');
+  if (slashIndex >= 0) {
+    const address = normalized.slice(0, slashIndex);
+    const prefix = Number(normalized.slice(slashIndex + 1));
+    const bits = isIP(address) === 6 ? 128 : isIP(address) === 4 ? 32 : 0;
+    if (!bits || !Number.isInteger(prefix) || prefix < 0 || prefix > bits) {
+      throw new AppError('VALIDATION_FAILED', `relayAllowedTargets[${index}] CIDR 不合法`, { value });
+    }
+    return normalized;
+  }
+  if (isIP(normalized) === 0 && !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/u.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', `relayAllowedTargets[${index}] 不是合法主机名或 IP`, { value });
+  }
+  return normalized;
+}
+
+function normalizeRelayAllowedPort(value: number, index: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new AppError('VALIDATION_FAILED', `relayAllowedPorts[${index}] 必须是 1-65535 的整数`, { value });
+  }
+  return value;
 }
 
 function normalizeOptionalKey(value: string): string {

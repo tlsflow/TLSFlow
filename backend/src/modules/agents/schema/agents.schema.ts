@@ -296,4 +296,6 @@ export interface AgentInstallSession {
   configDir: string;
   dataDir: string;
   logDir: string;
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
 }

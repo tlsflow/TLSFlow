@@ -2,10 +2,6 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
-import { ForwardingGrantService } from '../../gateway-agents/forwarding-grant.service.js';
-import type { GatewayTaskAuditWriter } from '../../gateway-agents/gateway-target-history.service.js';
-import { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
-import type { GatewayGrantV1 } from '../../gateway-agents/gateway-agent.types.js';
 import { CurlExecutor, SSHExecutor, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
@@ -103,8 +99,6 @@ export interface ExecutorRegistryOptions {
 
 export interface DefaultExecutorDependencies {
   agents?: AgentsApplicationService;
-  gatewayTasks?: GatewayTaskService;
-  gatewayTaskAuditWriter?: GatewayTaskAuditWriter;
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
   agentPlanCompiler?: UnifiedAgentPlanCompilerService;
@@ -195,7 +189,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
       executionGrants: dependencies.executionGrants,
       pluginActionExecutor,
     }),
-    new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter, agentPlanCompiler: dependencies.agentPlanCompiler }),
+    new GatewayRouteExecutorAdapter(),
     new ControlPlaneTlsExecutor(),
   ];
 }
@@ -336,7 +330,7 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
  * Go Agent 不应猜测宿主上下文；所有授权绑定字段在入队时一次性固定。
  */
 function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
-  const actionType = requireGatewayActionType(snapshot.actionType);
+  const actionType = requireAgentActionType(snapshot.actionType);
   const token = requireRecord(snapshot.token, 'AgentCapabilityTokenV1');
   const policyDecision = requireRecord(snapshot.policyDecision, 'PolicyAuthorityDecisionV1');
   const plan = readRecord(snapshot.plan);
@@ -902,167 +896,28 @@ export class WorkflowStepExecutorRegistry {
 export class GatewayRouteExecutorAdapter implements Executor {
   readonly type = 'GATEWAY_FORWARD';
 
-  private readonly gatewayTasks: GatewayTaskService;
-  private readonly agents: AgentsApplicationService;
-  private readonly grants: ForwardingGrantService;
-  private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService;
-
-  constructor(options: { gatewayTasks?: GatewayTaskService; agents?: AgentsApplicationService; grants?: ForwardingGrantService; auditWriter?: GatewayTaskAuditWriter; agentPlanCompiler?: UnifiedAgentPlanCompilerService } = {}) {
-    this.gatewayTasks = options.gatewayTasks ?? new GatewayTaskService({ auditWriter: options.auditWriter });
-    this.agents = options.agents ?? new AgentsApplicationService();
-    this.grants = options.grants ?? new ForwardingGrantService();
-    this.agentPlanCompiler = options.agentPlanCompiler;
-  }
+  /**
+   * 保留执行器类型只是为了让历史部署计划能够失败关闭。
+   * Gateway 已不是业务执行器，不能在这里创建 GatewayTask、ForwardingGrant 或 AgentTask。
+   */
+  constructor() {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    const tenantId = requireExecutionTenantId(input.step, 'gateway route execute');
     const route = readRecord(input.step.inputSnapshot.gatewayRoute);
-    const gatewayId = stringFromSnapshot(input.step.inputSnapshot.gatewayId) ?? stringFromSnapshot(route?.gatewayId) ?? `gw_${input.step.deploymentPlanTargetId ?? 'default'}`;
-    const gatewayAgentId = stringFromSnapshot(route?.agentId);
-    const delegatedTargetId = stringFromSnapshot(input.step.inputSnapshot.delegatedTargetId) ?? stringFromSnapshot(route?.delegatedTargetId) ?? input.step.deploymentPlanTargetId ?? input.step.id;
-    const taskType = gatewayTaskTypeForStep(input.step);
-    const routeChannel = gatewayRouteChannel(taskType, input.step.inputSnapshot, route);
-    const delegatedAgentId = stringFromSnapshot(input.step.inputSnapshot.targetAgentId)
-      ?? stringFromSnapshot(input.step.inputSnapshot.delegatedAgentId)
-      ?? stringFromSnapshot(input.step.inputSnapshot.agentId)
-      ?? delegatedTargetId;
-    if (!this.gatewayTasks.hasDurablePersistence) {
-      return {
-        success: false,
-        errorCode: 'EXECUTION_TARGET_UNAVAILABLE',
-        errorMessage: 'Gateway v2 缺少持久化 GatewayTask 仓储，拒绝创建不可恢复的执行任务',
-        detail: { mode: 'gateway_v2_dispatch_failed', reason: 'GATEWAY_V2_TASK_PERSISTENCE_UNAVAILABLE', fallback: false },
-      };
-    }
-    if (!gatewayAgentId) {
-      return {
-        success: false,
-        errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
-        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId，拒绝在控制面本地伪执行',
-        detail: { mode: 'gateway_route_dispatch_failed', gatewayId, taskType, fallback: false },
-      };
-    }
-    const forwardingGrant = this.grants.issue({
-      gatewayId,
-      delegatedTargetId,
-      delegatedAgentId,
-      tenantId,
-      taskType,
-      routeChannel,
-      executionRunId: input.step.executionRunId,
-      stepId: input.step.id,
-    });
-    let v2Payload: Record<string, unknown>;
-    try {
-      const preparedSnapshot = await this.prepareGatewayV2Snapshot(input, delegatedAgentId);
-      v2Payload = buildGatewayRoutePayload(input, taskType, delegatedTargetId, delegatedAgentId, forwardingGrant.id, forwardingGrant, preparedSnapshot);
-    } catch (error) {
-      const appError = error instanceof AppError ? error : undefined;
-      return {
-        success: false,
-        errorCode: appError?.errorCode ?? 'VALIDATION_FAILED',
-        errorMessage: appError?.message ?? (error instanceof Error ? error.message : String(error)),
-      };
-    }
-    const task = this.gatewayTasks.dispatch({
-      idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
-      tenantId,
-      planId: stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),
-      executionRunId: input.step.executionRunId,
-      stepId: input.step.id,
-      gatewayId,
-      delegatedTargetId,
-      target: {
-        id: delegatedTargetId,
-        zoneId: stringFromSnapshot(input.step.inputSnapshot.zoneId) ?? stringFromSnapshot(route?.zoneId) ?? 'default',
-        ...(stringFromSnapshot(input.step.inputSnapshot.targetHost) ?? stringFromSnapshot(route?.host)
-          ? { host: stringFromSnapshot(input.step.inputSnapshot.targetHost) ?? stringFromSnapshot(route?.host) } : {}),
-        ...(numberFromSnapshot(input.step.inputSnapshot.targetPort) ?? numberFromSnapshot(route?.port)
-          ? { port: numberFromSnapshot(input.step.inputSnapshot.targetPort) ?? numberFromSnapshot(route?.port) } : {}),
-      },
-      adapter: routeChannel,
-      action: taskType,
-      payload: v2Payload,
-      grant: v2Payload.gatewayGrant as GatewayGrantV1,
-      forwardingGrant,
-    });
-    await this.gatewayTasks.flushPersistence();
-
-    const agentTask = await this.agents.enqueueTask(tenantId, {
-      agentId: gatewayAgentId,
-      executionRunId: input.step.executionRunId,
-      executionStepId: input.step.id,
-      idempotencyKey: task.idempotencyKey,
-      payload: {
-        // 直连 Agent v2 要求授权材料位于任务顶层；GatewayTask 仅作为路由审计与恢复引用保留。
-        actionType: v2Payload.actionType,
-        token: v2Payload.token,
-        policyDecision: v2Payload.policyDecision,
-        ...(v2Payload.plan ? { plan: v2Payload.plan } : {}),
-        ...(v2Payload.receipt ? { receipt: v2Payload.receipt } : {}),
-        gatewayTask: task,
-      },
-      }, `gateway-execution-step:${input.step.id}`);
-    await this.gatewayTasks.flushPersistence();
     return {
-      success: true,
-      asyncPending: true,
+      success: false,
+      errorCode: 'GATEWAY_RELAY_ONLY',
+      errorMessage: 'Gateway 仅支持鉴权后的 TCP Relay，禁止通过执行计划转发业务任务',
       detail: {
-        mode: 'gateway_v2_control_plane_queue',
-        gatewayTaskId: task.id,
-        agentTaskId: agentTask.id,
-        gatewayId,
-        gatewayAgentId,
-        delegatedTargetId,
-        delegatedAgentId,
-        forwardingGrantId: forwardingGrant.id,
-        taskType,
-        routeChannel,
+        mode: 'gateway_relay_only',
+        fallback: false,
+        gatewayId: stringFromSnapshot(input.step.inputSnapshot.gatewayId) ?? stringFromSnapshot(route?.gatewayId),
+        targetId: stringFromSnapshot(input.step.inputSnapshot.delegatedTargetId)
+          ?? stringFromSnapshot(route?.delegatedTargetId)
+          ?? input.step.deploymentPlanTargetId,
+        requestedAdapter: stringFromSnapshot(input.step.inputSnapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter),
+        relayAdapter: 'relay.tcp',
       },
-    };
-  }
-
-  private async prepareGatewayV2Snapshot(input: StepExecutionInput, agentId: string): Promise<Record<string, unknown>> {
-    const snapshot = input.step.inputSnapshot;
-    const requestedActionType = requireGatewayActionType(snapshot.actionType);
-    if (requestedActionType !== 'agent.plan.validate' && requestedActionType !== 'agent.plan.execute') return snapshot;
-    if (!this.agentPlanCompiler) {
-      throw new AppError('AGENT_PLUGIN_SERVICE_REQUIRED', 'Gateway Agent v2 缺少统一 Plan 编译器，拒绝进入执行队列');
-    }
-    const runtimeCapability = readRecord(snapshot.pluginRuntimeCapability);
-    const executionSource = readRecord(snapshot.executionSource);
-    const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId)
-      ?? stringFromSnapshot(runtimeCapability?.pluginBindingId)
-      ?? stringFromSnapshot(executionSource?.pluginBindingId);
-    if (!pluginBindingId) throw new AppError('AGENT_PLUGIN_BINDING_REQUIRED', 'Gateway Agent v2 缺少统一 Binding ID');
-    const pluginVersionId = stringFromSnapshot(runtimeCapability?.pluginVersionId)
-      ?? stringFromSnapshot(executionSource?.pluginVersionId)
-      ?? stringFromSnapshot(snapshot.pluginVersionId);
-    if (!pluginVersionId) throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 缺少固定 PluginVersion');
-    const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
-    if (!resolvedInput) throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 缺少统一部署输入快照');
-    const actionType = input.dryRun && requestedActionType === 'agent.plan.execute' ? 'agent.plan.validate' : requestedActionType;
-    const envelope = await this.agentPlanCompiler.compile({
-      tenantId: requireExecutionTenantId(input.step, 'gateway agent plan compile'),
-      agentId,
-      executionRunId: input.step.executionRunId,
-      executionStepId: input.step.id,
-      pluginVersionId,
-      pluginBindingId,
-      resolvedInput,
-      executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
-      v2Request: {
-        actionType,
-        plan: snapshot.plan,
-        authorization: readAgentPlanAuthorization(snapshot.executionAuthorization),
-      },
-    });
-    return {
-      ...snapshot,
-      actionType: envelope.actionType,
-      plan: envelope.plan,
-      token: envelope.token,
-      policyDecision: envelope.policyDecision,
     };
   }
 }
@@ -1578,169 +1433,23 @@ function enforceWorkflowResultLimits(result: WorkflowExecutorDispatchResult): Wo
   return result;
 }
 
-function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'gateway.forward.agent_task' {
-  const explicit = stringFromSnapshot(step.inputSnapshot.gatewayTaskType);
-  if (explicit === 'gateway.probe' || explicit === 'gateway.forward.agent_task') return explicit;
-  if (explicit) throw new AppError('VALIDATION_FAILED', 'Gateway 旧直连任务类型已退役，只允许 gateway.forward.agent_task', { gatewayTaskType: explicit });
-  const forwardMode = stringFromSnapshot(step.inputSnapshot.gatewayForwardMode);
-  if (forwardMode) throw new AppError('VALIDATION_FAILED', 'Gateway 旧直连转发模式已退役，只允许 Agent v2 队列转发', { gatewayForwardMode: forwardMode });
-  if (step.stepType === 'DISCOVER' || step.stepType === 'VERIFY') return 'gateway.probe';
-  return 'gateway.forward.agent_task';
-}
-
-function gatewayRouteChannel(taskType: string, snapshot: Record<string, unknown>, route: Record<string, unknown> | undefined): string {
-  if (taskType === 'gateway.probe' && snapshot.stepType === 'VERIFY') return 'probe.tls';
-  const explicit = stringFromSnapshot(snapshot.gatewayRouteChannel) ?? stringFromSnapshot(snapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter);
-  if (explicit) return normalizeGatewayRouteChannel(explicit, taskType);
-  if (taskType === 'gateway.probe') return 'probe.tcp';
-  return 'forward.agent_task';
-}
-
-function normalizeGatewayRouteChannel(value: string, taskType: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'probe.tls') return 'probe.tls';
-  if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
-  if (['tcp', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
-  if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
-  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
-    throw new AppError('VALIDATION_FAILED', 'Gateway 旧 Direct Control 路由已退役，只允许 forward.agent_task', { gatewayRouteChannel: value });
-  }
-  if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
-  if (taskType === 'gateway.probe') return 'probe.tcp';
-  return 'forward.agent_task';
-}
-
-function buildGatewayRoutePayload(
-  input: StepExecutionInput,
-  taskType: string,
-  delegatedTargetId: string,
-  delegatedAgentId: string | undefined,
-  forwardingGrantId: string,
-  forwardingGrant: unknown,
-  preparedSnapshot: Record<string, unknown> = input.step.inputSnapshot,
-): Record<string, unknown> {
-  const snapshot = preparedSnapshot;
-  const token = requireRecord(snapshot.token, 'AgentCapabilityTokenV1');
-  const policyDecision = requireRecord(snapshot.policyDecision, 'PolicyAuthorityDecisionV1');
-  const actionType = requireGatewayActionType(snapshot.actionType);
-  const pluginBinding = requireGatewayPluginBinding(snapshot, token, actionType);
-  const plan = readRecord(snapshot.plan) ?? {};
-  const receipt = readRecord(snapshot.receipt) ?? {};
-  if ((actionType === 'agent.plan.validate' || actionType === 'agent.plan.execute') && Object.keys(plan).length === 0) {
-    throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 Plan 缺失，拒绝提交执行');
-  }
-  if (actionType === 'agent.execution.receipt' && Object.keys(receipt).length === 0) {
-    throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 Receipt 缺失，拒绝提交执行');
-  }
-  if (!delegatedAgentId) {
-    throw new AppError('AUTH_FORBIDDEN', 'Gateway Agent v2 缺少 delegatedAgentId，拒绝提交执行');
-  }
-  if (token.tenantId !== input.step.tenantId || token.agentId !== delegatedAgentId || policyDecision.tenantId !== input.step.tenantId) {
-    throw new AppError('AUTH_FORBIDDEN', 'Gateway Agent v2 授权材料与执行租户或目标 Agent 不一致');
-  }
-  const gatewayGrant = buildGatewayGrant(input, actionType, pluginBinding, token, policyDecision, forwardingGrantId, delegatedAgentId);
-  const agentPayload = buildAgentV2ControlPayload(snapshot, input);
-  return {
-    type: taskType,
-    ...agentPayload,
-    gatewayGrant,
-    forwardingGrant: forwardingGrant as Record<string, unknown>,
-    pluginBinding,
-    delegatedTargetId,
-    delegatedAgentId,
-    targetAgentId: delegatedAgentId,
-    forwardingGrantId,
-    dryRun: input.dryRun,
-    runType: input.runType,
-    stepType: input.step.stepType,
-    executionRunId: input.step.executionRunId,
-    executionStepId: input.step.id,
-    targetPayload: agentPayload,
-  };
-}
-
-function buildGatewayGrant(
-  input: StepExecutionInput,
-  actionType: string,
-  pluginBinding: Record<string, string>,
-  token: Record<string, unknown>,
-  policyDecision: Record<string, unknown>,
-  forwardingGrantId: string,
-  delegatedAgentId: string,
-): GatewayGrantV1 {
-  const grant: GatewayGrantV1 = {
-    grantId: stringFromSnapshot(input.step.inputSnapshot.gatewayGrantId) ?? newId('gwgrant'),
-    tenantId: requireStringValue(input.step.tenantId, 'tenantId'),
-    agentId: delegatedAgentId,
-    actionType: actionType as GatewayGrantV1['actionType'],
-    planId: stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId) ?? requireStringValue(readRecord(input.step.inputSnapshot.plan)?.planId, 'planId'),
-    planDigest: requireStringValue(token.planDigest, 'planDigest'),
-    pluginId: pluginBinding.pluginId,
-    pluginVersionId: pluginBinding.pluginVersionId,
-    capability: requireStringValue(token.capability, 'capability'),
-    tokenId: requireStringValue(token.tokenId, 'tokenId'),
-    policyDecisionId: requireStringValue(policyDecision.decisionId, 'policyDecisionId'),
-    nonce: requireStringValue(token.nonce, 'nonce'),
-    revocationRef: requireStringValue(policyDecision.revocationRef, 'revocationRef'),
-    forwardingGrantId,
-  };
-  return grant;
-}
-
-function requireGatewayPluginBinding(
-  snapshot: Record<string, unknown>,
-  token: Record<string, unknown>,
-  actionType: string,
-): Record<string, string> {
-  const runtime = readRecord(snapshot.pluginRuntimeCapability) ?? {};
-  const pluginId = requireStringValue(token.pluginId ?? snapshot.pluginId ?? runtime.pluginId, 'pluginId');
-  const pluginVersionId = requireStringValue(token.pluginVersionId ?? snapshot.pluginVersionId ?? runtime.pluginVersionId, 'pluginVersionId');
-  const pluginVersion = requireStringValue(snapshot.pluginVersion ?? runtime.pluginVersion, 'pluginVersion');
-  const packageHash = requireSha256(snapshot.packageHash ?? snapshot.packageSha256 ?? runtime.packageHash ?? runtime.packageSha256, 'packageHash');
-  const manifestHash = requireSha256(snapshot.manifestHash ?? snapshot.manifestSha256 ?? runtime.manifestHash ?? runtime.manifestSha256, 'manifestHash');
-  const resourceHash = requireSha256(snapshot.resourceHash ?? runtime.resourceHash, 'resourceHash');
-  const planDigest = requireStringValue(token.planDigest, 'planDigest');
-  if (!/^[a-f0-9]{64}$/.test(planDigest)) throw new AppError('VALIDATION_FAILED', 'Gateway v2 planDigest 格式无效');
-  if (token.capability !== undefined && typeof token.capability !== 'string') throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 capability 无效');
-  return { pluginId, pluginVersionId, pluginVersion, packageHash, manifestHash, resourceHash, planDigest, capability: requireStringValue(token.capability ?? snapshot.capability, 'capability'), actionType };
-}
-
-function requireGatewayActionType(value: unknown): 'agent.fact.collect' | 'agent.plan.validate' | 'agent.plan.execute' | 'agent.execution.receipt' {
+function requireAgentActionType(value: unknown): 'agent.fact.collect' | 'agent.plan.validate' | 'agent.plan.execute' | 'agent.execution.receipt' {
   const action = typeof value === 'string' ? value.trim().toLowerCase() : '';
   const retiredAgentAction = ['agent.atomic_plan', 'execute'].join('.');
   const retiredCommandAction = ['command', 'execute'].join('.');
-  if (action === retiredAgentAction || action === retiredCommandAction) throw new AppError('LEGACY_API_REMOVED', '旧 Agent 执行动作已退役，拒绝 Gateway 转发');
+  if (action === retiredAgentAction || action === retiredCommandAction) throw new AppError('LEGACY_API_REMOVED', '旧 Agent 执行动作已退役');
   if (action === 'agent.fact.collect' || action === 'agent.plan.validate' || action === 'agent.plan.execute' || action === 'agent.execution.receipt') return action;
-  throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 缺少受支持的 actionType');
+  throw new AppError('VALIDATION_FAILED', 'Agent v2 缺少受支持的 actionType');
 }
 
 function requireRecord(value: unknown, name: string): Record<string, unknown> {
   const result = readRecord(value) ?? {};
-  if (Object.keys(result).length === 0) throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', `${name} 缺失，Gateway 执行失败关闭`);
+  if (Object.keys(result).length === 0) throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', `${name} 缺失，Agent 执行失败关闭`);
   return result;
 }
 
 function requireStringValue(value: unknown, name: string): string {
   const result = stringFromSnapshot(value);
-  if (!result) throw new AppError('VALIDATION_FAILED', `Gateway v2 缺少 ${name}`);
+  if (!result) throw new AppError('VALIDATION_FAILED', `Agent v2 缺少 ${name}`);
   return result;
-}
-
-function requireSha256(value: unknown, name: string): string {
-  const result = requireStringValue(value, name);
-  if (!/^sha256:[a-f0-9]{64}$/.test(result)) throw new AppError('VALIDATION_FAILED', `Gateway v2 ${name} 必须是 sha256 摘要`);
-  return result;
-}
-
-function numberFromSnapshot(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
-}
-
-function gatewayActionIsWrite(value: unknown): boolean {
-  return value === 'agent.plan.execute';
-}
-
-function readExecutionStatus(detail: Record<string, unknown> | undefined): 'SUCCESS' | 'FAILED' | 'UNKNOWN' | undefined {
-  const value = detail?.executionStatus ?? detail?.status;
-  return value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' ? value : undefined;
 }

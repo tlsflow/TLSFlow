@@ -553,15 +553,11 @@ export class ExecutionsApplicationService {
     for (const step of steps) {
       if (step.status !== 'RUNNING') continue;
       const executorType = String(step.inputSnapshot.executorType ?? '').toUpperCase();
-      if (executorType !== 'AGENT' && executorType !== 'GATEWAY_FORWARD') continue;
+      if (executorType !== 'AGENT') continue;
       const dispatchDetail = readRecord(step.inputSnapshot.dispatchDetail);
       const resultDetail = readRecord(step.inputSnapshot.resultDetail);
-      // 直连 Agent 使用 taskId，Gateway 转发使用 agentTaskId；两者都指向
-      // 控制面 Agent 任务账本，读取结果不会重新执行远端写操作。
-      const taskId = readString(dispatchDetail?.taskId)
-        ?? readString(dispatchDetail?.agentTaskId)
-        ?? readString(resultDetail?.taskId)
-        ?? readString(resultDetail?.agentTaskId);
+      // 这里只读取 Full Agent 的出站任务账本；Gateway Relay 不创建或轮询 Agent Task。
+      const taskId = readString(dispatchDetail?.taskId) ?? readString(resultDetail?.taskId);
       if (!taskId) continue;
       const task = await this.agentTasks.getTask(tenantId, taskId);
       if (!task || !['succeeded', 'failed', 'rejected'].includes(String(task.status).toLowerCase())) continue;

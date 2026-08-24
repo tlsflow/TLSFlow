@@ -19,6 +19,7 @@ import type {
   GatewayGrantV1,
   GatewayTask,
 } from './gateway-agent.types.js';
+import { gatewayRelayOnlyError } from './gateway-agent.types.js';
 
 export interface GatewayV2ReplayBinding {
   tenantId: string;
@@ -81,68 +82,18 @@ export class GatewayV2ReplayGuard implements GatewayV2ReplayGuardPort {
 
 export class GatewayV2ForwardingService {
   prepare(task: GatewayTask, processTenantId: string, requestId: string, now = new Date()): GatewayAgentV2ForwardRequest {
-    if (task.tenantId !== processTenantId) {
-      throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 租户与 Gateway 进程不一致', { reason: 'GATEWAY_CROSS_TENANT_DENIED', taskTenantId: task.tenantId, processTenantId });
-    }
-    if (!task.tenantId || !task.planId || !task.executionRunId || !task.stepId || task.target.id !== task.delegatedTargetId) {
-      throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 缺少 Agent v2 执行绑定', { reason: 'GATEWAY_V2_TASK_BINDING_REQUIRED', taskId: task.id });
-    }
-    if (task.action !== 'gateway.forward.agent_task') {
-      throw new AppError('VALIDATION_FAILED', 'Gateway v2 只允许转发 Agent 任务，禁止合成 probe 结果', { reason: 'GATEWAY_SYNTHETIC_ROUTE_FORBIDDEN', action: task.action });
-    }
-
-    const source = record(task.payload, 'Gateway v2 payload');
-    const actionType = normalizeAction(source.actionType);
-    const token = validateAgentCapabilityToken(source.token);
-    const policyDecision = validatePolicyAuthorityDecision(source.policyDecision);
-    const plan = actionType === 'agent.plan.validate' || actionType === 'agent.plan.execute'
-      ? validateAgentPlan(source.plan)
-      : undefined;
-    const receipt = actionType === 'agent.execution.receipt'
-      ? validateAgentExecutionReceipt(source.receipt)
-      : undefined;
-    const grant = validateGatewayGrant(source.grant ?? task.grant);
-    if (source.grant && task.grant && !sameGrant(source.grant, task.grant)) {
-      throw new AppError('AUTH_FORBIDDEN', 'Gateway payload Grant 与 GatewayTask Grant 不一致', { reason: 'GATEWAY_GRANT_DUPLICATE_BINDING_DENIED' });
-    }
-    const forwardingGrant = validateForwardingGrant(task.forwardingGrant, now);
-
-    assertTimeBinding(token, policyDecision, plan, now);
-    assertAuthorizationBinding(task, processTenantId, actionType, token, policyDecision, plan, receipt, grant, forwardingGrant);
-    if (receipt) assertReceiptBinding(receipt, grant, token, plan);
-
-    return structuredClone({
-      actionType,
-      tenantId: processTenantId,
-      target: task.target,
-      grant,
-      forwardingGrant,
-      token,
-      policyDecision,
-      ...(plan ? { plan } : {}),
-      ...(receipt ? { receipt } : {}),
-      requestId,
-    });
+    void task;
+    void processTenantId;
+    void requestId;
+    void now;
+    throw gatewayRelayOnlyError('GatewayV2ForwardingService.prepare');
   }
 
   validateResult(request: GatewayAgentV2ForwardRequest, result: GatewayAgentV2ForwardResult, now = new Date()): GatewayAgentV2ForwardResult {
-    if (!result || result.accepted !== true) throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Gateway 未收到 Agent v2 的有效接受结果');
-    if (result.tenantId !== request.tenantId || result.agentId !== request.token.agentId || result.actionType !== request.actionType
-      || result.tokenId !== request.token.tokenId || result.planDigest !== request.token.planDigest
-      || result.nonce !== request.token.nonce || result.revocationRef !== request.policyDecision.revocationRef
-      || result.grantId !== request.grant.grantId || result.forwardingGrantId !== request.forwardingGrant.id) {
-      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 转发结果绑定不一致', { reason: 'GATEWAY_RECEIPT_BINDING_DENIED' });
-    }
-    const receipt = result.receipt ? validateAgentExecutionReceipt(result.receipt) : undefined;
-    if (receipt) {
-      assertReceiptBinding(receipt, request.grant, request.token, request.plan);
-      assertReceiptTime(receipt, request.token, now);
-    }
-    if (request.actionType === 'agent.plan.execute' || request.actionType === 'agent.execution.receipt') {
-      if (!receipt) throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent v2 写入操作缺少真实 Execution Receipt', { reason: 'GATEWAY_RECEIPT_REQUIRED' });
-      if (!receipt.nonceConsumed) throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 未确认 nonce 已消费', { reason: 'GATEWAY_NONCE_NOT_CONSUMED' });
-    }
-    return { ...result, ...(receipt ? { receipt } : {}) };
+    void request;
+    void result;
+    void now;
+    throw gatewayRelayOnlyError('GatewayV2ForwardingService.validateResult');
   }
 }
 

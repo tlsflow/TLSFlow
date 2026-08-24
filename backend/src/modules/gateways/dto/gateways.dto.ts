@@ -1,4 +1,4 @@
-import type { GatewayAdapterType, GatewayStatus, ReachabilityStatus, ZonePolicy, ZoneType } from '../../gateway-agents/index.js';
+import type { GatewayAdapterType, GatewayRelayRouteChannel, GatewayStatus, ReachabilityStatus, ZonePolicy, ZoneType } from '../../gateway-agents/index.js';
 
 export interface GatewayZoneDto {
   id: string;
@@ -76,17 +76,23 @@ export interface UpdateGatewayStatusInput {
 export interface RouteGatewayInput {
   zoneId: string;
   targetId: string;
+  /** 请求方提供的端点必须与控制面登记值完全一致。 */
+  targetHost?: string;
+  targetPort?: number;
   protocols: GatewayAdapterType[];
   requiredCapabilities?: string[];
   destructive?: boolean;
   action?: string;
+  /** 由控制器从当前安全主体注入，不能信任请求体。 */
+  callerId?: string;
 }
 
 
 export interface ProbeGatewayInput {
   gatewayId: string;
   targetId: string;
-  protocol: GatewayAdapterType;
+  /** 探测记录只能描述 Relay TCP 可达性，不再触发 Gateway 业务探测。 */
+  protocol: GatewayRelayRouteChannel | GatewayAdapterType;
   port?: number;
   status?: ReachabilityStatus;
   latencyMs?: number;
