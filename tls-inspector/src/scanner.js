@@ -153,13 +153,14 @@ async function inspectProtocols(target, timeoutMs, sectionErrors) {
   for (const spec of PROTOCOL_SPECS) {
     try {
       const result = await handshake(target, { protocolFlag: spec.opensslFlag }, timeoutMs)
+      const supported = result.success && result.protocol === spec.label
       results.push({
         id: spec.id,
         label: spec.label,
-        supported: result.success,
-        negotiatedProtocol: result.protocol ?? null,
-        negotiatedCipherSuite: result.cipherSuite ?? null,
-        errorMessage: result.success ? null : result.errorMessage,
+        supported,
+        negotiatedProtocol: supported ? result.protocol : null,
+        negotiatedCipherSuite: supported ? result.cipherSuite : null,
+        errorMessage: supported ? null : result.errorMessage ?? '协商协议与请求协议不一致',
       })
     } catch (error) {
       sectionErrors.push({
@@ -185,25 +186,33 @@ async function inspectCipherSuites(target, supportedProtocols, timeoutMs, sectio
     const catalog = CIPHER_CATALOG[protocolLabel] ?? []
     const protocolSpec = PROTOCOL_SPECS.find((item) => item.label === protocolLabel)
     if (!protocolSpec) continue
+
+    // LibreSSL 没有 OpenSSL 1.1.1+ 的 -ciphersuites 参数。TLS 1.3 先记录实际
+    // 协商到的套件，既能保证兼容性画像有事实来源，也不会把有效握手误判为失败。
+    if (protocolLabel === 'TLS 1.3') {
+      try {
+        const handshakeResult = await handshake(target, { protocolFlag: protocolSpec.opensslFlag }, timeoutMs)
+        const entry = resolveCipherCatalogEntry(catalog, handshakeResult.cipherSuite)
+        if (handshakeResult.success && entry) {
+          results.push(buildCipherSuiteResult(protocolLabel, entry, handshakeResult))
+        }
+      } catch (error) {
+        sectionErrors.push({
+          code: 'TLS_NEGOTIATION_FAILED',
+          message: `${protocolLabel} 套件探测失败：${error instanceof Error ? error.message : '未知错误'}`,
+        })
+      }
+      continue
+    }
+
     for (const entry of catalog) {
       try {
         const handshakeResult = await handshake(target, {
           protocolFlag: protocolSpec.opensslFlag,
-          cipher: protocolLabel === 'TLS 1.3' ? undefined : entry.opensslName,
-          cipherSuite: protocolLabel === 'TLS 1.3' ? entry.opensslName : undefined,
+          cipher: entry.opensslName,
         }, timeoutMs)
         if (!handshakeResult.success) continue
-        results.push({
-          protocol: protocolLabel,
-          opensslName: entry.opensslName,
-          standardName: entry.standardName,
-          negotiatedName: handshakeResult.cipherSuite ?? entry.standardName,
-          strengthBits: entry.strength,
-          tags: entry.tags,
-          forwardSecrecy: entry.tags.includes('fs'),
-          insecure: entry.tags.includes('insecure'),
-          weak: entry.tags.includes('weak'),
-        })
+        results.push(buildCipherSuiteResult(protocolLabel, entry, handshakeResult))
       } catch (error) {
         sectionErrors.push({
           code: 'TLS_NEGOTIATION_FAILED',
@@ -215,13 +224,35 @@ async function inspectCipherSuites(target, supportedProtocols, timeoutMs, sectio
   return dedupeCipherSuites(results)
 }
 
+function buildCipherSuiteResult(protocol, entry, handshakeResult) {
+  return {
+    protocol,
+    opensslName: entry.opensslName,
+    standardName: entry.standardName,
+    negotiatedName: normalizeCipherSuiteName(handshakeResult.cipherSuite) ?? entry.standardName,
+    strengthBits: entry.strength,
+    tags: entry.tags,
+    forwardSecrecy: entry.tags.includes('fs'),
+    insecure: entry.tags.includes('insecure'),
+    weak: entry.tags.includes('weak'),
+  }
+}
+
+function resolveCipherCatalogEntry(catalog, negotiatedName) {
+  const normalizedName = normalizeCipherSuiteName(negotiatedName)
+  return catalog.find((entry) => entry.standardName === normalizedName || entry.opensslName === negotiatedName) ?? null
+}
+
 async function inspectProtocolDetails(target, baseHandshake, protocols, cipherSuites, timeoutMs, sectionErrors) {
   const httpResult = await fetchHttpsMetadata(target)
+  const noSniHandshake = target.serverName
+    ? await handshake(target, { omitServerName: true }, timeoutMs).catch(() => null)
+    : null
   const detail = {
     secureRenegotiation: parseSupportFlag(baseHandshake.output, /Secure Renegotiation IS supported/i),
     insecureClientRenegotiation: false,
     alpn: baseHandshake.alpn ?? httpResult.alpn ?? null,
-    serverNameRequired: Boolean(target.serverName),
+    serverNameRequired: noSniHandshake ? !noSniHandshake.success : null,
     npn: false,
     ocspStapling: parseOcspStapling(baseHandshake.output),
     sessionResumptionTickets: /TLS session ticket/i.test(baseHandshake.output),
@@ -616,16 +647,16 @@ async function handshake(target, options, timeoutMs) {
     '-alpn',
     'h2,http/1.1',
   ]
-  if (target.serverName) {
+  if (target.serverName && !options.omitServerName) {
     args.push('-servername', target.serverName)
   }
   if (options.protocolFlag) {
     args.push(options.protocolFlag)
   }
   if (options.cipher) {
-    args.push('-cipher', `${options.cipher}:@SECLEVEL=0`)
+    args.push('-cipher', options.cipher)
   } else if ((options.protocolFlag ?? '').startsWith('-tls1') || options.protocolFlag === '-ssl3') {
-    args.push('-cipher', 'ALL:@SECLEVEL=0')
+    args.push('-cipher', 'ALL')
   }
   if (options.cipherSuite) {
     args.push('-ciphersuites', options.cipherSuite)
@@ -635,7 +666,7 @@ async function handshake(target, options, timeoutMs) {
   const protocol = parseProtocol(output)
   const cipherSuite = parseCipherSuite(output)
   const certificates = output.match(CERT_BLOCK_PATTERN) ?? []
-  const success = Boolean(protocol || cipherSuite || certificates.length)
+  const success = Boolean(protocol && normalizeCipherSuiteName(cipherSuite))
   return {
     success,
     output,
@@ -856,7 +887,7 @@ function selectHighestCommonProtocol(profile, supportedProtocols) {
 }
 
 function parseProtocol(output) {
-  const direct = output.match(/(?:^|\r?\n)Protocol version:\s*(TLSv1\.3|TLSv1\.2|TLSv1\.1|TLSv1|SSLv3)\b/i)?.[1]
+  const direct = output.match(/(?:^|\r?\n)\s*Protocol(?: version)?\s*:\s*(TLSv1\.3|TLSv1\.2|TLSv1\.1|TLSv1|SSLv3)\b/im)?.[1]
   if (direct) return normalizeProtocolLabel(direct)
   const legacy = output.match(/(?:^|\r?\n)New,\s*(TLSv1(?:\.\d)?|SSLv3)\b/i)?.[1]
   if (legacy) return normalizeProtocolLabel(legacy)
@@ -866,7 +897,19 @@ function parseProtocol(output) {
 function parseCipherSuite(output) {
   return output.match(/Ciphersuite:\s*([A-Z0-9_\-]+)/i)?.[1]
     ?? output.match(/Cipher is\s+([A-Z0-9_\-]+)/i)?.[1]
+    ?? output.match(/(?:^|\r?\n)\s*Cipher\s*:\s*([A-Z0-9_\-]+)/im)?.[1]
     ?? null
+}
+
+function normalizeCipherSuiteName(value) {
+  const raw = String(value ?? '').trim().toUpperCase()
+  if (!raw || raw === '0000' || raw === 'NONE') return null
+  const aliases = {
+    'AEAD-AES128-GCM-SHA256': 'TLS_AES_128_GCM_SHA256',
+    'AEAD-AES256-GCM-SHA384': 'TLS_AES_256_GCM_SHA384',
+    'AEAD-CHACHA20-POLY1305-SHA256': 'TLS_CHACHA20_POLY1305_SHA256',
+  }
+  return aliases[raw] ?? raw
 }
 
 function parseAlpn(output) {

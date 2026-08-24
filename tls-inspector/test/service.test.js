@@ -108,6 +108,8 @@ test('tls-inspector 可以创建目标并返回深度扫描快照', async () => 
     assert.equal(inspectResult.statusCode, 200)
     assert.equal(inspectResult.body.data.targetId, targetId)
     assert.equal(inspectResult.body.data.summary.legacyProtocolEnabled, false)
+    assert.equal(inspectResult.body.data.protocols.find((item) => item.label === 'TLS 1.2')?.supported, true)
+    assert.ok(inspectResult.body.data.simulations.some((item) => item.status === 'succeeded'))
     assert.equal(inspectResult.body.data.protocolDetails.hsts.enabled, true)
     assert.equal(typeof inspectResult.body.data.riskSummary.trustPathIssueCount, 'number')
     assert.equal(typeof inspectResult.body.data.riskSummary.trustPathUnsupportedCount, 'number')
@@ -123,6 +125,7 @@ test('tls-inspector 可以创建目标并返回深度扫描快照', async () => 
     assert.equal(listResult.statusCode, 200)
     assert.equal(listResult.body.data.items.length, 1)
     assert.equal(listResult.body.data.items[0].latestSummary.weakCipherDetected, true)
+    assert.match(listResult.body.data.items[0].latestRating, /^[A-F](\+)?$/)
   } finally {
     await new Promise((resolve) => app.server.close(resolve))
     await app.close()

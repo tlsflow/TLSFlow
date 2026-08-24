@@ -132,6 +132,7 @@ async function handleRequest(request, response, context) {
       return {
         ...target,
         latestSummary: latest?.summary ?? null,
+        latestRating: calculateLatestRating(latest),
         latestSnapshotId: latest?.id ?? null,
         latestStatus: latest?.status ?? null,
       }
@@ -209,6 +210,50 @@ async function handleRequest(request, response, context) {
   }
 
   writeError(response, 404, 'RESOURCE_NOT_FOUND', '接口不存在')
+}
+
+function calculateLatestRating(snapshot) {
+  if (!snapshot) return null
+
+  let certificateScore = snapshot.certificate ? 100 : 30
+  certificateScore -= Math.min((snapshot.trustPaths ?? []).filter((item) => ['untrusted', 'incomplete'].includes(String(item.status).toLowerCase())).length * 15, 45)
+  const expiresAt = Date.parse(String(snapshot.certificate?.notAfter ?? ''))
+  if (Number.isFinite(expiresAt)) {
+    const remainingDays = Math.ceil((expiresAt - Date.now()) / 86_400_000)
+    if (remainingDays < 0) certificateScore -= 40
+    else if (remainingDays <= 7) certificateScore -= 8
+  }
+
+  let protocolScore = 100
+  const protocols = snapshot.protocols ?? []
+  if (!protocols.some((item) => item.label === 'TLS 1.3' && item.supported)) protocolScore -= 20
+  if (protocols.some((item) => item.supported && ['TLS 1.1', 'TLS 1.0', 'SSL 3.0'].includes(item.label))) protocolScore -= 35
+  if (protocols.some((item) => item.label === 'SSL 3.0' && item.supported)) protocolScore -= 20
+
+  let keyExchangeScore = 100
+  if (!snapshot.protocolDetails?.forwardSecrecy) keyExchangeScore -= 28
+  if (!(snapshot.protocolDetails?.supportedNamedGroups?.length ?? 0)) keyExchangeScore -= 14
+  if (!snapshot.protocolDetails?.pqcSupported) keyExchangeScore -= 6
+  keyExchangeScore -= Math.min((snapshot.riskSummary?.simulationFailedCount ?? 0) * 2, 16)
+
+  let cipherStrengthScore = 100
+  const cipherSuites = snapshot.cipherSuites ?? []
+  const insecureCount = cipherSuites.filter((item) => item.insecure).length
+  const weakCount = cipherSuites.filter((item) => item.weak && !item.insecure).length
+  cipherStrengthScore -= Math.min(insecureCount * 18, 36)
+  cipherStrengthScore -= Math.min(weakCount * 8, 24)
+  const maxStrength = Math.max(...cipherSuites.map((item) => Number(item.strengthBits) || 0), 0)
+  if (cipherSuites.length && maxStrength < 128) cipherStrengthScore -= 15
+
+  const score = Math.max(0, Math.min(100, Math.round(
+    certificateScore * 0.3 + protocolScore * 0.3 + keyExchangeScore * 0.2 + cipherStrengthScore * 0.2,
+  )))
+  if (score >= 97) return 'A+'
+  if (score >= 92) return 'A'
+  if (score >= 85) return 'B'
+  if (score >= 72) return 'C'
+  if (score >= 60) return 'D'
+  return 'F'
 }
 
 function normalizeTargetCreate(body, tenantId) {
