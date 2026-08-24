@@ -562,7 +562,7 @@ onMounted(loadStatus)
 .licensing-upgrade-modal__card {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(var(--gc-control-height-md), 1fr);
   gap: var(--gc-space-4);
   min-height: 20rem;
   padding: var(--gc-space-5);
@@ -653,7 +653,7 @@ onMounted(loadStatus)
   border-top: 1px solid var(--gc-color-border-muted);
   color: var(--gc-color-info);
   font-size: var(--gc-font-size-sm);
-  font-weight: 800;
+  font-weight: 900;
   text-align: center;
 }
 
