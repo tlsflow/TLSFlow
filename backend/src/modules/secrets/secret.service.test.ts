@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { SecretEntity, SecretVersionEntity } from '../../persistence/entities/secret.entity.js';
@@ -33,6 +34,23 @@ test('CryptoService 加解密正常，篡改 authTag 会失败', () => {
     () => crypto.decryptSecret({ ...encrypted, authTag: Buffer.alloc(16).toString('base64') }),
     (error: any) => error.errorCode === 'SEC_SECRET_RESOLVE_DENIED',
   );
+});
+
+test('CryptoService 兼容 GCAC_SECRET_KEK 的历史字符串哈希语义', () => {
+  const previous = process.env.GCAC_SECRET_KEK;
+  process.env.GCAC_SECRET_KEK = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+  try {
+    const legacyKey = createHash('sha256').update(process.env.GCAC_SECRET_KEK, 'utf8').digest();
+    const legacyEncrypted = new CryptoService(new KeyManager(legacyKey)).encryptSecret('legacy-secret');
+    const crypto = new CryptoService(new KeyManager());
+
+    assert.equal(crypto.decryptSecret(legacyEncrypted), 'legacy-secret');
+    assert.equal(crypto.encryptSecret('current-secret').kekVersion, 'kek_v1');
+  } finally {
+    if (previous === undefined) delete process.env.GCAC_SECRET_KEK;
+    else process.env.GCAC_SECRET_KEK = previous;
+  }
 });
 
 test('SecretService 创建密钥后可通过执行授权解析', async () => {
@@ -223,4 +241,45 @@ test('SecretService 服务端解析缺少租户上下文时失败关闭', async 
     }),
     (error: any) => error.errorCode === 'SEC_SECRET_RESOLVE_DENIED',
   );
+});
+
+test('SecretService 服务端可在无租户上下文时解析全局 Secret', async () => {
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 6))), new ExecutionGrantService(), new AuditService());
+  const created = await service.create({
+    name: 'global secret',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'global-secret-value',
+    createdBy: 'system',
+  });
+
+  const resolved = await service.resolveForService({
+    secretRef: created.secretRef,
+    expectedType: 'password',
+    purpose: 'secret.health_check',
+    actorId: 'system',
+  });
+
+  assert.equal(resolved.plainText, 'global-secret-value');
+});
+
+test('SecretService 服务端可在租户上下文中解析系统全局 Secret', async () => {
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 7))), new ExecutionGrantService(), new AuditService());
+  const created = await service.create({
+    name: 'global secret with tenant context',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'global-secret-with-tenant-context',
+    createdBy: 'system',
+  });
+
+  const resolved = await service.resolveForService({
+    secretRef: created.secretRef,
+    tenantId: 'tenant_any',
+    expectedType: 'password',
+    purpose: 'provider.test',
+    actorId: 'system',
+  });
+
+  assert.equal(resolved.plainText, 'global-secret-with-tenant-context');
 });

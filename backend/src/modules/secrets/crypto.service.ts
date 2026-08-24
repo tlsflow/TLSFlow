@@ -45,24 +45,27 @@ export class CryptoService {
   }
 
   decryptSecret(payload: EnvelopeEncryptedPayload): string {
-    try {
-      const kek = this.keyManager.getKek(payload.kekVersion);
-      const dekDecipher = createDecipheriv('aes-256-gcm', kek.key, Buffer.from(payload.dekIv, 'base64'));
-      dekDecipher.setAuthTag(Buffer.from(payload.dekAuthTag, 'base64'));
-      const dataKey = Buffer.concat([
-        dekDecipher.update(Buffer.from(payload.encryptedDek, 'base64')),
-        dekDecipher.final(),
-      ]);
+    for (const kek of this.keyManager.getKekCandidates(payload.kekVersion)) {
+      try {
+        const dekDecipher = createDecipheriv('aes-256-gcm', kek.key, Buffer.from(payload.dekIv, 'base64'));
+        dekDecipher.setAuthTag(Buffer.from(payload.dekAuthTag, 'base64'));
+        const dataKey = Buffer.concat([
+          dekDecipher.update(Buffer.from(payload.encryptedDek, 'base64')),
+          dekDecipher.final(),
+        ]);
 
-      const decipher = createDecipheriv(payload.algorithm, dataKey, Buffer.from(payload.iv, 'base64'));
-      decipher.setAuthTag(Buffer.from(payload.authTag, 'base64'));
-      return Buffer.concat([
-        decipher.update(Buffer.from(payload.encryptedData, 'base64')),
-        decipher.final(),
-      ]).toString('utf8');
-    } catch {
-      // 绝不返回半截明文。解密失败就是失败。
-      throw securityErrors.secretResolveDenied({ reason: 'decrypt failed' });
+        const decipher = createDecipheriv(payload.algorithm, dataKey, Buffer.from(payload.iv, 'base64'));
+        decipher.setAuthTag(Buffer.from(payload.authTag, 'base64'));
+        return Buffer.concat([
+          decipher.update(Buffer.from(payload.encryptedData, 'base64')),
+          decipher.final(),
+        ]).toString('utf8');
+      } catch {
+        // 继续尝试兼容候选 KEK，直到所有候选都失败。
+      }
     }
+
+    // 绝不返回半截明文。解密失败就是失败。
+    throw securityErrors.secretResolveDenied({ reason: 'decrypt failed' });
   }
 }

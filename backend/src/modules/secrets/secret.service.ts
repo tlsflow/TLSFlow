@@ -316,8 +316,14 @@ export class SecretService {
   async resolveForService(input: ResolveSecretForServiceInput): Promise<ResolvedSecret> {
     const parsed = parseSecretRef(input.secretRef);
     const secret = await this.secrets.get(parsed.secretId);
-    const tenantId = requireServiceTenantId(input);
-    if (!secret || secret.status !== 'active' || !matchesTenant(secret.tenantId, tenantId)) {
+    const tenantId = resolveContextTenantId(input.context) ?? input.tenantId;
+    if (!secret || secret.status !== 'active') {
+      throw securityErrors.secretNotFound({ secretId: parsed.secretId });
+    }
+    if (secret.tenantId && !tenantId) {
+      throw securityErrors.secretResolveDenied({ reason: 'tenant context required for tenant secret resolution' });
+    }
+    if (!isServiceSecretVisible(secret.tenantId, tenantId)) {
       throw securityErrors.secretNotFound({ secretId: parsed.secretId });
     }
     if (secret.type !== parsed.type) {
@@ -448,10 +454,7 @@ function matchesTenant(actualTenantId: string | undefined, expectedTenantId: str
   return actualTenantId === expectedTenantId;
 }
 
-function requireServiceTenantId(input: ResolveSecretForServiceInput): string {
-  const tenantId = input.tenantId ?? resolveContextTenantId(input.context);
-  if (!tenantId) {
-    throw securityErrors.secretResolveDenied({ reason: 'tenant context required for service secret resolution' });
-  }
-  return tenantId;
+function isServiceSecretVisible(actualTenantId: string | undefined, expectedTenantId: string | undefined): boolean {
+  if (!actualTenantId) return true;
+  return matchesTenant(actualTenantId, expectedTenantId);
 }
