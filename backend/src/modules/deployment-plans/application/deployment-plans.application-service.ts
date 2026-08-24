@@ -9,7 +9,7 @@ import type { RequestContext, RiskLevel } from '../../../shared/security-types.j
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
 import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, DeploymentPlanWorkflowIdentityDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
-import { assertLegacyExecutionRetired, DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
+import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
 import { GatewaysApplicationService } from '../../gateways/application/gateways.application-service.js';
@@ -50,7 +50,7 @@ import {
   getDeploymentStrategyPluginBindingId,
   validateDeploymentStrategyPluginBinding,
 } from '../../assets/application/deployment-strategy.service.js';
-import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
+import { deploymentAssetContextBuilder, requireManagedTargetMetadata } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { ResolveDeploymentInputPhase, ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
@@ -107,6 +107,10 @@ type DeploymentPreflightIssue = DeploymentInputPreflightIssue;
 
 type WorkflowVersion = Awaited<ReturnType<WorkflowTemplatesApplicationService['getVersion']>>;
 
+type DeploymentCertificatesApplicationPort = Pick<CertificatesApplicationService, 'generateDeploymentArtifactFromFormat'> & {
+  getTrustRoots?: CertificatesApplicationService['getTrustRoots'];
+};
+
 interface DeploymentPlanListContext {
   readonly runsByPlanId: ReadonlyMap<string, ExecutionRunDto[]>;
   readonly targetsByPlanId: ReadonlyMap<string, DeploymentPlanTargetEntity[]>;
@@ -126,7 +130,7 @@ export interface DeploymentPlansApplicationDependencies {
   agents?: AgentsRepository;
   agentsApp?: AgentsApplicationService;
   certificates?: CertificatesRepository;
-  certificatesApp?: CertificatesApplicationService;
+  certificatesApp?: DeploymentCertificatesApplicationPort;
   deploymentStrategyResolver?: DeploymentStrategyResolver;
   deviceAssets?: DeviceAssetsRepository;
   managedTargetContextResolver?: ManagedTargetContextResolver;
@@ -155,7 +159,7 @@ export class DeploymentPlansApplicationService {
   private readonly agents: AgentsRepository;
   private readonly agentsApp: AgentsApplicationService;
   private readonly certificates: CertificatesRepository;
-  private readonly certificatesApp: CertificatesApplicationService;
+  private readonly certificatesApp: DeploymentCertificatesApplicationPort;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
   private readonly executionSourceResolver: ExecutionSourceResolver;
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
@@ -170,7 +174,7 @@ export class DeploymentPlansApplicationService {
   private readonly workflowExecutionBindings?: WorkflowExecutionBindingsService;
   private readonly deploymentInputSnapshotService = new DeploymentInputSnapshotService();
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
-  private readonly certificateTrustPlans: CertificateTrustPlanService;
+  private readonly certificateTrustPlans?: CertificateTrustPlanService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -209,10 +213,10 @@ export class DeploymentPlansApplicationService {
     this.workflowExecutionBindings = dependencies.database
       ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
       : undefined;
-    this.certificateTrustPlans = new CertificateTrustPlanService({
-      agents: this.agentsApp,
-      trustRoots: this.certificatesApp.getTrustRoots(),
-    });
+    const trustRoots = this.certificatesApp.getTrustRoots?.();
+    this.certificateTrustPlans = trustRoots === undefined
+      ? undefined
+      : new CertificateTrustPlanService({ agents: this.agentsApp, trustRoots });
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -327,7 +331,6 @@ export class DeploymentPlansApplicationService {
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
-    targetDrafts.forEach((target, index) => assertLegacyExecutionRetired(target.executorType, { index }));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
@@ -534,7 +537,6 @@ export class DeploymentPlansApplicationService {
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
-    targetDrafts.forEach((target, index) => assertLegacyExecutionRetired(target.executorType, { index, planId: plan.id }));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
@@ -908,11 +910,12 @@ export class DeploymentPlansApplicationService {
       : undefined;
     const executionSource = this.executionSourceResolver.resolvePlugin({
       capability,
-      internalWorkflowVersionId: workflow?.workflowVersionId,
+      workflowVersionId: workflow?.workflowVersionId,
     });
     const inputResult = await this.resolveCapabilityDeploymentInput('configure', tenantId, capability, context, asset);
     const resolvedInput = inputResult.resolvedInput;
     const runtime = await this.pluginRuntimeAdapters.compile({
+      tenantId,
       capability,
       context,
       applicationAsset: asset,
@@ -939,8 +942,7 @@ export class DeploymentPlansApplicationService {
           pluginVersionId: executionSource.capability.pluginVersionId,
           pluginBindingId: executionSource.capability.binding.id,
           runtime: executionSource.capability.pluginRuntime,
-          internalWorkflowVersionId: executionSource.internalWorkflowVersionId,
-          atomicRecipeId: executionSource.atomicRecipeId,
+          workflowVersionId: executionSource.workflowVersionId,
         },
       },
     };
@@ -1377,7 +1379,6 @@ export class DeploymentPlansApplicationService {
     }
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
-    targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
     await this.assertLatestDryRunPassed(plan, input.tenantId);
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
@@ -1438,7 +1439,6 @@ export class DeploymentPlansApplicationService {
 
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
-    targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
@@ -1691,7 +1691,9 @@ export class DeploymentPlansApplicationService {
     if (resolvedMaterial) {
       const { contract, effectiveBinding, resolvedInput } = resolvedMaterial;
       validateDiscoveredLocationConsistency(
-        target.managedTarget ? readCertificateLocation(target.managedTarget.metadata, target.managedTarget.updatedAt || now) : undefined,
+        target.managedTarget
+          ? readCertificateLocation(requireManagedTargetMetadata(target.managedTarget), target.managedTarget.updatedAt || now)
+          : undefined,
         contract,
         resolvedInput,
       );
@@ -2123,6 +2125,7 @@ export class DeploymentPlansApplicationService {
     requestId: string,
   ): Promise<Map<string, CertificateTrustPlanSnapshot>> {
     const output = new Map<string, CertificateTrustPlanSnapshot>();
+    if (!this.certificateTrustPlans) return output;
     for (const target of targets) {
       const agentPayload = agentPayloadByTargetId.get(target.id);
       if (!agentPayload) continue;
@@ -2423,28 +2426,13 @@ export class DeploymentPlansApplicationService {
     if (!runtimeCapability && target.executorType === 'WORKFLOW' && workflowRequest) {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
-    if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_ATOMIC') {
-      const pluginBindingId = readOptionalString(runtimeCapability?.pluginBindingId);
-      if (!pluginBindingId) {
-        throw new AppError('VALIDATION_FAILED', '部署目标缺少最新 TLS 验证快照，请重新生成部署计划', {
-          deploymentPlanTargetId: target.id,
-          pluginBindingId,
-        });
-      }
-      return {
-        ...strategyPayload,
-        actionType: 'agent.atomic_plan.execute',
-        actionSchemaVersion: '1.0',
-        agentId: readOptionalString(strategyPayload.agentId),
-        pluginBindingId,
-        certificateVerification,
-        deploymentArtifact: artifact,
-      };
-    }
     if (readOptionalString(runtimeCapability?.runtime) === 'WORKFLOW_DSL') {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
     if (readOptionalString(runtimeCapability?.runtime) === 'TRUSTED_JS') {
+      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
+    }
+    if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_PLAN') {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
     throw new AppError('VALIDATION_FAILED', '受管目标缺少可执行的插件运行能力', {
@@ -3056,7 +3044,6 @@ export class DeploymentPlansApplicationService {
         ?? workflowRequest?.workflowVersionSelection,
     );
     const declaredWorkflowVersionId = readOptionalString(executionSource?.workflowVersionId)
-      ?? readOptionalString(executionSource?.internalWorkflowVersionId)
       ?? readOptionalString(workflowRequest?.workflowVersionId);
     const declaredWorkflowId = readOptionalString(executionSource?.workflowTemplateId)
       ?? readOptionalString(workflowRequest?.workflowId);
@@ -3201,7 +3188,6 @@ function deploymentInputSnapshotIdentity(strategyPayload: Record<string, unknown
       ?? readOptionalString(runtimeCapability?.pluginBindingId)
       ?? readOptionalString(workflowRequest?.pluginBindingId),
     workflowVersionId: readOptionalString(executionSource?.workflowVersionId)
-      ?? readOptionalString(executionSource?.internalWorkflowVersionId)
       ?? readOptionalString(workflowRequest?.workflowVersionId),
     workflowExecutionBindingId: readOptionalString(executionSource?.workflowExecutionBindingId),
   };

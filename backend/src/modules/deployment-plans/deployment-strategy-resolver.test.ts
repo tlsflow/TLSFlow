@@ -285,7 +285,7 @@ function runtimeRequest(runtime: 'AGENT' | 'WORKFLOW') {
   return {
     executorType: runtime,
     executionTargetId: runtime === 'AGENT' ? 'agent_1' : 'target_1',
-    requiredCapabilities: runtime === 'AGENT' ? ['agent.atomic_plan.execute'] : ['workflow.run'],
+    requiredCapabilities: runtime === 'AGENT' ? ['agent.plan.execute'] : ['workflow.run'],
     payload: {
       pluginRuntimeCapability: {
         pluginVersionId: 'plugin_version_1',

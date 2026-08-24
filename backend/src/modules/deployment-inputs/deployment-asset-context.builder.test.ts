@@ -79,6 +79,27 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.deepEqual(first, second);
   });
 
+  it('受管目标缺失 metadata 时返回结构化合同错误', () => {
+    const topology = managedTargetContext();
+    delete (topology.managedTarget as unknown as Record<string, unknown>).metadata;
+
+    assert.throws(
+      () => deploymentAssetContextBuilder.build({
+        applicationAsset: applicationAsset(),
+        managedTargetContext: topology,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof AppError);
+        assert.equal(error.errorCode, 'DEPLOYMENT_ASSET_CONTEXT_INVALID');
+        const details = error.details as Record<string, unknown>;
+        assert.equal(details.code, 'MANAGED_TARGET_METADATA_MISSING');
+        assert.equal(details.path, 'managedTarget.metadata');
+        assert.equal(details.managedTargetId, 'target-1');
+        return true;
+      },
+    );
+  });
+
   it('Schema 拒绝未声明顶层字段和厂商对象', () => {
     const context = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() }) as unknown as Record<string, unknown>;
     context.vendor = { product: 'forbidden' };

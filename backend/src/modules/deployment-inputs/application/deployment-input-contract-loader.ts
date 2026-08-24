@@ -6,11 +6,11 @@ import { validateDeploymentInputContractV1 } from '../schema/deployment-input-co
 
 export class DeploymentInputContractLoader {
   fromPlugin(plugin: UnifiedPluginVersionRecord, capabilityKey: string): DeploymentInputContractV1 {
-    if (plugin.runtime === 'TRUSTED_JS') {
-      throw new AppError('VALIDATION_FAILED', 'TRUSTED_JS 插件暂不通过 Workflow 方式加载部署输入契约', { pluginVersionId: plugin.id, capabilityKey });
+    if (plugin.runtime !== 'WORKFLOW_DSL' && plugin.runtime !== 'AGENT_PLAN') {
+      throw new AppError('VALIDATION_FAILED', '只有 Agent Plan 或 Workflow DSL 插件可以声明宿主部署输入契约', { pluginVersionId: plugin.id, capabilityKey });
     }
-    const path = plugin.runtime === 'AGENT_ATOMIC'
-      ? plugin.manifest.resources.agentRecipes?.[capabilityKey]
+    const path = plugin.runtime === 'AGENT_PLAN'
+      ? plugin.manifest.resources.agentPlans?.[capabilityKey]
       : plugin.manifest.resources.workflows?.[capabilityKey];
     const content = path ? plugin.resources[path] : undefined;
     if (!path || !content) throw new AppError('VALIDATION_FAILED', '插件能力缺少部署输入契约资源', { pluginVersionId: plugin.id, capabilityKey });

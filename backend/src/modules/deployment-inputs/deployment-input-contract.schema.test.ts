@@ -3,7 +3,6 @@ import { describe, it } from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
 import type { DeploymentInputContractV1 } from './dto/deployment-input-contract.dto.js';
 import { validateDeploymentInputContractV1 } from './schema/deployment-input-contract.schema.js';
-import { validateAgentDeploymentPluginManifest } from '../plugins/schema/agent-deployment-plugins.schema.js';
 import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
 describe('DeploymentInputContractV1 Schema', () => {
@@ -19,27 +18,8 @@ describe('DeploymentInputContractV1 Schema', () => {
     assert.equal(validated.artifacts.certificate.artifactContract.outputs.privateKey.sensitive, true);
   });
 
-  it('Agent Plugin 与 Workflow DSL 调用同一个 Contract Schema', () => {
+  it('Workflow DSL 调用统一 Contract Schema', () => {
     const inputContract = contractFixture();
-    const agent = validateAgentDeploymentPluginManifest({
-      apiVersion: 'gcac.agent-plugin/v1',
-      kind: 'AgentDeploymentPlugin',
-      pluginId: 'example.shared-contract',
-      name: 'shared-contract',
-      publisher: 'gcac',
-      version: '1.0.0',
-      compatibility: { platforms: ['LINUX'] },
-      inputContract,
-      permissions: [],
-      operations: [{
-        id: 'preflight',
-        name: '预检',
-        stage: 'prepare',
-        operationType: 'preflight.assert',
-        schemaVersion: '1.0',
-        input: {},
-      }],
-    });
     const workflow = workflowTemplatesSchemaRegistry.validate({
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
@@ -48,9 +28,7 @@ describe('DeploymentInputContractV1 Schema', () => {
       steps: [{ name: 'confirm', type: 'manual', instruction: '确认执行结果' }],
     });
 
-    assert.equal(agent.inputContract?.apiVersion, 'gcac.deployment-input/v1');
     assert.equal(workflow.inputContract?.apiVersion, 'gcac.deployment-input/v1');
-    assert.deepEqual(agent.inputContract?.connections.managementApi, workflow.inputContract?.connections.managementApi);
   });
 
   it('拒绝旧 Source 和普通 Credential/Certificate 变量类型', () => {

@@ -1,11 +1,14 @@
+import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import { buildCertificateVerificationTarget } from './certificate-verification-target.js';
+import { computeAgentPlanDigest, type AgentPlanV1 } from '../../agents/security/agent-security.contract.js';
 
 export interface RuntimeCompileInput {
+  tenantId?: string;
   capability: ResolvedDeploymentCapability;
   context: ResolvedManagedTargetContext;
   applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName' | 'verifyUrl'>;
@@ -58,54 +61,6 @@ export class PluginRuntimeAdapterRegistry {
       throw new AppError('CAPABILITY_MISSING', '没有可用的插件 Runtime Adapter', { runtime: input.capability.pluginRuntime });
     }
     return adapter.compile(input);
-  }
-}
-
-export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
-  readonly runtime = 'AGENT_ATOMIC' as const;
-
-  supports(capability: ResolvedDeploymentCapability): boolean {
-    return capability.pluginRuntime === this.runtime && capability.executionLocation === 'AGENT';
-  }
-
-  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
-    const agentId = input.context.agent?.id;
-    if (!agentId) throw new AppError('CAPABILITY_MISSING', 'Agent Atomic Runtime 缺少可用 Agent 连接', { managedTargetId: input.context.managedTarget.id });
-    return {
-      executorType: 'AGENT',
-      executionTargetId: agentId,
-      requiredCapabilities: ['agent.atomic_plan.execute'],
-      payload: {
-        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
-        actionType: 'agent.atomic_plan.execute',
-        actionSchemaVersion: '1.0',
-        agentId,
-        pluginBindingId: input.capability.binding.id,
-        applicationAssetId: input.applicationAsset.id,
-        certificateBindingId: input.certificateBindingId,
-        managedTargetId: input.context.managedTarget.id,
-        certificateVerification: hostCertificateVerification(input),
-        resolvedDeploymentInput: input.resolvedInput,
-        siteAssetId: input.context.siteAsset?.id,
-        frameworkType: input.context.frameworkType,
-        siteName: input.context.siteAsset?.siteName,
-        bindingSelector: {
-          bindingInformation: input.context.siteAsset?.bindingInformation ?? input.context.managedTarget.bindingKey,
-          hostHeader: input.context.siteAsset?.hostHeader,
-          port: input.context.siteAsset?.port,
-          protocol: input.context.siteAsset?.protocol,
-        },
-        managedTargetSnapshot: {
-          id: input.context.managedTarget.id,
-          targetType: input.context.managedTarget.targetType,
-          targetKey: input.context.managedTarget.targetKey,
-          bindingKey: input.context.managedTarget.bindingKey,
-          frameworkInstanceId: input.context.serviceInstance?.id,
-          siteAssetId: input.context.siteAsset?.id,
-          hostId: input.context.host.id,
-        },
-      },
-    };
   }
 }
 
@@ -166,15 +121,6 @@ export class TrustedJsRuntimeAdapter implements PluginRuntimeAdapter {
         managedTargetId: input.context.managedTarget.id,
       });
     }
-    const frameworkType = input.context.frameworkType
-      ?? input.capability.plugin.manifest.supportedProducts?.[0]
-      ?? input.context.managedTarget.metadata.frameworkType as string | undefined;
-    if (!frameworkType) {
-      throw new AppError('CAPABILITY_MISSING', 'TRUSTED_JS Runtime 缺少目标框架类型', {
-        pluginVersionId: input.capability.pluginVersionId,
-        managedTargetId: input.context.managedTarget.id,
-      });
-    }
     return {
       executorType: 'TRUSTED_JS',
       executionTargetId: input.context.managedTarget.id,
@@ -185,10 +131,51 @@ export class TrustedJsRuntimeAdapter implements PluginRuntimeAdapter {
         resolvedDeploymentInput: input.resolvedInput,
         trustedJsRequest: {
           cloudAccountAssetId,
-          providerKey: input.capability.plugin.manifest.providerKey,
-          frameworkType,
-          target: buildTrustedJsTarget(input, frameworkType),
+          target: buildTrustedJsTarget(input),
         },
+      },
+    };
+  }
+}
+
+export class AgentPlanRuntimeAdapter implements PluginRuntimeAdapter {
+  readonly runtime = 'AGENT_PLAN' as const;
+
+  supports(capability: ResolvedDeploymentCapability): boolean {
+    return capability.pluginRuntime === this.runtime && capability.executionLocation === 'AGENT';
+  }
+
+  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    const agentId = input.context.agent?.id;
+    const tenantId = input.tenantId;
+    if (!agentId || !tenantId) throw new AppError('CAPABILITY_MISSING', 'Agent Plan Runtime 缺少 Agent 或租户上下文');
+    const templatePath = input.capability.plugin.manifest.resources.agentPlans?.[input.capability.assignment.capabilityKey];
+    const templateText = templatePath ? input.capability.plugin.resources[templatePath] : undefined;
+    if (!templateText) throw new AppError('CAPABILITY_MISSING', 'Agent Plan 插件缺少计划模板');
+    const template = JSON.parse(templateText) as { plan: Omit<AgentPlanV1, 'agentId' | 'tenantId' | 'pluginVersionId' | 'planDigest' | 'tokenId' | 'policyDecisionId' | 'nonce' | 'expiresAt'>; authorization: Record<string, unknown> };
+    const planBase = {
+      ...template.plan,
+      agentId,
+      tenantId,
+      pluginVersionId: input.capability.pluginVersionId,
+      tokenId: 'draft-token',
+      policyDecisionId: 'draft-decision',
+      nonce: 'draft-nonce',
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      planDigest: '',
+    } as AgentPlanV1;
+    planBase.planDigest = computeAgentPlanDigest(planBase);
+    return {
+      executorType: 'AGENT',
+      executionTargetId: agentId,
+      requiredCapabilities: ['agent.plan.execute'],
+      payload: {
+        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        certificateVerification: hostCertificateVerification(input),
+        resolvedDeploymentInput: input.resolvedInput,
+        actionType: 'agent.plan.execute',
+        plan: planBase,
+        executionAuthorization: template.authorization,
       },
     };
   }
@@ -196,7 +183,7 @@ export class TrustedJsRuntimeAdapter implements PluginRuntimeAdapter {
 
 export function createDefaultPluginRuntimeAdapterRegistry(): PluginRuntimeAdapterRegistry {
   return new PluginRuntimeAdapterRegistry()
-    .register(new AgentAtomicRuntimeAdapter())
+    .register(new AgentPlanRuntimeAdapter())
     .register(new WorkflowDslRuntimeAdapter())
     .register(new TrustedJsRuntimeAdapter());
 }
@@ -207,24 +194,32 @@ function immutableCapabilitySnapshot(capability: ResolvedDeploymentCapability) {
     assignmentOwnerType: capability.assignment.ownerType,
     assignmentOwnerId: capability.assignment.ownerId,
     assignmentPrecedence: capability.assignment.precedence,
+    pluginId: capability.plugin.manifest.pluginId,
     pluginVersionId: capability.pluginVersionId,
+    pluginVersion: capability.plugin.manifest.version,
     pluginBindingId: capability.binding.id,
     pluginBindingVersion: capability.binding.version,
     runtime: capability.pluginRuntime,
     executionLocation: capability.executionLocation,
     capabilityKey: capability.assignment.capabilityKey,
+    packageSha256: capability.plugin.packageSha256,
+    manifestSha256: capability.plugin.manifestSha256,
+    resourceSha256: structuredClone(capability.plugin.resourceSha256),
+    resourceHash: resourceAggregateHash(capability.plugin.resourceSha256),
   };
 }
 
-function buildTrustedJsTarget(input: RuntimeCompileInput, frameworkType: string): Record<string, unknown> {
+function resourceAggregateHash(resourceHashes: Record<string, string>): string {
+  const entries = Object.entries(resourceHashes).sort(([left], [right]) => left.localeCompare(right));
+  return `sha256:${createHash('sha256').update(JSON.stringify(entries), 'utf8').digest('hex')}`;
+}
+
+function buildTrustedJsTarget(input: RuntimeCompileInput): Record<string, unknown> {
   const domain = input.context.siteAsset?.hostHeader
     ?? input.applicationAsset.sniName
     ?? input.applicationAsset.address;
-  const metadata = Object.keys(input.context.managedTarget.metadata ?? {}).length > 0
-    ? structuredClone(input.context.managedTarget.metadata)
-    : {};
+  const metadata = structuredClone(input.context.managedTarget.metadata ?? {});
   return {
-    frameworkType,
     resourceId: input.context.managedTarget.targetKey,
     ...(domain ? { domain } : {}),
     ...(typeof input.context.managedTarget.metadata.listenerId === 'string'

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetTopology } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
 import {
@@ -20,14 +21,29 @@ export interface BuildDeploymentAssetContextInput {
   managedTargetContext?: ResolvedManagedTargetTopology;
 }
 
+// ManagedTarget 是部署输入的边界资源；元数据缺失时无法判断证书位置，禁止静默转换为空对象。
+export function requireManagedTargetMetadata(input: { id: string; metadata?: unknown }): Record<string, unknown> {
+  const metadata = input.metadata;
+  if (metadata === undefined || metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new AppError('DEPLOYMENT_ASSET_CONTEXT_INVALID', '受管目标 metadata 必须是对象', {
+      code: metadata === undefined || metadata === null ? 'MANAGED_TARGET_METADATA_MISSING' : 'MANAGED_TARGET_METADATA_INVALID',
+      path: 'managedTarget.metadata',
+      managedTargetId: input.id,
+      valueType: metadata === null ? 'null' : Array.isArray(metadata) ? 'array' : typeof metadata,
+    });
+  }
+  return metadata as Record<string, unknown>;
+}
+
 export class DeploymentAssetContextBuilder {
   build(input: BuildDeploymentAssetContextInput): DeploymentAssetContextV1 {
     const application = buildApplication(input.applicationAsset);
     const topology = input.managedTargetContext;
     const site = topology?.siteAsset;
     const managedTarget = topology?.managedTarget;
-    const certificateLocation = managedTarget
-      ? readCertificateLocation(managedTarget.metadata, managedTarget.updatedAt || new Date(0).toISOString())
+    const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
+    const certificateLocation = managedTargetMetadata
+      ? readCertificateLocation(managedTargetMetadata, managedTarget?.updatedAt || new Date(0).toISOString())
       : undefined;
     const deploymentTargetName = site?.siteName ?? managedTarget?.targetKey ?? input.applicationAsset.displayName ?? application.serverName;
     const deploymentServerName = site?.hostHeader ?? application.serverName;
@@ -59,7 +75,7 @@ export class DeploymentAssetContextBuilder {
         key: managedTarget.targetKey,
         bindingKey: managedTarget.bindingKey,
         certificateLocation,
-        metadata: { ...managedTarget.metadata },
+        metadata: { ...managedTargetMetadata },
       } : undefined,
       deployment: {
         targets: [{
@@ -69,7 +85,7 @@ export class DeploymentAssetContextBuilder {
           port: site?.port ?? application.port,
           sni: deploymentServerName.length > 0,
           certificateLocation,
-          metadata: managedTarget ? { ...managedTarget.metadata } : {},
+          metadata: managedTargetMetadata ? { ...managedTargetMetadata } : {},
         }],
         certificateResourceName: buildCertificateResourceName(application.serverName),
       },

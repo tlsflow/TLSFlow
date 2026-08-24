@@ -4,42 +4,11 @@ import type { ExecutionLocation, ResolvedManagedTargetContext } from '../../asse
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import {
-  AgentAtomicRuntimeAdapter,
   PluginRuntimeAdapterRegistry,
   TrustedJsRuntimeAdapter,
   WorkflowDslRuntimeAdapter,
   createDefaultPluginRuntimeAdapterRegistry,
 } from './plugin-runtime-adapter.registry.js';
-
-test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async () => {
-  const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
-    capability: capability('AGENT_ATOMIC', 'AGENT'),
-    context: context('AGENT'),
-    applicationAsset: applicationAsset(),
-    resolvedInput: resolvedInput(),
-    certificateBindingId: 'certificate-binding-1',
-  });
-  assert.equal(result.executorType, 'AGENT');
-  assert.equal(result.executionTargetId, 'agent-1');
-  assert.equal((result.payload.pluginRuntimeCapability as { pluginBindingId: string }).pluginBindingId, 'binding-1');
-  assert.deepEqual(result.payload.certificateVerification, {
-    capabilityKey: 'certificate.verify',
-    schemaVersion: '1.0',
-    connectHost: 'test02.jacksonz.cn',
-    serverName: 'test02.jacksonz.cn',
-    port: 443,
-    expectedDomains: ['test02.jacksonz.cn'],
-    verifyUrl: 'https://test02.jacksonz.cn',
-    source: 'APPLICATION_VERIFY_URL',
-  });
-  const runtimeInput = result.payload.resolvedDeploymentInput as ResolvedDeploymentInputV1;
-  const assetContext = runtimeInput.assetContext as unknown as Record<string, Record<string, unknown>>;
-  assert.equal(assetContext.apiVersion, 'gcac.deployment-asset-context/v1');
-  assert.equal(assetContext.application.serverName, 'test02.jacksonz.cn');
-  assert.equal(assetContext.target.key, 'target-1');
-  assert.equal('frameworkType' in assetContext.target, false);
-  assert.equal('configPath' in assetContext.site, false);
-});
 
 test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async () => {
   const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
@@ -83,7 +52,6 @@ test('PluginRuntimeAdapterRegistry 使用应用资产 verifyUrl 作为最终 TLS
 });
 
 test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置', async () => {
-  assert.throws(() => new PluginRuntimeAdapterRegistry().register(new AgentAtomicRuntimeAdapter()).register(new AgentAtomicRuntimeAdapter()), /重复注册/);
   await assert.rejects(() => new PluginRuntimeAdapterRegistry().register(new WorkflowDslRuntimeAdapter()).compile({
     capability: capability('WORKFLOW_DSL', 'AGENT'),
     context: context('AGENT'),
@@ -98,10 +66,13 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
     resolvedInput: resolvedInput(),
   });
   assert.equal(trustedJsResult.executorType, 'TRUSTED_JS');
-  assert.equal((trustedJsResult.payload.trustedJsRequest as { cloudAccountAssetId: string }).cloudAccountAssetId, 'cloud-account-1');
-  assert.equal((trustedJsResult.payload.trustedJsRequest as { frameworkType: string }).frameworkType, 'cloud.aliyun.cdn');
-  assert.equal((trustedJsResult.payload.trustedJsRequest as { providerKey: string }).providerKey, 'cloud.aliyun');
-  assert.equal((trustedJsResult.payload.trustedJsRequest as { target: { resourceId: string } }).target.resourceId, 'target-1');
+  const trustedJsRequest = trustedJsResult.payload.trustedJsRequest as Record<string, unknown>;
+  assert.equal(trustedJsRequest.cloudAccountAssetId, 'cloud-account-1');
+  assert.equal((trustedJsRequest.target as { resourceId: string }).resourceId, 'target-1');
+  assert.equal('providerKey' in trustedJsRequest, false);
+  assert.equal('supportedProducts' in trustedJsRequest, false);
+  assert.equal('supportedOperations' in trustedJsRequest, false);
+  assert.equal('frameworkType' in trustedJsRequest, false);
 });
 
 function applicationAsset() {
@@ -159,9 +130,6 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
         kind: 'GcacPlugin',
         pluginId: 'fixture',
         version: '1.0.0',
-        providerKey: runtime === 'TRUSTED_JS' ? 'cloud.aliyun' : undefined,
-        supportedProducts: runtime === 'TRUSTED_JS' ? ['cloud.aliyun.cdn'] : undefined,
-        supportedOperations: runtime === 'TRUSTED_JS' ? ['certificate.deploy', 'certificate.rollback', 'certificate.discover'] : undefined,
         displayNameKey: 'fixture',
         publisher: 'test',
         runtime,

@@ -8,8 +8,7 @@ export type ResolvedExecutionSource =
   | {
       type: 'PLUGIN';
       capability: ResolvedDeploymentCapability;
-      internalWorkflowVersionId?: string;
-      atomicRecipeId?: string;
+      workflowVersionId?: string;
     }
   | {
       type: 'WORKFLOW';
@@ -41,8 +40,7 @@ export class ExecutionSourceResolver {
 
   resolvePlugin(input: {
     capability: ResolvedDeploymentCapability;
-    internalWorkflowVersionId?: string;
-    atomicRecipeId?: string;
+    workflowVersionId?: string;
   }): Extract<ResolvedExecutionSource, { type: 'PLUGIN' }> {
     return { type: 'PLUGIN', ...input };
   }

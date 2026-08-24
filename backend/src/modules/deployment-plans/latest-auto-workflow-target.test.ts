@@ -216,3 +216,26 @@ test('独立 WORKFLOW 的 LATEST_AUTO 运行快照重建不能把 applicationAss
   assert.equal(runtimeSnapshot.resolvedDeploymentInput.assetContext.application.id, 'asset_workflow_only');
   assert.equal(runtimeSnapshot.resolvedDeploymentInput.assetContext.target, undefined);
 });
+
+test('已声明的 certificatesApp.getTrustRoots 异常必须透传', () => {
+  const expected = new Error('trust roots unavailable');
+
+  assert.throws(
+    () => new DeploymentPlansApplicationService({
+      certificatesApp: {
+        generateDeploymentArtifactFromFormat: async () => ({
+          certificateVersionId: 'certificate-version',
+          certificateFormatId: 'certificate-format',
+          format: 'pfx',
+          containsPrivateKey: true,
+          files: [],
+          warnings: [],
+        }),
+        getTrustRoots: () => {
+          throw expected;
+        },
+      } as never,
+    }),
+    (error: unknown) => error === expected,
+  );
+});

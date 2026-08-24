@@ -4,10 +4,10 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { applyAuthorizationFilter } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
-import type { ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
+import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel, SecuritySubject } from '../../../shared/security-types.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
-import type { FallbackSuggestion } from '../../gateway-agents/gateway-agent.types.js';
+import { assertGatewayRouteChannel, type GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
@@ -268,7 +268,6 @@ export class DeploymentPlansController {
     action?: string;
     destructive?: boolean;
     delegatedTargetId?: string;
-    fallbackSuggestions?: FallbackSuggestion[];
   }> {
     if (!Array.isArray(value)) throw new AppError('VALIDATION_FAILED', 'targets 必须是数组');
     return value.map((raw, index) => {
@@ -282,7 +281,7 @@ export class DeploymentPlansController {
         siteAssetId: typeof target.siteAssetId === 'string' ? target.siteAssetId : undefined,
         domain: typeof target.domain === 'string' ? target.domain : undefined,
         executionTargetId: typeof target.executionTargetId === 'string' ? target.executionTargetId : undefined,
-        executorType: typeof target.executorType === 'string' ? target.executorType as ExecutionTargetKind : undefined,
+        executorType: parseExecutorType(target.executorType, `targets[${index}].executorType`),
         requiredCapabilities: Array.isArray(target.requiredCapabilities) ? target.requiredCapabilities.map(String) : undefined,
         matchResult: target.matchResult && typeof target.matchResult === 'object' && !Array.isArray(target.matchResult)
           ? target.matchResult as Record<string, unknown>
@@ -292,13 +291,16 @@ export class DeploymentPlansController {
           : undefined,
         gatewayId: typeof target.gatewayId === 'string' ? target.gatewayId : undefined,
         zoneId: typeof target.zoneId === 'string' ? target.zoneId : undefined,
-        adapter: typeof target.adapter === 'string' ? target.adapter : undefined,
-        protocols: Array.isArray(target.protocols) ? target.protocols.map(String) : undefined,
+        adapter: parseGatewayChannel(target.adapter, `targets[${index}].adapter`),
+        protocols: Array.isArray(target.protocols)
+          ? target.protocols.map((protocol, protocolIndex) => parseGatewayChannel(protocol, `targets[${index}].protocols[${protocolIndex}]`))
+            .filter((protocol): protocol is GatewayAdapterType => protocol !== undefined)
+          : undefined,
         action: typeof target.action === 'string' ? target.action : undefined,
         destructive: typeof target.destructive === 'boolean' ? target.destructive : undefined,
         delegatedTargetId: typeof target.delegatedTargetId === 'string' ? target.delegatedTargetId : undefined,
-        fallbackSuggestions: parseFallbackSuggestions(target.fallbackSuggestions),
       };
+      rejectFallbackSuggestions(target.fallbackSuggestions, `targets[${index}].fallbackSuggestions`);
       if (!parsed.certificateBindingId && !parsed.managedTargetId && !parsed.siteAssetId) {
         throw new AppError('VALIDATION_FAILED', '部署目标必须提供 certificateBindingId、managedTargetId 或 siteAssetId 之一', { index });
       }
@@ -307,15 +309,16 @@ export class DeploymentPlansController {
   }
 
   private parseGatewayRoute(route: Record<string, unknown>): DeploymentGatewayRouteDto {
-    return {
+    const parsed = {
       gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
       agentId: typeof route.agentId === 'string' ? route.agentId : undefined,
       zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
-      adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
+      adapter: parseGatewayChannel(route.adapter, 'gatewayRoute.adapter'),
       delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
-      fallbackSuggestions: parseFallbackSuggestions(route.fallbackSuggestions),
       mockSafeLocalRuntime: typeof route.mockSafeLocalRuntime === 'boolean' ? route.mockSafeLocalRuntime : undefined,
     };
+    rejectFallbackSuggestions(route.fallbackSuggestions, 'gatewayRoute.fallbackSuggestions');
+    return parsed;
   }
 
   private parsePolicy(value: unknown): DeploymentPlanPolicyDto | undefined {
@@ -355,10 +358,23 @@ export class DeploymentPlansController {
   }
 }
 
-function parseFallbackSuggestions(value: unknown): FallbackSuggestion[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const allowed = new Set<FallbackSuggestion>(['gateway_required', 'script_package', 'manual']);
-  return value.map(String).filter((item): item is FallbackSuggestion => allowed.has(item as FallbackSuggestion));
+function parseExecutorType(value: unknown, field: string): ExecutionTargetKind | undefined {
+  if (value === undefined) return undefined;
+  const normalized = String(value).trim().toUpperCase();
+  if (!ExecutionTargetKinds.includes(normalized as ExecutionTargetKind)) {
+    throw new AppError('VALIDATION_FAILED', `部署目标执行类型不受支持：${String(value)}`, { field, value, allowed: ExecutionTargetKinds });
+  }
+  return normalized as ExecutionTargetKind;
+}
+
+function parseGatewayChannel(value: unknown, field: string): GatewayAdapterType | undefined {
+  if (value === undefined) return undefined;
+  return assertGatewayRouteChannel(value, field);
+}
+
+function rejectFallbackSuggestions(value: unknown, field: string): void {
+  if (value === undefined) return;
+  throw new AppError('VALIDATION_FAILED', '部署计划不接受 fallbackSuggestions 字段', { field, value });
 }
 
 export function getDeploymentPlanRouteContracts(): RouteContract[] {

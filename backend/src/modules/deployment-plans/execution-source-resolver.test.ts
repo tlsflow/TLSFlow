@@ -36,10 +36,10 @@ test('执行来源解析返回严格互斥的联合类型', () => {
     version: 3,
   } as WorkflowExecutionBinding;
 
-  assert.deepEqual(resolver.resolvePlugin({ capability, internalWorkflowVersionId: 'workflow-version-1' }), {
+  assert.deepEqual(resolver.resolvePlugin({ capability, workflowVersionId: 'workflow-version-1' }), {
     type: 'PLUGIN',
     capability,
-    internalWorkflowVersionId: 'workflow-version-1',
+    workflowVersionId: 'workflow-version-1',
   });
   assert.deepEqual(resolver.resolveWorkflow({ mode: 'WORKFLOW_OVERRIDE', binding: workflowBinding, workflowVersionId: 'workflow-version-2' }), {
     type: 'WORKFLOW',
