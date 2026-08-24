@@ -12,23 +12,29 @@ import {
 import type {
   CreateHostDto,
   CreateDiscoverySnapshotDto,
+  CreateServiceAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   DiscoverySource,
   HostStatus,
   ServiceEndpointProtocol,
   ServiceEndpointStatus,
+  ServiceAssetPlatform,
+  ServiceAssetStatus,
   ServiceInstanceStatus,
   UpdateHostDto,
+  UpdateServiceAssetDto,
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
 } from '../dto/assets.dto.js';
 
 const hostStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
 const serviceInstanceStatuses = ['ACTIVE', 'STALE', 'UNREACHABLE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
+const serviceAssetStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
 const discoverySources = ['AGENT', 'SSH', 'MANUAL', 'GATEWAY', 'WINRM', 'IMPORT', 'PROVIDER'] as const;
 const endpointProtocols = ['HTTPS', 'TLS', 'STARTTLS', 'HTTP'] as const;
 const endpointStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN'] as const;
+const serviceAssetPlatforms = ['WINDOWS', 'LINUX', 'APPLIANCE'] as const;
 const conflictResolutions = ['keep_current', 'use_discovered', 'custom'] as const;
 
 export class AssetsDomainService {
@@ -140,6 +146,53 @@ export class AssetsDomainService {
     return normalized;
   }
 
+  normalizeServiceAsset(input: CreateServiceAssetDto): Required<Pick<CreateServiceAssetDto, 'address' | 'addressType' | 'port' | 'protocol' | 'discoverySource' | 'status' | 'tags' | 'metadata'>> & CreateServiceAssetDto {
+    const address = normalizeRequiredString(input.address, 'address').toLowerCase();
+    const port = normalizePort(input.port);
+    const protocol = readEnum(input.protocol, endpointProtocols, 'protocol');
+    return {
+      ...input,
+      address,
+      addressType: input.addressType ?? inferAddressType(address),
+      port,
+      protocol,
+      platform: input.platform === undefined ? undefined : readEnum(input.platform, serviceAssetPlatforms, 'platform'),
+      agentId: normalizeOptionalString(input.agentId),
+      sniName: normalizeOptionalString(input.sniName)?.toLowerCase(),
+      displayName: normalizeOptionalString(input.displayName),
+      serviceInstanceId: normalizeOptionalString(input.serviceInstanceId),
+      serviceEndpointId: normalizeOptionalString(input.serviceEndpointId),
+      hostId: normalizeOptionalString(input.hostId),
+      environment: normalizeOptionalString(input.environment),
+      discoverySource: readEnum(input.discoverySource ?? 'MANUAL', discoverySources, 'discoverySource'),
+      lastDiscoveredAt: normalizeOptionalString(input.lastDiscoveredAt),
+      status: readEnum(input.status ?? 'ACTIVE', serviceAssetStatuses, 'status'),
+      tags: normalizeStringArray(input.tags ?? []),
+      metadata: input.metadata ?? {},
+    };
+  }
+
+  normalizeServiceAssetPatch(input: UpdateServiceAssetDto): UpdateServiceAssetDto {
+    const normalized: UpdateServiceAssetDto = { ...input };
+    if (input.address !== undefined) normalized.address = normalizeRequiredString(input.address, 'address').toLowerCase();
+    if (input.addressType !== undefined) normalized.addressType = input.addressType;
+    if (input.port !== undefined) normalized.port = normalizePort(input.port);
+    if (input.protocol !== undefined) normalized.protocol = readEnum(input.protocol, endpointProtocols, 'protocol');
+    if (input.platform !== undefined) normalized.platform = readEnum(input.platform, serviceAssetPlatforms, 'platform');
+    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
+    if (input.sniName !== undefined) normalized.sniName = normalizeOptionalString(input.sniName)?.toLowerCase();
+    if (input.displayName !== undefined) normalized.displayName = normalizeOptionalString(input.displayName);
+    if (input.serviceInstanceId !== undefined) normalized.serviceInstanceId = normalizeOptionalString(input.serviceInstanceId);
+    if (input.serviceEndpointId !== undefined) normalized.serviceEndpointId = normalizeOptionalString(input.serviceEndpointId);
+    if (input.hostId !== undefined) normalized.hostId = normalizeOptionalString(input.hostId);
+    if (input.environment !== undefined) normalized.environment = normalizeOptionalString(input.environment);
+    if (input.discoverySource !== undefined) normalized.discoverySource = readEnum(input.discoverySource, discoverySources, 'discoverySource');
+    if (input.lastDiscoveredAt !== undefined) normalized.lastDiscoveredAt = normalizeOptionalString(input.lastDiscoveredAt);
+    if (input.status !== undefined) normalized.status = readEnum(input.status, serviceAssetStatuses, 'status');
+    if (input.tags !== undefined) normalized.tags = normalizeStringArray(input.tags);
+    return normalized;
+  }
+
   normalizeServiceEndpoint(input: CreateServiceEndpointDto): Required<Pick<CreateServiceEndpointDto, 'serviceInstanceId' | 'protocol' | 'port' | 'status'>> & CreateServiceEndpointDto {
     const serviceInstanceId = normalizeRequiredString(input.serviceInstanceId, 'serviceInstanceId');
     const protocol = readEnum(input.protocol, endpointProtocols, 'protocol');
@@ -185,13 +238,14 @@ export class AssetsDomainService {
   }
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeRequiredString(value: string | undefined, field: string): string {
+function normalizeRequiredString(value: unknown, field: string): string {
   const normalized = normalizeOptionalString(value);
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
   return normalized;
@@ -204,8 +258,8 @@ function normalizePort(port: number): number {
   return port;
 }
 
-function normalizeStringArray(values: string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+function normalizeStringArray(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean))];
 }
 
 function normalizeManagementChannels(values: Array<{ type?: string; enabled?: boolean; refId?: string; metadata?: Record<string, unknown> }>): Array<{ type: string; enabled?: boolean; refId?: string; metadata?: Record<string, unknown> }> {
@@ -237,9 +291,11 @@ function readEnum<T extends string>(value: string, allowed: readonly T[], field:
 export const assetsEnumValues = {
   hostStatuses,
   serviceInstanceStatuses,
+  serviceAssetStatuses,
   discoverySources,
   endpointProtocols,
   endpointStatuses,
+  serviceAssetPlatforms,
   conflictResolutions,
   osTypes: OsTypes,
   compatibilityLevels: CompatibilityLevels,
@@ -250,6 +306,8 @@ export const assetsEnumValues = {
 export type AssetsDomainEnums = {
   hostStatus: HostStatus;
   serviceInstanceStatus: ServiceInstanceStatus;
+  serviceAssetStatus: ServiceAssetStatus;
+  serviceAssetPlatform: ServiceAssetPlatform;
   discoverySource: DiscoverySource;
   endpointProtocol: ServiceEndpointProtocol;
   endpointStatus: ServiceEndpointStatus;
@@ -258,3 +316,10 @@ export type AssetsDomainEnums = {
   managementMode: ManagementMode;
   providerType: ProviderType;
 };
+
+function inferAddressType(address: string): 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN' {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return 'IPV4';
+  if (address.includes(':')) return 'IPV6';
+  if (address.includes('.')) return 'DNS';
+  return 'UNKNOWN';
+}

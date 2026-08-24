@@ -8,14 +8,17 @@ import type {
   AssetConflictDto,
   CreateAssetConflictDto,
   CreateDiscoverySnapshotDto,
+  CreateServiceAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   DiscoverySnapshotDto,
   HostDto,
+  ServiceAssetDto,
   ServiceEndpointDto,
   ServiceInstanceDto,
   ResolveAssetConflictDto,
   UpdateHostDto,
+  UpdateServiceAssetDto,
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
 } from '../dto/assets.dto.js';
@@ -43,6 +46,13 @@ export interface AssetsRepository {
   getServiceInstance(tenantId: string, serviceInstanceId: string): Promise<ServiceInstanceDto | undefined>;
   getServiceInstanceIncludingDeleted(tenantId: string, serviceInstanceId: string): Promise<ServiceInstanceDto | undefined>;
   findServiceInstanceByIdentity(tenantId: string, input: { hostId: string; providerType: string; serviceName?: string; configPath?: string }): Promise<ServiceInstanceDto | undefined>;
+  createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<ServiceAssetDto>;
+  updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<ServiceAssetDto>;
+  deleteServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto>;
+  listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>>;
+  getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
+  getServiceAssetIncludingDeleted(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
+  findServiceAssetByIdentity(tenantId: string, input: { address: string; port: number; protocol: string }): Promise<ServiceAssetDto | undefined>;
   createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto): Promise<ServiceEndpointDto>;
   updateServiceEndpoint(tenantId: string, serviceEndpointId: string, input: UpdateServiceEndpointDto): Promise<ServiceEndpointDto>;
   deleteServiceEndpoint(tenantId: string, serviceEndpointId: string): Promise<ServiceEndpointDto>;
@@ -63,7 +73,7 @@ export class PgAssetsRepository implements AssetsRepository {
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
 
   async createHost(tenantId: string, input: CreateHostDto): Promise<HostDto> {
-    this.assertNoDuplicateHostCandidate(tenantId, input);
+    await this.assertNoDuplicateHostCandidate(tenantId, input);
     const now = nowIso();
     const host: HostDto = {
       id: newId('hst'),
@@ -115,7 +125,7 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId });
     }
-    this.assertNoDuplicateHostCandidate(tenantId, input, hostId);
+    await this.assertNoDuplicateHostCandidate(tenantId, input, hostId);
     const merged = { ...current, ...input };
     if (!merged.hostname && !merged.primaryIp && merged.ipAddresses.length === 0) {
       throw new AppError('VALIDATION_FAILED', 'hostname、primaryIp 或 ipAddresses 至少保留一个', { fields: ['hostname', 'primaryIp', 'ipAddresses'] });
@@ -234,6 +244,87 @@ export class PgAssetsRepository implements AssetsRepository {
       if (configPath) return service.configPath === configPath;
       return service.serviceName === undefined && service.configPath === undefined;
     });
+  }
+
+  async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<ServiceAssetDto> {
+    if (input.serviceInstanceId && !await this.getServiceInstance(tenantId, input.serviceInstanceId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
+    if (input.serviceEndpointId && !await this.getServiceEndpoint(tenantId, input.serviceEndpointId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceEndpoint 不存在', { serviceEndpointId: input.serviceEndpointId });
+    if (input.hostId && !await this.getHost(tenantId, input.hostId)) throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId: input.hostId });
+    const duplicate = await this.findServiceAssetByIdentity(tenantId, input);
+    if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ServiceAsset 已存在', { serviceAssetId: duplicate.id, address: input.address, port: input.port, protocol: input.protocol });
+    const now = nowIso();
+    const asset: ServiceAssetDto = {
+      id: newId('sat'),
+      tenantId,
+      address: input.address,
+      addressType: input.addressType ?? 'UNKNOWN',
+      port: input.port,
+      protocol: input.protocol,
+      platform: input.platform,
+      agentId: input.agentId,
+      sniName: input.sniName,
+      displayName: input.displayName,
+      serviceInstanceId: input.serviceInstanceId,
+      serviceEndpointId: input.serviceEndpointId,
+      hostId: input.hostId,
+      environment: input.environment,
+      discoverySource: input.discoverySource ?? 'MANUAL',
+      lastDiscoveredAt: input.lastDiscoveredAt,
+      status: input.status ?? 'ACTIVE',
+      tags: input.tags ?? [],
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    await this.db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, platform, agent_id, sni_name, display_name, service_instance_id, service_endpoint_id, host_id, environment, discovery_source, last_discovered_at, status, tags, metadata, created_at, updated_at, version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::timestamptz,$17,$18::jsonb,$19::jsonb,$20::timestamptz,$21::timestamptz,$22)`, [
+      asset.id, tenantId, asset.address, asset.addressType, asset.port, asset.protocol, asset.platform ?? null, asset.agentId ?? null, asset.sniName ?? null, asset.displayName ?? null, asset.serviceInstanceId ?? null, asset.serviceEndpointId ?? null, asset.hostId ?? null, asset.environment ?? null, asset.discoverySource, asset.lastDiscoveredAt ?? null, asset.status, JSON.stringify(asset.tags), JSON.stringify(asset.metadata), asset.createdAt, asset.updatedAt, asset.version,
+    ]);
+    return asset;
+  }
+
+  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<ServiceAssetDto> {
+    const current = await this.getServiceAsset(tenantId, serviceAssetId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    if (input.serviceInstanceId && !await this.getServiceInstance(tenantId, input.serviceInstanceId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
+    if (input.serviceEndpointId && !await this.getServiceEndpoint(tenantId, input.serviceEndpointId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceEndpoint 不存在', { serviceEndpointId: input.serviceEndpointId });
+    if (input.hostId && !await this.getHost(tenantId, input.hostId)) throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId: input.hostId });
+    const merged = { ...current, ...input };
+    const duplicate = await this.findServiceAssetByIdentity(tenantId, merged);
+    if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ServiceAsset 已存在', { serviceAssetId: duplicate.id, address: merged.address, port: merged.port, protocol: merged.protocol });
+    const updated = touch(merged);
+    await this.db.query(`update pg_service_assets set address=$2, address_type=$3, port=$4, protocol=$5, platform=$6, agent_id=$7, sni_name=$8, display_name=$9, service_instance_id=$10, service_endpoint_id=$11, host_id=$12, environment=$13, discovery_source=$14, last_discovered_at=$15::timestamptz, status=$16, tags=$17::jsonb, metadata=$18::jsonb, updated_at=$19::timestamptz, version=$20 where id=$1`, [
+      updated.id, updated.address, updated.addressType, updated.port, updated.protocol, updated.platform ?? null, updated.agentId ?? null, updated.sniName ?? null, updated.displayName ?? null, updated.serviceInstanceId ?? null, updated.serviceEndpointId ?? null, updated.hostId ?? null, updated.environment ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.tags), JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    ]);
+    return updated;
+  }
+
+  async deleteServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto> {
+    const current = await this.getServiceAsset(tenantId, serviceAssetId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    const deleted = softDelete({ ...current, status: 'DELETED' as const });
+    await this.db.query(`update pg_service_assets set status=$2, deleted_at=$3::timestamptz, updated_at=$4::timestamptz, version=$5 where id=$1`, [deleted.id, deleted.status, deleted.deletedAt ?? null, deleted.updatedAt, deleted.version]);
+    return deleted;
+  }
+
+  async listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>> {
+    const rows = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toServiceAsset);
+    return page(rows, query, serviceAssetFilter);
+  }
+
+  async getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined> {
+    const asset = await this.getServiceAssetIncludingDeleted(tenantId, serviceAssetId);
+    return asset?.deletedAt ? undefined : asset;
+  }
+
+  async getServiceAssetIncludingDeleted(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined> {
+    const row = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where id = $1 and tenant_id = $2`, [serviceAssetId, tenantId])).rows[0];
+    return row ? toServiceAsset(row) : undefined;
+  }
+
+  async findServiceAssetByIdentity(tenantId: string, input: { address: string; port: number; protocol: string }): Promise<ServiceAssetDto | undefined> {
+    const row = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where tenant_id = $1 and deleted_at is null and address = $2 and port = $3 and protocol = $4 limit 1`, [tenantId, input.address.toLowerCase(), input.port, input.protocol])).rows[0];
+    return row ? toServiceAsset(row) : undefined;
   }
 
   async createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto): Promise<ServiceEndpointDto> {
@@ -378,10 +469,35 @@ export class PgAssetsRepository implements AssetsRepository {
     return resolved;
   }
 
-  private assertNoDuplicateHostCandidate(tenantId: string, input: Partial<CreateHostDto>, excludedId?: string): void {
-    void tenantId;
-    void input;
-    void excludedId;
+  private async assertNoDuplicateHostCandidate(tenantId: string, input: Partial<CreateHostDto>, excludedId?: string): Promise<void> {
+    const normalizedHostname = input.hostname?.trim().toLowerCase();
+    const normalizedAgentId = input.agentId?.trim();
+    if (!normalizedHostname && !normalizedAgentId) return;
+
+    const rows = (await this.db.query<Pick<HostRow, 'id' | 'hostname' | 'agent_id'>>(
+      `select id, hostname, agent_id
+       from pg_hosts
+       where tenant_id = $1
+         and deleted_at is null
+         and ($2::text is not null and lower(coalesce(hostname, '')) = $2
+           or $3::text is not null and agent_id = $3)`,
+      [tenantId, normalizedHostname ?? null, normalizedAgentId ?? null],
+    )).rows;
+
+    const duplicate = rows.find((row) => row.id !== excludedId);
+    if (!duplicate) return;
+
+    if (normalizedAgentId && duplicate.agent_id === normalizedAgentId) {
+      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host ????? Agent ??', {
+        hostId: duplicate.id,
+        agentId: normalizedAgentId,
+      });
+    }
+
+    throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host ????? hostname', {
+      hostId: duplicate.id,
+      hostname: normalizedHostname,
+    });
   }
 }
 
@@ -432,6 +548,32 @@ type ServiceInstanceRow = {
   last_discovered_at?: string | null;
   status: ServiceInstanceDto['status'];
   raw_facts: unknown;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  version: number;
+};
+
+type ServiceAssetRow = {
+  id: string;
+  tenant_id: string;
+  address: string;
+  address_type: ServiceAssetDto['addressType'];
+  port: number;
+  protocol: ServiceAssetDto['protocol'];
+  platform?: ServiceAssetDto['platform'] | null;
+  agent_id?: string | null;
+  sni_name?: string | null;
+  display_name?: string | null;
+  service_instance_id?: string | null;
+  service_endpoint_id?: string | null;
+  host_id?: string | null;
+  environment?: string | null;
+  discovery_source: ServiceAssetDto['discoverySource'];
+  last_discovered_at?: string | null;
+  status: ServiceAssetDto['status'];
+  tags: unknown;
+  metadata: unknown;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -535,6 +677,34 @@ function toServiceInstance(row: ServiceInstanceRow): ServiceInstanceDto {
     lastDiscoveredAt: row.last_discovered_at ?? undefined,
     status: row.status,
     rawFacts: asObject(row.raw_facts),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at ?? undefined,
+    version: row.version,
+  };
+}
+
+function toServiceAsset(row: ServiceAssetRow): ServiceAssetDto {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    address: row.address,
+    addressType: row.address_type,
+    port: row.port,
+    protocol: row.protocol,
+    platform: row.platform ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    sniName: row.sni_name ?? undefined,
+    displayName: row.display_name ?? undefined,
+    serviceInstanceId: row.service_instance_id ?? undefined,
+    serviceEndpointId: row.service_endpoint_id ?? undefined,
+    hostId: row.host_id ?? undefined,
+    environment: row.environment ?? undefined,
+    discoverySource: row.discovery_source,
+    lastDiscoveredAt: row.last_discovered_at ?? undefined,
+    status: row.status,
+    tags: asArray(row.tags),
+    metadata: asObject(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,
@@ -652,6 +822,11 @@ function hostFilter(host: HostDto, field: string, expected: string): boolean {
 
 function serviceInstanceFilter(serviceInstance: ServiceInstanceDto, field: string, expected: string): boolean {
   return stringField(serviceInstance, field).includes(expected.toLowerCase());
+}
+
+function serviceAssetFilter(asset: ServiceAssetDto, field: string, expected: string): boolean {
+  if (field === 'tag') return asset.tags.includes(expected);
+  return stringField(asset, field).includes(expected.toLowerCase());
 }
 
 function serviceEndpointFilter(endpoint: ServiceEndpointDto, field: string, expected: string): boolean {

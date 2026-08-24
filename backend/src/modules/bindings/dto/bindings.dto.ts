@@ -7,8 +7,13 @@ export type BindingProtocol = 'HTTPS' | 'TLS' | 'SMTPS' | 'LDAPS' | 'CUSTOM' | s
 export interface CertificateBindingDto {
   id: string;
   tenantId: string;
+  /** 业务资产主关联：address + port + protocol。 */
+  serviceAssetId?: string;
+  /** 执行和定位辅助关联，兼容旧调用。 */
   serviceInstanceId: string;
+  /** 旧端点关联，保留兼容，不再作为业务资产主键。 */
   serviceEndpointId?: string;
+  /** 执行宿主机事实，来自 ServiceInstance/ServiceAsset。 */
   hostId: string;
   domainName?: string;
   /** Spec 007 规范字段，兼容旧 domainName。 */
@@ -55,6 +60,7 @@ export interface CertificateBindingDto {
 }
 
 export interface CreateCertificateBindingDto {
+  serviceAssetId?: string;
   serviceInstanceId: string;
   serviceEndpointId?: string;
   domainName?: string;
@@ -127,6 +133,14 @@ export interface BindingDriftDto {
 
 export interface CertificateBindingUsageDto {
   binding: CertificateBindingDto;
+  serviceAsset?: {
+    id: string;
+    address: string;
+    port: number;
+    protocol: string;
+    status: string;
+    deletedAt?: string;
+  };
   service?: {
     id: string;
     displayName: string;

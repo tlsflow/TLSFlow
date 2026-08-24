@@ -9,15 +9,18 @@ import type {
   BindingDriftPersistenceResultDto,
   CreateDiscoverySnapshotDto,
   CreateHostDto,
+  CreateServiceAssetDto,
   DiscoveryIngestResultDto,
   DiscoveryMergePreviewDto,
   IngestDiscoveryDto,
   NormalizedDiscoveredBindingDto,
   NormalizedDiscoveredHostDto,
+  NormalizedDiscoveredServiceAssetDto,
   NormalizedDiscoveredServiceDto,
   PreviewDiscoveryMergeDto,
   ResolveAssetConflictDto,
   ResolvedAssetConflictDto,
+  UpdateServiceAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
@@ -25,16 +28,22 @@ import type {
   UpdateServiceInstanceDto,
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
+import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 
 export class AssetsApplicationService {
   constructor(
     private readonly repository: AssetsRepository = new PgAssetsRepository(),
     private readonly domain = new AssetsDomainService(),
     private bindingsRepository?: BindingsRepository,
+    private agentsService?: AgentsApplicationService,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
     this.bindingsRepository = bindingsRepository;
+  }
+
+  setAgentsService(agentsService: AgentsApplicationService): void {
+    this.agentsService = agentsService;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -69,6 +78,28 @@ export class AssetsApplicationService {
     return this.repository.listServiceInstances(tenantId, query);
   }
 
+  async createServiceAsset(tenantId: string, input: CreateServiceAssetDto) {
+    const normalized = this.domain.normalizeServiceAsset(input);
+    await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform, normalized.agentId);
+    return this.repository.createServiceAsset(tenantId, normalized);
+  }
+
+  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto) {
+    const normalized = this.domain.normalizeServiceAssetPatch(input);
+    const current = await this.repository.getServiceAsset(tenantId, serviceAssetId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform ?? current.platform, normalized.agentId ?? current.agentId);
+    return this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
+  }
+
+  async deleteServiceAsset(tenantId: string, serviceAssetId: string) {
+    return this.repository.deleteServiceAsset(tenantId, serviceAssetId);
+  }
+
+  async listServiceAssets(tenantId: string, query: PageQuery) {
+    return this.repository.listServiceAssets(tenantId, query);
+  }
+
   async createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto) {
     return this.repository.createServiceEndpoint(tenantId, this.domain.normalizeServiceEndpoint(input));
   }
@@ -93,9 +124,11 @@ export class AssetsApplicationService {
     const snapshot = await this.upsertDiscoverySnapshot(tenantId, input);
     const payload = snapshot.normalizedPayload;
     const hosts = Array.isArray(payload.hosts) ? payload.hosts : [];
+    const serviceAssets = Array.isArray(payload.serviceAssets) ? payload.serviceAssets : [];
     const actions: DiscoveryMergePreviewDto['actions'] = [];
     const conflicts: DiscoveryMergePreviewDto['conflicts'] = [];
     const existingHosts = (await this.listHosts(tenantId, { page: 1, pageSize: 500, filter: {}, sort: undefined })).items;
+    const existingServiceAssets = (await this.listServiceAssets(tenantId, { page: 1, pageSize: 500, filter: {}, sort: undefined })).items;
     for (const raw of hosts) {
       if (!raw || typeof raw !== 'object') continue;
       const discovered = raw as Record<string, unknown>;
@@ -118,6 +151,29 @@ export class AssetsApplicationService {
       }
       actions.push({ kind: 'host', action: 'update', identityKey, existingId: current.id, reason: '身份键匹配，可更新自动发现字段' });
     }
+    for (const raw of serviceAssets) {
+      if (!raw || typeof raw !== 'object') continue;
+      const discovered = raw as Record<string, unknown>;
+      const address = normalizeOptionalString(String(discovered.address ?? ''))?.toLowerCase();
+      const protocol = normalizeOptionalString(String(discovered.protocol ?? ''))?.toUpperCase();
+      const port = Number(discovered.port);
+      if (!address || !protocol || !Number.isInteger(port) || port < 1 || port > 65535) {
+        actions.push({ kind: 'service_asset', action: 'conflict', identityKey: 'service-asset:invalid', reason: 'invalid service asset identity' });
+        continue;
+      }
+      const identityKey = serviceAssetIdentityKey({ address, port, protocol: protocol as NormalizedDiscoveredServiceAssetDto['protocol'] });
+      const current = existingServiceAssets.find((asset) => asset.address === address && asset.port === port && asset.protocol === protocol);
+      if (!current) {
+        actions.push({ kind: 'service_asset', action: 'create', identityKey, reason: 'service asset can be created' });
+        continue;
+      }
+      if (current.displayName && discovered.displayName && current.displayName !== discovered.displayName) {
+        actions.push({ kind: 'service_asset', action: 'conflict', identityKey, existingId: current.id, reason: 'manual displayName conflicts with discovered value' });
+        conflicts.push({ kind: 'service_asset', identityKey, field: 'displayName', currentValue: current.displayName, discoveredValue: discovered.displayName, reason: 'displayName is treated as a manual field' } as any);
+        continue;
+      }
+      actions.push({ kind: 'service_asset', action: 'update', identityKey, existingId: current.id, reason: 'service asset can be updated from discovery' });
+    }
     return { snapshot, actions, conflicts, businessTableMutated: false };
   }
 
@@ -133,6 +189,7 @@ export class AssetsApplicationService {
     };
     const hostIds = new Map<string, string>();
     const serviceIds = new Map<string, string>();
+    const serviceAssetIds = new Map<string, string>();
 
     for (const host of payload.hosts) {
       const identityKey = hostIdentityKey(host);
@@ -182,7 +239,7 @@ export class AssetsApplicationService {
       const current = await this.repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: service.providerType, serviceName: service.serviceName, configPath: service.configPath });
       if (!current) {
         if (!apply) {
-          result.actions.push({ kind: 'service', action: 'create', identityKey, reason: '未找到现有 ServiceInstance，可创建新资源' });
+        result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'service instance not found for service asset creation' });
           continue;
         }
         const created = await this.createServiceInstance(tenantId, serviceToCreateDto(service, hostId, snapshot.source));
@@ -202,13 +259,53 @@ export class AssetsApplicationService {
       result.actions.push({ kind: 'service', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，保留当前值' : '身份键匹配，可按自动字段合并' });
     }
 
+    for (const serviceAsset of payload.serviceAssets) {
+      const resolvedServiceId = await resolveServiceId(serviceAsset, serviceIds, tenantId, this.repository);
+      if (!resolvedServiceId) {
+        result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey: serviceAssetIdentityKey(serviceAsset, 'missing-service'), reason: 'service asset is missing a resolvable service instance' });
+        continue;
+      }
+      const identityKey = serviceAssetIdentityKey(serviceAsset);
+      const current = await this.repository.findServiceAssetByIdentity(tenantId, {
+        address: serviceAsset.address.toLowerCase(),
+        port: serviceAsset.port,
+        protocol: serviceAsset.protocol,
+      });
+      const serviceInstance = await this.repository.getServiceInstance(tenantId, resolvedServiceId);
+      if (!serviceInstance) {
+        result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'service instance not found for service asset creation' });
+        continue;
+      }
+      if (!current) {
+        if (!apply) {
+          result.actions.push({ kind: 'service_asset', action: 'create', identityKey, reason: 'service asset can be created' });
+          continue;
+        }
+        const created = await this.createServiceAsset(tenantId, serviceAssetToCreateDto(serviceAsset, resolvedServiceId, serviceInstance.hostId, snapshot.source));
+        serviceAssetIds.set(identityKey, created.id);
+        result.businessTableMutated = true;
+        result.actions.push({ kind: 'service_asset', action: 'create', identityKey, resourceId: created.id, reason: 'service asset created from discovery' });
+        continue;
+      }
+      serviceAssetIds.set(identityKey, current.id);
+      const conflicts = collectManualConflicts('service_asset', current.id, snapshot.id, toRecord(current), toRecord(serviceAsset), ['displayName']);
+      result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
+      const patch = pickChangedAutoFields(toRecord(current), { ...toRecord(serviceAsset), serviceInstanceId: resolvedServiceId, hostId: serviceInstance.hostId, discoverySource: serviceAsset.discoverySource ?? snapshot.source, lastDiscoveredAt: serviceAsset.lastDiscoveredAt ?? snapshot.createdAt }, ['addressType', 'sniName', 'serviceInstanceId', 'hostId', 'environment', 'discoverySource', 'lastDiscoveredAt', 'status', 'tags', 'metadata']);
+      if (Object.keys(patch).length > 0 && apply) {
+        await this.updateServiceAsset(tenantId, current.id, patch as UpdateServiceAssetDto);
+        result.businessTableMutated = true;
+      }
+      result.actions.push({ kind: 'service_asset', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? 'manual fields conflict with discovered values' : 'service asset merged from discovery' });
+    }
+
     for (const binding of payload.bindings) {
       const resolvedServiceId = await resolveServiceId(binding, serviceIds, tenantId, this.repository);
       if (!resolvedServiceId) {
         result.actions.push({ kind: 'binding', action: 'conflict', identityKey: bindingIdentityKey(binding, 'missing-service'), reason: '发现 Binding 缺少可匹配 ServiceInstance，拒绝合并' });
         continue;
       }
-      const createInput = bindingToCreateDto(binding, resolvedServiceId);
+      const resolvedServiceAssetId = await resolveServiceAssetId(binding, serviceAssetIds, tenantId, this.repository);
+      const createInput = bindingToCreateDto(binding, resolvedServiceId, resolvedServiceAssetId);
       const identityKey = bindingIdentityKey(binding, resolvedServiceId);
       const current = await this.requireBindingsRepository().findCertificateBindingByIdentity(tenantId, createInput);
       if (!current) {
@@ -320,6 +417,9 @@ export class AssetsApplicationService {
     if (conflict.resourceType === 'service') {
       return this.updateServiceInstance(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateServiceInstanceDto);
     }
+    if (conflict.resourceType === 'service_asset') {
+      return this.updateServiceAsset(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateServiceAssetDto);
+    }
     if (conflict.resourceType === 'binding') {
       const patch = conflict.field === 'metadata.reloadHint' ? { metadata: { reloadHint: value } } : { [conflict.field]: value };
       return this.requireBindingsRepository().updateCertificateBinding(tenantId, conflict.resourceId, patch as UpdateCertificateBindingDto);
@@ -334,13 +434,38 @@ export class AssetsApplicationService {
     const observed = remote ?? local;
     return observed === desired ? 'synced' as const : 'mismatch' as const;
   }
+
+  private async assertServiceAssetAgentPlatform(
+    tenantId: string,
+    platform: CreateServiceAssetDto['platform'] | UpdateServiceAssetDto['platform'],
+    agentId: string | undefined,
+  ): Promise<void> {
+    if (!agentId) return;
+    if (!this.agentsService) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'AgentsService 未注入，无法校验 ServiceAsset Agent 绑定');
+    }
+    const detail = await this.agentsService.getAgentDetail(tenantId, agentId);
+    const agentPlatform = String(detail.agent.descriptor.osType ?? '').toUpperCase();
+    if (!platform) return;
+    const expectedPlatforms = platform === 'APPLIANCE' ? ['NETWORK_DEVICE'] : [platform];
+    if (!expectedPlatforms.includes(agentPlatform)) {
+      throw new AppError('VALIDATION_FAILED', '应用资产平台与 Agent 平台不匹配', {
+        platform,
+        agentId,
+        agentPlatform,
+      });
+    }
+  }
 }
 
-function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
+function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
+  const bindings = arrayOfObjects(payload.bindings ?? payload.certificateBindings) as unknown as NormalizedDiscoveredBindingDto[];
+  const explicitServiceAssets = arrayOfObjects(payload.serviceAssets) as unknown as NormalizedDiscoveredServiceAssetDto[];
   return {
     hosts: arrayOfObjects(payload.hosts) as unknown as NormalizedDiscoveredHostDto[],
     services: arrayOfObjects(payload.services ?? payload.serviceInstances) as unknown as NormalizedDiscoveredServiceDto[],
-    bindings: arrayOfObjects(payload.bindings ?? payload.certificateBindings) as unknown as NormalizedDiscoveredBindingDto[],
+    serviceAssets: explicitServiceAssets.length > 0 ? explicitServiceAssets : projectDiscoveredServiceAssetsFromBindings(bindings),
+    bindings,
   };
 }
 
@@ -357,8 +482,33 @@ function serviceIdentityKey(service: NormalizedDiscoveredServiceDto, hostId: str
   return `service:${hostId}:${service.providerType}:${normalizeOptionalString(service.serviceName) ?? normalizeOptionalString(service.configPath) ?? 'default'}`.toLowerCase();
 }
 
+function serviceAssetIdentityKey(
+  serviceAsset: Pick<NormalizedDiscoveredServiceAssetDto, 'address' | 'port' | 'protocol'>,
+  fallback = 'invalid',
+): string {
+  const address = normalizeOptionalString(serviceAsset.address)?.toLowerCase();
+  const protocol = normalizeOptionalString(serviceAsset.protocol)?.toUpperCase();
+  const port = serviceAsset.port;
+  if (!address || !protocol || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return `service-asset:${fallback}`;
+  }
+  return `service-asset:${address}:${port}:${protocol}`.toLowerCase();
+}
+
 function bindingIdentityKey(binding: NormalizedDiscoveredBindingDto, serviceId: string): string {
-  return `binding:${serviceId}:${normalizeOptionalString(binding.domainName) ?? ''}:${binding.bindingType ?? 'FILE_PATH'}:${normalizeOptionalString(binding.certPath) ?? normalizeOptionalString(binding.keystorePath) ?? normalizeOptionalString(binding.storeThumbprint) ?? 'endpoint'}`.toLowerCase();
+  const address = normalizeOptionalString(binding.domainName ?? binding.domain)?.toLowerCase();
+  const port = binding.port;
+  const protocol = normalizeOptionalString(binding.protocol)?.toUpperCase();
+  const serviceAssetIdentity = address && port && protocol
+    ? `${address}:${port}:${protocol}`
+    : normalizeOptionalString(binding.serviceAssetRef) ?? serviceId;
+  const bindingLocation = normalizeOptionalString(binding.bindingKey)
+    ?? normalizeOptionalString(binding.certPath)
+    ?? normalizeOptionalString(binding.keystorePath)
+    ?? normalizeOptionalString(binding.storeThumbprint)
+    ?? normalizeOptionalString(binding.domainName ?? binding.domain)
+    ?? 'endpoint';
+  return `binding:${serviceAssetIdentity}:${binding.bindingType ?? 'FILE_PATH'}:${bindingLocation}`.toLowerCase();
 }
 
 function hostToCreateDto(host: NormalizedDiscoveredHostDto, source: CreateDiscoverySnapshotDto['source']): CreateHostDto {
@@ -387,8 +537,63 @@ function serviceToCreateDto(service: NormalizedDiscoveredServiceDto, hostId: str
   };
 }
 
-function bindingToCreateDto(binding: NormalizedDiscoveredBindingDto, serviceInstanceId: string): CreateCertificateBindingDto {
+function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetDto, serviceInstanceId: string, hostId: string, source: CreateDiscoverySnapshotDto['source']): CreateServiceAssetDto {
   return {
+    address: serviceAsset.address,
+    addressType: serviceAsset.addressType,
+    port: serviceAsset.port,
+    protocol: serviceAsset.protocol,
+    sniName: serviceAsset.sniName,
+    displayName: serviceAsset.displayName,
+    serviceInstanceId,
+    hostId,
+    environment: serviceAsset.environment,
+    discoverySource: serviceAsset.discoverySource ?? source,
+    lastDiscoveredAt: serviceAsset.lastDiscoveredAt,
+    status: serviceAsset.status ?? 'ACTIVE',
+    tags: serviceAsset.tags ?? [],
+    metadata: serviceAsset.metadata ?? {},
+  };
+}
+
+function projectDiscoveredServiceAssetsFromBindings(bindings: NormalizedDiscoveredBindingDto[]): NormalizedDiscoveredServiceAssetDto[] {
+  const seen = new Set<string>();
+  const projected: NormalizedDiscoveredServiceAssetDto[] = [];
+  for (const binding of bindings) {
+    const address = normalizeOptionalString(binding.domainName ?? binding.domain)?.toLowerCase();
+    const protocol = normalizeOptionalString(binding.protocol)?.toUpperCase() as NormalizedDiscoveredServiceAssetDto['protocol'] | undefined;
+    if (!address || !binding.port || !protocol) continue;
+    const identityKey = serviceAssetIdentityKey({ address, port: binding.port, protocol });
+    if (seen.has(identityKey)) continue;
+    seen.add(identityKey);
+    projected.push({
+      serviceRef: binding.serviceRef,
+      hostname: binding.hostname,
+      providerType: binding.providerType,
+      serviceName: binding.serviceName,
+      address,
+      addressType: undefined,
+      port: binding.port,
+      protocol,
+      sniName: address,
+      displayName: address,
+      discoverySource: binding.discoverySource as NormalizedDiscoveredServiceAssetDto['discoverySource'],
+      lastDiscoveredAt: binding.lastVerifiedAt,
+      status: 'ACTIVE',
+      tags: [],
+      metadata: {
+        projectedFrom: 'binding',
+        serviceAssetRef: binding.serviceAssetRef,
+        bindingKey: binding.bindingKey,
+      },
+    });
+  }
+  return projected;
+}
+
+function bindingToCreateDto(binding: NormalizedDiscoveredBindingDto, serviceInstanceId: string, serviceAssetId?: string): CreateCertificateBindingDto {
+  return {
+    serviceAssetId,
     serviceInstanceId,
     domainName: binding.domainName ?? binding.domain,
     domain: binding.domain ?? binding.domainName,
@@ -429,16 +634,35 @@ async function resolveHostId(hostRef: string | undefined, hostIds: Map<string, s
   return hostIds.get(`host:${normalized}`) ?? (await repository.findHostByHostname(tenantId, normalized))?.id;
 }
 
-async function resolveServiceId(binding: NormalizedDiscoveredBindingDto, serviceIds: Map<string, string>, tenantId: string, repository: AssetsRepository): Promise<string | undefined> {
-  const direct = normalizeOptionalString(binding.serviceRef);
+async function resolveServiceId(
+  input: Pick<NormalizedDiscoveredBindingDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredServiceAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'>,
+  serviceIds: Map<string, string>,
+  tenantId: string,
+  repository: AssetsRepository,
+): Promise<string | undefined> {
+  const direct = normalizeOptionalString(input.serviceRef);
   if (direct && await repository.getServiceInstance(tenantId, direct)) return direct;
-  const hostId = await resolveHostId(binding.hostname, new Map(), tenantId, repository);
-  if (!hostId || !binding.providerType) return undefined;
-  const key = serviceIdentityKey({ providerType: binding.providerType, serviceName: binding.serviceName }, hostId);
-  return serviceIds.get(key) ?? (await repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: binding.providerType, serviceName: binding.serviceName }))?.id;
+  const hostId = await resolveHostId(input.hostname, new Map(), tenantId, repository);
+  if (!hostId || !input.providerType) return undefined;
+  const key = serviceIdentityKey({ providerType: input.providerType, serviceName: input.serviceName }, hostId);
+  return serviceIds.get(key) ?? (await repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: input.providerType, serviceName: input.serviceName }))?.id;
 }
 
-function collectManualConflicts(resourceType: 'host' | 'service' | 'binding', resourceId: string, sourceSnapshotId: string, current: Record<string, unknown>, discovered: Record<string, unknown>, fields: string[]) {
+async function resolveServiceAssetId(
+  binding: NormalizedDiscoveredBindingDto,
+  serviceAssetIds: Map<string, string>,
+  tenantId: string,
+  repository: AssetsRepository,
+): Promise<string | undefined> {
+  const direct = normalizeOptionalString(binding.serviceAssetRef);
+  if (direct && await repository.getServiceAsset(tenantId, direct)) return direct;
+  const address = normalizeOptionalString(binding.domainName ?? binding.domain)?.toLowerCase();
+  if (!address || !binding.port || !binding.protocol) return undefined;
+  const identityKey = serviceAssetIdentityKey({ address, port: binding.port, protocol: binding.protocol as NormalizedDiscoveredServiceAssetDto['protocol'] });
+  return serviceAssetIds.get(identityKey) ?? (await repository.findServiceAssetByIdentity(tenantId, { address, port: binding.port, protocol: binding.protocol }))?.id;
+}
+
+function collectManualConflicts(resourceType: 'host' | 'service' | 'service_asset' | 'binding', resourceId: string, sourceSnapshotId: string, current: Record<string, unknown>, discovered: Record<string, unknown>, fields: string[]) {
   return fields.flatMap((field) => {
     if (current[field] === undefined || discovered[field] === undefined || sameValue(current[field], discovered[field])) return [];
     return [{ resourceType, resourceId, field, currentValue: current[field], discoveredValue: discovered[field], sourceSnapshotId }];

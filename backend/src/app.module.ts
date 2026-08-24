@@ -101,6 +101,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ExecutionsController(deploymentPlans.getExecutionsService()).register(app.router);
 
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  assetsService.setAgentsService(agentsService);
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
     assetsService.getRepository(),
     new PgBindingsRepository(assetsService.getRepository(), appDb),

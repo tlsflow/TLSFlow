@@ -40,6 +40,7 @@ export class BindingsController {
 
   private createCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
+      serviceAssetId: { type: 'string' },
       serviceInstanceId: { type: 'string', required: true },
       serviceEndpointId: { type: 'string' },
       domainName: { type: 'string' },
@@ -85,6 +86,7 @@ export class BindingsController {
       allowedSortFields: ['domainName', 'domain', 'port', 'protocol', 'bindingKey', 'createdAt', 'updatedAt', 'lastVerifiedAt', 'status', 'bindingType', 'serviceInstanceId', 'hostId'],
       allowedFilterFields: [
         'id',
+        'serviceAssetId',
         'serviceInstanceId',
         'serviceEndpointId',
         'hostId',
@@ -123,6 +125,7 @@ export class BindingsController {
   private updateCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
+      serviceAssetId: { type: 'string' },
       serviceInstanceId: { type: 'string' },
       serviceEndpointId: { type: 'string' },
       domainName: { type: 'string' },

@@ -17,9 +17,11 @@ import { assetsEnumValues } from '../domain/assets.domain-service.js';
 import type {
   CreateDiscoverySnapshotDto,
   CreateHostDto,
+  CreateServiceAssetDto,
   IngestDiscoveryDto,
   PreviewDiscoveryMergeDto,
   ResolveAssetConflictDto,
+  UpdateServiceAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
@@ -42,6 +44,10 @@ export class AssetsController {
     router.post('/api/v1/service-instances', '创建 ServiceInstance', tags, (request) => this.createServiceInstance(request));
     router.patch('/api/v1/service-instances', '更新 ServiceInstance', tags, (request) => this.updateServiceInstance(request));
     router.post('/api/v1/service-instances/delete', '软删除 ServiceInstance', tags, (request) => this.deleteServiceInstance(request));
+    router.get('/api/v1/service-assets', '查询 ServiceAsset 列表', tags, (request) => this.listServiceAssets(request));
+    router.post('/api/v1/service-assets', '创建 ServiceAsset', tags, (request) => this.createServiceAsset(request));
+    router.patch('/api/v1/service-assets', '更新 ServiceAsset', tags, (request) => this.updateServiceAsset(request));
+    router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/service-endpoints', '查询 ServiceEndpoint 列表', tags, (request) => this.listServiceEndpoints(request));
     router.post('/api/v1/service-endpoints', '创建 ServiceEndpoint', tags, (request) => this.createServiceEndpoint(request));
     router.patch('/api/v1/service-endpoints', '更新 ServiceEndpoint', tags, (request) => this.updateServiceEndpoint(request));
@@ -219,6 +225,88 @@ export class AssetsController {
     return this.service.getRepository().getServiceInstance(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceInstance(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_instance.deleted', 'service_instance.manage', 'service_instance', String(body.id), before, deleted);
+        return deleted;
+      }),
+    );
+  }
+
+  private createServiceAsset(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      address: { type: 'string', required: true },
+      addressType: { type: 'string' },
+      port: { type: 'number', required: true },
+      protocol: { type: 'string', required: true, enum: assetsEnumValues.endpointProtocols },
+      platform: { type: 'string', enum: assetsEnumValues.serviceAssetPlatforms },
+      agentId: { type: 'string' },
+      sniName: { type: 'string' },
+      displayName: { type: 'string' },
+      serviceInstanceId: { type: 'string' },
+      serviceEndpointId: { type: 'string' },
+      hostId: { type: 'string' },
+      environment: { type: 'string' },
+      discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
+      lastDiscoveredAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
+      tags: { type: 'array' },
+      metadata: { type: 'object' },
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
+    return this.service.createServiceAsset(tenantId(request), body as unknown as CreateServiceAssetDto).then((created) => {
+      this.audit(request, subject, 'service_asset.created', 'service_asset.manage', 'service_asset', created.id, undefined, created);
+      return { statusCode: 201, body: created };
+    });
+  }
+
+  private listServiceAssets(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['address', 'port', 'protocol', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'hostId'],
+      allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'tag'],
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'service_asset.read', 'service_asset', request);
+    return this.service.listServiceAssets(tenantId(request), query);
+  }
+
+  private updateServiceAsset(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      id: { type: 'string', required: true },
+      address: { type: 'string' },
+      addressType: { type: 'string' },
+      port: { type: 'number' },
+      protocol: { type: 'string', enum: assetsEnumValues.endpointProtocols },
+      platform: { type: 'string', enum: assetsEnumValues.serviceAssetPlatforms },
+      agentId: { type: 'string' },
+      sniName: { type: 'string' },
+      displayName: { type: 'string' },
+      serviceInstanceId: { type: 'string' },
+      serviceEndpointId: { type: 'string' },
+      hostId: { type: 'string' },
+      environment: { type: 'string' },
+      discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
+      lastDiscoveredAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
+      tags: { type: 'array' },
+      metadata: { type: 'object' },
+    });
+    const { id, ...patch } = body as unknown as UpdateServiceAssetDto & { id: string };
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, id);
+    return this.service.getRepository().getServiceAsset(tenantId(request), id).then((before) =>
+      this.service.updateServiceAsset(tenantId(request), id, patch).then((updated) => {
+        this.audit(request, subject, 'service_asset.updated', 'service_asset.manage', 'service_asset', id, before, updated);
+        return updated;
+      }),
+    );
+  }
+
+  private deleteServiceAsset(request: HttpRequest) {
+    const body = validateObject(request.body, { id: { type: 'string', required: true } });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
+    return this.service.getRepository().getServiceAsset(tenantId(request), String(body.id)).then((before) =>
+      this.service.deleteServiceAsset(tenantId(request), String(body.id)).then((deleted) => {
+        this.audit(request, subject, 'service_asset.deleted', 'service_asset.manage', 'service_asset', String(body.id), before, deleted);
         return deleted;
       }),
     );
@@ -416,6 +504,10 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/service-instances', operationId: 'createServiceInstance', summary: '创建 ServiceInstance', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-instances', operationId: 'updateServiceInstance', summary: '更新 ServiceInstance', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-instances/delete', operationId: 'deleteServiceInstance', summary: '软删除 ServiceInstance', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/service-assets', operationId: 'listServiceAssets', summary: '查询 ServiceAsset 列表', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/service-assets', operationId: 'createServiceAsset', summary: '创建 ServiceAsset', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/service-assets', operationId: 'updateServiceAsset', summary: '更新 ServiceAsset', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/service-endpoints', operationId: 'listServiceEndpoints', summary: '查询 ServiceEndpoint 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/service-endpoints', operationId: 'createServiceEndpoint', summary: '创建 ServiceEndpoint', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-endpoints', operationId: 'updateServiceEndpoint', summary: '更新 ServiceEndpoint', tags, responseSchema: objectSchema() },

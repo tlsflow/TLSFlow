@@ -36,8 +36,8 @@ export class PgBindingsRepository implements BindingsRepository {
     if (!serviceInstance) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     }
+    let endpoint = input.serviceEndpointId ? await this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId) : undefined;
     if (input.serviceEndpointId) {
-      const endpoint = await this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId);
       if (!endpoint) {
         throw new AppError('RESOURCE_NOT_FOUND', 'ServiceEndpoint 不存在', { serviceEndpointId: input.serviceEndpointId });
       }
@@ -48,11 +48,19 @@ export class PgBindingsRepository implements BindingsRepository {
         });
       }
     }
+    const serviceAsset = input.serviceAssetId
+      ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId)
+      : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.hostId, endpoint);
+    if (input.serviceAssetId && !serviceAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
+    if (serviceAsset?.serviceInstanceId && serviceAsset.serviceInstanceId !== input.serviceInstanceId) {
+      throw new AppError('VALIDATION_FAILED', 'ServiceAsset 必须属于同一个 ServiceInstance', { serviceAssetId: serviceAsset.id, serviceInstanceId: input.serviceInstanceId });
+    }
     const now = new Date().toISOString();
     const metadata = input.metadata ?? {};
     const binding: CertificateBindingDto = {
       id: newId('bnd'),
       tenantId,
+      serviceAssetId: serviceAsset?.id,
       serviceInstanceId: input.serviceInstanceId,
       serviceEndpointId: input.serviceEndpointId,
       hostId: serviceInstance.hostId,
@@ -60,7 +68,7 @@ export class PgBindingsRepository implements BindingsRepository {
       domain: input.domain ?? input.domainName,
       port: input.port,
       protocol: input.protocol,
-      bindingKey: input.bindingKey ?? [input.serviceInstanceId, input.domainName ?? input.domain ?? '_', input.port ?? '_', input.protocol ?? '_'].join(':'),
+      bindingKey: input.bindingKey ?? [serviceAsset?.id ?? input.serviceInstanceId, input.domainName ?? input.domain ?? serviceAsset?.address ?? '_', input.port ?? serviceAsset?.port ?? '_', input.protocol ?? serviceAsset?.protocol ?? '_'].join(':'),
       bindingType: input.bindingType,
       certificateVersionId: input.certificateVersionId ?? input.targetCertificateVersionId,
       targetCertificateVersionId: input.targetCertificateVersionId ?? input.certificateVersionId,
@@ -98,16 +106,16 @@ export class PgBindingsRepository implements BindingsRepository {
       version: 1,
     };
     await this.db.query(`insert into pg_certificate_bindings (
-      id, tenant_id, service_instance_id, service_endpoint_id, host_id, domain_name, domain, port, protocol, binding_key, binding_type,
+      id, tenant_id, service_asset_id, service_instance_id, service_endpoint_id, host_id, domain_name, domain, port, protocol, binding_key, binding_type,
       certificate_version_id, target_certificate_version_id, local_certificate_version_id, observed_fingerprint_sha256, desired_fingerprint_sha256,
       target_fingerprint_sha256, unmanaged_certificate_fingerprint, cert_path, key_path, chain_path, keystore_path, keystore_type,
       store_location, store_name, store_thumbprint, reload_command, reload_hint, discovery_source, verify_method, local_config_fingerprint,
       local_config_path, remote_endpoint_fingerprint, remote_status, tls_version, chain_summary, checked_at, drift_status, last_verified_at,
       last_deployed_at, status, metadata, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28::jsonb,$29,$30,$31,$32,$33,$34,$35,$36::jsonb,$37::timestamptz,$38,$39::timestamptz,$40::timestamptz,$41,$42::jsonb,$43::timestamptz,$44::timestamptz,$45
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29::jsonb,$30,$31,$32,$33,$34,$35,$36,$37::jsonb,$38::timestamptz,$39,$40::timestamptz,$41::timestamptz,$42,$43::jsonb,$44::timestamptz,$45::timestamptz,$46
     )`, [
-      binding.id, tenantId, binding.serviceInstanceId, binding.serviceEndpointId ?? null, binding.hostId, binding.domainName ?? null, binding.domain ?? null, binding.port ?? null, binding.protocol ?? null, binding.bindingKey, binding.bindingType,
+      binding.id, tenantId, binding.serviceAssetId ?? null, binding.serviceInstanceId, binding.serviceEndpointId ?? null, binding.hostId, binding.domainName ?? null, binding.domain ?? null, binding.port ?? null, binding.protocol ?? null, binding.bindingKey, binding.bindingType,
       binding.certificateVersionId ?? null, binding.targetCertificateVersionId ?? null, binding.localCertificateVersionId ?? null, binding.observedFingerprintSha256 ?? null, binding.desiredFingerprintSha256 ?? null,
       binding.targetFingerprintSha256 ?? null, binding.unmanagedCertificateFingerprint ?? null, binding.certPath ?? null, binding.keyPath ?? null, binding.chainPath ?? null, binding.keystorePath ?? null, binding.keystoreType ?? null,
       binding.storeLocation ?? null, binding.storeName ?? null, binding.storeThumbprint ?? null, binding.reloadCommand ?? null, JSON.stringify(binding.reloadHint ?? null), binding.discoverySource ?? null, binding.verifyMethod, binding.localConfigFingerprint ?? null,
@@ -131,10 +139,14 @@ export class PgBindingsRepository implements BindingsRepository {
     });
     const result: CertificateBindingUsageDto[] = [];
     for (const binding of bindings) {
+      const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAssetIncludingDeleted(tenantId, binding.serviceAssetId) : undefined;
       const service = await this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
       const host = await this.assets.getHostIncludingDeleted(tenantId, binding.hostId);
       result.push({
         binding,
+        serviceAsset: serviceAsset === undefined
+          ? undefined
+          : { id: serviceAsset.id, address: serviceAsset.address, port: serviceAsset.port, protocol: serviceAsset.protocol, status: serviceAsset.status, deletedAt: serviceAsset.deletedAt },
         service: service === undefined
           ? undefined
           : { id: service.id, displayName: service.displayName, providerType: service.providerType, status: service.status, deletedAt: service.deletedAt },
@@ -165,6 +177,7 @@ export class PgBindingsRepository implements BindingsRepository {
       if (!serviceInstance) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
       nextHostId = serviceInstance.hostId;
     }
+    if (input.serviceAssetId && !await this.assets.getServiceAsset(tenantId, input.serviceAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     this.assertNoDuplicate(tenantId, { ...current, ...input, serviceInstanceId: input.serviceInstanceId ?? current.serviceInstanceId, bindingType: input.bindingType ?? current.bindingType, verifyMethod: input.verifyMethod ?? current.verifyMethod } as CreateCertificateBindingDto, current.id);
     const metadataPatch = {
       ...current.metadata,
@@ -183,6 +196,7 @@ export class PgBindingsRepository implements BindingsRepository {
     const updated: CertificateBindingDto = {
       ...current,
       ...dropUndefined(input),
+      serviceAssetId: input.serviceAssetId ?? current.serviceAssetId,
       domainName: input.domainName ?? input.domain ?? current.domainName,
       domain: input.domain ?? input.domainName ?? current.domain,
       certificateVersionId: input.certificateVersionId ?? input.targetCertificateVersionId ?? current.certificateVersionId,
@@ -194,8 +208,8 @@ export class PgBindingsRepository implements BindingsRepository {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
-    await this.db.query(`update pg_certificate_bindings set service_instance_id=$2, service_endpoint_id=$3, host_id=$4, domain_name=$5, domain=$6, port=$7, protocol=$8, binding_key=$9, binding_type=$10, certificate_version_id=$11, target_certificate_version_id=$12, local_certificate_version_id=$13, observed_fingerprint_sha256=$14, desired_fingerprint_sha256=$15, target_fingerprint_sha256=$16, unmanaged_certificate_fingerprint=$17, cert_path=$18, key_path=$19, chain_path=$20, keystore_path=$21, keystore_type=$22, store_location=$23, store_name=$24, store_thumbprint=$25, reload_command=$26, reload_hint=$27::jsonb, discovery_source=$28, verify_method=$29, local_config_fingerprint=$30, local_config_path=$31, remote_endpoint_fingerprint=$32, remote_status=$33, tls_version=$34, chain_summary=$35::jsonb, checked_at=$36::timestamptz, drift_status=$37, last_verified_at=$38::timestamptz, last_deployed_at=$39::timestamptz, status=$40, metadata=$41::jsonb, updated_at=$42::timestamptz, version=$43 where id=$1`, [
-      updated.id, updated.serviceInstanceId, updated.serviceEndpointId ?? null, updated.hostId, updated.domainName ?? null, updated.domain ?? null, updated.port ?? null, updated.protocol ?? null, updated.bindingKey, updated.bindingType, updated.certificateVersionId ?? null, updated.targetCertificateVersionId ?? null, updated.localCertificateVersionId ?? null, updated.observedFingerprintSha256 ?? null, updated.desiredFingerprintSha256 ?? null, updated.targetFingerprintSha256 ?? null, updated.unmanagedCertificateFingerprint ?? null, updated.certPath ?? null, updated.keyPath ?? null, updated.chainPath ?? null, updated.keystorePath ?? null, updated.keystoreType ?? null, updated.storeLocation ?? null, updated.storeName ?? null, updated.storeThumbprint ?? null, updated.reloadCommand ?? null, JSON.stringify(updated.reloadHint ?? null), updated.discoverySource ?? null, updated.verifyMethod, updated.localConfigFingerprint ?? null, updated.localConfigPath ?? null, updated.remoteEndpointFingerprint ?? null, updated.remoteStatus ?? null, updated.tlsVersion ?? null, JSON.stringify(updated.chainSummary ?? null), updated.checkedAt ?? null, updated.driftStatus ?? null, updated.lastVerifiedAt ?? null, updated.lastDeployedAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    await this.db.query(`update pg_certificate_bindings set service_asset_id=$2, service_instance_id=$3, service_endpoint_id=$4, host_id=$5, domain_name=$6, domain=$7, port=$8, protocol=$9, binding_key=$10, binding_type=$11, certificate_version_id=$12, target_certificate_version_id=$13, local_certificate_version_id=$14, observed_fingerprint_sha256=$15, desired_fingerprint_sha256=$16, target_fingerprint_sha256=$17, unmanaged_certificate_fingerprint=$18, cert_path=$19, key_path=$20, chain_path=$21, keystore_path=$22, keystore_type=$23, store_location=$24, store_name=$25, store_thumbprint=$26, reload_command=$27, reload_hint=$28::jsonb, discovery_source=$29, verify_method=$30, local_config_fingerprint=$31, local_config_path=$32, remote_endpoint_fingerprint=$33, remote_status=$34, tls_version=$35, chain_summary=$36::jsonb, checked_at=$37::timestamptz, drift_status=$38, last_verified_at=$39::timestamptz, last_deployed_at=$40::timestamptz, status=$41, metadata=$42::jsonb, updated_at=$43::timestamptz, version=$44 where id=$1`, [
+      updated.id, updated.serviceAssetId ?? null, updated.serviceInstanceId, updated.serviceEndpointId ?? null, updated.hostId, updated.domainName ?? null, updated.domain ?? null, updated.port ?? null, updated.protocol ?? null, updated.bindingKey, updated.bindingType, updated.certificateVersionId ?? null, updated.targetCertificateVersionId ?? null, updated.localCertificateVersionId ?? null, updated.observedFingerprintSha256 ?? null, updated.desiredFingerprintSha256 ?? null, updated.targetFingerprintSha256 ?? null, updated.unmanagedCertificateFingerprint ?? null, updated.certPath ?? null, updated.keyPath ?? null, updated.chainPath ?? null, updated.keystorePath ?? null, updated.keystoreType ?? null, updated.storeLocation ?? null, updated.storeName ?? null, updated.storeThumbprint ?? null, updated.reloadCommand ?? null, JSON.stringify(updated.reloadHint ?? null), updated.discoverySource ?? null, updated.verifyMethod, updated.localConfigFingerprint ?? null, updated.localConfigPath ?? null, updated.remoteEndpointFingerprint ?? null, updated.remoteStatus ?? null, updated.tlsVersion ?? null, JSON.stringify(updated.chainSummary ?? null), updated.checkedAt ?? null, updated.driftStatus ?? null, updated.lastVerifiedAt ?? null, updated.lastDeployedAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
     ]);
     return updated;
   }
@@ -223,6 +237,31 @@ export class PgBindingsRepository implements BindingsRepository {
     void excludedId;
   }
 
+  private async resolveOrCreateServiceAsset(
+    tenantId: string,
+    input: CreateCertificateBindingDto,
+    hostId: string,
+    endpoint?: { id: string; hostName?: string; port: number; protocol: string },
+  ) {
+    const existing = await resolveExistingServiceAsset(this.assets, tenantId, input, hostId, endpoint);
+    if (existing) return existing;
+    const address = (input.domainName ?? input.domain ?? endpoint?.hostName)?.toLowerCase();
+    const port = input.port ?? endpoint?.port;
+    const protocol = input.protocol ?? endpoint?.protocol;
+    if (!address || !port || !protocol) return undefined;
+    return this.assets.createServiceAsset(tenantId, {
+      address,
+      port,
+      protocol: protocol as any,
+      serviceInstanceId: input.serviceInstanceId,
+      serviceEndpointId: input.serviceEndpointId,
+      hostId,
+      discoverySource: (input.discoverySource as any) ?? 'MANUAL',
+      status: 'ACTIVE',
+      metadata: {},
+    });
+  }
+
   private isDuplicate(tenantId: string, binding: CertificateBindingDto, input: CreateCertificateBindingDto): boolean {
     if (binding.tenantId !== tenantId || binding.deletedAt !== undefined) return false;
     if (binding.serviceInstanceId !== input.serviceInstanceId) return false;
@@ -243,6 +282,7 @@ export class PgBindingsRepository implements BindingsRepository {
 type CertificateBindingRow = {
   id: string;
   tenant_id: string;
+  service_asset_id?: string | null;
   service_instance_id: string;
   service_endpoint_id?: string | null;
   host_id: string;
@@ -293,6 +333,7 @@ function toBinding(row: CertificateBindingRow): CertificateBindingDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    serviceAssetId: row.service_asset_id ?? undefined,
     serviceInstanceId: row.service_instance_id,
     serviceEndpointId: row.service_endpoint_id ?? undefined,
     hostId: row.host_id,
@@ -338,6 +379,20 @@ function toBinding(row: CertificateBindingRow): CertificateBindingDto {
     deletedAt: row.deleted_at ?? undefined,
     version: row.version,
   };
+}
+
+async function resolveExistingServiceAsset(
+  assets: AssetsRepository,
+  tenantId: string,
+  input: CreateCertificateBindingDto,
+  hostId: string,
+  endpoint?: { id: string; hostName?: string; port: number; protocol: string },
+) {
+  const address = (input.domainName ?? input.domain ?? endpoint?.hostName)?.toLowerCase();
+  const port = input.port ?? endpoint?.port;
+  const protocol = input.protocol ?? endpoint?.protocol;
+  if (!address || !port || !protocol) return undefined;
+  return assets.findServiceAssetByIdentity(tenantId, { address, port, protocol });
 }
 
 function dropUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
