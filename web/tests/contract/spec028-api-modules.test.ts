@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDeploymentPlan, dryRunDeploymentPlan, executeDeploymentPlan, submitDeploymentPlan } from '@/api/modules/deployments.api'
-import { listExecutionSteps, retryExecution } from '@/api/modules/executions.api'
+import { cancelDeploymentPlan, createDeploymentPlan, dryRunDeploymentPlan, executeDeploymentPlan, submitDeploymentPlan } from '@/api/modules/deployments.api'
+import { listExecutionSteps, retryExecution, rollbackExecution } from '@/api/modules/executions.api'
 import { listCapabilities } from '@/api/modules/assets.api'
 import { listMonitors } from '@/api/modules/monitors.api'
 
@@ -36,15 +36,23 @@ describe('spec028 API modules', () => {
     await dryRunDeploymentPlan({ planId: 'plan-1' })
     await submitDeploymentPlan('plan-1', { certificateId: 'cert-1' })
     await executeDeploymentPlan('plan-1', { approvalId: 'approval-1' })
-    await retryExecution('run-1', { reason: 'manual' })
+    await cancelDeploymentPlan('plan-1', { reason: 'manual-cancel' })
+    await retryExecution('run-1', { planId: 'plan-1', reason: 'manual' })
+    await rollbackExecution('run-1', { planId: 'plan-1', reason: 'manual' })
 
     const calls = vi.mocked(fetch).mock.calls
     expect(calls[0]?.[0]).toBe('/api/v1/deployment-plans')
     expect(calls[1]?.[0]).toBe('/api/v1/deployment-plans/dry-run')
     expect(calls[2]?.[0]).toBe('/api/v1/deployment-plans/submit')
     expect(calls[3]?.[0]).toBe('/api/v1/deployment-plans/execute')
-    expect(calls[4]?.[0]).toBe('/api/v1/execution-runs/retry')
+    expect(calls[4]?.[0]).toBe('/api/v1/deployment-plans/cancel')
+    expect(calls[5]?.[0]).toBe('/api/v1/execution-runs/retry')
+    expect(calls[6]?.[0]).toBe('/api/v1/execution-runs/rollback')
     expect(JSON.parse(String(calls[2]?.[1]?.body))).toMatchObject({ planId: 'plan-1', certificateId: 'cert-1' })
-    expect(JSON.parse(String(calls[4]?.[1]?.body))).toMatchObject({ runId: 'run-1', reason: 'manual' })
+    expect(JSON.parse(String(calls[3]?.[1]?.body))).toMatchObject({ planId: 'plan-1', approvalId: 'approval-1' })
+    expect(JSON.parse(String(calls[3]?.[1]?.body))).not.toHaveProperty('dryRun')
+    expect(JSON.parse(String(calls[4]?.[1]?.body))).toMatchObject({ planId: 'plan-1', reason: 'manual-cancel' })
+    expect(JSON.parse(String(calls[5]?.[1]?.body))).toMatchObject({ runId: 'run-1', planId: 'plan-1', reason: 'manual' })
+    expect(JSON.parse(String(calls[6]?.[1]?.body))).toMatchObject({ runId: 'run-1', planId: 'plan-1', reason: 'manual' })
   })
 })

@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listCertificates } from '@/api/modules/certificates.api'
-import { listAssets } from '@/api/modules/assets.api'
-import { listBindings } from '@/api/modules/bindings.api'
+import {
+  importCertificate,
+  listCertificateFormats,
+  listCertificateVersions,
+  listCertificates,
+  requestCertificateFormatExport
+} from '@/api/modules/certificates.api'
+import { createHost, createServiceInstance, deleteHost, listAssets, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
+import { createBinding, detectBindingDrift, listBindings, patchBindingStatus } from '@/api/modules/bindings.api'
 import { executeDeploymentPlan, listDeploymentPlans } from '@/api/modules/deployments.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listAudits } from '@/api/modules/audits.api'
+import { disablePlugin, listPlugins } from '@/api/modules/plugins.api'
+import { listGateways, probeGateway, routeGateway, updateGatewayStatus } from '@/api/modules/gateways.api'
 
 function mockPage() {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
@@ -20,38 +28,160 @@ describe('业务 API modules', () => {
   it('列表接口使用 apiClient 的 /api/v1 规范路径', async () => {
     mockPage()
     await listCertificates()
+    await listCertificateVersions({ filters: { certificateAssetId: 'cert-1' } })
+    await listCertificateFormats({ filters: { certificateVersionId: 'certver-1' } })
     await listAssets()
     await listBindings()
     await listDeploymentPlans()
     await listAudits()
+    await listPlugins()
+    await listGateways()
 
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
     expect(urls).toEqual(expect.arrayContaining([
       '/api/v1/certificate-assets?page=1&pageSize=20',
+      '/api/v1/certificate-versions?page=1&pageSize=20&filter%5BcertificateAssetId%5D=cert-1',
+      '/api/v1/certificate-version-formats?page=1&pageSize=20&filter%5BcertificateVersionId%5D=certver-1',
       '/api/v1/hosts?page=1&pageSize=20',
       '/api/v1/certificate-bindings?page=1&pageSize=20',
       '/api/v1/deployment-plans?page=1&pageSize=20',
-      '/api/v1/audit-events?page=1&pageSize=20'
+      '/api/v1/audit-events?page=1&pageSize=20',
+      '/api/v1/plugins/packages?page=1&pageSize=20',
+      '/api/v1/gateways?page=1&pageSize=20'
     ]))
+    expect(urls).not.toContain('/api/v1/plugins?page=1&pageSize=20')
   })
 
-  it('部署和回滚动作使用集合动作路径并在 body 传 id', async () => {
+  it('部署、回滚、插件禁用和证书导入动作使用后端真实动作路径', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       data: { id: 'ok' },
       requestId: 'req_action',
       timestamp: '2026-06-08T00:00:00.000Z'
     }), { status: 200 })))
 
-    await executeDeploymentPlan('plan-1', { dryRun: true })
+    await executeDeploymentPlan('plan-1', { approvalId: 'approval-1' })
     await rollbackExecution('run-1', { dryRun: true })
+    await disablePlugin('pluginpkg-1', { dryRun: true })
+    await importCertificate({ certificatePem: '-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----' })
+    await requestCertificateFormatExport({
+      certificateVersionId: 'certver-1',
+      format: 'pfx',
+      containsPrivateKey: true,
+      passwordSecretRef: 'secret://pfx_password/sec_dummy#current'
+    })
 
     const executeCall = vi.mocked(fetch).mock.calls[0]
     const rollbackCall = vi.mocked(fetch).mock.calls[1]
+    const disablePluginCall = vi.mocked(fetch).mock.calls[2]
+    const importCertificateCall = vi.mocked(fetch).mock.calls[3]
+    const exportFormatCall = vi.mocked(fetch).mock.calls[4]
     expect(executeCall?.[0]).toBe('/api/v1/deployment-plans/execute')
     expect(rollbackCall?.[0]).toBe('/api/v1/execution-runs/rollback')
-    expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({ planId: 'plan-1', dryRun: true })
+    expect(disablePluginCall?.[0]).toBe('/api/v1/plugins/disable')
+    expect(importCertificateCall?.[0]).toBe('/api/v1/certificate-versions/import')
+    expect(exportFormatCall?.[0]).toBe('/api/v1/certificate-version-formats/export-plan')
+    expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({ planId: 'plan-1', approvalId: 'approval-1' })
+    expect(JSON.parse(String(executeCall?.[1]?.body))).not.toHaveProperty('dryRun')
     expect(JSON.parse(String(rollbackCall?.[1]?.body))).toMatchObject({ runId: 'run-1', dryRun: true })
+    expect(JSON.parse(String(disablePluginCall?.[1]?.body))).toMatchObject({ pluginPackageId: 'pluginpkg-1', dryRun: true })
+    expect(JSON.parse(String(importCertificateCall?.[1]?.body))).toMatchObject({ certificatePem: expect.stringContaining('BEGIN CERTIFICATE') })
+    expect(JSON.parse(String(exportFormatCall?.[1]?.body))).toMatchObject({
+      certificateVersionId: 'certver-1',
+      format: 'pfx',
+      containsPrivateKey: true,
+      passwordSecretRef: 'secret://pfx_password/sec_dummy#current'
+    })
     const headers = executeCall?.[1]?.headers as Headers
     expect(headers.get('X-Idempotency-Key')).toMatch(/^deployment_execute_/)
+    const importHeaders = importCertificateCall?.[1]?.headers as Headers
+    expect(importHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_import_/)
+    const exportHeaders = exportFormatCall?.[1]?.headers as Headers
+    expect(exportHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_format_export_/)
   })
+
+  it('资产登记调用 Host 创建接口并携带幂等键', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'host-1' },
+      requestId: 'req_host_create',
+      timestamp: '2026-06-09T00:00:00.000Z'
+    }), { status: 201 })))
+
+    await createHost({ hostname: 'web-01', osType: 'LINUX' })
+
+    const call = vi.mocked(fetch).mock.calls[0]
+    expect(call?.[0]).toBe('/api/v1/hosts')
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ hostname: 'web-01', osType: 'LINUX' })
+    expect((call?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^host_create_/)
+  })
+
+  it('Gateway 模块使用稳定动作路径，不再拼不存在的 path params', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'ok' },
+      requestId: 'req_gateway_action',
+      timestamp: '2026-06-09T00:00:00.000Z'
+    }), { status: 200 })))
+
+    await routeGateway({ zoneId: 'zone-dmz', targetId: 'target-1', protocols: ['https'], requiredCapabilities: ['curl'], destructive: true })
+    await probeGateway({ gatewayId: 'gw-1', targetId: 'target-1', protocol: 'https', port: 443 })
+    await updateGatewayStatus({ gatewayId: 'gw-1', action: 'disable', status: 'disabled' })
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(calls.map((call) => call[0])).toEqual([
+      '/api/v1/gateways/route',
+      '/api/v1/gateways/probe',
+      '/api/v1/gateways/status'
+    ])
+    expect(calls.map((call) => String(call[0]))).not.toContain('/api/v1/gateways/gw-1:probe')
+    expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({
+      zoneId: 'zone-dmz',
+      targetId: 'target-1',
+      protocols: ['https'],
+      requiredCapabilities: ['curl'],
+      destructive: true
+    })
+    expect(JSON.parse(String(calls[1]?.[1]?.body))).toMatchObject({ gatewayId: 'gw-1', targetId: 'target-1', protocol: 'https', port: 443 })
+    expect(JSON.parse(String(calls[2]?.[1]?.body))).toMatchObject({ gatewayId: 'gw-1', action: 'disable', status: 'disabled' })
+    expect((calls[0]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^gateway_route_/)
+    expect((calls[1]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^gateway_probe_/)
+    expect((calls[2]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^gateway_status_/)
+  })
+
+
+  it('资产、服务实例、绑定和发现冲突动作使用真实集合路径', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'ok', conflicts: [], actions: [] },
+      requestId: 'req_spec028_assets',
+      timestamp: '2026-06-09T00:00:00.000Z'
+    }), { status: 200 })))
+
+    await updateHost('host-1', { hostname: 'web-01', zoneId: 'zone-a', arch: 'arm64' })
+    await deleteHost('host-1')
+    await createServiceInstance({ hostId: 'host-1', providerType: 'NGINX', displayName: 'nginx-main' })
+    await updateServiceInstance('svc-1', { configPath: '/etc/nginx/nginx.conf' })
+    await createBinding({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem', verifyMethod: 'TLS_CONNECT' })
+    await detectBindingDrift({ remoteFingerprintSha256: 'a'.repeat(64), desiredFingerprintSha256: 'a'.repeat(64) })
+    await patchBindingStatus('binding-1', 'MANAGED')
+    await previewDiscoveryMerge({ normalizedHash: 'hash-ui', normalizedPayload: { hosts: [] } })
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(calls.map((call) => String(call[0]))).toEqual([
+      '/api/v1/hosts',
+      '/api/v1/hosts/delete',
+      '/api/v1/service-instances',
+      '/api/v1/service-instances',
+      '/api/v1/certificate-bindings',
+      '/api/v1/certificate-bindings/drift',
+      '/api/v1/certificate-bindings/status',
+      '/api/v1/discovery-snapshots/merge-preview'
+    ])
+    expect(calls[0]?.[1]?.method).toBe('PATCH')
+    expect(calls[3]?.[1]?.method).toBe('PATCH')
+    expect(calls[6]?.[1]?.method).toBe('PATCH')
+    expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({ id: 'host-1', hostname: 'web-01', zoneId: 'zone-a', arch: 'arm64' })
+    expect(JSON.parse(String(calls[4]?.[1]?.body))).toMatchObject({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem' })
+    expect(JSON.parse(String(calls[6]?.[1]?.body))).toMatchObject({ bindingId: 'binding-1', status: 'MANAGED' })
+    expect((calls[4]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^binding_create_/)
+    expect((calls[7]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^discovery_merge_preview_/)
+  })
+
 })

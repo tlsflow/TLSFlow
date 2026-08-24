@@ -19,6 +19,7 @@ export function generateOpenApiDocument(routes: RouteContract[], generatedAt = n
       operationId: route.operationId,
       summary: route.summary,
       tags: route.tags,
+      ...(route.requestSchema ? { requestBody: { required: true, content: { 'application/json': { schema: route.requestSchema } } } } : {}),
       responses: {
         '200': route.responseSchema
           ? { description: '成功', content: { 'application/json': { schema: route.responseSchema } } }

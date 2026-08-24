@@ -1079,10 +1079,86 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/discovery-snapshots/ingest: 
+    post: 
+      operationId: "ingestDiscovery"
+      summary: "入库发现结果"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/discovery-snapshots/merge-preview: 
     post: 
       operationId: "previewDiscoveryMerge"
       summary: "预览发现结果合并"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/asset-conflicts: 
+    get: 
+      operationId: "listAssetConflicts"
+      summary: "查询资产冲突"
+      tags: 
+        - "Assets"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                required: 
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/asset-conflicts/resolve: 
+    post: 
+      operationId: "resolveAssetConflict"
+      summary: "解决资产冲突"
       tags: 
         - "Assets"
       responses: 
@@ -1154,6 +1230,25 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+    patch: 
+      operationId: "updateCertificateBinding"
+      summary: "更新 CertificateBinding"
+      tags: 
+        - "Bindings"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-bindings/usage: 
     get: 
       operationId: "findCertificateBindingUsages"
@@ -1170,6 +1265,26 @@ paths:
                 items: 
                   type: "object"
                   additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-bindings/delete: 
+    post: 
+      operationId: "deleteCertificateBinding"
+      summary: "软删除 CertificateBinding"
+      tags: 
+        - "Bindings"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
         400: 
           $ref: "#/components/responses/ErrorResponse"
         404: 
@@ -1196,12 +1311,52 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-bindings/drift-results: 
+    post: 
+      operationId: "persistCertificateBindingDrift"
+      summary: "保存 CertificateBinding 漂移结果"
+      tags: 
+        - "Bindings"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-bindings/status: 
     patch: 
       operationId: "patchCertificateBindingStatus"
       summary: "更新 CertificateBinding 状态"
       tags: 
         - "Bindings"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-formats/capabilities: 
+    get: 
+      operationId: "getCertificateFormatCapabilities"
+      summary: "查询证书格式能力"
+      tags: 
+        - "Certificates"
       responses: 
         200: 
           description: "成功"
@@ -1271,6 +1426,106 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-assets/detail: 
+    get: 
+      operationId: "getCertificateAssetDetail"
+      summary: "查询证书资产详情"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-assets/:id: 
+    get: 
+      operationId: "getCertificateAssetDetailById"
+      summary: "按 ID 查询证书资产详情"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-assets/:id/usage: 
+    get: 
+      operationId: "getCertificateAssetUsageById"
+      summary: "按 ID 查询证书资产使用位置"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-assets/archive: 
+    post: 
+      operationId: "archiveCertificateAsset"
+      summary: "归档证书资产"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-assets/delete: 
+    delete: 
+      operationId: "deleteCertificateAsset"
+      summary: "删除证书资产"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-versions: 
     get: 
       operationId: "listCertificateVersions"
@@ -1307,12 +1562,204 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/detail: 
+    get: 
+      operationId: "getCertificateVersionDetail"
+      summary: "查询证书版本详情"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/usage: 
+    get: 
+      operationId: "getCertificateVersionUsage"
+      summary: "查询证书版本使用位置"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/:id/formats: 
+    get: 
+      operationId: "listCertificateVersionFormatsByVersionId"
+      summary: "按版本查询证书格式产物"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                required: 
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/archive: 
+    post: 
+      operationId: "archiveCertificateVersion"
+      summary: "归档证书版本"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/revoke: 
+    post: 
+      operationId: "revokeCertificateVersion"
+      summary: "吊销证书版本"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-versions/delete: 
+    delete: 
+      operationId: "deleteCertificateVersion"
+      summary: "删除证书版本"
+      tags: 
+        - "Certificates"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-versions/import: 
     post: 
       operationId: "importCertificateVersion"
       summary: "导入证书版本"
       tags: 
         - "Certificates"
+      requestBody: 
+        required: true
+        content: 
+          application/json: 
+            schema: 
+              type: "object"
+              additionalProperties: false
+              properties: 
+                certificateAssetId: 
+                  type: "string"
+                certificatePem: 
+                  type: "string"
+                certificateDerBase64: 
+                  type: "string"
+                privateKeyPem: 
+                  type: "string"
+                  writeOnly: true
+                  x-sensitive: true
+                pfxBase64: 
+                  type: "string"
+                  writeOnly: true
+                  x-sensitive: true
+                pfxPassword: 
+                  type: "string"
+                  writeOnly: true
+                  x-sensitive: true
+                jksBase64: 
+                  type: "string"
+                  writeOnly: true
+                  x-sensitive: true
+                p7bBase64: 
+                  type: "string"
+                declaredFormat: 
+                  type: "string"
+                  enum: 
+                    - "pem"
+                    - "pfx"
+                    - "jks"
+                    - "p7b"
+                    - "der"
+                sourceType: 
+                  type: "string"
+                  enum: 
+                    - "manual"
+                    - "acme"
+                    - "adcs"
+                    - "enterprise_ca"
+                    - "external_api"
+                    - "certd"
+                    - "allinssl"
+                name: 
+                  type: "string"
+                tags: 
+                  type: "array"
+                  items: 
+                    type: "string"
       responses: 
         200: 
           description: "成功"
@@ -1632,10 +2079,148 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/detail: 
+    get: 
+      operationId: "getAgentDetail"
+      summary: "查询 Agent 详情聚合"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/capabilities: 
+    get: 
+      operationId: "getAgentCapabilities"
+      summary: "查询 Agent 能力快照"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    post: 
+      operationId: "reportAgentCapabilities"
+      summary: "Agent 能力快照上报"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/tasks: 
+    get: 
+      operationId: "listAgentTaskQueue"
+      summary: "查询 Agent 任务队列"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+    post: 
+      operationId: "enqueueAgentTask"
+      summary: "创建 Agent 任务"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/upgrades/suggestion: 
+    get: 
+      operationId: "getAgentUpgradeSuggestion"
+      summary: "查询 Agent 升级建议"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/agents/enrollment-tokens: 
     post: 
       operationId: "createAgentEnrollmentToken"
       summary: "创建 Agent 注册令牌"
+      tags: 
+        - "Agents"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/disable: 
+    post: 
+      operationId: "disableAgent"
+      summary: "禁用 Agent"
       tags: 
         - "Agents"
       responses: 
@@ -1696,46 +2281,6 @@ paths:
     post: 
       operationId: "heartbeatAgent"
       summary: "Agent 心跳"
-      tags: 
-        - "Agents"
-      responses: 
-        200: 
-          description: "成功"
-          content: 
-            application/json: 
-              schema: 
-                type: "object"
-                additionalProperties: true
-        400: 
-          $ref: "#/components/responses/ErrorResponse"
-        404: 
-          $ref: "#/components/responses/ErrorResponse"
-        500: 
-          $ref: "#/components/responses/ErrorResponse"
-  /api/v1/agents/capabilities: 
-    post: 
-      operationId: "reportAgentCapabilities"
-      summary: "Agent 能力快照上报"
-      tags: 
-        - "Agents"
-      responses: 
-        200: 
-          description: "成功"
-          content: 
-            application/json: 
-              schema: 
-                type: "object"
-                additionalProperties: true
-        400: 
-          $ref: "#/components/responses/ErrorResponse"
-        404: 
-          $ref: "#/components/responses/ErrorResponse"
-        500: 
-          $ref: "#/components/responses/ErrorResponse"
-  /api/v1/agents/tasks: 
-    post: 
-      operationId: "enqueueAgentTask"
-      summary: "创建 Agent 任务"
       tags: 
         - "Agents"
       responses: 
@@ -1909,6 +2454,208 @@ paths:
               schema: 
                 type: "object"
                 additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/gateways: 
+    get: 
+      operationId: "listGateways"
+      summary: "查询 Gateway 列表"
+      tags: 
+        - "Gateways"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                      properties: 
+                        id: 
+                          type: "string"
+                        tenantId: 
+                          type: "string"
+                        agentId: 
+                          type: "string"
+                        zoneIds: 
+                          type: "array"
+                          items: 
+                            type: "string"
+                        status: 
+                          type: "string"
+                          enum: 
+                            - "online"
+                            - "offline"
+                            - "disabled"
+                            - "revoked"
+                            - "upgrading"
+                        adapters: 
+                          type: "array"
+                          items: 
+                            type: "string"
+                        capabilities: 
+                          type: "array"
+                          items: 
+                            type: "string"
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/gateways/detail: 
+    get: 
+      operationId: "getGatewayDetail"
+      summary: "查询 Gateway 详情"
+      tags: 
+        - "Gateways"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+                properties: 
+                  gateway: 
+                    type: "object"
+                    additionalProperties: true
+                    properties: 
+                      id: 
+                        type: "string"
+                      tenantId: 
+                        type: "string"
+                      agentId: 
+                        type: "string"
+                      zoneIds: 
+                        type: "array"
+                        items: 
+                          type: "string"
+                      status: 
+                        type: "string"
+                        enum: 
+                          - "online"
+                          - "offline"
+                          - "disabled"
+                          - "revoked"
+                          - "upgrading"
+                      adapters: 
+                        type: "array"
+                        items: 
+                          type: "string"
+                      capabilities: 
+                        type: "array"
+                        items: 
+                          type: "string"
+                  reachability: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/gateways/route: 
+    post: 
+      operationId: "routeGateway"
+      summary: "选择可用 Gateway 路由"
+      tags: 
+        - "Gateways"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/gateways/probe: 
+    post: 
+      operationId: "probeGatewayReachability"
+      summary: "记录 Gateway 可达性探测"
+      tags: 
+        - "Gateways"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/gateways/status: 
+    post: 
+      operationId: "updateGatewayStatus"
+      summary: "注册或更新 Gateway 状态"
+      tags: 
+        - "Gateways"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                additionalProperties: true
+                properties: 
+                  id: 
+                    type: "string"
+                  tenantId: 
+                    type: "string"
+                  agentId: 
+                    type: "string"
+                  zoneIds: 
+                    type: "array"
+                    items: 
+                      type: "string"
+                  status: 
+                    type: "string"
+                    enum: 
+                      - "online"
+                      - "offline"
+                      - "disabled"
+                      - "revoked"
+                      - "upgrading"
+                  adapters: 
+                    type: "array"
+                    items: 
+                      type: "string"
+                  capabilities: 
+                    type: "array"
+                    items: 
+                      type: "string"
         400: 
           $ref: "#/components/responses/ErrorResponse"
         404: 
@@ -2622,4 +3369,4 @@ tags:
   - 
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-06-08T16:10:13.642Z"
+x-generatedAt: "2026-06-09T11:26:32.233Z"

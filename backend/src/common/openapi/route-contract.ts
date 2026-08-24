@@ -5,13 +5,16 @@ export interface OpenApiSchema {
   properties?: Record<string, OpenApiSchema>;
   items?: OpenApiSchema;
   required?: string[];
-  enum?: string[];
+  enum?: readonly string[];
   additionalProperties?: boolean | OpenApiSchema;
   format?: string;
   description?: string;
+  writeOnly?: boolean;
+  'x-sensitive'?: boolean;
 }
 
 export interface RouteContract extends Omit<RouteDefinition, 'handler'> {
   operationId: string;
   responseSchema?: OpenApiSchema;
+  requestSchema?: OpenApiSchema;
 }
