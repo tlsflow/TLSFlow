@@ -438,6 +438,14 @@ export default {
     monitorAlertsDesc: 'Expiry, drift, and execution failure events',
     audits: 'Audit logs',
     auditsDesc: 'Operation evidence and compliance exports',
+    reports: 'Reports',
+    reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
+    incidentWindowReport: 'Incident window',
+    incidentWindowReportDesc: 'Prioritize expiring and expired certificates',
+    riskResponseReport: 'Risk response',
+    riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
+    automationEffectivenessReport: 'Automation effectiveness',
+    automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
     settings: 'Settings',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
     systemSettings: 'System settings',
@@ -2309,7 +2317,6 @@ export default {
       siteInstance: 'Site instance',
       certificateFormat: 'Certificate artifact format',
       workflow: 'Workflow',
-      workflowVersionSelection: 'Workflow version policy',
       publishedVersion: 'Published version',
       runner: 'Runner',
       artifactFormat: 'Artifact format'
@@ -2364,10 +2371,6 @@ export default {
       agentDescription: 'Bind Agent, site instance, and managed target',
       workflow: 'Workflow mode',
       workflowDescription: 'Select workflow version and runtime variables'
-    },
-    workflowVersionSelection: {
-      pinned: 'Pin selected version',
-      latestPublished: 'Always use latest published version'
     },
     loading: {
       agents: 'Loading Agents...',
@@ -3552,11 +3555,202 @@ export default {
     policy: 'RBAC protected',
     audit: 'Full audit trail'
   },
-  compatibility: {
-    title: 'Compatibility Catalog', description: 'Support levels, limitations, and evidence come from Compatibility Profiles.', generatedAt: 'Generated at: {time}', loading: 'Loading compatibility catalog…', loadFailed: 'Failed to load compatibility catalog', none: 'None',
-    columns: { profile: 'Profile', version: 'Version', status: 'Status', automation: 'Automation', evidence: 'Evidence', verifiedAt: 'Last verified', limitations: 'Limitations' },
-    status: { certified: 'Certified', supported: 'Supported', compatible: 'Compatible', experimental: 'Experimental', legacy: 'Legacy', unsupported: 'Unsupported' },
-    evidence: { current: 'Current', expired: 'Expired', failed: 'Failed' }
+  reports: {
+    common: {
+      loadFailed: 'Failed to load the report',
+      dataAsOf: 'Data as of: {time}',
+      rangeDays: 'Last {days} days',
+      samples: 'Samples: {count}',
+      secondsValue: '{value} seconds',
+      emptyValue: '—',
+      trend: 'Historical trend',
+      date: 'Date',
+      snapshotMetrics: 'Snapshot metrics',
+      completeness: 'Completeness',
+      complete: 'Complete',
+      incomplete: 'Incomplete',
+      noTrend: 'No historical snapshots in this range',
+      groupBreakdown: 'Group breakdown',
+      dimension: 'Dimension',
+      groupValue: 'Group value',
+      count: 'Count',
+      noGroups: 'No group data',
+      drilldown: 'Object drill-down',
+      selectedMetric: 'Selected metric: {metric}',
+      noItems: 'No matching objects'
+    },
+    incidentWindow: {
+      title: 'Certificate incident window report',
+      description: 'Find certificates entering the incident window and identify missing replacements, plans, approvals, or execution channels.'
+    },
+    riskResponse: {
+      title: 'Risk response report',
+      description: 'Review acknowledgement and resolution timeliness, incomplete samples, reopened risks, and SLA breaches.'
+    },
+    automationEffectiveness: {
+      title: 'Automation effectiveness report',
+      description: 'Compare run-level and target-level success rates and locate retries, rollbacks, manual intervention, and failure stages.'
+    },
+    export: {
+      csv: 'Export CSV',
+      generating: 'Generating…',
+      failed: 'CSV generation failed',
+      history: 'Export history',
+      download: 'Download',
+      noHistory: 'No export history',
+      status: {
+        queued: 'Queued',
+        running: 'Generating',
+        succeeded: 'Completed',
+        failed: 'Failed',
+        expired: 'Expired'
+      }
+    },
+    aria: {
+      reportPage: 'Operations report page',
+      rangeFilter: 'Report date range',
+      metrics: 'Core report metrics',
+      filters: 'Report filters'
+    },
+    filters: {
+      environment: 'Environment',
+      ownerId: 'Owner ID',
+      assetId: 'Object ID',
+      tag: 'Tag',
+      severity: 'Severity',
+      riskType: 'Risk type',
+      automationId: 'Automation ID',
+      failureStage: 'Failure stage',
+      all: 'All',
+      apply: 'Apply filters',
+      reset: 'Reset filters'
+    },
+    groups: {
+      dimensions: {
+        usage_status: 'Usage status',
+        readiness_stage: 'Readiness stage',
+        environment: 'Environment',
+        owner_id: 'Owner',
+        severity: 'Severity',
+        risk_type: 'Risk type',
+        action_type: 'Action type',
+        failure_stage: 'Failure stage'
+      },
+      values: {
+        in_use: 'In use',
+        idle: 'Idle',
+        unknown: 'Unknown',
+        missing_replacement: 'Missing replacement',
+        plan_missing: 'Plan not created',
+        waiting_approval: 'Waiting approval',
+        blocked: 'Execution channel blocked',
+        ready: 'Ready',
+        critical: 'Critical',
+        high: 'High',
+        medium: 'Medium',
+        low: 'Low',
+        create_deployment_plan: 'Create deployment plan',
+        execute_deployment_plan: 'Execute deployment plan',
+        send_notification: 'Send notification',
+        selection: 'Selection',
+        plan_creation: 'Plan creation',
+        dry_run: 'Dry run',
+        approval: 'Approval',
+        execution: 'Execution',
+        verification: 'Verification',
+        rollback: 'Rollback',
+        notification: 'Notification',
+        none: 'No failure stage'
+      }
+    },
+    columns: {
+      certificateAssetId: 'Certificate asset ID',
+      certificateVersionId: 'Certificate version ID',
+      name: 'Name',
+      primaryDomain: 'Primary domain',
+      notAfter: 'Expires at',
+      usageStatus: 'Usage status',
+      readinessStage: 'Readiness stage',
+      environment: 'Environment',
+      ownerId: 'Owner',
+      tags: 'Tags',
+      publicExposure: 'Public exposure',
+      bindingIds: 'Binding IDs',
+      risk: 'Risk',
+      history: 'Status history',
+      slaPolicy: 'SLA policy',
+      timing: 'Response timing',
+      id: 'ID',
+      automationId: 'Automation ID',
+      automationVersion: 'Automation version',
+      automationNameSnapshot: 'Automation name',
+      triggerType: 'Trigger type',
+      status: 'Status',
+      failureStage: 'Failure stage',
+      startedAt: 'Started at',
+      finishedAt: 'Finished at',
+      createdAt: 'Created at',
+      runId: 'Run ID',
+      targetSnapshot: 'Target snapshot',
+      actionType: 'Action type',
+      deploymentPlanId: 'Deployment plan ID',
+      executionRunId: 'Execution run ID',
+      notificationRequestIds: 'Notification request IDs',
+      attemptCount: 'Attempt count',
+      rollbackStatus: 'Rollback status',
+      manualIntervention: 'Manual intervention',
+      unknown: '{name}'
+    },
+    metrics: {
+      certificates: {
+        expiring: {
+          '30d': 'Expires in 16–30 days',
+          '15d': 'Expires in 8–15 days',
+          '7d': 'Expires in 4–7 days',
+          '3d': 'Expires in 2–3 days',
+          '1d': 'Expires in 0–1 days'
+        },
+        expired: {
+          in_use: 'Expired and in use'
+        },
+        missing_replacement: 'Missing replacement',
+        missing_deployment_plan: 'Missing deployment plan',
+        waiting_approval: 'Waiting for approval',
+        execution_channel_blocked: 'Execution channel blocked'
+      },
+      risks: {
+        created: 'Risks created',
+        resolved: 'Risks resolved',
+        reopened: 'Risks reopened',
+        open_end_of_period: 'Open at period end',
+        overdue_acknowledgement: 'Acknowledgement SLA overdue',
+        overdue_resolution: 'Resolution SLA overdue',
+        tta: {
+          average_seconds: 'Average TTA'
+        },
+        ttr: {
+          average_seconds: 'Average TTR'
+        },
+        ack_sla_rate: 'Acknowledgement SLA rate',
+        resolve_sla_rate: 'Resolution SLA rate'
+      },
+      automations: {
+        runs: {
+          total: 'Automation runs',
+          success_rate: 'Run-level success rate'
+        },
+        targets: {
+          total: 'Automation targets',
+          success_rate: 'Target-level success rate',
+          failed: 'Failed targets',
+          retried: 'Retried targets',
+          rollback_succeeded: 'Rollback succeeded',
+          rollback_failed: 'Rollback failed',
+          manual_intervention: 'Manual intervention',
+          waiting_approval: 'Targets waiting for approval'
+        }
+      }
+    }
   },
   errors: {
     forbiddenTitle: '403 Forbidden',

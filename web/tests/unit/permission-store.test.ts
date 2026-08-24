@@ -26,6 +26,7 @@ describe('权限 Store', () => {
       '/deployment-plans',
       '/workflow-templates',
       '/monitors',
+      '/reports/incident-window',
       '/settings'
     ])
   })
@@ -34,16 +35,29 @@ describe('权限 Store', () => {
     const store = usePermissionStore()
 
     store.setPermissions(['execution.read'])
-    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['证书部署'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.deployments'])
     expect(store.visibleMenuItems[0]?.path).toBe('/executions')
     expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/executions'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['执行记录'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
 
     store.setPermissions(['plugin.read'])
-    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['工作流'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.workflows'])
     expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
     expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflow-templates', '/plugins'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['插件'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.plugins'])
+  })
+
+  it('报表菜单只对 report.read 权限开放', () => {
+    const store = usePermissionStore()
+
+    store.setPermissions(['report.read'])
+
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.reports'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual([
+      '/reports/incident-window',
+      '/reports/risk-response',
+      '/reports/automation-effectiveness'
+    ])
   })
 
   it('通过 Provider 加载权限', async () => {

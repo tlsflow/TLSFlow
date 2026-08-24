@@ -73,6 +73,14 @@ export const mainMenuItems: MenuItem[] = [
     ]
   },
   {
+    titleKey: 'nav.reports', path: '/reports/incident-window', module: 'report', permission: 'report.read', activePaths: ['/reports/incident-window', '/reports/risk-response', '/reports/automation-effectiveness'], icon: 'dashboard', descriptionKey: 'nav.reportsDesc',
+    children: [
+      { titleKey: 'nav.incidentWindowReport', path: '/reports/incident-window', module: 'report', permission: 'report.read', descriptionKey: 'nav.incidentWindowReportDesc' },
+      { titleKey: 'nav.riskResponseReport', path: '/reports/risk-response', module: 'report', permission: 'report.read', descriptionKey: 'nav.riskResponseReportDesc' },
+      { titleKey: 'nav.automationEffectivenessReport', path: '/reports/automation-effectiveness', module: 'report', permission: 'report.read', descriptionKey: 'nav.automationEffectivenessReportDesc' }
+    ]
+  },
+  {
     titleKey: 'nav.settings',
     path: '/settings',
     module: 'settings',

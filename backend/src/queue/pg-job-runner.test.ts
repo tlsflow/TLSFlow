@@ -49,4 +49,28 @@ describe('PgJobRunner', () => {
     assert.equal(second?.success, true);
     assert.equal(await queue.size(), 0);
   });
+
+  it('不同 worker 只领取自己声明的任务类型', async () => {
+    const db = new PgliteDatabase();
+    const deploymentQueue = new PgJobRunner(
+      async (job) => ({ jobId: job.jobId, success: true }),
+      db,
+      ['DEPLOYMENT_EXECUTE'],
+    );
+    const reportQueue = new PgJobRunner(
+      async (job) => ({ jobId: job.jobId, success: true }),
+      db,
+      ['REPORT_EXPORT'],
+    );
+
+    const reportJob = await reportQueue.enqueue({
+      jobType: 'REPORT_EXPORT',
+      payload: { runId: 'report_run_1' },
+    });
+
+    assert.equal(await deploymentQueue.runNext(), null);
+    const result = await reportQueue.runNext();
+    assert.equal(result?.jobId, reportJob.jobId);
+    assert.equal(result?.success, true);
+  });
 });

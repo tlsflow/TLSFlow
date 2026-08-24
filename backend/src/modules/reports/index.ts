@@ -5,6 +5,7 @@ export * from './application/report-data.port.js';
 export * from './application/pg-report-data.port.js';
 export * from './application/report-scope-resolver.js';
 export * from './application/reports.application-service.js';
+export * from './application/report-export.service.js';
 export * from './controller/reports.controller.js';
 export * from './repository/reports.repository.js';
 export * from './schema/reports.schema.js';

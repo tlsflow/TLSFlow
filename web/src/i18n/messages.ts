@@ -426,6 +426,14 @@ const zhCN = {
     monitorAlertsDesc: '到期、漂移和执行失败事件',
     audits: '审计日志',
     auditsDesc: '操作证据与合规导出',
+    reports: '报表',
+    reportsDesc: '证书事故窗口、风险处置和自动化成效',
+    incidentWindowReport: '事故窗口',
+    incidentWindowReportDesc: '即将到期和已过期证书的处置优先级',
+    riskResponseReport: '风险处置',
+    riskResponseReportDesc: '风险确认、解决时长和 SLA',
+    automationEffectivenessReport: '自动化成效',
+    automationEffectivenessReportDesc: '运行级、目标级成功率和失败阶段',
     settings: '设置',
     settingsDesc: '租户、用户、权限和系统配置',
     systemSettings: '系统设置',
@@ -2999,6 +3007,27 @@ const zhCN = {
     policy: 'RBAC 权限保护',
     audit: '操作全程审计'
   },
+  reports: {
+    common: {
+      loadFailed: '报表加载失败，请稍后重试', dataAsOf: '数据截止时间：{time}', rangeDays: '最近 {days} 天', samples: '样本数：{count}', secondsValue: '{value} 秒', emptyValue: '—', trend: '历史趋势', date: '日期', snapshotMetrics: '快照指标数', completeness: '完整性', complete: '完整', incomplete: '不完整', noTrend: '当前时间范围暂无历史快照', groupBreakdown: '分组对比', dimension: '维度', groupValue: '分组值', count: '数量', noGroups: '暂无分组数据', drilldown: '对象下钻', selectedMetric: '当前指标：{metric}', noItems: '暂无符合条件的对象'
+    },
+    incidentWindow: { title: '证书事故窗口报表', description: '识别正在进入事故窗口的证书，并定位缺少替换证书、计划或执行通道的对象。' },
+    riskResponse: { title: '风险处置报表', description: '查看风险确认与解决是否及时，定位未完成样本、重新打开和 SLA 逾期。' },
+    automationEffectiveness: { title: '自动化成效报表', description: '分别查看运行级和目标级成功率，并定位重试、回滚、人工介入和失败阶段。' },
+    export: { csv: '导出 CSV', generating: '正在生成…', failed: 'CSV 生成失败', history: '导出记录', download: '下载', noHistory: '暂无导出记录', status: { queued: '排队中', running: '生成中', succeeded: '已完成', failed: '失败', expired: '已过期' } },
+    aria: { reportPage: '运营报表页面', rangeFilter: '报表时间范围', metrics: '报表核心指标', filters: '报表筛选条件' },
+    filters: { environment: '环境', ownerId: '负责人 ID', assetId: '对象 ID', tag: '标签', severity: '风险等级', riskType: '风险类型', automationId: '自动化 ID', failureStage: '失败阶段', all: '全部', apply: '应用筛选', reset: '重置筛选' },
+    groups: {
+      dimensions: { usage_status: '使用状态', readiness_stage: '准备阶段', environment: '环境', owner_id: '负责人', severity: '风险等级', risk_type: '风险类型', action_type: '动作类型', failure_stage: '失败阶段' },
+      values: { in_use: '在用', idle: '闲置', unknown: '未知', missing_replacement: '缺少替换证书', plan_missing: '尚未创建计划', waiting_approval: '等待审批', blocked: '执行通道阻塞', ready: '已准备', critical: '严重', high: '高', medium: '中', low: '低', create_deployment_plan: '创建部署计划', execute_deployment_plan: '执行部署计划', send_notification: '发送通知', selection: '目标选择', plan_creation: '计划创建', dry_run: '预检', approval: '审批', execution: '执行', verification: '验证', rollback: '回滚', notification: '通知', none: '无失败阶段' }
+    },
+    columns: { certificateAssetId: '证书资产 ID', certificateVersionId: '证书版本 ID', name: '名称', primaryDomain: '主域名', notAfter: '到期时间', usageStatus: '使用状态', readinessStage: '准备阶段', environment: '环境', ownerId: '负责人', tags: '标签', publicExposure: '公网暴露', bindingIds: '绑定 ID', risk: '风险', history: '状态历史', slaPolicy: 'SLA 策略', timing: '处置时长', id: 'ID', automationId: '自动化 ID', automationVersion: '自动化版本', automationNameSnapshot: '自动化名称', triggerType: '触发类型', status: '状态', failureStage: '失败阶段', startedAt: '开始时间', finishedAt: '完成时间', createdAt: '创建时间', runId: '运行 ID', targetSnapshot: '目标快照', actionType: '动作类型', deploymentPlanId: '部署计划 ID', executionRunId: '执行记录 ID', notificationRequestIds: '通知请求 ID', attemptCount: '尝试次数', rollbackStatus: '回滚状态', manualIntervention: '人工介入', unknown: '{name}' },
+    metrics: {
+      certificates: { expiring: { '30d': '16–30 天到期', '15d': '8–15 天到期', '7d': '4–7 天到期', '3d': '2–3 天到期', '1d': '0–1 天到期' }, expired: { in_use: '已过期且在用' }, missing_replacement: '缺少替换证书', missing_deployment_plan: '尚未创建计划', waiting_approval: '等待审批', execution_channel_blocked: '执行通道阻塞' },
+      risks: { created: '新增风险', resolved: '已解决风险', reopened: '重新打开', open_end_of_period: '期末未解决', overdue_acknowledgement: '确认 SLA 逾期', overdue_resolution: '解决 SLA 逾期', tta: { average_seconds: '平均确认时长' }, ttr: { average_seconds: '平均解决时长' }, ack_sla_rate: '确认 SLA 达标率', resolve_sla_rate: '解决 SLA 达标率' },
+      automations: { runs: { total: '自动化运行数', success_rate: '运行级成功率' }, targets: { total: '自动化目标数', success_rate: '目标级成功率', failed: '失败目标', retried: '重试目标', rollback_succeeded: '回滚成功', rollback_failed: '回滚失败', manual_intervention: '需要人工介入', waiting_approval: '等待审批目标' } }
+    }
+  },
   errors: {
     forbiddenTitle: '403 无权限',
     forbiddenMessage: '你没有访问该页面所需的权限。',
@@ -3313,6 +3342,14 @@ const enUS = {
     monitorAlertsDesc: 'Expiry, drift, and execution failure events',
     audits: 'Audit logs',
     auditsDesc: 'Operation evidence and compliance exports',
+    reports: 'Reports',
+    reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
+    incidentWindowReport: 'Incident window',
+    incidentWindowReportDesc: 'Prioritize expiring and expired certificates',
+    riskResponseReport: 'Risk response',
+    riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
+    automationEffectivenessReport: 'Automation effectiveness',
+    automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
     settings: 'Settings',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
     systemSettings: 'System settings',
@@ -5877,6 +5914,25 @@ const enUS = {
     },
     targets: {
       assetCount: '{count} assets'
+    }
+  },
+  reports: {
+    common: { loadFailed: 'Failed to load the report', dataAsOf: 'Data as of: {time}', rangeDays: 'Last {days} days', samples: 'Samples: {count}', secondsValue: '{value} seconds', emptyValue: '—', trend: 'Historical trend', date: 'Date', snapshotMetrics: 'Snapshot metrics', completeness: 'Completeness', complete: 'Complete', incomplete: 'Incomplete', noTrend: 'No historical snapshots in this range', groupBreakdown: 'Group breakdown', dimension: 'Dimension', groupValue: 'Group value', count: 'Count', noGroups: 'No group data', drilldown: 'Object drill-down', selectedMetric: 'Selected metric: {metric}', noItems: 'No matching objects' },
+    incidentWindow: { title: 'Certificate incident window report', description: 'Find certificates entering the incident window and identify missing replacements, plans, approvals, or execution channels.' },
+    riskResponse: { title: 'Risk response report', description: 'Review acknowledgement and resolution timeliness, incomplete samples, reopened risks, and SLA breaches.' },
+    automationEffectiveness: { title: 'Automation effectiveness report', description: 'Compare run-level and target-level success rates and locate retries, rollbacks, manual intervention, and failure stages.' },
+    export: { csv: 'Export CSV', generating: 'Generating…', failed: 'CSV generation failed', history: 'Export history', download: 'Download', noHistory: 'No export history', status: { queued: 'Queued', running: 'Generating', succeeded: 'Completed', failed: 'Failed', expired: 'Expired' } },
+    aria: { reportPage: 'Operations report page', rangeFilter: 'Report date range', metrics: 'Core report metrics', filters: 'Report filters' },
+    filters: { environment: 'Environment', ownerId: 'Owner ID', assetId: 'Object ID', tag: 'Tag', severity: 'Severity', riskType: 'Risk type', automationId: 'Automation ID', failureStage: 'Failure stage', all: 'All', apply: 'Apply filters', reset: 'Reset filters' },
+    groups: {
+      dimensions: { usage_status: 'Usage status', readiness_stage: 'Readiness stage', environment: 'Environment', owner_id: 'Owner', severity: 'Severity', risk_type: 'Risk type', action_type: 'Action type', failure_stage: 'Failure stage' },
+      values: { in_use: 'In use', idle: 'Idle', unknown: 'Unknown', missing_replacement: 'Missing replacement', plan_missing: 'Plan not created', waiting_approval: 'Waiting approval', blocked: 'Execution channel blocked', ready: 'Ready', critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', create_deployment_plan: 'Create deployment plan', execute_deployment_plan: 'Execute deployment plan', send_notification: 'Send notification', selection: 'Selection', plan_creation: 'Plan creation', dry_run: 'Dry run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification', none: 'No failure stage' }
+    },
+    columns: { certificateAssetId: 'Certificate asset ID', certificateVersionId: 'Certificate version ID', name: 'Name', primaryDomain: 'Primary domain', notAfter: 'Expires at', usageStatus: 'Usage status', readinessStage: 'Readiness stage', environment: 'Environment', ownerId: 'Owner', tags: 'Tags', publicExposure: 'Public exposure', bindingIds: 'Binding IDs', risk: 'Risk', history: 'Status history', slaPolicy: 'SLA policy', timing: 'Response timing', id: 'ID', automationId: 'Automation ID', automationVersion: 'Automation version', automationNameSnapshot: 'Automation name', triggerType: 'Trigger type', status: 'Status', failureStage: 'Failure stage', startedAt: 'Started at', finishedAt: 'Finished at', createdAt: 'Created at', runId: 'Run ID', targetSnapshot: 'Target snapshot', actionType: 'Action type', deploymentPlanId: 'Deployment plan ID', executionRunId: 'Execution run ID', notificationRequestIds: 'Notification request IDs', attemptCount: 'Attempt count', rollbackStatus: 'Rollback status', manualIntervention: 'Manual intervention', unknown: '{name}' },
+    metrics: {
+      certificates: { expiring: { '30d': 'Expires in 16–30 days', '15d': 'Expires in 8–15 days', '7d': 'Expires in 4–7 days', '3d': 'Expires in 2–3 days', '1d': 'Expires in 0–1 days' }, expired: { in_use: 'Expired and in use' }, missing_replacement: 'Missing replacement', missing_deployment_plan: 'Missing deployment plan', waiting_approval: 'Waiting for approval', execution_channel_blocked: 'Execution channel blocked' },
+      risks: { created: 'Risks created', resolved: 'Risks resolved', reopened: 'Risks reopened', open_end_of_period: 'Open at period end', overdue_acknowledgement: 'Acknowledgement SLA overdue', overdue_resolution: 'Resolution SLA overdue', tta: { average_seconds: 'Average TTA' }, ttr: { average_seconds: 'Average TTR' }, ack_sla_rate: 'Acknowledgement SLA rate', resolve_sla_rate: 'Resolution SLA rate' },
+      automations: { runs: { total: 'Automation runs', success_rate: 'Run-level success rate' }, targets: { total: 'Automation targets', success_rate: 'Target-level success rate', failed: 'Failed targets', retried: 'Retried targets', rollback_succeeded: 'Rollback succeeded', rollback_failed: 'Rollback failed', manual_intervention: 'Manual intervention', waiting_approval: 'Targets waiting for approval' } }
     }
   },
   errors: { forbiddenTitle: '403 Forbidden', forbiddenMessage: 'You do not have permission to access this page.', missingPermission: 'Missing permission: {permission}', notFoundTitle: '404 Not Found', notFoundMessage: 'This route is not registered.', backDashboard: 'Back to dashboard' }

@@ -7,6 +7,7 @@ import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
 import type { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
+import type { ReportExportService } from './modules/reports/application/report-export.service.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -78,6 +79,26 @@ async function start(): Promise<void> {
     }, workerIntervalMs);
   }
 
+  const reportExportService = app.getResource<ReportExportService>('reportExportService');
+  if (reportExportService) {
+    const workerIntervalMs = Number(process.env.REPORT_EXPORT_WORKER_INTERVAL_MS ?? '2000');
+    const maxJobsPerTick = Number(process.env.REPORT_EXPORT_WORKER_MAX_JOBS_PER_TICK ?? '2');
+    let draining = false;
+    setInterval(() => {
+      if (draining) return;
+      draining = true;
+      void drainReportExportJobs(reportExportService, maxJobsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('Report export worker failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'report-export-worker' });
+        })
+        .finally(() => {
+          draining = false;
+        });
+    }, workerIntervalMs);
+  }
+
   const monitorsService = app.getResource<MonitorsApplicationService>('monitorsService');
   if (monitorsService) {
     const monitorIntervalMs = Number(process.env.MONITOR_PROBE_WORKER_INTERVAL_MS ?? '5000');
@@ -113,6 +134,14 @@ async function drainExecutionJobs(executionsService: ExecutionsApplicationServic
   const limit = Number.isFinite(maxJobsPerTick) && maxJobsPerTick > 0 ? Math.floor(maxJobsPerTick) : 1;
   for (let index = 0; index < limit; index += 1) {
     const result = await executionsService.runNextQueuedJob();
+    if (!result) break;
+  }
+}
+
+async function drainReportExportJobs(reportExportService: ReportExportService, maxJobsPerTick: number): Promise<void> {
+  const limit = Number.isFinite(maxJobsPerTick) && maxJobsPerTick > 0 ? Math.floor(maxJobsPerTick) : 1;
+  for (let index = 0; index < limit; index += 1) {
+    const result = await reportExportService.runNextQueuedJob();
     if (!result) break;
   }
 }

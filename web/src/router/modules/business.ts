@@ -2,6 +2,18 @@ import type { GcRouteRecord } from '@/types/router'
 
 export const businessRoutes: GcRouteRecord[] = [
   {
+    path: '/reports/incident-window', name: 'reports.incidentWindow', component: () => import('@/views/reports/IncidentWindowReportView.vue'),
+    meta: { title: 'Incident Window Report', titleKey: 'reports.incidentWindow.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.incidentWindow.title'], keepAlive: true }
+  },
+  {
+    path: '/reports/risk-response', name: 'reports.riskResponse', component: () => import('@/views/reports/RiskResponseReportView.vue'),
+    meta: { title: 'Risk Response Report', titleKey: 'reports.riskResponse.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.riskResponse.title'], keepAlive: true }
+  },
+  {
+    path: '/reports/automation-effectiveness', name: 'reports.automationEffectiveness', component: () => import('@/views/reports/AutomationEffectivenessReportView.vue'),
+    meta: { title: 'Automation Effectiveness Report', titleKey: 'reports.automationEffectiveness.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.automationEffectiveness.title'], keepAlive: true }
+  },
+  {
     path: '/compatibility',
     name: 'compatibility.catalog',
     component: () => import('@/views/compatibility/CompatibilityCatalogView.vue'),

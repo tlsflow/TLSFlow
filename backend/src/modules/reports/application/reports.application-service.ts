@@ -24,18 +24,18 @@ export class ReportsApplicationService {
   ) {}
 
   async overview(type: ReportType, query: ReportQuery, subject: SecuritySubject): Promise<ReportOverview> {
-    const metrics = type === 'incident_window'
-      ? await this.incidentMetrics(query, subject)
+    const summary = type === 'incident_window'
+      ? await this.incidentSummary(query, subject)
       : type === 'risk_response'
-        ? await this.riskMetrics(query, subject)
-        : await this.automationMetrics(query, subject);
+        ? await this.riskSummary(query, subject)
+        : await this.automationSummary(query, subject);
     return {
       reportType: type,
       asOf: query.asOf,
-      metricVersions: Object.fromEntries(metrics.map((metric) => [metric.metricKey, metric.metricVersion])),
-      metrics,
-      groups: [],
-      warnings: type === 'automation_effectiveness' && metrics.every((item) => item.sampleCount === 0)
+      metricVersions: Object.fromEntries(summary.metrics.map((metric) => [metric.metricKey, metric.metricVersion])),
+      metrics: summary.metrics,
+      groups: summary.groups,
+      warnings: type === 'automation_effectiveness' && summary.metrics.every((item) => item.sampleCount === 0)
         ? ['AUTOMATION_FIXTURE_OR_ADAPTER_REQUIRED']
         : [],
     };
@@ -43,11 +43,19 @@ export class ReportsApplicationService {
 
   async trends(type: ReportType, query: ReportQuery): Promise<ReportTrendPoint[]> {
     const definitions = listMetricDefinitions(type);
-    const snapshots = await this.snapshots.listSnapshots(query.tenantId, query.dateFrom, query.dateTo, definitions.map((item) => item.key));
+    const hasFilters = hasDimensionFilters(query);
+    const snapshots = (await this.snapshots.listSnapshots(query.tenantId, query.dateFrom, query.dateTo, definitions.map((item) => item.key)))
+      .filter((snapshot) => hasFilters ? matchesSnapshotFilters(snapshot.dimensions, query) : Object.keys(snapshot.dimensions).length === 0);
     const dates = new Map<string, ReportTrendPoint>();
-    for (const snapshot of snapshots.filter((item) => Object.keys(item.dimensions).length === 0)) {
+    for (const snapshot of snapshots) {
       const point = dates.get(snapshot.snapshotDate) ?? { snapshotDate: snapshot.snapshotDate, metrics: [], complete: true };
-      point.metrics.push({ metricKey: snapshot.metricKey, metricVersion: snapshot.metricVersion, value: snapshot.value, sampleCount: snapshot.sampleCount });
+      const existing = point.metrics.find((item) => item.metricKey === snapshot.metricKey && item.metricVersion === snapshot.metricVersion);
+      if (existing) {
+        existing.value += snapshot.value;
+        existing.sampleCount += snapshot.sampleCount;
+      } else {
+        point.metrics.push({ metricKey: snapshot.metricKey, metricVersion: snapshot.metricVersion, value: snapshot.value, sampleCount: snapshot.sampleCount });
+      }
       dates.set(snapshot.snapshotDate, point);
     }
     for (const point of dates.values()) point.complete = point.metrics.length === definitions.length;
@@ -55,12 +63,13 @@ export class ReportsApplicationService {
   }
 
   async items(type: ReportType, query: ReportQuery, subject: SecuritySubject, metricKey?: string): Promise<ReportItemPage<unknown>> {
-    if (metricKey && getMetricDefinition(metricKey).reportType !== type) throw new AppError('VALIDATION_FAILED', '指标不属于当前报表', { metricKey, type });
+    const effectiveMetricKey = metricKey ?? query.metricKey;
+    if (effectiveMetricKey && getMetricDefinition(effectiveMetricKey).reportType !== type) throw new AppError('VALIDATION_FAILED', '指标不属于当前报表', { metricKey: effectiveMetricKey, type });
     const items = type === 'incident_window'
-      ? await this.incidentItems(query, subject, metricKey)
+      ? await this.incidentItems(query, subject, effectiveMetricKey)
       : type === 'risk_response'
-        ? await this.riskItems(query, subject, metricKey)
-        : await this.automationItems(query, subject, metricKey);
+        ? await this.riskItems(query, subject, effectiveMetricKey)
+        : await this.automationItems(query, subject, effectiveMetricKey);
     const start = (query.page - 1) * query.pageSize;
     return { items: items.slice(start, start + query.pageSize), page: query.page, pageSize: query.pageSize, total: items.length, asOf: query.asOf };
   }
@@ -68,21 +77,34 @@ export class ReportsApplicationService {
   private async incidentItems(query: ReportQuery, subject: SecuritySubject, metricKey?: string): Promise<IncidentCertificateFact[]> {
     const facts = await this.data.listIncidentCertificates(query);
     const scoped = await this.scope.filter(subject, facts, (item) => ({ objectType: 'certificate', objectId: item.certificateAssetId, tenantId: query.tenantId }));
-    return scoped.filter((item) => !metricKey || incidentFactMetrics(item, query.asOf).includes(metricKey));
+    return scoped
+      .filter((item) => matchesIncidentFilters(item, query))
+      .filter((item) => !metricKey || incidentFactMetrics(item, query.asOf).includes(metricKey));
   }
 
-  private async incidentMetrics(query: ReportQuery, subject: SecuritySubject): Promise<ReportMetricResult[]> {
+  private async incidentSummary(query: ReportQuery, subject: SecuritySubject): Promise<ReportSummary> {
     const items = await this.incidentItems(query, subject);
-    return listMetricDefinitions('incident_window').map((definition) => metricResult(definition.key, items.filter((item) => incidentFactMetrics(item, query.asOf).includes(definition.key)).length));
+    return {
+      metrics: listMetricDefinitions('incident_window').map((definition) => metricResult(definition.key, items.filter((item) => incidentFactMetrics(item, query.asOf).includes(definition.key)).length)),
+      groups: groupCounts(items.flatMap((item) => [
+        ['usage_status', item.usageStatus] as const,
+        ['readiness_stage', item.readinessStage] as const,
+        ['environment', item.environment ?? 'unknown'] as const,
+        ['owner_id', item.ownerId ?? 'unknown'] as const,
+      ])),
+    };
   }
 
   private async riskItems(query: ReportQuery, subject: SecuritySubject, metricKey?: string): Promise<Array<RiskResponseFact & { timing: ReturnType<typeof calculateRiskTiming> }>> {
     const facts = await this.data.listRiskResponseFacts(query);
     const scoped = await this.scope.filter(subject, facts, (item) => ({ objectType: 'risk', objectId: item.risk.id, tenantId: item.risk.scope.tenantId ?? query.tenantId }));
-    return scoped.map((fact) => ({ ...fact, timing: calculateRiskTiming(fact, query.asOf) })).filter((fact) => !metricKey || riskFactMetrics(fact, query).includes(metricKey));
+    return scoped
+      .filter((item) => matchesRiskFilters(item, query))
+      .map((fact) => ({ ...fact, timing: calculateRiskTiming(fact, query.asOf) }))
+      .filter((fact) => !metricKey || riskFactMetrics(fact, query).includes(metricKey));
   }
 
-  private async riskMetrics(query: ReportQuery, subject: SecuritySubject): Promise<ReportMetricResult[]> {
+  private async riskSummary(query: ReportQuery, subject: SecuritySubject): Promise<ReportSummary> {
     const facts = await this.riskItems(query, subject);
     const created = facts.filter((item) => inRange(item.risk.firstDetectedAt, query)).length;
     const resolved = facts.filter((item) => item.history.some((history) => history.action === 'resolved' && inRange(history.occurredAt, query))).length;
@@ -90,40 +112,76 @@ export class ReportsApplicationService {
     const active = facts.filter((item) => !['RESOLVED', 'IGNORED'].includes(item.risk.status));
     const ackSamples = facts.filter((item) => item.risk.status !== 'IGNORED');
     const resolveSamples = ackSamples;
-    return [
-      metricResult('risks.created', created), metricResult('risks.resolved', resolved), metricResult('risks.reopened', reopened),
-      metricResult('risks.open_end_of_period', active.length),
-      metricResult('risks.overdue_acknowledgement', active.filter((item) => !item.timing.acknowledgementComplete && item.timing.acknowledgementSeconds > item.slaPolicy.acknowledgementSeconds).length),
-      metricResult('risks.overdue_resolution', active.filter((item) => item.timing.resolutionSeconds > item.slaPolicy.resolutionSeconds).length),
-      averageMetric('risks.tta.average_seconds', ackSamples.map((item) => item.timing.acknowledgementSeconds), ackSamples.filter((item) => !item.timing.acknowledgementComplete).length),
-      averageMetric('risks.ttr.average_seconds', resolveSamples.map((item) => item.timing.resolutionSeconds), resolveSamples.filter((item) => !item.timing.resolutionComplete).length),
-      rateMetric('risks.ack_sla_rate', ackSamples.filter((item) => item.timing.acknowledgementWithinSla).length, ackSamples.length),
-      rateMetric('risks.resolve_sla_rate', resolveSamples.filter((item) => item.timing.resolutionWithinSla).length, resolveSamples.length),
-    ];
+    return {
+      metrics: [
+        metricResult('risks.created', created), metricResult('risks.resolved', resolved), metricResult('risks.reopened', reopened),
+        metricResult('risks.open_end_of_period', active.length),
+        metricResult('risks.overdue_acknowledgement', active.filter((item) => !item.timing.acknowledgementComplete && item.timing.acknowledgementSeconds > item.slaPolicy.acknowledgementSeconds).length),
+        metricResult('risks.overdue_resolution', active.filter((item) => item.timing.resolutionSeconds > item.slaPolicy.resolutionSeconds).length),
+        averageMetric('risks.tta.average_seconds', ackSamples.map((item) => item.timing.acknowledgementSeconds), ackSamples.filter((item) => !item.timing.acknowledgementComplete).length),
+        averageMetric('risks.ttr.average_seconds', resolveSamples.map((item) => item.timing.resolutionSeconds), resolveSamples.filter((item) => !item.timing.resolutionComplete).length),
+        rateMetric('risks.ack_sla_rate', ackSamples.filter((item) => item.timing.acknowledgementWithinSla).length, ackSamples.length),
+        rateMetric('risks.resolve_sla_rate', resolveSamples.filter((item) => item.timing.resolutionWithinSla).length, resolveSamples.length),
+      ],
+      groups: groupCounts(facts.flatMap((item) => [
+        ['severity', item.risk.severity] as const,
+        ['risk_type', item.risk.type] as const,
+      ])),
+    };
   }
 
   private async automationItems(query: ReportQuery, subject: SecuritySubject, metricKey?: string): Promise<Array<AutomationRunFact | AutomationRunTargetFact>> {
     const [runs, targets] = await Promise.all([this.data.listAutomationRuns(query), this.data.listAutomationTargets(query)]);
-    const scopedRuns = await this.scope.filter(subject, runs, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId }));
-    const scopedTargets = await this.scope.filter(subject, targets, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId }));
-    if (!metricKey || metricKey.startsWith('automations.runs.')) return scopedRuns.filter((item) => !metricKey || automationRunMetrics(item).includes(metricKey));
+    const scopedRuns = (await this.scope.filter(subject, runs, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId })))
+      .filter((item) => matchesAutomationRunFilters(item, query));
+    const scopedTargets = (await this.scope.filter(subject, targets, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId })))
+      .filter((item) => matchesAutomationTargetFilters(item, query));
+    const matchingRunIds = new Set(scopedTargets.map((item) => item.runId));
+    const filteredRuns = hasAutomationTargetFilters(query) ? scopedRuns.filter((item) => matchingRunIds.has(item.id)) : scopedRuns;
+    if (!metricKey || metricKey.startsWith('automations.runs.')) return filteredRuns.filter((item) => !metricKey || automationRunMetrics(item).includes(metricKey));
     return scopedTargets.filter((item) => automationTargetMetrics(item).includes(metricKey));
   }
 
-  private async automationMetrics(query: ReportQuery, subject: SecuritySubject): Promise<ReportMetricResult[]> {
+  private async automationSummary(query: ReportQuery, subject: SecuritySubject): Promise<ReportSummary> {
     const [runsRaw, targetsRaw] = await Promise.all([this.data.listAutomationRuns(query), this.data.listAutomationTargets(query)]);
-    const runs = await this.scope.filter(subject, runsRaw, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId }));
-    const targets = await this.scope.filter(subject, targetsRaw, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId }));
+    const targets = (await this.scope.filter(subject, targetsRaw, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId })))
+      .filter((item) => matchesAutomationTargetFilters(item, query));
+    const matchingRunIds = new Set(targets.map((item) => item.runId));
+    const runs = (await this.scope.filter(subject, runsRaw, (item) => ({ objectType: 'automation', objectId: item.automationId, tenantId: query.tenantId })))
+      .filter((item) => matchesAutomationRunFilters(item, query))
+      .filter((item) => !hasAutomationTargetFilters(query) || matchingRunIds.has(item.id));
     const terminalRuns = runs.filter((item) => isAutomationRunTerminal(item.status));
     const denominatorTargets = targets.filter((item) => isAutomationTargetDenominator(item.status));
-    return [
-      metricResult('automations.runs.total', runs.length), rateMetric('automations.runs.success_rate', terminalRuns.filter((item) => item.status === 'succeeded').length, terminalRuns.length),
-      metricResult('automations.targets.total', targets.length), rateMetric('automations.targets.success_rate', denominatorTargets.filter((item) => item.status === 'succeeded').length, denominatorTargets.length),
-      metricResult('automations.targets.failed', targets.filter((item) => item.status === 'failed').length), metricResult('automations.targets.retried', targets.filter((item) => item.attemptCount > 1).length),
-      metricResult('automations.targets.rollback_succeeded', targets.filter((item) => item.rollbackStatus === 'succeeded').length), metricResult('automations.targets.rollback_failed', targets.filter((item) => item.rollbackStatus === 'failed').length),
-      metricResult('automations.targets.manual_intervention', targets.filter((item) => item.manualIntervention).length), metricResult('automations.targets.waiting_approval', targets.filter((item) => item.status === 'waiting_approval').length),
-    ];
+    return {
+      metrics: [
+        metricResult('automations.runs.total', runs.length), rateMetric('automations.runs.success_rate', terminalRuns.filter((item) => item.status === 'succeeded').length, terminalRuns.length),
+        metricResult('automations.targets.total', targets.length), rateMetric('automations.targets.success_rate', denominatorTargets.filter((item) => item.status === 'succeeded').length, denominatorTargets.length),
+        metricResult('automations.targets.failed', targets.filter((item) => item.status === 'failed').length), metricResult('automations.targets.retried', targets.filter((item) => item.attemptCount > 1).length),
+        metricResult('automations.targets.rollback_succeeded', targets.filter((item) => item.rollbackStatus === 'succeeded').length), metricResult('automations.targets.rollback_failed', targets.filter((item) => item.rollbackStatus === 'failed').length),
+        metricResult('automations.targets.manual_intervention', targets.filter((item) => item.manualIntervention).length), metricResult('automations.targets.waiting_approval', targets.filter((item) => item.status === 'waiting_approval').length),
+      ],
+      groups: groupCounts(targets.flatMap((item) => [
+        ['action_type', item.actionType] as const,
+        ['failure_stage', item.failureStage ?? 'none'] as const,
+      ])),
+    };
   }
+}
+
+interface ReportSummary {
+  metrics: ReportMetricResult[];
+  groups: Array<{ dimension: string; value: string; count: number }>;
+}
+
+function groupCounts(entries: Array<readonly [string, string]>): ReportSummary['groups'] {
+  const counts = new Map<string, { dimension: string; value: string; count: number }>();
+  for (const [dimension, value] of entries) {
+    const key = `${dimension}\u0000${value}`;
+    const current = counts.get(key);
+    if (current) current.count += 1;
+    else counts.set(key, { dimension, value, count: 1 });
+  }
+  return [...counts.values()].sort((left, right) => left.dimension.localeCompare(right.dimension) || right.count - left.count || left.value.localeCompare(right.value));
 }
 
 function incidentFactMetrics(item: IncidentCertificateFact, asOf: string): string[] {
@@ -156,3 +214,66 @@ function metricResult(metricKey: string, value: number): ReportMetricResult { co
 function averageMetric(metricKey: string, values: number[], incomplete: number): ReportMetricResult { const value = values.length ? Math.round(values.reduce((sum, item) => sum + item, 0) / values.length) : 0; return { ...metricResult(metricKey, value), sampleCount: values.length, incompleteSampleCount: incomplete }; }
 function rateMetric(metricKey: string, numerator: number, denominator: number): ReportMetricResult { return { ...metricResult(metricKey, denominator ? numerator / denominator : 0), sampleCount: denominator, numerator, denominator }; }
 function inRange(value: string, query: ReportQuery): boolean { const time = Date.parse(value); return time >= Date.parse(query.dateFrom) && time <= Date.parse(query.dateTo); }
+
+function matchesIncidentFilters(item: IncidentCertificateFact, query: ReportQuery): boolean {
+  return matches(query.environment, item.environment)
+    && matches(query.ownerId, item.ownerId)
+    && matches(query.assetId, item.certificateAssetId)
+    && (!query.tag || item.tags.includes(query.tag));
+}
+
+function matchesRiskFilters(item: RiskResponseFact, query: ReportQuery): boolean {
+  const metadata = item.risk.metadata;
+  return matches(query.severity, item.risk.severity)
+    && matches(query.riskType, item.risk.type)
+    && matches(query.assetId, item.risk.scope.certificateAssetId ?? item.risk.scope.serviceInstanceId ?? item.risk.scope.hostId)
+    && matches(query.environment, readText(metadata, 'environment'))
+    && matches(query.ownerId, readText(metadata, 'ownerId', 'owner_id'))
+    && (!query.tag || readTexts(metadata, 'tags').includes(query.tag));
+}
+
+function matchesAutomationRunFilters(item: AutomationRunFact, query: ReportQuery): boolean {
+  return matches(query.automationId, item.automationId);
+}
+
+function matchesAutomationTargetFilters(item: AutomationRunTargetFact, query: ReportQuery): boolean {
+  return matches(query.automationId, item.automationId)
+    && matches(query.failureStage, item.failureStage)
+    && matches(query.environment, readText(item.targetSnapshot, 'environment'))
+    && matches(query.ownerId, readText(item.targetSnapshot, 'ownerId', 'owner_id'))
+    && matches(query.assetId, readText(item.targetSnapshot, 'assetId', 'asset_id', 'certificateAssetId'))
+    && (!query.tag || readTexts(item.targetSnapshot, 'tags').includes(query.tag));
+}
+
+function hasAutomationTargetFilters(query: ReportQuery): boolean {
+  return Boolean(query.environment || query.ownerId || query.assetId || query.tag || query.failureStage);
+}
+
+function matches(expected: string | undefined, actual: string | undefined): boolean {
+  return !expected || actual === expected;
+}
+
+function readText(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
+}
+
+function readTexts(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  return Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : [];
+}
+
+function matchesSnapshotFilters(dimensions: Readonly<Record<string, string | boolean | null>>, query: ReportQuery): boolean {
+  const filters = [
+    ['environment', query.environment], ['owner_id', query.ownerId], ['asset_id', query.assetId], ['tag', query.tag],
+    ['severity', query.severity], ['risk_type', query.riskType], ['automation_id', query.automationId], ['failure_stage', query.failureStage],
+  ] as const;
+  return filters.every(([key, expected]) => !expected || dimensions[key] === expected);
+}
+
+function hasDimensionFilters(query: ReportQuery): boolean {
+  return Boolean(query.environment || query.ownerId || query.assetId || query.tag || query.severity || query.riskType || query.automationId || query.failureStage);
+}

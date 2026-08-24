@@ -98,9 +98,11 @@ export interface ReportQuery {
   dateFrom: string;
   dateTo: string;
   asOf: string;
+  metricKey?: string;
   environment?: string;
   ownerId?: string;
   assetId?: string;
+  tag?: string;
   severity?: string;
   riskType?: string;
   automationId?: string;
@@ -121,7 +123,7 @@ export interface ReportOverview {
   asOf: string;
   metricVersions: Record<string, number>;
   metrics: ReportMetricResult[];
-  groups: Array<{ key: string; label: string; count: number }>;
+  groups: Array<{ dimension: string; value: string; count: number }>;
   warnings: string[];
 }
 
@@ -137,4 +139,37 @@ export interface ReportItemPage<TItem> {
   pageSize: number;
   total: number;
   asOf: string;
+}
+
+export type ReportRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
+
+export interface ReportRun {
+  id: string;
+  tenantId: string;
+  reportType: ReportType;
+  status: ReportRunStatus;
+  filters: Record<string, unknown>;
+  columns: string[];
+  metricVersions: Record<string, number>;
+  slaPolicyVersion?: number;
+  timeZone: string;
+  dataAsOf: string;
+  artifactId?: string;
+  errorMessage?: string;
+  createdBy: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface ReportArtifact {
+  id: string;
+  tenantId: string;
+  storageKey: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  checksumSha256: string;
+  expiresAt: string;
+  createdAt: string;
 }

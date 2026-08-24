@@ -23,6 +23,10 @@ test('事故窗口区分在用、闲置和未知且摘要与下钻一致', async
   const items = await service.items('incident_window', query, subject, 'certificates.expired.in_use');
   assert.equal(expired?.value, 1);
   assert.equal(items.total, 1);
+  assert.equal(groupTotal(overview, 'usage_status'), 3);
+  assert.equal(groupCount(overview, 'usage_status', 'in_use'), 1);
+  assert.equal(groupCount(overview, 'usage_status', 'idle'), 1);
+  assert.equal(groupCount(overview, 'usage_status', 'unknown'), 1);
 });
 
 test('风险报表使用历史计算 TTA/TTR、未完成样本、reopen 和 SLA', async () => {
@@ -37,6 +41,7 @@ test('风险报表使用历史计算 TTA/TTR、未完成样本、reopen 和 SLA'
   assert.equal(metric(overview, 'risks.tta.average_seconds').sampleCount, 3);
   assert.equal(metric(overview, 'risks.tta.average_seconds').incompleteSampleCount, 2);
   assert.equal((await service.items('risk_response', query, subject, 'risks.reopened')).total, 1);
+  assert.equal(groupTotal(overview, 'severity'), 3);
 });
 
 test('自动化运行级和目标级成功率独立，排除等待审批、跳过和取消', async () => {
@@ -55,6 +60,8 @@ test('自动化运行级和目标级成功率独立，排除等待审批、跳�
   assert.equal(metric(overview, 'automations.targets.retried').value, 1);
   assert.equal(metric(overview, 'automations.targets.rollback_failed').value, 1);
   assert.equal((await service.items('automation_effectiveness', query, subject, 'automations.targets.failed')).total, 3);
+  assert.equal(groupTotal(overview, 'action_type'), targets.length);
+  assert.equal(groupCount(overview, 'failure_stage', 'notification'), 1);
 });
 
 test('四种查询路径使用相同租户 Scope', async () => {
@@ -63,6 +70,44 @@ test('四种查询路径使用相同租户 Scope', async () => {
   const denied = { ...subject, scope: { tenantId: 'tenant_2' } };
   assert.equal(metric(await service.overview('incident_window', query, denied), 'certificates.expired.in_use').value, 0);
   assert.equal((await service.items('incident_window', query, denied, 'certificates.expired.in_use')).total, 0);
+});
+
+test('常用维度筛选同时约束摘要、分组和下钻', async () => {
+  const incidents: IncidentCertificateFact[] = [
+    { ...certificate('in_use', '2026-07-20T00:00:00Z'), environment: 'prod', ownerId: 'owner_1', tags: ['critical'] },
+    { ...certificate('idle', '2026-07-25T00:00:00Z'), environment: 'test', ownerId: 'owner_2', tags: ['normal'] },
+  ];
+  const service = await createService({ incidents });
+  const filteredQuery = { ...query, environment: 'prod', ownerId: 'owner_1', tag: 'critical' };
+  const overview = await service.overview('incident_window', filteredQuery, subject);
+
+  assert.equal(metric(overview, 'certificates.expired.in_use').value, 1);
+  assert.equal(groupTotal(overview, 'usage_status'), 1);
+  assert.equal((await service.items('incident_window', filteredQuery, subject)).total, 1);
+});
+
+test('风险和自动化专用筛选不会污染其他样本', async () => {
+  const risks = [
+    riskFact('risk_critical', 'OPEN', []),
+    { ...riskFact('risk_high', 'OPEN', []), risk: { ...riskFact('risk_high', 'OPEN', []).risk, severity: 'high' as const } },
+  ];
+  const targets = [
+    target('target_verify', 'failed', { automationId: 'auto_1', failureStage: 'verification' }),
+    target('target_notify', 'failed', { automationId: 'auto_2', actionType: 'send_notification', failureStage: 'notification' }),
+  ];
+  const runs = [run('run_verify', 'failed'), { ...run('run_notify', 'failed'), id: 'run_notify', automationId: 'auto_2' }];
+  targets[0]!.runId = 'run_verify';
+  targets[1]!.runId = 'run_notify';
+  const service = await createService({ risks, runs, targets });
+
+  const riskOverview = await service.overview('risk_response', { ...query, severity: 'critical' }, subject);
+  assert.equal(metric(riskOverview, 'risks.open_end_of_period').value, 1);
+
+  const automationQuery = { ...query, automationId: 'auto_2', failureStage: 'notification' as const };
+  const automationOverview = await service.overview('automation_effectiveness', automationQuery, subject);
+  assert.equal(metric(automationOverview, 'automations.runs.total').value, 1);
+  assert.equal(metric(automationOverview, 'automations.targets.failed').value, 1);
+  assert.equal((await service.items('automation_effectiveness', automationQuery, subject, 'automations.targets.failed')).total, 1);
 });
 
 async function createService(fixtures: { incidents?: IncidentCertificateFact[]; risks?: RiskResponseFact[]; runs?: AutomationRunFact[]; targets?: AutomationRunTargetFact[] }) {
@@ -81,3 +126,5 @@ function riskFact(id: string, status: RiskResponseFact['risk']['status'], action
 function run(id: string, status: AutomationRunFact['status']): AutomationRunFact { return { id, automationId: 'auto_1', automationVersion: 1, automationNameSnapshot: '自动化', triggerType: 'schedule', status, createdAt: '2026-07-10T00:00:00Z' }; }
 function target(id: string, status: AutomationRunTargetFact['status'], patch: Partial<AutomationRunTargetFact> = {}): AutomationRunTargetFact { return { id, runId: 'run_1', automationId: 'auto_1', targetSnapshot: {}, status, actionType: 'execute_deployment_plan', notificationRequestIds: [], attemptCount: 1, manualIntervention: false, createdAt: '2026-07-10T00:00:00Z', ...patch }; }
 function metric(overview: Awaited<ReturnType<ReportsApplicationService['overview']>>, key: string) { return overview.metrics.find((item) => item.metricKey === key)!; }
+function groupTotal(overview: Awaited<ReturnType<ReportsApplicationService['overview']>>, dimension: string) { return overview.groups.filter((item) => item.dimension === dimension).reduce((sum, item) => sum + item.count, 0); }
+function groupCount(overview: Awaited<ReturnType<ReportsApplicationService['overview']>>, dimension: string, value: string) { return overview.groups.find((item) => item.dimension === dimension && item.value === value)?.count ?? 0; }
