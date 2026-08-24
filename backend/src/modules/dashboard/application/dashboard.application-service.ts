@@ -394,7 +394,7 @@ function quickActions(): DashboardQuickAction[] {
     { key: 'assets', title: '应用资产', description: '维护域名、端口和部署目标。', path: '/assets', permission: 'service_asset.read' },
     { key: 'agents', title: 'Agent', description: '查看在线状态和任务能力。', path: '/agents', permission: 'agent.read' },
     { key: 'gateways', title: '网关', description: '管理隔离区执行入口。', path: '/gateways', permission: 'gateway.read' },
-    { key: 'deploymentPlans', title: '部署计划', description: '创建和执行证书更新计划。', path: '/deployment-plans', permission: 'deployment.plan.read' },
+    { key: 'deploymentPlans', title: '应用资产部署', description: '从应用资产选择证书版本并发起部署。', path: '/assets', permission: 'service_asset.read' },
     { key: 'audits', title: '审计日志', description: '追踪操作人与执行结果。', path: '/audits', permission: 'audit.read' },
   ];
 }

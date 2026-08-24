@@ -23,6 +23,7 @@ describe('DashboardView', () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
         generatedAt: '2026-07-06T08:34:00.000Z',
+        systemResources: { cpuUsage: null, memoryUsage: 62 },
         metrics: [],
         quickActions: [],
         statusGroups: [],
@@ -75,10 +76,11 @@ describe('DashboardView', () => {
     expect(auditList.find('.dashboard-audits__details').exists()).toBe(false)
   })
 
-  it('使用 Cloud Security Pro 页面头和核心指标区域', async () => {
+  it('使用全新指标矩阵、紧凑趋势卡和热力图状态区域', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
         generatedAt: '2026-07-06T08:34:00.000Z',
+        systemResources: { cpuUsage: 37, memoryUsage: 62 },
         metrics: [{ key: 'applications', title: '应用', value: 4, description: '已纳管应用', trend: 'good' }],
         quickActions: [],
         statusGroups: [
@@ -98,21 +100,36 @@ describe('DashboardView', () => {
     const wrapper = mount(DashboardView)
 
     await vi.waitFor(() => {
-      expect(wrapper.find('.dashboard-page__header').exists()).toBe(true)
-      expect(wrapper.find('.dashboard-metric').text()).toContain('4')
+      expect(wrapper.find('.dashboard-metric-card').text()).toContain('4')
     })
-    expect(wrapper.find('.dashboard-page__header').text()).toContain('总览')
-    expect(wrapper.find('.dashboard-page__header .gc-button').exists()).toBe(true)
-    expect(wrapper.find('.dashboard-status-summary .gc-donut-chart').exists()).toBe(true)
-    expect(wrapper.find('.dashboard-status-summary .gc-donut-chart__segment--success').exists()).toBe(true)
-    expect(wrapper.find('.dashboard-status-summary__total').text()).toBe('1')
+    expect(wrapper.find('.dashboard-page__header').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-action').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-primary-grid').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-resource-card').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-card-description').exists()).toBe(false)
+    expect(wrapper.findAll('.dashboard-resource-row')).toHaveLength(2)
+    expect(wrapper.find('.dashboard-resource-card').text()).toContain('37%')
+    expect(wrapper.find('.dashboard-resource-card').text()).toContain('62%')
+    expect(wrapper.find('.dashboard-metric-card .gc-tag--success').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-metric-card__topline .dashboard-metric-card__value').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-quick-start').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-quick-start__meta').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-trend-card').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-panel--status-summary').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-panel--type-stats').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-status-row .dashboard-panel--asset-heatmap').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-status-row .dashboard-status-group').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-panel--wizard').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-panel--wizard .dashboard-panel__header p').exists()).toBe(false)
+    expect(wrapper.find('.dashboard-panel--recent-log').exists()).toBe(true)
   })
 
-  it('保留快捷入口权限过滤，并在没有有效趋势序列时显示诚实空态', async () => {
+  it('保留快速向导权限过滤，并在没有有效趋势序列时显示诚实空态', async () => {
     usePermissionStore().setPermissions(['certificate.asset.read'])
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
         generatedAt: '2026-07-06T08:34:00.000Z',
+        systemResources: { cpuUsage: null, memoryUsage: 62 },
         metrics: [],
         quickActions: [
           {
@@ -165,16 +182,56 @@ describe('DashboardView', () => {
 
     const wrapper = mount(DashboardView)
 
-    await vi.waitFor(() => expect(wrapper.findAll('.dashboard-action')).toHaveLength(1))
+    await vi.waitFor(() => expect(wrapper.findAll('.dashboard-wizard__step')).toHaveLength(1))
+    expect(wrapper.findAll('.dashboard-action')).toHaveLength(0)
     expect(wrapper.find('.dashboard-status-group').exists()).toBe(true)
     expect(wrapper.findAll('.dashboard-status-group')).toHaveLength(2)
-    expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__empty').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="dashboard-activity-chart"]').exists()).toBe(false)
+  })
+
+  it('快捷启动仅展示当前用户有权限执行的新增证书和应用部署操作', async () => {
+    usePermissionStore().setPermissions(['certificate.import', 'service_asset.read'])
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-07-06T08:34:00.000Z',
+        systemResources: { cpuUsage: 22, memoryUsage: 41 },
+        metrics: [],
+        quickActions: [
+          {
+            key: 'deploymentPlans',
+            title: '应用资产部署',
+            description: '从应用资产选择证书版本并发起部署。',
+            path: '/assets',
+            permission: 'service_asset.read',
+          },
+        ],
+        statusGroups: [],
+        certificateStatuses: [],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+        },
+      },
+    })
+
+    await vi.waitFor(() => expect(wrapper.findAll('.dashboard-quick-start__button')).toHaveLength(2))
+    const quickStartButtons = wrapper.findAll('.dashboard-quick-start__button')
+    expect(quickStartButtons[0].text()).toContain('导入或申请新证书')
+    expect(quickStartButtons[0].attributes('href')).toBe('/certificates/import')
+    expect(quickStartButtons[1].text()).toContain('部署到网站或应用')
+    expect(quickStartButtons[1].attributes('href')).toBe('/assets')
   })
 
   it('仅用最近审计事件时间聚合活动趋势，不生成示例静态数据', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
         generatedAt: '2026-07-06T08:34:00.000Z',
+        systemResources: { cpuUsage: 22, memoryUsage: 41 },
         metrics: [],
         quickActions: [],
         statusGroups: [],
@@ -208,7 +265,8 @@ describe('DashboardView', () => {
 
     const wrapper = mount(DashboardView)
 
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__line').exists()).toBe(true))
-    expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__empty').exists()).toBe(false)
+    await vi.waitFor(() => expect(wrapper.find('.dashboard-panel--recent-log').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="dashboard-activity-chart"]').exists()).toBe(false)
+    expect(wrapper.findAll('.dashboard-trend-card')).toHaveLength(3)
   })
 })
