@@ -165,7 +165,9 @@ export class WorkflowTemplatesDomainService {
 
   async listTemplates(): Promise<WorkflowTemplate[]> {
     await this.ready;
-    return [...this.templates.values()].map((item) => ({ ...item }));
+    return [...this.templates.values()]
+      .filter((item) => item.status !== 'disabled')
+      .map((item) => ({ ...item }));
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {

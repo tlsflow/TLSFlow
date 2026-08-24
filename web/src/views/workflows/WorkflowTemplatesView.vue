@@ -5,6 +5,7 @@ import {
   applyWorkflowTemplateFromFile,
   createWorkflowTemplate,
   createWorkflowTemplateFromFile,
+  deleteWorkflowTemplate,
   listWorkflowFileTemplates,
   createWorkflowTemplateVersion,
   listWorkflowTemplateVersions,
@@ -164,6 +165,18 @@ const config: BusinessPageConfig = {
           content: workflowCanvasToDsl(canvas),
           changeSummary: '前端画布创建新版本草稿',
         })
+      },
+    },
+    {
+      label: '删除',
+      permission: 'workflow.template.write',
+      danger: true,
+      confirmText: 'DELETE',
+      riskText: '删除会禁用该工作流及其全部版本，列表中不再展示；历史运行记录不会被改写。',
+      reloadAfterRun: true,
+      hidden: (row) => readString(row.raw, ['status']) === 'disabled',
+      run: async (row) => {
+        await deleteWorkflowTemplate(readString(row.raw, ['id']))
       },
     },
   ],

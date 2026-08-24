@@ -17,6 +17,10 @@ export function createWorkflowTemplate(payload: ApiBody) {
   return postAction(WORKFLOW_TEMPLATES_PATH, payload, 'workflow_template_create')
 }
 
+export function deleteWorkflowTemplate(templateId: string, payload: ApiBody = {}) {
+  return postAction(`${WORKFLOW_TEMPLATES_PATH}/delete`, { ...payload, id: templateId }, 'workflow_template_delete')
+}
+
 export function listWorkflowFileTemplates() {
   return apiClient.get<{ items?: readonly ApiRecord[] }>(toClientPath(WORKFLOW_FILE_TEMPLATES_PATH))
 }
