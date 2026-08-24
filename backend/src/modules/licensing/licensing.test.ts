@@ -233,6 +233,7 @@ test('许可证内容被修改后标记为 tampered，并拒绝再次导入', as
     installationPublicKey: initialStatus.installationPublicKey,
     deviceId: initialStatus.deviceId,
     planCode: 'community',
+    userName: '完整性测试用户',
     features: [...initialStatus.features],
     quotas: {
       applicationAssets: 3,
@@ -249,6 +250,16 @@ test('许可证内容被修改后标记为 tampered，并拒绝再次导入', as
 
   const imported = await service.importLicense(grant);
   assert.equal(imported.integrityStatus, 'verified');
+  assert.equal(imported.userName, '完整性测试用户');
+
+  const tamperedUserNameImport = {
+    ...grant,
+    userName: '被修改的用户',
+  };
+  await assert.rejects(
+    () => service.importLicense(tamperedUserNameImport),
+    (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'LICENSE_TAMPERED',
+  );
 
   const tamperedImport = {
     ...grant,
@@ -311,6 +322,7 @@ test('V2 许可证绑定 deviceId，版本失配后进入 upgrade_grace，超时
     installationPublicKey: initialStatus.installationPublicKey,
     deviceId: initialStatus.deviceId,
     planCode: 'commercial',
+    userName: '版本升级测试用户',
     features: [...initialStatus.features],
     quotas: {
       applicationAssets: 5,
@@ -382,6 +394,7 @@ test('试用许可证到期后恢复为 none，商业版不会因旧到期字段
     installationPublicKey: initialStatus.installationPublicKey,
     deviceId: initialStatus.deviceId,
     planCode: 'trial',
+    userName: '试用测试用户',
     features: [...initialStatus.features],
     quotas: {
       applicationAssets: 5,
@@ -401,6 +414,7 @@ test('试用许可证到期后恢复为 none，商业版不会因旧到期字段
   const importedTrial = await service.importLicense(trialGrant);
   assert.equal(importedTrial.state, 'active');
   assert.equal(importedTrial.planCode, 'trial');
+  assert.equal(importedTrial.userName, '试用测试用户');
   assert.equal(importedTrial.expiresAt, '2026-08-09T00:00:00.000Z');
 
   currentNow = new Date('2026-08-09T00:00:01.000Z');
@@ -419,6 +433,16 @@ test('试用许可证到期后恢复为 none，商业版不会因旧到期字段
     expiresAt: '2026-08-10T00:00:01.000Z',
     signature: '',
   }, keys.privateKey);
+  const unnamedCommercialGrant = signGrant<LicenseGrantV2>({
+    ...commercialGrant,
+    grantId: 'grant_commercial_without_user_name',
+    userName: undefined,
+    signature: '',
+  }, keys.privateKey);
+  await assert.rejects(
+    () => service.importLicense(unnamedCommercialGrant),
+    (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'LICENSE_INVALID',
+  );
   currentNow = new Date('2026-08-10T00:00:02.000Z');
   const importedCommercial = await service.importLicense(commercialGrant);
   assert.equal(importedCommercial.state, 'active');
@@ -449,6 +473,7 @@ test('激活请求导出 deviceId，旧套餐代码导入后按新口径归并�
     installationId: initialStatus.installationId,
     installationPublicKey: initialStatus.installationPublicKey,
     planCode: 'standard',
+    userName: '旧版本测试用户',
     features: ['core.assets', 'workflow.templates'],
     quotas: { managedTargets: 2, concurrentExecutions: 1, plugins: 0 },
     issuedAt: '2026-08-08T00:00:00.000Z',

@@ -5,7 +5,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: '产品授权',
       description: '查看当前安装实例的授权状态，导出离线激活请求并导入许可证文件。',
-      summary: { title: '授权状态', unconfigured: '未配置许可证' },
+      summary: { title: '授权状态', unconfigured: '未配置许可证', userName: '用户名称：{userName}', userNameUnset: '-' },
       info: { title: '授权信息', description: '当前版本、有效期与版本范围等详情。' },
       validity: { perpetual: '长期有效' },
       fields: {
@@ -127,7 +127,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: '產品授權',
       description: '查看目前安裝實例的授權狀態，匯出離線啟用請求並匯入授權檔案。',
-      summary: { title: '授權狀態', unconfigured: '未設定授權' },
+      summary: { title: '授權狀態', unconfigured: '未設定授權', userName: '使用者名稱：{userName}', userNameUnset: '-' },
       info: { title: '授權資訊', description: '目前版本、有效期與版本範圍等詳情。' },
       validity: { perpetual: '長期有效' },
       fields: {
@@ -204,7 +204,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: 'Product licensing',
       description: 'View this installation license, export an offline activation request, and import license files.',
-      summary: { title: 'License status', unconfigured: 'License not configured' },
+      summary: { title: 'License status', unconfigured: 'License not configured', userName: 'User name: {userName}', userNameUnset: '-' },
       info: { title: 'License information', description: 'Current version, validity, and version range details.' },
       validity: { perpetual: 'Perpetual' },
       fields: {
@@ -264,7 +264,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: '製品ライセンス',
       description: 'このインストールのライセンス状態を確認し、オフラインのアクティベーション要求とライセンスファイルを操作します。',
-      summary: { title: 'ライセンス状態', unconfigured: 'ライセンス未設定' },
+      summary: { title: 'ライセンス状態', unconfigured: 'ライセンス未設定', userName: 'ユーザー名：{userName}', userNameUnset: '-' },
       info: { title: 'ライセンス情報', description: '現在のバージョン、有効期間、対象バージョンなどの詳細。' },
       validity: { perpetual: '永続' },
       fields: {
@@ -315,7 +315,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: 'Licence produit',
       description: 'Consultez la licence de cette installation, exportez une demande d’activation hors ligne et importez les fichiers de licence.',
-      summary: { title: 'État de la licence', unconfigured: 'Licence non configurée' },
+      summary: { title: 'État de la licence', unconfigured: 'Licence non configurée', userName: 'Nom d’utilisateur : {userName}', userNameUnset: '-' },
       info: { title: 'Informations sur la licence', description: 'Détails de la version actuelle, de la validité et de la plage de versions.' },
       validity: { perpetual: 'Perpétuelle' },
       fields: {
@@ -366,7 +366,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: 'Лицензирование продукта',
       description: 'Просматривайте лицензию этой установки, экспортируйте офлайн-запрос на активацию и импортируйте файлы лицензии.',
-      summary: { title: 'Состояние лицензии', unconfigured: 'Лицензия не настроена' },
+      summary: { title: 'Состояние лицензии', unconfigured: 'Лицензия не настроена', userName: 'Имя пользователя: {userName}', userNameUnset: '-' },
       info: { title: 'Информация о лицензии', description: 'Текущая версия, срок действия и диапазон версий.' },
       validity: { perpetual: 'Бессрочная' },
       fields: {
@@ -417,7 +417,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: 'Licenciamento do produto',
       description: 'Consulte a licença desta instalação, exporte uma solicitação de ativação offline e importe arquivos de licença.',
-      summary: { title: 'Status da licença', unconfigured: 'Licença não configurada' },
+      summary: { title: 'Status da licença', unconfigured: 'Licença não configurada', userName: 'Nome do usuário: {userName}', userNameUnset: '-' },
       info: { title: 'Informações da licença', description: 'Detalhes da versão atual, validade e faixa de versões.' },
       validity: { perpetual: 'Perpétua' },
       fields: {
@@ -468,7 +468,7 @@ export const licensingLocaleMessages = {
     licensing: {
       title: '제품 라이선스',
       description: '이 설치의 라이선스 상태를 확인하고 오프라인 활성화 요청과 라이선스 파일을 관리합니다.',
-      summary: { title: '라이선스 상태', unconfigured: '라이선스가 설정되지 않음' },
+      summary: { title: '라이선스 상태', unconfigured: '라이선스가 설정되지 않음', userName: '사용자 이름: {userName}', userNameUnset: '-' },
       info: { title: '라이선스 정보', description: '현재 버전, 유효 기간 및 버전 범위 등의 세부 정보.' },
       validity: { perpetual: '영구' },
       fields: {

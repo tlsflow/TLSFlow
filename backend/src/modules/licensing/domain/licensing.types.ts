@@ -33,6 +33,7 @@ export interface LicenseGrantV1 {
   installationId: string;
   installationPublicKey: string;
   planCode: string;
+  userName?: string;
   features: string[];
   quotas: Partial<LicenseQuotas> & Pick<LicenseQuotas, 'managedTargets' | 'concurrentExecutions' | 'plugins'>;
   issuedAt: string;
@@ -51,6 +52,7 @@ export interface LicenseGrantV2 {
   installationPublicKey?: string;
   deviceId: string;
   planCode: string;
+  userName?: string;
   features: string[];
   quotas: LicenseQuotas;
   issuedAt: string;
@@ -144,6 +146,7 @@ export interface LicenseStatus {
   productCode: 'gcac';
   currentVersion: string;
   planCode?: string;
+  userName?: string;
   licenseSchemaVersion?: 1 | 2;
   grantId?: string;
   features: string[];

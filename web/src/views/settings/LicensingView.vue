@@ -72,6 +72,13 @@ const planLabel = computed(() => {
   return localized === key ? status.value.planCode : localized
 })
 
+const userNameLabel = computed(() => {
+  const userName = status.value?.userName?.trim()
+  return userName || t('settings.licensing.summary.userNameUnset')
+})
+
+const userNameSummary = computed(() => t('settings.licensing.summary.userName', { userName: userNameLabel.value }))
+
 const activePlanCode = computed<ProductPlanCode | null>(() => normalizePlanCode(status.value?.planCode))
 
 const planTone = computed<PlanTone>(() => {
@@ -311,7 +318,7 @@ onMounted(loadStatus)
           <div class="licensing-page__hero-heading">
             <span class="licensing-page__eyebrow">{{ t('settings.licensing.summary.title') }}</span>
             <h2>{{ planLabel }}</h2>
-            <p>{{ comparisonSummary }}</p>
+            <p>{{ userNameSummary }}</p>
           </div>
         </div>
         <div class="licensing-page__hero-aside">

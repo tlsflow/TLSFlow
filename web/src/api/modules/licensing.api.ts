@@ -13,6 +13,7 @@ export interface LicenseStatus {
   readonly productCode: string
   readonly currentVersion: string
   readonly planCode?: string
+  readonly userName?: string
   readonly licenseSchemaVersion?: 1 | 2
   readonly grantId?: string
   readonly features: readonly string[]

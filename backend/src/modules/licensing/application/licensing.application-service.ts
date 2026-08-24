@@ -537,6 +537,7 @@ function createVerifiedStatus(
   return {
     ...base,
     planCode: normalizePlanCode(grant.planCode) ?? 'none',
+    userName: grant.userName,
     licenseSchemaVersion: grant.schemaVersion,
     grantId: grant.grantId,
     features: [...grant.features],
@@ -646,6 +647,9 @@ function validateGrantAgainstPlan(grant: LicenseGrant): void {
   }
   const plan = findPlan(planCode);
   if (!plan) throw new AppError('LICENSE_INVALID', '套餐代码不存在', { planCode: grant.planCode });
+  if (planCode !== 'community' && (!grant.userName || grant.userName.trim().length === 0)) {
+    throw new AppError('LICENSE_INVALID', '商业版、企业版和试用版许可证必须填写用户名称', { planCode });
+  }
   if (!grant.features.every((feature) => plan.features.includes(feature))) {
     throw new AppError('LICENSE_INVALID', '许可证功能超出套餐定义', { planCode });
   }

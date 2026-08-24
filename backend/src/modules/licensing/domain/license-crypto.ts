@@ -194,6 +194,7 @@ function isLicenseGrantShape(value: unknown): value is LicenseGrant {
     || typeof grant.keyId !== 'string'
     || typeof grant.installationId !== 'string'
     || typeof grant.planCode !== 'string'
+    || (grant.userName !== undefined && typeof grant.userName !== 'string')
     || !Array.isArray(grant.features)
     || !grant.features.every((item) => typeof item === 'string')
     || !grant.quotas
