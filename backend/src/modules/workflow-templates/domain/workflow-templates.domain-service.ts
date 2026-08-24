@@ -1192,67 +1192,105 @@ async function evaluateJsonata(
   location?: { step: string; output: string },
 ): Promise<unknown> {
   return await new Promise<unknown>((resolve, reject) => {
-    let worker: Worker | undefined;
+    type WorkerPhase = 'waiting_ready' | 'waiting_started' | 'executing' | 'finished';
+
     let settled = false;
+    let phase: WorkerPhase = 'waiting_ready';
     let startupTimeout: NodeJS.Timeout | undefined;
     let executionTimeout: NodeJS.Timeout | undefined;
     let currentWorker: Worker | undefined;
-    const handleMessage = (message: JsonataWorkerMessage): void => {
-      if (message.type === 'ready') {
-        clearTimeout(startupTimeout);
-        try {
-          currentWorker?.postMessage({ type: 'start' });
-        } catch (error) {
-          void finish(() => reject(error));
-        }
-        return;
-      }
-      if (message.type === 'started') {
-        executionTimeout = setTimeout(() => {
-          void finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', { timeoutMs })));
-        }, timeoutMs);
-        return;
-      }
-      void finish(() => {
-        if (message.ok) resolve(message.value);
-        else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, message: message.message }));
-      });
-    };
+    let handleMessage: (message: JsonataWorkerMessage) => void;
+    let handleError: (error: unknown) => void;
+    let handleExit: (code: number) => void;
     const finish = async (callback: () => void): Promise<void> => {
       if (settled) return;
       settled = true;
+      phase = 'finished';
       clearTimeout(startupTimeout);
       clearTimeout(executionTimeout);
       currentWorker?.off('message', handleMessage);
+      currentWorker?.off('error', handleError);
+      currentWorker?.off('exit', handleExit);
       try {
-        await worker?.terminate();
+        await currentWorker?.terminate();
+      } catch {
+        // 结算结果优先于终止清理；Worker 已经不可用时不再覆盖原始错误。
       } finally {
         callback();
       }
     };
+    const settle = (callback: () => void): void => {
+      finish(callback).catch((error: unknown) => reject(error));
+    };
+    const failProtocol = (message: string): void => {
+      settle(() => reject(new AppError('VALIDATION_FAILED', 'JSONata Worker 协议无效', { ...location, message })));
+    };
+
+    handleMessage = (message: JsonataWorkerMessage): void => {
+      if (!isJsonataWorkerMessage(message)) {
+        failProtocol('收到未知消息');
+        return;
+      }
+      if (message.type === 'ready') {
+        if (phase !== 'waiting_ready') {
+          failProtocol(`ready 消息不符合当前阶段：${phase}`);
+          return;
+        }
+        phase = 'waiting_started';
+        try {
+          currentWorker?.postMessage({ type: 'start' });
+        } catch (error) {
+          settle(() => reject(error));
+        }
+        return;
+      }
+      if (message.type === 'started') {
+        if (phase !== 'waiting_started') {
+          failProtocol(`started 消息不符合当前阶段：${phase}`);
+          return;
+        }
+        clearTimeout(startupTimeout);
+        phase = 'executing';
+        executionTimeout = setTimeout(() => {
+          settle(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', { timeoutMs })));
+        }, timeoutMs);
+        return;
+      }
+      if (phase !== 'executing') {
+        failProtocol(`result 消息不符合当前阶段：${phase}`);
+        return;
+      }
+      settle(() => {
+        if (message.ok) resolve(message.value);
+        else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, message: message.message }));
+      });
+    };
+    handleError = (error: unknown): void => {
+      settle(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', {
+        ...location,
+        message: error instanceof Error ? error.message : String(error),
+      })));
+    };
+    handleExit = (code: number): void => {
+      if (settled) return;
+      settle(() => reject(new AppError('VALIDATION_FAILED', 'JSONata Worker 未返回结果即退出', { ...location, code, phase })));
+    };
+
     startupTimeout = setTimeout(() => {
-      void finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata Worker 启动超时', {
+      settle(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata Worker 启动超时', {
         timeoutMs: jsonataWorkerStartupTimeoutMs,
         phase: 'worker_startup',
       })));
     }, jsonataWorkerStartupTimeoutMs);
     try {
-      worker = createJsonataWorker({ expression, input });
+      const worker = createJsonataWorker({ expression, input });
+      currentWorker = worker;
+      worker.on('message', handleMessage);
+      worker.on('error', handleError);
+      worker.on('exit', handleExit);
     } catch (error) {
-      void finish(() => reject(error));
-      return;
+      settle(() => reject(error));
     }
-    currentWorker = worker;
-    currentWorker.on('message', handleMessage);
-    currentWorker.once('error', (error) => {
-      void finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', {
-        ...location,
-        message: error instanceof Error ? error.message : String(error),
-      })));
-    });
-    currentWorker.once('exit', (code) => {
-      if (code !== 0) void finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, code })));
-    });
   });
 }
 
@@ -1270,6 +1308,12 @@ type JsonataWorkerMessage =
   | { type: 'started' }
   | { type: 'result'; ok: true; value: unknown }
   | { type: 'result'; ok: false; message: string };
+
+function isJsonataWorkerMessage(value: unknown): value is JsonataWorkerMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') return false;
+  if (value.type === 'ready' || value.type === 'started') return true;
+  return value.type === 'result' && typeof value.ok === 'boolean' && (value.ok || typeof value.message === 'string');
+}
 
 function assertJsonataExpressionSafe(expression: string): void {
   if (expression.length > 4096) throw new AppError('VALIDATION_FAILED', 'JSONata 表达式过长');

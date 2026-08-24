@@ -13,9 +13,12 @@ if (!parentPort) throw new Error('JSONata Worker 缺少 parentPort');
 const port = parentPort;
 port.postMessage({ type: 'ready' });
 await new Promise<void>((resolve) => {
-  port.once('message', (message: { type?: string }) => {
-    if (message?.type === 'start') resolve();
-  });
+  const handleMessage = (message: { type?: string }) => {
+    if (message?.type !== 'start') return;
+    port.off('message', handleMessage);
+    resolve();
+  };
+  port.on('message', handleMessage);
 });
 port.postMessage({ type: 'started' });
 
