@@ -28,7 +28,7 @@ describe('数据库端口和迁移执行器', { concurrency: false }, () => {
 
   it('迁移会写入 schema_migrations 和 schema_version_state', async () => {
     const db = new PgliteDatabase();
-    await runMigrations(db, undefined, {
+    const applied = await runMigrations(db, undefined, {
       appliedBy: 'tester',
       checksum: (content) => createHash('sha256').update(content).digest('hex'),
     });
@@ -37,7 +37,7 @@ describe('数据库端口和迁移执行器', { concurrency: false }, () => {
     const currentVersion = await scalar<string>(db, "select current_version from schema_version_state where id = 'current'");
 
     assert.equal(migrationCount > 0, true);
-    assert.equal(currentVersion, '20260703000100');
+    assert.equal(currentVersion, applied.at(-1)?.version);
   });
 
   it('旧版 ServiceAsset 迁移状态可以继续追加 platform 和 agent_id 字段', async () => {
