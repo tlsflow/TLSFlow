@@ -102,7 +102,7 @@ function canvasFixture() {
     },
     nodes: [
       { id: 'http_1', type: 'http' as const, config: { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', timeoutSeconds: 30 }, ui: { stage: 'prepare' } },
-      { id: 'ssh_1', type: 'ssh' as const, config: { connectionRef: 'targetSsh', command: 'true', timeoutSeconds: 30 }, ui: { stage: 'backup' } },
+      { id: 'ssh_1', type: 'ssh' as const, config: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutSeconds: 30 }, ui: { stage: 'backup' } },
       { id: 'sftp_1', type: 'sftp' as const, config: { direction: 'upload', connectionRef: 'targetSsh', remotePath: '/tmp/cert.pem', contentRef: '{{artifacts.serverCert.outputs.certFile.content}}', timeoutSeconds: 30 }, ui: { stage: 'install' } },
       { id: 'scp_1', type: 'scp' as const, config: { direction: 'upload', connectionRef: 'targetSsh', remotePath: '/tmp/key.pem', contentRef: '{{artifacts.serverCert.outputs.keyFile.content}}', timeoutSeconds: 30 }, ui: { stage: 'install' } },
       { id: 'verify_1', type: 'verify' as const, config: { verifyType: 'httpStatus', connectionRef: 'management', inputRef: '{{variables.verifyUrl}}', expected: '200', timeoutSeconds: 30 }, ui: { stage: 'verify' } },

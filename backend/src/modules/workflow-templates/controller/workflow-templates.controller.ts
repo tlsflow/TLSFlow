@@ -1,6 +1,5 @@
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
-import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import {
@@ -41,20 +40,18 @@ export class WorkflowTemplatesController {
     router.get('/api/v1/workflow-execution-bindings/:bindingId', '读取工作流执行绑定', tag, async (request) => this.getExecutionBinding(request));
     router.post('/api/v1/workflows/from-plugin', '从插件能力创建工作流', tag, async (request) => this.createWorkflowFromPlugin(request));
     router.post('/api/v1/workflows/:workflowId/drafts/from-plugin', '从插件能力生成工作流草稿', tag, async (request) => this.createWorkflowDraftFromPlugin(request));
-    // 兼容旧客户端；正式工作流列表统一使用 /api/v1/workflows。
-    router.get('/api/v1/workflow-templates', '兼容：列出工作流模板', tag, async (request) => this.listTemplates(request));
-    router.post('/api/v1/workflow-templates/rename', '修改工作流名称', tag, async (request) => this.renameTemplate(request));
-    router.post('/api/v1/workflow-templates/canvas/compile', '后端编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
-    router.post('/api/v1/workflow-templates/canvas/validate', '后端校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
-    router.post('/api/v1/workflow-templates/delete', '删除工作流模板', tag, async (request) => this.deleteTemplate(request));
-    router.get('/api/v1/workflow-template-versions', '列出模板版本', tag, async (request) => this.listVersions(request));
-    router.post('/api/v1/workflow-template-versions', '创建不可变模板版本', tag, async (request) => this.createDraftVersion(request));
-    router.post('/api/v1/workflow-template-versions/draft', '更新当前草稿版本', tag, async (request) => this.updateCurrentDraftVersion(request));
-    router.post('/api/v1/workflow-template-versions/note', '更新模板版本备注', tag, async (request) => this.updateVersionNote(request));
-    router.post('/api/v1/workflow-template-versions/publish', '发布模板版本', tag, async (request) => this.publishVersion(request));
-    router.post('/api/v1/workflow-template-runs/preview', '渲染模板预览', tag, async (request) => this.preview(request));
-    router.post('/api/v1/workflow-template-runs/test', '执行模板测试运行计划', tag, async (request) => this.testRun(request));
-    router.post('/api/v1/workflow-template-runs/test-step', '执行单节点测试运行', tag, async (request) => this.testStep(request));
+    router.patch('/api/v1/workflows/:workflowId', '修改工作流名称', tag, async (request) => this.renameWorkflow(request));
+    router.post('/api/v1/workflows/canvas/compile', '编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
+    router.post('/api/v1/workflows/canvas/validate', '校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
+    router.delete('/api/v1/workflows/:workflowId', '停用工作流', tag, async (request) => this.deleteWorkflow(request));
+    router.get('/api/v1/workflows/:workflowId/versions', '列出工作流版本', tag, async (request) => this.listVersions(request));
+    router.post('/api/v1/workflows/:workflowId/versions', '创建工作流草稿版本', tag, async (request) => this.createDraftVersion(request));
+    router.patch('/api/v1/workflows/:workflowId/draft', '更新工作流当前草稿', tag, async (request) => this.updateCurrentDraftVersion(request));
+    router.patch('/api/v1/workflows/versions/:versionId', '更新工作流版本备注', tag, async (request) => this.updateVersionNote(request));
+    router.post('/api/v1/workflows/versions/:versionId/publish', '发布工作流版本', tag, async (request) => this.publishVersion(request));
+    router.post('/api/v1/workflows/runs/preview', '渲染工作流预览', tag, async (request) => this.preview(request));
+    router.post('/api/v1/workflows/runs/test', '执行工作流测试运行计划', tag, async (request) => this.testRun(request));
+    router.post('/api/v1/workflows/runs/test-step', '执行工作流单节点测试', tag, async (request) => this.testStep(request));
   }
 
   private requirePluginSources(): PluginWorkflowSourceService {
@@ -71,13 +68,6 @@ export class WorkflowTemplatesController {
     return this.service;
   }
 
-  private async listTemplates(request: HttpRequest) {
-    const security = requireRouteSecurity(request, this.security);
-    await assertRouteAction(security, 'workflow.read', 'workflow');
-    const items = await this.service.listTemplates();
-    return { statusCode: 200, body: { items: await this.filterWorkflowItems(security, items) } };
-  }
-
   private async listWorkflows(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'workflow.read', 'workflow');
@@ -88,24 +78,15 @@ export class WorkflowTemplatesController {
   private async listVersions(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'workflow.read', 'workflow');
-    const templateId = String(request.query.templateId ?? '');
-    let requestedTemplate:
-      | Awaited<ReturnType<WorkflowTemplatesController['requireWorkflowTemplate']>>
-      | undefined;
-    if (templateId) {
-      requestedTemplate = await this.requireWorkflowTemplate(templateId);
-      await assertRouteObjectAccess(security, 'read', {
-        objectType: 'workflow',
-        objectId: requestedTemplate.id,
-        ...this.workflowOwnership(requestedTemplate),
-      });
-    }
+    const templateId = workflowIdFromPath(request, 'versions');
+    const requestedTemplate = await this.requireWorkflowTemplate(templateId);
+    await assertRouteObjectAccess(security, 'read', {
+      objectType: 'workflow',
+      objectId: requestedTemplate.id,
+      ...this.workflowOwnership(requestedTemplate),
+    });
     const items = await this.service.listVersions(templateId);
-    const ownershipByTemplateId = requestedTemplate
-      ? new Map([[requestedTemplate.id, this.workflowOwnership(requestedTemplate)] as const])
-      : new Map(
-        (await this.service.listTemplates()).map((template) => [template.id, this.workflowOwnership(template)] as const),
-      );
+    const ownershipByTemplateId = new Map([[requestedTemplate.id, this.workflowOwnership(requestedTemplate)] as const]);
     return {
       statusCode: 200,
       body: {
@@ -167,17 +148,20 @@ export class WorkflowTemplatesController {
     return { statusCode: 201, body: await this.requirePluginSources().createDraft(security.tenantId, { ...input, templateId }) };
   }
 
-  private async renameTemplate(request: HttpRequest) {
+  private async renameWorkflow(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const input = request.body as RenameWorkflowTemplateInput;
+    const input = {
+      templateId: workflowIdFromPath(request),
+      name: String((request.body as { name?: unknown }).name ?? ''),
+    } satisfies RenameWorkflowTemplateInput;
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
     await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 200, body: await this.service.renameTemplate(input) };
   }
 
-  private async deleteTemplate(request: HttpRequest) {
+  private async deleteWorkflow(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const templateId = String((request.body as { id?: string }).id ?? '');
+    const templateId = workflowIdFromPath(request);
     await assertRouteAction(security, 'workflow.delete', 'workflow', { resourceId: templateId });
     await this.assertWorkflowTemplateAccess(security, 'control', templateId);
     return { statusCode: 200, body: await this.service.disableTemplate(templateId) };
@@ -185,7 +169,7 @@ export class WorkflowTemplatesController {
 
   private async createDraftVersion(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const input = request.body as UpdateWorkflowTemplateInput;
+    const input = { ...(request.body as UpdateWorkflowTemplateInput), templateId: workflowIdFromPath(request, 'versions') };
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
     await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 201, body: await this.service.createDraftVersion(input) };
@@ -193,7 +177,7 @@ export class WorkflowTemplatesController {
 
   private async updateCurrentDraftVersion(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const input = request.body as UpdateWorkflowTemplateInput;
+    const input = { ...(request.body as UpdateWorkflowTemplateInput), templateId: workflowIdFromPath(request, 'draft') };
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
     await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 200, body: await this.service.updateCurrentDraftVersion(input) };
@@ -201,7 +185,10 @@ export class WorkflowTemplatesController {
 
   private async updateVersionNote(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const input = request.body as UpdateWorkflowTemplateVersionNoteInput;
+    const input = {
+      versionId: versionIdFromPath(request),
+      changeSummary: String((request.body as { changeSummary?: unknown }).changeSummary ?? ''),
+    } satisfies UpdateWorkflowTemplateVersionNoteInput;
     const version = await this.service.getVersion(input.versionId);
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: version.templateId });
     await this.assertWorkflowTemplateAccess(security, 'edit', version.templateId);
@@ -210,7 +197,7 @@ export class WorkflowTemplatesController {
 
   private async publishVersion(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const versionId = (request.body as { versionId: string }).versionId;
+    const versionId = versionIdFromPath(request, 'publish');
     const version = await this.service.getVersion(versionId);
     await assertRouteAction(security, 'workflow.publish', 'workflow', { resourceId: version.templateId });
     await this.assertWorkflowTemplateAccess(security, 'control', version.templateId);
@@ -310,10 +297,6 @@ export class WorkflowTemplatesController {
   }
 }
 
-function tenantId(request: HttpRequest): string {
-  return requireTenantId(request);
-}
-
 function readOptionalString(value: object, key: string): string | undefined {
   const current = (value as Record<string, unknown>)[key];
   return typeof current === 'string' && current.trim() ? current : undefined;
@@ -332,18 +315,31 @@ export function getWorkflowTemplateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/workflow-execution-bindings/:bindingId', operationId: 'getWorkflowExecutionBinding', summary: '读取工作流执行绑定', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflows/from-plugin', operationId: 'createWorkflowFromPlugin', summary: '从插件能力创建工作流', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflows/:workflowId/drafts/from-plugin', operationId: 'createWorkflowDraftFromPlugin', summary: '从插件能力生成工作流草稿', tags: tag, responseSchema: objectSchema },
-    { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '兼容：列出工作流模板', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-templates/rename', operationId: 'renameWorkflowTemplate', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-templates/canvas/compile', operationId: 'compileWorkflowCanvas', summary: '后端编译工作流画布', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-templates/canvas/validate', operationId: 'validateWorkflowCanvas', summary: '后端校验工作流画布', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-templates/delete', operationId: 'deleteWorkflowTemplate', summary: '删除工作流模板', tags: tag, responseSchema: objectSchema },
-    { method: 'GET', path: '/api/v1/workflow-template-versions', operationId: 'listWorkflowTemplateVersions', summary: '列出模板版本', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-versions', operationId: 'createWorkflowTemplateVersion', summary: '创建不可变模板版本', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-versions/draft', operationId: 'updateCurrentWorkflowTemplateDraftVersion', summary: '更新当前草稿版本', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-versions/note', operationId: 'updateWorkflowTemplateVersionNote', summary: '更新模板版本备注', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-versions/publish', operationId: 'publishWorkflowTemplateVersion', summary: '发布模板版本', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-runs/preview', operationId: 'previewWorkflowTemplateRun', summary: '渲染模板预览', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-runs/test', operationId: 'testWorkflowTemplateRun', summary: '执行模板测试运行计划', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-template-runs/test-step', operationId: 'testWorkflowTemplateStep', summary: '执行单节点测试运行', tags: tag, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/workflows/:workflowId', operationId: 'renameWorkflow', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/canvas/compile', operationId: 'compileWorkflowCanvas', summary: '编译工作流画布', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/canvas/validate', operationId: 'validateWorkflowCanvas', summary: '校验工作流画布', tags: tag, responseSchema: objectSchema },
+    { method: 'DELETE', path: '/api/v1/workflows/:workflowId', operationId: 'deleteWorkflow', summary: '停用工作流', tags: tag, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/workflows/:workflowId/versions', operationId: 'listWorkflowVersions', summary: '列出工作流版本', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/:workflowId/versions', operationId: 'createWorkflowDraftVersion', summary: '创建工作流草稿版本', tags: tag, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/workflows/:workflowId/draft', operationId: 'updateCurrentWorkflowDraftVersion', summary: '更新工作流当前草稿', tags: tag, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/workflows/versions/:versionId', operationId: 'updateWorkflowVersionNote', summary: '更新工作流版本备注', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/versions/:versionId/publish', operationId: 'publishWorkflowVersion', summary: '发布工作流版本', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/runs/preview', operationId: 'previewWorkflowRun', summary: '渲染工作流预览', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/runs/test', operationId: 'testWorkflowRun', summary: '执行工作流测试运行计划', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/runs/test-step', operationId: 'testWorkflowStep', summary: '执行工作流单节点测试', tags: tag, responseSchema: objectSchema },
   ];
+}
+
+function workflowIdFromPath(request: HttpRequest, suffix?: string): string {
+  const ending = suffix ? `/${suffix}` : '';
+  const match = request.path.match(new RegExp(`^/api/v1/workflows/([^/]+)${ending}$`));
+  if (!match?.[1]) throw new Error('工作流路径无效');
+  return decodeURIComponent(match[1]);
+}
+
+function versionIdFromPath(request: HttpRequest, suffix?: string): string {
+  const ending = suffix ? `/${suffix}` : '';
+  const match = request.path.match(new RegExp(`^/api/v1/workflows/versions/([^/]+)${ending}$`));
+  if (!match?.[1]) throw new Error('工作流版本路径无效');
+  return decodeURIComponent(match[1]);
 }

@@ -138,9 +138,9 @@ function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId:
     ...direct,
     idempotencyKey: `workflow-step:${runId}:${stepName}:ssh:${attempt}`,
     connection: ((directRequest?.connection ?? connection) as unknown as SSHExecutionRequest['connection']),
-    command: asString(plan?.command) ?? direct?.command,
-    commands: asStringArray(plan?.commands) ?? direct?.commands,
-    script: asString(plan?.script) ?? direct?.script,
+    program: asString(plan?.program) as SSHExecutionRequest['program'] ?? direct?.program,
+    args: asStringArray(plan?.args) ?? direct?.args,
+    argumentTemplate: asString(plan?.argumentTemplate) as SSHExecutionRequest['argumentTemplate'] ?? direct?.argumentTemplate,
     timeoutMs: typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : direct?.timeoutMs,
     dryRun: false,
   };

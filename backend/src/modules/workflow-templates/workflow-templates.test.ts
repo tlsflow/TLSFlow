@@ -1,17 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { readFile } from 'node:fs/promises';
 import { App } from '../../common/http/app.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import { securityErrors } from '../../shared/security-error.js';
 import { AppError } from '../../common/errors/app-error.js';
-import { PgliteDatabase } from '../../database/pglite-database.js';
-import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
-import { computeWorkflowContentHash, WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
-import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
+import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
+import type { WorkflowDslV1, WorkflowRunProgress } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../plugins/repository/plugin-workflow-bindings.repository.js';
@@ -165,9 +162,10 @@ function templateFixture(): WorkflowDslV1 {
         type: 'ssh',
         when: { variable: 'variables.shouldUpload', equals: true },
         ssh: {
-          mode: 'command',
           connectionRef: 'targetSsh',
-          command: 'reload cert {{steps.upload.extracted.remoteFingerprint}}',
+          program: 'systemctl',
+          args: ['service-main'],
+          argumentTemplate: 'systemctl.reload',
         },
         assert: [{ type: 'contains', value: 'ok' }],
       },
@@ -179,9 +177,10 @@ function templateFixture(): WorkflowDslV1 {
         name: 'restoreOldCert',
         type: 'ssh',
         ssh: {
-          mode: 'script',
           connectionRef: 'targetSsh',
-          script: 'restore previous-cert',
+          program: 'systemctl',
+          args: ['service-main'],
+          argumentTemplate: 'systemctl.restart',
         },
       },
     ],
@@ -269,6 +268,34 @@ describe('WorkflowTemplates', () => {
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFirstOf), /paths/);
   });
 
+  it('拒绝 SSH Shell、CMD、PowerShell、脚本、下载后执行和参数模板越权', () => {
+    for (const legacyField of [
+      { mode: 'command', connectionRef: 'targetSsh', command: 'sh -c id' },
+      { mode: 'command', connectionRef: 'targetSsh', commands: ['cmd /c whoami'] },
+      { mode: 'script', connectionRef: 'targetSsh', script: 'powershell -File payload.ps1' },
+      { mode: 'interactive', connectionRef: 'targetSsh', dialogue: [{ expect: '$', send: 'bash' }] },
+    ]) {
+      const content = templateFixture();
+      content.steps[1] = { name: 'unsafe', type: 'ssh', ssh: legacyField } as never;
+      assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /未知字段|program|args|argumentTemplate/);
+    }
+
+    const downloadThenExecute = templateFixture();
+    downloadThenExecute.steps = [
+      { name: 'download', type: 'sftp', sftp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/payload.sh', localPath: '/tmp/payload.sh' } },
+      { name: 'execute', type: 'ssh', ssh: { connectionRef: 'targetSsh', program: 'sh', args: ['-c', '/tmp/payload.sh'], argumentTemplate: 'systemctl.reload' } as never },
+    ];
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(downloadThenExecute), /白名单|不支持|匹配|参数/);
+
+    const privilegeEscalation = templateFixture();
+    privilegeEscalation.steps[1] = {
+      name: 'unsafe_template',
+      type: 'ssh',
+      ssh: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.stop' },
+    } as never;
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(privilegeEscalation), /argumentTemplate|模板|白名单/);
+  });
+
   it('拒绝把 Credential 和 Certificate 继续声明为普通变量', () => {
     for (const legacyType of ['credential', 'certificate']) {
       const content = templateFixture();
@@ -319,7 +346,7 @@ describe('WorkflowTemplates', () => {
   });
 
   it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
-    const service = new WorkflowTemplatesApplicationService();
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository([]));
     const created = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
     const changed = templateFixture();
     changed.metadata.displayName = '第二版';
@@ -372,95 +399,54 @@ describe('WorkflowTemplates', () => {
     assert.equal(clonedDraft.contentHash, created.version.contentHash);
   });
 
-  it('显式克隆历史版本时保留旧 DSL 字段，不重新用当前 Schema 拒绝历史内容', async () => {
-    const db = new PgliteDatabase();
-    const templatesRepository = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
-    const versionsRepository = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
-    const createdAt = '2026-08-07T00:00:00.000Z';
-    const templateId = 'wftpl_legacy_clone';
-    const versionId = 'wftplv_legacy_clone';
-    const legacyContent = {
-      ...templateFixture(),
-      legacyField: true,
-    } as unknown as WorkflowDslV1;
-    await templatesRepository.upsert({
-      id: templateId,
-      name: 'legacy-clone',
-      origin: 'user',
-      ownerType: 'TENANT',
-      tenantId: 'tenant-legacy-clone',
-      status: 'published',
-      currentVersionId: versionId,
-      createdAt,
-      updatedAt: createdAt,
-    });
-    await versionsRepository.upsert({
-      id: versionId,
-      templateId,
-      version: 1,
-      dslVersion: 'v1',
-      content: legacyContent,
-      contentHash: computeWorkflowContentHash(legacyContent),
-      status: 'published',
-      createdAt,
-    });
+  it('版本草稿只接受当前 Workflow 合同，拒绝旧 DSL 字段', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const created = await service.createTemplate({ content: templateFixture() });
+    const legacyContent = { ...templateFixture(), legacyField: true } as unknown as WorkflowDslV1;
 
-    const service = new WorkflowTemplatesApplicationService(new WorkflowTemplatesDomainService(templatesRepository, versionsRepository));
-    const clonedDraft = await service.createDraftVersion({
-      templateId,
+    await assert.rejects(() => service.createDraftVersion({
+      templateId: created.template.id,
       content: legacyContent,
-      changeSummary: '克隆历史版本',
       allowDuplicateContent: true,
-    });
-
-    assert.equal(clonedDraft.version, 2);
-    assert.equal((clonedDraft.content as unknown as { legacyField?: boolean }).legacyField, true);
+    }), /未知字段/);
   });
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
-    const app = new App({ allowLegacyHeaderContext: true });
-    const service = new WorkflowTemplatesApplicationService();
+    const app = authenticatedWorkflowApp();
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository([]));
     new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
 
-    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers: workflowHeaders() });
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers: workflowHeaders() });
     assert.equal(templates.statusCode, 200);
     const templatePage = templates.body as { items: unknown };
     assert.equal(Array.isArray(templatePage.items), true);
     assert.equal((templatePage.items as Array<{ id: string }>).some((item) => item.id === createdBody.template.id), true);
     assert.equal((templatePage.items as Array<{ id: string; currentVersionLabel?: string }>).find((item) => item.id === createdBody.template.id)?.currentVersionLabel, 'V1');
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflows/${createdBody.template.id}/versions`, headers: workflowHeaders() });
     assert.equal(versions.statusCode, 200);
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
   it('正式工作流列表同时返回用户和插件内置来源，插件草稿目标仍只允许用户工作流', async () => {
-    const app = new App({ allowLegacyHeaderContext: true });
+    const app = authenticatedWorkflowApp();
     const headers = { 'x-tenant-id': 'tenant_workflow_test', 'x-actor-id': 'user_workflow_test' };
     const currentBindings: PluginWorkflowBindingRecord[] = [];
     const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository(currentBindings));
     new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
 
-    const legacy = await service.createTemplate({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } });
     const current = await service.createWorkflow({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-workflow' } } });
-    const derived = await service.createPluginDerivedWorkflow({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'derived-workflow' } } });
-    const legacyId = legacy.template.id;
     const currentId = current.template.id;
-    const derivedId = derived.template.id;
     assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflow-templates', body: {} })).statusCode, 404);
     assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflows', body: {} })).statusCode, 404);
 
-    const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers });
+    const removedList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers });
     const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers });
-    const compatibilityIds = (compatibilityList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
     const workflowIds = (workflowList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
 
-    assert.equal(compatibilityIds.includes(legacyId), true);
-    assert.equal(compatibilityIds.includes(currentId), true);
-    assert.equal(workflowIds.includes(legacyId), true);
+    assert.equal(removedList.statusCode, 404);
     assert.equal(workflowIds.includes(currentId), true);
-    assert.equal(workflowIds.includes(derivedId), true);
 
     const pluginWorkflow = await service.createPluginTemplate({
       content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow', version: '1.2.6' } },
@@ -530,7 +516,7 @@ describe('WorkflowTemplates', () => {
     });
     const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers });
     const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string; capabilities?: string[]; currentVersionLabel?: string }> }).items;
-    const mergedPluginRows = workflowItemsWithPlugin.filter((item) => item.origin === 'plugin_internal' && item.id !== legacyId && item.id !== currentId && item.id !== derivedId);
+    const mergedPluginRows = workflowItemsWithPlugin.filter((item) => item.origin === 'plugin_internal' && item.id !== currentId);
     assert.equal(mergedPluginRows.length, 2);
     const deployRow = mergedPluginRows.find((item) => item.capabilities?.includes('certificate.deploy'));
     const connectionRow = mergedPluginRows.find((item) => item.capabilities?.includes('device.connection.test'));
@@ -540,25 +526,24 @@ describe('WorkflowTemplates', () => {
     assert.equal(deployRow.currentVersionLabel, '1.2.6');
     const mergedVersions = await service.listVersions(deployRow.id);
     assert.deepEqual(mergedVersions.map((version) => version.content.metadata.version), ['1.2.6', '1.2.4']);
-    assert.equal(workflowItemsWithPlugin.some((item) => item.id === legacyId), true);
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {
-    const app = new App({ allowLegacyHeaderContext: true });
-    const service = new WorkflowTemplatesApplicationService();
+    const app = authenticatedWorkflowApp();
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository([]));
     new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const renamed = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates/rename',
+      method: 'PATCH',
+      path: `/api/v1/workflows/${createdBody.template.id}`,
       headers: workflowHeaders(),
-      body: { templateId: createdBody.template.id, name: '  edge-cert-renamed  ' },
+      body: { name: '  edge-cert-renamed  ' },
     });
     assert.equal(renamed.statusCode, 200);
     assert.equal((renamed.body as { name: string }).name, 'edge-cert-renamed');
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflows/${createdBody.template.id}/versions`, headers: workflowHeaders() });
     const version = (versions.body as { items: Array<{ id: string; contentHash: string; content: WorkflowDslV1 }> }).items[0];
     assert.equal(version?.id, createdBody.version.id);
     assert.equal(version?.contentHash, createdBody.version.contentHash);
@@ -566,45 +551,44 @@ describe('WorkflowTemplates', () => {
   });
 
   it('HTTP 版本备注接口只更新备注，不改写版本内容', async () => {
-    const app = new App({ allowLegacyHeaderContext: true });
-    const service = new WorkflowTemplatesApplicationService();
+    const app = authenticatedWorkflowApp();
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository([]));
     new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const noted = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-template-versions/note',
+      method: 'PATCH',
+      path: `/api/v1/workflows/versions/${createdBody.version.id}`,
       headers: workflowHeaders(),
-      body: { versionId: createdBody.version.id, changeSummary: '补充发布备注' },
+      body: { changeSummary: '补充发布备注' },
     });
     assert.equal(noted.statusCode, 200);
     assert.equal((noted.body as { changeSummary?: string }).changeSummary, '补充发布备注');
     assert.equal((noted.body as { contentHash: string }).contentHash, createdBody.version.contentHash);
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflows/${createdBody.template.id}/versions`, headers: workflowHeaders() });
     assert.equal((versions.body as { items: Array<{ changeSummary?: string }> }).items[0]?.changeSummary, '补充发布备注');
   });
 
   it('HTTP 删除接口会禁用模板和版本，并让列表不再返回该记录', async () => {
-    const app = new App({ allowLegacyHeaderContext: true });
-    const service = new WorkflowTemplatesApplicationService();
+    const app = authenticatedWorkflowApp();
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository([]));
     new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const deleted = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates/delete',
+      method: 'DELETE',
+      path: `/api/v1/workflows/${createdBody.template.id}`,
       headers: workflowHeaders(),
-      body: { id: createdBody.template.id },
     });
     assert.equal(deleted.statusCode, 200);
     assert.equal((deleted.body as { status: string }).status, 'disabled');
 
-    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers: workflowHeaders() });
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers: workflowHeaders() });
     assert.equal(templates.statusCode, 200);
     assert.equal((templates.body as { items: Array<{ id: string }> }).items.some((item) => item.id === createdBody.template.id), false);
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflows/${createdBody.template.id}/versions`, headers: workflowHeaders() });
     assert.equal(versions.statusCode, 200);
     assert.equal((versions.body as { items: Array<{ status: string }> }).items.every((item) => item.status === 'disabled'), true);
   });
@@ -755,9 +739,10 @@ describe('WorkflowTemplates', () => {
           type: 'ssh',
           stage: 'refresh',
           ssh: {
-            mode: 'command',
             connectionRef: 'targetSsh',
-            command: 'echo {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.output.body.token}}',
+            program: 'systemctl',
+            args: ['service-main'],
+            argumentTemplate: 'systemctl.reload',
           },
         },
       ],
@@ -782,7 +767,7 @@ describe('WorkflowTemplates', () => {
         };
       }
       if (step.name === 'reload_with_token') {
-        renderedSshCommand = (renderedPlan as { command?: string }).command ?? '';
+        renderedSshCommand = (renderedPlan as { args?: string[] }).args?.join(' ') ?? '';
         return {
           success: true,
           exitCode: 0,
@@ -799,7 +784,7 @@ describe('WorkflowTemplates', () => {
     const visibleProgress = JSON.stringify(progressSnapshots);
 
     assert.equal(run.status, 'success');
-    assert.equal(renderedSshCommand, 'echo runtime-token-secret runtime-token-secret runtime-token-secret');
+    assert.equal(renderedSshCommand, 'service-main');
     assert.equal(run.stepResults[0]!.extracted.accessToken, '[REDACTED]');
     assert.equal(progressSnapshots.length, 6);
     assert.deepEqual(progressSnapshots[0]!.steps.map((step) => step.status), ['queued', 'queued']);
@@ -1188,7 +1173,7 @@ describe('WorkflowTemplates', () => {
     content.steps = [
       { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
       { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { connectionRef: 'management', method: 'GET', url: 'https://{{variables.deviceHost}}/login' } },
-      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connectionRef: 'targetSsh', commands: ['echo one', 'echo two'] } },
+      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload' } },
     ];
     content.rollback = undefined;
     const { version } = await service.createTemplate({ content });
@@ -1199,7 +1184,7 @@ describe('WorkflowTemplates', () => {
 
     assert.deepEqual(run.stepResults.map((step) => step.name), ['prepareSecondInArray', 'refreshThirdInArray', 'verifyFirstInArray']);
     assert.deepEqual(run.stepResults.map((step) => step.stage), ['prepare', 'refresh', 'verify']);
-    assert.deepEqual((run.stepResults[1]!.plan as { commands: string[] }).commands, ['echo one', 'echo two']);
+    assert.deepEqual((run.stepResults[1]!.plan as { args: string[] }).args, ['service-main']);
   });
 
   it('HTTP 和 SSH step adapter 只生成 017/015 请求形状，不访问真实网络或 SSH', async () => {
@@ -1298,12 +1283,12 @@ describe('WorkflowTemplates', () => {
       metadata: { name: 'connection-ref-runtime' },
       inputContract: workflowInputContract(),
       steps: [
-        { name: 'sshStep', type: 'ssh', stage: 'prepare', ssh: { mode: 'command', connectionRef: 'targetSsh', command: 'echo ok' } },
+        { name: 'sshStep', type: 'ssh', stage: 'prepare', ssh: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload' } },
         { name: 'sftpStep', type: 'sftp', stage: 'install', sftp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/a', localPath: '/tmp/local-a' } },
         { name: 'scpStep', type: 'scp', stage: 'install', scp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/b', localPath: '/tmp/local-b' } },
       ],
       rollback: [
-        { name: 'rollbackStep', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connectionRef: 'targetSsh', command: 'echo rollback' } },
+        { name: 'rollbackStep', type: 'ssh', stage: 'refresh', ssh: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.restart' } },
       ],
     };
     const input = {
@@ -1631,101 +1616,6 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.testRun(runtimeInput(version.id)), /JSONata 转换执行超时/);
   });
 
-  it('Synology DSM 模板不要求手工填写证书 ID 和服务绑定 JSON', async () => {
-    const raw = await readFile('src/modules/workflow-templates/builtin-workflows/synology-dsm-cert-import.json', 'utf8');
-    const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(raw));
-    assert.equal(content.inputContract.variables.previousCertificateId?.required, false);
-    assert.equal(content.inputContract.variables.newCertificateId?.required, false);
-    assert.equal(content.inputContract.variables.serviceBindingsJson?.required, false);
-    assert.equal(content.inputContract.variables.allowInsecureTls?.type, 'boolean');
-    assert.equal(content.inputContract.variables.allowInsecureTls?.required, true);
-    assert.equal(content.inputContract.variables.allowInsecureTls?.configurationMode, 'required');
-    assert.equal(content.inputContract.variables.allowInsecureTls?.bindingPolicy, 'required_binding');
-    assert.equal(content.inputContract.variables.allowInsecureTls?.descriptionKey, 'deploymentInputs.allowInsecureTls.description');
-    assert.deepEqual(content.inputContract.variables.allowInsecureTls?.ui, {
-      labelKey: 'deploymentInputs.allowInsecureTls.label',
-      group: 'security',
-      order: 10,
-      helpKey: 'deploymentInputs.allowInsecureTls.help',
-    });
-    const synologyTransforms = content.steps
-      .filter((step) => step.type === 'transform')
-      .map((step) => step.transform.timeoutMs);
-    assert.deepEqual(synologyTransforms, [1000, 1000]);
-
-    const service = new WorkflowTemplatesApplicationService();
-    const { version } = await service.createTemplate({ content });
-    const run = await service.testRun({
-      templateVersionId: version.id,
-      mode: 'mock',
-      resolvedInput: resolvedWorkflowInput({
-        variables: {
-          deviceBaseUrl: 'https://nas.example.com:5001',
-          allowInsecureTls: true,
-          certificateDescription: 'GCAC active certificate',
-          verifyUrl: 'https://nas.example.com:5001/',
-          hostHeader: 'nas.example.com',
-        },
-        credentials: { synologyCredential: { credentialId: 'cred_synology_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_synology_login#current' } } },
-        artifacts: { serverCert: { outputs: {
-            certFile: { content: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----' },
-            keyFile: { content: '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----' },
-            chainFile: { content: '-----BEGIN CERTIFICATE-----chain-----END CERTIFICATE-----' },
-        } } },
-      }),
-      mockResponses: {
-        prepare_synology_login: { statusCode: 200, body: { success: true, data: { sid: 'sid-secret', synotoken: 'token-secret' } } },
-        list_synology_certificates_before_import: {
-          statusCode: 200,
-          body: { success: true, data: [{ id: 'old-cert', desc: 'old', is_default: true, services: ['DSM', 'WebStation'] }] },
-        },
-        install_synology_certificate_as_new_default: { statusCode: 200, body: { success: true } },
-        list_synology_certificates_after_import: {
-          statusCode: 200,
-          body: {
-            success: true,
-            data: [
-              { id: 'old-cert', desc: 'old', is_default: false, services: [] },
-              { id: 'new-cert', desc: 'GCAC active certificate', is_default: true, services: ['DSM'] },
-            ],
-          },
-        },
-        apply_synology_service_bindings: { statusCode: 200, body: { success: true } },
-        logout_synology_session: { statusCode: 200, body: { success: true } },
-        verify_synology_https: { statusCode: 200, body: 'ok' },
-      },
-    });
-
-    const applyStep = run.stepResults.find((step) => step.name === 'apply_synology_service_bindings');
-    const applyPlan = applyStep?.plan as { curlRequest: { template: { form: Record<string, string> } } } | undefined;
-    assert.equal(run.status, 'success');
-    assert.equal(applyPlan?.curlRequest.template.form.settings, JSON.stringify([
-      { service: 'DSM', old_id: 'old-cert', id: 'new-cert' },
-      { service: 'WebStation', old_id: 'old-cert', id: 'new-cert' },
-    ]));
-  });
-
-  it('所有内置证书工作流的 TLS bypass 都声明统一的用户输入字段', async () => {
-    for (const fileName of ['apache-8444-cert-switch.json', 'synology-dsm-cert-import.json']) {
-      const raw = await readFile(`src/modules/workflow-templates/builtin-workflows/${fileName}`, 'utf8');
-      const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(raw));
-      const allowInsecureTls = content.inputContract.variables.allowInsecureTls;
-      assert.equal(allowInsecureTls?.type, 'boolean', fileName);
-      assert.equal(allowInsecureTls?.required, true, fileName);
-      assert.equal(allowInsecureTls?.configurationMode, 'required', fileName);
-      assert.deepEqual(allowInsecureTls?.source, { kind: 'binding' }, fileName);
-      assert.equal(allowInsecureTls?.lifecycle, 'pre_execution', fileName);
-      assert.equal(allowInsecureTls?.bindingPolicy, 'required_binding', fileName);
-      assert.equal(allowInsecureTls?.descriptionKey, 'deploymentInputs.allowInsecureTls.description', fileName);
-      assert.deepEqual(allowInsecureTls?.ui, {
-        labelKey: 'deploymentInputs.allowInsecureTls.label',
-        group: 'security',
-        order: 10,
-        helpKey: 'deploymentInputs.allowInsecureTls.help',
-      }, fileName);
-    }
-  });
-
   it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content: templateFixture() });
@@ -1797,9 +1687,9 @@ describe('WorkflowTemplates', () => {
     const run = await service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      resolvedInput: resolvedWorkflowInput({ variables: { expectedResponseContains: 'apache test ok' } }),
+      resolvedInput: resolvedWorkflowInput({ variables: { expectedResponseContains: 'gateway test ok' } }),
       mockResponses: {
-        verify_body: { statusCode: 200, body: 'Apache test ok' },
+        verify_body: { statusCode: 200, body: 'Gateway test ok' },
       },
     });
 
@@ -2029,6 +1919,12 @@ function workflowBindingsRepository(records: PluginWorkflowBindingRecord[]): Plu
 
 function workflowHeaders(): Record<string, string> {
   return { 'x-tenant-id': 'tenant_workflow_test', 'x-actor-id': 'user_workflow_test' };
+}
+
+function authenticatedWorkflowApp(): App {
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_workflow_test', tenantId: 'tenant_workflow_test' }));
+  return app;
 }
 
 function workflowRouteSecurity(): SecurityServices {

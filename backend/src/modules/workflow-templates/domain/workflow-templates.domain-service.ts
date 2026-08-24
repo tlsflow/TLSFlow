@@ -51,6 +51,7 @@ interface RuntimeContext {
 const defaultTransformTimeoutMs = 200;
 const defaultTransformMaxInputBytes = 256 * 1024;
 const defaultTransformMaxOutputBytes = 256 * 1024;
+const jsonataWorkerStartupTimeoutMs = 30_000;
 
 export class WorkflowTemplatesDomainService {
   private static readonly defaultDb = new PgliteDatabase();
@@ -102,7 +103,7 @@ export class WorkflowTemplatesDomainService {
       content,
       'draft',
       input.changeSummary,
-      input.pluginSource ?? input.provenance,
+      input.pluginSource,
     );
     template.currentVersionId = version.id;
     this.templates.set(template.id, template);
@@ -132,13 +133,6 @@ export class WorkflowTemplatesDomainService {
     const template = await this.getTemplateOrThrow(input.templateId);
     assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
-    const existingContent = this.findExistingContentForExplicitClone(template.id, input);
-    if (existingContent) {
-      return await this.appendDraftVersion(template, existingContent, input.changeSummary, {
-        rejectDuplicateContent: false,
-        enforcePluginVersionIncrement: false,
-      });
-    }
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     return await this.appendDraftVersion(template, content, input.changeSummary, {
       rejectDuplicateContent: input.allowDuplicateContent !== true,
@@ -155,25 +149,6 @@ export class WorkflowTemplatesDomainService {
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
-  }
-
-  async promoteLegacyPluginTemplate(templateId: string): Promise<WorkflowTemplate> {
-    await this.ready;
-    const template = await this.getTemplateOrThrow(templateId);
-    const versions = this.versions.get(template.id) ?? [];
-    if (template.origin === 'user' && versions.some((version) => version.pluginSource)) {
-      throw new AppError('RESOURCE_VERSION_CONFLICT', '带有用户插件来源证据的工作流不能提升为插件内置工作流', { templateId });
-    }
-    const normalized = {
-      ...template,
-      origin: 'plugin_internal' as const,
-      ownerType: 'SYSTEM' as const,
-      ownerId: 'SYSTEM',
-      updatedAt: new Date().toISOString(),
-    };
-    this.templates.set(normalized.id, normalized);
-    await this.templatesRepository.upsert(normalized);
-    return this.withCurrentVersionSummary(normalized);
   }
 
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
@@ -321,7 +296,7 @@ export class WorkflowTemplatesDomainService {
     const context = buildRuntimeContextFromResolvedInput(input);
     const runId = `wfrun_${randomUUID()}`;
     const executionBranch = input.executionBranch ?? 'deploy';
-    const branchSteps = resolveExecutionBranch(version.content, executionBranch, input.executionBranch === undefined);
+    const branchSteps = resolveExecutionBranch(version.content, executionBranch);
     const orderedSteps = orderStepsByStage(branchSteps);
     const renderedSteps: WorkflowRenderedStep[] = [];
     const stepResults: WorkflowStepRunResult[] = [];
@@ -682,13 +657,6 @@ export class WorkflowTemplatesDomainService {
       .sort((left, right) => right.version - left.version)[0];
   }
 
-  private findExistingContentForExplicitClone(templateId: string, input: UpdateWorkflowTemplateInput): WorkflowDslV1 | undefined {
-    if (input.allowDuplicateContent !== true || !isRecord(input.content)) return undefined;
-    const contentHash = computeWorkflowContentHash(input.content as WorkflowDslV1);
-    const existing = (this.versions.get(templateId) ?? []).find((item) => item.contentHash === contentHash);
-    return existing ? clone(existing.content) : undefined;
-  }
-
   private async appendDraftVersion(
     template: WorkflowTemplate,
     content: WorkflowDslV1,
@@ -751,14 +719,6 @@ export class WorkflowTemplatesDomainService {
     }
     for (const [templateId, list] of byTemplate.entries()) {
       list.sort((a, b) => a.version - b.version);
-      const template = this.templates.get(templateId);
-      if (template?.provenance && !list.some((version) => version.pluginSource)) {
-        const current = list.find((version) => version.id === template.currentVersionId) ?? list[list.length - 1];
-        if (current) current.pluginSource = normalizePluginSource(template.provenance);
-        delete template.provenance;
-        await this.templatesRepository.upsert(template);
-        if (current) await this.versionsRepository.upsert(current);
-      }
       this.versions.set(templateId, list.map((version) => normalizeVersion(version)));
     }
   }
@@ -936,9 +896,6 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     };
   }
   if (step.type === 'ssh') {
-    const command = step.ssh.mode === 'interactive'
-      ? step.ssh.dialogue?.map((item) => renderString(item.send, context.values, mode === 'render_only')).join('\n')
-      : renderString(buildSshCommandText(step), context.values, mode === 'render_only');
     return {
       executor: '015.SSH',
       dryRun: mode !== 'real_test',
@@ -946,9 +903,9 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       idempotencyKey: `workflow:${step.name}`,
       stage: step.stage,
       connection: adaptSshConnection(resolveStepConnection(step.ssh.connectionRef, context), context.values, mode === 'render_only'),
-      command,
-      commands: step.ssh.commands?.map((item) => renderString(item, context.values, mode === 'render_only')),
-      mode: step.ssh.mode,
+      program: step.ssh.program,
+      args: step.ssh.args.map((item) => renderString(item, context.values, mode === 'render_only')),
+      argumentTemplate: step.ssh.argumentTemplate,
       timeoutMs: (step.ssh.timeoutSeconds ?? 60) * 1000,
       testMode: mode,
     };
@@ -1235,64 +1192,84 @@ async function evaluateJsonata(
   location?: { step: string; output: string },
 ): Promise<unknown> {
   return await new Promise<unknown>((resolve, reject) => {
-    const worker = createJsonataWorker({ expression, input });
+    let worker: Worker | undefined;
     let settled = false;
-    const finish = (callback: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      void worker.terminate();
-      callback();
-    };
-    const timeout = setTimeout(() => {
-      finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', { timeoutMs })));
-    }, timeoutMs);
-    timeout.unref();
-    worker.once('message', (message: JsonataWorkerMessage) => {
-      finish(() => {
+    let startupTimeout: NodeJS.Timeout | undefined;
+    let executionTimeout: NodeJS.Timeout | undefined;
+    let currentWorker: Worker | undefined;
+    const handleMessage = (message: JsonataWorkerMessage): void => {
+      if (message.type === 'ready') {
+        clearTimeout(startupTimeout);
+        try {
+          currentWorker?.postMessage({ type: 'start' });
+        } catch (error) {
+          void finish(() => reject(error));
+        }
+        return;
+      }
+      if (message.type === 'started') {
+        executionTimeout = setTimeout(() => {
+          void finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', { timeoutMs })));
+        }, timeoutMs);
+        return;
+      }
+      void finish(() => {
         if (message.ok) resolve(message.value);
         else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, message: message.message }));
       });
-    });
-    worker.once('error', (error) => {
-      finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', {
+    };
+    const finish = async (callback: () => void): Promise<void> => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startupTimeout);
+      clearTimeout(executionTimeout);
+      currentWorker?.off('message', handleMessage);
+      try {
+        await worker?.terminate();
+      } finally {
+        callback();
+      }
+    };
+    startupTimeout = setTimeout(() => {
+      void finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata Worker 启动超时', {
+        timeoutMs: jsonataWorkerStartupTimeoutMs,
+        phase: 'worker_startup',
+      })));
+    }, jsonataWorkerStartupTimeoutMs);
+    try {
+      worker = createJsonataWorker({ expression, input });
+    } catch (error) {
+      void finish(() => reject(error));
+      return;
+    }
+    currentWorker = worker;
+    currentWorker.on('message', handleMessage);
+    currentWorker.once('error', (error) => {
+      void finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', {
         ...location,
         message: error instanceof Error ? error.message : String(error),
       })));
     });
-    worker.once('exit', (code) => {
-      if (code !== 0) finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, code })));
+    currentWorker.once('exit', (code) => {
+      if (code !== 0) void finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, code })));
     });
   });
 }
 
 function createJsonataWorker(workerData: { expression: string; input: Record<string, unknown> }): Worker {
   const compiledWorkerUrl = new URL('./jsonata-transform.worker.js', import.meta.url);
-  if (existsSync(fileURLToPath(compiledWorkerUrl))) {
-    return new Worker(compiledWorkerUrl, { workerData, execArgv: [] });
+  if (!existsSync(fileURLToPath(compiledWorkerUrl))) {
+    throw new AppError('SYSTEM_INTERNAL_ERROR', 'JSONata Worker 编译产物缺失，拒绝动态加载源码');
   }
-
-  const sourceWorkerUrl = new URL('./jsonata-transform.worker.ts', import.meta.url);
-  const bootstrap = `
-    const { workerData } = require('node:worker_threads');
-    import('tsx/esm/api')
-      .then(({ tsImport }) => tsImport(workerData.sourceWorkerUrl, { parentURL: workerData.parentURL }))
-      .catch((error) => { throw error; });
-  `;
-  return new Worker(bootstrap, {
-    eval: true,
-    execArgv: [],
-    workerData: {
-      ...workerData,
-      sourceWorkerUrl: sourceWorkerUrl.href,
-      parentURL: import.meta.url,
-    },
-  });
+  // 生产执行只允许加载与宿主版本固定的编译 Worker，不接受 TypeScript 运行时注入。
+  return new Worker(compiledWorkerUrl, { workerData, execArgv: [] });
 }
 
 type JsonataWorkerMessage =
-  | { ok: true; value: unknown }
-  | { ok: false; message: string };
+  | { type: 'ready' }
+  | { type: 'started' }
+  | { type: 'result'; ok: true; value: unknown }
+  | { type: 'result'; ok: false; message: string };
 
 function assertJsonataExpressionSafe(expression: string): void {
   if (expression.length > 4096) throw new AppError('VALIDATION_FAILED', 'JSONata 表达式过长');
@@ -1441,11 +1418,6 @@ function orderStepsByStage(steps: WorkflowStep[]): WorkflowStep[] {
       return leftOrder - rightOrder || left.index - right.index;
     })
     .map((item) => item.step);
-}
-
-function buildSshCommandText(step: Extract<WorkflowStep, { type: 'ssh' }>): string {
-  if (step.ssh.commands?.length) return step.ssh.commands.join('\n');
-  return step.ssh.command ?? step.ssh.script ?? '';
 }
 
 function adaptSshConnection(connection: WorkflowSshConnection, values: Record<string, unknown>, keepMissing: boolean) {
@@ -1780,18 +1752,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function resolveExecutionBranch(
   content: WorkflowDslV1,
   branch: WorkflowExecutionBranch,
-  allowLegacyFallback: boolean,
 ): WorkflowStep[] {
   if (branch === 'deploy') return content.steps;
   if (content.rollback?.length) return content.rollback;
-  if (allowLegacyFallback) return [];
   throw new AppError('VALIDATION_FAILED', '工作流没有 rollback 分支，无法执行回滚', {
     executionBranch: branch,
   });
 }
 
 function normalizeOrigin(origin: unknown): WorkflowTemplate['origin'] {
-  return origin === 'plugin_internal' ? 'plugin_internal' : 'user';
+  if (origin === 'plugin_internal' || origin === 'user') return origin;
+  throw new AppError('VALIDATION_FAILED', '工作流来源不符合当前 Workflow 合同', { origin });
 }
 
 function normalizeTemplate(template: WorkflowTemplate): WorkflowTemplate {

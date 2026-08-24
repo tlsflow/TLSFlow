@@ -9,20 +9,32 @@ interface JsonataWorkerData {
 
 const data = workerData as JsonataWorkerData;
 
+if (!parentPort) throw new Error('JSONata Worker 缺少 parentPort');
+const port = parentPort;
+port.postMessage({ type: 'ready' });
+await new Promise<void>((resolve) => {
+  port.once('message', (message: { type?: string }) => {
+    if (message?.type === 'start') resolve();
+  });
+});
+port.postMessage({ type: 'started' });
+
 try {
   const expression = jsonata(data.expression);
   expression.registerFunction('x509Sha256', x509Sha256, '<s:s>');
   const value = await expression.evaluate(data.input);
   try {
-    parentPort?.postMessage({ ok: true, value });
+    port.postMessage({ type: 'result', ok: true, value });
   } catch (error) {
-    parentPort?.postMessage({
+    port.postMessage({
+      type: 'result',
       ok: false,
       message: error instanceof Error ? error.message : 'JSONata 输出不可序列化',
     });
   }
 } catch (error) {
-  parentPort?.postMessage({
+  port.postMessage({
+    type: 'result',
     ok: false,
     message: error instanceof Error ? error.message : 'JSONata 表达式执行失败',
   });

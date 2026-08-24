@@ -43,11 +43,6 @@ export class WorkflowTemplatesApplicationService {
     });
   }
 
-  /** @deprecated 插件复制结果统一归类为 user，并在版本上记录 pluginSource。 */
-  async createPluginDerivedWorkflow(input: CreateWorkflowTemplateInput) {
-    return this.createWorkflow(input);
-  }
-
   async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
     return this.domain.renameTemplate(input);
   }
@@ -66,10 +61,6 @@ export class WorkflowTemplatesApplicationService {
 
   async createPluginInternalDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     return this.domain.createPluginInternalDraftVersion(input);
-  }
-
-  async promoteLegacyPluginTemplate(templateId: string): Promise<WorkflowTemplate> {
-    return this.domain.promoteLegacyPluginTemplate(templateId);
   }
 
   async createDraftFromPluginCapability(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {

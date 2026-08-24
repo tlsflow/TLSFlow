@@ -13,8 +13,6 @@ export class PluginWorkflowSourceService {
     private readonly plugins: UnifiedPluginsApplicationService,
     private readonly bindings: PluginWorkflowBindingsRepository,
     private readonly workflows: WorkflowTemplatesApplicationService,
-    /** @deprecated 内置资源不再通过默认租户授权，此参数仅保留构造兼容。 */
-    _legacyBuiltinTenantId?: string,
   ) {}
 
   async list(tenantId: string, locale = 'zh-CN'): Promise<WorkflowSourceCandidate[]> {
@@ -33,8 +31,8 @@ export class PluginWorkflowSourceService {
       for (const sourceBindings of bindingsByWorkflow.values()) {
         const binding = sourceBindings.find((item) => item.capabilityKey === 'certificate.deploy') ?? sourceBindings[0]!;
         if (!listableCapabilities.has(binding.capabilityKey)) continue;
-        const source = await this.workflows.getVersion(binding.workflowVersionId).catch(() => undefined);
-        if (!source || source.status !== 'published' || source.contentHash !== binding.workflowContentSha256) continue;
+        const source = await this.workflows.getVersion(binding.workflowVersionId);
+        if (source.status !== 'published' || source.contentHash !== binding.workflowContentSha256) continue;
         output.push({
           pluginId: plugin.pluginId,
           pluginVersionId: plugin.id,
@@ -57,13 +55,16 @@ export class PluginWorkflowSourceService {
   }
 
   private async resolveDisplayName(pluginVersionId: string, displayNameKey: string, locale: string): Promise<string> {
-    try {
-      const uiResources = await this.plugins.getUiResources(pluginVersionId, locale);
-      return uiResources.locale?.messages[displayNameKey] ?? displayNameKey;
-    } catch {
-      // 工作流来源只依赖 Workflow DSL 和 Binding。历史插件的表单/展示资源损坏时，不能阻断其他可用来源。
-      return displayNameKey;
+    const uiResources = await this.plugins.getUiResources(pluginVersionId, locale);
+    const displayName = uiResources.locale?.messages[displayNameKey];
+    if (typeof displayName !== 'string' || !displayName.trim()) {
+      throw new AppError('PLUGIN_WORKFLOW_SOURCE_UNAVAILABLE', '插件工作流来源缺少当前语言的显示名称', {
+        pluginVersionId,
+        displayNameKey,
+        locale,
+      });
     }
+    return displayName;
   }
 
   async createWorkflow(tenantId: string, input: CreateWorkflowFromPluginInput) {

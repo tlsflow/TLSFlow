@@ -5,6 +5,8 @@ import type {
   WorkflowStage,
   WorkflowStep,
   WorkflowStepType,
+  WorkflowSshArgumentTemplate,
+  WorkflowSshProgram,
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
@@ -186,26 +188,21 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
     });
   }
   if (node.type === 'ssh') {
-    const commands = splitCommandLines(String(config.command ?? ''));
     const imported = readImportedStep(node);
-    const importedMode = imported?.type === 'ssh' ? imported.ssh.mode : 'command';
-    const sshBody = importedMode === 'script'
-      ? { script: String(config.command ?? '') }
-      : commands.length > 1
-        ? { commands }
-        : { command: commands[0] ?? '' };
-    return mergeImportedDslStep(node, {
+    return {
       name,
       type: 'ssh',
       stage: getNodeStage(node),
       ssh: {
-        mode: importedMode === 'script' ? 'script' : 'command',
         connectionRef: String(config.connectionRef ?? ''),
-        ...sshBody,
+        program: String(config.program ?? '') as WorkflowSshProgram,
+        args: Array.isArray(config.args) ? config.args.map((item) => String(item)) : [],
+        argumentTemplate: String(config.argumentTemplate ?? '') as WorkflowSshArgumentTemplate,
         timeoutSeconds: Number(config.timeoutSeconds ?? 60),
       },
       assert: [{ type: 'regex', pattern: '.*' }],
-    });
+      ...(imported?.type === 'ssh' ? { retry: imported.retry, extract: imported.extract, assert: imported.assert } : {}),
+    } as WorkflowStep;
   }
   if (node.type === 'sftp') return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'sftp'));
   if (node.type === 'scp') return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'scp'));
@@ -317,6 +314,7 @@ function validateRequiredConfig(node: CanvasNode, issues: WorkflowCanvasValidati
   const config = node.config ?? {};
   const required = requiredFieldsForType(node.type);
   for (const field of required) {
+    if (field === 'args' && Array.isArray(config[field])) continue;
     if (isBlank(config[field])) issues.push(fieldIssue(node, field, `${node.label ?? node.id} 缺少 ${field}。`, `补全 ${field}。`));
   }
   if (node.type === 'http') validateHttpNodeConfig(node, issues);
@@ -324,7 +322,7 @@ function validateRequiredConfig(node: CanvasNode, issues: WorkflowCanvasValidati
 
 function requiredFieldsForType(type: CanvasNodeType): string[] {
   if (type === 'http') return ['method', 'url', 'connectionRef', 'timeoutSeconds'];
-  if (type === 'ssh') return ['connectionRef', 'command', 'timeoutSeconds'];
+  if (type === 'ssh') return ['connectionRef', 'program', 'args', 'argumentTemplate', 'timeoutSeconds'];
   if (type === 'sftp' || type === 'scp') return ['direction', 'connectionRef', 'remotePath', 'timeoutSeconds'];
   if (type === 'verify') return ['verifyType', 'inputRef', 'expected', 'timeoutSeconds'];
   if (type === 'condition') return ['variable', 'operator'];
@@ -587,10 +585,6 @@ function readForeachSteps(value: unknown): WorkflowStep[] {
     throw new AppError('VALIDATION_FAILED', 'foreach 子步骤必须是非空 JSON 数组');
   }
   return parsed as WorkflowStep[];
-}
-
-function splitCommandLines(value: string): string[] {
-  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 function normalizeIdentifier(value: string): string {

@@ -13,6 +13,8 @@ export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_T
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
+export type WorkflowSshProgram = 'systemctl' | 'service' | 'sc.exe';
+export type WorkflowSshArgumentTemplate = 'systemctl.reload' | 'systemctl.restart' | 'service.reload' | 'service.restart' | 'sc.query';
 export type WorkflowVariableSource =
   | { kind: 'asset'; path: string }
   | { kind: 'default' }
@@ -153,19 +155,11 @@ export interface WorkflowSshConnection {
   hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required';
 }
 
-export interface WorkflowSshDialogueItem {
-  expect: string;
-  send: string;
-  sensitive?: boolean;
-}
-
 export interface WorkflowSshStepConfig {
-  mode: 'command' | 'script' | 'interactive';
   connectionRef: string;
-  command?: string;
-  commands?: string[];
-  script?: string;
-  dialogue?: WorkflowSshDialogueItem[];
+  program: WorkflowSshProgram;
+  args: string[];
+  argumentTemplate: WorkflowSshArgumentTemplate;
   timeoutSeconds?: number;
 }
 
@@ -322,8 +316,6 @@ export interface CreateWorkflowTemplateInput {
   content: WorkflowDslV1;
   changeSummary?: string;
   pluginSource?: WorkflowPluginSource;
-  /** @deprecated 仅用于读取历史 payload，新代码必须使用 pluginSource。 */
-  provenance?: WorkflowTemplateProvenance;
 }
 
 export type WorkflowTemplateOrigin = 'plugin_internal' | 'user';
@@ -340,9 +332,6 @@ export interface WorkflowPluginSource {
   /** @deprecated 历史来源证据保留读取兼容，不参与运行时。 */
   sourceWorkflowTemplateId?: string;
 }
-
-/** @deprecated 使用 WorkflowPluginSource。 */
-export type WorkflowTemplateProvenance = WorkflowPluginSource;
 
 export interface WorkflowSourceCandidate {
   pluginId: string;
@@ -397,8 +386,6 @@ export interface WorkflowTemplate {
   ownerType: WorkflowOwnerType;
   ownerId?: string;
   tenantId?: string;
-  /** @deprecated 历史 payload 兼容字段，新记录不再写入。 */
-  provenance?: WorkflowTemplateProvenance;
   status: WorkflowTemplateStatus;
   currentVersionId?: string;
   currentVersion?: number;

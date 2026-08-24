@@ -5,6 +5,7 @@ import type {
   WorkflowExtractor,
   WorkflowStep,
 } from '../dto/workflow-templates.dto.js';
+import { SSH_ALLOWED_PROGRAMS, SSH_ARGUMENT_TEMPLATES } from '../../executors/ssh/ssh.types.js';
 
 const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'steps', 'rollback']);
 const metadataKeys = new Set(['name', 'displayName', 'description', 'category', 'tags', 'version', 'logoUrl', 'platforms', 'updateMethods', 'maintainer', 'homepage']);
@@ -146,13 +147,14 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'ssh') {
     rejectUnknown(step as unknown as Record<string, unknown>, sshStepKeys, path);
     if (!isRecord(step.ssh)) throw validationError(`${path}.ssh 必须是对象`);
-    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connectionRef', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
-    if (!['command', 'script', 'interactive'].includes(step.ssh.mode)) throw validationError(`${path}.ssh.mode 不支持`);
+    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['connectionRef', 'program', 'args', 'argumentTemplate', 'timeoutSeconds']), `${path}.ssh`);
     if (!isNonEmptyString(step.ssh.connectionRef)) throw validationError(`${path}.ssh.connectionRef 必须是非空字符串`);
-    if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command) && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0)) throw validationError(`${path}.ssh.command 或 commands 必填`);
-    if (step.ssh.commands !== undefined && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0 || !step.ssh.commands.every(isNonEmptyString))) throw validationError(`${path}.ssh.commands 必须是非空命令数组`);
-    if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
-    if (step.ssh.mode === 'interactive' && (!Array.isArray(step.ssh.dialogue) || step.ssh.dialogue.length === 0)) throw validationError(`${path}.ssh.dialogue 必填`);
+    if (!SSH_ALLOWED_PROGRAMS.includes(step.ssh.program)) throw validationError(`${path}.ssh.program 不在 SSH 远端程序白名单中`);
+    if (!Array.isArray(step.ssh.args) || !step.ssh.args.every(isNonEmptyString)) throw validationError(`${path}.ssh.args 必须是字符串数组`);
+    if (!Object.prototype.hasOwnProperty.call(SSH_ARGUMENT_TEMPLATES, step.ssh.argumentTemplate)) throw validationError(`${path}.ssh.argumentTemplate 不在白名单中`);
+    const template = SSH_ARGUMENT_TEMPLATES[step.ssh.argumentTemplate as keyof typeof SSH_ARGUMENT_TEMPLATES];
+    if (template.program !== step.ssh.program || template.valueCount !== step.ssh.args.length) throw validationError(`${path}.ssh 的 program、args 和 argumentTemplate 不匹配`);
+    for (const arg of step.ssh.args) validateSshArgument(arg, `${path}.ssh.args`);
     if (step.ssh.timeoutSeconds !== undefined && !isPositiveInteger(step.ssh.timeoutSeconds)) throw validationError(`${path}.ssh.timeoutSeconds 必须是正整数`);
     return;
   }
@@ -545,6 +547,12 @@ function isSecretRef(value: unknown): value is string {
 
 function isCredentialValue(value: unknown): boolean {
   return typeof value === 'string' && /^\s*\{\{credentials\.[A-Za-z][A-Za-z0-9_.-]*\}\}\s*$/.test(value);
+}
+
+function validateSshArgument(value: string, path: string): void {
+  if (/^\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}$/.test(value)) return;
+  if (/[\0\r\n;&|`$()<>*?{}[\]\\!]/.test(value)) throw validationError(`${path} 包含 shell 元字符或控制字符`);
+  if (/^(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|powershell|powershell\.exe|pwsh|python|python3|perl|ruby|node|wscript|cscript)(?:\.exe)?$/i.test(value)) throw validationError(`${path} 不得调用解释器`);
 }
 
 function isSecretRefOrVariableRecord(value: unknown): boolean {
