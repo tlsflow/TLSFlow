@@ -1,8 +1,8 @@
 {
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
-  "pluginId": "citrix.netscaler-adc",
-  "version": "1.2.1",
+  "pluginId": "device.citrix.netscaler-adc",
+  "version": "1.2.2",
   "displayNameKey": "plugin.citrixAdc.name",
   "descriptionKey": "plugin.citrixAdc.description",
   "logoUrl": "/plugin-logos/citrix-adc.svg",

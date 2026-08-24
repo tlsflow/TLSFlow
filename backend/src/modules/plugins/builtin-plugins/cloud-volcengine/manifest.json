@@ -1,8 +1,8 @@
 {
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
-  "pluginId": "builtin.cloud.volcengine.provider",
-  "version": "1.0.2",
+  "pluginId": "cloud.volcengine",
+  "version": "1.0.4",
   "providerKey": "cloud.volcengine",
   "displayNameKey": "plugin.builtin.cloud.volcengine.name",
   "descriptionKey": "plugin.builtin.cloud.volcengine.description",

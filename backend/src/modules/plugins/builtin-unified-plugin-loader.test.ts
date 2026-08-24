@@ -8,78 +8,29 @@ import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
-test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂等启用', async () => {
+test('内置插件包仅安装符合当前 Manifest 合同的包并可幂等启用', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));
   const loader = new BuiltinUnifiedPluginLoader();
-  const first = await loader.installAll('tenant-1', service);
-  const second = await loader.installAll('tenant-1', service);
+  const first = await loader.installAll(service);
+  const second = await loader.installAll(service);
 
-  assert.equal(first.length, 16);
-  const citrix = first.find((item) => item.pluginId === 'citrix.netscaler-adc');
-  const apache = first.find((item) => item.pluginId === 'builtin.workflow.apache-8444-cert-switch');
-  const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
-  const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
-  const windowsNginx = first.find((item) => item.pluginId === 'builtin.windows.nginx.pem');
-  const windowsApache = first.find((item) => item.pluginId === 'builtin.windows.apache.pem');
-  const windowsTomcat = first.find((item) => item.pluginId === 'builtin.windows.tomcat.pkcs12');
-  const windowsCustom = first.find((item) => item.pluginId === 'builtin.windows.custom.certificate');
-  const aliyun = first.find((item) => item.pluginId === 'builtin.cloud.aliyun.provider');
-  const tencent = first.find((item) => item.pluginId === 'builtin.cloud.tencent.provider');
-  const huawei = first.find((item) => item.pluginId === 'builtin.cloud.huawei.provider');
-  const volcengine = first.find((item) => item.pluginId === 'builtin.cloud.volcengine.provider');
+  assert.equal(first.length, 1);
+  const citrix = first.find((item) => item.pluginId === 'device.citrix.netscaler-adc');
   assert.equal(citrix?.status, 'ENABLED');
-  assert.equal(citrix?.version, '1.2.1');
-  assert.equal(apache?.version, '1.2.8');
-  assert.equal(synology?.version, '1.2.8');
-  assert.equal(agent?.version, '1.0.15');
-  assert.equal(windowsNginx?.version, '1.0.2');
-  assert.equal(windowsApache?.version, '1.0.2');
-  assert.equal(windowsTomcat?.version, '1.0.2');
-  assert.equal(windowsCustom?.version, '1.0.2');
-  assert.equal(aliyun?.version, '1.0.1');
-  assert.equal(tencent?.version, '1.0.1');
-  assert.equal(huawei?.version, '1.0.1');
-  assert.equal(volcengine?.version, '1.0.1');
-  assert.equal(agent?.manifest.resources.actionAliases?.certificateDeploy, 'action-aliases/certificate-deploy.json');
+  assert.equal(citrix?.version, '1.2.2');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.logoUrl, '/plugin-logos/citrix-adc.svg');
   assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
-  assert.equal(apache?.runtime, 'WORKFLOW_DSL');
-  assert.equal(apache?.scope, 'BOTH');
-  assert.equal(synology?.runtime, 'WORKFLOW_DSL');
-  assert.equal(agent?.runtime, 'AGENT_ATOMIC');
-  assert.equal(aliyun?.runtime, 'TRUSTED_JS');
-  assert.equal(tencent?.runtime, 'TRUSTED_JS');
-  assert.equal(huawei?.runtime, 'TRUSTED_JS');
-  assert.equal(volcengine?.runtime, 'TRUSTED_JS');
-  assert.equal(aliyun?.manifest.providerKey, 'cloud.aliyun');
-  assert.equal(tencent?.manifest.providerKey, 'cloud.tencent');
-  assert.equal(huawei?.manifest.providerKey, 'cloud.huawei');
-  assert.equal(volcengine?.manifest.providerKey, 'cloud.volcengine');
-  assert.equal(aliyun?.manifest.resources.runtimeEntrypoint, 'runtime/index.js');
-  assert.equal(aliyun?.resources['runtime/shared.js']?.includes('signAliyunRpc'), true);
-  assert.equal(windowsNginx?.manifest.resources.agentDiscoveryMappings?.['windows.nginx.detail'], 'discovery-mappings/windows-nginx.json');
-  assert.equal(windowsApache?.manifest.resources.agentDiscoveryMappings?.['windows.apache.detail'], 'discovery-mappings/windows-apache.json');
-  assert.equal(windowsTomcat?.manifest.resources.agentDiscoveryMappings?.['windows.tomcat.detail'], 'discovery-mappings/windows-tomcat.json');
-  assert.equal(windowsCustom?.runtime, 'AGENT_ATOMIC');
-  assert.equal(agent?.scope, 'MANAGED');
+  assert.equal(first.some((item) => item.pluginId.startsWith('cloud.')), false);
   assert.equal(first.every((item) => item.manifest.logoUrl?.startsWith('/plugin-logos/')), true);
   assert.deepEqual(second.map((item) => item.id), first.map((item) => item.id));
-  assert.equal(records.size, 16);
+  assert.equal(records.size, 1);
 
   const packages = await loader.loadPackages();
-  const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
-  for (const pluginId of ['builtin.workflow.apache-8444-cert-switch', 'builtin.workflow.synology-dsm-cert-import']) {
-    const workflowPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === pluginId)!;
-    const workflowPath = Object.values((workflowPackage.manifest as { resources: { workflows: Record<string, string> } }).resources.workflows)[0]!;
-    const workflow = JSON.parse(workflowPackage.resources[workflowPath]!) as {
-      inputContract: { variables: { siteName: { source: { path: string } } } };
-    };
-    assert.equal(workflow.inputContract.variables.siteName.source.path, 'application.serverName');
-  }
+  const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'device.citrix.netscaler-adc')!;
   await assert.rejects(
-    () => service.importVersion('tenant-1', {
+    () => service.importVersion('SYSTEM', {
       ...pluginPackage,
       resources: {
         ...pluginPackage.resources,
@@ -94,7 +45,7 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   }
 });
 
-test('内置插件导入、审批和启用失败时只告警并继续处理其他插件', async () => {
+test('旧厂商 Manifest 导入失败时只告警并继续处理其他插件', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));
   const baseLoader = new BuiltinUnifiedPluginLoader();
@@ -105,51 +56,29 @@ test('内置插件导入、审批和启用失败时只告警并继续处理其�
   const importVersion = service.importVersion.bind(service);
   service.importVersion = async (tenantId, input, sourceChannel) => {
     const pluginId = (input.manifest as { pluginId?: string }).pluginId;
-    if (pluginId === 'citrix.netscaler-adc') {
+    if (pluginId === 'device.citrix.netscaler-adc') {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '模拟导入冲突');
     }
     return importVersion(tenantId, input, sourceChannel);
   };
-  const approvePermissions = service.approvePermissions.bind(service);
-  service.approvePermissions = async (id, permissions) => {
-    const record = await service.getVersion(id);
-    if (record.pluginId === 'builtin.workflow.apache-8444-cert-switch') {
-      throw new AppError('PLUGIN_PERMISSION_DENIED', '模拟权限审批失败');
-    }
-    return approvePermissions(id, permissions);
-  };
-  const enableVersion = service.enableVersion.bind(service);
-  service.enableVersion = async (id) => {
-    const record = await service.getVersion(id);
-    if (record.pluginId === 'builtin.linux.nginx.pem') {
-      throw new AppError('PLUGIN_PERMISSION_DENIED', '模拟启用失败');
-    }
-    return enableVersion(id);
-  };
-
   class TestLoader extends BuiltinUnifiedPluginLoader {
     override async loadPackages() {
       return packages;
     }
   }
 
-  const installed = await new TestLoader(undefined, logger).installAll('tenant-1', service);
-  assert.equal(installed.length, packages.length - 3);
-  assert.equal(installed.some((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import'), true);
-  assert.equal(installed.some((item) => item.pluginId === 'builtin.rabbitmq.pem'), true);
-  assert.deepEqual(
-    warnings.map((event) => ({
-      phase: (event.details as { phase: string }).phase,
-      pluginId: (event.details as { pluginId?: string }).pluginId,
-      version: (event.details as { version?: string }).version,
-      errorCode: (event.details as { errorCode: string }).errorCode,
-    })),
-    [
-      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.2.1', errorCode: 'RESOURCE_VERSION_CONFLICT' },
-      { phase: 'approvePermissions', pluginId: 'builtin.workflow.apache-8444-cert-switch', version: '1.2.8', errorCode: 'PLUGIN_PERMISSION_DENIED' },
-      { phase: 'enable', pluginId: 'builtin.linux.nginx.pem', version: '1.0.15', errorCode: 'PLUGIN_PERMISSION_DENIED' },
-    ],
-  );
+  const installed = await new TestLoader(undefined, logger).installAll(service);
+  assert.equal(installed.length, 0);
+  assert.equal(warnings.length, packages.length);
+  assert.equal(warnings.every((event) => (event.details as { phase: string }).phase === 'import'), true);
+  assert.equal(warnings.some((event) => {
+    const details = event.details as { pluginId?: string; errorCode: string };
+    return details.pluginId === 'device.citrix.netscaler-adc' && details.errorCode === 'RESOURCE_VERSION_CONFLICT';
+  }), true);
+  assert.equal(warnings.filter((event) => {
+    const details = event.details as { pluginId?: string; errorCode: string };
+    return details.pluginId?.startsWith('cloud.') && details.errorCode === 'VALIDATION_FAILED';
+  }).length, 4);
 });
 
 function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): UnifiedPluginsRepository {
@@ -158,5 +87,8 @@ function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): Uni
     findVersion: async (id) => records.get(id),
     findByIdentity: async (tenantId, pluginId, version) => [...records.values()].find((record) => record.tenantId === tenantId && record.pluginId === pluginId && record.version === version),
     listVersions: async (tenantId) => [...records.values()].filter((record) => record.tenantId === tenantId),
+    listVersionsBySource: async (source) => [...records.values()].filter((record) => record.source === source),
+    listAccessibleVersions: async (tenantId) => [...records.values()].filter((record) => record.tenantId === tenantId || record.source === 'BUILTIN'),
+    countReferences: async () => ({ bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 }),
   };
 }

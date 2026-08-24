@@ -1,8 +1,8 @@
 {
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
-  "pluginId": "builtin.cloud.aliyun.provider",
-  "version": "1.0.2",
+  "pluginId": "cloud.aliyun",
+  "version": "1.0.4",
   "providerKey": "cloud.aliyun",
   "displayNameKey": "plugin.builtin.cloud.aliyun.name",
   "descriptionKey": "plugin.builtin.cloud.aliyun.description",
