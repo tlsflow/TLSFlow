@@ -1852,7 +1852,7 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 	if grantAgentID := stringFromMap(forwardingGrant, "delegatedAgentId"); grantAgentID != "" && grantAgentID != targetAgentID {
 		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 ForwardingGrant 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "grantAgentId": grantAgentID}, true
 	}
-	forwardPayload, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
+	forwardPayload, actionType, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
 	if err != nil {
 		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
 	}
@@ -1864,44 +1864,48 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "action": stringFromMap(forwardPayload, "action")}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": actionType}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}
-	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, stringFromMap(forwardPayload, "action"), detail, gatewayForwardWaitDuration(gatewayPayload))
+	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, actionType, detail, gatewayForwardWaitDuration(gatewayPayload))
 }
 
-func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, error) {
+func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, string, error) {
 	token := mapFromMap(source, "token")
 	decision := mapFromMap(source, "policyDecision")
 	if token == nil || decision == nil {
-		return nil, errors.New("Gateway 转发缺少 Token 或 Policy Decision")
+		return nil, "", errors.New("Gateway 转发缺少 Token 或 Policy Decision")
 	}
-	action := stringFromMap(source, "action")
-	if action == "" {
-		return nil, errors.New("Gateway 转发缺少 Agent v2 action")
+	if _, exists := source["action"]; exists {
+		return nil, "", errors.New("Gateway 转发不得使用 action，必须提供 canonical actionType")
+	}
+	actionType, err := canonicalAgentV2Action(stringFromMap(source, "actionType"))
+	if err != nil {
+		return nil, "", err
 	}
 	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
-		return nil, errors.New("Gateway Token agentId 与目标 Agent 不一致")
+		return nil, "", errors.New("Gateway Token agentId 与目标 Agent 不一致")
 	}
 	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
 	planDigest := stringFromMap(token, "planDigest")
 	payload := map[string]any{
-		"action":          action,
-		"requestId":       firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
-		"agentId":         targetAgentID,
-		"tenantId":        firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
-		"pluginId":        stringFromMap(token, "pluginId"),
-		"pluginVersion":   pluginVersion,
-		"pluginVersionId": stringFromMap(token, "pluginVersionId"),
-		"capability":      stringFromMap(token, "capability"),
-		"actions":         token["actions"],
-		"paths":           token["allowedPaths"],
-		"services":        token["allowedServices"],
-		"artifactDigests": token["artifactDigests"],
-		"planDigest":      planDigest,
-		"token":           token,
-		"policyDecision":  decision,
+		"actionType":          actionType,
+		"actionSchemaVersion": firstNonEmpty(stringFromMap(source, "actionSchemaVersion"), "1.0"),
+		"requestId":           firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
+		"agentId":             targetAgentID,
+		"tenantId":            firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
+		"pluginId":            stringFromMap(token, "pluginId"),
+		"pluginVersion":       pluginVersion,
+		"pluginVersionId":     stringFromMap(token, "pluginVersionId"),
+		"capability":          stringFromMap(token, "capability"),
+		"actions":             token["actions"],
+		"paths":               token["allowedPaths"],
+		"services":            token["allowedServices"],
+		"artifactDigests":     token["artifactDigests"],
+		"planDigest":          planDigest,
+		"token":               token,
+		"policyDecision":      decision,
 	}
 	if plan := mapFromMap(source, "plan"); plan != nil {
 		payload["plan"] = plan
@@ -1909,7 +1913,20 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 	if receipt := mapFromMap(source, "receipt"); receipt != nil {
 		payload["receipt"] = receipt
 	}
-	return payload, nil
+	return payload, actionType, nil
+}
+
+// Gateway 队列出口只允许四个已登记的 Agent v2 canonical 动作。
+func canonicalAgentV2Action(value string) (string, error) {
+	actionType := strings.TrimSpace(value)
+	switch actionType {
+	case agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt:
+		return actionType, nil
+	case "":
+		return "", errors.New("Gateway 转发缺少 canonical actionType")
+	default:
+		return "", fmt.Errorf("Gateway 转发动作未登记: %s", actionType)
+	}
 }
 
 func waitForGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, taskID, targetAgentID, actionType string, detail map[string]any, timeout time.Duration) (bool, string, string, map[string]any, bool) {
