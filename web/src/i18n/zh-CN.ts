@@ -583,7 +583,7 @@ export default {
     certificatesDesc: '证书库、绑定关系和到期状态',
     certificateAssets: '证书资产',
     certificateAssetsDesc: '证书、私钥引用、指纹和到期时间',
-    acmeAutomation: 'ACME 证书自动化',
+    acmeAutomation: 'ACME 管理',
     acmeAutomationDesc: '申请、续签和跟踪 ACME 证书',
     certificateFormats: '证书格式配置',
     certificateFormatsDesc: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则',
