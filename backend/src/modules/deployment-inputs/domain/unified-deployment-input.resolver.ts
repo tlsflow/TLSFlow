@@ -127,7 +127,12 @@ export class UnifiedDeploymentInputResolver {
       return { provenance: { source: source.kind, sourcePath: sourcePath(source), deferred: true } };
     }
     let value: unknown;
-    if (source.kind === 'asset') value = readPath(request.assetContext, source.path);
+    if (source.kind === 'asset') {
+      value = readPath(request.assetContext, source.path);
+      if (value === undefined && definition.default !== undefined) {
+        return { value: definition.default, provenance: { source: 'default', sourcePath: path } };
+      }
+    }
     else if (source.kind === 'default') value = definition.default;
     else if (source.kind === 'derived') value = this.derivedResolvers[source.resolver]?.(request.assetContext);
     else if (source.kind === 'system') value = readPath(request.systemValues ?? {}, source.key);

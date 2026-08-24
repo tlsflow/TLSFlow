@@ -1,3 +1,5 @@
+import type { CertificateLocationV1 } from './certificate-location.dto.js';
+
 export const DEPLOYMENT_ASSET_CONTEXT_API_VERSION = 'gcac.deployment-asset-context/v1' as const;
 
 export interface DeploymentAssetContextV1 {
@@ -32,6 +34,7 @@ export interface DeploymentAssetContextV1 {
     type: string;
     key: string;
     bindingKey?: string;
+    certificateLocation?: CertificateLocationV1;
     metadata: Record<string, unknown>;
   };
   deployment: {
@@ -41,6 +44,7 @@ export interface DeploymentAssetContextV1 {
       serverName?: string;
       port?: number;
       sni?: boolean;
+      certificateLocation?: CertificateLocationV1;
       metadata: Record<string, unknown>;
     }>;
     certificateResourceName: string;

@@ -3,14 +3,23 @@ import {
   DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
   type DeploymentAssetContextV1,
 } from '../dto/deployment-asset-context.dto.js';
+import {
+  CERTIFICATE_LOCATION_API_VERSION,
+  type CertificateLocationV1,
+} from '../dto/certificate-location.dto.js';
 
 const rootKeys = new Set(['apiVersion', 'application', 'host', 'site', 'target', 'deployment']);
 const applicationKeys = new Set(['id', 'address', 'serverName', 'port', 'protocol']);
 const hostKeys = new Set(['id', 'hostname', 'primaryIp', 'osType']);
 const siteKeys = new Set(['id', 'type', 'name', 'key', 'bindingInformation', 'hostHeader', 'listenIp', 'port', 'protocol', 'metadata']);
-const targetKeys = new Set(['id', 'type', 'key', 'bindingKey', 'metadata']);
+const targetKeys = new Set(['id', 'type', 'key', 'bindingKey', 'certificateLocation', 'metadata']);
 const deploymentKeys = new Set(['targets', 'certificateResourceName']);
-const deploymentTargetKeys = new Set(['id', 'name', 'serverName', 'port', 'sni', 'metadata']);
+const deploymentTargetKeys = new Set(['id', 'name', 'serverName', 'port', 'sni', 'certificateLocation', 'metadata']);
+const certificateLocationKeys = new Set([
+  'apiVersion', 'storageKind', 'certificatePath', 'privateKeyPath', 'chainPath', 'keystorePath', 'keystoreType', 'keyAlias',
+  'storeName', 'storeLocation', 'storeThumbprint', 'sourceConfigPath', 'serviceName', 'programPath', 'testCommand',
+  'reloadCommand', 'configFingerprint', 'confidence', 'observedAt', 'warnings',
+]);
 
 export class DeploymentAssetContextSchemaRegistry {
   validate(input: unknown): DeploymentAssetContextV1 {
@@ -82,6 +91,9 @@ function validateTarget(input: unknown): NonNullable<DeploymentAssetContextV1['t
     type: nonEmptyString(target.type, 'assetContext.target.type'),
     key: nonEmptyString(target.key, 'assetContext.target.key'),
     bindingKey: optionalString(target.bindingKey, 'assetContext.target.bindingKey'),
+    certificateLocation: target.certificateLocation === undefined
+      ? undefined
+      : validateCertificateLocation(target.certificateLocation, 'assetContext.target.certificateLocation'),
     metadata: metadataRecord(target.metadata, 'assetContext.target.metadata'),
   };
 }
@@ -108,7 +120,46 @@ function validateDeploymentTarget(input: unknown, index: number): DeploymentAsse
     serverName: optionalString(target.serverName, `${path}.serverName`),
     port: target.port === undefined ? undefined : portNumber(target.port, `${path}.port`),
     sni: optionalBoolean(target.sni, `${path}.sni`),
+    certificateLocation: target.certificateLocation === undefined
+      ? undefined
+      : validateCertificateLocation(target.certificateLocation, `${path}.certificateLocation`),
     metadata: metadataRecord(target.metadata, `${path}.metadata`),
+  };
+}
+
+function validateCertificateLocation(input: unknown, path: string): CertificateLocationV1 {
+  const location = record(input, path);
+  rejectUnknown(location, certificateLocationKeys, path);
+  requireExact(location.apiVersion, CERTIFICATE_LOCATION_API_VERSION, `${path}.apiVersion`);
+  const storageKind = enumValue(location.storageKind, ['PEM_FILES', 'KEYSTORE', 'WINDOWS_CERTIFICATE_STORE'], `${path}.storageKind`);
+  const certificatePath = optionalString(location.certificatePath, `${path}.certificatePath`);
+  const privateKeyPath = optionalString(location.privateKeyPath, `${path}.privateKeyPath`);
+  const keystorePath = optionalString(location.keystorePath, `${path}.keystorePath`);
+  const storeThumbprint = optionalString(location.storeThumbprint, `${path}.storeThumbprint`);
+  if (!certificatePath && !privateKeyPath && !keystorePath && !storeThumbprint) {
+    throw validationError(`${path} 缺少证书位置字段`, { path });
+  }
+  return {
+    apiVersion: CERTIFICATE_LOCATION_API_VERSION,
+    storageKind,
+    certificatePath,
+    privateKeyPath,
+    chainPath: optionalString(location.chainPath, `${path}.chainPath`),
+    keystorePath,
+    keystoreType: location.keystoreType === undefined ? undefined : enumValue(location.keystoreType, ['JKS', 'PKCS12', 'PEM', 'UNKNOWN'], `${path}.keystoreType`),
+    keyAlias: optionalString(location.keyAlias, `${path}.keyAlias`),
+    storeName: optionalString(location.storeName, `${path}.storeName`),
+    storeLocation: optionalString(location.storeLocation, `${path}.storeLocation`),
+    storeThumbprint,
+    sourceConfigPath: optionalString(location.sourceConfigPath, `${path}.sourceConfigPath`),
+    serviceName: optionalString(location.serviceName, `${path}.serviceName`),
+    programPath: optionalString(location.programPath, `${path}.programPath`),
+    testCommand: optionalString(location.testCommand, `${path}.testCommand`),
+    reloadCommand: optionalString(location.reloadCommand, `${path}.reloadCommand`),
+    configFingerprint: optionalString(location.configFingerprint, `${path}.configFingerprint`),
+    confidence: enumValue(location.confidence, ['EXACT', 'INFERRED', 'UNKNOWN'], `${path}.confidence`),
+    observedAt: nonEmptyString(location.observedAt, `${path}.observedAt`),
+    warnings: optionalStringArray(location.warnings, `${path}.warnings`),
   };
 }
 
@@ -133,6 +184,17 @@ function optionalBoolean(input: unknown, path: string): boolean | undefined {
 function optionalString(input: unknown, path: string): string | undefined {
   if (input === undefined) return undefined;
   return nonEmptyString(input, path);
+}
+
+function optionalStringArray(input: unknown, path: string): string[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) throw validationError(`${path} 必须是字符串数组`, { path });
+  return input.map((item, index) => nonEmptyString(item, `${path}.${index}`));
+}
+
+function enumValue<const T extends string>(input: unknown, values: readonly T[], path: string): T {
+  if (typeof input !== 'string' || !values.includes(input as T)) throw validationError(`${path} 不支持`, { path, values });
+  return input as T;
 }
 
 function nonEmptyString(input: unknown, path: string): string {

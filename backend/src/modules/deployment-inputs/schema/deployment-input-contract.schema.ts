@@ -219,7 +219,7 @@ function validateSourcePolicy(
   path: string,
 ): void {
   const allowedPolicies: Record<DeploymentVariableSourceV1['kind'], DeploymentBindingPolicy[]> = {
-    asset: ['fixed'],
+    asset: ['fixed', 'default_overridable'],
     binding: ['required_binding', 'default_overridable'],
     default: ['default_overridable'],
     derived: ['fixed'],

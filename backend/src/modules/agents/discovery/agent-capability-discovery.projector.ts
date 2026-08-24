@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { StandardDeviceDiscoveryV2 } from '../../plugins/discovery/device-discovery.dto.js';
+import { CERTIFICATE_LOCATION_API_VERSION, type CertificateLocationV1 } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { StandardDeviceDiscoveryProjector, type StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import { validateAgentCapabilityDiscoveryMapping, type AgentCapabilityDiscoveryMappingV1 } from '../../plugins/discovery/agent-capability-discovery-mapping.js';
@@ -131,7 +132,7 @@ function createProductProjector(descriptor: ProductDescriptor): AgentProductDisc
 function createWebProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
   return {
     capabilityKey: descriptor.capabilityKey,
-    project({ detail, discovery }) {
+    project({ detail, discovery, snapshot }) {
       const frameworkStableKey = `framework:${descriptor.frameworkType}`;
       discovery.frameworks.push({
         stableKey: frameworkStableKey,
@@ -173,7 +174,7 @@ function createWebProductProjector(descriptor: ProductDescriptor): AgentProductD
             deployCapability: descriptor.deployCapability,
             targetKey: `${projectedSite.stableKey}:listener:${listenerKey}`,
             metadata: {
-              ...targetMetadata(siteName, site, listener),
+              ...targetMetadata(siteName, site, listener, detail, snapshot.reportedAt),
               listenerKey,
               bindingInformation: listenerBindingInformation(siteName, site, listener),
             },
@@ -189,7 +190,7 @@ function createWebProductProjector(descriptor: ProductDescriptor): AgentProductD
 function createConnectorProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
   return {
     capabilityKey: descriptor.capabilityKey,
-    project({ detail, discovery }) {
+    project({ detail, discovery, snapshot }) {
       const frameworkType = descriptor.frameworkType;
       const frameworkStableKey = `framework:${frameworkType}`;
       discovery.frameworks.push({
@@ -222,7 +223,7 @@ function createConnectorProductProjector(descriptor: ProductDescriptor): AgentPr
           deployCapability: descriptor.deployCapability,
           targetKey: projectedSite.stableKey,
           metadata: {
-            ...targetMetadata(siteName, {}, connector),
+            ...targetMetadata(siteName, {}, connector, detail, snapshot.reportedAt),
             bindingInformation: readString(projectedSite.metadata, 'bindingInformation'),
           },
         });
@@ -393,7 +394,14 @@ function listenerBindingInformation(siteName: string, site: Record<string, unkno
   return [address, port, hostHeader].join(':');
 }
 
-function targetMetadata(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>): Record<string, unknown> {
+function targetMetadata(
+  siteName: string,
+  site: Record<string, unknown>,
+  listener: Record<string, unknown>,
+  framework: Record<string, unknown>,
+  observedAt: string,
+): Record<string, unknown> {
+  const certificateLocation = buildCertificateLocation(site, listener, framework, observedAt);
   return compactRecord({
     siteName,
     bindingInformation: readString(listener, 'bindingInformation', 'BindingInformation'),
@@ -405,7 +413,52 @@ function targetMetadata(siteName: string, site: Record<string, unknown>, listene
     configPath: readStrings(site, 'configFiles')[0],
     testCommand: readString(listener, 'testCommand'),
     reloadCommand: readString(listener, 'reloadCommand'),
+    certificateLocation,
   });
+}
+
+function buildCertificateLocation(
+  site: Record<string, unknown>,
+  listener: Record<string, unknown>,
+  framework: Record<string, unknown>,
+  observedAt: string,
+): CertificateLocationV1 | undefined {
+  const certificate = asRecord(listener.certificate) ?? asRecord(listener.Certificate);
+  const certificatePath = readString(listener, 'certificatePath', 'CertificatePath');
+  const privateKeyPath = readString(listener, 'certificateKeyPath', 'CertificateKeyPath');
+  const keystorePath = readString(listener, 'keystorePath', 'KeystorePath');
+  const storeThumbprint = readString(listener, 'certificateThumbprint', 'CertificateThumbprint')
+    ?? readString(certificate, 'thumbprint', 'Thumbprint');
+  if (!certificatePath && !privateKeyPath && !keystorePath && !storeThumbprint) return undefined;
+
+  const keystoreType = normalizeKeystoreType(readString(listener, 'keystoreType', 'KeystoreType'));
+  return compactRecord({
+    apiVersion: CERTIFICATE_LOCATION_API_VERSION,
+    storageKind: keystorePath ? 'KEYSTORE' : storeThumbprint && !certificatePath ? 'WINDOWS_CERTIFICATE_STORE' : 'PEM_FILES',
+    certificatePath,
+    privateKeyPath,
+    chainPath: readString(listener, 'certificateChainPath', 'CertificateChainPath', 'chainPath', 'ChainPath'),
+    keystorePath,
+    keystoreType,
+    keyAlias: readString(listener, 'keyAlias', 'KeyAlias', 'certificateKeyAlias', 'CertificateKeyAlias'),
+    storeName: readString(listener, 'certificateStoreName', 'CertificateStoreName')
+      ?? readString(certificate, 'storeName', 'StoreName'),
+    storeLocation: readString(listener, 'certificateStoreLocation', 'CertificateStoreLocation'),
+    storeThumbprint,
+    sourceConfigPath: readString(listener, 'configPath', 'ConfigPath') ?? readStrings(site, 'configFiles')[0] ?? readString(framework, 'configPath'),
+    serviceName: readString(framework, 'serviceName'),
+    programPath: readString(framework, 'binaryPath'),
+    testCommand: readString(listener, 'testCommand'),
+    reloadCommand: readString(listener, 'reloadCommand'),
+    configFingerprint: readString(listener, 'configFingerprint'),
+    confidence: 'EXACT',
+    observedAt,
+  }) as unknown as CertificateLocationV1;
+}
+
+function normalizeKeystoreType(value: string | undefined): CertificateLocationV1['keystoreType'] {
+  const normalized = value?.toUpperCase();
+  return normalized === 'JKS' || normalized === 'PKCS12' || normalized === 'PEM' ? normalized : value ? 'UNKNOWN' : undefined;
 }
 
 function isInstalledProduct(detail: Record<string, unknown>): boolean {

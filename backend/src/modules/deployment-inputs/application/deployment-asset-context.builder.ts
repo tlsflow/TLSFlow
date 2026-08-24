@@ -7,6 +7,7 @@ import {
   type DeploymentAssetContextV1,
 } from '../dto/deployment-asset-context.dto.js';
 import { validateDeploymentAssetContextV1 } from '../schema/deployment-asset-context.schema.js';
+import { readCertificateLocation } from '../dto/certificate-location.dto.js';
 
 export interface BuildDeploymentAssetContextInput {
   applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName'>;
@@ -19,6 +20,9 @@ export class DeploymentAssetContextBuilder {
     const topology = input.managedTargetContext;
     const site = topology?.siteAsset;
     const managedTarget = topology?.managedTarget;
+    const certificateLocation = managedTarget
+      ? readCertificateLocation(managedTarget.metadata, managedTarget.updatedAt || new Date(0).toISOString())
+      : undefined;
     const deploymentTargetName = site?.siteName ?? managedTarget?.targetKey ?? input.applicationAsset.displayName ?? application.serverName;
     const deploymentServerName = site?.hostHeader ?? application.serverName;
 
@@ -48,6 +52,7 @@ export class DeploymentAssetContextBuilder {
         type: managedTarget.targetType,
         key: managedTarget.targetKey,
         bindingKey: managedTarget.bindingKey,
+        certificateLocation,
         metadata: { ...managedTarget.metadata },
       } : undefined,
       deployment: {
@@ -57,6 +62,7 @@ export class DeploymentAssetContextBuilder {
           serverName: deploymentServerName,
           port: site?.port ?? application.port,
           sni: deploymentServerName.length > 0,
+          certificateLocation,
           metadata: managedTarget ? { ...managedTarget.metadata } : {},
         }],
         certificateResourceName: buildCertificateResourceName(application.serverName),

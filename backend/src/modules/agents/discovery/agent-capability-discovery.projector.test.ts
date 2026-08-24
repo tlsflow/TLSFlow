@@ -87,6 +87,14 @@ test('Go Agent 小写 IIS bindings 会生成带端口的站点和 HTTPS 受管�
   assert.equal(projected.managedTargets.length, 1);
   assert.equal(projected.managedTargets[0]?.bindingKey, '*:4433:');
   assert.equal(projected.managedTargets[0]?.targetType, 'tls.binding');
+  assert.deepEqual(projected.managedTargets[0]?.metadata?.certificateLocation, {
+    apiVersion: 'gcac.certificate-location/v1',
+    storageKind: 'WINDOWS_CERTIFICATE_STORE',
+    storeName: 'My',
+    storeThumbprint: '12'.repeat(20),
+    confidence: 'EXACT',
+    observedAt: '2026-07-29T00:00:00.000Z',
+  });
   assert.deepEqual(projected.certificates, [{
     stableKey: projected.certificates[0]?.stableKey,
     sha256Fingerprint: 'ab'.repeat(32),

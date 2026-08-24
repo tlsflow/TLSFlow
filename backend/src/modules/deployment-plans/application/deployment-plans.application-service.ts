@@ -67,6 +67,8 @@ import type {
   DeploymentInputSnapshotV1,
 } from '../../deployment-inputs/dto/deployment-input-snapshot.dto.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
+import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
+import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -1502,6 +1504,11 @@ export class DeploymentPlansApplicationService {
     const resolvedMaterial = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact);
     if (resolvedMaterial) {
       const { contract, effectiveBinding, resolvedInput } = resolvedMaterial;
+      validateDiscoveredLocationConsistency(
+        target.managedTarget ? readCertificateLocation(target.managedTarget.metadata, target.managedTarget.updatedAt || now) : undefined,
+        contract,
+        resolvedInput,
+      );
       const safeStrategyPayload = sanitizeDeploymentInputPersistencePayload(target.strategyPayload ?? {});
       target.deploymentInputSnapshotDraft = this.deploymentInputSnapshotService.build(
         resolvedInput,

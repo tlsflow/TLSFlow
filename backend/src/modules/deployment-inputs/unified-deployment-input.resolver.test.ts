@@ -64,6 +64,30 @@ describe('UnifiedDeploymentInputResolver', () => {
     assert.equal(resolved.executable, false);
   });
 
+  it('资产来源优先使用发现值，缺失时回退声明的默认值', () => {
+    const request = requestFixture();
+    request.contract.variables.certificatePath = {
+      ...variable('file', 'advanced', { kind: 'asset', path: 'target.certificateLocation.certificatePath' }, 'default_overridable'),
+      default: '/etc/nginx/tls/server.crt',
+    };
+    request.assetContext.target!.certificateLocation = {
+      apiVersion: 'gcac.certificate-location/v1',
+      storageKind: 'PEM_FILES',
+      certificatePath: '/etc/gcac-test/certs/test.crt',
+      confidence: 'EXACT',
+      observedAt: '2026-08-01T00:00:00.000Z',
+    };
+
+    const discovered = resolver.resolve(request);
+    assert.equal(discovered.variables.certificatePath, '/etc/gcac-test/certs/test.crt');
+    assert.equal(discovered.provenance['variables.certificatePath']?.source, 'asset');
+
+    delete request.assetContext.target!.certificateLocation;
+    const fallback = resolver.resolve(request);
+    assert.equal(fallback.variables.certificatePath, '/etc/nginx/tls/server.crt');
+    assert.equal(fallback.provenance['variables.certificatePath']?.source, 'default');
+  });
+
   it('聚合变量、连接、凭据和 Artifact 的全部缺失问题', () => {
     const request = requestFixture();
     request.contract.connections.management.host = {

@@ -23,6 +23,9 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.host?.hostname, 'host-1.example.com');
     assert.equal(context.site?.bindingInformation, '*:443:app.example.com');
     assert.equal(context.target?.key, 'site-binding-1');
+    assert.equal(context.target?.certificateLocation?.certificatePath, '/etc/example/tls/app.crt');
+    assert.equal(context.target?.certificateLocation?.privateKeyPath, '/etc/example/tls/app.key');
+    assert.equal(context.deployment.targets[0]?.certificateLocation?.storageKind, 'PEM_FILES');
     assert.equal(context.deployment.targets[0]?.name, 'APP');
     assert.match(context.deployment.certificateResourceName, /^certificate-app-example-com-[a-f0-9]{10}$/);
     assert.equal('frameworkType' in (context.target ?? {}), false);
@@ -92,7 +95,13 @@ function managedTargetContext(): ResolvedManagedTargetTopology {
       supportedCapabilities: ['certificate.deploy'],
       executionLocations: ['AGENT'],
       status: 'ACTIVE',
-      metadata: { source: 'fixture' },
+      metadata: {
+        source: 'fixture',
+        certPath: '/etc/example/tls/app.crt',
+        keyPath: '/etc/example/tls/app.key',
+        configPath: '/etc/example/sites/app.conf',
+        serviceName: 'example-service',
+      },
       createdAt: '',
       updatedAt: '',
       version: 1,
