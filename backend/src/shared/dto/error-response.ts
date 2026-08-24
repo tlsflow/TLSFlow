@@ -1,7 +1,5 @@
-import type { ErrorCode } from '../../common/errors/error-codes.js';
-
 export interface ErrorResponse {
-  errorCode: ErrorCode;
+  errorCode: string;
   message: string;
   details?: unknown;
   requestId: string;

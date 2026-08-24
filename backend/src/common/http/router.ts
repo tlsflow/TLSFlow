@@ -16,6 +16,10 @@ export class Router {
     this.register({ method: 'GET', path, summary, tags, handler, responses });
   }
 
+  post(path: string, summary: string, tags: string[], handler: HttpHandler, responses?: Record<string, unknown>): void {
+    this.register({ method: 'POST', path, summary, tags, handler, responses });
+  }
+
   match(method: string, path: string): RouteDefinition | undefined {
     return this.routes.get(this.createKey(method.toUpperCase(), path));
   }

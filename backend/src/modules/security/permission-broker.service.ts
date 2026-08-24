@@ -1,4 +1,5 @@
-import type { RequestContext, ResourceDescriptor, SecuritySubject } from '../../shared/security-types.js';
+import { assertApprovalIfRequired } from '../../common/guards/approval.guard.js';
+import type { RequestContext, ResourceDescriptor, RiskLevel, SecuritySubject } from '../../shared/security-types.js';
 import type { RBACService } from '../rbac/rbac.service.js';
 import type { ApprovalService } from '../approvals/approval.service.js';
 import type { ExecutionGrantService } from '../executions/execution-grant.service.js';
@@ -9,6 +10,10 @@ export interface GrantForExecutorInput {
   subject: SecuritySubject;
   action: string;
   resource: ResourceDescriptor;
+  operationType?: string;
+  riskLevel?: RiskLevel;
+  approvalId?: string;
+  approvalParameters?: unknown;
   runId: string;
   stepId: string;
   executorType: string;
@@ -31,7 +36,15 @@ export class PermissionBroker {
 
   createExecutorGrant(input: GrantForExecutorInput) {
     this.rbac.assertCan(input.subject, input.action, input.resource, input.context ?? {});
-    void this.approvals;
+    // 授权 Grant 是执行器拿 Secret 和动作权限的最后闸门。
+    // 高风险操作不能只靠调用方“自觉”先过 ApprovalGuard；Broker 必须自己失败关闭。
+    assertApprovalIfRequired(
+      this.approvals,
+      input.operationType ?? input.action,
+      input.riskLevel ?? 'low',
+      input.approvalId,
+      input.approvalParameters ?? this.defaultApprovalParameters(input),
+    );
     return this.grants.create({
       runId: input.runId,
       stepId: input.stepId,
@@ -48,5 +61,16 @@ export class PermissionBroker {
       this.pluginPermissions.assertDeclaredPermission(input.manifest, input.action, parsed.type);
     }
     return this.createExecutorGrant(input);
+  }
+
+  private defaultApprovalParameters(input: GrantForExecutorInput): unknown {
+    return {
+      action: input.action,
+      resource: input.resource,
+      runId: input.runId,
+      stepId: input.stepId,
+      executorType: input.executorType,
+      allowedSecretRefs: input.allowedSecretRefs,
+    };
   }
 }

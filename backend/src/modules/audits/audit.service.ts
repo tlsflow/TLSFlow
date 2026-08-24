@@ -1,6 +1,7 @@
 import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
+import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
-import type { ActorType, AuditResult, RequestContext, RiskLevel } from '../../shared/security-types.js';
+import type { ActorType, AuditResult, RequestContext, ResourceDescriptor, SecuritySubject, RiskLevel } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 import { RedactionService } from './redaction.service.js';
@@ -24,12 +25,20 @@ export interface AuditQuery {
   eventType?: string;
   resourceType?: string;
   resourceId?: string;
+  resourceScope?: Record<string, string | undefined>;
   riskLevel?: RiskLevel;
+}
+
+export interface AuthorizedAuditQueryInput {
+  subject: SecuritySubject;
+  query?: AuditQuery;
+  context?: RequestContext;
+  assertCan: (subject: SecuritySubject, action: string, resource: ResourceDescriptor, context?: RequestContext) => void;
 }
 
 export class AuditService {
   constructor(
-    private readonly logs = new MemoryRepository<AuditLogEntity>(),
+    private readonly logs: RepositoryPort<AuditLogEntity> = new MemoryRepository<AuditLogEntity>(),
     private readonly redaction = new RedactionService(),
   ) {}
 
@@ -67,5 +76,15 @@ export class AuditService {
         && (!query.resourceId || log.resourceId === query.resourceId)
         && (!query.riskLevel || log.riskLevel === query.riskLevel);
     });
+  }
+
+  queryWithPermission(input: AuthorizedAuditQueryInput): AuditLogEntity[] {
+    const query = input.query ?? {};
+    input.assertCan(input.subject, 'audit.read', {
+      type: query.resourceType ?? 'auditLog',
+      id: query.resourceId,
+      scope: query.resourceScope,
+    }, input.context);
+    return this.query(query);
   }
 }

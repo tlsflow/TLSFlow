@@ -2,6 +2,7 @@ import { AppError } from './app-error.js';
 import type { ErrorResponse } from '../../shared/dto/error-response.js';
 import { redactSensitive } from '../logging/redact.js';
 import { getRequestContext } from '../tracing/request-context.js';
+import { SecurityError } from '../../shared/security-error.js';
 
 export interface HandledError {
   statusCode: number;
@@ -21,6 +22,20 @@ export function toErrorResponse(error: unknown, fallbackRequestId = 'req_unknown
         errorCode: error.errorCode,
         message: error.message,
         details: error.exposeDetails ? redactSensitive(error.details) : undefined,
+        requestId,
+        traceId,
+        timestamp,
+      },
+    };
+  }
+
+  if (error instanceof SecurityError) {
+    return {
+      statusCode: error.httpStatus,
+      body: {
+        errorCode: error.errorCode,
+        message: error.message,
+        details: redactSensitive(error.details),
         requestId,
         traceId,
         timestamp,
