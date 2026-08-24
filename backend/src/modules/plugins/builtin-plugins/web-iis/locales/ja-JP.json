@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "証明書指紋",
   "plugin.webIis.column.expiresAt": "有効期限",
   "plugin.webIis.action.discover": "検出",
-  "plugin.webIis.action.deploy": "証明書をデプロイ"
+  "plugin.webIis.action.deploy": "証明書をデプロイ",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS（バージョンは Agent が検出）",
+  "plugin.webIis.onboarding.requiredHost": "互換 Agent が導入された Windows ホスト",
+  "plugin.webIis.onboarding.requiredTarget": "検出済み IIS HTTPS サイト"
 }

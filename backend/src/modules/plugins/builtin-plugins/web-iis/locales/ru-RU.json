@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "Отпечаток",
   "plugin.webIis.column.expiresAt": "Истекает",
   "plugin.webIis.action.discover": "Обнаружить",
-  "plugin.webIis.action.deploy": "Развернуть сертификат"
+  "plugin.webIis.action.deploy": "Развернуть сертификат",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS, версию обнаруживает Agent",
+  "plugin.webIis.onboarding.requiredHost": "Хост Windows с установленным совместимым Agent",
+  "plugin.webIis.onboarding.requiredTarget": "Обнаруженный сайт IIS HTTPS"
 }

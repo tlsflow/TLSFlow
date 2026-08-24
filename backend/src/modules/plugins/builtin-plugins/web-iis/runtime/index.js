@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 const PLUGIN_ID = 'web.iis';
-const PLUGIN_VERSION = '1.0.1';
+const PLUGIN_VERSION = '1.0.2';
 const AGENT_SIDE_PROTOCOL = 'gcac.agent-side-plugin/v1';
 const CAPABILITIES = Object.freeze([
   'application.discover',
@@ -120,6 +120,7 @@ function fullAgentDiscovery(input, context) {
     .map((fact) => ({ path: fact.path, content: decodeContent(fact.contentBase64) }));
   const sites = [];
   const bindings = [];
+  const certificateFacts = certificateFactsFromEnvelope(factEnvelope);
   for (const file of files) {
     if (!/applicationhost\.config$/i.test(file.path) && !/<system\.applicationHost>|<site\b/i.test(file.content)) continue;
     for (const siteMatch of file.content.matchAll(/<site\b([^>]*?)(?:>|\/>)([\s\S]*?)<\/site>/gi)) {
@@ -132,13 +133,32 @@ function fullAgentDiscovery(input, context) {
         const protocol = optionalText(attrs.protocol)?.toLowerCase() ?? 'http';
         const information = optionalText(attrs.bindingInformation) ?? '*:80:';
         const parsed = parseBindingInformation(information);
-        const binding = { siteName, bindingInformation: information, protocol, hostName: parsed.hostName, address: parsed.address, port: parsed.port, configPath: file.path };
+        const certificateThumbprint = normalizeThumbprint(attrs.certificateHash);
+        const binding = {
+          siteName,
+          bindingInformation: information,
+          protocol,
+          hostName: parsed.hostName,
+          address: parsed.address,
+          port: parsed.port,
+          configPath: file.path,
+          ...(certificateThumbprint ? { certificateThumbprint } : {}),
+          ...(attrs.certificateStoreName ? { certificateStoreName: attrs.certificateStoreName } : {}),
+        };
+        if (certificateThumbprint && !certificateFacts.byThumbprint.has(certificateThumbprint)) {
+          const certificate = {
+            stableKey: `CERT:SHA1:${certificateThumbprint}`,
+            metadata: { thumbprint: certificateThumbprint, source: 'iis-binding', ...(attrs.certificateStoreName ? { store: attrs.certificateStoreName } : {}) },
+          };
+          certificateFacts.certificates.set(certificate.stableKey, certificate);
+          certificateFacts.byThumbprint.set(certificateThumbprint, certificate);
+        }
         siteBindings.push(binding);
         bindings.push(binding);
       }
       const addresses = [...new Set(siteBindings.map((binding) => binding.address).filter(Boolean))];
       const primary = siteBindings.find((binding) => binding.port !== undefined);
-      sites.push({ name: siteName, addresses: addresses.length ? addresses : [factEnvelope.agentId], port: primary?.port, protocol: primary?.protocol?.toUpperCase(), metadata: { applicationPool: findApplicationPool(siteBody), configPath: file.path } });
+      sites.push({ name: siteName, addresses: addresses.length ? addresses : [factEnvelope.agentId], port: primary?.port, protocol: primary?.protocol?.toUpperCase(), metadata: { applicationPool: findApplicationPool(siteBody), configPath: file.path, listeners: siteBindings } });
     }
   }
   const frameworkStableKey = `web.iis:${stableKey(factEnvelope.agentId)}`;
@@ -155,8 +175,9 @@ function fullAgentDiscovery(input, context) {
   const siteByName = new Map(normalizedSites.map((site) => [site.displayName, site]));
   const managedTargets = bindings.map((binding) => {
     const site = siteByName.get(binding.siteName);
+    const targetStableKey = `${frameworkStableKey}:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}`;
     return {
-      stableKey: `${frameworkStableKey}:${stableKey(binding.bindingInformation)}`,
+      stableKey: targetStableKey,
       frameworkStableKey,
       ...(site ? { siteStableKey: site.stableKey } : {}),
       targetType: 'tls.binding',
@@ -164,7 +185,7 @@ function fullAgentDiscovery(input, context) {
       bindingKey: `${PLUGIN_ID}:binding:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}`,
       supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
       executionLocations: ['AGENT', 'CONTROL_PLANE'],
-      metadata: { protocol: binding.protocol, hostName: binding.hostName, configPath: binding.configPath },
+      metadata: { protocol: binding.protocol, hostName: binding.hostName, configPath: binding.configPath, ...(binding.certificateThumbprint ? { certificateThumbprint: binding.certificateThumbprint } : {}), ...(binding.certificateStoreName ? { certificateStoreName: binding.certificateStoreName } : {}) },
     };
   });
   return successResult({ pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, pluginVersionId: context.pluginVersionId, discoveryMode: 'full-agent', siteCount: normalizedSites.length, bindingCount: managedTargets.length }, [{
@@ -174,10 +195,51 @@ function fullAgentDiscovery(input, context) {
     frameworks: [{ stableKey: frameworkStableKey, frameworkType: PLUGIN_ID, displayName: 'IIS' }],
     sites: normalizedSites,
     managedTargets,
-    certificates: [],
-    certificateBindings: [],
+    certificates: [...certificateFacts.certificates.values()],
+    certificateBindings: bindings.filter((binding) => binding.certificateThumbprint).map((binding) => ({
+      stableKey: `BINDING:${frameworkStableKey}:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}:${certificateFacts.byThumbprint.get(binding.certificateThumbprint)?.stableKey ?? `CERT:SHA1:${binding.certificateThumbprint}`}`,
+      managedTargetStableKey: `${frameworkStableKey}:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}`,
+      certificateStableKey: certificateFacts.byThumbprint.get(binding.certificateThumbprint)?.stableKey ?? `CERT:SHA1:${binding.certificateThumbprint}`,
+      bindingName: binding.bindingInformation,
+      metadata: { certificateThumbprint: binding.certificateThumbprint, ...(binding.certificateStoreName ? { certificateStoreName: binding.certificateStoreName } : {}) },
+    })),
     warnings: factEnvelope.warnings.map((message) => ({ code: 'AGENT_FACT_WARNING', messageKey: 'agents.discovery.agentFactWarning', metadata: { message: String(message).slice(0, 512), secretRedacted: true } })),
   }]);
+}
+
+function certificateFactsFromEnvelope(factEnvelope) {
+  const certificates = new Map();
+  const byThumbprint = new Map();
+  for (const fact of factEnvelope.facts) {
+    if (fact.kind !== 'certificate_store' && fact.kind !== 'certificate_file') continue;
+    const thumbprint = normalizeThumbprint(fact.thumbprint);
+    const sha256Fingerprint = typeof fact.sha256Fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(fact.sha256Fingerprint)
+      ? fact.sha256Fingerprint.toUpperCase()
+      : undefined;
+    if (!thumbprint && !sha256Fingerprint) continue;
+    const stableKey = sha256Fingerprint ? `CERT:${sha256Fingerprint}` : `CERT:SHA1:${thumbprint}`;
+    const certificate = {
+      stableKey,
+      ...(sha256Fingerprint ? { sha256Fingerprint } : {}),
+      ...(optionalText(fact.subject) ? { subject: optionalText(fact.subject) } : {}),
+      ...(optionalText(fact.issuer) ? { issuer: optionalText(fact.issuer) } : {}),
+      ...(validDate(fact.notBefore) ? { notBefore: validDate(fact.notBefore) } : {}),
+      ...(validDate(fact.notAfter) ? { notAfter: validDate(fact.notAfter) } : {}),
+      metadata: {
+        ...(thumbprint ? { thumbprint } : {}),
+        ...(optionalText(fact.path) ? { path: fact.path } : {}),
+        ...(optionalText(fact.store) ? { store: fact.store } : {}),
+        ...(optionalText(fact.storeLocation) ? { storeLocation: fact.storeLocation } : {}),
+      },
+    };
+    certificates.set(stableKey, certificate);
+    if (thumbprint) byThumbprint.set(thumbprint, certificate);
+  }
+  return { certificates, byThumbprint };
+}
+
+function validDate(value) {
+  return typeof value === 'string' && value.trim() && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
 
 function decodeContent(value) { try { return Buffer.from(value, 'base64').toString('utf8'); } catch { return ''; } }
@@ -188,9 +250,59 @@ function parseBindingInformation(value) {
   const port = Number(match[2]);
   return { address: match[1] || '*', port: Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined, hostName: optionalText(match[3]) };
 }
+function normalizeThumbprint(value) {
+  const raw = optionalText(value);
+  if (!raw) return undefined;
+  const compact = raw.replace(/\s+/g, '');
+  if (/^[A-Fa-f0-9]+$/.test(compact) && compact.length >= 8 && compact.length % 2 === 0) return compact.toUpperCase();
+  try {
+    const decoded = Buffer.from(raw, 'base64');
+    return decoded.length === 20 ? decoded.toString('hex').toUpperCase() : undefined;
+  } catch { return undefined; }
+}
 function findApplicationPool(value) { return /applicationPool\s*=\s*["']([^"']+)["']/i.exec(value)?.[1]; }
 function dedupeSites(sites) { const result = []; const seen = new Set(); for (const site of sites) { const key = `${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`; if (seen.has(key)) continue; seen.add(key); result.push(site); } return result; }
 function stableKey(value) { return createHash('sha256').update(String(value), 'utf8').digest('hex').slice(0, 32); }
+
+function validateFactEnvelope(value) {
+  const envelope = record(value, 'factEnvelope');
+  const allowed = ['contractVersion', 'factId', 'agentId', 'tenantId', 'collectedAt', 'ttlSeconds', 'source', 'facts', 'digest', 'warnings'];
+  if (Object.keys(envelope).some((key) => !allowed.includes(key))) fail('factEnvelope 包含未知字段');
+  if (envelope.contractVersion !== 'gcac.agent-security/v1' || !IDENTIFIER_PATTERN.test(String(envelope.factId))
+    || !IDENTIFIER_PATTERN.test(String(envelope.agentId)) || !IDENTIFIER_PATTERN.test(String(envelope.tenantId))) fail('factEnvelope 身份或合同版本无效');
+  if (!Number.isFinite(Date.parse(String(envelope.collectedAt))) || !Number.isInteger(envelope.ttlSeconds) || envelope.ttlSeconds < 1 || envelope.ttlSeconds > 86400) fail('factEnvelope 时间范围无效');
+  if (!['windows', 'linux', 'compatibility'].includes(envelope.source) || !Array.isArray(envelope.facts) || envelope.facts.length === 0 || envelope.facts.length > 1000 || !Array.isArray(envelope.warnings) || envelope.warnings.some((item) => typeof item !== 'string')) fail('factEnvelope 事实或来源无效');
+  const facts = envelope.facts.map((fact, index) => validateRawFact(fact, `factEnvelope.facts.${index}`));
+  if (typeof envelope.digest !== 'string' || !DIGEST_PATTERN.test(envelope.digest)) fail('factEnvelope 摘要无效');
+  const { digest: _digest, ...payload } = { ...envelope, facts };
+  if (createHash('sha256').update(canonicalJson(payload), 'utf8').digest('hex') !== envelope.digest) fail('factEnvelope 摘要与事实不一致');
+  return { ...envelope, facts };
+}
+
+function validateRawFact(value, path) {
+  const fact = record(value, path);
+  if (Object.keys(fact).some((key) => /product|framework|provider|detected|recognition|deploymentSemantic/i.test(key))) fail(`${path} 包含产品判断字段`);
+  if (!['process', 'service', 'listening_port', 'file_stat', 'file_content', 'certificate_file', 'certificate_store', 'privilege'].includes(fact.kind)) fail(`${path} 类型无效`);
+  if (fact.kind === 'file_content') {
+    if (typeof fact.path !== 'string' || typeof fact.contentBase64 !== 'string' || !Number.isInteger(fact.bytesRead) || typeof fact.truncated !== 'boolean' || !DIGEST_PATTERN.test(String(fact.sha256))) fail(`${path} 文件内容事实无效`);
+  }
+  if (fact.kind === 'certificate_file') {
+    const allowed = ['kind', 'path', 'configuredPaths', 'sha256Fingerprint', 'thumbprint', 'subject', 'issuer', 'notBefore', 'notAfter'];
+    if (Object.keys(fact).some((key) => !allowed.includes(key)) || typeof fact.path !== 'string' || (!DIGEST_PATTERN.test(String(fact.sha256Fingerprint)) && !normalizeThumbprint(fact.thumbprint))) fail(`${path} 证书文件事实无效`);
+  }
+  if (fact.kind === 'certificate_store') {
+    const allowed = ['kind', 'path', 'store', 'storeLocation', 'subject', 'thumbprint', 'sha256Fingerprint', 'issuer', 'notBefore', 'notAfter', 'hasPrivateKey'];
+    if (Object.keys(fact).some((key) => !allowed.includes(key)) || typeof fact.store !== 'string' || typeof fact.subject !== 'string' || !normalizeThumbprint(fact.thumbprint) || typeof fact.hasPrivateKey !== 'boolean') fail(`${path} 证书库事实无效`);
+  }
+  return fact;
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  fail('事实包含不可序列化字段');
+}
 
 async function resolveArtifact(input, authorization, context, hostApi) {
   const artifact = record(input.artifact, 'artifact');

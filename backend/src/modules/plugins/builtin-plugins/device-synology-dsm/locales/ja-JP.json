@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "ポート",
   "plugin.synologyDsm.column.status": "状態",
   "plugin.synologyDsm.column.subject": "サブジェクト",
-  "plugin.synologyDsm.column.expiresAt": "有効期限"
+  "plugin.synologyDsm.column.expiresAt": "有効期限",
+  "plugin.synologyDsm.onboarding.compatibility": "DSM Web API 経由の Synology DSM",
+  "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理アドレス",
+  "plugin.synologyDsm.onboarding.requiredCredential": "証明書管理権限を持つ DSM 管理者の認証情報"
 }

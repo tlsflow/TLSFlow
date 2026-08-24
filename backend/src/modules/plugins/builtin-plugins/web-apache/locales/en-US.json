@@ -11,5 +11,7 @@
   "plugin.webApache.action.discover": "Rediscover",
   "plugin.webApache.action.deploy": "Deploy certificate",
   "plugin.webApache.action.verify": "Verify certificate",
-  "plugin.webApache.action.rollback": "Roll back certificate"
+  "plugin.webApache.action.rollback": "Roll back certificate",
+  "plugin.webApache.onboarding.compatibility": "Apache HTTP Server, version range pending platform validation",
+  "plugin.webApache.onboarding.requiredTarget": "Discovered and selectable Apache TLS target"
 }

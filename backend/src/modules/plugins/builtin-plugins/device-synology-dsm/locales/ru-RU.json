@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "Порт",
   "plugin.synologyDsm.column.status": "Состояние",
   "plugin.synologyDsm.column.subject": "Тема",
-  "plugin.synologyDsm.column.expiresAt": "Истекает"
+  "plugin.synologyDsm.column.expiresAt": "Истекает",
+  "plugin.synologyDsm.onboarding.compatibility": "Synology DSM через DSM Web API",
+  "plugin.synologyDsm.onboarding.requiredAddress": "Адрес управления DSM",
+  "plugin.synologyDsm.onboarding.requiredCredential": "Учетные данные администратора DSM с правом управления сертификатами"
 }

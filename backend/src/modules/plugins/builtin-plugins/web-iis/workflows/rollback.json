@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.1", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.6", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
@@ -22,7 +22,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.1", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 131072,

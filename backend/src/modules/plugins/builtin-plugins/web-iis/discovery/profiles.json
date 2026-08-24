@@ -1,0 +1,42 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "web.iis",
+  "version": "1.0.5",
+  "profiles": [
+    {
+      "id": "windows.agent_fact.iis",
+      "pluginId": "web.iis",
+      "version": "1.0.5",
+      "sources": [
+        "windows"
+      ],
+      "pathMode": "explicit",
+      "configPaths": [
+        "C:/Windows/System32/inetsrv/config/applicationHost.config"
+      ],
+      "processExecutables": [
+        "w3wp.exe"
+      ],
+      "serviceNames": [
+        "W3SVC",
+        "WAS"
+      ],
+      "configFileNames": [
+        "applicationHost.config"
+      ],
+      "certificateFileExtensions": [
+        ".cer",
+        ".crt",
+        ".der",
+        ".pem"
+      ],
+      "listeningPorts": [
+        80,
+        443
+      ],
+      "frameworkType": "web.iis",
+      "defaultPort": 443
+    }
+  ]
+}

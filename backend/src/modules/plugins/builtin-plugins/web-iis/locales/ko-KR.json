@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "지문",
   "plugin.webIis.column.expiresAt": "만료",
   "plugin.webIis.action.discover": "검색",
-  "plugin.webIis.action.deploy": "인증서 배포"
+  "plugin.webIis.action.deploy": "인증서 배포",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS, Agent가 버전 검색",
+  "plugin.webIis.onboarding.requiredHost": "호환 Agent가 설치된 Windows 호스트",
+  "plugin.webIis.onboarding.requiredTarget": "검색된 IIS HTTPS 사이트"
 }

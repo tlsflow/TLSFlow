@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "app.tomcat",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "profiles": [
     {
       "id": "linux.agent_plan.pkcs12",
       "pluginId": "app.tomcat",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "sources": [
         "linux"
       ],
@@ -19,12 +19,43 @@
         "/opt/tomcat/conf/server.xml"
       ],
       "processExecutables": [
-        "/usr/lib/jvm/java/bin/java"
+        "/usr/lib/jvm/java/bin/java",
+        "java",
+        "tomcat",
+        "prunsrv"
       ],
       "serviceNames": [
-        "tomcat"
+        "tomcat",
+        "Tomcat",
+        "Tomcat9",
+        "Tomcat10",
+        "prunsrv"
+      ],
+      "commandLineContains": [
+        "org.apache.catalina"
+      ],
+      "rootArgKeys": [
+        "-Dcatalina.base",
+        "-Dcatalina.home"
+      ],
+      "defaultConfigRelativePaths": [
+        "conf/server.xml"
+      ],
+      "configFileNames": [
+        "server.xml"
+      ],
+      "certificateFileExtensions": [
+        ".cer",
+        ".crt",
+        ".der",
+        ".jks",
+        ".keystore",
+        ".p12",
+        ".pem",
+        ".pfx"
       ],
       "listeningPorts": [
+        8080,
         8443
       ],
       "frameworkType": "app.tomcat",
@@ -33,7 +64,7 @@
     {
       "id": "windows.agent_plan.pkcs12",
       "pluginId": "app.tomcat",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "sources": [
         "windows"
       ],
@@ -45,12 +76,49 @@
         "C:/Tomcat/conf/server.xml"
       ],
       "processExecutables": [
-        "C:/Program Files/Java/bin/java.exe"
+        "C:/Program Files/Java/bin/java.exe",
+        "java.exe",
+        "tomcat.exe",
+        "tomcat9.exe",
+        "tomcat10.exe",
+        "prunsrv.exe",
+        "java",
+        "tomcat",
+        "tomcat9",
+        "tomcat10",
+        "prunsrv"
       ],
       "serviceNames": [
-        "Tomcat10"
+        "Tomcat",
+        "Tomcat9",
+        "Tomcat10",
+        "prunsrv"
+      ],
+      "commandLineContains": [
+        "org.apache.catalina"
+      ],
+      "rootArgKeys": [
+        "-Dcatalina.base",
+        "-Dcatalina.home"
+      ],
+      "defaultConfigRelativePaths": [
+        "conf/server.xml"
+      ],
+      "configFileNames": [
+        "server.xml"
+      ],
+      "certificateFileExtensions": [
+        ".cer",
+        ".crt",
+        ".der",
+        ".jks",
+        ".keystore",
+        ".p12",
+        ".pem",
+        ".pfx"
       ],
       "listeningPorts": [
+        8080,
         8443
       ],
       "frameworkType": "app.tomcat",

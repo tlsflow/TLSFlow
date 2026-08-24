@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "Impressão digital",
   "plugin.webIis.column.expiresAt": "Expira em",
   "plugin.webIis.action.discover": "Descobrir",
-  "plugin.webIis.action.deploy": "Implantar certificado"
+  "plugin.webIis.action.deploy": "Implantar certificado",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS, versao descoberta pelo Agent",
+  "plugin.webIis.onboarding.requiredHost": "Host Windows com Agent compativel instalado",
+  "plugin.webIis.onboarding.requiredTarget": "Site HTTPS IIS descoberto"
 }

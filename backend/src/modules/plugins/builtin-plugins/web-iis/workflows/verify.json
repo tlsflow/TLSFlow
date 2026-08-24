@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-verify", "displayName": "IIS certificate verification", "category": "certificate", "version": "1.0.1", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-verify", "displayName": "IIS certificate verification", "category": "certificate", "version": "1.0.6", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
@@ -20,7 +20,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.1", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "target": "{{variables.target}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "target": "{{variables.target}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,

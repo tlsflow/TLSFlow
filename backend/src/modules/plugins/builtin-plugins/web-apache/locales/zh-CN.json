@@ -11,5 +11,7 @@
   "plugin.webApache.action.discover": "重新发现",
   "plugin.webApache.action.deploy": "部署证书",
   "plugin.webApache.action.verify": "验证证书",
-  "plugin.webApache.action.rollback": "回滚证书"
+  "plugin.webApache.action.rollback": "回滚证书",
+  "plugin.webApache.onboarding.compatibility": "Apache HTTP Server（版本范围待平台验收）",
+  "plugin.webApache.onboarding.requiredTarget": "已发现且可选择的 Apache TLS 目标"
 }

@@ -11,5 +11,7 @@
   "plugin.webNginx.action.discover": "Rediscover",
   "plugin.webNginx.action.deploy": "Deploy certificate",
   "plugin.webNginx.action.verify": "Verify certificate",
-  "plugin.webNginx.action.rollback": "Roll back certificate"
+  "plugin.webNginx.action.rollback": "Roll back certificate",
+  "plugin.webNginx.onboarding.compatibility": "Nginx, version range pending platform validation",
+  "plugin.webNginx.onboarding.requiredTarget": "Discovered and selectable Nginx TLS target"
 }

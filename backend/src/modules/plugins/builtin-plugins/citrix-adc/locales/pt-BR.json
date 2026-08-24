@@ -43,5 +43,11 @@
   "plugin.citrixAdc.column.event": "Evento",
   "plugin.citrixAdc.column.result": "Resultado",
   "plugin.citrixAdc.column.occurredAt": "Ocorrido em",
-  "plugin.citrixAdc.action.discover": "Redescobrir"
+  "plugin.citrixAdc.action.discover": "Redescobrir",
+  "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
+  "plugin.citrixAdc.onboarding.adc.requiredAddress": "Endereco de gerenciamento",
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "Usuario e senha do administrador",
+  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "Dispositivo Citrix ADC gerenciado",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "Destino VPN Server a configurar"
 }

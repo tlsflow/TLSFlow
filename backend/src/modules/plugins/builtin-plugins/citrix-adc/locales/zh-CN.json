@@ -1,6 +1,7 @@
 {
   "plugin.citrixAdc.field.credential": "设备管理凭据",
   "plugin.citrixAdc.name": "Citrix ADC",
+  "plugin.citrixAdc.vpnServer.name": "Citrix VDI（NetScaler VPN Server）",
   "plugin.citrixAdc.description": "通过 NITRO API 管理设备、发现站点并自动部署证书。",
   "plugin.citrixAdc.form.device": "设备连接",
   "plugin.citrixAdc.form.authentication": "身份认证",
@@ -43,5 +44,11 @@
   "plugin.citrixAdc.column.event": "事件",
   "plugin.citrixAdc.column.result": "结果",
   "plugin.citrixAdc.column.occurredAt": "发生时间",
-  "plugin.citrixAdc.action.discover": "重新发现"
+  "plugin.citrixAdc.action.discover": "重新发现",
+  "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
+  "plugin.citrixAdc.onboarding.adc.requiredAddress": "管理地址",
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "管理员用户名和密码",
+  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "已受管的 Citrix ADC 设备",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "待配置的 VPN Server 目标"
 }

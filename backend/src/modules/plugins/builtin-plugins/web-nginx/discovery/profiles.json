@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "web.nginx",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "profiles": [
     {
       "id": "linux.agent_plan.pem",
       "pluginId": "web.nginx",
-      "version": "1.0.1",
+      "version": "1.0.3",
       "sources": [
         "linux"
       ],
@@ -19,12 +19,33 @@
         "/etc/nginx/nginx.conf"
       ],
       "processExecutables": [
-        "/usr/sbin/nginx"
+        "/usr/sbin/nginx",
+        "nginx"
       ],
       "serviceNames": [
         "nginx"
       ],
+      "configArgKeys": [
+        "-c"
+      ],
+      "rootArgKeys": [
+        "-p"
+      ],
+      "defaultConfigRelativePaths": [
+        "conf/nginx.conf"
+      ],
+      "configFileNames": [
+        "nginx.conf",
+        "*.conf"
+      ],
+      "certificateFileExtensions": [
+        ".cer",
+        ".crt",
+        ".der",
+        ".pem"
+      ],
       "listeningPorts": [
+        80,
         443
       ],
       "frameworkType": "web.nginx",
@@ -33,7 +54,7 @@
     {
       "id": "windows.agent_plan.pem",
       "pluginId": "web.nginx",
-      "version": "1.0.1",
+      "version": "1.0.3",
       "sources": [
         "windows"
       ],
@@ -45,12 +66,34 @@
         "C:/nginx/conf/nginx.conf"
       ],
       "processExecutables": [
-        "C:/nginx/nginx.exe"
+        "C:/nginx/nginx.exe",
+        "nginx.exe",
+        "nginx"
       ],
       "serviceNames": [
         "nginx"
       ],
+      "configArgKeys": [
+        "-c"
+      ],
+      "rootArgKeys": [
+        "-p"
+      ],
+      "defaultConfigRelativePaths": [
+        "conf/nginx.conf"
+      ],
+      "configFileNames": [
+        "nginx.conf",
+        "*.conf"
+      ],
+      "certificateFileExtensions": [
+        ".cer",
+        ".crt",
+        ".der",
+        ".pem"
+      ],
       "listeningPorts": [
+        80,
         443
       ],
       "frameworkType": "web.nginx",

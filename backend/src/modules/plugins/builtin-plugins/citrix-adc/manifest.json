@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.citrix.netscaler-adc",
-  "version": "2.0.1",
+  "version": "2.0.5",
   "displayNameKey": "plugin.citrixAdc.name",
   "descriptionKey": "plugin.citrixAdc.description",
   "logoUrl": "/plugin-logos/citrix-adc.svg",
@@ -52,6 +52,12 @@
     "forms": { "device": "forms/device.json" },
     "presentations": { "device": "presentations/device.json" },
     "discoveryMappings": { "nitro-13.1": "discovery/nitro-13.1.json" },
+    "onboarding": {
+      "applicationAsset": "onboarding/application-asset.json",
+      "applicationAssets": {
+        "netscalerVpnServer": "onboarding/netscaler-vpn-server-application-asset.json"
+      }
+    },
     "locales": {
       "zh-CN": "locales/zh-CN.json",
       "zh-TW": "locales/zh-TW.json",

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createPluginRunnerExecutor } from './index.js';
@@ -19,7 +20,7 @@ test('IIS 工厂只导出标准入口并读取适配器注入的四项身份', (
     assert.deepEqual(createPluginRunnerExecutor().descriptor, {
       pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
       pluginId: 'web.iis',
-      pluginVersion: '1.0.1',
+      pluginVersion: '1.0.2',
       capabilities: ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'],
       permissions: ['artifact.read', 'agent.fact.collect', 'agent.plan.validate', 'agent.plan.execute', 'agent.execution.receipt', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
       packageHash: hash,
@@ -33,6 +34,24 @@ test('IIS 缺少固定摘要时工厂失败关闭', () => {
   withEnvironment(env, () => {
     delete process.env.GCAC_PLUGIN_RESOURCE_HASH;
     assert.throws(() => createPluginRunnerExecutor(), /GCAC_PLUGIN_RESOURCE_HASH/);
+  });
+});
+
+test('IIS Full Agent 事实把证书库摘要绑定到每个 HTTPS 站点', async () => {
+  await withEnvironmentAsync(env, async () => {
+    const executor = createPluginRunnerExecutor();
+    const result = await executor.execute({
+      ...context('application.discover', authorizationFixture('discover')),
+      input: { discoveryMode: 'full-agent', factEnvelope: fullAgentFactEnvelope() },
+    }, {});
+    assert.equal(result.status, 'SUCCESS');
+    const discovery = result.normalizedObjects[0];
+    assert.equal(discovery.sites.length, 2);
+    assert.equal(discovery.managedTargets.length, 2);
+    assert.equal(new Set(discovery.managedTargets.map((item) => item.stableKey)).size, 2);
+    assert.equal(discovery.certificates.length, 1);
+    assert.equal(discovery.certificateBindings.length, 2);
+    assert.equal(discovery.certificateBindings.every((item) => item.certificateStableKey === discovery.certificates[0].stableKey), true);
   });
 });
 
@@ -60,7 +79,7 @@ test('IIS 真实 Runner 子进程执行 Agent-side discovery Fixture 并输出�
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'web.iis',
-    pluginVersion: '1.0.1',
+    pluginVersion: '1.0.2',
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/web-iis/runtime/index.js')],
@@ -100,7 +119,7 @@ test('IIS 真实 Runner 子进程在 Agent-side 写后断连时返回 UNKNOWN', 
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'web.iis',
-    pluginVersion: '1.0.1',
+    pluginVersion: '1.0.2',
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/web-iis/runtime/index.js')],
@@ -178,7 +197,7 @@ function context(capability, authorization, grantRefs = ['agent-grant']) {
   return {
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'web.iis',
-    pluginVersion: '1.0.1',
+    pluginVersion: '1.0.2',
     tenantId: 'tenant-device',
     executionId: 'run-iis',
     executionStepId: 'step-iis',
@@ -194,7 +213,7 @@ function context(capability, authorization, grantRefs = ['agent-grant']) {
 
 function authorizationFixture(operation, grantRefs = ['agent-grant'], authorizationPlanDigest = planDigest) {
   const nonce = 'nonce-iis-fixture';
-  const common = { agentId: 'agent-iis-01', tenantId: 'tenant-device', pluginId: 'web.iis', pluginVersion: '1.0.1', pluginVersionId: env.GCAC_PLUGIN_VERSION_ID, planDigest: authorizationPlanDigest, nonce };
+  const common = { agentId: 'agent-iis-01', tenantId: 'tenant-device', pluginId: 'web.iis', pluginVersion: '1.0.2', pluginVersionId: env.GCAC_PLUGIN_VERSION_ID, planDigest: authorizationPlanDigest, nonce };
   return {
     ...common,
     nonce,
@@ -211,15 +230,36 @@ function authorizationFixture(operation, grantRefs = ['agent-grant'], authorizat
 
 function discoveryFixture() {
   return {
-    apiVersion: 'gcac.agent-side-plugin/v1', pluginId: 'web.iis', pluginVersion: '1.0.1', operation: 'discover', status: 'SUCCESS',
+    apiVersion: 'gcac.agent-side-plugin/v1', pluginId: 'web.iis', pluginVersion: '1.0.2', operation: 'discover', status: 'SUCCESS',
     facts: { iisVersion: '10.0.20348.1', machineName: 'iis-fixture-01', sites: [{ name: 'Default Web Site', addresses: ['192.0.2.80'], port: 443, applicationPool: 'DefaultAppPool' }], bindings: [{ siteName: 'Default Web Site', bindingInformation: '192.0.2.80:443:www.example.invalid', protocol: 'https', hostName: 'www.example.invalid', certificateThumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD', certificateStoreName: 'My', sha256Fingerprint: 'a'.repeat(64) }] },
     receipt: { planDigest, nonce: 'nonce-iis-fixture', digest: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'SUCCESS' },
   };
 }
 
+function fullAgentFactEnvelope() {
+  const certificateThumbprint = '00112233445566778899AABBCCDDEEFF00112233';
+  const config = `<configuration><system.applicationHost><sites><site name="Default Web Site"><bindings><binding protocol="https" bindingInformation="*:4433:rds.jacksonz.cn" certificateHash="${certificateThumbprint}" certificateStoreName="My" /></bindings></site><site name="TEST"><bindings><binding protocol="https" bindingInformation="*:4433:rds.jacksonz.cn" certificateHash="${certificateThumbprint}" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>`;
+  const envelope = {
+    contractVersion: 'gcac.agent-security/v1', factId: 'fact-iis-full-agent', agentId: 'agent-iis-01', tenantId: 'tenant-device', collectedAt: '2026-08-14T00:00:00.000Z', ttlSeconds: 300, source: 'compatibility',
+    facts: [
+      { kind: 'process', pid: 1, executablePath: 'C:/Program Files/GCAC/agent.exe' },
+      { kind: 'file_content', path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', contentBase64: Buffer.from(config, 'utf8').toString('base64'), bytesRead: Buffer.byteLength(config), truncated: false, sha256: 'c'.repeat(64) },
+      { kind: 'certificate_store', path: `windows-certstore://LocalMachine/My/${certificateThumbprint}`, store: 'My', storeLocation: 'LocalMachine', thumbprint: certificateThumbprint, sha256Fingerprint: 'a'.repeat(64), subject: 'CN=rds.jacksonz.cn', issuer: 'CN=GCAC Test CA', notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z', hasPrivateKey: true },
+    ],
+    warnings: [],
+  };
+  return { ...envelope, digest: createHash('sha256').update(canonicalJson(envelope), 'utf8').digest('hex') };
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+}
+
 function deployFixture() {
   return {
-    apiVersion: 'gcac.agent-side-plugin/v1', pluginId: 'web.iis', pluginVersion: '1.0.1', operation: 'update-binding', status: 'SUCCESS', verified: true,
+    apiVersion: 'gcac.agent-side-plugin/v1', pluginId: 'web.iis', pluginVersion: '1.0.2', operation: 'update-binding', status: 'SUCCESS', verified: true,
     previousBinding: { siteName: 'Default Web Site', bindingInformation: '192.0.2.80:443:www.example.invalid', protocol: 'https', hostName: 'www.example.invalid', certificateThumbprint: '00112233445566778899AABBCCDDEEFF00112233', certificateStoreName: 'My' },
     binding: { siteName: 'Default Web Site', bindingInformation: '192.0.2.80:443:www.example.invalid', protocol: 'https', hostName: 'www.example.invalid', certificateThumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD', certificateStoreName: 'My' },
     receipt: { planDigest, nonce: 'nonce-iis-fixture', digest: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'SUCCESS' },

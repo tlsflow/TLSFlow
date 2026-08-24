@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "憑證指紋",
   "plugin.webIis.column.expiresAt": "到期時間",
   "plugin.webIis.action.discover": "探索",
-  "plugin.webIis.action.deploy": "部署憑證"
+  "plugin.webIis.action.deploy": "部署憑證",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS（版本由 Agent 探索）",
+  "plugin.webIis.onboarding.requiredHost": "已安裝相容 Agent 的 Windows 主機",
+  "plugin.webIis.onboarding.requiredTarget": "已探索的 IIS HTTPS 網站"
 }

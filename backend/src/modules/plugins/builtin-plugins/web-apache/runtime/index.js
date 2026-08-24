@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ID = 'web.apache';
-const PLUGIN_VERSION = '1.0.1';
+const PLUGIN_VERSION = '1.0.2';
 const CAPABILITIES = ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'];
 const WRITE_CAPABILITIES = new Set(['certificate.deploy', 'certificate.rollback']);
 const SECURITY_VERSION = 'gcac.agent-security/v1';
@@ -97,9 +97,19 @@ function fullAgentDiscovery(factEnvelope, pluginVersionId) {
     for (const block of content.match(/<VirtualHost\s+([^>]+)>([\s\S]*?)<\/VirtualHost>/gi) ?? []) {
       const header = match(block, /<VirtualHost\s+([^>]+)>/i) ?? '*:80';
       const names = words(block, /ServerName\s+([^\s#]+)|ServerAlias\s+([^\s#]+)/gi);
-      const port = parsePort(header) ?? 80;
-      const protocol = /443|ssl/i.test(header) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP';
-      for (const name of (names.length ? names : [header])) sites.push({ name, addresses: [name], port, protocol, metadata: { configPath: fact.path } });
+      const endpoints = header.split(/\s+/).filter(Boolean);
+      const certificatePath = match(block, /SSLCertificateFile\s+([^\s#]+)/i);
+      const certificateKeyPath = match(block, /SSLCertificateKeyFile\s+([^\s#]+)/i);
+      const certificateChainPath = match(block, /SSLCertificateChainFile\s+([^\s#]+)/i);
+      const listeners = (endpoints.length ? endpoints : ['*:80']).map((endpoint) => ({
+        port: parsePort(endpoint) ?? 80,
+        protocol: /443|ssl/i.test(endpoint) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP',
+        ...(certificatePath ? { certificatePath } : {}),
+        ...(certificateKeyPath ? { certificateKeyPath } : {}),
+        ...(certificateChainPath ? { certificateChainPath } : {}),
+      }));
+      const preferred = listeners.find((listener) => listener.protocol === 'HTTPS') ?? listeners[0];
+      for (const name of (names.length ? names : [header])) sites.push({ name, addresses: [name], port: preferred?.port, protocol: preferred?.protocol, metadata: { configPath: fact.path, listeners } });
     }
   }
   return standardDiscovery(factEnvelope, pluginVersionId, 'web.apache', 'Apache', sites);
@@ -120,19 +130,54 @@ function standardDiscovery(factEnvelope, pluginVersionId, frameworkType, display
   const managedTargets = sites.map((site) => ({
     stableKey: `${site.stableKey}:tls`, frameworkStableKey, siteStableKey: site.stableKey,
     targetType: 'tls.binding', targetKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`, bindingKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`,
-    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'], executionLocations: ['AGENT', 'CONTROL_PLANE'], metadata: { protocol: site.protocol ?? 'HTTP' },
+    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'], executionLocations: ['AGENT', 'CONTROL_PLANE'], metadata: { protocol: site.protocol ?? 'HTTP', ...(site.metadata ?? {}) },
   }));
+  const { certificates, certificateBindings } = certificateBindingObjects(factEnvelope.facts, sites, managedTargets);
   return {
     success: true, status: 'SUCCESS',
     summary: { pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, pluginVersionId, discoveryMode: 'full-agent', frameworkCount: 1, siteCount: sites.length },
     normalizedObjects: [{
       apiVersion: 'gcac.device-discovery/v2',
       device: { stableKey: `${PLUGIN_ID}:${stableKey(factEnvelope.agentId)}`, displayName: factEnvelope.agentId, productFamily: PLUGIN_ID, softwareVersion: 'unknown', managementAddress: factEnvelope.agentId, metadata: { tenantId: factEnvelope.tenantId, pluginId: PLUGIN_ID, pluginVersionId, discoveryMode: 'full-agent' } },
-      capabilities: CAPABILITIES.map((key) => ({ key, available: true })), frameworks: [{ stableKey: frameworkStableKey, frameworkType, displayName }], sites, managedTargets, certificates: [], certificateBindings: [], warnings: [],
+      capabilities: CAPABILITIES.map((key) => ({ key, available: true })), frameworks: [{ stableKey: frameworkStableKey, frameworkType, displayName }], sites, managedTargets, certificates, certificateBindings, warnings: [],
     }],
     warnings: factEnvelope.warnings.map((message) => ({ code: 'AGENT_FACT_WARNING', messageKey: 'agents.discovery.agentFactWarning', metadata: { message: String(message).slice(0, 512), secretRedacted: true } })),
   };
 }
+
+/** 配置只引用路径；实际证书元数据只能来自 Agent 的只读 certificate_file 事实。 */
+function certificateBindingObjects(facts, sites, managedTargets) {
+  const certificates = new Map(); const byReference = new Map();
+  for (const fact of facts.filter((item) => item.kind === 'certificate_file')) {
+    const sha256Fingerprint = typeof fact.sha256Fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(fact.sha256Fingerprint) ? fact.sha256Fingerprint.toUpperCase() : undefined;
+    const thumbprint = normalizeThumbprint(fact.thumbprint);
+    if (!sha256Fingerprint && !thumbprint) continue;
+    const certificate = { stableKey: sha256Fingerprint ? `CERT:${sha256Fingerprint}` : `CERT:SHA1:${thumbprint}`, ...(sha256Fingerprint ? { sha256Fingerprint } : {}), ...(textValue(fact.subject) ? { subject: fact.subject } : {}), ...(textValue(fact.issuer) ? { issuer: fact.issuer } : {}), ...(dateValue(fact.notBefore) ? { notBefore: dateValue(fact.notBefore) } : {}), ...(dateValue(fact.notAfter) ? { notAfter: dateValue(fact.notAfter) } : {}), metadata: { ...(thumbprint ? { thumbprint } : {}), ...(textValue(fact.path) ? { path: fact.path } : {}) } };
+    certificates.set(certificate.stableKey, certificate);
+    for (const reference of [fact.path, ...(Array.isArray(fact.configuredPaths) ? fact.configuredPaths : [])]) {
+      if (typeof reference !== 'string' || !reference.trim()) continue;
+      byReference.set(normalizeCertificateReference(reference), certificate); byReference.set(`basename:${certificateBasename(reference).toLowerCase()}`, certificate);
+    }
+  }
+  const certificateBindings = [];
+  for (const target of managedTargets) {
+    const site = sites.find((item) => item.stableKey === target.siteStableKey); const listeners = Array.isArray(site?.metadata?.listeners) ? site.metadata.listeners : [];
+    for (const listener of listeners) {
+      const certificatePath = typeof listener?.certificatePath === 'string' ? listener.certificatePath : undefined;
+      if (!certificatePath) continue;
+      const certificate = byReference.get(normalizeCertificateReference(certificatePath)) ?? byReference.get(`basename:${certificateBasename(certificatePath).toLowerCase()}`);
+      if (!certificate || certificateBindings.some((item) => item.managedTargetStableKey === target.stableKey && item.certificateStableKey === certificate.stableKey)) continue;
+      certificateBindings.push({ stableKey: `BINDING:${target.stableKey}:${certificate.stableKey}`, managedTargetStableKey: target.stableKey, certificateStableKey: certificate.stableKey, bindingName: certificatePath, metadata: { certificatePath, observedCertificate: observedCertificate(certificate) } });
+    }
+  }
+  return { certificates: [...certificates.values()], certificateBindings };
+}
+function normalizeThumbprint(value) { const compact = typeof value === 'string' ? value.replace(/\s+/g, '') : ''; return /^[a-f0-9]{8,}$/i.test(compact) && compact.length % 2 === 0 ? compact.toUpperCase() : undefined; }
+function normalizeCertificateReference(value) { return String(value).replaceAll('\\', '/').replace(/\/+/g, '/').trim().toLowerCase(); }
+function certificateBasename(value) { return normalizeCertificateReference(value).split('/').at(-1) ?? value; }
+function textValue(value) { return typeof value === 'string' && value.trim() ? value : undefined; }
+function dateValue(value) { return typeof value === 'string' && value.trim() && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined; }
+function observedCertificate(certificate) { return { ...(certificate.sha256Fingerprint ? { fingerprintSha256: certificate.sha256Fingerprint } : {}), ...(certificate.subject ? { subject: certificate.subject } : {}), ...(certificate.issuer ? { issuer: certificate.issuer } : {}), ...(certificate.notBefore ? { notBefore: certificate.notBefore } : {}), ...(certificate.notAfter ? { notAfter: certificate.notAfter } : {}), ...(certificate.metadata?.thumbprint ? { thumbprint: certificate.metadata.thumbprint } : {}) }; }
 
 function dedupeSites(sites) {
   const result = []; const seen = new Set();
@@ -329,11 +374,27 @@ function validateFact(value, path) {
     try { Buffer.from(fact.contentBase64, 'base64'); } catch { fail(path, '文件内容 Base64 无效'); }
     return { ...fact, path: normalized };
   }
+  if (fact.kind === 'certificate_file') {
+    exactKeys(fact, ['kind', 'path', 'configuredPaths', 'sha256Fingerprint', 'thumbprint', 'subject', 'issuer', 'notBefore', 'notAfter'], path);
+    const normalized = normalizePath(fact.path);
+    if (fact.sha256Fingerprint !== undefined) rawDigest(fact.sha256Fingerprint, path + '.sha256Fingerprint');
+    if (fact.thumbprint !== undefined && (typeof fact.thumbprint !== 'string' || fact.thumbprint.trim().length === 0)) fail(path, '证书 Thumbprint 无效');
+    if (fact.sha256Fingerprint === undefined && fact.thumbprint === undefined) fail(path, '证书文件缺少公开指纹');
+    if (fact.configuredPaths !== undefined && (!Array.isArray(fact.configuredPaths) || fact.configuredPaths.some((item) => typeof item !== 'string' || item.trim().length === 0))) fail(path, '证书配置路径无效');
+    for (const key of ['subject', 'issuer']) if (fact[key] !== undefined && (typeof fact[key] !== 'string' || fact[key].trim().length === 0)) fail(path, '证书文本字段无效');
+    for (const key of ['notBefore', 'notAfter']) if (fact[key] !== undefined) dateTime(fact[key], path + '.' + key);
+    return { ...fact, path: normalized };
+  }
   if (fact.kind === 'certificate_store') {
-    exactKeys(fact, ['kind', 'store', 'subject', 'thumbprint', 'notAfter', 'hasPrivateKey'], path);
+    exactKeys(fact, ['kind', 'path', 'store', 'storeLocation', 'subject', 'thumbprint', 'sha256Fingerprint', 'issuer', 'notBefore', 'notAfter', 'hasPrivateKey'], path);
     identifier(fact.store, path + '.store');
     if (typeof fact.subject !== 'string' || fact.subject.length === 0 || typeof fact.thumbprint !== 'string'
       || fact.thumbprint.length === 0 || typeof fact.hasPrivateKey !== 'boolean') fail(path, '证书存储事实无效');
+    if (fact.path !== undefined && (typeof fact.path !== 'string' || fact.path.trim().length === 0)) fail(path, '证书存储路径无效');
+    if (fact.storeLocation !== undefined) identifier(fact.storeLocation, path + '.storeLocation');
+    if (fact.sha256Fingerprint !== undefined) rawDigest(fact.sha256Fingerprint, path + '.sha256Fingerprint');
+    if (fact.issuer !== undefined && (typeof fact.issuer !== 'string' || fact.issuer.trim().length === 0)) fail(path, '证书颁发者无效');
+    if (fact.notBefore !== undefined) dateTime(fact.notBefore, path + '.notBefore');
     if (fact.notAfter !== undefined) dateTime(fact.notAfter, path + '.notAfter');
     return fact;
   }

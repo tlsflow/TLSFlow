@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.1", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.6", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
@@ -29,7 +29,7 @@
       "stage": "install",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.1", "operation": "update-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "artifact": "{{artifacts.certificate.artifactRef}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "update-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "artifact": "{{artifacts.certificate.artifactRef}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 131072,
@@ -42,7 +42,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.1", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,

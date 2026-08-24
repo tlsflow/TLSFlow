@@ -1,0 +1,29 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "synology.dsm",
+  "displayNameKey": "plugin.synologyDsm.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.synologyDsm.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.synologyDsm.onboarding.requiredAddress", "plugin.synologyDsm.onboarding.requiredCredential"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.synology-dsm",
+  "deviceSelection": "EXISTING_OR_NEW",
+  "newDeviceOnboarding": { "kind": "PLUGIN_MANAGED", "pluginId": "device.synology-dsm" },
+  "forms": { "device": "forms/device.json" },
+  "capabilities": { "connectionTest": "device.connection.test", "discovery": "device.discover" },
+  "targetProjection": {
+    "targetType": "tls.binding",
+    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM", "PFX"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
+}

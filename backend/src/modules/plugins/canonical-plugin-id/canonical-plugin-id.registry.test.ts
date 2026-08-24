@@ -15,8 +15,9 @@ const schema = readJson(resolve(process.cwd(), 'src/modules/plugins/canonical-pl
 const validFixture = readJson(resolve(fixtureRoot, 'canonical-plugin-id-registry.valid.json'));
 const invalidFixture = readJson(resolve(fixtureRoot, 'canonical-plugin-id-registry.invalid.json')) as { cases: Array<{ name: string; change: Record<string, unknown> }> };
 
-test('Canonical Registry 只包含 17 个当前 Canonical ID 并通过 JSON Schema', () => {
+test('Canonical Registry 完整覆盖当前 Canonical ID 并通过 JSON Schema', () => {
   assert.deepEqual(canonicalPluginIdRegistry.entries.map((item) => item.canonicalId), canonicalPluginIds);
+  assert.ok(canonicalPluginIds.length > 0);
   assert.equal(validateJsonSchema(validFixture, schema, { maxDepth: 12, maxArrayItems: 100 }).valid, true);
   assert.doesNotThrow(() => validateCanonicalPluginIdRegistry(validFixture));
   assert.deepEqual(

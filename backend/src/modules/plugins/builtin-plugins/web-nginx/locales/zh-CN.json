@@ -11,5 +11,7 @@
   "plugin.webNginx.action.discover": "重新发现",
   "plugin.webNginx.action.deploy": "部署证书",
   "plugin.webNginx.action.verify": "验证证书",
-  "plugin.webNginx.action.rollback": "回滚证书"
+  "plugin.webNginx.action.rollback": "回滚证书",
+  "plugin.webNginx.onboarding.compatibility": "Nginx（版本范围待平台验收）",
+  "plugin.webNginx.onboarding.requiredTarget": "已发现且可选择的 Nginx TLS 目标"
 }

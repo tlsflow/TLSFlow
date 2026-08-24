@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "Empreinte",
   "plugin.webIis.column.expiresAt": "Expiration",
   "plugin.webIis.action.discover": "Détecter",
-  "plugin.webIis.action.deploy": "Déployer le certificat"
+  "plugin.webIis.action.deploy": "Déployer le certificat",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS, version découverte par l Agent",
+  "plugin.webIis.onboarding.requiredHost": "Hôte Windows avec un Agent compatible installé",
+  "plugin.webIis.onboarding.requiredTarget": "Site HTTPS IIS découvert"
 }

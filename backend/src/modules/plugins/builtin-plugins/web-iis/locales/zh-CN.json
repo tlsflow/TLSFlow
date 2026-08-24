@@ -23,5 +23,8 @@
   "plugin.webIis.column.thumbprint": "证书指纹",
   "plugin.webIis.column.expiresAt": "到期时间",
   "plugin.webIis.action.discover": "发现",
-  "plugin.webIis.action.deploy": "部署证书"
+  "plugin.webIis.action.deploy": "部署证书",
+  "plugin.webIis.onboarding.compatibility": "Microsoft IIS（版本由 Agent 发现）",
+  "plugin.webIis.onboarding.requiredHost": "已安装兼容 Agent 的 Windows 主机",
+  "plugin.webIis.onboarding.requiredTarget": "已发现的 IIS HTTPS 站点"
 }

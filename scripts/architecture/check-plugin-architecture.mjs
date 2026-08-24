@@ -226,6 +226,15 @@ function isRunnerExecutorLoaderPath(path) {
 function isRetiredAgentDirectRejectorPath(path) {
   return normalizePath(path) === 'backend/src/modules/agents/application/agent-direct-client.ts';
 }
+function isApprovedManualWebDiscoveryDirectUsage(path, source, offset) {
+  if (normalizePath(path) !== 'backend/src/modules/agents/application/agents.application-service.ts') return false;
+  const lineStart = Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1;
+  const lineEnd = source.indexOf('\n', offset) < 0 ? source.length : source.indexOf('\n', offset);
+  const line = source.slice(lineStart, lineEnd);
+  return /\bimport\s*\{\s*AgentDirectClient\s*\}/.test(line)
+    || /\bprivate\s+readonly\s+directAgentClient\s*=\s*new\s+AgentDirectClient\s*\(\s*\)/.test(line)
+    || /\bthis\.directAgentClient\.refreshWebInventory\s*\(/.test(line);
+}
 function isLegacyApiConsumerPath(path) {
   const normalizedPath = normalizePath(path);
   return normalizedPath.startsWith('web/') || normalizedPath.startsWith('scripts/');
@@ -700,7 +709,16 @@ function scanTextArchitectureRules(path, source) {
     addTextMatches(findings, 'HOST_PROVIDER_SIGNER', normalizedPath, source, hostProviderSignerPattern, '宿主不得拥有云厂商签名算法或 Provider signer');
     addTextMatches(findings, 'HOST_PROVIDER_BASELINE', normalizedPath, source, hostProviderBaselinePattern, '宿主不得拥有 Provider baseline，厂商基线必须由插件版本声明');
     if (!isRetiredAgentDirectRejectorPath(normalizedPath)) {
-      addTextMatches(findings, 'AGENT_DIRECT_BYPASS', normalizedPath, source, directAgentConsumerPattern, '控制面不得实例化或调用已退役的 Agent 直连客户端');
+      addTextMatches(
+        findings,
+        'AGENT_DIRECT_BYPASS',
+        normalizedPath,
+        source,
+        directAgentConsumerPattern,
+        '控制面不得创建通用 Agent 直连旁路；手动 Web 重新发现只能使用固定窄端点',
+        '<text>',
+        (value, offset) => !isApprovedManualWebDiscoveryDirectUsage(normalizedPath, value, offset),
+      );
     }
   }
 

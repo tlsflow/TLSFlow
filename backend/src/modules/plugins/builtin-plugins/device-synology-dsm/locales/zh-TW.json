@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "連接埠",
   "plugin.synologyDsm.column.status": "狀態",
   "plugin.synologyDsm.column.subject": "主旨",
-  "plugin.synologyDsm.column.expiresAt": "到期時間"
+  "plugin.synologyDsm.column.expiresAt": "到期時間",
+  "plugin.synologyDsm.onboarding.compatibility": "Synology DSM（透過 DSM Web API）",
+  "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理位址",
+  "plugin.synologyDsm.onboarding.requiredCredential": "具備憑證管理權限的 DSM 管理員憑證"
 }

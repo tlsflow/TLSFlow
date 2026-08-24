@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "端口",
   "plugin.synologyDsm.column.status": "状态",
   "plugin.synologyDsm.column.subject": "主题",
-  "plugin.synologyDsm.column.expiresAt": "到期时间"
+  "plugin.synologyDsm.column.expiresAt": "到期时间",
+  "plugin.synologyDsm.onboarding.compatibility": "Synology DSM（通过 DSM Web API）",
+  "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理地址",
+  "plugin.synologyDsm.onboarding.requiredCredential": "具备证书管理权限的 DSM 管理员凭据"
 }

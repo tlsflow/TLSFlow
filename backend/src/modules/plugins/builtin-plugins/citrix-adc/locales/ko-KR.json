@@ -43,5 +43,11 @@
   "plugin.citrixAdc.column.event": "이벤트",
   "plugin.citrixAdc.column.result": "결과",
   "plugin.citrixAdc.column.occurredAt": "발생 시간",
-  "plugin.citrixAdc.action.discover": "다시 검색"
+  "plugin.citrixAdc.action.discover": "다시 검색",
+  "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
+  "plugin.citrixAdc.onboarding.adc.requiredAddress": "관리 주소",
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "관리자 사용자 이름 및 비밀번호",
+  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "관리되는 Citrix ADC 장치",
+  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "구성할 VPN Server 대상"
 }

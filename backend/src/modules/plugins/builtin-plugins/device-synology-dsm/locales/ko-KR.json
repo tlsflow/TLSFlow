@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "포트",
   "plugin.synologyDsm.column.status": "상태",
   "plugin.synologyDsm.column.subject": "주체",
-  "plugin.synologyDsm.column.expiresAt": "만료"
+  "plugin.synologyDsm.column.expiresAt": "만료",
+  "plugin.synologyDsm.onboarding.compatibility": "DSM Web API를 통한 Synology DSM",
+  "plugin.synologyDsm.onboarding.requiredAddress": "DSM 관리 주소",
+  "plugin.synologyDsm.onboarding.requiredCredential": "인증서 관리 권한이 있는 DSM 관리자 자격 증명"
 }

@@ -34,6 +34,24 @@ test('宿主厂商专用 Provider 构造必须被识别', () => {
   assert.equal(findings[0]?.rule, 'HOST_VENDOR_DISPATCH');
 });
 
+test('手动 Web 重新发现的窄直连允许通过，其他直连仍然失败', () => {
+  const approved = scanPluginArchitectureSource(
+    'backend/src/modules/agents/application/agents.application-service.ts',
+    [
+      "import { AgentDirectClient } from './agent-direct-client.js';",
+      'private readonly directAgentClient = new AgentDirectClient(),',
+      'const response = await this.directAgentClient.refreshWebInventory(agent, request);',
+    ].join('\n'),
+  );
+  assert.equal(approved.some((finding) => finding.rule === 'AGENT_DIRECT_BYPASS'), false);
+
+  const rejected = scanPluginArchitectureSource(
+    'backend/src/modules/agents/application/agents.application-service.ts',
+    'const response = await this.directAgentClient.execute(request);',
+  );
+  assert.ok(rejected.some((finding) => finding.rule === 'AGENT_DIRECT_BYPASS'));
+});
+
 test('Framework 产品数组必须被识别', () => {
   const findings = scanPluginArchitectureSource(
     'backend/src/registry.ts',

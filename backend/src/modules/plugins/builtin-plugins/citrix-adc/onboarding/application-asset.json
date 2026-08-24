@@ -1,0 +1,33 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "citrix.netscaler-adc",
+  "displayNameKey": "plugin.citrixAdc.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.citrixAdc.onboarding.adc.compatibility"],
+    "requiredInformationKeys": ["plugin.citrixAdc.onboarding.adc.requiredAddress", "plugin.citrixAdc.onboarding.adc.requiredCredential"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.citrix.netscaler-adc",
+  "deviceSelection": "EXISTING_OR_NEW",
+  "newDeviceOnboarding": { "kind": "PLUGIN_MANAGED", "pluginId": "device.citrix.netscaler-adc" },
+  "forms": { "device": "forms/device.json" },
+  "capabilities": {
+    "connectionTest": "device.connection.test",
+    "identity": "device.identity.detect",
+    "discovery": "device.discover"
+  },
+  "targetProjection": {
+    "targetType": "tls.binding",
+    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM", "PFX"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
+}

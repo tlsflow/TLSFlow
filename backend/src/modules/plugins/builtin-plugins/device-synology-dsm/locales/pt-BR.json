@@ -23,5 +23,8 @@
   "plugin.synologyDsm.column.port": "Porta",
   "plugin.synologyDsm.column.status": "Status",
   "plugin.synologyDsm.column.subject": "Assunto",
-  "plugin.synologyDsm.column.expiresAt": "Expira em"
+  "plugin.synologyDsm.column.expiresAt": "Expira em",
+  "plugin.synologyDsm.onboarding.compatibility": "Synology DSM pelo DSM Web API",
+  "plugin.synologyDsm.onboarding.requiredAddress": "Endereco de gerenciamento do DSM",
+  "plugin.synologyDsm.onboarding.requiredCredential": "Credencial de administrador DSM com permissao de gerenciar certificados"
 }

@@ -11,5 +11,7 @@
   "plugin.appTomcat.action.discover": "重新发现",
   "plugin.appTomcat.action.deploy": "部署证书",
   "plugin.appTomcat.action.verify": "验证证书",
-  "plugin.appTomcat.action.rollback": "回滚证书"
+  "plugin.appTomcat.action.rollback": "回滚证书",
+  "plugin.appTomcat.onboarding.compatibility": "Apache Tomcat（版本范围待平台验收）",
+  "plugin.appTomcat.onboarding.requiredTarget": "已发现且可选择的 Tomcat TLS 目标"
 }

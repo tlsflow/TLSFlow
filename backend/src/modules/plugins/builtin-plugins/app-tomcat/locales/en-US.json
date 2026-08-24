@@ -11,5 +11,7 @@
   "plugin.appTomcat.action.discover": "Rediscover",
   "plugin.appTomcat.action.deploy": "Deploy certificate",
   "plugin.appTomcat.action.verify": "Verify certificate",
-  "plugin.appTomcat.action.rollback": "Roll back certificate"
+  "plugin.appTomcat.action.rollback": "Roll back certificate",
+  "plugin.appTomcat.onboarding.compatibility": "Apache Tomcat, version range pending platform validation",
+  "plugin.appTomcat.onboarding.requiredTarget": "Discovered and selectable Tomcat TLS target"
 }

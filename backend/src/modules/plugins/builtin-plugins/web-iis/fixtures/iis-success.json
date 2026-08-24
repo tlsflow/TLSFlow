@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.agent-side-plugin/v1",
   "pluginId": "web.iis",
-  "pluginVersion": "1.0.1",
+  "pluginVersion": "1.0.2",
   "operation": "discover",
   "status": "SUCCESS",
   "facts": {
