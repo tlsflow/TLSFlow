@@ -39,7 +39,7 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_var', template: { url: 'https://example.com/{{missing}}' }, dryRun: true }), /变量缺失/);
     await executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com', method: 'POST', body: { ok: true } }, mockResponse: { statusCode: 200 } });
     await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com' } }), /幂等键/);
-    assert.deepEqual(executor.getRequiredCapabilities(), ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session']);
+    assert.deepEqual(executor.getRequiredCapabilities(), ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.form.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session']);
   });
 
   it('Basic 认证使用用户名和通用 password SecretRef 生成 Authorization', async () => {
@@ -67,6 +67,37 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     assert.equal(result.success, true);
     assert.equal(captured?.headers.Authorization, `Basic ${Buffer.from('deploy:secret-password').toString('base64')}`);
     assert.doesNotMatch(JSON.stringify(result), /secret-password/);
+  });
+
+  it('formSecretRefs 把密文字段注入 form body 并脱敏结果', async () => {
+    let captured: CurlHttpClientRequest | undefined;
+    const executor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          captured = request;
+          return { statusCode: 200, body: { echoed: 'login-password-secret' } };
+        },
+      },
+    });
+
+    const result = await executor.execute({
+      idempotencyKey: 'idem_curl_form_secret_refs',
+      template: {
+        method: 'POST',
+        url: 'https://example.com/webapi/entry.cgi',
+        bodyType: 'form',
+        form: { account: 'admin', method: 'login' },
+        formSecretRefs: { passwd: 'secret://password/device-login#current' },
+      },
+      secrets: { 'secret://password/device-login#current': 'login-password-secret' },
+    });
+
+    const body = captured?.body?.toString('utf8') ?? '';
+    assert.equal(result.success, true);
+    assert.equal(captured?.headers['Content-Type'], 'application/x-www-form-urlencoded');
+    assert.match(body, /account=admin/);
+    assert.match(body, /passwd=login-password-secret/);
+    assert.doesNotMatch(JSON.stringify(result), /login-password-secret/);
   });
 
   it('支持 curl 导入和脱敏导出，拒绝导入明文敏感值', () => {

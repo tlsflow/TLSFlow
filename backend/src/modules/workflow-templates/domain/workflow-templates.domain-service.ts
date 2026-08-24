@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import { AppError } from '../../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
@@ -21,6 +22,7 @@ import type {
   WorkflowFileTemplate,
   WorkflowStage,
   WorkflowStep,
+  WorkflowTransformStep,
   WorkflowStepRuntimeInput,
   WorkflowStepRunResult,
   WorkflowTemplate,
@@ -35,6 +37,10 @@ interface RuntimeContext {
   secretPaths: Set<string>;
   outputs: Record<string, unknown>;
 }
+
+const defaultTransformTimeoutMs = 200;
+const defaultTransformMaxInputBytes = 256 * 1024;
+const defaultTransformMaxOutputBytes = 256 * 1024;
 
 export class WorkflowTemplatesDomainService {
   private static readonly defaultDb = new PgliteDatabase();
@@ -296,15 +302,22 @@ export class WorkflowTemplatesDomainService {
     const attempts = (step.retry?.count ?? 0) + 1;
     let last: WorkflowStepRunResult | undefined;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const mockOutput = input.mockResponses?.[step.name] ?? defaultMockOutput(step, rollback, attempt);
+      const transformOutput = step.type === 'transform' && input.mode !== 'render_only'
+        ? await executeTransformStep(step, context.values)
+        : undefined;
+      const mockOutput = transformOutput ?? input.mockResponses?.[step.name] ?? defaultMockOutput(step, rollback, attempt);
       const preOutput = normalizeStepOutput(step, mockOutput);
       const plan = adaptStep(step, context, input.mode, preOutput);
-      const dispatchOutput = dispatcher && input.mode !== 'render_only'
+      const dispatchOutput = dispatcher && input.mode !== 'render_only' && step.type !== 'transform'
         ? await dispatcher({ runId, step, renderedPlan: plan, attempt, rollback })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
       const dispatchSucceeded = dispatchOutput ? dispatchOutput.success : true;
-      const extracted = input.mode === 'render_only' || !dispatchSucceeded ? {} : runExtractors(step, structuredOutput, context);
+      const extracted = input.mode === 'render_only' || !dispatchSucceeded
+        ? {}
+        : step.type === 'transform'
+          ? readTransformOutputs(step, structuredOutput, context)
+          : runExtractors(step, structuredOutput, context);
       const localValues = { ...context.values, ...extracted };
       const finalPlan = extracted && Object.keys(extracted).length > 0
         ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
@@ -489,6 +502,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         bodyType: step.request.bodyType,
         body: renderUnknown(step.request.body, context.values, mode === 'render_only'),
         form: renderUnknown(step.request.form, context.values, mode === 'render_only'),
+        formSecretRefs: adaptFormCredentialRefs(step.request.formCredentialRefs, context.values, mode === 'render_only'),
         multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
         auth: adaptHttpAuth(step.request.auth, context.values, mode === 'render_only'),
         tls: step.request.tls,
@@ -567,6 +581,17 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       mode,
     };
   }
+  if (step.type === 'transform') {
+    return {
+      executor: 'workflow.transform',
+      engine: step.transform.engine,
+      outputNames: Object.keys(step.transform.outputs),
+      timeoutMs: step.transform.timeoutMs ?? defaultTransformTimeoutMs,
+      maxInputBytes: step.transform.maxInputBytes ?? defaultTransformMaxInputBytes,
+      maxOutputBytes: step.transform.maxOutputBytes ?? defaultTransformMaxOutputBytes,
+      plannedOnly: mode === 'render_only',
+    };
+  }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
 }
@@ -589,6 +614,100 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, conte
     }
   }
   return extracted;
+}
+
+async function executeTransformStep(step: WorkflowTransformStep, values: Record<string, unknown>): Promise<WorkflowMockStepOutput> {
+  const input = renderTransformInput(step.transform.input ?? {}, values);
+  assertJsonByteSize(input, step.transform.maxInputBytes ?? defaultTransformMaxInputBytes, 'transform input');
+  const outputValues: Record<string, unknown> = {};
+  for (const [name, config] of Object.entries(step.transform.outputs)) {
+    assertJsonataExpressionSafe(config.expression);
+    const scope = { ...asRecord(input), ...outputValues };
+    const raw = await evaluateJsonata(config.expression, scope, step.transform.timeoutMs ?? defaultTransformTimeoutMs);
+    if ((raw === undefined || raw === null) && !config.optional) {
+      throw new AppError('WORKFLOW_ASSERTION_FAILED', '转换输出为空', { step: step.name, output: name });
+    }
+    const value = config.format === 'jsonString' ? JSON.stringify(raw ?? null) : raw;
+    assertJsonByteSize(value, step.transform.maxOutputBytes ?? defaultTransformMaxOutputBytes, `transform output ${name}`);
+    outputValues[name] = value;
+  }
+  return { statusCode: 200, body: { success: true, outputs: outputValues } };
+}
+
+function readTransformOutputs(step: WorkflowTransformStep, output: WorkflowMockStepOutput, context: RuntimeContext): Record<string, unknown> {
+  const outputs = readPath(output.body, 'outputs');
+  if (!isRecord(outputs)) throw new AppError('WORKFLOW_ASSERTION_FAILED', '转换节点没有输出对象', { step: step.name });
+  for (const [name, config] of Object.entries(step.transform.outputs)) {
+    if (config.sensitive && outputs[name] !== undefined) collectValuePaths(name, outputs[name], context.secretPaths);
+  }
+  return outputs;
+}
+
+async function evaluateJsonata(expression: string, input: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
+  return await new Promise<unknown>((resolve, reject) => {
+    const worker = new Worker(new URL('./jsonata-transform.worker.js', import.meta.url), {
+      workerData: { expression, input },
+    });
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      void worker.terminate();
+      callback();
+    };
+    const timeout = setTimeout(() => {
+      finish(() => reject(new AppError('EXECUTION_TIMEOUT', 'JSONata 转换执行超时', { timeoutMs })));
+    }, timeoutMs);
+    timeout.unref();
+    worker.once('message', (message: JsonataWorkerMessage) => {
+      finish(() => {
+        if (message.ok) resolve(message.value);
+        else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { message: message.message }));
+      });
+    });
+    worker.once('error', (error) => {
+      finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { message: error instanceof Error ? error.message : String(error) })));
+    });
+    worker.once('exit', (code) => {
+      if (code !== 0) finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { code })));
+    });
+  });
+}
+
+type JsonataWorkerMessage =
+  | { ok: true; value: unknown }
+  | { ok: false; message: string };
+
+function assertJsonataExpressionSafe(expression: string): void {
+  if (expression.length > 4096) throw new AppError('VALIDATION_FAILED', 'JSONata 表达式过长');
+  if (/\$(eval|assert|error)\s*\(/i.test(expression)) {
+    throw new AppError('VALIDATION_FAILED', 'JSONata 表达式包含禁用函数');
+  }
+}
+
+function renderTransformInput(value: unknown, variables: Record<string, unknown>): unknown {
+  if (typeof value === 'string') {
+    const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
+    if (match) {
+      const resolved = readPath(variables, match[1]!);
+      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key: match[1] });
+      return resolved;
+    }
+    return renderString(value, variables);
+  }
+  if (Array.isArray(value)) return value.map((item) => renderTransformInput(item, variables));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, renderTransformInput(child, variables)]));
+  return value;
+}
+
+function assertJsonByteSize(value: unknown, maxBytes: number, label: string): void {
+  const bytes = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
+  if (bytes > maxBytes) throw new AppError('WORKFLOW_ASSERTION_FAILED', `${label} 超过大小限制`, { bytes, maxBytes });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : { value };
 }
 
 function readFirstAvailablePath(output: WorkflowMockStepOutput, paths: string[]): unknown {
@@ -720,6 +839,14 @@ function adaptHttpAuth(auth: Extract<WorkflowStep, { type: 'http' }>['request'][
     };
   }
   return auth;
+}
+
+function adaptFormCredentialRefs(refs: Extract<WorkflowStep, { type: 'http' }>['request']['formCredentialRefs'], values: Record<string, unknown>, keepMissing: boolean): Record<string, string> | undefined {
+  if (!refs) return undefined;
+  return Object.fromEntries(Object.entries(refs).map(([field, value]) => {
+    const credential = resolveCredentialBinding(value, values, keepMissing);
+    return [field, credential ? credentialToSecretRef(credential) : 'secret://credential/unresolved#current'];
+  }));
 }
 
 function resolveCredentialBinding(value: unknown, values: Record<string, unknown>, keepMissing: boolean): WorkflowCredentialBinding | null {

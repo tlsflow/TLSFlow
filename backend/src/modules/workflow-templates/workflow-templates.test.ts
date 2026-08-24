@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { App } from '../../common/http/app.js';
@@ -1005,6 +1005,250 @@ describe('WorkflowTemplates', () => {
     assert.equal(plan.curlRequest.template.maxResponseBytes, 4096);
     assert.equal(plan.curlRequest.retryPolicy.maxAttempts, 3);
     assert.deepEqual(plan.curlRequest.retryPolicy.retryOnStatus, [500, 503]);
+  });
+
+  it('HTTP formCredentialRefs 会转换成内部 formSecretRefs 并在计划中脱敏', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.variables.apiCredential = {
+      type: 'credential',
+      required: true,
+      default: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+      sensitive: true,
+    };
+    content.steps = [
+      {
+        name: 'login_form',
+        type: 'http',
+        stage: 'prepare',
+        request: {
+          method: 'POST',
+          url: 'https://{{deviceHost}}/webapi/entry.cgi',
+          bodyType: 'form',
+          form: { account: '{{apiCredential.username}}', method: 'login' },
+          formCredentialRefs: { passwd: '{{apiCredential}}' },
+        },
+        extract: [{ name: 'sid', type: 'jsonPath', path: '$.data.sid', sensitive: true }],
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: { login_form: { statusCode: 200, body: { data: { sid: 'sid-secret-value' } } } },
+    });
+
+    const plan = run.stepResults[0]!.plan as {
+      curlRequest: {
+        template: {
+          form: Record<string, unknown>;
+          formSecretRefs: unknown;
+        };
+      };
+    };
+    const visible = JSON.stringify(run);
+    assert.equal(run.status, 'success');
+    assert.deepEqual(plan.curlRequest.template.form, { account: '[REDACTED]', method: 'login' });
+    assert.equal(plan.curlRequest.template.formSecretRefs, '[REDACTED]');
+    assert.equal(run.stepResults[0]!.extracted.sid, '[REDACTED]');
+    assert.doesNotMatch(visible, /sid-secret-value/);
+    assert.doesNotMatch(visible, /sec_device_login/);
+  });
+
+  it('transform step 可以用 JSONata 生成上下文变量并供后续步骤引用', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.variables.previousServices = { type: 'object', required: true };
+    content.steps = [
+      {
+        name: 'build_bindings',
+        type: 'transform',
+        stage: 'refresh',
+        transform: {
+          engine: 'jsonata',
+          input: {
+            previousCertificateServices: '{{previousServices.services}}',
+            previousCertificateId: 'old-cert',
+            newCertificateId: 'new-cert',
+          },
+          outputs: {
+            serviceBindingsJson: {
+              expression: '[$map(previousCertificateServices, function($service){{"service":$service,"old_id":previousCertificateId,"id":newCertificateId}})]',
+              format: 'jsonString',
+            },
+          },
+          timeoutMs: 500,
+          maxInputBytes: 4096,
+          maxOutputBytes: 4096,
+        },
+      },
+      {
+        name: 'submit_bindings',
+        type: 'http',
+        stage: 'refresh',
+        request: {
+          method: 'POST',
+          url: 'https://{{deviceHost}}/api/cert-service',
+          bodyType: 'form',
+          form: { settings: '{{serviceBindingsJson}}' },
+        },
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      userVariables: {
+        ...runtimeInput(version.id).userVariables,
+        previousServices: { services: ['DSM', 'WebStation'] },
+      },
+      mockResponses: {
+        submit_bindings: { statusCode: 200, body: { success: true } },
+      },
+    });
+
+    const expectedSettings = JSON.stringify([
+      { service: 'DSM', old_id: 'old-cert', id: 'new-cert' },
+      { service: 'WebStation', old_id: 'old-cert', id: 'new-cert' },
+    ]);
+    const submitPlan = run.stepResults[1]!.plan as { curlRequest: { template: { form: Record<string, string> } } };
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]!.extracted.serviceBindingsJson, expectedSettings);
+    assert.equal(submitPlan.curlRequest.template.form.settings, expectedSettings);
+  });
+
+  it('transform step 拒绝危险函数、超长表达式和超限输入输出', async () => {
+    const invalidFunction = templateFixture();
+    invalidFunction.steps = [{
+      name: 'bad_transform',
+      type: 'transform',
+      transform: {
+        engine: 'jsonata',
+        outputs: { value: { expression: '$error("bad")' } },
+      },
+    }];
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFunction), /禁用函数/);
+
+    const tooLong = templateFixture();
+    tooLong.steps = [{
+      name: 'long_transform',
+      type: 'transform',
+      transform: {
+        engine: 'jsonata',
+        outputs: { value: { expression: 'a'.repeat(4097) } },
+      },
+    }];
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(tooLong), /4096/);
+
+    const service = new WorkflowTemplatesApplicationService();
+    const oversizedInput = templateFixture();
+    oversizedInput.variables.largeValue = { type: 'string', required: true };
+    oversizedInput.steps = [{
+      name: 'oversized_input',
+      type: 'transform',
+      transform: {
+        engine: 'jsonata',
+        input: { value: '{{largeValue}}' },
+        outputs: { value: { expression: '$.value' } },
+        maxInputBytes: 8,
+      },
+    }];
+    oversizedInput.rollback = undefined;
+    const oversizedInputTemplate = await service.createTemplate({ content: oversizedInput });
+    await assert.rejects(() => service.testRun({
+      ...runtimeInput(oversizedInputTemplate.version.id),
+      userVariables: { ...runtimeInput('unused').userVariables, largeValue: '0123456789abcdef' },
+    }), /transform input 超过大小限制/);
+
+    const oversizedOutput = templateFixture();
+    oversizedOutput.steps = [{
+      name: 'oversized_output',
+      type: 'transform',
+      transform: {
+        engine: 'jsonata',
+        outputs: { value: { expression: '"0123456789abcdef"' } },
+        maxOutputBytes: 8,
+      },
+    }];
+    oversizedOutput.rollback = undefined;
+    const oversizedOutputTemplate = await service.createTemplate({ content: oversizedOutput });
+    await assert.rejects(() => service.testRun(runtimeInput(oversizedOutputTemplate.version.id)), /transform output value 超过大小限制/);
+  });
+
+  it('transform step 的 JSONata 执行超时会终止隔离 worker', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [{
+      name: 'timeout_transform',
+      type: 'transform',
+      transform: {
+        engine: 'jsonata',
+        outputs: { value: { expression: '$sum([1..1000000])' } },
+        timeoutMs: 1,
+      },
+    }];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+
+    await assert.rejects(() => service.testRun(runtimeInput(version.id)), /JSONata 转换执行超时/);
+  });
+
+  it('Synology DSM 模板不要求手工填写证书 ID 和服务绑定 JSON', async () => {
+    const raw = await readFile('src/modules/workflow-templates/builtin-workflows/synology-dsm-cert-import.json', 'utf8');
+    const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(raw));
+    assert.equal(content.variables.previousCertificateId?.required, false);
+    assert.equal(content.variables.newCertificateId?.required, false);
+    assert.equal(content.variables.serviceBindingsJson?.required, false);
+
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: {
+        synologyCredential: { id: 'sec_synology_login', kind: 'username_password', type: 'password', username: 'admin' },
+      },
+      certificateMaterials: {
+        serverCert: {
+          outputs: {
+            certFile: { content: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----' },
+            keyFile: { content: '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----' },
+            chainFile: { content: '-----BEGIN CERTIFICATE-----chain-----END CERTIFICATE-----' },
+          },
+        },
+      },
+      mockResponses: {
+        prepare_synology_login: { statusCode: 200, body: { success: true, data: { sid: 'sid-secret', synotoken: 'token-secret' } } },
+        list_synology_certificates_before_import: {
+          statusCode: 200,
+          body: { success: true, data: { certificates: [{ id: 'old-cert', desc: 'old', is_default: true, services: ['DSM', 'WebStation'] }] } },
+        },
+        install_synology_certificate_as_new_default: { statusCode: 200, body: { success: true } },
+        list_synology_certificates_after_import: {
+          statusCode: 200,
+          body: {
+            success: true,
+            data: {
+              certificates: [
+                { id: 'old-cert', desc: 'old', is_default: false, services: [] },
+                { id: 'new-cert', desc: 'GCAC active certificate', is_default: true, services: ['DSM'] },
+              ],
+            },
+          },
+        },
+        apply_synology_service_bindings: { statusCode: 200, body: { success: true } },
+        logout_synology_session: { statusCode: 200, body: { success: true } },
+        verify_synology_https: { statusCode: 200, body: 'ok' },
+      },
+    });
+
+    const applyStep = run.stepResults.find((step) => step.name === 'apply_synology_service_bindings');
+    const applyPlan = applyStep?.plan as { curlRequest: { template: { form: Record<string, string> } } } | undefined;
+    assert.equal(run.status, 'success');
+    assert.equal(applyPlan?.curlRequest.template.form.settings, JSON.stringify([
+      { service: 'DSM', old_id: 'old-cert', id: 'new-cert' },
+      { service: 'WebStation', old_id: 'old-cert', id: 'new-cert' },
+    ]));
   });
 
   it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {

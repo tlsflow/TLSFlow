@@ -10,7 +10,7 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 
-type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'wait' | 'manual';
+type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'wait' | 'manual';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
 type CanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls';
 
@@ -62,7 +62,7 @@ export interface WorkflowCanvasCompileResult {
 }
 
 const workflowStages: readonly WorkflowStage[] = ['prepare', 'backup', 'install', 'refresh', 'verify'];
-const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'wait', 'manual'];
+const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'wait', 'manual'];
 const requiredNodeTypes: readonly CanvasNodeType[] = ['http', 'ssh', 'sftp', 'verify'];
 
 export function compileWorkflowCanvas(input: unknown): WorkflowCanvasCompileResult {
@@ -225,6 +225,28 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       condition: buildDslCondition(config),
       description: String(config.description ?? ''),
     });
+  }
+  if (node.type === 'transform') {
+    const imported = readImportedStep(node);
+    if (imported?.type === 'transform') return { ...imported, name, stage: getNodeStage(node) };
+    return {
+      name,
+      type: 'transform',
+      stage: getNodeStage(node),
+      transform: {
+        engine: 'jsonata',
+        input: parseLooseJson(String(config.input ?? '{}')),
+        outputs: {
+          value: {
+            expression: String(config.expression ?? '$'),
+            format: String(config.format ?? 'raw') === 'jsonString' ? 'jsonString' : 'raw',
+          },
+        },
+        timeoutMs: Number(config.timeoutMs ?? 200),
+        maxInputBytes: Number(config.maxInputBytes ?? 262144),
+        maxOutputBytes: Number(config.maxOutputBytes ?? 262144),
+      },
+    };
   }
   if (node.type === 'wait') return mergeImportedDslStep(node, { name, type: 'wait', stage: getNodeStage(node), seconds: Number(config.seconds ?? 10) });
   return mergeImportedDslStep(node, { name, type: 'manual', stage: getNodeStage(node), instruction: String(config.instruction ?? '人工确认') });
@@ -409,6 +431,7 @@ function mergeImportedDslStep(node: CanvasNode, generated: WorkflowStep): Workfl
   if (generated.type === 'sftp' && imported.type === 'sftp') return { ...imported, ...generated, sftp: { ...imported.sftp, ...generated.sftp, connection: { ...imported.sftp.connection, ...generated.sftp.connection } }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
   if (generated.type === 'scp' && imported.type === 'scp') return { ...imported, ...generated, scp: { ...imported.scp, ...generated.scp, connection: { ...imported.scp.connection, ...generated.scp.connection } }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
   if (generated.type === 'condition' && imported.type === 'condition') return { ...imported, ...generated, condition: { ...imported.condition, ...generated.condition } };
+  if (generated.type === 'transform' && imported.type === 'transform') return { ...imported, ...generated, transform: { ...imported.transform, ...generated.transform, outputs: { ...imported.transform.outputs, ...generated.transform.outputs } } };
   return { ...imported, ...generated };
 }
 
@@ -448,6 +471,7 @@ function getNodeStage(node: CanvasNode): WorkflowStage {
 
 function defaultStageForType(type: CanvasNodeType): WorkflowStage {
   if (type === 'http' || type === 'condition') return 'prepare';
+  if (type === 'transform') return 'refresh';
   if (type === 'sftp' || type === 'scp') return 'install';
   if (type === 'ssh' || type === 'wait') return 'refresh';
   if (type === 'verify') return 'verify';

@@ -1,6 +1,6 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'wait' | 'manual';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
@@ -93,6 +93,7 @@ export interface WorkflowHttpRequest {
   bodyType?: 'json' | 'form' | 'multipart' | 'raw' | 'none';
   body?: unknown;
   form?: Record<string, string | number | boolean>;
+  formCredentialRefs?: Record<string, WorkflowCredentialValue>;
   multipart?: Record<string, { value?: string | number | boolean; filename?: string; contentType?: string; secretRef?: string }>;
   auth?:
     | { type: 'none' }
@@ -187,6 +188,27 @@ export interface WorkflowConditionStep extends WorkflowStepBase {
   description?: string;
 }
 
+export interface WorkflowTransformOutput {
+  expression: string;
+  format?: 'raw' | 'jsonString';
+  sensitive?: boolean;
+  optional?: boolean;
+}
+
+export interface WorkflowTransformStepConfig {
+  engine: 'jsonata';
+  input?: unknown;
+  outputs: Record<string, WorkflowTransformOutput>;
+  timeoutMs?: number;
+  maxInputBytes?: number;
+  maxOutputBytes?: number;
+}
+
+export interface WorkflowTransformStep extends WorkflowStepBase {
+  type: 'transform';
+  transform: WorkflowTransformStepConfig;
+}
+
 export interface WorkflowWaitStep extends WorkflowStepBase {
   type: 'wait';
   seconds: number;
@@ -197,7 +219,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';

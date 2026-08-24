@@ -16,10 +16,11 @@ const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
 const sftpStepKeys = new Set([...stepBaseKeys, 'sftp']);
 const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
+const transformStepKeys = new Set([...stepBaseKeys, 'transform']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
@@ -105,7 +106,7 @@ function validateStepByType(step: WorkflowStep, path: string): void {
   if (step.type === 'http') {
     rejectUnknown(step as unknown as Record<string, unknown>, httpStepKeys, path);
     if (!isRecord(step.request)) throw validationError(`${path}.request 必须是对象`);
-    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
+    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
@@ -113,6 +114,7 @@ function validateStepByType(step: WorkflowStep, path: string): void {
     if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);
     if (step.request.bodyType !== undefined && !['json', 'form', 'multipart', 'raw', 'none'].includes(step.request.bodyType)) throw validationError(`${path}.request.bodyType 不支持`);
     if (step.request.form !== undefined && !isPrimitiveRecord(step.request.form)) throw validationError(`${path}.request.form 必须是字符串、数字或布尔对象`);
+    if (step.request.formCredentialRefs !== undefined) validateCredentialRecord(step.request.formCredentialRefs, `${path}.request.formCredentialRefs`);
     if (step.request.multipart !== undefined) validateMultipart(step.request.multipart, `${path}.request.multipart`);
     if (step.request.auth !== undefined) validateHttpAuth(step.request.auth, `${path}.request.auth`);
     if (step.request.tls !== undefined) validateHttpTls(step.request.tls, `${path}.request.tls`);
@@ -149,6 +151,11 @@ function validateStepByType(step: WorkflowStep, path: string): void {
     rejectUnknown(step as unknown as Record<string, unknown>, conditionStepKeys, path);
     validateCondition(step.condition, `${path}.condition`);
     if (step.description !== undefined && typeof step.description !== 'string') throw validationError(`${path}.description 必须是字符串`);
+    return;
+  }
+  if (step.type === 'transform') {
+    rejectUnknown(step as unknown as Record<string, unknown>, transformStepKeys, path);
+    validateTransform(step.transform, `${path}.transform`);
     return;
   }
   if (step.type === 'wait') {
@@ -193,6 +200,29 @@ function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
+}
+
+function validateTransform(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['engine', 'input', 'outputs', 'timeoutMs', 'maxInputBytes', 'maxOutputBytes']), path);
+  if (value.engine !== 'jsonata') throw validationError(`${path}.engine 第一版只支持 jsonata`);
+  if (!isRecord(value.outputs) || Object.keys(value.outputs).length === 0) throw validationError(`${path}.outputs 必须是非空对象`);
+  if (value.timeoutMs !== undefined && (!Number.isInteger(value.timeoutMs) || Number(value.timeoutMs) < 1 || Number(value.timeoutMs) > 1000)) throw validationError(`${path}.timeoutMs 必须在 1-1000 之间`);
+  if (value.maxInputBytes !== undefined && (!Number.isInteger(value.maxInputBytes) || Number(value.maxInputBytes) < 1 || Number(value.maxInputBytes) > 1024 * 1024)) throw validationError(`${path}.maxInputBytes 必须在 1-1048576 之间`);
+  if (value.maxOutputBytes !== undefined && (!Number.isInteger(value.maxOutputBytes) || Number(value.maxOutputBytes) < 1 || Number(value.maxOutputBytes) > 1024 * 1024)) throw validationError(`${path}.maxOutputBytes 必须在 1-1048576 之间`);
+  for (const [name, output] of Object.entries(value.outputs)) validateTransformOutput(name, output, `${path}.outputs.${name}`);
+}
+
+function validateTransformOutput(name: string, value: unknown, path: string): void {
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) throw validationError(`${path} 输出变量名必须是英文标识符`);
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['expression', 'format', 'sensitive', 'optional']), path);
+  if (!isNonEmptyString(value.expression)) throw validationError(`${path}.expression 必填`);
+  if (value.expression.length > 4096) throw validationError(`${path}.expression 不能超过 4096 字符`);
+  if (/\$(eval|assert|error)\s*\(/i.test(value.expression)) throw validationError(`${path}.expression 使用了禁用函数`);
+  if (value.format !== undefined && !['raw', 'jsonString'].includes(String(value.format))) throw validationError(`${path}.format 不支持`);
+  if (value.sensitive !== undefined && typeof value.sensitive !== 'boolean') throw validationError(`${path}.sensitive 必须是布尔值`);
+  if (value.optional !== undefined && typeof value.optional !== 'boolean') throw validationError(`${path}.optional 必须是布尔值`);
 }
 
 function validateSshConnection(value: unknown, path: string): void {
@@ -245,6 +275,14 @@ function validateMultipart(value: unknown, path: string): void {
     if (part.filename !== undefined && typeof part.filename !== 'string') throw validationError(`${path}.${name}.filename 必须是字符串`);
     if (part.contentType !== undefined && typeof part.contentType !== 'string') throw validationError(`${path}.${name}.contentType 必须是字符串`);
     if (part.secretRef !== undefined && !isSecretRef(part.secretRef)) throw validationError(`${path}.${name}.secretRef 必须是 SecretRef`);
+  }
+}
+
+function validateCredentialRecord(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  for (const [name, credential] of Object.entries(value)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name)) throw validationError(`${path}.${name} 字段名不合法`);
+    if (!isCredentialValue(credential)) throw validationError(`${path}.${name} 必须是凭据对象或 credential 变量引用`);
   }
 }
 
@@ -311,9 +349,13 @@ function validateVariableReferences(content: WorkflowDslV1): void {
       const root = reference.split('.')[0]!;
       if (!known.has(root)) throw validationError('变量引用不存在', { reference, step: step.name });
     }
-    for (const extractor of stepExtracts) produced.add(extractor);
+    for (const outputName of [...stepExtracts, ...transformOutputNames(step)]) produced.add(outputName);
     produced.add(`steps.${step.name}`);
   }
+}
+
+function transformOutputNames(step: WorkflowStep): string[] {
+  return step.type === 'transform' ? Object.keys(step.transform.outputs) : [];
 }
 
 function collectReferences(value: unknown): string[] {

@@ -25,6 +25,7 @@ export interface HttpRequestTemplate {
   bodyType?: 'json' | 'form' | 'multipart' | 'raw' | 'none';
   body?: unknown;
   form?: Record<string, Primitive>;
+  formSecretRefs?: Record<string, string>;
   multipart?: Record<string, MultipartValue>;
   bodySecretRef?: string;
   auth?: HttpAuthConfig;
@@ -218,7 +219,7 @@ export class CurlExecutor implements Executor {
   }
 
   getRequiredCapabilities(): string[] {
-    return ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session'];
+    return ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.form.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session'];
   }
 
   importCurl(command: string): CurlExecutionRequest {
@@ -261,6 +262,9 @@ function validateRequest(request: CurlExecutionRequest): void {
   scanSecretLike(request.template.body, ['body']);
   scanSecretLike(request.template.form, ['form']);
   scanSecretLike(request.template.query, ['query']);
+  for (const [key, ref] of Object.entries(request.template.formSecretRefs ?? {})) {
+    if (!isSecretRef(ref)) throw new AppError('SECRET_REF_INVALID', '表单密文字段必须使用 SecretRef', { key, ref });
+  }
   if (request.template.headers?.Authorization && !request.template.headerRefs?.Authorization) {
     throw new AppError('VALIDATION_FAILED', 'Authorization 必须通过 headerRefs/SecretRef 提供');
   }
@@ -469,6 +473,11 @@ async function buildBody(
     headers['Content-Type'] ??= 'application/x-www-form-urlencoded';
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(template.form ?? asPrimitiveRecord(template.body))) params.set(key, renderTemplate(String(value), variables));
+    for (const [key, ref] of Object.entries(template.formSecretRefs ?? {})) {
+      const value = secretString(await getSecret(ref, secrets, resolver, context, `http.form.${key}`), ['password', 'value', 'token', 'apiKey']);
+      params.set(key, value);
+      redactionValues.push(value);
+    }
     return Buffer.from(params.toString(), 'utf8');
   }
   if (bodyType === 'multipart') {
@@ -742,7 +751,7 @@ function isSensitiveKey(key: string): boolean {
 
 function inferBodyType(template: HttpRequestTemplate): 'json' | 'form' | 'multipart' | 'raw' | 'none' {
   if (template.multipart) return 'multipart';
-  if (template.form) return 'form';
+  if (template.form || template.formSecretRefs) return 'form';
   if (template.body === undefined && !template.bodySecretRef) return 'none';
   return typeof template.body === 'string' ? 'raw' : 'json';
 }
