@@ -61,6 +61,53 @@ async function createRun(service: ExecutionsApplicationService, input: {
   });
 }
 
+describe('统一任务控制面', () => {
+  it('Dry-run 和部署运行创建后立即入列，并使用 runId 关联执行运行', async () => {
+    const previous = process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED;
+    process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED = 'true';
+    const queued: Array<Record<string, unknown>> = [];
+    const service = createService({
+      tasks: {
+        async enqueue(input: Record<string, unknown>) {
+          queued.push(input);
+          return { id: `task-${queued.length}` };
+        },
+      },
+    });
+
+    try {
+      const deployed = await createRun(service, {
+        idempotencyKey: 'unified-task-deploy',
+        targetIds: ['target_deploy'],
+      });
+      const dryRun = await service.createDryRun({
+        deploymentPlanId: 'plan_1',
+        deploymentPlanTargetIds: ['target_dry_run'],
+        type: 'dry_run',
+        idempotencyKey: 'unified-task-dry-run',
+        actorId: 'tester',
+        tenantId: 'tenant_1',
+        executorTypeByTargetId: new Map([['target_dry_run', 'AGENT']]),
+        agentPayloadByTargetId: new Map([
+          ['target_dry_run', withTestDeploymentInputSnapshot('plan_1', 'target_dry_run')],
+        ]),
+      });
+
+      assert.equal(deployed.jobId, 'task-1');
+      assert.equal(deployed.run.externalRunId, 'task-1');
+      assert.equal(dryRun.jobId, 'task-2');
+      assert.equal(dryRun.run.externalRunId, 'task-2');
+      assert.deepEqual(queued.map((task) => task.taskType), ['CERTIFICATE_DEPLOY', 'CERTIFICATE_DRY_RUN']);
+      assert.equal((queued[0]?.payload as Record<string, unknown>).runId, deployed.run.id);
+      assert.equal((queued[1]?.payload as Record<string, unknown>).runId, dryRun.run.id);
+      assert.equal('executionRunId' in ((queued[1]?.payload as Record<string, unknown>) ?? {}), false);
+    } finally {
+      if (previous === undefined) delete process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED;
+      else process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED = previous;
+    }
+  });
+});
+
 class TrackingExecutor implements Executor {
   readonly timeline: string[] = [];
   private runningCount = 0;

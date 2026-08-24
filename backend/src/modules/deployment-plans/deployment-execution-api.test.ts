@@ -1226,6 +1226,57 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
+  it('dry-run 返回后可立即从统一任务列表查询到对应任务', async () => {
+    const security = createSecurityServices();
+    grantDeploymentFixturePolicies(security, 'tenant_1');
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_1',
+      effect: 'allow',
+      actions: ['task.read'],
+      resourceTypes: ['task'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    const { app, fixture } = await createMigratedTestApp({ security });
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_task_visible');
+
+    const dryRun = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_dry_run_task_visible' },
+    });
+
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
+    const dryRunBody = dryRun.body as {
+      jobId: string;
+      run: { id: string; externalRunId?: string };
+    };
+    assert.ok(dryRunBody.jobId);
+    assert.equal(dryRunBody.run.externalRunId, dryRunBody.jobId);
+
+    const tasks = await app.inject({
+      method: 'GET',
+      path: `/api/v1/tasks?page=1&pageSize=20&filter[taskId]=${encodeURIComponent(dryRunBody.jobId)}`,
+      headers: userHeaders,
+    });
+
+    assert.equal(tasks.statusCode, 200, JSON.stringify(tasks.body));
+    const taskBody = tasks.body as {
+      items: Array<{
+        id: string;
+        taskType: string;
+        category: string;
+        payload?: { runId?: string };
+      }>;
+    };
+    assert.equal(taskBody.items.length, 1);
+    assert.equal(taskBody.items[0]?.id, dryRunBody.jobId);
+    assert.equal(taskBody.items[0]?.taskType, 'CERTIFICATE_DRY_RUN');
+    assert.equal(taskBody.items[0]?.category, 'EXECUTION');
+    assert.equal(taskBody.items[0]?.payload?.runId, dryRunBody.run.id);
+  });
+
   it('dry-run 返回时保留过程态，并等待 Agent 返回真实检查结论', async () => {
     const { app, service: deploymentService, fixture, bindings } = await createMigratedDeploymentService();
     await bindings.updateCertificateBinding('tenant_1', fixture.target_1.bindingId, {
