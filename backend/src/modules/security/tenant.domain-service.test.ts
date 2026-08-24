@@ -172,4 +172,47 @@ describe('TenantHierarchyService', () => {
     assert.deepEqual(revoked.map((item) => item.id), [first.id]);
     assert.equal(auditEvents.length, 3);
   });
+
+  it('成员过期后可以重新加入同一租户，并分别记录过期和新增审计', async () => {
+    const { db, service, auditEvents } = await createService();
+    await seedUser(db, 'user_expiry');
+    const tenant = (await service.listTenants()).find((item) => item.code === 'default');
+    assert.ok(tenant);
+
+    const effectiveFrom = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const effectiveUntil = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const expired = await service.addMembership({
+      subjectType: 'user',
+      subjectId: 'user_expiry',
+      tenantId: tenant.id,
+      membershipType: 'member',
+      actorId: 'user_admin',
+      effectiveFrom,
+      effectiveUntil,
+    });
+
+    const replacement = await service.addMembership({
+      subjectType: 'user',
+      subjectId: 'user_expiry',
+      tenantId: tenant.id,
+      membershipType: 'member',
+      actorId: 'user_admin',
+    });
+
+    assert.notEqual(expired.id, replacement.id);
+    const expiredRecords = await service.listMemberships({
+      subjectId: 'user_expiry',
+      tenantId: tenant.id,
+      status: 'EXPIRED',
+    });
+    assert.deepEqual(expiredRecords.map((item) => item.id), [expired.id]);
+    assert.equal(
+      auditEvents.filter((event) => (event as { eventType?: string }).eventType === 'tenant.membership.expired').length,
+      1,
+    );
+    assert.equal(
+      auditEvents.filter((event) => (event as { eventType?: string }).eventType === 'tenant.membership.created').length,
+      2,
+    );
+  });
 });

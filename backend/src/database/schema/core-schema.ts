@@ -36,6 +36,7 @@ export const requiredCoreIndexes = [
   'uq_tenant_memberships_active_subject_tenant',
   'idx_tenant_memberships_subject_status',
   'idx_tenant_memberships_tenant_status',
+  'idx_tenant_memberships_expiry',
   'uq_certificate_versions_fingerprint',
   'idx_certificate_versions_not_after',
   'idx_certificate_bindings_domain',

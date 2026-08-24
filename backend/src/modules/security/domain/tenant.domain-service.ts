@@ -88,6 +88,8 @@ export class TenantHierarchyService {
   }
 
   async addMembership(input: AddTenantMembershipInput): Promise<TenantMembershipEntity> {
+    const now = new Date().toISOString();
+    await this.expireMemberships(now);
     const tenant = await this.requireTenant(input.tenantId);
     if (tenant.status !== 'ACTIVE') {
       throw new AppError('TENANT_PARENT_INVALID', '停用租户不能新增成员关系', { tenantId: input.tenantId });
@@ -104,6 +106,7 @@ export class TenantHierarchyService {
       subjectId: input.subjectId,
       tenantId: input.tenantId,
       status: 'ACTIVE',
+      at: now,
     });
     if (existing.length > 0) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', '有效租户成员关系已存在', {
@@ -133,6 +136,7 @@ export class TenantHierarchyService {
   }
 
   async revokeMembership(membershipId: string, actorId: string, revokedAt = new Date().toISOString()): Promise<TenantMembershipEntity> {
+    await this.expireMemberships(revokedAt);
     const current = (await this.repository.listMemberships()).find((item) => item.id === membershipId);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', '租户成员关系不存在', { membershipId });
@@ -161,10 +165,33 @@ export class TenantHierarchyService {
   }
 
   async listMemberships(filter: TenantMembershipFilter = {}): Promise<TenantMembershipEntity[]> {
+    await this.expireMemberships(new Date().toISOString());
     return this.repository.listMemberships({
       ...filter,
       at: filter.at ?? new Date().toISOString(),
     });
+  }
+
+  private async expireMemberships(expiredAt: string): Promise<void> {
+    const expired = await this.repository.expireMemberships(expiredAt);
+    for (const membership of expired) {
+      await this.writeAudit({
+        eventType: AUDIT_EVENT_TYPES.TENANT_MEMBERSHIP_EXPIRED,
+        actorType: 'system',
+        actorId: 'tenant-lifecycle',
+        action: 'tenant.membership.expire',
+        resourceType: 'tenantMembership',
+        resourceId: membership.id,
+        result: 'success',
+        riskLevel: 'low',
+        detail: {
+          tenantId: membership.tenantId,
+          subjectType: membership.subjectType,
+          subjectId: membership.subjectId,
+          expiredAt: membership.expiredAt,
+        },
+      });
+    }
   }
 
   private async requireTenant(tenantId: string): Promise<TenantEntity> {

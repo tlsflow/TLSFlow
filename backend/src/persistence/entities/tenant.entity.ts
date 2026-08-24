@@ -17,7 +17,7 @@ export interface TenantEntity {
 
 export type TenantMembershipSubjectType = 'user' | 'group' | 'external_group';
 export type TenantMembershipType = 'owner' | 'admin' | 'operator' | 'auditor' | 'member';
-export type TenantMembershipStatus = 'ACTIVE' | 'REVOKED';
+export type TenantMembershipStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
 
 export interface TenantMembershipEntity {
   id: string;
@@ -34,5 +34,6 @@ export interface TenantMembershipEntity {
   updatedBy?: string;
   revokedAt?: string;
   revokedBy?: string;
+  expiredAt?: string;
   version: number;
 }

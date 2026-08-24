@@ -23,8 +23,7 @@ import { AuthService } from './auth.service.js';
 import { ExternalIdentityService, type IdentitySourceTlsMode, type IdentitySourceType } from './external-identity.service.js';
 import { ObjectPermissionService, type ObjectRef } from './object-permission.service.js';
 import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMemberEntity, ObjectSetEntity, ObjectSetKind, ObjectSetMemberEntity, ObjectTypeEntity, PrincipalType, RoleBindingEntity } from '../../persistence/entities/object-permission.entity.js';
-import { PgTenantRepository } from './repository/tenant.repository.js';
-import { TenantHierarchyService } from './domain/tenant.domain-service.js';
+import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -39,6 +38,7 @@ export interface SecurityServices {
   secrets: SecretService;
   auth: AuthService;
   externalIdentity: ExternalIdentityService;
+  // 默认内存工厂未执行数据库迁移，不提供租户持久化服务。
   tenantHierarchy?: TenantHierarchyService;
 }
 
@@ -69,8 +69,7 @@ export function createSecurityServices(): SecurityServices {
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
   const auth = new AuthService(rbac, undefined, audit, undefined, objectPermissions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets);
-  const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
-  return { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy };
+  return { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity };
 }
 
 export class SecurityController {

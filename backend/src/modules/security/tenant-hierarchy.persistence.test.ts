@@ -85,4 +85,43 @@ describe('租户层级数据库迁移', () => {
     );
     assert.deepEqual(result.rows[0], { type: 'GROUP', parent_id: null });
   });
+
+  it('过期生命周期迁移会归档历史 ACTIVE 关系并释放重新加入的唯一约束', async () => {
+    const db = new PgliteDatabase();
+    const migrationDir = resolve(process.cwd(), 'src/database/migrations');
+    await db.exec(await readFile(resolve(migrationDir, '20260608000100_core_data_model.sql'), 'utf8'));
+    await db.exec(await readFile(resolve(migrationDir, '20260805000300_default_tenant_identity.sql'), 'utf8'));
+    await db.exec(await readFile(resolve(migrationDir, '20260805000400_tenant_hierarchy_and_memberships.sql'), 'utf8'));
+    const tenantId = await scalar<string>(db, `select id::text from tenants where code = 'default'`);
+
+    const membershipId = await scalar<string>(
+      db,
+      `insert into tenant_memberships (
+         subject_type, subject_id, tenant_id, membership_type,
+         effective_from, effective_until, created_by
+       )
+       values (
+         'user', 'user_expired_before_migration', $1::uuid, 'member',
+         '2026-08-01T00:00:00Z', '2026-08-04T00:00:00Z', 'test'
+       )
+       returning id::text`,
+      [tenantId],
+    );
+
+    await db.exec(await readFile(resolve(migrationDir, '20260805000600_tenant_membership_expiry_lifecycle.sql'), 'utf8'));
+
+    const expired = await db.query<{ status: string; expired_at: string }>(
+      `select status, expired_at::text
+         from tenant_memberships
+        where id = $1::uuid`,
+      [membershipId],
+    );
+    assert.equal(expired.rows[0]?.status, 'EXPIRED');
+    assert.equal(Date.parse(expired.rows[0]?.expired_at ?? ''), Date.parse('2026-08-04T00:00:00Z'));
+
+    await db.exec(
+      `insert into tenant_memberships (subject_type, subject_id, tenant_id, membership_type, created_by)
+       values ('user', 'user_expired_before_migration', '${tenantId}'::uuid, 'member', 'test')`,
+    );
+  });
 });

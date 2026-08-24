@@ -45,6 +45,7 @@ export interface TenantRepository {
   listMemberships(filter?: TenantMembershipFilter): Promise<TenantMembershipEntity[]>;
   createMembership(input: CreateTenantMembershipRecord): Promise<TenantMembershipEntity>;
   revokeMembership(id: string, actorId: string, revokedAt: string): Promise<TenantMembershipEntity>;
+  expireMemberships(expiredAt: string): Promise<TenantMembershipEntity[]>;
   subjectExists(subjectType: TenantMembershipSubjectType, subjectId: string): Promise<boolean>;
 }
 
@@ -77,6 +78,7 @@ type MembershipRow = Record<string, unknown> & {
   updatedBy: string | null;
   revokedAt: string | null;
   revokedBy: string | null;
+  expiredAt: string | null;
   version: number;
 };
 
@@ -144,7 +146,7 @@ export class PgTenantRepository implements TenantRepository {
     addCondition(filter.subjectId, 'subject_id = $PARAM', conditions, params);
     addCondition(filter.tenantId, 'tenant_id = $PARAM::uuid', conditions, params);
     addCondition(filter.status, 'status = $PARAM', conditions, params);
-    if (filter.at) {
+    if (filter.at && filter.status !== 'REVOKED' && filter.status !== 'EXPIRED') {
       params.push(filter.at);
       conditions.push(`effective_from <= $${params.length}::timestamptz and (effective_until is null or effective_until > $${params.length}::timestamptz)`);
     }
@@ -194,6 +196,22 @@ export class PgTenantRepository implements TenantRepository {
     return mapMembership(result.rows[0]);
   }
 
+  async expireMemberships(expiredAt: string): Promise<TenantMembershipEntity[]> {
+    const result = await this.db.query<MembershipRow>(
+      `update tenant_memberships
+          set status = 'EXPIRED',
+              updated_at = $1::timestamptz,
+              expired_at = effective_until,
+              version = version + 1
+        where status = 'ACTIVE'
+          and effective_until is not null
+          and effective_until <= $1::timestamptz
+        returning ${membershipColumns()}`,
+      [expiredAt],
+    );
+    return result.rows.map(mapMembership);
+  }
+
   async subjectExists(subjectType: TenantMembershipSubjectType, subjectId: string): Promise<boolean> {
     const namespace = subjectType === 'user'
       ? 'security.users'
@@ -232,7 +250,8 @@ function membershipColumns(): string {
     effective_from::text as "effectiveFrom", effective_until::text as "effectiveUntil",
     created_at::text as "createdAt", updated_at::text as "updatedAt",
     created_by as "createdBy", updated_by as "updatedBy",
-    revoked_at::text as "revokedAt", revoked_by as "revokedBy", version`;
+    revoked_at::text as "revokedAt", revoked_by as "revokedBy",
+    expired_at::text as "expiredAt", version`;
 }
 
 function addCondition(value: string | undefined, template: string, conditions: string[], params: unknown[]): void {
@@ -273,6 +292,7 @@ function mapMembership(row: MembershipRow): TenantMembershipEntity {
     updatedBy: row.updatedBy ?? undefined,
     revokedAt: row.revokedAt ?? undefined,
     revokedBy: row.revokedBy ?? undefined,
+    expiredAt: row.expiredAt ?? undefined,
     version: row.version,
   };
 }
