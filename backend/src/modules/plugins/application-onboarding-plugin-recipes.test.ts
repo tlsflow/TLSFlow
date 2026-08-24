@@ -5,7 +5,7 @@ import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-pl
 
 const expected = {
   'web.iis': {
-    version: '1.0.22',
+    version: '1.0.23',
     platformKey: 'iis',
     displayName: 'Windows IIS站点',
     framework: 'web.iis',

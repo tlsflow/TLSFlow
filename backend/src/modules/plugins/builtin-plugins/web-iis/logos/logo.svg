@@ -1,19 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 72 48" role="img" aria-label="IIS">
-  <svg x="0" y="0" width="72" height="48" viewBox="0 0 240 88" preserveAspectRatio="xMidYMid meet">
-
-  <title id="title">IIS</title>
-  <defs>
-    <linearGradient id="iis-bg" x1="12" y1="10" x2="80" y2="78" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#37A7F8"/>
-      <stop offset="1" stop-color="#1264C0"/>
-    </linearGradient>
-  </defs>
-  <rect x="10" y="10" width="68" height="68" rx="16" fill="url(#iis-bg)"/>
-  <path d="M22 25h44v10H22zm0 14h44v10H22zm0 14h44v10H22z" fill="#FFFFFF"/>
-  <circle cx="29" cy="30" r="2.5" fill="#1264C0"/>
-  <circle cx="29" cy="44" r="2.5" fill="#1264C0"/>
-  <circle cx="29" cy="58" r="2.5" fill="#1264C0"/>
-  <text x="96" y="58" fill="#1264C0" font-family="Arial, sans-serif" font-size="40" font-weight="700">IIS</text>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 48" role="img" aria-label="Windows IIS">
+  <svg x="0" y="0" width="72" height="48" viewBox="0 0 300 120" preserveAspectRatio="xMidYMid meet">
+    <title>Windows IIS</title>
+    <g transform="translate(10 0)">
+      <path fill="#4babe9" d="M0 15 52 8v45H0zM58 7 110 0v53H58zM0 60h52v46L0 99zM58 60h52v58l-52-8z"/>
+      <text x="150" y="91" fill="#232323" font-family="Arial, Helvetica, sans-serif" font-size="88" font-weight="300" letter-spacing="2">IIS</text>
+    </g>
   </svg>
 </svg>

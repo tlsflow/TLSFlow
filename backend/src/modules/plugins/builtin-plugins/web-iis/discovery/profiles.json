@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "web.iis",
-  "version": "1.0.10",
+  "version": "1.0.23",
   "profiles": [
     {
       "id": "windows.agent_fact.iis",
       "pluginId": "web.iis",
-      "version": "1.0.10",
+      "version": "1.0.23",
       "sources": [
         "windows"
       ],
