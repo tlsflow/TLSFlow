@@ -36,3 +36,60 @@ test('Policy Authority IPC 客户端通过独立子进程完成握手和健康�
     await client.close();
   }
 });
+
+test('Policy Authority IPC 响应方法不匹配时失败关闭', async () => {
+  const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
+  const client = new PolicyAuthorityProcessClientV1({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: [fixture, 'wrong-method'],
+    environment: { NODE_ENV: 'test' },
+    startupTimeoutMs: 2_000,
+    requestTimeoutMs: 2_000,
+  });
+
+  try {
+    await assert.rejects(() => client.health(), /method 不匹配/);
+    assert.equal((client as unknown as { child?: unknown }).child, undefined);
+  } finally {
+    await client.close();
+  }
+});
+
+test('Policy Authority IPC health 版本不匹配时失败关闭', async () => {
+  const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
+  const client = new PolicyAuthorityProcessClientV1({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: [fixture, 'wrong-health-version'],
+    environment: { NODE_ENV: 'test' },
+    startupTimeoutMs: 2_000,
+    requestTimeoutMs: 2_000,
+  });
+
+  try {
+    await assert.rejects(() => client.health(), /health 响应字段不完整/);
+    assert.equal((client as unknown as { child?: unknown }).child, undefined);
+  } finally {
+    await client.close();
+  }
+});
+
+test('Policy Authority IPC 请求超时后回收子进程并失败关闭', async () => {
+  const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
+  const client = new PolicyAuthorityProcessClientV1({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: [fixture, 'timeout'],
+    environment: { NODE_ENV: 'test' },
+    startupTimeoutMs: 2_000,
+    requestTimeoutMs: 50,
+  });
+
+  try {
+    await assert.rejects(() => client.health(), /超时/);
+    assert.equal((client as unknown as { child?: unknown }).child, undefined);
+  } finally {
+    await client.close();
+  }
+});

@@ -452,10 +452,10 @@ export class PolicyAuthorityServiceV1 {
   issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 {
     this.refreshConfiguredKeySet();
     const issuedAt = this.currentTime();
-    const validUntil = addSeconds(issuedAt, request.lifetimeSeconds);
-    validateIssueRequest(request, issuedAt, validUntil);
+    const validatedRequest = validateIssueRequest(request, issuedAt);
+    const validUntil = addSeconds(issuedAt, validatedRequest.lifetimeSeconds);
     const activeKey = this.getActiveSigningKey(issuedAt);
-    const evaluationInput: PolicyAuthorityEvaluationInputV1 = { ...request, issuedAt, validUntil };
+    const evaluationInput: PolicyAuthorityEvaluationInputV1 = { ...validatedRequest, issuedAt, validUntil };
     let evaluation: PolicyAuthorityEvaluationV1;
     try {
       evaluation = this.evaluator.evaluate(structuredClone(evaluationInput));
@@ -463,7 +463,7 @@ export class PolicyAuthorityServiceV1 {
       if (error instanceof AppError) throw error;
       failClosed('策略评估失败');
     }
-    validateEvaluation(evaluation, request, issuedAt, validUntil);
+    evaluation = validateEvaluation(evaluation, validatedRequest, issuedAt, validUntil);
 
     const tokenId = `token-${randomUUID()}`;
     const nonce = `nonce-${randomUUID()}`;
@@ -471,25 +471,25 @@ export class PolicyAuthorityServiceV1 {
       decisionVersion: agentSecurityContractVersion,
       decisionId: `decision-${randomUUID()}`,
       allowed: evaluation.allowed,
-      agentId: request.agentId,
-      tenantId: request.tenantId,
-      pluginId: request.pluginId,
-      pluginVersionId: request.pluginVersionId,
-      capability: request.capability,
+      agentId: validatedRequest.agentId,
+      tenantId: validatedRequest.tenantId,
+      pluginId: validatedRequest.pluginId,
+      pluginVersionId: validatedRequest.pluginVersionId,
+      capability: validatedRequest.capability,
       actions: evaluation.actions,
       allowedPaths: evaluation.allowedPaths,
       allowedServices: evaluation.allowedServices,
       artifactDigests: evaluation.artifactDigests,
       policyRef: evaluation.policyRef,
       policyVersion: evaluation.policyVersion,
-      planDigest: request.planDigest,
+      planDigest: validatedRequest.planDigest,
       tokenId,
       nonce,
       issuedAt,
       validUntil,
       authorityKeyId: activeKey.keyId,
       revocationRef: `revocation-${randomUUID()}`,
-      ...(request.approvalRef ? { approvalRef: request.approvalRef } : {}),
+      ...(validatedRequest.approvalRef ? { approvalRef: validatedRequest.approvalRef } : {}),
       ...(evaluation.reason ? { reason: evaluation.reason } : {}),
     };
     const decision = validatePolicyAuthorityDecision({ ...decisionValue, signature: signPolicyPayload(decisionValue, activeKey.privateKey) });
@@ -498,22 +498,22 @@ export class PolicyAuthorityServiceV1 {
     const tokenValue: Omit<AgentCapabilityTokenV1, 'signature'> = {
       tokenVersion: agentSecurityContractVersion,
       tokenId,
-      agentId: request.agentId,
-      tenantId: request.tenantId,
-      pluginId: request.pluginId,
-      pluginVersionId: request.pluginVersionId,
-      capability: request.capability,
+      agentId: validatedRequest.agentId,
+      tenantId: validatedRequest.tenantId,
+      pluginId: validatedRequest.pluginId,
+      pluginVersionId: validatedRequest.pluginVersionId,
+      capability: validatedRequest.capability,
       actions: evaluation.actions,
       allowedPaths: evaluation.allowedPaths,
       allowedServices: evaluation.allowedServices,
       artifactDigests: evaluation.artifactDigests,
-      ...(request.approvalRef ? { approvalRef: request.approvalRef } : {}),
+      ...(validatedRequest.approvalRef ? { approvalRef: validatedRequest.approvalRef } : {}),
       policyRef: evaluation.policyRef,
       policyVersion: evaluation.policyVersion,
       issuedAt,
       expiresAt: validUntil,
       nonce,
-      planDigest: request.planDigest,
+      planDigest: validatedRequest.planDigest,
       authorityKeyId: activeKey.keyId,
     };
     const token = validateAgentCapabilityToken({ ...tokenValue, signature: signPolicyPayload(tokenValue, activeKey.privateKey) });
@@ -962,7 +962,10 @@ function validateKeySetEnvelope(value: SignedPolicyAuthorityKeySetV1): void {
   rejectDevelopmentIdentifier(value.rootKeyId, 'KeySet Envelope.rootKeyId');
   rejectDevelopmentIdentifier(value.authorityId, 'KeySet Envelope.authorityId');
 }
-function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, issuedAt: string, validUntil: string): void {
+function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, issuedAt: string): PolicyAuthorityAuthorizationRequestV1 {
+  exactRuntimeKeys(request, ['agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests', 'policyRef', 'policyVersion', 'planDigest', 'approvalRef', 'lifetimeSeconds'], '授权请求');
+  if (!Number.isInteger(request.lifetimeSeconds) || request.lifetimeSeconds < 1 || request.lifetimeSeconds > maximumTokenLifetimeSeconds) failClosed('Token 生命周期超出限制');
+  const validUntil = addSeconds(issuedAt, request.lifetimeSeconds);
   const value = validateAgentCapabilityToken({
     tokenVersion: agentSecurityContractVersion,
     tokenId: 'request-token',
@@ -986,9 +989,24 @@ function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, is
     signature: 'request-signature',
   });
   if (value.actions.length === 0) failClosed('授权动作不能为空');
-  if (request.lifetimeSeconds < 1 || request.lifetimeSeconds > maximumTokenLifetimeSeconds || !Number.isInteger(request.lifetimeSeconds)) failClosed('Token 生命周期超出限制');
+  return {
+    agentId: value.agentId,
+    tenantId: value.tenantId,
+    pluginId: value.pluginId,
+    pluginVersionId: value.pluginVersionId,
+    capability: value.capability,
+    actions: value.actions,
+    allowedPaths: value.allowedPaths,
+    allowedServices: value.allowedServices,
+    artifactDigests: value.artifactDigests,
+    policyRef: value.policyRef,
+    policyVersion: value.policyVersion,
+    planDigest: value.planDigest,
+    ...(value.approvalRef ? { approvalRef: value.approvalRef } : {}),
+    lifetimeSeconds: request.lifetimeSeconds,
+  };
 }
-function validateEvaluation(evaluation: PolicyAuthorityEvaluationV1, request: PolicyAuthorityAuthorizationRequestV1, issuedAt: string, validUntil: string): void {
+function validateEvaluation(evaluation: PolicyAuthorityEvaluationV1, request: PolicyAuthorityAuthorizationRequestV1, issuedAt: string, validUntil: string): PolicyAuthorityEvaluationV1 {
   if (!evaluation || typeof evaluation.allowed !== 'boolean') failClosed('策略评估结果不完整');
   const value = validateAgentCapabilityToken({ tokenVersion: agentSecurityContractVersion, tokenId: 'evaluation-token', agentId: request.agentId, tenantId: request.tenantId, pluginId: request.pluginId, pluginVersionId: request.pluginVersionId, capability: request.capability, actions: evaluation.actions, allowedPaths: evaluation.allowedPaths, allowedServices: evaluation.allowedServices, artifactDigests: evaluation.artifactDigests, policyRef: evaluation.policyRef, policyVersion: evaluation.policyVersion, issuedAt, expiresAt: validUntil, nonce: 'evaluation-nonce', planDigest: request.planDigest, authorityKeyId: 'evaluation-authority-key', signature: 'evaluation-signature' });
   if (value.actions.length === 0) failClosed('策略评估未返回动作');
@@ -998,6 +1016,16 @@ function validateEvaluation(evaluation: PolicyAuthorityEvaluationV1, request: Po
   assertSubset(value.artifactDigests, request.artifactDigests, '策略评估 Artifact');
   if (evaluation.policyRef !== request.policyRef || evaluation.policyVersion !== request.policyVersion) failClosed('策略引用绑定不匹配');
   if (evaluation.reason !== undefined && !evaluation.reason.trim()) failClosed('策略拒绝原因不能为空');
+  return {
+    allowed: evaluation.allowed,
+    actions: value.actions,
+    allowedPaths: value.allowedPaths,
+    allowedServices: value.allowedServices,
+    artifactDigests: value.artifactDigests,
+    policyRef: value.policyRef,
+    policyVersion: value.policyVersion,
+    ...(evaluation.reason !== undefined ? { reason: evaluation.reason } : {}),
+  };
 }
 function assertSubset(values: string[], allowed: string[], label: string): void { if (values.some((value) => !allowed.includes(value))) failClosed(`${label}超出请求范围`); }
 function verifyTokenSignature(value: unknown, publicKeyPem: string): boolean {

@@ -175,11 +175,13 @@ export class PolicyAuthorityProcessClientV1 {
 
   async health(): Promise<PolicyAuthorityProcessHealthV1> {
     const result = await this.request('health');
-    if (typeof result.serviceVersion !== 'string'
+    if (result.serviceVersion !== agentSecurityContractVersion
       || typeof result.authorityId !== 'string'
       || typeof result.activeKeyId !== 'string'
       || typeof result.keySetIssuedAt !== 'string') {
-      throw unavailable('Policy Authority health 响应字段不完整');
+      const error = unavailable('Policy Authority health 响应字段不完整');
+      this.failProcess(error);
+      throw error;
     }
     return {
       serviceVersion: result.serviceVersion as typeof agentSecurityContractVersion,
@@ -190,13 +192,19 @@ export class PolicyAuthorityProcessClientV1 {
   }
 
   async issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): Promise<PolicyAuthorityAuthorizationResultV1> {
-    const result = await this.request('issueAuthorization', request);
-    if (!result.decision) throw unavailable('Policy Authority 未返回 Decision');
-    const decision = validatePolicyAuthorityDecision(result.decision);
-    if (!decision.allowed) return { decision };
-    if (!result.token) throw unavailable('Policy Authority 允许结果缺少 Token');
-    const token = validateAgentCapabilityToken(result.token);
-    return { decision, token };
+    try {
+      const result = await this.request('issueAuthorization', request);
+      if (!result.decision) throw unavailable('Policy Authority 未返回 Decision');
+      const decision = validatePolicyAuthorityDecision(result.decision);
+      if (!decision.allowed) return { decision };
+      if (!result.token) throw unavailable('Policy Authority 允许结果缺少 Token');
+      const token = validateAgentCapabilityToken(result.token);
+      return { decision, token };
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority 授权响应无效', error);
+      if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
+      throw failure;
+    }
   }
 
   async close(): Promise<void> {
@@ -233,17 +241,24 @@ export class PolicyAuthorityProcessClientV1 {
   }
 
   private async startProcess(): Promise<void> {
-    const child = spawn(this.config.executablePath, [...this.config.args], {
-      cwd: this.config.workingDirectory,
-      env: { ...this.config.environment },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
+    this.inputBuffer = '';
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(this.config.executablePath, [...this.config.args], {
+        cwd: this.config.workingDirectory,
+        env: { ...this.config.environment },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch (error) {
+      throw unavailable('Policy Authority 进程启动失败', error);
+    }
     this.child = child;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => this.handleOutput(chunk));
+    child.stdout.on('data', (chunk: string) => this.handleOutput(child, chunk));
     child.stderr.on('data', (chunk: string) => {
+      if (this.child !== child) return;
       if (Buffer.byteLength(chunk, 'utf8') > maximumIpcLineBytes) this.failProcess(unavailable('Policy Authority stderr 超过上限'));
     });
     child.on('error', (error) => this.failProcess(unavailable('Policy Authority 进程启动失败', error)));
@@ -254,13 +269,19 @@ export class PolicyAuthorityProcessClientV1 {
         this.failPending(unavailable(`Policy Authority 进程异常退出（${code ?? 'null'}/${signal ?? 'null'}）`));
       }
     });
-    const response = await this.sendRaw('hello', undefined, this.config.startupTimeoutMs);
-    if (!response.ok) throw remoteError(response.error);
-    const result = response.result;
-    if (!result || result.serviceVersion !== agentSecurityContractVersion || typeof result.authorityId !== 'string') {
-      throw unavailable('Policy Authority 握手版本或身份不匹配');
+    try {
+      const response = await this.sendRaw('hello', undefined, this.config.startupTimeoutMs);
+      if (!response.ok) throw remoteError(response.error);
+      const result = response.result;
+      if (!result || result.serviceVersion !== agentSecurityContractVersion || typeof result.authorityId !== 'string') {
+        throw unavailable('Policy Authority 握手版本或身份不匹配');
+      }
+      this.ready = true;
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority 握手失败', error);
+      if (this.child === child) this.failProcess(failure);
+      throw failure;
     }
-    this.ready = true;
   }
 
   private sendRaw(method: PolicyAuthorityIpcMethod, payload: unknown, timeoutMs: number): Promise<PolicyAuthorityIpcResponseV1> {
@@ -281,20 +302,25 @@ export class PolicyAuthorityProcessClientV1 {
     return new Promise((resolveResponse, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(unavailable(`Policy Authority IPC ${method} 超时`));
+        const error = unavailable(`Policy Authority IPC ${method} 超时`);
+        if (this.child === child) this.failProcess(error);
+        reject(error);
       }, timeoutMs);
-      this.pending.set(requestId, { resolve: resolveResponse, reject, timer });
+      this.pending.set(requestId, { method, resolve: resolveResponse, reject, timer });
       try {
         child.stdin.write(`${JSON.stringify(request)}\n`, 'utf8');
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(requestId);
-        reject(unavailable('Policy Authority IPC 写入失败', error));
+        const failure = unavailable('Policy Authority IPC 写入失败', error);
+        if (this.child === child) this.failProcess(failure);
+        reject(failure);
       }
     });
   }
 
-  private handleOutput(chunk: string): void {
+  private handleOutput(sourceChild: ChildProcessWithoutNullStreams, chunk: string): void {
+    if (this.child !== sourceChild) return;
     this.inputBuffer += chunk;
     if (Buffer.byteLength(this.inputBuffer, 'utf8') > maximumIpcLineBytes) {
       this.failProcess(unavailable('Policy Authority stdout 超过单行上限'));
@@ -317,6 +343,10 @@ export class PolicyAuthorityProcessClientV1 {
           this.failProcess(unavailable('Policy Authority IPC response requestId 未知'));
           return;
         }
+        if (response.method !== pending.method) {
+          this.failProcess(unavailable('Policy Authority IPC response method 不匹配'));
+          return;
+        }
         clearTimeout(pending.timer);
         this.pending.delete(response.requestId);
         pending.resolve(response);
@@ -330,6 +360,7 @@ export class PolicyAuthorityProcessClientV1 {
 
   private failProcess(error: AppError): void {
     this.ready = false;
+    this.inputBuffer = '';
     this.failPending(error);
     const child = this.child;
     this.child = undefined;
@@ -346,6 +377,7 @@ export class PolicyAuthorityProcessClientV1 {
 }
 
 interface PendingRequest {
+  method: PolicyAuthorityIpcMethod;
   resolve: (response: PolicyAuthorityIpcResponseV1) => void;
   reject: (error: unknown) => void;
   timer: NodeJS.Timeout;
@@ -359,7 +391,7 @@ export async function runPolicyAuthorityProcessV1(environment: NodeJS.ProcessEnv
   process.stdin.on('data', (chunk: string) => {
     inputBuffer += chunk;
     if (Buffer.byteLength(inputBuffer, 'utf8') > maximumIpcLineBytes) {
-      writeError('unknown', 'UNKNOWN', 'Policy Authority request 超过大小上限');
+      writeError('unknown', 'hello', 'UNKNOWN', 'Policy Authority request 超过大小上限');
       process.exitCode = 1;
       return;
     }
@@ -380,7 +412,7 @@ async function handleProcessLine(line: string, services: ProductionPolicyAuthori
     parsed = JSON.parse(line);
     assertJsonSchema(parsed, ipcRequestSchema, 'Policy Authority IPC request');
   } catch (error) {
-    writeError('unknown', 'VALIDATION_FAILED', 'Policy Authority request 无效', error);
+    writeError('unknown', 'hello', 'VALIDATION_FAILED', 'Policy Authority request 无效', error);
     return;
   }
   const request = parsed as PolicyAuthorityIpcRequestV1;
@@ -426,10 +458,10 @@ async function handleProcessLine(line: string, services: ProductionPolicyAuthori
       setImmediate(() => process.exit(0));
       return;
     }
-    writeError(request.requestId, 'VALIDATION_FAILED', 'Policy Authority method 未实现');
+    writeError(request.requestId, request.method, 'VALIDATION_FAILED', 'Policy Authority method 未实现');
   } catch (error) {
     const appError = error instanceof AppError ? error : undefined;
-    writeError(request.requestId, appError?.errorCode ?? 'AGENT_AUTHORIZATION_UNAVAILABLE', appError?.message ?? 'Policy Authority 请求失败', error);
+    writeError(request.requestId, request.method, appError?.errorCode ?? 'AGENT_AUTHORIZATION_UNAVAILABLE', appError?.message ?? 'Policy Authority 请求失败', error);
   }
 }
 
@@ -437,11 +469,11 @@ function writeSuccess(request: PolicyAuthorityIpcRequestV1, result: Record<strin
   writeResponse({ protocolVersion: policyAuthorityIpcVersion, requestId: request.requestId, method: request.method, ok: true, result });
 }
 
-function writeError(requestId: string, code: string, message: string, _details?: unknown): void {
+function writeError(requestId: string, method: PolicyAuthorityIpcMethod, code: string, message: string, _details?: unknown): void {
   writeResponse({
     protocolVersion: policyAuthorityIpcVersion,
     requestId,
-    method: 'hello',
+    method,
     ok: false,
     error: { code: safeCode(code), message: message.slice(0, 512), retryable: false, mayBeUnknown: false, secretRedacted: true },
   });
