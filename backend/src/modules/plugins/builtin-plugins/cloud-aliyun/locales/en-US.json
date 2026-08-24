@@ -1,9 +1,9 @@
 {
-  "plugin.cloud.aliyun.name": "Alibaba Cloud",
-  "plugin.cloud.aliyun.description": "Alibaba Cloud control-plane plugin",
-  "plugin.cloud.aliyun.cloudService": "Cloud service object",
-  "plugin.cloud.aliyun.credential": "Cloud account credential",
-  "plugin.cloud.aliyun.region": "Region",
+  "plugin.cloud.aliyun.name": "Alibaba Cloud CDN",
+  "plugin.cloud.aliyun.description": "Alibaba Cloud CDN control-plane plugin",
+  "plugin.cloud.aliyun.cloudService": "CDN service object",
+  "plugin.cloud.aliyun.credential": "Alibaba Cloud account credential",
+  "plugin.cloud.aliyun.region": "CDN region",
   "plugin.cloud.aliyun.accessKeyId": "AccessKey ID",
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret"
 }

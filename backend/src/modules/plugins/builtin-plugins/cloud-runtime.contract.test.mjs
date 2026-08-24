@@ -131,9 +131,9 @@ function mockHostApi(pluginId) {
           ...(pluginId === 'cloud.huawei' ? { accessKey: 'fixture-access', secretKey: 'fixture-secret' } : {}),
           ...(pluginId === 'cloud.volcengine' ? { accessKey: 'fixture-access', secretKey: 'fixture-secret' } : {}),
           ...(pluginId === 'cloud.tencent' ? { secretId: 'fixture-access', secretKey: 'fixture-secret' } : {}),
-          ...(pluginId === 'cloud.aliyun' ? { accessKeyId: 'fixture-access', accessKeySecret: 'fixture-secret' } : {}),
         },
       };
+      if (method === 'crypto.hmac') return { ok: true, data: { signatureBase64: 'fixture-signature', publicValue: 'fixture-access' } };
       if (method === 'http.request') return { ok: true, data: { statusCode: 200, signatureVerified: true, body: { status: 'SUCCEEDED', resources: [{ id: 'resource-1', type: 'cdn.domain', region: 'cn-hangzhou' }] } } };
       throw new Error(`unexpected host method ${method}`);
     },
