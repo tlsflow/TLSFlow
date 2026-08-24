@@ -1,571 +1,193 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 
-describe('Agent 安装会话安全约束', () => {
-  it('Windows bootstrap 短码 10 分钟过期且只能使用一次', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_windows_install',
-      'x-request-id': 'req_agent_windows_install',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-
-    const created = await app.inject({
+describe('Agent 安装材料接口安全合同', () => {
+  it('Windows 只返回固定 Artifact、摘要、签名和 Agent v2 安装任务', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
       method: 'POST',
-      path: '/api/v1/agents/install-sessions/windows-powershell',
-      headers,
-      body: { zone: 'default', startAfterInstall: true },
-    });
-    assert.equal(created.statusCode, 201);
-
-    const createdBody = created.body as {
-      bootstrapUrl: string;
-      installCommand: string;
-      enrollmentToken?: string;
-      bootstrapTokenPreview: string;
-      zone: string;
-      serviceName: string;
-      expiresAt: string;
-    };
-
-    assert.equal(createdBody.zone, 'default');
-    assert.match(createdBody.serviceName, /^gcac-windows-go-agent-/);
-    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=/);
-    assert.match(createdBody.installCommand, /^irm https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=.* \| iex$/);
-    assert.match(String((created.body as { configDir?: string }).configDir ?? ''), /FullAgentGo\\config$/);
-    assert.ok(createdBody.enrollmentToken);
-    assert.match(createdBody.bootstrapTokenPreview, /^[A-HJ-NP-Za-km-z2-9]{8}$/);
-
-    const expiresAt = new Date(createdBody.expiresAt).getTime();
-    const ttlMs = expiresAt - Date.now();
-    assert.ok(ttlMs > 9 * 60 * 1000 && ttlMs <= 10 * 60 * 1000 + 10_000);
-
-    const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(bootstrapToken);
-
-    const bootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/windows/bootstrap.ps1?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(bootstrap.statusCode, 200);
-    assert.equal(bootstrap.headers['content-type'], 'text/plain; charset=utf-8');
-    const bootstrapBody = String(bootstrap.body);
-    assert.match(bootstrapBody, /\$manifest = @'/);
-    assert.match(bootstrapBody, /config\\agent\.config\.template\.json/);
-    assert.match(bootstrapBody, /install-service\.ps1/);
-    assert.match(bootstrapBody, /\.env/);
-    assert.match(bootstrapBody, /GCAC_CONTROL_PLANE_URL=/);
-    assert.match(bootstrapBody, /\.controlPlaneUrl = \[string\]\$manifest\.controlPlaneUrl/);
-    assert.match(bootstrapBody, /directControlEnabled/);
-    assert.match(bootstrapBody, /directControlListenHost/);
-    assert.match(bootstrapBody, /directControlListenPort/);
-    assert.match(bootstrapBody, /directControlAdvertiseHost/);
-    assert.match(bootstrapBody, /bootstrap-selfcheck\.json/);
-    assert.match(bootstrapBody, /bootstrap-register\.json/);
-    assert.match(bootstrapBody, /WriteAllBytes/);
-    assert.match(bootstrapBody, /FromBase64String/);
-    assert.match(bootstrapBody, /self-check --config=/);
-    assert.match(bootstrapBody, /register-once --config=/);
-    assert.match(bootstrapBody, /Start-Service -Name/);
-    assert.match(bootstrapBody, /Join-Path \$manifest\.installRoot 'gcac-agent\.exe'/);
-    assert.match(bootstrapBody, /WriteAllText\(\$selfCheckPath, \$selfCheckOutput, \$utf8Bom\)/);
-    assert.match(bootstrapBody, /\$installArgs = @\(/);
-    assert.match(bootstrapBody, /\"startAfterInstall\": true/);
-    assert.match(bootstrapBody, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
-    assert.match(bootstrapBody, /Windows Agent service is not running after install/);
-    assert.match(bootstrapBody, /'-NoStartAfterInstall'/);
-    assert.doesNotMatch(bootstrapBody, /\$installArgs \+= '-StartAfterInstall'/);
-    assert.doesNotMatch(bootstrapBody, /\$installArgs[\s\S]*'-StartAfterInstall'[\s\S]*& powershell @installArgs/);
-    assert.doesNotMatch(bootstrapBody, /-StartAfterInstall:\$/);
-    assert.doesNotMatch(bootstrapBody, /& powershell -NoProfile -ExecutionPolicy Bypass -File \$installScript @params/);
-    assert.doesNotMatch(bootstrapBody, /Start-GcacFullAgent\.ps1/);
-    assert.doesNotMatch(bootstrapBody, /Invoke-RestMethod -Method Get -Uri/);
-    assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
-
-    const secondBootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/windows/bootstrap.ps1?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(secondBootstrap.statusCode, 403);
-
-    const manifestAfterBootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/windows/manifest?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(manifestAfterBootstrap.statusCode, 403);
-  });
-
-  it('Windows 短安装入口不要求安装端携带租户头', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_windows_short_public',
-      'x-request-id': 'req_agent_windows_short_public',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/windows-powershell',
-      headers,
-      body: { zone: 'default', startAfterInstall: true },
-    });
-    assert.equal(created.statusCode, 201);
-
-    const bootstrapToken = new URL((created.body as { bootstrapUrl: string }).bootstrapUrl).searchParams.get('token');
-    assert.ok(bootstrapToken);
-
-    const bootstrap = await app.inject({
-      method: 'GET',
-      path: `/agent-install.ps1?token=${encodeURIComponent(bootstrapToken)}`,
-      headers: {
-        host: 'gcac.example.test',
-        'x-forwarded-proto': 'https',
-      },
-    });
-
-    assert.equal(bootstrap.statusCode, 200);
-    assert.equal(bootstrap.headers['content-type'], 'text/plain; charset=utf-8');
-    assert.match(String(bootstrap.body), /\$manifest = @'/);
-  });
-
-  it('Windows Go Agent 手工安装启动后必须等待 Running', async () => {
-    const installScript = await readFile(resolve('../agents/windows-go-full-agent/install-service.ps1'), 'utf8');
-    assert.match(installScript, /\[switch\]\$NoStartAfterInstall/);
-    assert.match(installScript, /\$shouldStartAfterInstall = \$StartAfterInstall -or \(-not \$NoStartAfterInstall -and -not \$PSBoundParameters\.ContainsKey\("StartAfterInstall"\)\)/);
-    assert.match(installScript, /if \(\$shouldStartAfterInstall\) \{/);
-    assert.match(installScript, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
-    assert.match(installScript, /Windows Service did not reach Running after install/);
-  });
-
-  it('Windows Compatibility Agent 生成兼容 PowerShell 的独立安装命令和 Bootstrap', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_windows_compat_install',
-      'x-request-id': 'req_agent_windows_compat_install',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/windows-compatibility',
-      headers,
-      body: { zone: 'default' },
-    });
-    assert.equal(created.statusCode, 201);
-    const createdBody = created.body as { platform: string; serviceName: string; installCommand: string; bootstrapUrl: string };
-    assert.equal(createdBody.platform, 'windows_compatibility_service');
-    assert.equal(createdBody.serviceName, 'GCACWindowsCompatibilityAgent');
-    assert.match(createdBody.installCommand, /^\(New-Object Net\.WebClient\)\.DownloadString\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=.*'\) \| Invoke-Expression$/);
-
-    const token = new URL(createdBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(token);
-    const bootstrap = await app.inject({
-      method: 'GET',
-      path: `/agent-install.ps1?token=${encodeURIComponent(token!)}`,
-      headers,
-    });
-    assert.equal(bootstrap.statusCode, 200);
-    const body = String(bootstrap.body);
-    assert.match(body, /GCAC\.WindowsCompatibilityAgent\.exe/);
-    assert.match(body, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
-    assert.match(body, /--preflight/);
-    assert.match(body, /\$bootstrapPreviousErrorActionPreference/);
-    assert.match(body, /\$ErrorActionPreference = 'Continue'/);
-    assert.match(body, /install-service\.ps1/);
-    assert.match(body, /uninstall-service\.ps1/);
-    assert.match(body, /-InstallRoot \$installRoot -ConfigPath \$actualConfigPath/);
-    assert.match(body, /Get-Service -Name \$serviceName/);
-    assert.match(body, /Existing Windows Compatibility Agent service removal failed/);
-    assert.match(body, /executable replacement timed out/);
-    assert.match(body, /FromBase64String/);
-    assert.match(body, /bootstrap\.log/);
-    assert.match(body, /Detailed preflight output/);
-    assert.match(body, /Write-Host \$preflightOutput/);
-    assert.match(body, /bootstrap-preflight\.json/);
-    assert.match(body, /Start-Service -Name \$serviceName -ErrorAction Stop/);
-    assert.match(body, /WaitForStatus\('Running', \[TimeSpan\]::FromSeconds\(30\)\)/);
-    assert.ok(body.indexOf('$preflightOutput = & $sourceBinary') < body.indexOf('$uninstallOutput = & powershell'));
-    assert.ok(body.indexOf('$uninstallOutput = & powershell') < body.indexOf('Copy-Item -LiteralPath $sourceBinary'));
-    assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('Copy-Item -LiteralPath $sourceRuntimeConfig'));
-    assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('$installOutput = & powershell'));
-    assert.match(body, /-NoStartAfterInstall/);
-    assert.doesNotMatch(body, /\[Console\]::OutputEncoding/);
-    assert.doesNotMatch(body, /Write-Host \('Windows Compatibility Agent installed successfully/);
-    assert.doesNotMatch(body, /ConvertFrom-Json/);
-    assert.doesNotMatch(body, /register-once/);
-  });
-
-  it('Windows Compatibility Agent 防火墙配置兼容带空格路径并提供端口规则回退', async () => {
-    const installScript = await readFile(resolve('../agents/windows-compat-full-agent/install-service.ps1'), 'utf8');
-    const upgradeScript = await readFile(resolve('../agents/windows-compat-full-agent/upgrade-service.ps1'), 'utf8');
-    assert.match(installScript, /\[switch\]\$NoStartAfterInstall/);
-    assert.match(installScript, /Service installed without starting/);
-    assert.match(installScript, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
-    assert.match(installScript, /Service did not reach Running after start/);
-    assert.match(installScript, /actions= restart\/5000\/restart\/15000/);
-    assert.doesNotMatch(installScript, /none\/0/);
-    for (const script of [installScript, upgradeScript]) {
-      assert.match(script, /"name=\$firewallRuleName"/);
-      assert.match(script, /"program=\$ProgramPath"/);
-      assert.match(script, /trying port-only fallback/);
-      assert.match(script, /localport=18933 enable=yes profile=any/);
-      assert.match(script, /Windows Firewall service is not running; firewall rule synchronization skipped/);
-      assert.doesNotMatch(script, /throw \("Direct Control firewall rule configuration failed/);
-    }
-  });
-
-  it('Linux bootstrap 短码只能使用一次且脚本不再二次拉 manifest', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_linux_install',
-      'x-request-id': 'req_agent_linux_install',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/linux-go',
-      headers,
-      body: { zone: 'default' },
-    });
-    assert.equal(created.statusCode, 201);
-
-    const createdBody = created.body as {
-      bootstrapUrl: string;
-      installCommand: string;
-      bootstrapTokenPreview: string;
-      expiresAt: string;
-      bundleUrl?: string;
-    };
-
-    assert.match(createdBody.bootstrapTokenPreview, /^[A-HJ-NP-Za-km-z2-9]{8}$/);
-    const expiresAt = new Date(createdBody.expiresAt).getTime();
-    const ttlMs = expiresAt - Date.now();
-    assert.ok(ttlMs > 9 * 60 * 1000 && ttlMs <= 10 * 60 * 1000 + 10_000);
-    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\?token=/);
-    assert.match(createdBody.installCommand, /^curl -fsSL https:\/\/gcac\.example\.test\/agent-install\?token=.* \| sudo bash$/);
-    assert.equal(createdBody.bundleUrl, 'https://gcac.example.test/api/v1/agents/install/linux/bundle.tar.gz');
-
-    const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(bootstrapToken);
-
-    const bootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(bootstrap.statusCode, 200);
-    assert.equal(bootstrap.headers['content-type'], 'text/x-shellscript; charset=utf-8');
-    const bootstrapBody = String(bootstrap.body);
-    assert.match(bootstrapBody, /cat <<'JSON' > "\$WORKDIR\/manifest\.json"/);
-    assert.match(bootstrapBody, /bundle\.tar\.gz/);
-    assert.match(bootstrapBody, /BUNDLE_URL='https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/linux\/bundle\.tar\.gz'/);
-    assert.match(bootstrapBody, /SERVICE_NAME='gcac-linux-agent'/);
-    assert.match(bootstrapBody, /directControlEnabled: true/);
-    assert.match(bootstrapBody, /directControlListenHost: "0\.0\.0\.0"/);
-    assert.match(bootstrapBody, /directControlListenPort: manifest\.directControlListenPort/);
-    assert.match(bootstrapBody, /"directControlListenPort": 18931/);
-    assert.match(bootstrapBody, /directControlAdvertiseHost: ""/);
-    assert.match(bootstrapBody, /capabilityRescanIntervalSeconds: 300/);
-    assert.match(bootstrapBody, /capabilityRescanEnabled: true/);
-    assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
-    assert.doesNotMatch(bootstrapBody, /MANIFEST_URL=/);
-    assert.doesNotMatch(bootstrapBody, /process\.stdout\.write\(m\.bundleUrl\)/);
-    assert.doesNotMatch(bootstrapBody, /process\.stdout\.write\(m\.displayName\)/);
-
-    const secondBootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(secondBootstrap.statusCode, 200);
-
-    const shortBootstrap = await app.inject({
-      method: 'GET',
-      path: `/agent-install?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(shortBootstrap.statusCode, 200);
-  });
-
-  it('Gateway Agent 安装会话应生成可直接注册为 Gateway 的安装脚本', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_gateway_install',
-      'x-request-id': 'req_gateway_install',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-
-    const linuxCreated = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/linux-go',
-      headers,
-      body: { zone: 'zone_gateway', role: 'gateway' },
-    });
-    assert.equal(linuxCreated.statusCode, 201);
-    const linuxBody = linuxCreated.body as { role: string; bootstrapUrl: string; serviceName: string; installRoot: string; configDir: string; dataDir: string; logDir: string };
-    assert.equal(linuxBody.role, 'gateway');
-    assert.equal(linuxBody.serviceName, 'gcac-linux-gateway-agent');
-    assert.equal(linuxBody.installRoot, '/opt/gcac/gateway');
-    assert.equal(linuxBody.configDir, '/etc/gcac/gateway');
-    assert.equal(linuxBody.dataDir, '/var/lib/gcac/gateway');
-    assert.equal(linuxBody.logDir, '/var/log/gcac/gateway');
-
-    const linuxToken = new URL(linuxBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(linuxToken);
-    const linuxBootstrap = await app.inject({
-      method: 'GET',
-      path: `/agent-install?token=${encodeURIComponent(linuxToken)}`,
-      headers,
-    });
-    assert.equal(linuxBootstrap.statusCode, 200);
-    const linuxScript = String(linuxBootstrap.body);
-    assert.match(linuxScript, /role: manifest\.role/);
-    assert.match(linuxScript, /gatewayEnabled: manifest\.gatewayEnabled === true/);
-    assert.match(linuxScript, /directControlListenPort: manifest\.directControlListenPort/);
-    assert.match(linuxScript, /"directControlListenPort": 18932/);
-    assert.match(linuxScript, /SERVICE_NAME='gcac-linux-gateway-agent'/);
-    assert.match(linuxScript, /INSTALL_ROOT='\/opt\/gcac\/gateway'/);
-    assert.match(linuxScript, /CONFIG_DIR='\/etc\/gcac\/gateway'/);
-    assert.match(linuxScript, /DATA_DIR='\/var\/lib\/gcac\/gateway'/);
-    assert.match(linuxScript, /LOG_DIR='\/var\/log\/gcac\/gateway'/);
-
-    const windowsCreated = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/windows-powershell',
-      headers: { ...headers, 'x-request-id': 'req_gateway_install_windows' },
-      body: { zone: 'zone_gateway', role: 'gateway', startAfterInstall: true },
-    });
-    assert.equal(windowsCreated.statusCode, 201);
-    const windowsBody = windowsCreated.body as { role: string; bootstrapUrl: string; serviceName: string; installRoot: string; configDir: string; dataDir: string; logDir: string };
-    assert.equal(windowsBody.role, 'gateway');
-    assert.match(windowsBody.serviceName, /^gcac-gateway-agent-/);
-    assert.equal(windowsBody.installRoot, 'C:\\Program Files\\GCAC\\Gateway');
-    assert.equal(windowsBody.configDir, 'C:\\ProgramData\\GCAC\\Gateway\\config');
-    assert.equal(windowsBody.dataDir, 'C:\\ProgramData\\GCAC\\Gateway\\data');
-    assert.equal(windowsBody.logDir, 'C:\\ProgramData\\GCAC\\Gateway\\logs');
-
-    const windowsToken = new URL(windowsBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(windowsToken);
-    const windowsBootstrap = await app.inject({
-      method: 'GET',
-      path: `/agent-install.ps1?token=${encodeURIComponent(windowsToken)}`,
-      headers,
-    });
-    assert.equal(windowsBootstrap.statusCode, 200);
-    const windowsScript = String(windowsBootstrap.body);
-    assert.match(windowsScript, /NotePropertyName role/);
-    assert.match(windowsScript, /NotePropertyName gatewayEnabled/);
-    assert.match(windowsScript, /"directControlListenPort": 18932/);
-    assert.match(windowsScript, /NotePropertyName directControlListenPort -NotePropertyValue \(\[int\]\$manifest\.directControlListenPort\)/);
-  });
-
-  it('现有 Agent 启用 Gateway 会话应返回直接可运行命令', async () => {
-    const db = new PgliteDatabase();
-    await runMigrations(db, undefined, {
-      appliedBy: 'test',
-      checksum: (content) => createHash('sha256').update(content).digest('hex'),
-    });
-    const app = createApp({ db });
-    const headers = {
-      'x-tenant-id': 'tenant_gateway_enable_command',
-      'x-request-id': 'req_gateway_enable_register',
-      host: 'gcac.example.test',
-      'x-forwarded-proto': 'https',
-    };
-
-    const registered = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/register',
-      headers,
+      path: '/api/v1/agents/install-materials',
+      headers: requestHeaders('tenant_agent_install_materials', 'req_agent_install_materials'),
       body: {
-        agentKey: 'agent-existing-gateway-enable',
-        hostname: 'agent-existing-gateway-enable',
-        version: '0.1.0',
-        osType: 'linux',
+        platform: 'windows_go',
+        role: 'full_agent',
         zone: 'default',
+        agentKey: 'windows-go-install-test',
       },
     });
-    assert.equal(registered.statusCode, 201);
-    const agentId = (registered.body as { id: string }).id;
 
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/gateway-enable-sessions',
-      headers: { ...headers, 'x-request-id': 'req_gateway_enable_command' },
-      body: { platform: 'linux_go_systemd', agentId, zone: 'zone_gateway' },
-    });
-    assert.equal(created.statusCode, 201);
-    const body = created.body as { enableCommand: string; enableUrl: string; zone: string; configPath: string };
-    assert.equal(body.zone, 'zone_gateway');
-    assert.equal(body.configPath, '/etc/gcac/linux-agent/agent.config.json');
-    assert.match(body.enableCommand, /^curl -fsSL 'https:\/\/gcac\.example\.test\/agent-enable-gateway\?/);
-
-    const url = new URL(body.enableUrl);
-    const script = await app.inject({
-      method: 'GET',
-      path: `${url.pathname}${url.search}`,
-      headers,
-    });
-    assert.equal(script.statusCode, 200);
-    assert.match(String(script.body), /config\.gatewayEnabled = true/);
-    assert.match(String(script.body), /systemctl restart/);
+    assert.equal(response.statusCode, 201);
+    const body = response.body as InstallMaterialsResponse;
+    assertInstallMaterials(body, 'windows_go', '0.1.9');
   });
 
-  it('并发请求同一个 bootstrap token 时只能成功一次', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_atomic_consume',
-      'x-request-id': 'req_agent_atomic_consume',
-      host: 'gcac.example.test',
+  it('Linux 只返回固定 Artifact 引用，不返回二进制内容或安装命令', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-materials',
+      headers: requestHeaders('tenant_linux_install_materials', 'req_linux_install_materials'),
+      body: { platform: 'linux_go', role: 'gateway', zone: 'edge' },
+    });
+
+    assert.equal(response.statusCode, 201);
+    const body = response.body as InstallMaterialsResponse;
+    assertInstallMaterials(body, 'linux_go', '0.1.10');
+  });
+
+  it('enrollment secret 只在顶层返回一次，不能进入任务或材料', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-materials',
+      headers: requestHeaders('tenant_install_secret_once', 'req_install_secret_once'),
+      body: { platform: 'windows_compatibility', zone: 'default' },
+    });
+
+    assert.equal(response.statusCode, 201);
+    const body = response.body as InstallMaterialsResponse;
+    const enrollmentToken = body.enrollmentToken;
+    assert.ok(enrollmentToken);
+    const serialized = JSON.stringify(body);
+    assert.equal(serialized.split(enrollmentToken).length - 1, 1);
+    assert.equal(JSON.stringify(body.task).includes(enrollmentToken), false);
+    assert.equal(JSON.stringify(body.materials).includes(enrollmentToken), false);
+  });
+
+  it('拒绝 query、未知 body 字段，并且地址相关请求头不能改变 Artifact 材料', async () => {
+    const app = await createTestApp();
+    const hostileHeaders = requestHeaders('tenant_install_address_binding', 'req_install_address_binding', {
+      host: 'attacker.invalid:9443',
+      origin: 'https://attacker.invalid',
+      referer: 'https://attacker.invalid/agents',
+      'x-forwarded-host': 'attacker.invalid',
       'x-forwarded-proto': 'https',
-    };
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/linux-go',
-      headers,
-      body: { zone: 'default' },
+      'x-public-base-url': 'https://attacker.invalid/control-plane',
+      'x-proxy-control-plane': 'https://attacker.invalid/proxy-control-plane',
     });
-    assert.equal(created.statusCode, 201);
+    const hostile = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-materials',
+      headers: hostileHeaders,
+      body: { platform: 'windows_go', zone: 'default' },
+    });
+    assert.equal(hostile.statusCode, 201);
+    const hostileBody = hostile.body as InstallMaterialsResponse;
+    assertInstallMaterials(hostileBody, 'windows_go', '0.1.9');
+    assert.doesNotMatch(JSON.stringify(hostileBody), /attacker\.invalid/i);
 
-    const createdBody = created.body as { bootstrapUrl: string };
-    const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(bootstrapToken);
+    const query = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-materials?baseUrl=https%3A%2F%2Fattacker.invalid',
+      headers: requestHeaders('tenant_install_query_rejected', 'req_install_query_rejected'),
+      body: { platform: 'windows_go' },
+    });
+    assert.ok(query.statusCode >= 400 && query.statusCode < 500);
 
-    const [left, right] = await Promise.all([
-      app.inject({
-        method: 'GET',
-        path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
-        headers: { ...headers, 'x-request-id': 'req_agent_atomic_consume_left' },
-      }),
-      app.inject({
-        method: 'GET',
-        path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
-        headers: { ...headers, 'x-request-id': 'req_agent_atomic_consume_right' },
-      }),
-    ]);
-
-    const statusCodes = [left.statusCode, right.statusCode].sort((a, b) => a - b);
-    assert.deepEqual(statusCodes, [200, 200]);
+    const unknownField = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-materials',
+      headers: requestHeaders('tenant_install_body_rejected', 'req_install_body_rejected'),
+      body: { platform: 'windows_go', baseUrl: 'https://attacker.invalid' },
+    });
+    assert.ok(unknownField.statusCode >= 400 && unknownField.statusCode < 500);
   });
 
-  it('创建安装会话时优先使用显式公共基地址', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_public_base_url',
-      'x-request-id': 'req_agent_public_base_url',
-      host: '127.0.0.1:3003',
-      'x-forwarded-proto': 'http',
-      'x-public-base-url': 'http://10.255.0.85:5172',
-    };
+  it('所有已删除的宿主脚本、解包和下载后执行入口均不存在', async () => {
+    const app = await createTestApp();
+    const oldPaths = [
+      '/api/v1/agents/install-sessions/windows-powershell',
+      '/api/v1/agents/install-sessions/linux-go',
+      '/api/v1/agents/gateway-enable-sessions',
+      '/agent-install.ps1',
+      '/agent-install',
+      '/agent-enable-gateway.ps1',
+      '/agent-enable-gateway',
+      '/api/v1/agents/install/windows/bootstrap.ps1',
+      '/api/v1/agents/install/windows/manifest',
+      '/api/v1/agents/install/linux/bootstrap.sh',
+      '/api/v1/agents/install/linux/bundle.tar.gz',
+    ];
 
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/linux-go',
-      headers,
-      body: { zone: 'default' },
-    });
-    assert.equal(created.statusCode, 201);
-
-    const createdBody = created.body as {
-      bootstrapUrl: string;
-      installCommand: string;
-    };
-    assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
-    assert.equal(createdBody.bootstrapUrl.includes('127.0.0.1:3003'), false);
-    assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
-
-    const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
-    assert.ok(bootstrapToken);
-
-    const bootstrap = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
-      headers,
-    });
-    assert.equal(bootstrap.statusCode, 200);
-    const bootstrapBody = String(bootstrap.body);
-    assert.match(bootstrapBody, /BUNDLE_URL='http:\/\/10\.255\.0\.85:5172\/api\/v1\/agents\/install\/linux\/bundle\.tar\.gz'/);
-    assert.doesNotMatch(bootstrapBody, /127\.0\.0\.1:3003/);
-  });
-});
-
-describe('安装入口基地址兜底', () => {
-  it('后端环境变量应优先覆盖所有请求头推断', async () => {
-    const previous = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
-    process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = 'http://10.255.0.85:5172';
-    try {
-      const app = createApp();
-      const headers = {
-        'x-tenant-id': 'tenant_agent_env_base_url',
-        'x-request-id': 'req_agent_env_base_url',
-        host: '127.0.0.1:3003',
-        origin: 'http://wrong-host:9999',
-        referer: 'http://wrong-host:9999/agents',
-        'x-forwarded-proto': 'http',
-        'x-public-base-url': 'http://wrong-host:9999',
-      };
-
-      const created = await app.inject({
-        method: 'POST',
-        path: '/api/v1/agents/install-sessions/linux-go',
-        headers,
-        body: { zone: 'default' },
+    for (const path of oldPaths) {
+      const response = await app.inject({
+        method: 'GET',
+        path,
+        headers: requestHeaders('tenant_removed_agent_install_paths', `req_removed_${path.replaceAll('/', '_')}`),
       });
-      assert.equal(created.statusCode, 201);
-      const createdBody = created.body as { bootstrapUrl: string; bundleUrl: string; installCommand: string };
-      assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
-      assert.equal(createdBody.bundleUrl, 'http://10.255.0.85:5172/api/v1/agents/install/linux/bundle.tar.gz');
-      assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
-    } finally {
-      if (previous === undefined) {
-        delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
-      } else {
-        process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = previous;
-      }
+      assert.equal(response.statusCode, 404, path);
     }
   });
-
-  it('缺少自定义公共地址头时优先使用浏览器 Origin', async () => {
-    const app = createApp();
-    const headers = {
-      'x-tenant-id': 'tenant_agent_origin_base_url',
-      'x-request-id': 'req_agent_origin_base_url',
-      host: '127.0.0.1:3003',
-      origin: 'http://10.255.0.85:5172',
-      'x-forwarded-proto': 'http',
-    };
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/install-sessions/linux-go',
-      headers,
-      body: { zone: 'default' },
-    });
-    assert.equal(created.statusCode, 201);
-
-    const createdBody = created.body as {
-      bootstrapUrl: string;
-      bundleUrl: string;
-      installCommand: string;
-    };
-    assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
-    assert.equal(createdBody.bootstrapUrl.includes('127.0.0.1:3003'), false);
-    assert.equal(createdBody.bundleUrl, 'http://10.255.0.85:5172/api/v1/agents/install/linux/bundle.tar.gz');
-    assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
-  });
 });
+
+interface InstallMaterialsResponse {
+  installationId: string;
+  expiresAt: string;
+  enrollmentToken: string;
+  materials: Array<{
+    platform: 'windows_go' | 'windows_compatibility' | 'linux_go';
+    arch: 'amd64' | 'arm64';
+    artifactRef: string;
+    version: string;
+    digest: string;
+    signature: string;
+    signatureAlgorithm: 'Ed25519';
+    signingKeyId: string;
+  }>;
+  task: {
+    type: 'agent.plan.execute';
+    contractVersion: 'gcac.agent-security/v1';
+    taskId: string;
+    version: string;
+    artifactRefs: string[];
+    expiresAt: string;
+    digest: string;
+    signature: string;
+    signatureAlgorithm: 'Ed25519';
+    signingKeyId: string;
+    input: Record<string, unknown>;
+  };
+}
+
+function assertInstallMaterials(body: InstallMaterialsResponse, platform: InstallMaterialsResponse['materials'][number]['platform'], version: string): void {
+  assert.equal(Object.keys(body).sort().join(','), 'enrollmentToken,expiresAt,installationId,materials,task');
+  assert.equal(body.materials.length, 1);
+  const material = body.materials[0]!;
+  assert.equal(material.platform, platform);
+  assert.equal(material.version, version);
+  assert.match(material.artifactRef, /^artifact:\/\/gcac\/agents\//);
+  assert.doesNotMatch(material.artifactRef, /^https?:/i);
+  assert.match(material.digest, /^[a-f0-9]{64}$/);
+  assert.match(material.signature, /^artifact:\/\/gcac\/signatures\//);
+  assert.equal(material.signatureAlgorithm, 'Ed25519');
+  assert.equal(material.signingKeyId, 'gcac-agent-release-v1');
+
+  assert.equal(body.task.type, 'agent.plan.execute');
+  assert.equal(body.task.contractVersion, 'gcac.agent-security/v1');
+  assert.deepEqual(body.task.artifactRefs, [material.artifactRef]);
+  assert.equal(body.task.version, material.version);
+  assert.equal(body.task.signature, material.signature);
+  assert.equal(body.task.signatureAlgorithm, material.signatureAlgorithm);
+  assert.equal(body.task.signingKeyId, material.signingKeyId);
+  assert.match(body.task.digest, /^[a-f0-9]{64}$/);
+  assert.equal('enrollmentToken' in body.task.input, false);
+  assert.equal('command' in body.task.input, false);
+  assert.equal('script' in body.task.input, false);
+  assert.equal('shell' in body.task.input, false);
+  assert.equal('executable' in body.task.input, false);
+  assert.doesNotMatch(JSON.stringify(body), /(?:https?:\/\/|curl|wget|invoke-webrequest|invoke-expression|powershell|pwsh|cmd(?:\.exe)?|bash|sh\s+-c|node(?:\.exe)?|installCommand|bootstrap|bundle|script)/i);
+}
+
+async function createTestApp() {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  return configureTestAuth(createApp({ db: database }));
+}
+
+function requestHeaders(tenantId: string, requestId: string, extra: Record<string, string> = {}): Record<string, string> {
+  return testAuthHeaders('agent_install_test', tenantId, { 'x-request-id': requestId, ...extra });
+}

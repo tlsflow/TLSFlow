@@ -1,6 +1,7 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentDirectControlState, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentDirectControlState, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
+import type { AgentSecurityStatus } from '../security/agent-security.contract.js';
 
 export interface CreateEnrollmentTokenInput {
   allowedRoles?: string[];
@@ -86,6 +87,7 @@ export interface SubmitAgentTaskResultInput {
   taskId: string;
   leaseId: string;
   success: boolean;
+  status?: AgentSecurityStatus;
   errorCode?: string;
   errorMessage?: string;
   detail?: Record<string, unknown>;
@@ -190,40 +192,6 @@ export interface DeleteAgentInput {
   actorId: string;
 }
 
-export interface CreateWindowsPowerShellInstallSessionInput {
-  zone?: string;
-  role?: 'full_agent' | 'gateway';
-  serviceName?: string;
-  displayName?: string;
-  installRoot?: string;
-  configDir?: string;
-  dataDir?: string;
-  logDir?: string;
-  startAfterInstall?: boolean;
-}
-
-export interface CreateWindowsCompatibilityInstallSessionInput extends CreateWindowsPowerShellInstallSessionInput {}
-
-export interface CreateLinuxGoInstallSessionInput {
-  zone?: string;
-  role?: 'full_agent' | 'gateway';
-  agentKey?: string;
-  serviceName?: string;
-  displayName?: string;
-  installRoot?: string;
-  configDir?: string;
-  dataDir?: string;
-  logDir?: string;
-}
-
-export interface CreateGatewayEnableSessionInput {
-  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
-  agentId?: string;
-  zone?: string;
-  serviceName?: string;
-  configPath?: string;
-}
-
 export interface EnrollmentTokenDto extends EnrollmentToken {
   token?: string;
 }
@@ -240,7 +208,6 @@ export interface AgentTaskLogCursorDto extends AgentTaskLogCursor {}
 export interface AgentRuntimeLogEntryDto extends AgentRuntimeLogEntry {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
-export interface AgentInstallSessionDto extends AgentInstallSession {}
 
 export interface AgentCertificateIssueResult {
   csr: AgentCertificateSigningRequest;
@@ -284,7 +251,7 @@ export interface AgentTaskQueueProjection {
 }
 
 export interface AgentUpgradePreview {
-  status: 'available' | 'manual_required' | 'not_required';
+  status: 'available' | 'not_required';
   reason: string;
   targetVersion?: string;
   releaseId?: string;
@@ -299,38 +266,6 @@ export interface AgentUpgradeSuggestionProjection {
   agentId: string;
   currentVersion: string;
   suggestion: AgentUpgradePreview;
-}
-
-export interface AgentInstallSessionBootstrapProjection {
-  sessionId: string;
-  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
-  role: 'full_agent' | 'gateway';
-  expiresAt: string;
-  bootstrapUrl: string;
-  installCommand: string;
-  bootstrapTokenPreview: string;
-  enrollmentToken?: string;
-  serviceName: string;
-  displayName: string;
-  installRoot: string;
-  configDir: string;
-  dataDir?: string;
-  logDir: string;
-  agentKey: string;
-  tenantId?: string;
-  zone: string;
-  enrollmentTokenPreview: string;
-  bundleUrl?: string;
-}
-
-export interface GatewayEnableSessionProjection {
-  platform: 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
-  agentId?: string;
-  zone: string;
-  serviceName: string;
-  configPath: string;
-  enableUrl: string;
-  enableCommand: string;
 }
 
 export interface AgentDetailProjection {
@@ -387,11 +322,6 @@ export interface AgentTaskRuntimeLogProjection {
   bindingInformation?: string;
   dryRun: boolean;
   executionMode?: 'direct' | 'queued';
-  directFallback?: {
-    attempted: boolean;
-    errorCode?: string;
-    errorMessage?: string;
-  };
 }
 
 export interface AgentCapabilityProjection {

@@ -2,11 +2,10 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, ran
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
-import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsCompatibilityInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
-const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -31,151 +30,6 @@ export class AgentsDomainService {
       createdAt: now.toISOString(),
       createdBy: input.createdBy,
       auditRef: requestId,
-    };
-  }
-
-  createWindowsPowerShellInstallSession(
-    tenantId: string,
-    input: CreateWindowsPowerShellInstallSessionInput,
-    requestId: string,
-    controlPlaneUrl: string,
-  ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
-    const role = normalizeInstallRole(input.role);
-    const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
-      allowedRoles: [role],
-      allowedZones: [input.zone?.trim() || 'default'],
-      maxUses: 1,
-      ttlSeconds: 1800,
-      createdBy: 'system',
-    }, requestId);
-    const bootstrapToken = createInstallBootstrapToken();
-    const now = new Date();
-    const id = newId('aginst');
-    const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? `gcac-gateway-agent-${id.slice(-6)}` : `gcac-windows-go-agent-${id.slice(-6)}`));
-    const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Windows Gateway Agent' : 'GCAC Windows Go Full Agent');
-    const installRoot = normalizeWindowsPath(input.installRoot ?? (role === 'gateway' ? 'C:\\Program Files\\GCAC\\Gateway' : 'C:\\Program Files\\GCAC\\WindowsGoAgent'), 'installRoot');
-    const configDir = normalizeWindowsPath(input.configDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\config' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\config'), 'configDir');
-    const dataDir = normalizeWindowsPath(input.dataDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\data' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\data'), 'dataDir');
-    const logDir = normalizeWindowsPath(input.logDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\logs' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs'), 'logDir');
-    const zone = input.zone?.trim() || 'default';
-    const agentKey = `${role === 'gateway' ? 'wingateway' : 'wingo'}.${id.toLowerCase()}`;
-    return {
-      id,
-      tenantId,
-      platform: 'windows_powershell_service',
-      role,
-      bootstrapToken,
-      bootstrapTokenHash: sha256Hex(bootstrapToken),
-      bootstrapTokenPreview: bootstrapToken,
-      enrollmentTokenRecord,
-      enrollmentToken: enrollmentTokenRecord.token,
-      agentKey,
-      controlPlaneUrl,
-      zone,
-      startAfterInstall: input.startAfterInstall !== false,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
-      serviceName,
-      displayName,
-      installRoot,
-      configDir,
-      dataDir,
-      logDir,
-    };
-  }
-
-  createWindowsCompatibilityInstallSession(
-    tenantId: string,
-    input: CreateWindowsCompatibilityInstallSessionInput,
-    requestId: string,
-    controlPlaneUrl: string,
-  ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
-    const role = normalizeInstallRole(input.role);
-    if (role !== 'full_agent') throw new AppError('VALIDATION_FAILED', 'Windows Compatibility Agent 仅支持 full_agent 角色');
-    const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
-      allowedRoles: [role],
-      allowedZones: [input.zone?.trim() || 'default'],
-      maxUses: 1,
-      ttlSeconds: 1800,
-      createdBy: 'system',
-    }, requestId);
-    const bootstrapToken = createInstallBootstrapToken();
-    const now = new Date();
-    const id = newId('aginst');
-    const zone = input.zone?.trim() || 'default';
-    return {
-      id,
-      tenantId,
-      platform: 'windows_compatibility_service',
-      role,
-      bootstrapToken,
-      bootstrapTokenHash: sha256Hex(bootstrapToken),
-      bootstrapTokenPreview: bootstrapToken,
-      enrollmentTokenRecord,
-      enrollmentToken: enrollmentTokenRecord.token,
-      agentKey: `wincompat.${id.toLowerCase()}`,
-      controlPlaneUrl,
-      zone,
-      // 兼容 Agent 预检通过后由 Bootstrap 负责启动服务，默认保持自动启动。
-      startAfterInstall: input.startAfterInstall !== false,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
-      serviceName: 'GCACWindowsCompatibilityAgent',
-      displayName: 'GCAC Windows Compatibility Agent',
-      installRoot: normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsCompatibilityAgent', 'installRoot'),
-      configDir: normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config', 'configDir'),
-      dataDir: normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data', 'dataDir'),
-      logDir: normalizeWindowsPath(input.logDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs', 'logDir'),
-    };
-  }
-
-  createLinuxGoInstallSession(
-    tenantId: string,
-    input: CreateLinuxGoInstallSessionInput,
-    requestId: string,
-    controlPlaneUrl: string,
-  ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
-    const role = normalizeInstallRole(input.role);
-    const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
-      allowedRoles: [role],
-      allowedZones: [input.zone?.trim() || 'default'],
-      maxUses: 1,
-      ttlSeconds: 1800,
-      createdBy: 'system',
-    }, requestId);
-    const bootstrapToken = createInstallBootstrapToken();
-    const now = new Date();
-    const id = newId('aginst');
-    const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? 'gcac-linux-gateway-agent' : 'gcac-linux-agent'));
-    const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Linux Gateway Agent' : 'GCAC Linux Go Full Agent');
-    const installRoot = normalizeUnixPath(input.installRoot ?? (role === 'gateway' ? '/opt/gcac/gateway' : '/opt/gcac/linux-agent'), 'installRoot');
-    const configDir = normalizeUnixPath(input.configDir ?? (role === 'gateway' ? '/etc/gcac/gateway' : '/etc/gcac/linux-agent'), 'configDir');
-    const dataDir = normalizeUnixPath(input.dataDir ?? (role === 'gateway' ? '/var/lib/gcac/gateway' : '/var/lib/gcac/linux-agent'), 'dataDir');
-    const logDir = normalizeUnixPath(input.logDir ?? (role === 'gateway' ? '/var/log/gcac/gateway' : '/var/log/gcac/linux-agent'), 'logDir');
-    const zone = input.zone?.trim() || 'default';
-    const agentKey = normalizeKey(input.agentKey ?? `${role === 'gateway' ? 'linuxgateway' : 'linuxgo'}.${id.toLowerCase()}`, 'agentKey');
-    return {
-      id,
-      tenantId,
-      platform: 'linux_go_systemd',
-      role,
-      bootstrapToken,
-      bootstrapTokenHash: sha256Hex(bootstrapToken),
-      bootstrapTokenPreview: bootstrapToken,
-      enrollmentTokenRecord,
-      enrollmentToken: enrollmentTokenRecord.token,
-      agentKey,
-      controlPlaneUrl,
-      zone,
-      startAfterInstall: true,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
-      serviceName,
-      displayName,
-      installRoot,
-      configDir,
-      dataDir,
-      logDir,
     };
   }
 
@@ -567,13 +421,6 @@ function normalizeZoneIds(values: string[]): string[] {
   return normalizeList(values);
 }
 
-function normalizeInstallRole(value: CreateLinuxGoInstallSessionInput['role'] | CreateWindowsPowerShellInstallSessionInput['role']): 'full_agent' | 'gateway' {
-  const normalized = normalizeOptionalKey(value ?? 'full_agent');
-  if (normalized === 'gateway') return 'gateway';
-  if (normalized === 'full_agent') return 'full_agent';
-  throw new AppError('VALIDATION_FAILED', '安装会话 role 只能是 full_agent 或 gateway', { role: value });
-}
-
 function hasGatewaySignal(input: RegisterAgentInput): boolean {
   const adapters = normalizeList(input.adapters ?? []);
   const capabilities = normalizeList(input.capabilities ?? []);
@@ -740,41 +587,6 @@ export function createMockSafeAgentCsrPem(subjectCommonName: string): { csrPem: 
     privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     publicKeyPem,
   };
-}
-
-function normalizeServiceName(value: string): string {
-  const normalized = normalizeRequired(value, 'serviceName');
-  if (!/^[A-Za-z0-9_.-]{3,64}$/.test(normalized)) throw new AppError('VALIDATION_FAILED', 'serviceName 格式不合法');
-  return normalized;
-}
-
-function normalizeOptionalDisplayName(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  if (!normalized) return undefined;
-  if (normalized.length > 128) throw new AppError('VALIDATION_FAILED', 'displayName 过长');
-  return normalized;
-}
-
-function normalizeWindowsPath(value: string, field: string): string {
-  const normalized = normalizeRequired(value, field);
-  if (!/^[A-Za-z]:\\/.test(normalized)) throw new AppError('VALIDATION_FAILED', `${field} 必须是 Windows 绝对路径`, { field });
-  return normalized.replace(/[\\/]+$/u, '');
-}
-
-function normalizeUnixPath(value: string, field: string): string {
-  const normalized = normalizeRequired(value, field);
-  if (!normalized.startsWith('/')) throw new AppError('VALIDATION_FAILED', `${field} 必须是 Linux 绝对路径`, { field });
-  return normalized.length > 1 ? normalized.replace(/\/+$/u, '') : normalized;
-}
-
-function createInstallBootstrapToken(length = 8): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnopqrstuvwxyz';
-  const bytes = randomBytes(length);
-  let token = '';
-  for (let index = 0; index < length; index += 1) {
-    token += alphabet[bytes[index] % alphabet.length];
-  }
-  return token;
 }
 
 function sha256Hex(value: string | Buffer): string {

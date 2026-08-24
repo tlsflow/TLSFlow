@@ -11,7 +11,6 @@ import type {
   AgentCertificateAuthority,
   AgentCertificateSigningRequest,
   AgentHeartbeat,
-  AgentInstallSession,
   AgentRegistration,
   AgentRuntimeLogEntry,
   AgentSession,
@@ -73,12 +72,6 @@ export interface AgentsRepository {
   getUpgradePlan(tenantId: string, planId: string): Promise<AgentUpgradePlan | undefined>;
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined>;
   listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]>;
-  createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession>;
-  updateInstallSession(sessionId: string, patch: Partial<AgentInstallSession>): Promise<AgentInstallSession>;
-  getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined>;
-  findInstallSessionByTokenHash(tenantId: string, tokenHash: string): Promise<AgentInstallSession | undefined>;
-  findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined>;
-  consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession | undefined>;
 }
 
 type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
@@ -120,7 +113,6 @@ export class PgAgentsRepository implements AgentsRepository {
   private readonly taskLogCursors: PgDocumentRepository<AgentTaskLogCursorRecord>;
   private readonly releases: PgDocumentRepository<AgentVersionRelease>;
   private readonly upgradePlans: PgDocumentRepository<AgentUpgradePlan>;
-  private readonly installSessions: PgDocumentRepository<AgentInstallSession>;
 
   constructor(db: DatabasePort = new PgliteDatabase()) {
     this.db = db;
@@ -138,7 +130,6 @@ export class PgAgentsRepository implements AgentsRepository {
     this.taskLogCursors = new PgDocumentRepository(db, 'agents:taskLogCursors');
     this.releases = new PgDocumentRepository(db, 'agents:releases');
     this.upgradePlans = new PgDocumentRepository(db, 'agents:upgradePlans');
-    this.installSessions = new PgDocumentRepository(db, 'agents:installSessions');
   }
 
   async createEnrollmentToken(token: EnrollmentToken): Promise<EnrollmentToken> {
@@ -396,50 +387,6 @@ export class PgAgentsRepository implements AgentsRepository {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
-  async createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession> {
-    return this.installSessions.upsert(session);
-  }
-
-  async updateInstallSession(sessionId: string, patch: Partial<AgentInstallSession>): Promise<AgentInstallSession> {
-    return this.installSessions.update(sessionId, patch);
-  }
-
-  async getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined> {
-    const row = await this.installSessions.get(sessionId);
-    return row?.tenantId === tenantId ? row : undefined;
-  }
-
-  async findInstallSessionByTokenHash(tenantId: string, tokenHash: string): Promise<AgentInstallSession | undefined> {
-    return (await this.installSessions.list((item) => item.tenantId === tenantId && item.bootstrapTokenHash === tokenHash))[0];
-  }
-
-  async findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined> {
-    return (await this.installSessions.list((item) => item.bootstrapTokenHash === tokenHash))[0];
-  }
-
-  async consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession | undefined> {
-    const result = await this.db.query<{ document_id: string; payload: AgentInstallSession }>(
-      `update pg_documents
-          set payload =
-            jsonb_set(
-              jsonb_set(payload, '{usedAt}', to_jsonb($3::text), true),
-              '{usedByIp}',
-              to_jsonb($4::text),
-              true
-            ),
-              updated_at = now()
-        where namespace = $1
-          and payload->>'bootstrapTokenHash' = $2
-          and ($5::text is null or payload->>'tenantId' = $5)
-          and coalesce(payload->>'usedAt', '') = ''
-          and (payload->>'expiresAt')::timestamptz >= now()
-        returning document_id, payload`,
-      ['agents:installSessions', tokenHash, usedAt, usedByIp ?? null, tenantId ?? null],
-    );
-    const row = result.rows[0];
-    if (!row) return undefined;
-    return structuredClone({ ...row.payload, id: row.document_id });
-  }
 }
 
 async function upsertDocument<T extends IdentifiedEntity>(db: DatabasePort, namespace: string, entity: T): Promise<void> {

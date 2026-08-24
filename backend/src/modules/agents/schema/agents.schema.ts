@@ -2,10 +2,9 @@ import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core
 
 export type AgentTaskStatus = 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
 export type EnrollmentTokenStatus = 'active' | 'expired' | 'exhausted' | 'revoked';
-export type AgentUpgradeStatus = 'planned' | 'accepted' | 'succeeded' | 'failed' | 'rolled_back' | 'manual_required';
+export type AgentUpgradeStatus = 'planned' | 'accepted' | 'succeeded' | 'failed' | 'rolled_back';
 export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejected' | 'superseded';
 export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
-export type AgentInstallSessionPlatform = 'windows_powershell_service' | 'windows_compatibility_service' | 'linux_go_systemd';
 
 export interface EnrollmentToken {
   id: string;
@@ -280,28 +279,4 @@ export interface AgentUpgradePlan {
   createdAt: string;
   updatedAt: string;
   result?: Record<string, unknown>;
-}
-
-export interface AgentInstallSession {
-  id: string;
-  tenantId: string;
-  platform: AgentInstallSessionPlatform;
-  role: 'full_agent' | 'gateway';
-  bootstrapTokenHash: string;
-  bootstrapTokenPreview: string;
-  enrollmentToken: string;
-  agentKey: string;
-  controlPlaneUrl: string;
-  zone: string;
-  startAfterInstall: boolean;
-  createdAt: string;
-  expiresAt: string;
-  usedAt?: string;
-  usedByIp?: string;
-  serviceName: string;
-  displayName: string;
-  installRoot: string;
-  configDir: string;
-  dataDir: string;
-  logDir: string;
 }

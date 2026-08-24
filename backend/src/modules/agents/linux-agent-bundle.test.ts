@@ -1,43 +1,29 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { gunzipSync } from 'node:zlib';
-import {
-  buildLinuxAgentBundleTarGz,
-  getLinuxAgentBundleFiles,
-  getLinuxAgentBundleManifest,
-} from './application/linux-agent-bundle.js';
+import { getLinuxAgentInstallMaterials } from './application/linux-agent-bundle.js';
 
-function listTarEntries(buffer: Buffer): string[] {
-  const names: string[] = [];
-  let offset = 0;
-  while (offset + 512 <= buffer.length) {
-    const header = buffer.subarray(offset, offset + 512);
-    if (header.every((value) => value === 0)) break;
-    const rawName = header.subarray(0, 100);
-    const name = rawName.subarray(0, rawName.indexOf(0) >= 0 ? rawName.indexOf(0) : rawName.length).toString('utf8');
-    const sizeText = header.subarray(124, 136).toString('utf8').replace(/\0.*$/u, '').trim();
-    const size = Number.parseInt(sizeText || '0', 8);
-    names.push(name);
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
-  return names;
-}
+describe('Linux Agent 安装材料', () => {
+  it('只返回固定版本、摘要、签名和受控 Artifact 引用', () => {
+    const materials = getLinuxAgentInstallMaterials('amd64');
 
-describe('Linux Agent bundle', () => {
-  it('bundle 文件清单必须包含 nginx helper', () => {
-    const files = getLinuxAgentBundleFiles();
-    const paths = files.map((item) => item.path);
-    assert.equal(paths.includes('linux/gcac-nginx-helper.sh'), true);
-
-    const manifest = getLinuxAgentBundleManifest();
-    const manifestPaths = manifest.items.map((item) => item.path);
-    assert.equal(manifestPaths.includes('linux/gcac-nginx-helper.sh'), true);
+    assert.equal(materials.length, 1);
+    const material = materials[0]!;
+    assert.equal(material.platform, 'linux_go');
+    assert.equal(material.arch, 'amd64');
+    assert.equal(material.version, '0.1.10');
+    assert.match(material.artifactRef, /^artifact:\/\/gcac\/agents\/linux-go-full-agent\/0\.1\.10\//);
+    assert.match(material.digest, /^[a-f0-9]{64}$/);
+    assert.match(material.signature, /^artifact:\/\/gcac\/signatures\/agents\/linux-go-full-agent\/0\.1\.10\//);
+    assert.equal(material.signatureAlgorithm, 'Ed25519');
+    assert.equal(material.signingKeyId, 'gcac-agent-release-v1');
+    assert.doesNotMatch(JSON.stringify(material), /(?:https?:|script|shell|powershell|cmd|exec|command)/i);
   });
 
-  it('bundle tar.gz 必须实际包含 nginx helper 文件', () => {
-    const archive = buildLinuxAgentBundleTarGz();
-    const tar = gunzipSync(archive);
-    const entries = listTarEntries(tar);
-    assert.equal(entries.includes('linux/gcac-nginx-helper.sh'), true);
+  it('不同架构仍只能映射到预登记的固定 Artifact', () => {
+    const materials = getLinuxAgentInstallMaterials('arm64');
+    assert.equal(materials[0]?.arch, 'arm64');
+    assert.equal(materials[0]?.version, '0.1.10');
+    assert.match(materials[0]?.artifactRef ?? '', /^artifact:\/\/gcac\//);
+    assert.throws(() => getLinuxAgentInstallMaterials('x64' as never), /没有固定版本/);
   });
 });

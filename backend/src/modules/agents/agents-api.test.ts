@@ -4,6 +4,7 @@ import { createApp } from '../../app.module.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AgentsApplicationService } from './application/agents.application-service.js';
+import { createSecurityServices, type SecurityServices } from '../security/security.controller.js';
 
 describe('Agent direct control api', () => {
   it('非直连 Agent 能力重扫进入现有任务队列且重复请求复用活动任务', async () => {
@@ -38,7 +39,7 @@ describe('Agent direct control api', () => {
   it('Agent 轮询与控制面直连竞态时，重复 ack 返回已有 lease 而不是失败', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const app = createApp({ db: database });
     const agentsService = app.getResource('agentsService') as AgentsApplicationService;
     const tenantId = 'tenant_agent_ack_race';
     const agent = await agentsService.register(tenantId, {
@@ -52,7 +53,7 @@ describe('Agent direct control api', () => {
       executionRunId: 'run_ack_race',
       executionStepId: 'step_ack_race',
       idempotencyKey: 'run_ack_race:step_ack_race:1',
-      payload: { type: 'agent.atomic_plan.execute' },
+      payload: { actionType: 'agent.plan.execute' },
     }, 'req_ack_race_enqueue');
 
     const agentLease = 'lease_agent_poll';
@@ -76,7 +77,7 @@ describe('Agent direct control api', () => {
   it('并发 ack 只能由一个 lease 原子占有任务', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const app = createApp({ db: database });
     const agentsService = app.getResource('agentsService') as AgentsApplicationService;
     const tenantId = 'tenant_agent_atomic_ack';
     const agent = await agentsService.register(tenantId, {
@@ -90,7 +91,7 @@ describe('Agent direct control api', () => {
       executionRunId: 'run_atomic_ack',
       executionStepId: 'step_atomic_ack',
       idempotencyKey: 'run_atomic_ack:step_atomic_ack:1',
-      payload: { type: 'agent.atomic_plan.execute' },
+      payload: { actionType: 'agent.plan.execute' },
     }, 'req_atomic_ack_enqueue');
 
     const results = await Promise.all([
@@ -107,7 +108,7 @@ describe('Agent direct control api', () => {
   it('直连发现任务已被 Agent 占有时，返回异步等待而不再次执行', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const app = createApp({ db: database });
     const agentsService = app.getResource('agentsService') as AgentsApplicationService;
     const tenantId = 'tenant_agent_direct_claimed';
     const agent = await agentsService.register(tenantId, {
@@ -121,7 +122,7 @@ describe('Agent direct control api', () => {
       executionRunId: 'run_direct_claimed',
       executionStepId: 'step_direct_claimed',
       idempotencyKey: 'run_direct_claimed:step_direct_claimed:1',
-      payload: { type: 'agent.atomic_plan.execute' },
+      payload: { actionType: 'agent.plan.execute' },
     }, 'req_direct_claimed_enqueue');
     await agentsService.ackTask(tenantId, {
       agentId: agent.id,
@@ -137,10 +138,10 @@ describe('Agent direct control api', () => {
     assert.equal(result.detail.executionMode, 'queued');
   });
 
-  it('根信任检查被 Agent 轮询占有时，直连等待最终检查结果', async () => {
+  it('无直连地址的 Agent v2 任务被轮询占有时返回异步等待', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const app = createApp({ db: database });
     const agentsService = app.getResource('agentsService') as AgentsApplicationService;
     const tenantId = 'tenant_agent_trust_inspect_wait';
     const agent = await agentsService.register(tenantId, {
@@ -153,12 +154,9 @@ describe('Agent direct control api', () => {
       agentId: agent.id,
       executionRunId: 'run_trust_inspect_wait',
       executionStepId: 'step_trust_inspect_wait',
-      idempotencyKey: 'certificate.trust.inspect:trust-inspect-wait-agent:root',
+      idempotencyKey: 'agent.plan.execute:agent-v2-wait-agent',
       payload: {
-        actionType: 'certificate.trust.inspect',
-        actionSchemaVersion: '1.0',
-        fingerprintSha256: 'a'.repeat(64),
-        store: 'root',
+        actionType: 'agent.plan.execute',
       },
     }, 'req_trust_inspect_wait_enqueue');
     await agentsService.ackTask(tenantId, {
@@ -167,25 +165,11 @@ describe('Agent direct control api', () => {
       leaseId: 'lease_trust_inspect_agent',
     });
 
-    const resultPromise = agentsService.executeTaskDirect(tenantId, task.id, 'req_trust_inspect_wait_execute');
-    setTimeout(() => {
-      void agentsService.submitResult(tenantId, {
-        agentId: agent.id,
-        taskId: task.id,
-        leaseId: 'lease_trust_inspect_agent',
-        success: true,
-        detail: {
-          status: 'not_found',
-          fingerprintSha256: 'a'.repeat(64),
-          store: 'root',
-        },
-      });
-    }, 20);
-
-    const result = await resultPromise;
+    const result = await agentsService.executeTaskDirect(tenantId, task.id, 'req_agent_v2_wait_execute');
     assert.equal(result.success, true);
-    assert.equal(result.asyncPending, undefined);
-    assert.equal(result.detail.status, 'not_found');
+    assert.equal(result.asyncPending, true);
+    assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
+    assert.equal(result.detail.executionMode, 'queued');
   });
 
   it('同一 Agent 可复用原始一次性令牌完成幂等重注册', async () => {
@@ -345,16 +329,30 @@ describe('Agent direct control api', () => {
   it('注册和心跳应持久化 directControl 并在 detail health 中返回', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
-    const headers = {
-      'x-tenant-id': 'tenant_agent_direct_control',
+    const app = createApp({ db: database, security: createSecurityServices() });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_direct_control';
+    const enrollment = await agentsService.createEnrollmentToken(tenantId, {
+      allowedRoles: ['full_agent'],
+      allowedZones: ['default'],
+      maxUses: 1,
+      ttlSeconds: 60,
+      createdBy: 'test',
+    }, 'req_create_direct_control_token');
+    const userAuthorization = await createTestUserAuthorization(app, tenantId, 'direct_control');
+    const machineHeaders = {
+      'x-agent-token': enrollment.token,
+      'x-request-id': 'req_agent_direct_control_register',
+    };
+    const userHeaders = {
+      authorization: userAuthorization,
       'x-request-id': 'req_agent_direct_control_register',
     };
 
     const registerResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',
-      headers,
+      headers: machineHeaders,
       body: {
         agentKey: 'win-go-direct-control-01',
         hostname: 'WIN-GO-01',
@@ -362,6 +360,7 @@ describe('Agent direct control api', () => {
         osType: 'windows',
         arch: 'amd64',
         zone: 'default',
+        enrollmentToken: enrollment.token,
         directControl: {
           enabled: true,
           reachable: true,
@@ -382,7 +381,7 @@ describe('Agent direct control api', () => {
       method: 'POST',
       path: '/api/v1/agents/heartbeat',
       headers: {
-        ...headers,
+        ...machineHeaders,
         'x-request-id': 'req_agent_direct_control_heartbeat',
       },
       body: {
@@ -426,7 +425,7 @@ describe('Agent direct control api', () => {
       method: 'GET',
       path: `/api/v1/agents/detail?agentId=${registeredAgent.id}`,
       headers: {
-        ...headers,
+        ...userHeaders,
         'x-request-id': 'req_agent_direct_control_detail',
       },
     });
@@ -476,16 +475,26 @@ describe('Agent direct control api', () => {
   it('Agent detail 应暴露 recentTaskLogs 的执行模式与直连回退原因', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database, allowLegacyHeaderContext: true });
-    const headers = {
-      'x-tenant-id': 'tenant_agent_recent_logs',
+    const app = createApp({ db: database, security: createSecurityServices() });
+    const tenantId = 'tenant_agent_recent_logs';
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const enrollment = await agentsService.createEnrollmentToken(tenantId, {
+      allowedRoles: ['full_agent'],
+      allowedZones: ['default'],
+      maxUses: 1,
+      ttlSeconds: 60,
+      createdBy: 'test',
+    }, 'req_create_recent_logs_token');
+    const userAuthorization = await createTestUserAuthorization(app, tenantId, 'recent_logs');
+    const machineHeaders = {
+      'x-agent-token': enrollment.token,
       'x-request-id': 'req_agent_recent_logs_register',
     };
 
     const registerResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',
-      headers,
+      headers: machineHeaders,
       body: {
         agentKey: 'win-go-direct-control-02',
         hostname: 'WIN-GO-02',
@@ -493,12 +502,13 @@ describe('Agent direct control api', () => {
         osType: 'windows',
         arch: 'amd64',
         zone: 'default',
+        enrollmentToken: enrollment.token,
         directControl: {
           enabled: true,
           reachable: true,
           listenAddress: '10.10.0.10:18930',
           protocolVersion: 'v1',
-          supportedActions: ['health', 'discovery.run', 'windows.iis.deploy_certificate'],
+          supportedActions: ['health', 'agent.plan.execute'],
           lastReadyAt: '2026-06-30T11:00:00.000Z',
         },
       },
@@ -506,14 +516,13 @@ describe('Agent direct control api', () => {
     assert.equal(registerResponse.statusCode, 201);
     const agentId = (registerResponse.body as { id: string }).id;
 
-    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const directTask = await agentsService.enqueueTask(headers['x-tenant-id'], {
+    const directTask = await agentsService.enqueueTask(tenantId, {
       agentId,
       executionRunId: 'run_direct_recent_logs',
       executionStepId: 'step_direct_recent_logs',
       idempotencyKey: 'run_direct_recent_logs:step_direct_recent_logs:1',
       payload: {
-        type: 'windows.iis.deploy_certificate',
+        actionType: 'agent.plan.execute',
         siteName: 'Direct Site',
         bindingSelector: {
           bindingInformation: '*:443:direct-log.example.com',
@@ -521,7 +530,7 @@ describe('Agent direct control api', () => {
         dryRun: false,
       },
     }, 'req_enqueue_direct_recent_logs');
-    await agentsService.ackTask(headers['x-tenant-id'], {
+    await agentsService.ackTask(tenantId, {
       agentId,
       taskId: directTask.id,
       leaseId: `direct:${directTask.id}`,
@@ -530,7 +539,7 @@ describe('Agent direct control api', () => {
       method: 'POST',
       path: '/api/v1/agents/tasks/logs',
       headers: {
-        ...headers,
+        ...machineHeaders,
         'x-request-id': 'req_submit_direct_log',
       },
       body: {
@@ -544,33 +553,25 @@ describe('Agent direct control api', () => {
     });
     assert.equal(directLogResponse.statusCode, 201);
 
-    const queuedTask = await agentsService.enqueueTask(headers['x-tenant-id'], {
+    const queuedTask = await agentsService.enqueueTask(tenantId, {
       agentId,
       executionRunId: 'run_queued_recent_logs',
       executionStepId: 'step_queued_recent_logs',
       idempotencyKey: 'run_queued_recent_logs:step_queued_recent_logs:1',
       payload: {
-        type: 'windows.iis.deploy_certificate',
+        actionType: 'agent.plan.execute',
         siteName: 'Fallback Site',
         bindingSelector: {
           bindingInformation: '*:443:fallback-log.example.com',
         },
         dryRun: true,
-        dispatchDetail: {
-          mode: 'agent_task_enqueued',
-          directFallback: {
-            attempted: true,
-            errorCode: 'EXECUTION_TARGET_UNAVAILABLE',
-            errorMessage: 'connect ECONNREFUSED 127.0.0.1:9',
-          },
-        },
       },
     }, 'req_enqueue_queued_recent_logs');
     const queuedLogResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/tasks/logs',
       headers: {
-        ...headers,
+        ...machineHeaders,
         'x-request-id': 'req_submit_queued_log',
       },
       body: {
@@ -588,7 +589,7 @@ describe('Agent direct control api', () => {
       method: 'GET',
       path: `/api/v1/agents/detail?agentId=${agentId}`,
       headers: {
-        ...headers,
+        authorization: userAuthorization,
         'x-request-id': 'req_agent_recent_logs_detail',
       },
     });
@@ -600,11 +601,6 @@ describe('Agent direct control api', () => {
         siteName?: string;
         bindingInformation?: string;
         dryRun: boolean;
-        directFallback?: {
-          attempted: boolean;
-          errorCode?: string;
-          errorMessage?: string;
-        };
       }>;
     };
 
@@ -614,7 +610,6 @@ describe('Agent direct control api', () => {
     assert.equal(directLog.siteName, 'Direct Site');
     assert.equal(directLog.bindingInformation, '*:443:direct-log.example.com');
     assert.equal(directLog.dryRun, false);
-    assert.equal(directLog.directFallback, undefined);
 
     const queuedLog = detail.recentTaskLogs.find((item) => item.taskId === queuedTask.id);
     assert.ok(queuedLog);
@@ -622,8 +617,27 @@ describe('Agent direct control api', () => {
     assert.equal(queuedLog.siteName, 'Fallback Site');
     assert.equal(queuedLog.bindingInformation, '*:443:fallback-log.example.com');
     assert.equal(queuedLog.dryRun, true);
-    assert.equal(queuedLog.directFallback?.attempted, true);
-    assert.equal(queuedLog.directFallback?.errorCode, 'EXECUTION_TARGET_UNAVAILABLE');
-    assert.equal(queuedLog.directFallback?.errorMessage, 'connect ECONNREFUSED 127.0.0.1:9');
   });
 });
+
+async function createTestUserAuthorization(app: ReturnType<typeof createApp>, tenantId: string, suffix: string): Promise<string> {
+  const security = app.getResource('securityServices') as SecurityServices;
+  const username = `agent-api-${suffix}`;
+  const password = 'agent-api-test-password';
+  await security.auth.createUserWithPassword({
+    id: `user_agent_api_${suffix}`,
+    username,
+    displayName: `Agent API ${suffix}`,
+    password,
+    status: 'active',
+    tenantId,
+    tenantName: tenantId,
+  });
+  const login = await app.inject({
+    method: 'POST',
+    path: '/api/v1/auth/login',
+    body: { username, password },
+  });
+  assert.equal(login.statusCode, 200);
+  return `Bearer ${(login.body as { token: string }).token}`;
+}

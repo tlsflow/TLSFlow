@@ -4,11 +4,11 @@ import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
-import { validateObject } from '../../../common/validation/schema-validation.js';
+import { validateObject, type ObjectValidationSchema } from '../../../common/validation/schema-validation.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
 import type { SecurityServices } from '../../security/security.controller.js';
-import { AgentsApplicationService } from '../application/agents.application-service.js';
+import { AgentsApplicationService, type AgentInstallMaterialRequest } from '../application/agents.application-service.js';
 import type {
   AckAgentTaskInput,
   AgentCapabilitySnapshotInput,
@@ -17,10 +17,6 @@ import type {
   CreateAgentCertificateSigningRequestInput,
   CreateAgentSessionInput,
   CreateEnrollmentTokenInput,
-  CreateGatewayEnableSessionInput,
-  CreateLinuxGoInstallSessionInput,
-  CreateWindowsCompatibilityInstallSessionInput,
-  CreateWindowsPowerShellInstallSessionInput,
   DeleteAgentInput,
   DisableAgentInput,
   EnableAgentInput,
@@ -56,19 +52,7 @@ export class AgentsController {
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
     router.post('/api/v1/agents/:agentId/rescan', '创建 Agent 手动能力重扫任务', tags, (request) => this.enqueueCapabilityRescan(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
-    router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, (request) => this.createWindowsPowerShellInstallSession(request));
-    router.post('/api/v1/agents/install-sessions/windows-compatibility', '创建 Windows Compatibility Agent 安装会话', tags, (request) => this.createWindowsCompatibilityInstallSession(request));
-    router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
-    router.post('/api/v1/agents/gateway-enable-sessions', '创建现有 Agent 启用 Gateway 命令', tags, (request) => this.createGatewayEnableSession(request));
-    router.get('/agent-install.ps1', '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
-    router.get('/agent-install', '获取 Linux Go Agent 短安装入口', tags, (request) => this.getLinuxGoBootstrap(request));
-    router.get('/agent-enable-gateway.ps1', '获取 Windows Agent 启用 Gateway 脚本', tags, (request) => this.getWindowsGatewayEnableScript(request));
-    router.get('/agent-enable-gateway', '获取 Linux Agent 启用 Gateway 脚本', tags, (request) => this.getLinuxGatewayEnableScript(request));
-    router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
-    router.get('/api/v1/agents/install/windows/manifest', '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellManifest(request));
-    router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
-    router.get('/api/v1/agents/install/linux/manifest', '获取 Linux Go Agent 安装清单', tags, (request) => this.getLinuxGoManifest(request));
-    router.get('/api/v1/agents/install/linux/bundle.tar.gz', '下载 Linux Go Agent 安装 bundle', tags, (request) => this.getLinuxBundle(request));
+    router.post('/api/v1/agents/install-materials', '创建固定版本 Agent 安装材料', tags, (request) => this.createAgentInstallMaterials(request));
     router.post('/api/v1/agents/disable', '禁用 Agent', tags, (request) => this.disableAgent(request));
     router.post('/api/v1/agents/register', '注册 Agent', tags, (request) => this.registerAgent(request));
     router.post('/api/v1/agents/sessions', '创建 Agent mTLS 会话', tags, (request) => this.createSession(request));
@@ -126,189 +110,19 @@ export class AgentsController {
     };
   }
 
-  private createWindowsPowerShellInstallSession(request: HttpRequest) {
-    const body = validateObject(request.body, {
+  private createAgentInstallMaterials(request: HttpRequest) {
+    if (Object.keys(request.query).length > 0) {
+      throw new AppError('VALIDATION_FAILED', '安装材料接口不接受查询参数');
+    }
+    const body = validateExactObject(request.body, {
+      platform: { type: 'string', required: true, enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+      role: { type: 'string', enum: ['full_agent', 'gateway'] },
       zone: { type: 'string' },
-      role: { type: 'string' },
-      serviceName: { type: 'string' },
-      displayName: { type: 'string' },
-      installRoot: { type: 'string' },
-      configDir: { type: 'string' },
-      dataDir: { type: 'string' },
-      logDir: { type: 'string' },
-      startAfterInstall: { type: 'boolean' },
-    });
-    return {
-      statusCode: 201,
-      body: this.service.createWindowsPowerShellInstallSession(
-        tenantId(request),
-        body as unknown as CreateWindowsPowerShellInstallSessionInput,
-        requestId(request),
-        inferBaseUrl(request),
-        actorId(request),
-      ),
-    };
-  }
-
-  private createLinuxGoInstallSession(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      zone: { type: 'string' },
-      role: { type: 'string' },
       agentKey: { type: 'string' },
-      serviceName: { type: 'string' },
-      displayName: { type: 'string' },
-      installRoot: { type: 'string' },
-      configDir: { type: 'string' },
-      dataDir: { type: 'string' },
-      logDir: { type: 'string' },
     });
     return {
       statusCode: 201,
-      body: this.service.createLinuxGoInstallSession(
-        tenantId(request),
-        body as unknown as CreateLinuxGoInstallSessionInput,
-        requestId(request),
-        inferBaseUrl(request),
-        actorId(request),
-      ),
-    };
-  }
-
-  private createWindowsCompatibilityInstallSession(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      zone: { type: 'string' },
-      role: { type: 'string' },
-      serviceName: { type: 'string' },
-      displayName: { type: 'string' },
-      installRoot: { type: 'string' },
-      configDir: { type: 'string' },
-      dataDir: { type: 'string' },
-      logDir: { type: 'string' },
-      startAfterInstall: { type: 'boolean' },
-    });
-    return {
-      statusCode: 201,
-      body: this.service.createWindowsCompatibilityInstallSession(
-        tenantId(request),
-        body as unknown as CreateWindowsCompatibilityInstallSessionInput,
-        requestId(request),
-        inferBaseUrl(request),
-        actorId(request),
-      ),
-    };
-  }
-
-  private createGatewayEnableSession(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      platform: { type: 'string', required: true },
-      agentId: { type: 'string' },
-      zone: { type: 'string' },
-      serviceName: { type: 'string' },
-      configPath: { type: 'string' },
-    });
-    return {
-      statusCode: 201,
-      body: this.service.createGatewayEnableSession(
-        tenantId(request),
-        body as unknown as CreateGatewayEnableSessionInput,
-        requestId(request),
-        inferBaseUrl(request),
-      ),
-    };
-  }
-
-  private async getWindowsPowerShellBootstrap(request: HttpRequest) {
-    const token = readQuery(request, 'token');
-    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
-    const baseUrl = resolveInstallBaseUrl(request);
-    const manifest = {
-      ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
-      controlPlaneUrl: baseUrl,
-    };
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'text/plain; charset=utf-8',
-      },
-      body: renderWindowsPowerShellBootstrapScript(manifest),
-    };
-  }
-
-  private async getWindowsPowerShellManifest(request: HttpRequest) {
-    const token = readQuery(request, 'token');
-    const session = await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
-    const baseUrl = resolveInstallBaseUrl(request);
-    return {
-      ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
-      controlPlaneUrl: baseUrl,
-    };
-  }
-
-  private async getLinuxGoBootstrap(request: HttpRequest) {
-    const token = readQuery(request, 'token');
-    const session = await this.service.getInstallSessionByToken(token);
-    const baseUrl = resolveInstallBaseUrl(request);
-    const manifest = {
-      ...this.service.buildLinuxGoInstallManifest(session),
-      controlPlaneUrl: baseUrl,
-      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
-    };
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'text/x-shellscript; charset=utf-8',
-      },
-      body: renderLinuxBootstrapScript(manifest),
-    };
-  }
-
-  private async getLinuxGoManifest(request: HttpRequest) {
-    const token = readQuery(request, 'token');
-    const session = await this.service.getInstallSessionByToken(token);
-    const baseUrl = resolveInstallBaseUrl(request);
-    return {
-      ...this.service.buildLinuxGoInstallManifest(session),
-      controlPlaneUrl: baseUrl,
-      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
-    };
-  }
-
-  private getLinuxBundle(_request: HttpRequest) {
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'application/gzip',
-        'content-disposition': 'attachment; filename=\"gcac-linux-agent-bundle.tar.gz\"',
-      },
-      body: this.service.buildLinuxBundleTarGz(),
-    };
-  }
-
-  private getWindowsGatewayEnableScript(request: HttpRequest) {
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'text/plain; charset=utf-8',
-      },
-      body: renderWindowsGatewayEnableScript({
-        zone: readQuery(request, 'zone', 'default'),
-        serviceName: readQuery(request, 'serviceName', 'gcac-agent'),
-        configPath: readQuery(request, 'configPath', 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json'),
-      }),
-    };
-  }
-
-  private getLinuxGatewayEnableScript(request: HttpRequest) {
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': 'text/x-shellscript; charset=utf-8',
-      },
-      body: renderLinuxGatewayEnableScript({
-        zone: readQuery(request, 'zone', 'default'),
-        serviceName: readQuery(request, 'serviceName', 'gcac-linux-agent'),
-        configPath: readQuery(request, 'configPath', '/etc/gcac/linux-agent/agent.config.json'),
-      }),
+      body: this.service.createAgentInstallMaterials(tenantId(request), body as unknown as AgentInstallMaterialRequest, requestId(request)),
     };
   }
 
@@ -561,6 +375,7 @@ export class AgentsController {
       taskId: { type: 'string', required: true },
       leaseId: { type: 'string', required: true },
       success: { type: 'boolean', required: true },
+      status: { type: 'string', enum: ['SUCCESS', 'FAILED', 'UNKNOWN', 'CANCELLED'] },
       errorCode: { type: 'string' },
       errorMessage: { type: 'string' },
       detail: { type: 'object' },
@@ -614,15 +429,85 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'enqueueAgentCapabilityRescanTask', summary: '创建 Agent 手动能力重扫任务', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/install-sessions/linux-go', operationId: 'createLinuxGoAgentInstallSession', summary: '创建 Linux Go Agent 安装会话', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/gateway-enable-sessions', operationId: 'createAgentGatewayEnableSession', summary: '创建现有 Agent 启用 Gateway 命令', tags, responseSchema: schema },
-    { method: 'GET', path: '/agent-install.ps1', operationId: 'getWindowsPowerShellAgentShortInstall', summary: '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/agent-install', operationId: 'getLinuxGoAgentShortInstall', summary: '获取 Linux Go Agent 短安装入口', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/agent-enable-gateway.ps1', operationId: 'getWindowsAgentGatewayEnableScript', summary: '获取 Windows Agent 启用 Gateway 脚本', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/agent-enable-gateway', operationId: 'getLinuxAgentGatewayEnableScript', summary: '获取 Linux Agent 启用 Gateway 脚本', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, responseSchema: schema },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/install-materials',
+      operationId: 'createAgentInstallMaterials',
+      summary: '创建固定版本 Agent 安装材料',
+      tags,
+      requestSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['platform'],
+        properties: {
+          platform: { type: 'string', enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+          role: { type: 'string', enum: ['full_agent', 'gateway'] },
+          zone: { type: 'string' },
+          agentKey: { type: 'string' },
+        },
+      },
+      responseSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['installationId', 'expiresAt', 'enrollmentToken', 'materials', 'task'],
+        properties: {
+          installationId: { type: 'string' },
+          expiresAt: { type: 'string' },
+          enrollmentToken: { type: 'string' },
+          materials: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['platform', 'arch', 'artifactRef', 'version', 'digest', 'signature', 'signatureAlgorithm', 'signingKeyId'],
+              properties: {
+                platform: { type: 'string', enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+                arch: { type: 'string', enum: ['amd64', 'arm64'] },
+                artifactRef: { type: 'string' },
+                version: { type: 'string' },
+                digest: { type: 'string' },
+                signature: { type: 'string' },
+                signatureAlgorithm: { type: 'string', enum: ['Ed25519'] },
+                signingKeyId: { type: 'string' },
+              },
+            },
+          },
+          task: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'contractVersion', 'taskId', 'version', 'artifactRefs', 'expiresAt', 'digest', 'signature', 'signatureAlgorithm', 'signingKeyId', 'input'],
+            properties: {
+              type: { type: 'string', enum: ['agent.plan.execute'] },
+              contractVersion: { type: 'string' },
+              taskId: { type: 'string' },
+              version: { type: 'string' },
+              artifactRefs: { type: 'array', items: { type: 'string' } },
+              expiresAt: { type: 'string' },
+              digest: { type: 'string' },
+              signature: { type: 'string' },
+              signatureAlgorithm: { type: 'string', enum: ['Ed25519'] },
+              signingKeyId: { type: 'string' },
+              input: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['role', 'zone', 'agentKey', 'serviceName', 'displayName', 'installRoot', 'configDir', 'dataDir', 'logDir'],
+                properties: {
+                  role: { type: 'string', enum: ['full_agent', 'gateway'] },
+                  zone: { type: 'string' },
+                  agentKey: { type: 'string' },
+                  serviceName: { type: 'string' },
+                  displayName: { type: 'string' },
+                  installRoot: { type: 'string' },
+                  configDir: { type: 'string' },
+                  dataDir: { type: 'string' },
+                  logDir: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/register', operationId: 'registerAgent', summary: '注册 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/sessions', operationId: 'createAgentMtlsSession', summary: '创建 Agent mTLS 会话', tags, responseSchema: schema },
@@ -680,479 +565,12 @@ function readOptionalCsv(request: HttpRequest, key: string): string[] | undefine
   return normalized.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-function inferBaseUrl(request: HttpRequest): string {
-  const configuredPublicBaseUrl = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL?.trim();
-  const forwardedHost = Array.isArray(request.headers['x-forwarded-host']) ? request.headers['x-forwarded-host'][0] : request.headers['x-forwarded-host'];
-  const publicBaseUrl = Array.isArray(request.headers['x-public-base-url']) ? request.headers['x-public-base-url'][0] : request.headers['x-public-base-url'];
-  const forwardedProto = Array.isArray(request.headers['x-forwarded-proto']) ? request.headers['x-forwarded-proto'][0] : request.headers['x-forwarded-proto'];
-  const origin = Array.isArray(request.headers.origin) ? request.headers.origin[0] : request.headers.origin;
-  const referer = Array.isArray(request.headers.referer) ? request.headers.referer[0] : request.headers.referer;
-  if (configuredPublicBaseUrl) {
-    return configuredPublicBaseUrl.replace(/\/+$/u, '');
+function validateExactObject(input: unknown, schema: ObjectValidationSchema): Record<string, unknown> {
+  const value = validateObject(input, schema);
+  const allowedFields = new Set(Object.keys(schema));
+  const unknownFields = Object.keys(value).filter((field) => !allowedFields.has(field));
+  if (unknownFields.length > 0) {
+    throw new AppError('VALIDATION_FAILED', '请求体包含不支持的字段', { fields: unknownFields.sort() });
   }
-  if (typeof publicBaseUrl === 'string' && publicBaseUrl.trim()) {
-    return publicBaseUrl.trim().replace(/\/+$/u, '');
-  }
-  if (typeof origin === 'string' && origin.trim()) {
-    return origin.trim().replace(/\/+$/u, '');
-  }
-  if (typeof referer === 'string' && referer.trim()) {
-    try {
-      const parsed = new URL(referer);
-      return parsed.origin;
-    } catch {
-      // ignore invalid referer and continue fallback chain
-    }
-  }
-  const proto = typeof forwardedProto === 'string' && forwardedProto ? forwardedProto : 'http';
-  const host = typeof forwardedHost === 'string' && forwardedHost
-    ? forwardedHost
-    : (Array.isArray(request.headers.host) ? request.headers.host[0] : request.headers.host);
-  return `${proto}://${host ?? 'localhost'}`;
-}
-
-type WindowsBootstrapManifest = Record<string, unknown> & { platform: string };
-type WindowsBootstrapRenderer = (manifest: WindowsBootstrapManifest) => string;
-
-const windowsBootstrapRenderers: Record<string, WindowsBootstrapRenderer> = {
-  windows_powershell_service: renderWindowsModernBootstrapScript,
-  windows_compatibility_service: renderWindowsCompatibilityBootstrapScript,
-};
-
-function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
-  const record = manifest as WindowsBootstrapManifest;
-  const renderer = windowsBootstrapRenderers[record.platform];
-  if (!renderer) throw new AppError('RESOURCE_NOT_FOUND', '未登记对应的 Windows Agent Bootstrap 渲染器', { platform: record.platform });
-  return renderer(record);
-}
-
-function renderWindowsModernBootstrapScript(manifest: WindowsBootstrapManifest): string {
-  const manifestJson = JSON.stringify(manifest, null, 2);
-  return [
-    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
-    "$ErrorActionPreference = 'Stop'",
-    "$ProgressPreference = 'SilentlyContinue'",
-    '$manifest = @\'',
-    manifestJson,
-    '\'@ | ConvertFrom-Json',
-    '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
-    "$root = Join-Path $env:TEMP ('gcac-win-go-agent-' + $manifest.sessionId)",
-    'New-Item -ItemType Directory -Force -Path $root | Out-Null',
-    'foreach ($artifact in $manifest.artifacts) {',
-    '  $path = Join-Path $root $artifact.path',
-    '  $dir = Split-Path -Parent $path',
-    '  New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-    "  if ([string]$artifact.encoding -eq 'base64') {",
-    '    [System.IO.File]::WriteAllBytes($path, [System.Convert]::FromBase64String([string]$artifact.content))',
-    '  } else {',
-    '    [System.IO.File]::WriteAllText($path, [string]$artifact.content, $utf8Bom)',
-    '  }',
-    '}',
-    "$configPath = Join-Path $root 'config\\agent.config.template.json'",
-    '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
-    '$config.tenantId = [string]$manifest.tenantId',
-    '$config.agentKey = [string]$manifest.agentKey',
-    "if ($null -eq $config.PSObject.Properties['role']) { $config | Add-Member -NotePropertyName role -NotePropertyValue ([string]$manifest.role) } else { $config.role = [string]$manifest.role }",
-    "if ($null -eq $config.PSObject.Properties['gatewayEnabled']) { $config | Add-Member -NotePropertyName gatewayEnabled -NotePropertyValue ([bool]$manifest.gatewayEnabled) } else { $config.gatewayEnabled = [bool]$manifest.gatewayEnabled }",
-    '$config.controlPlaneUrl = [string]$manifest.controlPlaneUrl',
-    '$config.service.name = [string]$manifest.serviceName',
-    '$config.service.displayName = [string]$manifest.displayName',
-    "$actualConfigPath = Join-Path $manifest.configDir 'agent.config.json'",
-    "$envPath = Join-Path $manifest.configDir '.env'",
-    '$config.paths.windows.configPath = [string]$actualConfigPath',
-    '$config.paths.windows.dataDir = [string]$manifest.dataDir',
-    '$config.paths.windows.logDir = [string]$manifest.logDir',
-    "if ($null -eq $config.PSObject.Properties['directControlEnabled']) { $config | Add-Member -NotePropertyName directControlEnabled -NotePropertyValue $true } else { $config.directControlEnabled = [bool]$config.directControlEnabled }",
-    "if ($null -eq $config.PSObject.Properties['directControlListenHost']) { $config | Add-Member -NotePropertyName directControlListenHost -NotePropertyValue '0.0.0.0' } elseif ([string]::IsNullOrWhiteSpace([string]$config.directControlListenHost)) { $config.directControlListenHost = '0.0.0.0' }",
-    "if ($null -eq $config.PSObject.Properties['directControlListenPort']) { $config | Add-Member -NotePropertyName directControlListenPort -NotePropertyValue ([int]$manifest.directControlListenPort) } else { $config.directControlListenPort = [int]$manifest.directControlListenPort }",
-    "if ($null -eq $config.PSObject.Properties['directControlAdvertiseHost']) { $config | Add-Member -NotePropertyName directControlAdvertiseHost -NotePropertyValue '' } elseif ([string]::IsNullOrWhiteSpace([string]$config.directControlAdvertiseHost)) { $config.directControlAdvertiseHost = '' }",
-    "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
-    "if ($null -eq $config.PSObject.Properties['enrollmentToken']) { $config | Add-Member -NotePropertyName enrollmentToken -NotePropertyValue ([string]$manifest.enrollmentToken) } else { $config.enrollmentToken = [string]$manifest.enrollmentToken }",
-    'New-Item -ItemType Directory -Force -Path $manifest.configDir | Out-Null',
-    '$envLines = @(',
-    '  ("GCAC_TENANT_ID=" + [string]$manifest.tenantId),',
-    '  ("GCAC_CONTROL_PLANE_URL=" + [string]$manifest.controlPlaneUrl),',
-    '  ("GCAC_ENROLLMENT_TOKEN=" + [string]$manifest.enrollmentToken),',
-    '  ("GCAC_ZONE=" + [string]$manifest.zone)',
-    ')',
-    '[System.IO.File]::WriteAllText($envPath, ($envLines -join "`r`n") + "`r`n", $utf8Bom)',
-    '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
-    '[System.IO.File]::WriteAllText($actualConfigPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
-    'New-Item -ItemType Directory -Force -Path $manifest.dataDir | Out-Null',
-    "$installScript = Join-Path $root 'install-service.ps1'",
-    "$binaryPath = Join-Path $manifest.installRoot 'gcac-agent.exe'",
-    "if (-not (Test-Path -LiteralPath $binaryPath)) {",
-    "  $binaryPath = Join-Path $root 'gcac-agent.exe'",
-    "}",
-    "if (-not (Test-Path -LiteralPath $binaryPath)) {",
-    "  $binaryPath = Join-Path $root 'windows-go-full-agent.exe'",
-    "}",
-    "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
-    "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
-    '$installArgs = @(',
-    "  '-NoProfile',",
-    "  '-ExecutionPolicy',",
-    "  'Bypass',",
-    "  '-File',",
-    '  $installScript,',
-    "  '-ServiceName',",
-    '  [string]$manifest.serviceName,',
-    "  '-DisplayName',",
-    '  [string]$manifest.displayName,',
-    "  '-InstallRoot',",
-    '  [string]$manifest.installRoot,',
-    "  '-ConfigDir',",
-    '  [string]$manifest.configDir,',
-    "  '-DataDir',",
-    '  [string]$manifest.dataDir,',
-    "  '-LogDir',",
-    '  [string]$manifest.logDir,',
-    "  '-NoStartAfterInstall'",
-    ')',
-    '& powershell @installArgs',
-    "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
-    "$selfCheckOutput = & $binaryPath self-check --config=$actualConfigPath 2>&1 | Out-String",
-    "$selfCheckExitCode = $LASTEXITCODE",
-    "[System.IO.File]::WriteAllText($selfCheckPath, $selfCheckOutput, $utf8Bom)",
-    'if ($selfCheckExitCode -ne 0) {',
-    '  Write-Host "Bootstrap self-check output:"',
-    '  Write-Host $selfCheckOutput',
-    "  throw 'Bootstrap self-check failed after service installation.'",
-    '}',
-    "$registerOutput = & $binaryPath register-once --config=$actualConfigPath 2>&1 | Out-String",
-    "$registerExitCode = $LASTEXITCODE",
-    "[System.IO.File]::WriteAllText($runOncePath, $registerOutput, $utf8Bom)",
-    'if ($registerExitCode -ne 0) {',
-    '  Write-Warning "Bootstrap first registration run failed."',
-    '  if (Test-Path -LiteralPath $runOncePath) {',
-    '    Write-Host "Bootstrap register result:"',
-    '    Get-Content -LiteralPath $runOncePath -Raw -Encoding UTF8 | Write-Host',
-    '  }',
-    '  $agentLogPath = Join-Path $manifest.logDir "agent.log"',
-    '  if (Test-Path -LiteralPath $agentLogPath) {',
-    '    Write-Host "Agent log:"',
-    '    Get-Content -LiteralPath $agentLogPath -Raw -Encoding UTF8 | Write-Host',
-    '  }',
-    '  $runtimeLogPath = Join-Path $manifest.logDir "runtime.log"',
-    '  if (Test-Path -LiteralPath $runtimeLogPath) {',
-    '    Write-Host "Runtime log:"',
-    '    Get-Content -LiteralPath $runtimeLogPath -Raw -Encoding UTF8 | Write-Host',
-    '  }',
-    "  throw 'Bootstrap first registration run failed.'",
-    '}',
-    "$installMetadataPath = Join-Path (Split-Path -Parent $manifest.configDir) 'service.install.json'",
-    'if (Test-Path -LiteralPath $installMetadataPath) {',
-    '  $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
-    "  if ($null -eq $installMetadata.PSObject.Properties['LastBootstrapSelfCheckPath']) {",
-    '    $installMetadata | Add-Member -NotePropertyName LastBootstrapSelfCheckPath -NotePropertyValue $selfCheckPath',
-    '  } else {',
-    '    $installMetadata.LastBootstrapSelfCheckPath = $selfCheckPath',
-    '  }',
-    "  if ($null -eq $installMetadata.PSObject.Properties['LastBootstrapRunOncePath']) {",
-    '    $installMetadata | Add-Member -NotePropertyName LastBootstrapRunOncePath -NotePropertyValue $runOncePath',
-    '  } else {',
-    '    $installMetadata.LastBootstrapRunOncePath = $runOncePath',
-    '  }',
-    '  [System.IO.File]::WriteAllText($installMetadataPath, ($installMetadata | ConvertTo-Json -Depth 10), $utf8Bom)',
-    '}',
-    'if ([bool]$manifest.startAfterInstall) {',
-    '  try {',
-    '    $service = Get-Service -Name ([string]$manifest.serviceName) -ErrorAction Stop',
-    "    if ([string]$service.Status -ne 'Running') {",
-    '      Start-Service -Name ([string]$manifest.serviceName)',
-    '      $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))',
-    '    }',
-    '    $service = Get-Service -Name ([string]$manifest.serviceName) -ErrorAction Stop',
-    "    if ([string]$service.Status -ne 'Running') { throw ('Windows Agent service is not running after install: ' + [string]$service.Status) }",
-    '  } catch {',
-    '    $stdoutLog = Join-Path $manifest.logDir "service-stdout.log"',
-    '    $stderrLog = Join-Path $manifest.logDir "service-stderr.log"',
-    '    Write-Warning ("Start-Service failed for: " + [string]$manifest.serviceName)',
-    '    try { sc.exe qc ([string]$manifest.serviceName) | Write-Host } catch { }',
-    '    if (Test-Path -LiteralPath $installMetadataPath) {',
-    '      try {',
-    '        $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
-    '        if ($null -ne $installMetadata -and -not [string]::IsNullOrWhiteSpace([string]$installMetadata.NssmExe)) {',
-    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) Application | Write-Host',
-    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) AppParameters | Write-Host',
-    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) AppDirectory | Write-Host',
-    '        }',
-    '      } catch { }',
-    '    }',
-    '    throw',
-    '  }',
-    '}',
-    "Write-Host 'Bootstrap completed. Files staged at:' $root",
-  ].join('\r\n')
-}
-
-function renderWindowsCompatibilityBootstrapScript(manifest: WindowsBootstrapManifest): string {
-  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
-  const artifactEntries = artifacts.map((value) => {
-    const artifact = value as { path?: unknown; content?: unknown; encoding?: unknown };
-    const artifactPath = String(artifact.path ?? '');
-    const content = String(artifact.content ?? '');
-    const contentBase64 = artifact.encoding === 'base64'
-      ? content
-      : Buffer.from(content, 'utf8').toString('base64');
-    return `  (New-Object PSObject -Property @{ Path = '${powerShellSingleQuote(artifactPath)}'; ContentBase64 = '${contentBase64}' })`;
-  }).join(',\r\n');
-  const configBase64 = Buffer.from(JSON.stringify(manifest.config ?? {}, null, 2), 'utf8').toString('base64');
-  return [
-    "$ErrorActionPreference = 'Stop'",
-    "$ProgressPreference = 'SilentlyContinue'",
-    `$sessionId = '${powerShellSingleQuote(String(manifest.sessionId ?? ''))}'`,
-    `$installRoot = '${powerShellSingleQuote(String(manifest.installRoot ?? ''))}'`,
-    `$configDir = '${powerShellSingleQuote(String(manifest.configDir ?? ''))}'`,
-    `$dataDir = '${powerShellSingleQuote(String(manifest.dataDir ?? ''))}'`,
-    `$logDir = '${powerShellSingleQuote(String(manifest.logDir ?? ''))}'`,
-    `$serviceName = '${powerShellSingleQuote(String(manifest.serviceName ?? ''))}'`,
-    `$binaryRelativePath = '${powerShellSingleQuote(String(manifest.binaryRelativePath ?? ''))}'`,
-    `$targetBinaryName = '${powerShellSingleQuote(String(manifest.targetBinaryName ?? ''))}'`,
-    `$installScriptRelativePath = '${powerShellSingleQuote(String(manifest.installScriptRelativePath ?? ''))}'`,
-    `$root = Join-Path $env:TEMP ('gcac-win-compat-agent-' + $sessionId)`,
-    `$bootstrapLogPath = Join-Path $logDir 'bootstrap.log'`,
-    'New-Item -ItemType Directory -Force -Path $root | Out-Null',
-    '$artifacts = @(',
-    artifactEntries,
-    ')',
-    'foreach ($artifact in $artifacts) {',
-    '  $artifactPath = Join-Path $root $artifact.Path',
-    '  $artifactDirectory = Split-Path -Parent $artifactPath',
-    '  if (-not [string]::IsNullOrEmpty($artifactDirectory)) { New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null }',
-    '  [System.IO.File]::WriteAllBytes($artifactPath, [System.Convert]::FromBase64String([string]$artifact.ContentBase64))',
-    '}',
-    'New-Item -ItemType Directory -Force -Path $installRoot | Out-Null',
-    'New-Item -ItemType Directory -Force -Path $configDir | Out-Null',
-    'New-Item -ItemType Directory -Force -Path $dataDir | Out-Null',
-    'New-Item -ItemType Directory -Force -Path $logDir | Out-Null',
-    '$sourceBinary = Join-Path $root $binaryRelativePath',
-    '$targetBinary = Join-Path $installRoot $targetBinaryName',
-    "$sourceRuntimeConfig = $sourceBinary + '.config'",
-    "$targetRuntimeConfig = $targetBinary + '.config'",
-    "$actualConfigPath = Join-Path $configDir 'agent.config.json'",
-    `[System.IO.File]::WriteAllBytes($actualConfigPath, [System.Convert]::FromBase64String('${configBase64}'))`,
-    '$bootstrapPreviousErrorActionPreference = $ErrorActionPreference',
-    "$ErrorActionPreference = 'Continue'",
-    '$preflightOutput = (& $sourceBinary --config $actualConfigPath --preflight 2>&1 | Out-String)',
-    '$preflightExitCode = $LASTEXITCODE',
-    '$ErrorActionPreference = $bootstrapPreviousErrorActionPreference',
-    "$preflightLogPath = Join-Path $logDir 'bootstrap-preflight.json'",
-    '[System.IO.File]::WriteAllText($preflightLogPath, $preflightOutput, (New-Object System.Text.UTF8Encoding($false)))',
-    'if ($preflightExitCode -ne 0) {',
-    "  $preflightFailure = 'Preflight failed. Details: ' + $preflightLogPath + [Environment]::NewLine + $preflightOutput",
-    "  [System.IO.File]::AppendAllText($bootstrapLogPath, ($preflightFailure + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))",
-    "  Write-Host 'Windows Compatibility Agent preflight failed.'",
-    "  Write-Host ('Detailed preflight output: ' + $preflightLogPath)",
-    "  Write-Host $preflightOutput",
-    "  throw ('Windows Compatibility Agent preflight failed; see ' + $preflightLogPath + ' and bootstrap.log.')",
-    '}',
-    '$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue',
-    'if ($null -ne $existingService) {',
-    '  $existingService.Close()',
-    "  $uninstallScript = Join-Path $root 'uninstall-service.ps1'",
-    '  $uninstallOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $uninstallScript 2>&1 | Out-String',
-    '  $uninstallExitCode = $LASTEXITCODE',
-    "  [System.IO.File]::AppendAllText($bootstrapLogPath, $uninstallOutput, (New-Object System.Text.UTF8Encoding($false)))",
-    "  if ($uninstallExitCode -ne 0) { throw 'Existing Windows Compatibility Agent service removal failed; see bootstrap.log.' }",
-    '}',
-    '$copyDeadline = [DateTime]::UtcNow.AddSeconds(30)',
-    'do {',
-    '  try {',
-    '    Copy-Item -LiteralPath $sourceBinary -Destination $targetBinary -Force -ErrorAction Stop',
-    '    $copyCompleted = $true',
-    '  } catch [System.IO.IOException] {',
-    '    $copyCompleted = $false',
-    '    Start-Sleep -Milliseconds 250',
-    '  }',
-    '} while (-not $copyCompleted -and [DateTime]::UtcNow -lt $copyDeadline)',
-    "if (-not $copyCompleted) { throw 'Windows Compatibility Agent executable replacement timed out; see bootstrap.log.' }",
-    'Copy-Item -LiteralPath $sourceRuntimeConfig -Destination $targetRuntimeConfig -Force -ErrorAction Stop',
-    '$installScript = Join-Path $root $installScriptRelativePath',
-    '$installOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript -InstallRoot $installRoot -ConfigPath $actualConfigPath -NoStartAfterInstall 2>&1 | Out-String',
-    '$installExitCode = $LASTEXITCODE',
-    "[System.IO.File]::AppendAllText($bootstrapLogPath, $installOutput, (New-Object System.Text.UTF8Encoding($false)))",
-    "if ($installExitCode -ne 0) { throw 'Windows Compatibility Agent service installation failed; see bootstrap.log.' }",
-    '$service = Get-Service -Name $serviceName -ErrorAction Stop',
-    "if ([string]$service.Status -ne 'Running') {",
-    '  Start-Service -Name $serviceName -ErrorAction Stop',
-    "  $service.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))",
-    '}',
-    '$service = Get-Service -Name $serviceName -ErrorAction Stop',
-    "if ([string]$service.Status -ne 'Running') { throw 'Windows Compatibility Agent service is not running; see bootstrap.log.' }",
-    "[System.IO.File]::AppendAllText($bootstrapLogPath, ('Service started: ' + $serviceName + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))",
-  ].join('\r\n');
-}
-
-function powerShellSingleQuote(value: string): string {
-  return value.replace(/'/gu, "''");
-}
-
-function renderWindowsGatewayEnableScript(input: { zone: string; serviceName: string; configPath: string }): string {
-  const manifestJson = JSON.stringify(input, null, 2);
-  return [
-    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
-    "$ErrorActionPreference = 'Stop'",
-    '$manifest = @\'',
-    manifestJson,
-    '\'@ | ConvertFrom-Json',
-    '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
-    '$configPath = [string]$manifest.configPath',
-    "if (-not (Test-Path -LiteralPath $configPath)) { throw ('Agent config not found: ' + $configPath) }",
-    '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
-    "if ($null -eq $config.PSObject.Properties['role']) { $config | Add-Member -NotePropertyName role -NotePropertyValue 'full_agent' }",
-    "if ([string]::IsNullOrWhiteSpace([string]$config.role)) { $config.role = 'full_agent' }",
-    "if ($null -eq $config.PSObject.Properties['gatewayEnabled']) { $config | Add-Member -NotePropertyName gatewayEnabled -NotePropertyValue $true } else { $config.gatewayEnabled = $true }",
-    "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
-    '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 20), $utf8Bom)',
-    '$serviceName = [string]$manifest.serviceName',
-    'Restart-Service -Name $serviceName -Force',
-    "Write-Host ('Gateway enabled for existing Agent service: ' + $serviceName)",
-  ].join('\r\n');
-}
-
-function readOptionalQuery(request: HttpRequest, key: string): string | undefined {
-  const value = request.query[key];
-  const normalized = Array.isArray(value) ? value[0] : value;
-  if (!normalized) return undefined;
-  const trimmed = normalized.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function resolveInstallBaseUrl(request: HttpRequest): string {
-  const explicitBaseUrl = readOptionalQuery(request, 'baseUrl');
-  if (explicitBaseUrl) {
-    try {
-      const parsed = new URL(explicitBaseUrl);
-      return parsed.origin.replace(/\/+$/u, '');
-    } catch {
-      throw new AppError('VALIDATION_FAILED', 'baseUrl 格式不合法', { baseUrl: explicitBaseUrl });
-    }
-  }
-  return inferBaseUrl(request);
-}
-
-function renderLinuxBootstrapScript(manifest: unknown): string {
-  const manifestJson = JSON.stringify(manifest, null, 2);
-  const installManifest = manifest as {
-    bundleUrl?: string;
-    serviceName?: string;
-    displayName?: string;
-    installRoot?: string;
-    configDir?: string;
-    dataDir?: string;
-    logDir?: string;
-    startAfterInstall?: boolean;
-    directControlListenPort?: number;
-  };
-  return [
-    '#!/usr/bin/env bash',
-    'set -euo pipefail',
-    '',
-    'if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then',
-    '  echo "请使用 root 或 sudo 执行安装脚本" >&2',
-    '  exit 1',
-    'fi',
-    '',
-    'WORKDIR="$(mktemp -d /tmp/gcac-linux-agent-XXXXXX)"',
-    'cleanup() { rm -rf "$WORKDIR"; }',
-    'trap cleanup EXIT',
-    '',
-    "cat <<'JSON' > \"$WORKDIR/manifest.json\"",
-    manifestJson,
-    'JSON',
-    'MANIFEST_PATH="$WORKDIR/manifest.json" node <<\'NODE\'',
-    'const fs = require("node:fs");',
-    'const path = process.env.MANIFEST_PATH;',
-    'const manifest = JSON.parse(fs.readFileSync(path, "utf8"));',
-    'const config = {',
-    '  schemaVersion: "full-agent.linux-go.config.v1",',
-    '  tenantId: manifest.tenantId,',
-    '  agentKey: manifest.agentKey,',
-    '  enrollmentToken: manifest.enrollmentToken,',
-    '  role: manifest.role,',
-    '  gatewayEnabled: manifest.gatewayEnabled === true,',
-    '  zone: manifest.zone,',
-    '  controlPlaneUrl: manifest.controlPlaneUrl,',
-    '  heartbeatIntervalSeconds: 10,',
-    '  taskPollIntervalSeconds: 60,',
-    '  healthCheckIntervalSeconds: 30,',
-    '  offlineTimeoutSeconds: 180,',
-    '  directControlEnabled: true,',
-    '  directControlListenHost: "0.0.0.0",',
-    '  directControlListenPort: manifest.directControlListenPort,',
-    '  directControlAdvertiseHost: "",',
-    '  capabilityRescanIntervalSeconds: 300,',
-    '  capabilityRescanEnabled: true,',
-    '  paths: {',
-    '    linux: {',
-    '      configPath: `${manifest.configDir}/agent.config.json`,',
-    '      dataDir: manifest.dataDir,',
-    '      logDir: manifest.logDir,',
-    '    },',
-    '  },',
-    '  service: {',
-    '    name: manifest.serviceName,',
-    '    displayName: manifest.displayName,',
-    '  },',
-    '};',
-    'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',
-    'NODE',
-    '',
-    `BUNDLE_URL=${toBashSingleQuoted(installManifest.bundleUrl ?? '')}`,
-    `SERVICE_NAME=${toBashSingleQuoted(installManifest.serviceName ?? 'gcac-linux-agent')}`,
-    `DISPLAY_NAME=${toBashSingleQuoted(installManifest.displayName ?? 'GCAC Linux Go Full Agent')}`,
-    `INSTALL_ROOT=${toBashSingleQuoted(installManifest.installRoot ?? '/opt/gcac/linux-agent')}`,
-    `CONFIG_DIR=${toBashSingleQuoted(installManifest.configDir ?? '/etc/gcac/linux-agent')}`,
-    `DATA_DIR=${toBashSingleQuoted(installManifest.dataDir ?? '/var/lib/gcac/linux-agent')}`,
-    `LOG_DIR=${toBashSingleQuoted(installManifest.logDir ?? '/var/log/gcac/linux-agent')}`,
-    `START_AFTER_INSTALL=${toBashSingleQuoted(installManifest.startAfterInstall === true ? 'true' : 'false')}`,
-    '',
-    'curl -fsSL "$BUNDLE_URL" -o "$WORKDIR/bundle.tar.gz"',
-    'tar -xzf "$WORKDIR/bundle.tar.gz" -C "$WORKDIR"',
-    'install -d "$WORKDIR/config"',
-    'install -m 0644 "$WORKDIR/manifest.json" "$WORKDIR/config/agent.config.template.json"',
-    'chmod +x "$WORKDIR/linux/install-systemd.sh"',
-    'SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="$START_AFTER_INSTALL" bash "$WORKDIR/linux/install-systemd.sh"',
-  ].join('\n')
-}
-
-function renderLinuxGatewayEnableScript(input: { zone: string; serviceName: string; configPath: string }): string {
-  const manifestJson = JSON.stringify(input, null, 2);
-  return [
-    '#!/usr/bin/env bash',
-    'set -euo pipefail',
-    '',
-    'if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then',
-    '  echo "请使用 root 或 sudo 执行 Gateway 启用脚本" >&2',
-    '  exit 1',
-    'fi',
-    '',
-    'MANIFEST_JSON=$(cat <<\'JSON\'',
-    manifestJson,
-    'JSON',
-    ')',
-    'CONFIG_PATH=$(printf "%s" "$MANIFEST_JSON" | node -e \'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(m.configPath);\')',
-    'SERVICE_NAME=$(printf "%s" "$MANIFEST_JSON" | node -e \'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(m.serviceName);\')',
-    'if [[ ! -f "$CONFIG_PATH" ]]; then',
-    '  echo "Agent config not found: $CONFIG_PATH" >&2',
-    '  exit 1',
-    'fi',
-    'MANIFEST_JSON="$MANIFEST_JSON" CONFIG_PATH="$CONFIG_PATH" node <<\'NODE\'',
-    'const fs = require("node:fs");',
-    'const manifest = JSON.parse(process.env.MANIFEST_JSON);',
-    'const configPath = process.env.CONFIG_PATH;',
-    'const config = JSON.parse(fs.readFileSync(configPath, "utf8"));',
-    'if (!String(config.role || "").trim()) config.role = "full_agent";',
-    'config.gatewayEnabled = true;',
-    'config.zone = manifest.zone;',
-    'fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\\n");',
-    'NODE',
-    'systemctl restart "${SERVICE_NAME}.service"',
-    'echo "Gateway enabled for existing Agent service: ${SERVICE_NAME}"',
-  ].join('\n');
-}
-
-function toBashSingleQuoted(value: string): string {
-  return `'${value.replace(/'/gu, `'\\''`)}'`
+  return value;
 }

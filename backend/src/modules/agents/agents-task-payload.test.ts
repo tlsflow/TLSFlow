@@ -23,7 +23,7 @@ describe('Agent 任务 payload', () => {
       executionStepId: 'step_payload_plaintext',
       idempotencyKey: 'agent.payload.plaintext',
       payload: {
-        type: 'windows.iis.deploy_certificate',
+        actionType: 'agent.plan.execute',
         pfxPassword: 'real-pfx-password',
       },
     }, 'req-agent-payload-enqueue');
