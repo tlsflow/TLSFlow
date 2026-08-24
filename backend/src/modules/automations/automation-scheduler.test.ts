@@ -29,7 +29,7 @@ test('到期扫描使用 schedule 幂等键并更新下一次运行时间', asyn
   const now = new Date(Date.now() + 60_000);
   const scheduledAt = new Date(now.getTime() - 60_000).toISOString();
   await repository.createAutomation({ id: 'automation_schedule', tenantId: 'tenant_schedule', name: 'Scheduled', status: 'active', currentVersion: 1, nextRunAt: scheduledAt, createdBy: 'user_1', createdAt: scheduledAt, updatedAt: scheduledAt, version: 1 });
-  await repository.createVersion({ id: 'version_schedule', tenantId: 'tenant_schedule', automationId: 'automation_schedule', version: 1, trigger: { type: 'schedule', cron: '* * * * *', timeZone: 'Asia/Shanghai' }, targetSelector: {}, actions: [], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'a'.repeat(64), createdBy: 'user_1', createdAt: scheduledAt });
+  await repository.createVersion({ id: 'version_schedule', tenantId: 'tenant_schedule', automationId: 'automation_schedule', version: 1, trigger: { type: 'schedule', cron: '* * * * *', timeZone: 'Asia/Shanghai' }, targetResolver: { type: 'certificate_version_targets' }, actions: [], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'a'.repeat(64), createdBy: 'user_1', createdAt: scheduledAt });
   const calls: unknown[][] = [];
   const service = { createOnDemandRun: async (...args: unknown[]) => { calls.push(args); return { id: 'run_schedule' }; } };
   const scheduler = new AutomationScheduler(repository, service as never, { execute: async () => undefined }, 'worker_schedule', { now: () => now });
@@ -47,7 +47,7 @@ test('一次性计划到期后只创建一次运行并清空下次运行时间',
   const now = new Date('2026-07-23T02:00:00.000Z');
   const scheduledAt = '2026-07-23T01:00:00.000Z';
   await repository.createAutomation({ id: 'automation_once', tenantId: 'tenant_once', name: 'Once', status: 'active', currentVersion: 1, nextRunAt: scheduledAt, createdBy: 'user_1', createdAt: scheduledAt, updatedAt: scheduledAt, version: 1 });
-  await repository.createVersion({ id: 'version_once', tenantId: 'tenant_once', automationId: 'automation_once', version: 1, trigger: { type: 'once', runAt: scheduledAt }, targetSelector: {}, actions: [], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'b'.repeat(64), createdBy: 'user_1', createdAt: scheduledAt });
+  await repository.createVersion({ id: 'version_once', tenantId: 'tenant_once', automationId: 'automation_once', version: 1, trigger: { type: 'once', runAt: scheduledAt }, targetResolver: { type: 'certificate_version_targets' }, actions: [], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'b'.repeat(64), createdBy: 'user_1', createdAt: scheduledAt });
   const calls: unknown[][] = [];
   const service = { createOnDemandRun: async (...args: unknown[]) => { calls.push(args); return { id: 'run_once' }; } };
   const scheduler = new AutomationScheduler(repository, service as never, { execute: async () => undefined }, 'worker_once', { now: () => now });

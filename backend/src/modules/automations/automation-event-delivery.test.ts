@@ -4,6 +4,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AutomationEventDeliveryService } from './application/automation-event-delivery.service.js';
 import { AutomationsApplicationService } from './application/automations.application-service.js';
 import { AutomationTriggerRegistry } from './application/automation-trigger-registry.js';
+import { AutomationTargetResolverRegistry } from './application/automation-target-resolver.registry.js';
 import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
 
@@ -28,10 +29,9 @@ test('证书新版本事件会创建投递并落成自动化运行', async () =>
     tenantId: 'tenant_1',
     automationId: 'aut_event',
     version: 1,
-    trigger: { type: 'certificate_version_created', sources: ['acme'] },
+    trigger: { type: 'certificate_version_created', sources: ['external_source'] },
     filters: [],
-    targetResolver: { type: 'legacy_target_selector', selector: {} },
-    targetSelector: {},
+    targetResolver: { type: 'certificate_version_targets' },
     approvalStage: undefined,
     actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'automation.result', eventKey: 'completed' } }],
     guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
@@ -40,29 +40,16 @@ test('证书新版本事件会创建投递并落成自动化运行', async () =>
     createdAt: now,
   });
 
-  const automations = new AutomationsApplicationService(
-    repository,
-    undefined,
-    () => new Date(now),
-    {
-      preview: async () => ({
-        previewId: 'preview',
-        automationId: 'aut_event',
-        automationVersion: 1,
-        configurationChecksum: 'runtime',
-        totalMatched: 1,
-        executableCount: 1,
-        excludedCount: 0,
-        excludedReasons: {},
-        page: 1,
-        pageSize: 50,
-        items: [{
-          target: { certificateId: 'cert_asset_1', certificateName: 'example.com', certificateVersionId: 'cert_ver_1', assetId: 'asset_1', assetName: 'Asset 1', environment: 'production', tags: [] },
-          executable: true,
-        }],
-      }),
-    } as never,
-  );
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({
+    type: 'certificate_version_targets',
+    validate: () => undefined,
+    resolve: async () => [{
+      target: { certificateId: 'cert_asset_1', certificateName: 'example.com', certificateVersionId: 'cert_ver_1', assetId: 'asset_1', assetName: 'Asset 1', environment: 'production', tags: [] },
+      executable: true,
+    }],
+  });
+  const automations = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
   const deliveryService = new AutomationEventDeliveryService(repository, automations, new AutomationTriggerRegistry(), undefined, () => new Date(now));
   const [deliveryId] = await deliveryService.publishCertificateVersionCreated({
     eventType: 'certificate.version.created',
@@ -70,7 +57,7 @@ test('证书新版本事件会创建投递并落成自动化运行', async () =>
     eventId: 'evt_1',
     certificateAssetId: 'cert_asset_1',
     certificateVersionId: 'cert_ver_1',
-    sourceType: 'acme',
+    sourceType: 'external_source',
     domains: ['example.com'],
     tags: ['prod'],
     occurredAt: now,

@@ -5,8 +5,7 @@ import type { BindingsRepository } from '../../bindings/repository/bindings.repo
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { AutomationPreviewTargetDto } from '../dto/automations.dto.js';
-import type { AutomationTargetResolver, AutomationTargetResolverInput } from './automation-target-resolver.registry.js';
-import type { AutomationTargetAccessPort } from './automation-target-selector.js';
+import type { AutomationTargetAccessPort, AutomationTargetResolver, AutomationTargetResolverInput } from './automation-target-resolver.registry.js';
 
 export class CertificateVersionTargetResolver implements AutomationTargetResolver {
   readonly type = 'certificate_version_targets' as const;

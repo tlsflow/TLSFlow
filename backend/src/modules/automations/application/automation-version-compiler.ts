@@ -23,18 +23,14 @@ export class AutomationVersionCompiler {
   ) {}
 
   compile(configuration: AutomationConfigurationDto): AutomationConfigurationDto {
-    const targetResolver = configuration.targetResolver ?? {
-      type: 'legacy_target_selector' as const,
-      selector: structuredClone(configuration.targetSelector ?? {}),
-    };
+    if (!configuration.targetResolver) {
+      throw new Error('automation targetResolver is required');
+    }
     const approvalStage = configuration.approvalStage ?? defaultApprovalStage(configuration.guardrails.requireApproval);
-    const targetSelector = configuration.targetSelector
-      ?? (targetResolver.type === 'legacy_target_selector' ? (targetResolver.selector ?? {}) : undefined);
     const normalized: AutomationConfigurationDto = {
       trigger: structuredClone(configuration.trigger),
       filters: structuredClone(configuration.filters ?? []),
-      targetResolver: structuredClone(targetResolver),
-      targetSelector: targetSelector ? structuredClone(targetSelector) : undefined,
+      targetResolver: structuredClone(configuration.targetResolver),
       approvalStage: structuredClone(approvalStage),
       actions: structuredClone(configuration.actions),
       guardrails: structuredClone(configuration.guardrails),

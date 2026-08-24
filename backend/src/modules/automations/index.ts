@@ -5,7 +5,6 @@ export * from './application/automation-executor-registry.js';
 export * from './application/automation-filter-evaluator.js';
 export * from './application/automations.application-service.js';
 export * from './application/automation-target-resolver.registry.js';
-export * from './application/automation-target-selector.js';
 export * from './application/automation-scheduler.js';
 export * from './application/automation-deployment-actions.js';
 export * from './application/notification-port.js';

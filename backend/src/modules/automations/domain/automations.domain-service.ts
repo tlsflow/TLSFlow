@@ -79,13 +79,6 @@ export class AutomationsDomainService {
     if (guardrails.failureRateThreshold !== undefined && (guardrails.failureRateThreshold <= 0 || guardrails.failureRateThreshold > 1)) {
       throw new AppError('VALIDATION_FAILED', '失败比例阈值必须大于 0 且不超过 1');
     }
-    const targetSelector = configuration.targetSelector;
-    if (targetSelector?.expiresWithinDays !== undefined && (targetSelector.expiresWithinDays < 0 || targetSelector.expiresWithinDays > 3650)) {
-      throw new AppError('VALIDATION_FAILED', '证书到期窗口越界');
-    }
-    if (targetSelector?.certificateVersionSelection === 'specific' && !targetSelector.certificateVersionIds?.length) {
-      throw new AppError('VALIDATION_FAILED', '指定证书版本模式必须提供证书版本');
-    }
     this.compiler.compile(configuration);
   }
 

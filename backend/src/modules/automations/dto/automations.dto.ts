@@ -19,27 +19,12 @@ export type AutomationTriggerDto =
   | { type: 'once'; runAt: string }
   | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
   | { type: 'on_demand' }
-  | { type: 'certificate_version_created'; sources?: Array<'acme' | 'manual_import'> };
+  | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import'> };
 
 export interface AutomationFilterClauseDto {
   field: string;
   operator: AutomationFilterOperator;
   value?: unknown;
-}
-
-export interface AutomationTargetSelectorDto {
-  certificateIds?: string[];
-  certificateDomains?: string[];
-  certificateVersionSelection?: 'latest' | 'specific';
-  certificateVersionIds?: string[];
-  statuses?: string[];
-  expiresWithinDays?: number;
-  environments?: string[];
-  tags?: string[];
-  tagMatch?: 'all' | 'any';
-  assetIds?: string[];
-  bindingIds?: string[];
-  ownerIds?: string[];
 }
 
 export interface CreateDeploymentPlanActionConfigDto {
@@ -88,8 +73,7 @@ export interface AutomationGuardrailsDto {
 }
 
 export type AutomationTargetResolverDto =
-  | { type: 'legacy_target_selector'; selector?: AutomationTargetSelectorDto }
-  | { type: 'certificate_version_targets'; assetIds?: string[] };
+  { type: 'certificate_version_targets'; assetIds?: string[] };
 
 export interface AutomationApprovalStageDto {
   type: AutomationApprovalStageType;
@@ -102,12 +86,7 @@ export interface AutomationApprovalStageDto {
 export interface AutomationConfigurationDto {
   trigger: AutomationTriggerDto;
   filters?: AutomationFilterClauseDto[];
-  targetResolver?: AutomationTargetResolverDto;
-  /**
-   * 兼容字段，旧版本自动化仍通过 targetSelector 读写。
-   * 新实现应优先使用 targetResolver。
-   */
-  targetSelector?: AutomationTargetSelectorDto;
+  targetResolver: AutomationTargetResolverDto;
   approvalStage?: AutomationApprovalStageDto;
   actions: AutomationActionDto[];
   guardrails: AutomationGuardrailsDto;

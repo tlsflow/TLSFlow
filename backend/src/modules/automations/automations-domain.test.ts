@@ -6,7 +6,7 @@ import type { AutomationConfigurationDto } from './dto/automations.dto.js';
 function configuration(): AutomationConfigurationDto {
   return {
     trigger: { type: 'schedule', cron: '0 2 * * *', timeZone: 'Asia/Shanghai' },
-    targetSelector: { expiresWithinDays: 30, environments: ['production'] },
+    targetResolver: { type: 'certificate_version_targets', assetIds: ['asset_1'] },
     actions: [
       { type: 'create_deployment_plan', position: 1, config: { workflowTemplateId: 'wftpl_1' } },
       { type: 'execute_deployment_plan', position: 2, config: { source: 'created_by_previous_action', dryRunFirst: true } },
@@ -29,8 +29,8 @@ test('配置摘要与键顺序无关，版本实体保持输入快照', () => {
   const source = configuration();
   const version = domain.createVersion({ tenantId: 'tenant_1', automationId: 'aut_1', version: 1, configuration: source, actorId: 'user_1', now: '2026-07-21T00:00:00.000Z' });
   const repeated = domain.createVersion({ tenantId: 'tenant_1', automationId: 'aut_2', version: 1, configuration: configuration(), actorId: 'user_1', now: '2026-07-21T00:00:00.000Z' });
-  source.targetSelector?.environments?.push('test');
-  assert.deepEqual(version.targetSelector?.environments, ['production']);
+  source.targetResolver.assetIds?.push('asset_2');
+  assert.deepEqual(version.targetResolver.assetIds, ['asset_1']);
   assert.equal(version.checksum.length, 64);
   assert.equal(repeated.checksum, version.checksum);
 });

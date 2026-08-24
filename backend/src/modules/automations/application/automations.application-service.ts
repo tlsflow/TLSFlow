@@ -4,7 +4,6 @@ import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enque
 import { AutomationsDomainService } from '../domain/automations.domain-service.js';
 import { nextAutomationRunAt } from '../domain/automation-schedule.js';
 import type { AutomationConfigurationDto, AutomationPreviewDto, AutomationPreviewTargetDto, AutomationRunDto, AutomationRunExecutionOptionsDto, AutomationStatus, AutomationTriggerContextDto, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
-import type { AutomationTargetSelector } from './automation-target-selector.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
 import type { AutomationEntity, AutomationVersionEntity } from '../schema/automations.schema.js';
 import { AutomationFilterEvaluator } from './automation-filter-evaluator.js';
@@ -32,29 +31,11 @@ export class AutomationsApplicationService {
     private readonly repository = new AutomationsRepository(),
     private readonly domain = new AutomationsDomainService(),
     private readonly clock: () => Date = () => new Date(),
-    private readonly targetSelector?: AutomationTargetSelector,
     options: AutomationsApplicationOptions = {},
   ) {
     this.triggerRegistry = options.triggerRegistry ?? new AutomationTriggerRegistry();
     this.filterEvaluator = options.filterEvaluator ?? new AutomationFilterEvaluator();
     this.resolverRegistry = options.resolverRegistry ?? new AutomationTargetResolverRegistry();
-    if (this.targetSelector) {
-      this.resolverRegistry.register({
-        type: 'legacy_target_selector',
-        validate: () => undefined,
-        resolve: async (input) => this.targetSelector!.preview({
-          tenantId: input.tenantId,
-          actorId: input.actorId,
-          automationId: 'preview',
-          automationVersion: 0,
-          configurationChecksum: 'runtime',
-          selector: input.resolver.type === 'legacy_target_selector' ? (input.resolver.selector ?? {}) : {},
-          guardrails: input.guardrails,
-          page: input.page,
-          pageSize: input.pageSize,
-        }).then((preview) => preview.items),
-      });
-    }
     this.approvalOrchestrator = options.approvalOrchestrator;
     this.tasks = options.tasks;
   }
@@ -78,7 +59,7 @@ export class AutomationsApplicationService {
       actorId,
       triggerContext,
       guardrails: version.guardrails,
-      resolver: this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []),
+      resolver: this.effectiveResolver(version.targetResolver, version.filters ?? []),
       filters: version.filters ?? [],
       page,
       pageSize,
@@ -100,8 +81,8 @@ export class AutomationsApplicationService {
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
     this.domain.assertVersion(automation, expectedVersion);
     const version = await this.requireRunnableVersion(tenantId, automation, { allowDisabledManual: true });
-    const resolver = this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []);
-    if (resolver.type === 'certificate_version_targets' && !options.triggerContext?.certificateVersionId) {
+    const resolver = this.effectiveResolver(version.targetResolver, version.filters ?? []);
+    if (version.trigger.type === 'certificate_version_created' && !options.triggerContext?.certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', '证书新版本事件自动化手动执行时必须选择证书版本');
     }
     const preview = await this.resolveTargets({
@@ -147,7 +128,7 @@ export class AutomationsApplicationService {
       actorId: input.actorId,
       triggerContext: input.triggerContext,
       guardrails: version.guardrails,
-      resolver: this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []),
+      resolver: this.effectiveResolver(version.targetResolver, version.filters ?? []),
       filters: version.filters ?? [],
     });
     const executable = items.filter((item) => item.executable);
@@ -283,7 +264,6 @@ export class AutomationsApplicationService {
       trigger: structuredClone(input.trigger),
       filters: structuredClone(input.filters ?? []),
       targetResolver: structuredClone(input.targetResolver),
-      targetSelector: structuredClone(input.targetSelector),
       approvalStage: structuredClone(input.approvalStage),
       actions: structuredClone(input.actions),
       guardrails: structuredClone(input.guardrails),
@@ -295,7 +275,6 @@ export class AutomationsApplicationService {
       trigger: structuredClone(version.trigger),
       filters: structuredClone(version.filters ?? []),
       targetResolver: structuredClone(version.targetResolver),
-      targetSelector: structuredClone(version.targetSelector),
       approvalStage: structuredClone(version.approvalStage),
       actions: structuredClone(version.actions),
       guardrails: structuredClone(version.guardrails),

@@ -42,8 +42,6 @@ function mapAutomation(row: AutomationRow): AutomationEntity {
 }
 
 function mapVersion(row: AutomationRow): AutomationVersionEntity {
-  const legacySelector = json(row.target_selector, {}) as AutomationVersionEntity['targetSelector'];
-  const targetResolver = json(row.target_resolver, undefined) as AutomationVersionEntity['targetResolver'];
   return {
     id: String(row.id),
     tenantId: String(row.tenant_id),
@@ -51,8 +49,7 @@ function mapVersion(row: AutomationRow): AutomationVersionEntity {
     version: Number(row.version),
     trigger: json(row.trigger_config),
     filters: json(row.filters, []),
-    targetResolver: targetResolver ?? { type: 'legacy_target_selector', selector: legacySelector },
-    targetSelector: legacySelector,
+    targetResolver: json(row.target_resolver) as AutomationVersionEntity['targetResolver'],
     approvalStage: json(row.approval_stage, undefined),
     actions: json(row.actions),
     guardrails: json(row.guardrails),
@@ -222,11 +219,10 @@ export class AutomationsRepository {
 
   async createVersion(entity: AutomationVersionEntity): Promise<AutomationVersionEntity> {
     await this.db.query(`insert into automation_versions
-      (id, tenant_id, automation_id, version, trigger_config, filters, target_resolver, target_selector, approval_stage, actions, guardrails, checksum, created_by, created_at)
-      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14)`,
+      (id, tenant_id, automation_id, version, trigger_config, filters, target_resolver, approval_stage, actions, guardrails, checksum, created_by, created_at)
+      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13)`,
     [entity.id, entity.tenantId, entity.automationId, entity.version, JSON.stringify(entity.trigger), JSON.stringify(entity.filters ?? []),
-      JSON.stringify(entity.targetResolver ?? { type: 'legacy_target_selector', selector: entity.targetSelector ?? {} }),
-      JSON.stringify(entity.targetSelector ?? {}), JSON.stringify(entity.approvalStage ?? null),
+      JSON.stringify(entity.targetResolver), JSON.stringify(entity.approvalStage ?? null),
       JSON.stringify(entity.actions), JSON.stringify(entity.guardrails), entity.checksum, entity.createdBy, entity.createdAt]);
     return structuredClone(entity);
   }

@@ -82,12 +82,12 @@ export class AutomationTriggerRegistry {
         type: 'certificate_version_created',
         isEventTrigger: true,
         validate: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>) => {
-          const invalid = (trigger.sources ?? []).find((item) => !['acme', 'manual_import'].includes(item));
+          const invalid = (trigger.sources ?? []).find((item) => !['external_source', 'manual_import'].includes(item));
           if (invalid) throw new AppError('VALIDATION_FAILED', '证书事件来源不受支持', { source: invalid });
         },
         matchesContext: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>, context) => {
           if (context.eventType && context.eventType !== 'certificate.version.created') return false;
-          if (trigger.sources?.length && context.sourceType) return trigger.sources.includes(context.sourceType as 'acme' | 'manual_import');
+          if (trigger.sources?.length && context.sourceType) return trigger.sources.includes(context.sourceType as 'external_source' | 'manual_import');
           return true;
         },
         buildDeliveryKey: (_trigger, context) => {

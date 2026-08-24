@@ -11,6 +11,16 @@ export interface AutomationTargetResolverInput {
   pageSize?: number;
 }
 
+export interface AutomationTargetAccessPort {
+  canReadTarget(input: { tenantId: string; actorId: string; bindingId: string; assetId?: string }): Promise<boolean>;
+}
+
+export class AllowAllAutomationTargetAccess implements AutomationTargetAccessPort {
+  async canReadTarget(): Promise<boolean> {
+    return true;
+  }
+}
+
 export interface AutomationTargetResolver {
   type: AutomationTargetResolverDto['type'];
   validate(resolver: AutomationTargetResolverDto): void;
@@ -21,17 +31,11 @@ export class AutomationTargetResolverRegistry {
   private readonly resolvers = new Map<AutomationTargetResolverDto['type'], AutomationTargetResolver>();
 
   constructor() {
-    this
-      .register({
-        type: 'legacy_target_selector',
-        validate: () => undefined,
-        resolve: async () => [],
-      })
-      .register({
-        type: 'certificate_version_targets',
-        validate: () => undefined,
-        resolve: async () => [],
-      });
+    this.register({
+      type: 'certificate_version_targets',
+      validate: () => undefined,
+      resolve: async () => [],
+    });
   }
 
   register(resolver: AutomationTargetResolver): this {

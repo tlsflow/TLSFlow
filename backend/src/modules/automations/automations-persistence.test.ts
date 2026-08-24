@@ -17,7 +17,7 @@ test('自动化迁移可重复执行且 Repository 保留不可变历史', async
   await repository.createAutomation({ id: 'aut_1', tenantId: 'tenant_1', name: '证书更新', status: 'draft', currentVersion: 1, createdBy: 'user_1', createdAt: now, updatedAt: now, version: 1 });
   await repository.createVersion({
     id: 'autv_1', tenantId: 'tenant_1', automationId: 'aut_1', version: 1,
-    trigger: { type: 'on_demand' }, targetSelector: { certificateIds: ['cert_1'] },
+    trigger: { type: 'on_demand' }, targetResolver: { type: 'certificate_version_targets', assetIds: ['asset_1'] },
     actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'automation.result', eventKey: 'completed' } }],
     guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
     checksum: 'a'.repeat(64), createdBy: 'user_1', createdAt: now,

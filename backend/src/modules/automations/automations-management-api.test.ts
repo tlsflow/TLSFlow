@@ -12,7 +12,15 @@ import { AutomationsRepository } from './repository/automations.repository.js';
 async function setup() {
   const db = new PgliteDatabase();
   await applyAutomationMigrations(db);
-  const security = createSecurityServices();
+  const previousKek = process.env.GCAC_SECRET_KEK;
+  process.env.GCAC_SECRET_KEK = 'a'.repeat(64);
+  let security;
+  try {
+    security = createSecurityServices();
+  } finally {
+    if (previousKek === undefined) delete process.env.GCAC_SECRET_KEK;
+    else process.env.GCAC_SECRET_KEK = previousKek;
+  }
   await security.rbac.createPolicy({ subjectType: 'user', subjectId: 'user_admin', actions: ['automation.*'], resourceTypes: ['automation'], scope: { tenantId: 'tenant_1' }, effect: 'allow' });
   const service = new AutomationsApplicationService(new AutomationsRepository(db), undefined, () => new Date('2026-07-21T00:00:00.000Z'));
   const router = new Router();
@@ -25,7 +33,7 @@ function request(method: string, path: string, body?: unknown, actorId = 'user_a
 }
 
 const createBody = {
-  name: '生产证书更新', trigger: { type: 'on_demand' as const }, targetSelector: { environments: ['production'] },
+  name: '生产证书更新', trigger: { type: 'on_demand' as const }, targetResolver: { type: 'certificate_version_targets' as const, assetIds: ['asset_1'] },
   actions: [{ type: 'send_notification' as const, position: 1, config: { templateKey: 'automation.result', eventKey: 'completed' } }],
   guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: true },
 };
@@ -34,7 +42,7 @@ test('CRUD、复制、启停和软删除均写入审计', async () => {
   const { router, security } = await setup();
   const createResponse = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', createBody)) as { body: { id: string; version: number } };
   const id = createResponse.body.id;
-  await router.match('PATCH', `/api/v1/automations/${id}`)!.handler(request('PATCH', `/api/v1/automations/${id}`, { expectedVersion: 1, name: '更新后的名称', configuration: { trigger: createBody.trigger, targetSelector: createBody.targetSelector, actions: createBody.actions, guardrails: createBody.guardrails } }));
+  await router.match('PATCH', `/api/v1/automations/${id}`)!.handler(request('PATCH', `/api/v1/automations/${id}`, { expectedVersion: 1, name: '更新后的名称', configuration: { trigger: createBody.trigger, targetResolver: createBody.targetResolver, actions: createBody.actions, guardrails: createBody.guardrails } }));
   const copied = await router.match('POST', `/api/v1/automations/${id}/actions/copy`)!.handler(request('POST', `/api/v1/automations/${id}/actions/copy`)) as { body: { id: string } };
   assert.notEqual(copied.body.id, id);
   await router.match('POST', `/api/v1/automations/${id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${id}/actions/enable`, { expectedVersion: 2 }));

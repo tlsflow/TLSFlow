@@ -4,7 +4,6 @@ import { AppError } from '../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AutomationTargetResolverRegistry } from './application/automation-target-resolver.registry.js';
 import { AutomationsApplicationService } from './application/automations.application-service.js';
-import { AutomationTargetSelector } from './application/automation-target-selector.js';
 import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
 
@@ -14,8 +13,9 @@ test('按需运行固化版本和目标快照，并由幂等键复用同一运�
   const repository = new AutomationsRepository(db);
   const now = '2026-07-21T00:00:00.000Z';
   await repository.createAutomation({ id: 'aut_run', tenantId: 'tenant_1', name: '批量更新', status: 'active', currentVersion: 1, createdBy: 'u1', createdAt: now, updatedAt: now, version: 1 });
-  await repository.createVersion({ id: 'autv_run', tenantId: 'tenant_1', automationId: 'aut_run', version: 1, trigger: { type: 'on_demand' }, targetSelector: {}, actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'b'.repeat(64), createdBy: 'u1', createdAt: now });
-  const targetSelector = new AutomationTargetSelector({ getVersion: async () => ({ id: 'v1', certificateAssetId: 'c1', notAfter: '2026-07-22T00:00:00.000Z', deployable: true }), getAsset: async () => ({ id: 'c1', name: 'cert', status: 'ACTIVE', tags: [] }) } as never, { listCertificateBindings: async () => ({ page: 1, pageSize: 5000, total: 1, items: [{ id: 'b1', tenantId: 'tenant_1', serviceAssetId: 's1', serviceInstanceId: 'i', bindingKey: 'b', bindingType: 'FILE', verifyMethod: 'TLS_CONNECT', status: 'MANAGED', targetCertificateVersionId: 'v1', metadata: {}, createdAt: now, updatedAt: now, version: 1 }] }) } as never, { getServiceAsset: async () => ({ id: 's1', address: 'a', environment: 'production' }), getHost: async () => undefined } as never, undefined, () => new Date(now));
+  await repository.createVersion({ id: 'autv_run', tenantId: 'tenant_1', automationId: 'aut_run', version: 1, trigger: { type: 'on_demand' }, targetResolver: { type: 'certificate_version_targets' }, actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'b'.repeat(64), createdBy: 'u1', createdAt: now });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({ type: 'certificate_version_targets', validate: () => undefined, resolve: async () => [{ target: { certificateId: 'c1', certificateName: 'cert', certificateVersionId: 'v1', bindingId: 'b1', assetId: 's1', assetName: 'a', environment: 'production', tags: [] }, executable: true }] });
   const enqueuedTasks: Array<{ tenantId: string; taskType: string; requestedBy?: string; triggerSource: string; payload?: Record<string, unknown>; resourceSummary?: Record<string, unknown> }> = [];
   const tasks = {
     enqueue: async (input: { tenantId: string; taskType: string; requestedBy?: string; triggerSource: string; payload?: Record<string, unknown>; resourceSummary?: Record<string, unknown> }) => {
@@ -23,7 +23,7 @@ test('按需运行固化版本和目标快照，并由幂等键复用同一运�
       return { id: 'task_1', tenantId: input.tenantId, taskType: input.taskType } as never;
     },
   };
-  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), targetSelector, { tasks });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry, tasks });
   const first = await service.createOnDemandRun('tenant_1', 'u1', 'aut_run', 'manual-key', 1);
   const second = await service.createOnDemandRun('tenant_1', 'u1', 'aut_run', 'manual-key', 1);
   assert.equal(first.id, second.id);
@@ -47,7 +47,7 @@ test('证书新版本事件自动化手动执行时缺少证书版本会被拒�
     tenantId: 'tenant_1',
     automationId: 'aut_event',
     version: 1,
-    trigger: { type: 'certificate_version_created', sources: ['acme'] },
+    trigger: { type: 'certificate_version_created', sources: ['external_source'] },
     targetResolver: { type: 'certificate_version_targets' },
     actions: [{ type: 'create_deployment_plan', position: 1, config: { planType: 'UPDATE', selectionMode: 'EXPLICIT' } }],
     guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
@@ -75,7 +75,7 @@ test('证书新版本事件自动化支持带证书版本的手动立即执行',
     tenantId: 'tenant_1',
     automationId: 'aut_event_manual',
     version: 1,
-    trigger: { type: 'certificate_version_created', sources: ['acme'] },
+    trigger: { type: 'certificate_version_created', sources: ['external_source'] },
     targetResolver: { type: 'certificate_version_targets' },
     actions: [{ type: 'create_deployment_plan', position: 1, config: { planType: 'UPDATE', selectionMode: 'EXPLICIT' } }],
     guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
@@ -100,7 +100,7 @@ test('证书新版本事件自动化支持带证书版本的手动立即执行',
       executable: true,
     }],
   });
-  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), undefined, { resolverRegistry });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
   const run = await service.createOnDemandRun('tenant_1', 'u1', 'aut_event_manual', 'manual-event-success-key', 1, {
     triggerContext: {
       certificateVersionId: 'cert_ver_1',
@@ -153,7 +153,7 @@ test('证书新版本事件手动预览按已选资产解析，不受旧事件�
       executable: true,
     }],
   });
-  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), undefined, { resolverRegistry });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
 
   const preview = await service.preview('tenant_1', 'u1', 'aut_event_selected', 1, 10, {
     certificateVersionId: 'version-1',
