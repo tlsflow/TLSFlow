@@ -1,0 +1,22 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiClient, createIdempotencyKey } from '@/api/client'
+
+describe('API Client 契约占位', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('解析统一成功响应并保留 requestId', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { ok: true }, requestId: 'req_1', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 200 })))
+    const client = new ApiClient({ baseUrl: 'https://api.example.test' })
+    await expect(client.get('/health')).resolves.toMatchObject({ requestId: 'req_1', data: { ok: true } })
+  })
+
+  it('错误响应抛出包含错误码和 requestId 的异常', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ errorCode: 'PERMISSION_DENIED', message: '无权限', requestId: 'req_2', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 403 })))
+    const client = new ApiClient({ baseUrl: 'https://api.example.test' })
+    await expect(client.get('/secret')).rejects.toMatchObject({ errorCode: 'PERMISSION_DENIED', requestId: 'req_2', status: 403 })
+  })
+
+  it('高风险操作可生成幂等键', () => {
+    expect(createIdempotencyKey('deploy')).toMatch(/^deploy_/)
+  })
+})
