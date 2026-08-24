@@ -2,6 +2,7 @@ import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/
 import type { RiskLevel } from '../../../shared/security-types.js';
 import type { ExecutionRunDto, ExecutionSourceDto } from '../../executions/dto/executions.dto.js';
 import type { FallbackSuggestion, GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
+import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 
 export type DeploymentPlanType = 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY';
 export type DeploymentPlanApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -67,6 +68,7 @@ export interface DeploymentPlanTargetDto {
   gatewayRoute?: DeploymentGatewayRouteDto;
   strategyPayload?: Record<string, unknown>;
   status: DeploymentPlanTargetStatus;
+  executionStatus?: AgentSecurityStatus;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -94,6 +96,7 @@ export interface DeploymentPlanDto {
   certificateVersionId: string;
   certificateFormatId?: string;
   status: DeploymentPlanStatus;
+  executionStatus?: AgentSecurityStatus;
   approvalStatus: DeploymentPlanApprovalStatus;
   approvalId?: string;
   approval?: DeploymentPlanApprovalDto;

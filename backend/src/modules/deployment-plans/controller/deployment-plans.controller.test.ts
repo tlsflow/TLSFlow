@@ -35,7 +35,7 @@ function request(target: Record<string, unknown>) {
 
 test('部署控制器拒绝不受支持的执行类型', async () => {
   const route = createRoute();
-  for (const executorType of ['SCRIPT_PACKAGE', 'MANUAL', 'MONITOR_ONLY']) {
+  for (const executorType of ['SCRIPT_PACKAGE', 'MANUAL', 'MONITOR_ONLY', 'SSH', 'CURL', 'WINRM', 'SMB_WMI']) {
     await assert.rejects(async () => await route.handler(request({
       certificateBindingId: 'binding_legacy',
       executorType,

@@ -45,8 +45,8 @@ describe('spec014 Gateway 后端 API', () => {
         role: 'full_agent',
         zone: 'default',
         zoneIds: ['default'],
-        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
-        capabilities: ['agent.full.online', 'linux.nginx.deploy_certificate', 'gateway.probe.tcp', 'gateway.forward.agent_task', 'gateway.forward.direct_control'],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task'],
+        capabilities: ['agent.full.online', 'linux.nginx.deploy_certificate', 'gateway.probe.tcp', 'gateway.forward.agent_task'],
         currentLoad: 0,
         maxConcurrentTasks: 4,
         successRate: 1,
@@ -83,8 +83,8 @@ describe('spec014 Gateway 后端 API', () => {
         osType: 'windows',
         role: 'gateway',
         zone: '数据中心',
-        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
-        capabilities: ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.forward.agent_task', 'gateway.forward.direct_control'],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task'],
+        capabilities: ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.forward.agent_task'],
       },
     });
     assert.equal(registered.statusCode, 201);
@@ -111,9 +111,8 @@ describe('spec014 Gateway 后端 API', () => {
         compatibilityLevel: 'modern',
         capabilities: [
           { capabilityKey: 'gateway.forward.agent_task', value: true, confidence: 0.95 },
-          { capabilityKey: 'gateway.forward.direct_control', value: true, confidence: 0.95 },
         ],
-        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task'],
       },
     });
     assert.equal(capabilities.statusCode, 201);

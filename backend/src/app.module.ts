@@ -137,6 +137,8 @@ export interface AppDependencies {
   policyAuthority?: ProductionPolicyAuthorityServicesV1;
   /** 仅允许非生产测试显式注入本地策略端口。 */
   localPolicy?: UnifiedAgentPlanLocalPolicyPortV1;
+  /** 仅允许非生产测试注入真实签名的 Agent v2 授权资源。生产必须走独立 Policy Authority 装配。 */
+  agentPlanAuthorization?: UnifiedAgentPlanAuthorizationDependenciesV1;
   deploymentPlans?: DeploymentPlansController;
   deploymentPersistence?: DeploymentPersistenceOptions;
   gatewayPersistence?: GatewayPersistenceOptions;
@@ -309,7 +311,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   const agentPlanCompiler = new UnifiedAgentPlanCompilerService(
     unifiedPluginsService,
-    createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy),
+    createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
+      ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization),
   );
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
@@ -369,6 +372,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       resultSync: executionResultSync,
       detailStream: executionDetailStream,
       deploymentInputSnapshots,
+      executionGrants: security.grants,
       tasks: tasksService,
     }),
     approval: security.approvals,
@@ -720,6 +724,17 @@ function resolveAgentLocalPolicy(
     return createProductionAgentLocalPolicyAdapterV1(environment);
   }
   return injectedLocalPolicy;
+}
+
+function resolveInjectedAgentPlanAuthorization(
+  injected: UnifiedAgentPlanAuthorizationDependenciesV1 | undefined,
+  environment: NodeJS.ProcessEnv = process.env,
+): UnifiedAgentPlanAuthorizationDependenciesV1 | undefined {
+  if (!injected) return undefined;
+  if (environment.NODE_ENV === 'production') {
+    throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '生产装配拒绝注入测试 Agent Plan 授权依赖', { fallback: false });
+  }
+  return injected;
 }
 
 export async function initializeBuiltinPlugins(

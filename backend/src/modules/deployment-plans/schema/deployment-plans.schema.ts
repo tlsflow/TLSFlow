@@ -1,6 +1,7 @@
 import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { DeploymentGatewayRouteDto, DeploymentPlanApprovalStatus, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode, DeploymentPlanTargetStatus, DeploymentPlanType } from '../dto/deployment-plans.dto.js';
+import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 
 export interface DeploymentPlanEntity extends IdentifiedEntity {
   tenantId?: string;
@@ -10,6 +11,8 @@ export interface DeploymentPlanEntity extends IdentifiedEntity {
   certificateVersionId: string;
   certificateFormatId?: string;
   status: DeploymentPlanStatus;
+  /** 执行安全终态；UNKNOWN 表示写入是否发生无法确认。 */
+  executionStatus?: AgentSecurityStatus;
   approvalStatus: DeploymentPlanApprovalStatus;
   approvalId?: string;
   snapshotHash: string;
@@ -38,6 +41,8 @@ export interface DeploymentPlanTargetEntity extends IdentifiedEntity {
   gatewayRoute?: DeploymentGatewayRouteDto;
   strategyPayload?: Record<string, unknown>;
   status: DeploymentPlanTargetStatus;
+  /** 目标执行安全终态；不替代目标生命周期 status。 */
+  executionStatus?: AgentSecurityStatus;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;

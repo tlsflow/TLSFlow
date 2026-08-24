@@ -23,6 +23,7 @@ import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
+import type { ExecutionGrantService } from '../execution-grant.service.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
@@ -39,6 +40,8 @@ export interface ExecutionsApplicationDependencies {
   stageIntervalMs?: number;
   delay?: (milliseconds: number) => Promise<void>;
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  /** Agent v2 步骤必须使用绑定当前运行和步骤的 Execution Grant。 */
+  executionGrants?: ExecutionGrantService;
   tasks?: TaskEnqueuer;
 }
 
@@ -57,6 +60,7 @@ export class ExecutionsApplicationService {
   private readonly stageIntervalMs: number;
   private readonly delay: (milliseconds: number) => Promise<void>;
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  private readonly executionGrants?: ExecutionGrantService;
   private readonly tasks?: TaskEnqueuer;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
@@ -74,6 +78,7 @@ export class ExecutionsApplicationService {
     this.stageIntervalMs = Math.max(0, dependencies.stageIntervalMs ?? 1_000);
     this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots;
+    this.executionGrants = dependencies.executionGrants;
     this.tasks = dependencies.tasks;
   }
 
@@ -568,19 +573,13 @@ export class ExecutionsApplicationService {
           ? readString(agentPayload.sourceRunId) ?? readString(agentPayload.rollbackContext, 'sourceRunId')
           : undefined;
         const planTarget = await this.deploymentPlansRepository.getTarget(targetId, run.tenantId);
-        const step = await this.repository.createStep({
-          id: newId('stp'),
-            tenantId: run.tenantId,
-            executionRunId: run.id,
-            deploymentPlanTargetId: targetId,
-          stepNo,
-          stepType,
-          name: `${stepType} ${targetId}`,
-          dependsOn: previousStepNo ? [previousStepNo] : [],
-          idempotent: stepType !== 'RELOAD',
-          attemptCount: 0,
-          maxAttempts: stepMaxAttempts,
-            inputSnapshot: {
+        const stepId = newId('stp');
+        const inputSnapshot = await this.bindAgentExecutionGrant({
+          run,
+          stepId,
+          targetId,
+          executorType,
+          inputSnapshot: {
               ...agentPayload,
               deploymentPlanId: run.deploymentPlanId,
               deploymentPlanTargetId: targetId,
@@ -600,6 +599,20 @@ export class ExecutionsApplicationService {
             delegatedTargetId: gatewayRoute?.delegatedTargetId,
             retryBackoffSeconds: readRetryBackoff(run.summary),
           },
+        });
+        const step = await this.repository.createStep({
+          id: stepId,
+            tenantId: run.tenantId,
+            executionRunId: run.id,
+            deploymentPlanTargetId: targetId,
+          stepNo,
+          stepType,
+          name: `${stepType} ${targetId}`,
+          dependsOn: previousStepNo ? [previousStepNo] : [],
+          idempotent: stepType !== 'RELOAD',
+          attemptCount: 0,
+          maxAttempts: stepMaxAttempts,
+            inputSnapshot,
           status: 'PENDING',
           createdAt: now,
           updatedAt: now,
@@ -614,6 +627,62 @@ export class ExecutionsApplicationService {
       }
     }
     return created;
+  }
+
+  private async bindAgentExecutionGrant(input: {
+    run: ExecutionRunEntity;
+    stepId: string;
+    targetId: string;
+    executorType: string;
+    inputSnapshot: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    if (input.executorType !== 'AGENT' || !isAgentPlanAction(readString(input.inputSnapshot.actionType))) {
+      return input.inputSnapshot;
+    }
+    if (!this.executionGrants) {
+      throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Agent v2 Execution Grant 服务未装配，拒绝创建执行步骤', { fallback: false });
+    }
+    const authorization = readRecord(input.inputSnapshot.executionAuthorization);
+    const plan = readRecord(input.inputSnapshot.plan);
+    const runtime = readRecord(input.inputSnapshot.pluginRuntimeCapability);
+    const tenantId = input.run.tenantId;
+    const agentPlanId = readString(plan?.planId);
+    const boundDeploymentPlanId = readString(authorization?.planId);
+    const pluginId = readString(plan?.pluginId) ?? readString(runtime?.pluginId);
+    const pluginVersionId = readString(plan?.pluginVersionId) ?? readString(runtime?.pluginVersionId);
+    const capability = readString(plan?.capability) ?? readString(runtime?.capabilityKey);
+    const planDigest = readString(plan?.planDigest);
+    const actions = readStringArray(authorization?.actions);
+    const lifetimeSeconds = authorization?.lifetimeSeconds;
+    if (!tenantId || !authorization || !agentPlanId || !pluginId || !pluginVersionId || !capability || !planDigest
+      || boundDeploymentPlanId !== input.run.deploymentPlanId
+      || actions.length === 0 || !Number.isInteger(lifetimeSeconds) || (lifetimeSeconds as number) < 1) {
+      throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Agent v2 Execution Grant 绑定材料不完整', { fallback: false });
+    }
+    const grant = await this.executionGrants.create({
+      tenantId,
+      planId: agentPlanId,
+      runId: input.run.id,
+      stepId: input.stepId,
+      targetId: input.targetId,
+      pluginVersionId,
+      pluginId,
+      capability,
+      planDigest,
+      approvalId: readString(authorization.approvalId),
+      executorType: 'AGENT',
+      allowedSecretRefs: [],
+      allowedArtifactRefs: [],
+      allowedActions: actions,
+      expiresAt: new Date(Date.now() + (lifetimeSeconds as number) * 1000).toISOString(),
+    });
+    return {
+      ...input.inputSnapshot,
+      executionAuthorization: {
+        ...authorization,
+        grantId: grant.id,
+      },
+    };
   }
 
   private async syncDeploymentPlanAfterRun(run: ExecutionRunEntity, actorId: string, tenantId?: string): Promise<void> {
@@ -996,8 +1065,38 @@ export class ExecutionsApplicationService {
       updatedAt: now,
       updatedBy: actorId,
     });
+    await this.persistUnknownDeploymentState(run, step, actorId, tenantId, input.errorMessage ?? input.errorCode ?? '执行结果不明');
     this.detailStream?.publishStep(await this.repository.getStepOrThrow(step.id, tenantId));
     this.detailStream?.publishRun(await this.repository.getRunOrThrow(run.id, tenantId));
+  }
+
+  private async persistUnknownDeploymentState(
+    run: ExecutionRunEntity,
+    step: ExecutionStepEntity,
+    actorId: string,
+    tenantId: string | undefined,
+    reason: string,
+  ): Promise<void> {
+    const plan = await this.deploymentPlansRepository.getPlan(run.deploymentPlanId, tenantId);
+    if (!plan) return;
+    await this.deploymentPlansRepository.updatePlan(plan.id, {
+      executionStatus: 'UNKNOWN',
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorId,
+    });
+    if (!step.deploymentPlanTargetId) return;
+    const target = await this.deploymentPlansRepository.getTarget(step.deploymentPlanTargetId, tenantId);
+    if (!target) return;
+    await this.deploymentPlansRepository.updateTarget(target.id, {
+      executionStatus: 'UNKNOWN',
+      strategyPayload: {
+        ...(target.strategyPayload ?? {}),
+        executionStatus: 'UNKNOWN',
+        unknownReason: reason,
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorId,
+    });
   }
 
   private toStepDto(step: ExecutionStepEntity): ExecutionStepDto {
@@ -1136,16 +1235,21 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
       : 'CONTROL_PLANE_TLS';
   }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
-  const runtime = readString(payload.pluginRuntimeCapability, 'runtime');
-  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'TRUSTED_JS';
+  const monolithicUpdate = baseExecutorType === 'WORKFLOW';
   if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
 }
 
 function persistentExecutionPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const executionRuntimeSnapshot = readRecord(payload.executionRuntimeSnapshot);
+  const sourcePlan = readRecord(payload.plan);
+  const sanitizedPayload = sanitizeDeploymentInputPersistencePayload(payload);
+  const sanitizedPlan = readRecord(sanitizedPayload.plan);
+  const planTokenId = readString(sourcePlan?.tokenId);
+  // tokenId 只是授权绑定标识，不是 Token 密文；保留它才能在执行时重新校验完整 Plan。
+  if (sanitizedPlan && planTokenId) sanitizedPayload.plan = { ...sanitizedPlan, tokenId: planTokenId };
   return {
-    ...sanitizeDeploymentInputPersistencePayload(payload),
+    ...sanitizedPayload,
     ...(executionRuntimeSnapshot ? { executionRuntimeSnapshot: structuredClone(executionRuntimeSnapshot) } : {}),
   };
 }
@@ -1249,7 +1353,7 @@ function readSourceGatewayRoutes(
 function shouldSyncExecutorResult(executorType: string, runType: ExecutionRunEntity['type']): boolean {
   if (runType === 'dry_run') return false;
   if (executorType === 'CONTROL_PLANE_TLS') return true;
-  return executorType === 'WORKFLOW' || executorType === 'TRUSTED_JS';
+  return executorType === 'WORKFLOW';
 }
 
 function resolveExecutionStatus(
@@ -1361,4 +1465,17 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
 function readString(value: unknown, key?: string): string | undefined {
   const target = key ? readRecord(value)?.[key] : value;
   return typeof target === 'string' && target.trim() ? target.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    : [];
+}
+
+function isAgentPlanAction(value: string | undefined): boolean {
+  return value === 'agent.fact.collect'
+    || value === 'agent.plan.validate'
+    || value === 'agent.plan.execute'
+    || value === 'agent.execution.receipt';
 }

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
@@ -31,15 +32,16 @@ import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/proto
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
-import { computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
+import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
+import { signPolicyPayload } from '../agents/security/agent-security.contract.js';
+import { FilePolicyAuthorityStateStoreV1, PolicyAuthorityServiceV1 } from '../agents/security/policy-authority.service.js';
 
 const userHeaders = testAuthHeaders('user_1', 'tenant_1', { 'x-request-id': 'req_test' });
 const approverHeaders = testAuthHeaders('approver_1', 'tenant_1', { 'x-request-id': 'req_approve' });
 const describe = (name: string, fn: () => void) => baseDescribe(name, { concurrency: false }, fn);
 
-let directControlAddressPromise: Promise<string> | undefined;
-let directControlServer: ReturnType<typeof createServer> | undefined;
 const activeTestDatabases = new Set<PgliteDatabase>();
+const activePolicyAuthorityStatePaths = new Set<string>();
 
 function createTrackedDatabase(): PgliteDatabase {
   const db = new PgliteDatabase();
@@ -53,82 +55,14 @@ async function closeTrackedDatabases(): Promise<void> {
   await Promise.all(databases.map((db) => db.close()));
 }
 
-async function closeDirectControlServer(): Promise<void> {
-  const server = directControlServer;
-  try {
-    if (server) {
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    }
-  } finally {
-    directControlServer = undefined;
-    directControlAddressPromise = undefined;
-  }
-}
-
 async function closeTestResources(): Promise<void> {
-  try {
-    await closeTrackedDatabases();
-  } finally {
-    await closeDirectControlServer();
+  await closeTrackedDatabases();
+  for (const statePath of activePolicyAuthorityStatePaths) {
+    rmSync(statePath, { force: true });
+    rmSync(`${statePath}.lock`, { force: true });
+    rmSync(join(statePath, '..'), { recursive: true, force: true });
   }
-}
-
-function getTestAgentDirectControl() {
-  directControlAddressPromise ??= new Promise<string>((resolve, reject) => {
-    let actionSequence = 0;
-    const server = createServer((request, response) => {
-      if (request.method === 'POST' && request.url === '/api/v1/control/actions/start') {
-        actionSequence += 1;
-        response.writeHead(202, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({
-          success: true,
-          accepted: true,
-          actionId: `deployment-direct-action-${actionSequence}`,
-          status: 'running',
-        }));
-        return;
-      }
-      if (request.method === 'GET' && request.url?.startsWith('/api/v1/control/actions/status?actionId=')) {
-        const actionId = new URL(request.url, 'http://127.0.0.1').searchParams.get('actionId');
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({
-          success: true,
-          actionId,
-          status: 'completed',
-          detail: {
-            state: 'SUCCEEDED',
-            operationResults: [{
-              operationId: `preflight-${actionId}`,
-              operationType: 'preflight.assert',
-              stage: 'prepare',
-              status: 'SUCCEEDED',
-              detail: { passed: true },
-            }],
-          },
-        }));
-        return;
-      }
-      response.writeHead(404).end();
-    });
-    directControlServer = server;
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      if (!address || typeof address === 'string') {
-        reject(new Error('Direct Control 测试服务监听失败'));
-        return;
-      }
-      server.unref();
-      resolve(`127.0.0.1:${address.port}`);
-    });
-  });
-  return directControlAddressPromise.then((listenAddress) => ({
-    enabled: true,
-    reachable: true,
-    listenAddress,
-    protocolVersion: 'v1',
-    supportedActions: ['health', 'discovery.run', 'agent.plan.execute'],
-  }));
+  activePolicyAuthorityStatePaths.clear();
 }
 
 type DeploymentFixture = {
@@ -185,9 +119,93 @@ function createDeploymentTestApp(db: PgliteDatabase, security: ReturnType<typeof
     db,
     corePersistence: { mode: 'memory' },
     security,
+    agentPlanAuthorization: createDeploymentAgentPlanAuthorizationFixture(security),
     certificates,
     pluginRunner: createDeploymentPluginRunnerFixture(),
   }));
+}
+
+function createDeploymentAgentPlanAuthorizationFixture(security: ReturnType<typeof createSecurityServices>) {
+  const root = generateKeyPairSync('ed25519');
+  const signer = generateKeyPairSync('ed25519');
+  const rootPublicKeyPem = root.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const signerPublicKeyPem = signer.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const trustRoot = {
+    rootKeyId: 'gcac-policy-root-2026',
+    authorityId: 'gcac-policy-authority-2026',
+    algorithm: 'Ed25519',
+    publicKeyPem: rootPublicKeyPem,
+    fingerprintSha256: createHash('sha256').update(root.publicKey.export({ type: 'spki', format: 'der' })).digest('hex'),
+  };
+  const keySet = {
+    keySetVersion: 'gcac.agent-security/v1',
+    authorityId: trustRoot.authorityId,
+    activeKeyId: 'gcac-policy-signing-2026',
+    issuedAt: '2026-01-01T00:00:00.000Z',
+    keys: [{
+      keyId: 'gcac-policy-signing-2026',
+      algorithm: 'Ed25519',
+      publicKeyPem: signerPublicKeyPem,
+      status: 'ACTIVE',
+      notBefore: '2026-01-01T00:00:00.000Z',
+      notAfter: '2099-01-01T00:00:00.000Z',
+    }],
+  };
+  const envelopeValue = {
+    envelopeVersion: 'gcac.agent-security/v1',
+    rootKeyId: trustRoot.rootKeyId,
+    authorityId: trustRoot.authorityId,
+    keySet,
+  };
+  const statePath = join(mkdtempSync(join(tmpdir(), 'gcac-p1-agent-policy-')), 'state.json');
+  writeFileSync(statePath, JSON.stringify({
+    stateVersion: 'gcac.policy-authority-state/v1',
+    revokedTokenIds: [],
+    revokedDecisionIds: [],
+    revokedKeyIds: [],
+    nonces: [],
+  }), 'utf8');
+  activePolicyAuthorityStatePaths.add(statePath);
+  const state = new FilePolicyAuthorityStateStoreV1(statePath);
+  const authority = new PolicyAuthorityServiceV1({
+    trustRoot,
+    keySet: { ...envelopeValue, signature: signPolicyPayload(envelopeValue, root.privateKey) },
+    signingKeySource: { getPrivateKey: (keyId: string) => keyId === 'gcac-policy-signing-2026' ? signer.privateKey : undefined },
+    evaluator: {
+      evaluate: (request: Record<string, unknown>) => ({
+        allowed: true,
+        actions: request.actions,
+        allowedPaths: request.allowedPaths,
+        allowedServices: request.allowedServices,
+        artifactDigests: request.artifactDigests,
+        policyRef: request.policyRef,
+        policyVersion: request.policyVersion,
+      }),
+    },
+    revocations: state,
+    nonceStore: state,
+    now: () => new Date().toISOString(),
+  });
+  return {
+    policyAuthority: {
+      assertReady: () => { authority.getTrustedKeySet(); },
+      issueAuthorization: (request: Record<string, unknown>) => authority.issueAuthorization(request as never),
+    },
+    grants: { validate: (input: Record<string, unknown>) => security.grants.validate(input as never) },
+    localPolicy: {
+      resolve: async ({ agentId }: { agentId: string }) => ({
+        policyVersion: 'gcac.agent-security/v1',
+        agentId,
+        authorityKeyIds: ['gcac-policy-signing-2026'],
+        allowedActions: ['certificate.store.inspect'],
+        pathRules: [],
+        serviceRules: [],
+        commandRules: [],
+        disabled: false,
+        updatedAt: new Date().toISOString(),
+      }),
+    },
+  };
 }
 
 function createDeploymentPluginRunnerFixture(): PluginRunnerExecutionDependencies {
@@ -470,7 +488,7 @@ async function configureApplicationAssetManagedTarget(
 async function ensureIisAgentPlanPlugin(app: ReturnType<typeof createApp>): Promise<void> {
   const unifiedPlugins = app.getResource('unifiedPluginsService');
   assert.ok(unifiedPlugins);
-  const existing = (await unifiedPlugins.listVersions('tenant_1')).find((item: { pluginId: string }) => item.pluginId === 'web.microsoft-iis-agent-plan');
+  const existing = (await unifiedPlugins.listVersions('tenant_1')).find((item: { pluginId: string }) => item.pluginId === 'web.agent.plan');
   if (existing) return;
   const agentPlanResource = JSON.stringify({
     inputContract: {
@@ -493,7 +511,7 @@ async function ensureIisAgentPlanPlugin(app: ReturnType<typeof createApp>): Prom
       planId: 'iis-pfx-deploy-plan',
       agentId: 'fixture-agent',
       tenantId: 'fixture-tenant',
-      pluginId: 'web.microsoft-iis-agent-plan',
+      pluginId: 'web.agent.plan',
       pluginVersionId: 'fixture-plugin-version',
       capability: 'certificate.deploy',
       operations: [{
@@ -529,7 +547,7 @@ async function ensureIisAgentPlanPlugin(app: ReturnType<typeof createApp>): Prom
     manifest: {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
-      pluginId: 'web.microsoft-iis-agent-plan',
+      pluginId: 'web.agent.plan',
       version: '1.0.0',
       displayNameKey: 'plugin.microsoftIisAgentPlan.name',
       publisher: 'GCAC test fixture',
@@ -577,20 +595,92 @@ async function completeAgentDryRun(app: ReturnType<typeof createApp>, input: {
   assert.ok(executions);
   const dispatched = await executions.runDispatchedExecution(body.run.id, 'user_1', 'tenant_1');
   assert.equal(dispatched.success, true, JSON.stringify(dispatched));
+  assert.equal(dispatched.pending, true, JSON.stringify(dispatched));
+  let completed = false;
+  for (let cycle = 0; cycle < 20 && !completed; cycle += 1) {
+    const pulled = await app.inject({
+      method: 'GET',
+      path: `/api/v1/agents/tasks/pull?agentId=${input.agentId}`,
+      headers: userHeaders,
+    });
+    assert.equal(pulled.statusCode, 200, JSON.stringify(pulled.body));
+    const queuedTasks = pulled.body as Array<{ id: string; agentId: string; payload: Record<string, unknown> }>;
+    if (queuedTasks.length === 0) {
+      const currentRun = await executions.getRun(body.run.id, 'tenant_1');
+      completed = currentRun.status === 'SUCCESS';
+      if (!completed) {
+        const resumed = await executions.runDispatchedExecution(body.run.id, 'user_1', 'tenant_1');
+        assert.equal(resumed.success, true, JSON.stringify(resumed));
+      }
+      continue;
+    }
+    for (const task of queuedTasks) {
+      const leaseId = `lease_dry_run_${task.id}`;
+      const ack = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/tasks/ack',
+        headers: userHeaders,
+        body: { agentId: task.agentId, taskId: task.id, leaseId },
+      });
+      assert.equal(ack.statusCode, 200, JSON.stringify(ack.body));
+      const plan = task.payload.plan as { planId: string; planDigest: string; operations: Array<{ operationId: string; operationType: string; stage?: string }> };
+      const token = task.payload.token as { tokenId: string };
+      const startedAt = new Date().toISOString();
+      const operation = plan.operations[0];
+      assert.ok(operation, JSON.stringify(plan));
+      const operationId = operation.operationId;
+      const operationResults = [{
+        operationId,
+        operationType: operation.operationType,
+        stage: operation.stage ?? 'prepare',
+        status: 'SUCCEEDED',
+        detail: { passed: true },
+      }];
+      const receipt = {
+        receiptVersion: 'gcac.agent-security/v1',
+        operationId,
+        planId: plan.planId,
+        planDigest: plan.planDigest,
+        agentId: task.agentId,
+        tenantId: 'tenant_1',
+        tokenId: token.tokenId,
+        status: 'SUCCESS',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        operationResults,
+        nonceConsumed: false,
+      };
+      const result = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/tasks/result',
+        headers: userHeaders,
+        body: {
+          agentId: task.agentId,
+          taskId: task.id,
+          leaseId,
+          success: true,
+          status: 'SUCCESS',
+          detail: { mode: 'agent_v2_receipt', operationResults, receipt: { ...receipt, digest: computeAgentExecutionReceiptDigest(receipt) } },
+        },
+      });
+      assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+    }
+    completed = (await executions.getRun(body.run.id, 'tenant_1')).status === 'SUCCESS';
+  }
+  assert.equal(completed, true, JSON.stringify(await executions.getRun(body.run.id, 'tenant_1')));
   const storedRun = await executions.getRun(body.run.id, 'tenant_1');
   assert.equal(storedRun.status, 'SUCCESS', JSON.stringify(storedRun));
   const storedSteps = await executions.listSteps({ tenantId: 'tenant_1', executionRunId: body.run.id });
   assert.equal(storedSteps.length, body.steps.length);
   assert.ok(storedSteps.every((step: { status: string }) => step.status === 'SUCCESS'), JSON.stringify(storedSteps));
   assert.ok(storedSteps.some((step: { inputSnapshot?: { resultDetail?: { dryRunSummary?: unknown } } }) => step.inputSnapshot?.resultDetail?.dryRunSummary), JSON.stringify(storedSteps));
-
-  const pulled = await app.inject({
+  const drained = await app.inject({
     method: 'GET',
     path: `/api/v1/agents/tasks/pull?agentId=${input.agentId}`,
     headers: userHeaders,
   });
-  assert.equal(pulled.statusCode, 200, JSON.stringify(pulled.body));
-  assert.deepEqual(pulled.body, []);
+  assert.equal(drained.statusCode, 200, JSON.stringify(drained.body));
+  assert.deepEqual(drained.body, []);
   return body;
 }
 
@@ -1235,6 +1325,50 @@ describe('部署计划与执行编排 API', () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal((response.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
+  });
+
+  it('旧 SSH/CURL/WINRM/SMB_WMI 执行器不能创建或提交部署计划', async () => {
+    const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
+    const legacyExecutorTypes = ['SSH', 'CURL', 'WINRM', 'SMB_WMI'];
+
+    for (const executorType of legacyExecutorTypes) {
+      const createResponse = await app.inject({
+        method: 'POST',
+        path: '/api/v1/deployment-plans',
+        headers: userHeaders,
+        body: {
+          ...createPlanBody(fixture, `idem_retired_create_${executorType}`),
+          targets: [{ ...createPlanBody(fixture).targets[0], executorType }],
+        },
+      });
+      assert.equal(createResponse.statusCode, 400, JSON.stringify(createResponse.body));
+      assert.equal((createResponse.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
+
+      const seedResponse = await app.inject({
+        method: 'POST',
+        path: '/api/v1/deployment-plans',
+        headers: userHeaders,
+        body: createPlanBody(fixture, `idem_retired_submit_${executorType}`),
+      });
+      assert.equal(seedResponse.statusCode, 201, JSON.stringify(seedResponse.body));
+      const planId = (seedResponse.body as { id: string }).id;
+      const targets = await deploymentService.getRepository().listTargetsByPlan(planId, 'tenant_1');
+      assert.equal(targets.length, 1);
+      await deploymentService.getRepository().updateTarget(targets[0]!.id, {
+        executorType,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'test_retired_executor',
+      });
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        path: '/api/v1/deployment-plans/submit',
+        headers: userHeaders,
+        body: { planId },
+      });
+      assert.equal(submitResponse.statusCode, 400, JSON.stringify(submitResponse.body));
+      assert.equal((submitResponse.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
+    }
   });
 
   it('提交低风险计划进入 READY，高风险计划进入审批', async () => {
@@ -2272,7 +2406,6 @@ describe('部署计划与执行编排 API', () => {
         ipAddress: '10.20.30.50',
         version: '1.0.0',
         osType: 'windows',
-        directControl: await getTestAgentDirectControl(),
       },
     });
     assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
@@ -2417,7 +2550,6 @@ describe('部署计划与执行编排 API', () => {
         ipAddress: '10.255.0.213',
         version: '1.0.0',
         osType: 'windows',
-        directControl: await getTestAgentDirectControl(),
       },
     });
     assert.equal(registered.statusCode, 201);
@@ -2592,7 +2724,6 @@ describe('部署计划与执行编排 API', () => {
         ipAddress: '10.255.0.214',
         version: '1.0.0',
         osType: 'windows',
-        directControl: await getTestAgentDirectControl(),
       },
     });
     assert.equal(registered.statusCode, 201);
@@ -2817,7 +2948,6 @@ describe('部署计划与执行编排 API', () => {
         ipAddress: '10.255.0.215',
         version: '1.0.0',
         osType: 'windows',
-        directControl: await getTestAgentDirectControl(),
       },
     });
     assert.equal(registered.statusCode, 201);
@@ -3274,7 +3404,6 @@ async function seedWorkflowStrategyFixture(app: ReturnType<typeof createApp>, db
       ipAddress: '10.255.0.216',
       version: '1.0.0',
       osType: 'windows',
-      directControl: await getTestAgentDirectControl(),
     },
   });
   assert.equal(agent.statusCode, 201, JSON.stringify(agent.body));
@@ -3416,7 +3545,6 @@ async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId
       ipAddress: '10.255.0.217',
       version: '1.0.0',
       osType: 'windows',
-      directControl: await getTestAgentDirectControl(),
     },
   });
   assert.equal(registered.statusCode, 201);

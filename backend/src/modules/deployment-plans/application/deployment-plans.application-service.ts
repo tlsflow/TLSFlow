@@ -5,6 +5,7 @@ import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { AuditService, type WriteAuditInput } from '../../audits/audit.service.js';
 import { ApprovalService } from '../../approvals/approval.service.js';
 import { newId } from '../../../shared/id.js';
+import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
@@ -33,6 +34,7 @@ import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executi
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
+import { canonicalProductFamilyForOsType } from '../../devices/domain/canonical-product-family.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { DeploymentCapabilityResolver, type ResolvedDeploymentCapability, type UnifiedPluginVersionReader } from '../../plugins/application/deployment-capability.resolver.js';
@@ -275,6 +277,7 @@ export class DeploymentPlansApplicationService {
   }
 
   async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    assertDeploymentExecutorTypes(input.targets, 'create');
     this.domain.assertCreateInput(input);
     const resolved = await this.resolveCreateInput(input);
     const normalizedInput: CreateDeploymentPlanInput = {
@@ -488,6 +491,7 @@ export class DeploymentPlansApplicationService {
     }
 
     const draft = await this.buildCreateInputFromApplicationAsset(input);
+    assertDeploymentExecutorTypes(draft.targets, 'update');
     this.domain.assertCreateInput(draft);
     const resolved = await this.resolveCreateInput(draft);
     const normalizedInput: CreateDeploymentPlanInput = {
@@ -898,7 +902,7 @@ export class DeploymentPlansApplicationService {
       applicationAssetId: asset.id,
       executionLocations: context.availableExecutionLocations,
       compatibility: {
-        productFamily: context.deviceAsset?.deviceFamily ?? agentProductFamily(context.host.osType),
+        productFamily: context.deviceAsset?.deviceFamily ?? canonicalProductFamilyForOsType(context.host.osType),
         frameworkType: context.frameworkType,
         targetType: context.managedTarget.targetType,
         managementMethod: context.agent ? 'AGENT' : context.deviceAsset ? 'PLUGIN' : 'MANUAL',
@@ -1255,7 +1259,9 @@ export class DeploymentPlansApplicationService {
   }
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
-    const plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'submit');
+    const plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
 
@@ -1330,7 +1336,9 @@ export class DeploymentPlansApplicationService {
   }
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'execute');
+    let plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     let executionApprovalId = plan.approvalId;
     let executionApproved = plan.approvalStatus === 'APPROVED';
@@ -1392,6 +1400,7 @@ export class DeploymentPlansApplicationService {
     );
     for (const [targetId, payload] of agentPayloadByTargetId) {
       const workflowRequest = readRecord(payload.workflowRequest);
+      const executionAuthorization = readRecord(payload.executionAuthorization);
       const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
       const runtimeSnapshot = runtimeSnapshots.get(targetId);
       const allowInsecureTls = runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true;
@@ -1399,6 +1408,7 @@ export class DeploymentPlansApplicationService {
         ...payload,
         ...(trustPlanByTargetId.get(targetId) ? { certificateTrustPlan: trustPlanByTargetId.get(targetId) } : {}),
         executionAuthorization: {
+          ...executionAuthorization,
           tenantId: plan.tenantId,
           planId: plan.id,
           targetId,
@@ -1431,7 +1441,9 @@ export class DeploymentPlansApplicationService {
   }
 
   async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'dry-run');
+    let plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许 dry-run', { planId: plan.id, status: plan.status });
@@ -1450,12 +1462,14 @@ export class DeploymentPlansApplicationService {
       context.requestId ?? input.idempotencyKey,
     );
     for (const [targetId, payload] of agentPayloadByTargetId) {
+      const executionAuthorization = readRecord(payload.executionAuthorization);
       const runtimeSnapshot = runtimeSnapshots.get(targetId);
       const workflowRequest = readRecord(payload.workflowRequest);
       agentPayloadByTargetId.set(targetId, {
         ...payload,
         ...(trustPlanByTargetId.get(targetId) ? { certificateTrustPlan: trustPlanByTargetId.get(targetId) } : {}),
         executionAuthorization: {
+          ...executionAuthorization,
           tenantId: plan.tenantId,
           planId: plan.id,
           targetId,
@@ -2429,9 +2443,6 @@ export class DeploymentPlansApplicationService {
     if (readOptionalString(runtimeCapability?.runtime) === 'WORKFLOW_DSL') {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
-    if (readOptionalString(runtimeCapability?.runtime) === 'TRUSTED_JS') {
-      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
-    }
     if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_PLAN') {
       return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
@@ -2942,9 +2953,13 @@ export class DeploymentPlansApplicationService {
   }
 
   private protocolsFromExecutorType(executorType: CreateDeploymentPlanInput['targets'][number]['executorType']): GatewayAdapterType[] {
-    if (executorType === 'CURL') return ['probe.http'];
     if (executorType === 'GATEWAY_FORWARD') return ['forward.agent_task'];
     return ['forward.agent_task'];
+  }
+
+  private async assertPersistedDeploymentExecutors(planId: string, tenantId: string | undefined, operation: string): Promise<void> {
+    const targets = await this.repository.listTargetsByPlan(planId, tenantId);
+    assertDeploymentExecutorTypes(targets, operation);
   }
 
   private isDestructivePlan(policy: DeploymentPlanEntity['policy']): boolean {
@@ -3481,17 +3496,27 @@ function isMissingRelationError(error: unknown): boolean {
   return code === '42P01' || message.includes('does not exist');
 }
 
-function agentProductFamily(osType: string): string | undefined {
-  return AGENT_PRODUCT_FAMILY_BY_OS[osType.trim().toUpperCase()];
-}
-
 function effectiveBindingFromPayload(payload: Record<string, unknown>) {
   const value = readRecord(payload.effectiveInputBindings);
   if (!value || value.apiVersion !== 'gcac.input-bindings/v1') return undefined;
   return { inputBindings: value as unknown as InputBindingsV1, provenance: {} };
 }
 
-const AGENT_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = Object.freeze({
-  WINDOWS: 'WINDOWS_SERVER',
-  LINUX: 'LINUX_SERVER',
-});
+function assertDeploymentExecutorTypes(
+  targets: readonly { executorType?: unknown }[],
+  operation: string,
+): void {
+  for (const [targetIndex, target] of targets.entries()) {
+    const executorType = target.executorType;
+    if (executorType === undefined) continue;
+    if (typeof executorType !== 'string' || !ExecutionTargetKinds.includes(executorType as ExecutionTargetKind)) {
+      throw new AppError('VALIDATION_FAILED', '部署目标执行器未接入受支持的 Agent v2 或 Plugin Runner 路径，拒绝继续', {
+        code: 'DEPLOYMENT_EXECUTOR_NOT_REGISTERED',
+        operation,
+        targetIndex,
+        executorType,
+        allowedExecutorTypes: ExecutionTargetKinds,
+      });
+    }
+  }
+}

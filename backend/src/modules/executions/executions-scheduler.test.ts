@@ -14,6 +14,7 @@ import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAd
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { computeAgentPlanDigest, type AgentCapabilityTokenV1, type AgentPlanV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
 
 function createService(dependencies: Record<string, unknown> = {}) {
   return new ExecutionsApplicationService({
@@ -108,6 +109,29 @@ describe('统一任务控制面', () => {
     }
   });
 });
+
+function resolvedGatewayDeploymentInput(): Record<string, unknown> {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_gateway_enqueue', address: 'gateway-fixture.example.com', serverName: 'gateway-fixture.example.com', port: 443, protocol: 'HTTPS' },
+      host: { id: 'host_gateway_enqueue', osType: 'LINUX' },
+      target: { id: 'target_gateway_enqueue', type: 'tls.binding', key: 'gateway-fixture', metadata: {} },
+      deployment: { targets: [], certificateResourceName: 'certificate-gateway-fixture' },
+    },
+    variables: {},
+    connections: {},
+    credentials: {},
+    artifacts: {},
+    provenance: {},
+    sensitivePaths: [],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'f'.repeat(64),
+  };
+}
 
 class TrackingExecutor implements Executor {
   readonly timeline: string[] = [];
@@ -295,16 +319,94 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(progressEventIndex < successEventIndex, true);
   });
 
-  it('GatewayRouteExecutor 通过控制面主动直连下发路由任务', async () => {
+  it('GatewayRouteExecutor 通过 Agent v2 控制面队列下发路由任务', async () => {
     let capturedPayload: Record<string, unknown> | undefined;
     const agents = {
-      enqueueDirectTask: async (_tenantId: string, input: { payload?: Record<string, unknown> }) => {
+      enqueueTask: async (_tenantId: string, input: { payload?: Record<string, unknown> }) => {
         capturedPayload = input.payload;
-        return { id: 'agtask_gateway_direct', status: 'acked' };
+        return { id: 'agtask_gateway_queued', status: 'queued' };
       },
-      executeTaskDirect: async () => ({ success: true, detail: { forwarded: true } }),
     } as unknown as AgentsApplicationService;
-    const executor = new GatewayRouteExecutorAdapter({ agents });
+    const planBase = {
+      planVersion: 'gcac.agent-security/v1' as const,
+      planId: 'plan_gateway_enqueue',
+      agentId: 'host_gateway_enqueue',
+      tenantId: 'tenant_1',
+      pluginId: 'web.nginx',
+      pluginVersionId: 'plugin-version-gateway-fixture',
+      capability: 'filesystem.atomic_replace',
+      operations: [{
+        operationId: 'operation-gateway-enqueue',
+        operationType: 'filesystem.atomic_replace' as const,
+        stage: 'execute' as const,
+        input: { path: '/var/lib/gcac/config.json' },
+        dependsOn: [],
+        idempotencyKey: 'idem-operation-gateway-enqueue',
+        timeoutSeconds: 30,
+      }],
+      planDigest: '',
+      tokenId: 'token-gateway-fixture',
+      policyDecisionId: 'decision-gateway-fixture',
+      nonce: 'nonce-gateway-fixture',
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      writeEffect: true,
+    } satisfies AgentPlanV1;
+    const plan = { ...planBase, planDigest: computeAgentPlanDigest(planBase) };
+    const token = {
+      tokenVersion: 'gcac.agent-security/v1' as const,
+      tokenId: 'token-gateway-fixture',
+      agentId: 'host_gateway_enqueue',
+      tenantId: 'tenant_1',
+      pluginId: 'web.nginx',
+      pluginVersionId: 'plugin-version-gateway-fixture',
+      capability: 'filesystem.atomic_replace',
+      actions: ['filesystem.atomic_replace'],
+      allowedPaths: ['/var/lib/gcac'],
+      allowedServices: [],
+      artifactDigests: [],
+      policyRef: 'policy-gateway-fixture',
+      policyVersion: '1',
+      issuedAt: new Date(Date.now() - 1_000).toISOString(),
+      expiresAt: plan.expiresAt,
+      nonce: plan.nonce,
+      planDigest: plan.planDigest,
+      authorityKeyId: 'authority-gateway-fixture',
+      signature: 'signature-gateway-fixture',
+    } satisfies AgentCapabilityTokenV1;
+    const policyDecision = {
+      decisionVersion: 'gcac.agent-security/v1' as const,
+      decisionId: plan.policyDecisionId,
+      allowed: true,
+      agentId: token.agentId,
+      tenantId: token.tenantId,
+      pluginId: token.pluginId,
+      pluginVersionId: token.pluginVersionId,
+      capability: token.capability,
+      actions: token.actions,
+      allowedPaths: token.allowedPaths,
+      allowedServices: token.allowedServices,
+      artifactDigests: token.artifactDigests,
+      policyRef: token.policyRef,
+      policyVersion: token.policyVersion,
+      planDigest: plan.planDigest,
+      tokenId: token.tokenId,
+      nonce: token.nonce,
+      issuedAt: token.issuedAt,
+      validUntil: token.expiresAt,
+      authorityKeyId: token.authorityKeyId,
+      revocationRef: 'revocation-gateway-fixture',
+      signature: 'decision-signature-gateway-fixture',
+    } satisfies PolicyAuthorityDecisionV1;
+    const compiler = {
+      compile: async () => ({
+        actionType: 'agent.plan.execute' as const,
+        actionSchemaVersion: '1.0' as const,
+        plan,
+        token,
+        policyDecision,
+      }),
+    };
+    const executor = new GatewayRouteExecutorAdapter({ agents, agentPlanCompiler: compiler as never });
     const result = await executor.executeStep({
       runType: 'apply',
       dryRun: false,
@@ -325,26 +427,18 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
           packageSha256: `sha256:${'a'.repeat(64)}`,
           manifestSha256: `sha256:${'b'.repeat(64)}`,
           resourceHash: `sha256:${'c'.repeat(64)}`,
-          plan: {
-            planId: 'plan_gateway_enqueue',
-            planDigest: 'd'.repeat(64),
-            writeEffect: true,
-          },
-          token: {
-            tokenId: 'token-gateway-fixture',
-            agentId: 'host_gateway_enqueue',
-            tenantId: 'tenant_1',
-            pluginId: 'web.nginx',
-            pluginVersionId: 'plugin-version-gateway-fixture',
-            capability: 'web.nginx.deploy',
-            planDigest: 'd'.repeat(64),
-            nonce: 'nonce-gateway-fixture',
-          },
-          policyDecision: {
-            decisionId: 'decision-gateway-fixture',
-            agentId: 'host_gateway_enqueue',
-            tenantId: 'tenant_1',
-            revocationRef: 'revocation-gateway-fixture',
+          pluginRuntimeCapability: { pluginBindingId: 'binding-gateway-fixture', pluginVersionId: plan.pluginVersionId },
+          resolvedDeploymentInput: resolvedGatewayDeploymentInput(),
+          plan,
+          executionAuthorization: {
+            grantId: 'execution-grant-gateway-fixture',
+            policyRef: token.policyRef,
+            policyVersion: token.policyVersion,
+            actions: token.actions,
+            allowedPaths: token.allowedPaths,
+            allowedServices: token.allowedServices,
+            artifactDigests: token.artifactDigests,
+            lifetimeSeconds: 300,
           },
           gatewayRoute: {
             gatewayId: 'gw_exec_01',
@@ -358,7 +452,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
 
     assert.equal(result.success, true);
-    assert.equal(result.detail?.mode, 'gateway_route_direct_execute');
+    assert.equal(result.detail?.mode, 'gateway_v2_control_plane_queue');
     assert.equal(capturedPayload?.actionType, 'agent.plan.execute');
     assert.equal((capturedPayload?.token as { tokenId?: string } | undefined)?.tokenId, 'token-gateway-fixture');
     assert.equal((capturedPayload?.policyDecision as { decisionId?: string } | undefined)?.decisionId, 'decision-gateway-fixture');

@@ -211,7 +211,11 @@ export class AgentExecutorAdapter implements Executor {
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    const agentId = stringFromSnapshot(input.step.inputSnapshot.agentId) ?? stringFromSnapshot(input.step.inputSnapshot.executionTargetId) ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanTargetId);
+    const planAgentId = stringFromSnapshot(readRecord(input.step.inputSnapshot.plan)?.agentId);
+    const agentId = stringFromSnapshot(input.step.inputSnapshot.agentId)
+      ?? planAgentId
+      ?? stringFromSnapshot(input.step.inputSnapshot.executionTargetId)
+      ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanTargetId);
     if (!agentId) return { success: false, errorCode: 'AGENT_ID_REQUIRED', errorMessage: 'AGENT 执行器缺少 agentId/executionTargetId，拒绝伪装成功' };
     const requiredAction = this.actionDispatch.requireResolution(input.step.inputSnapshot);
     if (!requiredAction.ok) {

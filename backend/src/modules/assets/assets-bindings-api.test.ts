@@ -815,13 +815,13 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
   it('Agent 产品明细不能由宿主推断为产品 Framework、Site 与 ManagedTarget', async () => {
     const app = await createMigratedApp();
     const headers = authorizedHeaders('tenant_spec011_direct_asset_fallback', 'user_admin', 'req_spec011_direct_asset_fallback');
-    const registered = await app.inject({
+    const retiredDirectControl = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',
       headers,
       body: {
-        agentKey: 'agent-direct-fallback-01',
-        hostname: 'fallback-iis.example.com',
+        agentKey: 'agent-direct-control-retired-01',
+        hostname: 'retired-direct-control.example.com',
         version: '0.1.0',
         osType: 'windows',
         directControl: {
@@ -831,6 +831,26 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
           protocolVersion: 'v1',
           supportedActions: ['health', 'discovery.run'],
         },
+      },
+    });
+    assert.equal(retiredDirectControl.statusCode, 400);
+    const retiredDirectControlBody = retiredDirectControl.body as {
+      errorCode?: string;
+      details?: { reason?: string; fallback?: boolean };
+    };
+    assert.equal(retiredDirectControlBody.errorCode, 'VALIDATION_FAILED');
+    assert.equal(retiredDirectControlBody.details?.reason, 'AGENT_DIRECT_BYPASS_RETIRED');
+    assert.equal(retiredDirectControlBody.details?.fallback, false);
+
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'agent-direct-fallback-01',
+        hostname: 'fallback-iis.example.com',
+        version: '0.1.0',
+        osType: 'windows',
       },
     });
     assert.equal(registered.statusCode, 201);

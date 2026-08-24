@@ -13,7 +13,7 @@ const expectedFingerprint = 'a'.repeat(64);
 const mismatchedFingerprint = 'b'.repeat(64);
 
 test('Agent 写操作结果 UNKNOWN 保持步骤和运行不明，不进入 FAILED 或自动回滚', async () => {
-  const { repository, service, run, step } = await createVerifyScenario('unknown_agent_write');
+  const { repository, service, run, step, deploymentPlans } = await createVerifyScenario('unknown_agent_write', { withDeploymentPlan: true });
 
   await service.applyAgentTaskResult({
     tenantId,
@@ -34,10 +34,17 @@ test('Agent 写操作结果 UNKNOWN 保持步骤和运行不明，不进入 FAIL
   assert.equal(updatedStep.lastErrorCode, 'AGENT_CONNECTION_LOST');
   assert.equal(updatedRun.status, 'RUNNING');
   assert.equal(updatedRun.summary.executionStatus, 'UNKNOWN');
+  assert.ok(deploymentPlans);
+  if (!step.deploymentPlanTargetId) throw new Error('测试步骤缺少 deploymentPlanTargetId');
+  const updatedPlan = await deploymentPlans.getPlan(run.deploymentPlanId, tenantId);
+  const updatedTarget = await deploymentPlans.getTarget(step.deploymentPlanTargetId, tenantId);
+  assert.equal(updatedPlan?.executionStatus, 'UNKNOWN');
+  assert.equal(updatedTarget?.executionStatus, 'UNKNOWN');
+  assert.equal((updatedTarget?.strategyPayload as Record<string, unknown>)?.executionStatus, 'UNKNOWN');
 });
 
 test('UNKNOWN 后的迟到成功不会覆盖 receipt、checkpoint 或恢复状态', async () => {
-  const { repository, service, run, step } = await createVerifyScenario('late_success_after_unknown');
+  const { repository, service, run, step, deploymentPlans } = await createVerifyScenario('late_success_after_unknown', { withDeploymentPlan: true });
   const receipt = { receiptId: 'receipt-1', status: 'UNKNOWN', operationId: 'operation-1' };
   const checkpoint = { checkpointRef: 'checkpoint-1', digest: 'a'.repeat(64) };
 
@@ -68,6 +75,10 @@ test('UNKNOWN 后的迟到成功不会覆盖 receipt、checkpoint 或恢复状�
   assert.equal(resultDetail.executionStatus, 'UNKNOWN');
   assert.deepEqual(resultDetail.receipt, receipt);
   assert.deepEqual(resultDetail.checkpoint, checkpoint);
+  assert.ok(deploymentPlans);
+  if (!step.deploymentPlanTargetId) throw new Error('测试步骤缺少 deploymentPlanTargetId');
+  assert.equal((await deploymentPlans.getPlan(run.deploymentPlanId, tenantId))?.executionStatus, 'UNKNOWN');
+  assert.equal((await deploymentPlans.getTarget(step.deploymentPlanTargetId, tenantId))?.executionStatus, 'UNKNOWN');
 });
 
 test('取消结果无法确认外部写入时统一落为 UNKNOWN', async () => {
@@ -616,18 +627,22 @@ async function createVerifyScenario(
     expectedDomains?: string[];
     providerType?: string;
     installResult?: Record<string, unknown>;
+    withDeploymentPlan?: boolean;
   } = {},
 ): Promise<{
   repository: ExecutionsRepository;
   service: ExecutionResultSyncService;
   run: ExecutionRunEntity;
   step: ExecutionStepEntity;
+  deploymentPlans?: DeploymentPlansRepository;
 }> {
   const repository = new ExecutionsRepository();
+  const deploymentPlans = options.withDeploymentPlan ? new DeploymentPlansRepository() : undefined;
   const service = new ExecutionResultSyncService(
     repository,
     {} as unknown as AssetsApplicationService,
     {} as unknown as BindingsApplicationService,
+    deploymentPlans,
   );
   const now = new Date().toISOString();
   const run = await repository.createRun({
@@ -678,6 +693,40 @@ async function createVerifyScenario(
     createdBy: actorId,
     version: 1,
   });
+  if (deploymentPlans) {
+    if (!step.deploymentPlanTargetId) throw new Error('测试步骤缺少 deploymentPlanTargetId');
+    await deploymentPlans.createPlan({
+      id: run.deploymentPlanId,
+      tenantId,
+      name: `Unknown test plan ${suffix}`,
+      planType: 'INSTALL',
+      selectionMode: 'EXPLICIT',
+      certificateVersionId: 'cert_target',
+      status: 'RUNNING',
+      approvalStatus: 'APPROVED',
+      snapshotHash: `snapshot-${suffix}`,
+      idempotencyKey: `deployment-${suffix}`,
+      requestHash: `deployment-hash-${suffix}`,
+      policy: {},
+      createdReason: 'MANUAL',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actorId,
+      version: 1,
+    });
+    await deploymentPlans.createTarget({
+      id: step.deploymentPlanTargetId,
+      tenantId,
+      deploymentPlanId: run.deploymentPlanId,
+      executorType: 'AGENT',
+      requiredCapabilities: [],
+      status: 'READY',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actorId,
+      version: 1,
+    });
+  }
   if (options.installResult) {
     await repository.createStep({
       id: `stp_cert_verify_${suffix}_install`,
@@ -701,7 +750,7 @@ async function createVerifyScenario(
       version: 1,
     });
   }
-  return { repository, service, run, step };
+  return { repository, service, run, step, deploymentPlans };
 }
 
 function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {

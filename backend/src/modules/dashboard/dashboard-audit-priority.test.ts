@@ -159,7 +159,7 @@ test('部署执行审计摘要使用部署计划名称和资产名称', () => {
       tenantId: 'tenant_1',
       deploymentPlanId: 'pln_1',
       certificateBindingId: 'bnd_1',
-      executorType: 'SSH',
+      executorType: 'AGENT',
       requiredCapabilities: [],
       status: 'READY',
       createdAt: '2026-07-06T09:00:00.000Z',

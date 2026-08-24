@@ -94,7 +94,7 @@ function createAgentQueueProbe(onEnqueue?: (payload: Record<string, unknown>) =>
   let enqueued = 0;
   let direct = 0;
   const agents = {
-    enqueueDirectTask: async (_tenantId: string, input: { payload: Record<string, unknown> }) => {
+    enqueueTask: async (_tenantId: string, input: { payload: Record<string, unknown> }) => {
       enqueued += 1;
       onEnqueue?.(input.payload);
       return { id: 'task_fixture', status: 'acked' };
