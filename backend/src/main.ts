@@ -15,6 +15,7 @@ import type { CaSyncWorker } from './modules/internal-ca/application/ca-sync-wor
 import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
 import type { AcmeRenewalScheduler } from './modules/internal-ca/application/acme-renewal-scheduler.js';
 import type { AcmeRenewalWorker } from './modules/internal-ca/application/acme-renewal-worker.js';
+import type { TaskWorkerSupervisor } from './modules/tasks/task-worker-supervisor.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -51,6 +52,29 @@ async function start(): Promise<void> {
   if (securityBundle) {
     app.setAuthTokenResolver((authorization, cookie) => securityBundle.services.auth.parseRequestIdentity(authorization, cookie));
     await auditSecretDecryptability(securityBundle.services.secrets);
+  }
+
+  const unifiedTaskWorkerEnabled = process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED !== 'false';
+  const taskWorkerSupervisor = app.getResource<TaskWorkerSupervisor>('taskWorkerSupervisor');
+  if (unifiedTaskWorkerEnabled && taskWorkerSupervisor) {
+    const workerIntervalMs = positiveNumber(process.env.GCAC_TASK_WORKER_INTERVAL_MS, 2_000);
+    const maxTasksPerTick = positiveNumber(process.env.GCAC_TASK_WORKER_MAX_TASKS_PER_TICK, 10);
+    let drainingTasks = false;
+    const tickTasks = () => {
+      if (drainingTasks) return;
+      drainingTasks = true;
+      void taskWorkerSupervisor.runOnce(maxTasksPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('统一任务 Worker 执行失败', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'task-worker-supervisor' });
+        })
+        .finally(() => {
+          drainingTasks = false;
+        });
+    };
+    tickTasks();
+    setInterval(tickTasks, workerIntervalMs);
   }
 
   const agentsService = app.getResource<AgentsApplicationService>('agentsService');
@@ -100,7 +124,7 @@ async function start(): Promise<void> {
   }
 
   const executionsService = app.getResource<ExecutionsApplicationService>('executionsService');
-  if (executionsService) {
+  if (!unifiedTaskWorkerEnabled && executionsService) {
     const workerIntervalMs = Number(process.env.EXECUTION_JOB_WORKER_INTERVAL_MS ?? '2000');
     const maxJobsPerTick = Number(process.env.EXECUTION_JOB_WORKER_MAX_JOBS_PER_TICK ?? '10');
     let draining = false;
@@ -120,7 +144,7 @@ async function start(): Promise<void> {
   }
 
   const reportExportService = app.getResource<ReportExportService>('reportExportService');
-  if (reportExportService) {
+  if (!unifiedTaskWorkerEnabled && reportExportService) {
     const workerIntervalMs = Number(process.env.REPORT_EXPORT_WORKER_INTERVAL_MS ?? '2000');
     const maxJobsPerTick = Number(process.env.REPORT_EXPORT_WORKER_MAX_JOBS_PER_TICK ?? '2');
     let draining = false;
@@ -140,7 +164,7 @@ async function start(): Promise<void> {
   }
 
   const monitorsService = app.getResource<MonitorsApplicationService>('monitorsService');
-  if (monitorsService) {
+  if (!unifiedTaskWorkerEnabled && monitorsService) {
     const monitorIntervalMs = Number(process.env.MONITOR_PROBE_WORKER_INTERVAL_MS ?? '5000');
     const maxTargetsPerTick = Number(process.env.MONITOR_PROBE_WORKER_MAX_TARGETS_PER_TICK ?? '20');
     let probing = false;
@@ -160,9 +184,29 @@ async function start(): Promise<void> {
     tick();
     setInterval(tick, monitorIntervalMs);
   }
+  if (unifiedTaskWorkerEnabled && monitorsService) {
+    const schedulerIntervalMs = Number(process.env.MONITOR_PROBE_SCHEDULER_INTERVAL_MS ?? '5000');
+    const maxTargetsPerTick = Number(process.env.MONITOR_PROBE_WORKER_MAX_TARGETS_PER_TICK ?? '20');
+    let schedulingMonitorBatches = false;
+    const tick = () => {
+      if (schedulingMonitorBatches) return;
+      schedulingMonitorBatches = true;
+      void monitorsService.scheduleMonitorBatches({ maxTargets: maxTargetsPerTick })
+        .catch((error: unknown) => {
+          structuredLogger.warn('Monitor batch scheduler failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'monitor-batch-scheduler' });
+        })
+        .finally(() => {
+          schedulingMonitorBatches = false;
+        });
+    };
+    tick();
+    setInterval(tick, schedulerIntervalMs);
+  }
 
   const notificationWorker = app.getResource<NotificationWorker>('notificationWorker');
-  if (notificationWorker) {
+  if (!unifiedTaskWorkerEnabled && notificationWorker) {
     const workerIntervalMs = Number(process.env.NOTIFICATION_WORKER_INTERVAL_MS ?? '2000');
     const maxDeliveriesPerTick = Number(process.env.NOTIFICATION_WORKER_MAX_DELIVERIES_PER_TICK ?? '20');
     let drainingNotifications = false;
@@ -191,7 +235,10 @@ async function start(): Promise<void> {
     const tick = () => {
       if (scheduling) return;
       scheduling = true;
-      void automationScheduler.runOnce(maxRunsPerTick)
+      const scheduledRuns = unifiedTaskWorkerEnabled
+        ? automationScheduler.scheduleDueRuns(maxRunsPerTick)
+        : automationScheduler.runOnce(maxRunsPerTick);
+      void scheduledRuns
         .catch((error: unknown) => {
           structuredLogger.warn('Automation scheduler failed', {
             error: error instanceof Error ? error.message : String(error),
@@ -206,7 +253,7 @@ async function start(): Promise<void> {
   }
 
   const caSyncWorker = app.getResource<CaSyncWorker>('caSyncWorker');
-  if (caSyncWorker) {
+  if (!unifiedTaskWorkerEnabled && caSyncWorker) {
     const workerIntervalMs = Number(process.env.CA_SYNC_WORKER_INTERVAL_MS ?? '2000');
     const maxRunsPerTick = Number(process.env.CA_SYNC_WORKER_MAX_RUNS_PER_TICK ?? '4');
     let syncing = false;
@@ -272,7 +319,7 @@ async function start(): Promise<void> {
   }
 
   const acmeRenewalWorker = app.getResource<AcmeRenewalWorker>('acmeRenewalWorker');
-  if (acmeRenewalWorker) {
+  if (!unifiedTaskWorkerEnabled && acmeRenewalWorker) {
     const workerIntervalMs = positiveNumber(process.env.ACME_RENEWAL_WORKER_INTERVAL_MS, 5_000);
     const maxJobsPerTick = positiveNumber(process.env.ACME_RENEWAL_WORKER_MAX_JOBS_PER_TICK, 10);
     let runningAcmeRenewals = false;

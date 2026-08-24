@@ -113,7 +113,25 @@ import {
   type DeploymentArchitecture,
 } from './config/deployment-architecture.js';
 import { HealthApplicationService } from './modules/health/application/health.application-service.js';
-import { getTaskRouteContracts, TaskRepository, TasksApplicationService, TasksController } from './modules/tasks/index.js';
+import {
+  createTaskExecutorRegistry,
+  getTaskRouteContracts,
+  TaskRepository,
+  TaskWorkerSupervisor,
+  TasksApplicationService,
+  TasksController,
+} from './modules/tasks/index.js';
+import {
+  CloudAccountAssetsApplicationService,
+  CloudProviderDiscoveryApplicationService,
+  ProviderOperationLedgerService,
+  ProviderCatalogApplicationService,
+  ProvidersController,
+  createDefaultProviderRegistry,
+  createTrustedProviderExtensions,
+  getProvidersRouteContracts,
+} from './modules/providers/index.js';
+import { SecretProviderCertificateMaterialResolver } from './modules/providers/runtime/provider-runtime.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -220,6 +238,29 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  const providerRegistry = createDefaultProviderRegistry(createTrustedProviderExtensions(security.secrets, {
+    credentialProfileRepository: new CredentialsRepository(appDb),
+  }));
+  const providerCatalogService = new ProviderCatalogApplicationService(providerRegistry);
+  const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerRegistry);
+  const cloudProviderDiscoveryService = new CloudProviderDiscoveryApplicationService(appDb, providerCatalogService);
+  const providerOperationLedgerService = new ProviderOperationLedgerService(
+    appDb,
+    providerCatalogService,
+    new SecretProviderCertificateMaterialResolver(security.secrets),
+  );
+  new ProvidersController(
+    providerCatalogService,
+    cloudAccountAssetsService,
+    cloudProviderDiscoveryService,
+    providerOperationLedgerService,
+    tasksService,
+  ).register(app.router);
+  app.setResource('providerRegistry', providerRegistry);
+  app.setResource('providerCatalogService', providerCatalogService);
+  app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
+  app.setResource('cloudProviderDiscoveryService', cloudProviderDiscoveryService);
+  app.setResource('providerOperationLedgerService', providerOperationLedgerService);
   const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
   const deviceAssetsService = new DeviceAssetsApplicationService(deviceAssetsRepository);
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
@@ -233,6 +274,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificateServices.certificates.getRepository(),
     bindingsService.getRepository(),
     internalCaService,
+    tasksService,
   );
   const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
@@ -350,6 +392,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
         resourceId: target.caId,
       });
     },
+    tasksService,
   ));
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
@@ -412,9 +455,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginWorkflows: pluginWorkflowPublisher,
     secrets: security.secrets,
     database: appDb,
-    deploymentInputSnapshots,
-    tasks: tasksService,
-  }), undefined, security);
+      deploymentInputSnapshots,
+      tasks: tasksService,
+    }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
   new SecurityController(security, new AuditPresentationService({
@@ -490,7 +533,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     automationsRepository,
     new AutomationConfiguredActionExecutor(automationDeployment, automationNotifications),
   );
-  const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator);
+  const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined, tasksService);
   app.setResource('automationScheduler', automationScheduler);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
@@ -519,6 +562,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     notificationWorker,
     undefined,
     notificationAdapters,
+    tasksService,
   );
   app.setResource('notificationsService', notificationsService);
   app.setResource('notificationWorker', notificationWorker);
@@ -545,20 +589,29 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new CompatibilityCatalogController().register(app.router);
   const builtinPluginCompatibilityUpgrader = new BuiltinPluginCompatibilityUpgradeService(appDb);
-  let builtinPluginRefreshPromise: Promise<{
+  const builtinPluginRefreshPromises = new Map<string, Promise<{
     refreshedAt: string;
     versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
-  }> | undefined;
+    projection?: {
+      attempted: number;
+      projected: number;
+      skipped: number;
+      failed: Array<{ tenantId: string; agentId: string; error: string }>;
+    };
+  }>>();
   const builtinCatalogRefresher = {
-    refresh: () => {
-      builtinPluginRefreshPromise ??= (async () => {
+    refresh: (tenantId?: string) => {
+      const refreshKey = tenantId ?? '*';
+      const existing = builtinPluginRefreshPromises.get(refreshKey);
+      if (existing) return existing;
+      const refreshPromise = (async () => {
         const versions = await initializeBuiltinPlugins(
           unifiedPluginsService,
           pluginWorkflowPublisher,
           appDb,
           { compatibilityUpgrader: builtinPluginCompatibilityUpgrader },
         );
-        const projection = await agentsService.reprojectLatestCapabilitySnapshots();
+        const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
         return {
           refreshedAt: new Date().toISOString(),
           versions: versions.map((version) => ({
@@ -570,9 +623,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
           projection,
         };
       })().finally(() => {
-        builtinPluginRefreshPromise = undefined;
+        if (builtinPluginRefreshPromises.get(refreshKey) === refreshPromise) {
+          builtinPluginRefreshPromises.delete(refreshKey);
+        }
       });
-      return builtinPluginRefreshPromise;
+      builtinPluginRefreshPromises.set(refreshKey, refreshPromise);
+      return refreshPromise;
     },
   };
   new PluginsController(
@@ -582,6 +638,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     new ManagedTargetPluginQueryService(appDb),
     builtinPluginCompatibilityUpgrader,
     builtinCatalogRefresher,
+    tasksService,
   ).register(app.router);
   new WorkflowTemplatesController(
     workflowTemplatesService,
@@ -615,10 +672,38 @@ export function createApp(dependencies: AppDependencies = {}): App {
   });
   const reportsRepository = new ReportsRepository(appDb);
   const reportsService = new ReportsApplicationService(new PgReportDataPort(appDb, deploymentPlans.getRepository()), reportsRepository, reportScope);
-  const reportExportService = new ReportExportService(reportsService, reportsRepository, undefined, appDb);
+  const reportExportService = new ReportExportService(reportsService, reportsRepository, undefined, appDb, undefined, tasksService);
   app.setResource('reportsService', reportsService);
   app.setResource('reportExportService', reportExportService);
   new ReportsController(reportsService, security, reportExportService).register(app.router);
+
+  const taskExecutorRegistry = createTaskExecutorRegistry({
+    acme: acmeRenewalWorker,
+    acmeJobs: acmeRepository,
+    executions: executionsService,
+    executionRegistry: executorRegistry,
+    caSync: app.getResource('caSyncWorker'),
+    internalCa: internalCaService,
+    automation: automationScheduler,
+    automationRuns: automationsService,
+    monitors: monitorsService,
+    notifications: notificationWorker,
+    reports: reportExportService,
+    agents: agentsService,
+    pluginCatalog: builtinCatalogRefresher,
+    cloudAccounts: cloudAccountAssetsService,
+    providerOperations: providerOperationLedgerService,
+  }, tasksService.registry.list().map((definition) => definition.executorKey));
+  const taskWorkerSupervisor = new TaskWorkerSupervisor(
+    tasksService,
+    taskExecutorRegistry,
+    {
+      workerId: `task-worker-${process.pid}`,
+      maxTasksPerTick: positiveInteger(process.env.GCAC_TASK_WORKER_MAX_TASKS_PER_TICK, 10),
+    },
+  );
+  app.setResource('taskExecutorRegistry', taskExecutorRegistry);
+  app.setResource('taskWorkerSupervisor', taskWorkerSupervisor);
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
     statusCode: 200,
@@ -780,6 +865,7 @@ export function getRouteContracts(
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),
     ...getAssetsRouteContracts(),
+    ...getProvidersRouteContracts(),
     ...getDeploymentInputRouteContracts(),
     ...getDeviceAssetRouteContracts(),
     ...getDeviceRouteContracts(),
