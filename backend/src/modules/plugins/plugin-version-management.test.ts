@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -11,6 +11,8 @@ import { BuiltinPluginCompatibilityUpgradeService } from './application/builtin-
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 import { PgUnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
+import type { SecurityServices } from '../security/security.controller.js';
+import { securityErrors } from '../../shared/security-error.js';
 
 test('插件版本管理查询按插件分组并对租户公开内置版本', async () => {
   const records = [
@@ -51,14 +53,14 @@ test('插件版本管理查询按插件分组并对租户公开内置版本', as
 test('插件版本管理查询路由返回版本分组和详情', async () => {
   const record = version('builtin-version-1', 'fixture.plugin', '1.0.0', 'BUILTIN', 'SYSTEM', 'ENABLED');
   const service = new UnifiedPluginsApplicationService(memoryRepository([record]));
-  const app = new App();
-  new PluginsController(service).register(app.router);
+  const app = new App({ allowLegacyHeaderContext: true });
+  new PluginsController(service, undefined, undefined, undefined, undefined, undefined, undefined, routeSecurity()).register(app.router);
 
-  const groups = await app.inject({ method: 'GET', path: '/api/v1/plugin-version-groups', headers: { 'x-tenant-id': 'tenant-1' } });
+  const groups = await app.inject({ method: 'GET', path: '/api/v1/plugin-version-groups', headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' } });
   assert.equal(groups.statusCode, 200);
   assert.equal((groups.body as Array<{ pluginId: string }>)[0]?.pluginId, 'fixture.plugin');
 
-  const detail = await app.inject({ method: 'GET', path: '/api/v1/plugin-version-management/builtin-version-1', headers: { 'x-tenant-id': 'tenant-1' } });
+  const detail = await app.inject({ method: 'GET', path: '/api/v1/plugin-version-management/builtin-version-1', headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' } });
   assert.equal(detail.statusCode, 200);
   assert.equal((detail.body as { id: string }).id, 'builtin-version-1');
 });
@@ -66,7 +68,7 @@ test('插件版本管理查询路由返回版本分组和详情', async () => {
 test('刷新内置插件注册表路由调用运行期扫描服务', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository([]));
   let refreshCount = 0;
-  const app = new App();
+  const app = new App({ allowLegacyHeaderContext: true });
   new PluginsController(
     service,
     undefined as never,
@@ -82,12 +84,14 @@ test('刷新内置插件注册表路由调用运行期扫描服务', async () =>
         };
       },
     },
+    undefined,
+    routeSecurity(),
   ).register(app.router);
 
   const response = await app.inject({
     method: 'POST',
     path: '/api/v1/plugin-catalog/refresh-builtins',
-    headers: { 'x-tenant-id': 'tenant-1' },
+    headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' },
     body: {},
   });
 
@@ -98,7 +102,7 @@ test('刷新内置插件注册表路由调用运行期扫描服务', async () =>
 
 test('版本管理查询统计五类运行引用', async () => {
   const db = new PgliteDatabase();
-  await runMigrations(db, resolve(process.cwd(), 'backend/src/database/migrations'), {
+  await runMigrations(db, fileURLToPath(new URL('../../database/migrations/', import.meta.url)), {
     appliedBy: 'test',
     checksum: (value) => createHash('sha256').update(value).digest('hex'),
   });
@@ -131,7 +135,7 @@ test('版本管理查询统计五类运行引用', async () => {
 
 test('插件版本切换在事务中更新五类运行引用并保护期望版本', async () => {
   const db = new PgliteDatabase();
-  await runMigrations(db, resolve(process.cwd(), 'backend/src/database/migrations'), {
+  await runMigrations(db, fileURLToPath(new URL('../../database/migrations/', import.meta.url)), {
     appliedBy: 'test',
     checksum: (value) => createHash('sha256').update(value).digest('hex'),
   });
@@ -189,6 +193,34 @@ function memoryRepository(records: UnifiedPluginVersionRecord[]): UnifiedPlugins
     listVersions: async (tenantId) => records.filter((record) => record.tenantId === tenantId),
     listVersionsBySource: async (source) => records.filter((record) => record.source === source),
   };
+}
+
+function routeSecurity(options: {
+  denyActions?: string[];
+  allowedObjectIds?: Record<string, string[]>;
+} = {}): SecurityServices {
+  const deniedActions = new Set(options.denyActions ?? []);
+  return {
+    rbac: {
+      assertCan: async (_subject: unknown, action: string) => {
+        if (deniedActions.has(action)) throw securityErrors.permissionDenied({ action });
+      },
+    } as never,
+    objectPermissions: {
+      assertCan: async (subject: { id: string }, _accessLevel: string, object: { objectType: string; objectId: string }) => {
+        const allowed = options.allowedObjectIds?.[object.objectType];
+        if (allowed && !allowed.includes(object.objectId)) {
+          throw securityErrors.permissionDenied({ actorId: subject.id, object });
+        }
+      },
+      buildAuthorizedQuery: async (_subject: unknown, objectType: string) => {
+        const allowed = options.allowedObjectIds?.[objectType];
+        return allowed
+          ? { objectIds: allowed, dynamicConditions: [], empty: allowed.length === 0, unrestricted: false }
+          : { dynamicConditions: [], empty: false, unrestricted: true };
+      },
+    } as never,
+  } as unknown as SecurityServices;
 }
 
 function version(

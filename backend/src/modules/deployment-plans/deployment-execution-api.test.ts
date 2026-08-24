@@ -105,7 +105,7 @@ async function createMigratedTestApp(options: { security?: ReturnType<typeof cre
   const db = new PgliteDatabase();
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
-  grantDeploymentFixturePolicies(security, 'tenant_1');
+  await grantDeploymentFixturePolicies(security, 'tenant_1');
   const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
   return {
@@ -122,7 +122,7 @@ async function createMigratedDeploymentService(options: {
   const db = new PgliteDatabase();
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
-  grantDeploymentFixturePolicies(security, 'tenant_1');
+  await grantDeploymentFixturePolicies(security, 'tenant_1');
   const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
   const service = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
   const repository = service.getRepository();
@@ -1228,7 +1228,7 @@ describe('部署计划与执行编排 API', () => {
 
   it('dry-run 返回后可立即从统一任务列表查询到对应任务', async () => {
     const security = createSecurityServices();
-    grantDeploymentFixturePolicies(security, 'tenant_1');
+    await grantDeploymentFixturePolicies(security, 'tenant_1');
     security.rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'user_1',
@@ -2824,13 +2824,99 @@ describe('部署计划与执行编排 API', () => {
 
 });
 
-function grantDeploymentFixturePolicies(security: ReturnType<typeof createSecurityServices>, tenantId: string): void {
+async function grantDeploymentFixturePolicies(
+  security: ReturnType<typeof createSecurityServices>,
+  tenantId: string,
+): Promise<void> {
+  const roleId = `role_deployment_fixture_${Math.random().toString(36).slice(2)}`;
+  const objectSetId = `oset_deployment_fixture_${Math.random().toString(36).slice(2)}`;
+  await security.rbac.createRole({
+    id: roleId,
+    code: roleId,
+    name: '部署测试对象访问',
+    builtin: false,
+  });
+  const objectSet = await security.objectPermissions.createObjectSet({
+    id: objectSetId,
+    tenantId,
+    name: '部署测试租户对象',
+    kind: 'dynamic',
+    objectTypes: [
+      'host',
+      'service_instance',
+      'site_asset',
+      'managed_target',
+      'service_asset',
+      'application_asset',
+      'certificate_binding',
+      'secret',
+      'certificate_version',
+      'certificate_version_format',
+      'plugin_version',
+      'plugin_binding',
+      'plugin_capability_assignment',
+      'deployment_plan',
+      'execution_run',
+      'execution_step',
+      'workflow_template',
+      'device_asset',
+      'gateway',
+      'agent',
+    ],
+    conditions: { tenantId },
+    status: 'active',
+  });
+  await security.objectPermissions.createRoleBinding({
+    tenantId,
+    principalType: 'user',
+    principalId: 'user_1',
+    roleId,
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await security.objectPermissions.createAccessGrant({
+    tenantId,
+    roleId,
+    objectSetId: objectSet.id,
+    accessLevel: 'control',
+    effect: 'allow',
+  });
   security.rbac.createPolicy({
     subjectType: 'user',
     subjectId: 'user_1',
     effect: 'allow',
-    actions: ['host.create', 'service_instance.manage', 'site_asset.manage', 'managed_target.manage', 'service_asset.manage', 'binding.manage', 'secret.create', 'certificate.import', 'certificate.format.create'],
-    resourceTypes: ['host', 'service_instance', 'site_asset', 'managed_target', 'service_asset', 'certificate_binding', 'secret', 'certificate_version', 'certificate_version_format'],
+    actions: [
+      'host.create',
+      'service_instance.manage',
+      'site_asset.manage',
+      'managed_target.manage',
+      'service_asset.manage',
+      'binding.manage',
+      'secret.create',
+      'certificate.import',
+      'certificate.format.create',
+      'plugin.read',
+      'plugin.manage',
+      'execution.run.read',
+      'execution.run.retry',
+      'execution.run.rollback',
+      'execution.step.read',
+    ],
+    resourceTypes: [
+      'host',
+      'service_instance',
+      'site_asset',
+      'managed_target',
+      'service_asset',
+      'certificate_binding',
+      'secret',
+      'certificate_version',
+      'certificate_version_format',
+      'plugin',
+      'execution_run',
+      'execution_step',
+    ],
     scope: { tenantId },
   });
 }

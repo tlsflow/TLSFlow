@@ -22,7 +22,7 @@ async function createMigratedApp() {
     resourceTypes: ['*'],
     scope: { tenantId: '*' },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security });
+  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
 }
 
 async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: string) {
@@ -37,7 +37,7 @@ async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: st
     resourceTypes: ['*'],
     scope: { tenantId },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security });
+  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
 }
 
 async function importCertificateVersion(app: Awaited<ReturnType<typeof createMigratedApp>>, headers: Record<string, string>) {

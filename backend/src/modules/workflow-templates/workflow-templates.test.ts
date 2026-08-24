@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { App } from '../../common/http/app.js';
+import type { SecurityServices } from '../security/security.controller.js';
+import { securityErrors } from '../../shared/security-error.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
@@ -355,19 +357,19 @@ describe('WorkflowTemplates', () => {
   });
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
-    const app = new App();
+    const app = new App({ allowLegacyHeaderContext: true });
     const service = new WorkflowTemplatesApplicationService();
-    new WorkflowTemplatesController(service).register(app.router);
+    new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
 
-    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers: workflowHeaders() });
     assert.equal(templates.statusCode, 200);
     const templatePage = templates.body as { items: unknown };
     assert.equal(Array.isArray(templatePage.items), true);
     assert.equal((templatePage.items as Array<{ id: string }>).some((item) => item.id === createdBody.template.id), true);
     assert.equal((templatePage.items as Array<{ id: string; currentVersionLabel?: string }>).find((item) => item.id === createdBody.template.id)?.currentVersionLabel, 'V1');
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
     assert.equal(versions.statusCode, 200);
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
@@ -377,7 +379,7 @@ describe('WorkflowTemplates', () => {
     const headers = { 'x-tenant-id': 'tenant_workflow_test', 'x-actor-id': 'user_workflow_test' };
     const currentBindings: PluginWorkflowBindingRecord[] = [];
     const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository(currentBindings));
-    new WorkflowTemplatesController(service).register(app.router);
+    new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
 
     const legacy = await service.createTemplate({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } });
     const current = await service.createWorkflow({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-workflow' } } });
@@ -388,7 +390,7 @@ describe('WorkflowTemplates', () => {
     assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflow-templates', body: {} })).statusCode, 404);
     assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflows', body: {} })).statusCode, 404);
 
-    const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers });
     const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers });
     const compatibilityIds = (compatibilityList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
     const workflowIds = (workflowList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
@@ -481,20 +483,21 @@ describe('WorkflowTemplates', () => {
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {
-    const app = new App();
+    const app = new App({ allowLegacyHeaderContext: true });
     const service = new WorkflowTemplatesApplicationService();
-    new WorkflowTemplatesController(service).register(app.router);
+    new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const renamed = await app.inject({
       method: 'POST',
       path: '/api/v1/workflow-templates/rename',
+      headers: workflowHeaders(),
       body: { templateId: createdBody.template.id, name: '  edge-cert-renamed  ' },
     });
     assert.equal(renamed.statusCode, 200);
     assert.equal((renamed.body as { name: string }).name, 'edge-cert-renamed');
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
     const version = (versions.body as { items: Array<{ id: string; contentHash: string; content: WorkflowDslV1 }> }).items[0];
     assert.equal(version?.id, createdBody.version.id);
     assert.equal(version?.contentHash, createdBody.version.contentHash);
@@ -502,43 +505,45 @@ describe('WorkflowTemplates', () => {
   });
 
   it('HTTP 版本备注接口只更新备注，不改写版本内容', async () => {
-    const app = new App();
+    const app = new App({ allowLegacyHeaderContext: true });
     const service = new WorkflowTemplatesApplicationService();
-    new WorkflowTemplatesController(service).register(app.router);
+    new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const noted = await app.inject({
       method: 'POST',
       path: '/api/v1/workflow-template-versions/note',
+      headers: workflowHeaders(),
       body: { versionId: createdBody.version.id, changeSummary: '补充发布备注' },
     });
     assert.equal(noted.statusCode, 200);
     assert.equal((noted.body as { changeSummary?: string }).changeSummary, '补充发布备注');
     assert.equal((noted.body as { contentHash: string }).contentHash, createdBody.version.contentHash);
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
     assert.equal((versions.body as { items: Array<{ changeSummary?: string }> }).items[0]?.changeSummary, '补充发布备注');
   });
 
   it('HTTP 删除接口会禁用模板和版本，并让列表不再返回该记录', async () => {
-    const app = new App();
+    const app = new App({ allowLegacyHeaderContext: true });
     const service = new WorkflowTemplatesApplicationService();
-    new WorkflowTemplatesController(service).register(app.router);
+    new WorkflowTemplatesController(service, workflowRouteSecurity()).register(app.router);
     const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const deleted = await app.inject({
       method: 'POST',
       path: '/api/v1/workflow-templates/delete',
+      headers: workflowHeaders(),
       body: { id: createdBody.template.id },
     });
     assert.equal(deleted.statusCode, 200);
     assert.equal((deleted.body as { status: string }).status, 'disabled');
 
-    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates', headers: workflowHeaders() });
     assert.equal(templates.statusCode, 200);
     assert.equal((templates.body as { items: Array<{ id: string }> }).items.some((item) => item.id === createdBody.template.id), false);
 
-    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}`, headers: workflowHeaders() });
     assert.equal(versions.statusCode, 200);
     assert.equal((versions.body as { items: Array<{ status: string }> }).items.every((item) => item.status === 'disabled'), true);
   });
@@ -1959,4 +1964,20 @@ function workflowBindingsRepository(records: PluginWorkflowBindingRecord[]): Plu
     list: async () => [...records],
     listAll: async () => [...records],
   };
+}
+
+function workflowHeaders(): Record<string, string> {
+  return { 'x-tenant-id': 'tenant_workflow_test', 'x-actor-id': 'user_workflow_test' };
+}
+
+function workflowRouteSecurity(): SecurityServices {
+  return {
+    rbac: {
+      assertCan: async () => undefined,
+    } as never,
+    objectPermissions: {
+      assertCan: async () => undefined,
+      buildAuthorizedQuery: async () => ({ empty: false, unrestricted: true, dynamicConditions: [] }),
+    } as never,
+  } as unknown as SecurityServices;
 }

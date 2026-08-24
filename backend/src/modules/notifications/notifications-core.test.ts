@@ -135,7 +135,7 @@ describe('通知核心', () => {
       });
 
       assert.deepEqual(actions, [
-        { action: 'notification.channel.read', resourceType: 'notificationChannel' },
+        { action: 'notification.channel.read', resourceType: 'settings' },
         { action: 'settings.write', resourceType: 'settings' },
       ]);
     } finally { await fixture.close(); }
