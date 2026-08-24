@@ -29,13 +29,16 @@ import { PgMonitorsRepository } from './modules/monitors/repository/monitors.rep
 import {
   ChannelAdapterRegistry,
   EmailNotificationAdapter,
+  FeishuNotificationAdapter,
   getNotificationRouteContracts,
   NotificationWorker,
   NotificationsApplicationService,
   NotificationsController,
   PgNotificationsRepository,
   ServiceNotificationSecretResolver,
+  DingTalkNotificationAdapter,
   SlackNotificationAdapter,
+  TelegramNotificationAdapter,
   WeComNotificationAdapter,
   WebhookNotificationAdapter,
 } from './modules/notifications/index.js';
@@ -199,6 +202,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     .register(new EmailNotificationAdapter())
     .register(new WeComNotificationAdapter())
     .register(new SlackNotificationAdapter())
+    .register(new FeishuNotificationAdapter())
+    .register(new DingTalkNotificationAdapter())
+    .register(new TelegramNotificationAdapter())
     .register(new WebhookNotificationAdapter());
   const notificationWorker = new NotificationWorker(
     notificationsRepository,
@@ -212,6 +218,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     undefined,
     notificationWorker,
+    undefined,
+    notificationAdapters,
   );
   app.setResource('notificationsService', notificationsService);
   app.setResource('notificationWorker', notificationWorker);
