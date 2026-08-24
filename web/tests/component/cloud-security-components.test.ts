@@ -56,6 +56,18 @@ describe('Cloud Security Pro 共享组件', () => {
     expect(wrapper.get('[role="progressbar"]').classes()).toContain('gc-progress--outlined')
   })
 
+  it('GcProgressBar 可将标签放入加高的进度轨道内部', () => {
+    const wrapper = mount(GcProgressBar, {
+      props: { value: 100, captionInside: true, ariaLabel: '任务进度' },
+      slots: { default: '100%' },
+    })
+
+    const progress = wrapper.get('[role="progressbar"]')
+    expect(progress.classes()).toContain('gc-progress--caption-inside')
+    expect(progress.get('.gc-progress__track .gc-progress__caption').text()).toBe('100%')
+    expect(progress.findAll('.gc-progress__caption')).toHaveLength(1)
+  })
+
   it('GcSelectionCard 通过受控事件切换选择状态', async () => {
     const wrapper = mount(GcSelectionCard, {
       props: { title: '证书部署', description: '选择部署目标' },

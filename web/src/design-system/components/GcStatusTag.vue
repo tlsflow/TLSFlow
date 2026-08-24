@@ -19,7 +19,7 @@ const tone = computed(() => props.tone ?? meta.value.tone)
 </template>
 
 <style scoped>
-.gc-tag { display: inline-flex; align-items: center; border-radius: var(--gc-radius-full); padding: var(--gc-border-width-thick) var(--gc-space-inline-compact); font-size: var(--gc-font-size-xs); font-weight: 600; }
+.gc-tag { display: inline-flex; flex: 0 0 auto; align-items: center; border-radius: var(--gc-radius-full); padding: var(--gc-border-width-thick) var(--gc-space-inline-compact); font-size: var(--gc-font-size-xs); font-weight: 600; white-space: nowrap; }
 .gc-tag--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .gc-tag--warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
 .gc-tag--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
