@@ -49,16 +49,6 @@ export interface AgentGatewayExtension {
   capabilitySetId?: string;
 }
 
-export interface AgentDirectControlState {
-  enabled: boolean;
-  reachable: boolean;
-  listenAddress?: string;
-  protocolVersion?: string;
-  supportedActions: string[];
-  lastReadyAt?: string;
-  lastDirectError?: string;
-}
-
 export interface AgentRegistration {
   id: string;
   tenantId: string;
@@ -67,7 +57,6 @@ export interface AgentRegistration {
   role?: string;
   zone?: string;
   gateway?: AgentGatewayExtension;
-  directControl?: AgentDirectControlState;
   enrollmentTokenId?: string;
   certificateFingerprint?: string;
   certificateExpiresAt?: string;
@@ -153,7 +142,6 @@ export interface AgentHeartbeat {
   version: string;
   runtimeHealth?: AgentRuntimeHealth;
   gateway?: AgentGatewayExtension;
-  directControl?: AgentDirectControlState;
   taskSummary: {
     running: number;
     queued: number;
@@ -208,7 +196,6 @@ export interface AgentRuntimeHealth {
     taskPoll?: number;
     recovery?: number;
   };
-  directControl?: AgentDirectControlState;
 }
 
 export interface AgentRuntimeLogEntry {

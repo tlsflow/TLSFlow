@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
+import { AppError } from '../../common/errors/app-error.js';
 import type { AgentsApplicationService } from './application/agents.application-service.js';
 import { createSecurityServices, type SecurityServices } from '../security/security.controller.js';
 
@@ -36,7 +37,7 @@ describe('Agent direct control api', () => {
     assert.deepEqual((await agentsService.pullTasks('tenant_agent_queued_rescan', registered.id)).map((task) => task.id), [first.id]);
   });
 
-  it('Agent 轮询与控制面直连竞态时，重复 ack 返回已有 lease 而不是失败', async () => {
+  it('Agent 轮询与控制面重复确认竞态时，重复 ack 返回已有 lease 而不是失败', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
     const app = createApp({ db: database });
@@ -62,16 +63,16 @@ describe('Agent direct control api', () => {
       taskId: task.id,
       leaseId: agentLease,
     });
-    const staleDirectAck = await agentsService.ackTask(tenantId, {
+    const repeatedAck = await agentsService.ackTask(tenantId, {
       agentId: agent.id,
       taskId: task.id,
-      leaseId: `direct:${task.id}`,
+      leaseId: 'lease_control_plane_retry',
     });
 
     assert.equal(firstAck.status, 'acked');
     assert.equal(firstAck.leaseId, agentLease);
-    assert.equal(staleDirectAck.status, 'acked');
-    assert.equal(staleDirectAck.leaseId, agentLease);
+    assert.equal(repeatedAck.status, 'acked');
+    assert.equal(repeatedAck.leaseId, agentLease);
   });
 
   it('并发 ack 只能由一个 lease 原子占有任务', async () => {
@@ -105,7 +106,7 @@ describe('Agent direct control api', () => {
     assert.ok(['lease_atomic_a', 'lease_atomic_b'].includes(results[0].leaseId ?? ''));
   });
 
-  it('直连发现任务已被 Agent 占有时，返回异步等待而不再次执行', async () => {
+  it('Agent 直连旁路已退役，即使任务已被占有也必须失败关闭', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
     const app = createApp({ db: database });
@@ -130,15 +131,15 @@ describe('Agent direct control api', () => {
       leaseId: 'lease_agent_owner',
     });
 
-    const result = await agentsService.executeTaskDirect(tenantId, task.id, 'req_direct_claimed_execute');
-
-    assert.equal(result.success, true);
-    assert.equal(result.asyncPending, true);
-    assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
-    assert.equal(result.detail.executionMode, 'queued');
+    await assert.rejects(
+      agentsService.executeTaskDirect(tenantId, task.id, 'req_direct_claimed_execute'),
+      (error: unknown) => error instanceof AppError
+        && error.errorCode === 'AUTH_FORBIDDEN'
+        && (error.details as { reason?: string } | undefined)?.reason === 'AGENT_DIRECT_BYPASS_RETIRED',
+    );
   });
 
-  it('无直连地址的 Agent v2 任务被轮询占有时返回异步等待', async () => {
+  it('无直连地址的 Agent v2 任务仍不得转入直连执行', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
     const app = createApp({ db: database });
@@ -165,11 +166,12 @@ describe('Agent direct control api', () => {
       leaseId: 'lease_trust_inspect_agent',
     });
 
-    const result = await agentsService.executeTaskDirect(tenantId, task.id, 'req_agent_v2_wait_execute');
-    assert.equal(result.success, true);
-    assert.equal(result.asyncPending, true);
-    assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
-    assert.equal(result.detail.executionMode, 'queued');
+    await assert.rejects(
+      agentsService.executeTaskDirect(tenantId, task.id, 'req_agent_v2_wait_execute'),
+      (error: unknown) => error instanceof AppError
+        && error.errorCode === 'AUTH_FORBIDDEN'
+        && (error.details as { reason?: string } | undefined)?.reason === 'AGENT_DIRECT_BYPASS_RETIRED',
+    );
   });
 
   it('同一 Agent 可复用原始一次性令牌完成幂等重注册', async () => {
@@ -326,27 +328,22 @@ describe('Agent direct control api', () => {
     assert.equal(detail.health.status, 'failed');
   });
 
-  it('注册和心跳应持久化 directControl 并在 detail health 中返回', async () => {
+  it('注册和心跳拒绝已退役的 Agent Direct Control 协议', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
     const app = createApp({ db: database, security: createSecurityServices() });
     const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const tenantId = 'tenant_agent_direct_control';
+    const tenantId = 'tenant_agent_direct_control_retired';
     const enrollment = await agentsService.createEnrollmentToken(tenantId, {
       allowedRoles: ['full_agent'],
       allowedZones: ['default'],
       maxUses: 1,
       ttlSeconds: 60,
       createdBy: 'test',
-    }, 'req_create_direct_control_token');
-    const userAuthorization = await createTestUserAuthorization(app, tenantId, 'direct_control');
+    }, 'req_create_direct_control_retired_token');
     const machineHeaders = {
       'x-agent-token': enrollment.token,
-      'x-request-id': 'req_agent_direct_control_register',
-    };
-    const userHeaders = {
-      authorization: userAuthorization,
-      'x-request-id': 'req_agent_direct_control_register',
+      'x-request-id': 'req_agent_direct_control_retired_register',
     };
 
     const registerResponse = await app.inject({
@@ -354,7 +351,7 @@ describe('Agent direct control api', () => {
       path: '/api/v1/agents/register',
       headers: machineHeaders,
       body: {
-        agentKey: 'win-go-direct-control-01',
+        agentKey: 'win-go-direct-control-retired',
         hostname: 'WIN-GO-01',
         version: '0.1.0',
         osType: 'windows',
@@ -371,18 +368,35 @@ describe('Agent direct control api', () => {
         },
       },
     });
-    assert.equal(registerResponse.statusCode, 201);
-    const registeredAgent = registerResponse.body as { id: string; directControl?: { enabled: boolean; listenAddress?: string } };
-    assert.ok(registeredAgent.id);
-    assert.equal(registeredAgent.directControl?.enabled, true);
-    assert.equal(registeredAgent.directControl?.listenAddress, '10.10.0.8:18930');
+    assert.equal(registerResponse.statusCode, 400);
+    assert.equal((registerResponse.body as { errorCode?: string }).errorCode, 'VALIDATION_FAILED');
+
+    const validRegisterResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers: {
+        ...machineHeaders,
+        'x-request-id': 'req_agent_direct_control_retired_valid_register',
+      },
+      body: {
+        agentKey: 'win-go-agent-without-direct-control',
+        hostname: 'WIN-GO-01',
+        version: '0.1.0',
+        osType: 'windows',
+        arch: 'amd64',
+        zone: 'default',
+        enrollmentToken: enrollment.token,
+      },
+    });
+    assert.equal(validRegisterResponse.statusCode, 201);
+    const registeredAgent = validRegisterResponse.body as { id: string };
 
     const heartbeatResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/heartbeat',
       headers: {
         ...machineHeaders,
-        'x-request-id': 'req_agent_direct_control_heartbeat',
+        'x-request-id': 'req_agent_direct_control_retired_heartbeat',
       },
       body: {
         agentId: registeredAgent.id,
@@ -394,85 +408,21 @@ describe('Agent direct control api', () => {
           succeeded: 3,
           failed: 0,
         },
-        directControl: {
-          enabled: true,
-          reachable: true,
-          listenAddress: '10.10.0.9:18930',
-          protocolVersion: 'v1',
-          supportedActions: ['health'],
-          lastReadyAt: '2026-06-30T10:05:00.000Z',
-        },
         runtimeHealth: {
           modelVersion: 'v1',
           status: 'healthy',
           pendingResultCount: 0,
           recoverableTaskCount: 0,
           lastSelfCheckAt: '2026-06-30T10:05:00.000Z',
-          directControl: {
-            enabled: true,
-            reachable: true,
-            listenAddress: '10.10.0.9:18930',
-            protocolVersion: 'v1',
-            supportedActions: ['health'],
-            lastReadyAt: '2026-06-30T10:05:00.000Z',
-          },
+          directControl: { enabled: true },
         },
       },
     });
-    assert.equal(heartbeatResponse.statusCode, 200);
-
-    const detailResponse = await app.inject({
-      method: 'GET',
-      path: `/api/v1/agents/detail?agentId=${registeredAgent.id}`,
-      headers: {
-        ...userHeaders,
-        'x-request-id': 'req_agent_direct_control_detail',
-      },
-    });
-    assert.equal(detailResponse.statusCode, 200);
-    const detail = detailResponse.body as {
-      agent: {
-        directControl?: {
-          enabled: boolean;
-          reachable: boolean;
-          listenAddress?: string;
-          supportedActions: string[];
-        };
-      };
-      latestHeartbeat?: {
-        directControl?: {
-          enabled: boolean;
-          reachable: boolean;
-          listenAddress?: string;
-        };
-      };
-      health: {
-        directControl?: {
-          enabled: boolean;
-          reachable: boolean;
-          listenAddress?: string;
-          protocolVersion?: string;
-          supportedActions: string[];
-        };
-      };
-    };
-
-    assert.equal(detail.agent.directControl?.enabled, true);
-    assert.equal(detail.agent.directControl?.reachable, true);
-    assert.equal(detail.agent.directControl?.listenAddress, '10.10.0.9:18930');
-    assert.deepEqual(detail.agent.directControl?.supportedActions, ['health']);
-
-    assert.equal(detail.latestHeartbeat?.directControl?.enabled, true);
-    assert.equal(detail.latestHeartbeat?.directControl?.listenAddress, '10.10.0.9:18930');
-
-    assert.equal(detail.health.directControl?.enabled, true);
-    assert.equal(detail.health.directControl?.reachable, true);
-    assert.equal(detail.health.directControl?.listenAddress, '10.10.0.9:18930');
-    assert.equal(detail.health.directControl?.protocolVersion, 'v1');
-    assert.deepEqual(detail.health.directControl?.supportedActions, ['health']);
+    assert.equal(heartbeatResponse.statusCode, 400);
+    assert.equal((heartbeatResponse.body as { errorCode?: string }).errorCode, 'VALIDATION_FAILED');
   });
 
-  it('Agent detail 应暴露 recentTaskLogs 的执行模式与直连回退原因', async () => {
+  it('Agent detail 应暴露 recentTaskLogs 的队列执行信息', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
     const app = createApp({ db: database, security: createSecurityServices() });
@@ -496,62 +446,54 @@ describe('Agent direct control api', () => {
       path: '/api/v1/agents/register',
       headers: machineHeaders,
       body: {
-        agentKey: 'win-go-direct-control-02',
+        agentKey: 'win-go-agent-02',
         hostname: 'WIN-GO-02',
         version: '0.1.0',
         osType: 'windows',
         arch: 'amd64',
         zone: 'default',
         enrollmentToken: enrollment.token,
-        directControl: {
-          enabled: true,
-          reachable: true,
-          listenAddress: '10.10.0.10:18930',
-          protocolVersion: 'v1',
-          supportedActions: ['health', 'agent.plan.execute'],
-          lastReadyAt: '2026-06-30T11:00:00.000Z',
-        },
       },
     });
     assert.equal(registerResponse.statusCode, 201);
     const agentId = (registerResponse.body as { id: string }).id;
 
-    const directTask = await agentsService.enqueueTask(tenantId, {
+    const primaryTask = await agentsService.enqueueTask(tenantId, {
       agentId,
-      executionRunId: 'run_direct_recent_logs',
-      executionStepId: 'step_direct_recent_logs',
-      idempotencyKey: 'run_direct_recent_logs:step_direct_recent_logs:1',
+      executionRunId: 'run_primary_recent_logs',
+      executionStepId: 'step_primary_recent_logs',
+      idempotencyKey: 'run_primary_recent_logs:step_primary_recent_logs:1',
       payload: {
         actionType: 'agent.plan.execute',
-        siteName: 'Direct Site',
+        siteName: 'Primary Site',
         bindingSelector: {
-          bindingInformation: '*:443:direct-log.example.com',
+          bindingInformation: '*:443:primary-log.example.com',
         },
         dryRun: false,
       },
-    }, 'req_enqueue_direct_recent_logs');
+    }, 'req_enqueue_primary_recent_logs');
     await agentsService.ackTask(tenantId, {
       agentId,
-      taskId: directTask.id,
-      leaseId: `direct:${directTask.id}`,
+      taskId: primaryTask.id,
+      leaseId: `lease:${primaryTask.id}`,
     });
-    const directLogResponse = await app.inject({
+    const primaryLogResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/tasks/logs',
       headers: {
         ...machineHeaders,
-        'x-request-id': 'req_submit_direct_log',
+        'x-request-id': 'req_submit_primary_log',
       },
       body: {
         agentId,
-        taskId: directTask.id,
+        taskId: primaryTask.id,
         sequence: 1,
         level: 'info',
-        message: 'direct execute log',
+        message: 'primary queue log',
         emittedAt: '2026-06-30T11:01:00.000Z',
       },
     });
-    assert.equal(directLogResponse.statusCode, 201);
+    assert.equal(primaryLogResponse.statusCode, 201);
 
     const queuedTask = await agentsService.enqueueTask(tenantId, {
       agentId,
@@ -597,19 +539,19 @@ describe('Agent direct control api', () => {
     const detail = detailResponse.body as {
       recentTaskLogs: Array<{
         taskId: string;
-        executionMode?: 'direct' | 'queued';
+        executionMode?: 'queued';
         siteName?: string;
         bindingInformation?: string;
         dryRun: boolean;
       }>;
     };
 
-    const directLog = detail.recentTaskLogs.find((item) => item.taskId === directTask.id);
-    assert.ok(directLog);
-    assert.equal(directLog.executionMode, 'direct');
-    assert.equal(directLog.siteName, 'Direct Site');
-    assert.equal(directLog.bindingInformation, '*:443:direct-log.example.com');
-    assert.equal(directLog.dryRun, false);
+    const primaryLog = detail.recentTaskLogs.find((item) => item.taskId === primaryTask.id);
+    assert.ok(primaryLog);
+    assert.equal(primaryLog.executionMode, 'queued');
+    assert.equal(primaryLog.siteName, 'Primary Site');
+    assert.equal(primaryLog.bindingInformation, '*:443:primary-log.example.com');
+    assert.equal(primaryLog.dryRun, false);
 
     const queuedLog = detail.recentTaskLogs.find((item) => item.taskId === queuedTask.id);
     assert.ok(queuedLog);

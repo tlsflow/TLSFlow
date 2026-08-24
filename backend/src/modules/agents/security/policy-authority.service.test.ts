@@ -42,6 +42,26 @@ test('生产服务验证独立信任根并签发绑定的 Decision 和 Token', (
   assert.doesNotThrow(() => context.service.authorize({ plan: createPlan(result), token: result.token, decision: result.decision, localPolicy: context.localPolicy }));
 });
 
+test('生产签发结果的 allowed 必须来自根签名策略，宿主请求不能自行放行', () => {
+  const context = createContext();
+  const environment = createProductionEnvironment(context);
+  try {
+    const policy = JSON.parse(environment.GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON!) as Record<string, unknown>;
+    const rules = structuredClone(policy.rules) as Array<Record<string, unknown>>;
+    if (rules.length === 0) throw new Error('测试策略包缺少规则');
+    rules[0] = { ...rules[0], tenantId: 'tenant-other' };
+    const unsigned = { ...policy, rules };
+    environment.GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON = JSON.stringify({ ...unsigned, signature: signPolicyPayload(unsigned, context.rootPrivateKey) });
+
+    const production = createProductionPolicyAuthorityServicesV1(environment);
+    const result = production.service.issueAuthorization(context.request);
+    assert.equal(result.decision.allowed, false);
+    assert.equal(result.token, undefined);
+  } finally {
+    cleanupProductionEnvironment(environment);
+  }
+});
+
 test('Token 与 Decision 的授权范围不能互相扩大', () => {
   const context = createContext();
   const result = context.service.issueAuthorization(context.request);
@@ -56,6 +76,8 @@ test('生产缺少根、KeySet、签名私钥或撤销状态时失败关闭', ()
   const context = createContext();
   assert.throws(() => createProductionPolicyAuthorityServicesV1({}), /失败关闭/);
   assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, signingKeySource: { getPrivateKey: () => undefined } }), /失败关闭/);
+  assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, signingKeySource: {} as never }), /失败关闭/);
+  assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, evaluator: {} as never }), /失败关闭/);
   assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, revocations: undefined as never }), /失败关闭/);
   assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, keySet: { ...context.envelope, signature: 'tampered' } }), /失败关闭/);
   assert.throws(() => new PolicyAuthorityServiceV1({ ...context.options, keySet: { ...context.envelope, unexpected: true } as never }), /失败关闭/);
@@ -301,6 +323,23 @@ test('生产撤销状态缺少 Decision 撤销集合时失败关闭', () => {
       nonces: [],
     }));
     assert.throws(() => createProductionPolicyAuthorityServicesV1(environment), /状态格式无效/);
+  } finally {
+    cleanupProductionEnvironment(environment);
+  }
+});
+
+test('生产撤销状态含开发 Key 标识时失败关闭', () => {
+  const context = createContext();
+  const environment = createProductionEnvironment(context);
+  try {
+    writeFileSync(environment.GCAC_POLICY_AUTHORITY_STATE_FILE!, JSON.stringify({
+      stateVersion: 'gcac.policy-authority-state/v1',
+      revokedTokenIds: ['authority-test-key:token-1'],
+      revokedDecisionIds: ['authority-key-1:decision-1'],
+      revokedKeyIds: ['authority-fixture-key'],
+      nonces: [],
+    }));
+    assert.throws(() => createProductionPolicyAuthorityServicesV1(environment), /开发默认密钥|状态格式无效/);
   } finally {
     cleanupProductionEnvironment(environment);
   }

@@ -6,12 +6,20 @@ import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import { AgentDirectClient } from './agent-direct-client.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
-import { agentV2ContractTypes, type AgentSecurityStatus, type AgentV2ContractType } from '../security/agent-security.contract.js';
+import {
+  agentV2ContractTypes,
+  validateAgentCapabilityToken,
+  validateAgentExecutionReceipt,
+  validateAgentPlan,
+  validatePolicyAuthorityDecision,
+  type AgentExecutionReceiptV1,
+  type AgentSecurityStatus,
+  type AgentV2ContractType,
+} from '../security/agent-security.contract.js';
 import { AGENT_RELEASE_SIGNING_KEY_ID, getLinuxAgentInstallMaterials, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
@@ -113,7 +121,6 @@ const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatib
 });
 
 export class AgentsApplicationService {
-  private readonly directClient = new AgentDirectClient();
   private readonly offlineTimeoutCounts = new Map<string, number>();
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
@@ -170,7 +177,6 @@ export class AgentsApplicationService {
         role: input.role ?? existing.role,
         zone: gateway?.zoneIds[0] ?? input.zone ?? existing.zone,
         gateway: existing.status === 'DISABLED' && gateway ? { ...gateway, status: 'disabled' } : gateway,
-        directControl: input.directControl ?? existing.directControl,
         enrollmentTokenId: enrollmentTokenId ?? existing.enrollmentTokenId,
         certificateFingerprint: input.certificateFingerprint ? normalizeFingerprint(input.certificateFingerprint) : existing.certificateFingerprint,
         certificateExpiresAt: input.certificateExpiresAt ?? existing.certificateExpiresAt,
@@ -188,7 +194,6 @@ export class AgentsApplicationService {
       role,
       zone: gateway?.zoneIds[0] ?? input.zone ?? 'default',
       gateway,
-      directControl: input.directControl,
       enrollmentTokenId,
       certificateFingerprint: input.certificateFingerprint ? normalizeFingerprint(input.certificateFingerprint) : undefined,
       certificateExpiresAt: input.certificateExpiresAt,
@@ -208,17 +213,13 @@ export class AgentsApplicationService {
     this.domain.assertStatusTransition(agent.status, nextStatus);
     const now = new Date().toISOString();
     const gateway = this.domain.normalizeGatewayOnHeartbeat(agent, input, now);
-    const directControl = input.directControl ?? agent.directControl;
-    const reportedIpAddress = resolveDirectControlHost(directControl?.listenAddress);
     const updated = await this.repository.updateRegistration(agent.id, {
       status: nextStatus,
       descriptor: {
         ...agent.descriptor,
         version: input.version,
-        ...(reportedIpAddress ? { ipAddress: reportedIpAddress } : {}),
       },
       gateway,
-      directControl,
       updatedAt: now,
       lastRequestId: requestId,
     });
@@ -230,7 +231,6 @@ export class AgentsApplicationService {
       version: input.version,
       runtimeHealth: input.runtimeHealth,
       gateway,
-      directControl,
       taskSummary: input.taskSummary ?? { running: 0, queued: 0 },
       receivedAt: now,
       requestId,
@@ -472,46 +472,6 @@ export class AgentsApplicationService {
     });
   }
 
-  /**
-   * 创建由控制面主动发起的直连任务，并在入库时直接占有 lease。
-   * 该任务不会暴露给 Agent 拉取接口，避免同一动作被直连与轮询重复执行。
-   */
-  async enqueueDirectTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
-    assertSupportedAgentTaskPayload(input.payload ?? {});
-    await this.requireAgent(tenantId, input.agentId);
-    await this.assertLivenessAllowsExecution(tenantId, input.agentId);
-    const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
-    if (existing) {
-      if (existing.status === 'queued' || existing.status === 'leased') {
-        const leaseId = `direct:${existing.id}`;
-        return this.repository.updateTask(existing.id, {
-          status: 'acked',
-          leaseId,
-          ackedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      return existing;
-    }
-    const now = new Date().toISOString();
-    const taskId = newId('agtask');
-    return this.repository.createTask({
-      id: taskId,
-      tenantId,
-      agentId: input.agentId,
-      executionRunId: input.executionRunId,
-      executionStepId: input.executionStepId,
-      idempotencyKey: input.idempotencyKey,
-      payload: input.payload ?? {},
-      status: 'acked',
-      leaseId: `direct:${taskId}`,
-      ackedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      requestId,
-    });
-  }
-
   async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
     await this.requireAgent(tenantId, input.agentId);
     const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
@@ -617,11 +577,35 @@ export class AgentsApplicationService {
   async submitResult(tenantId: string, input: SubmitAgentTaskResultInput): Promise<AgentTaskEnvelope> {
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.leaseId !== input.leaseId) throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', { taskId: task.id });
-    if (['succeeded', 'failed'].includes(task.status)) return task;
+    const rawDetail = input.detail ?? {};
+    // Receipt 摘要覆盖 tokenId 等绑定标识，必须先按原始合同验证，再执行日志脱敏。
+    const receipt = validateQueuedAgentV2Receipt(task, rawDetail, tenantId, input.status, input.success);
+    const sanitizedDetail = this.domain.sanitizeResultDetail(rawDetail);
+    if (['succeeded', 'failed'].includes(task.status)) {
+      // 终态任务只接受同一份回执的幂等重传；迟到或替换回执必须显式拒绝，不能静默覆盖。
+      if (receipt) {
+        const existingReceipt = readReceipt(readRecord(task.result)?.detail);
+        if (!existingReceipt || existingReceipt.digest !== receipt.digest) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent v2 迟到 Receipt 与已落账结果不一致，拒绝接受', {
+            reason: 'AGENT_V2_LATE_RECEIPT_REJECTED',
+            taskId: task.id,
+            taskStatus: task.status,
+            existingReceiptDigest: existingReceipt?.digest,
+            receiptDigest: receipt.digest,
+          });
+        }
+      }
+      if (readAgentTaskOutcome(task) === 'UNKNOWN' && input.success) {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent v2 UNKNOWN 任务拒绝迟到成功结果', {
+          reason: 'AGENT_V2_LATE_SUCCESS_REJECTED',
+          taskId: task.id,
+        });
+      }
+      return task;
+    }
     if (!['acked', 'leased'].includes(task.status)) {
       throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', { taskId: task.id, status: task.status });
     }
-    const sanitizedDetail = this.domain.sanitizeResultDetail(input.detail ?? {});
     const outcome = resolveAgentTaskOutcome(input, sanitizedDetail);
     assertAgentTaskResultConsistency(input.success, outcome);
     console.info('[agents.submitResult]', JSON.stringify({
@@ -737,112 +721,14 @@ export class AgentsApplicationService {
     errorMessage?: string;
     detail: Record<string, unknown>;
   }> {
-    const task = await this.repository.getTask(tenantId, taskId);
-    if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
-    const actionType = resolveAgentTaskActionType(task.payload);
-    if (!actionType) {
-      throw new AppError('VALIDATION_FAILED', 'Agent task 动作未注册，拒绝进入执行路径', {
-        taskId,
-        actionType: readStringValue(task.payload?.actionType) ?? readStringValue(task.payload?.type),
-      });
-    }
-    if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') {
-      const result = readRecord(task.result);
-      return {
-        task,
-        success: task.status === 'succeeded',
-        asyncPending: readStringValue(result.status) === 'UNKNOWN',
-        errorCode: readStringValue(result.errorCode),
-        errorMessage: readStringValue(result.errorMessage),
-        detail: readRecord(result.detail),
-      };
-    }
-    const agent = await this.requireAgent(tenantId, task.agentId);
-    const leaseId = `direct:${task.id}`;
-    const acknowledged = await this.ackTask(tenantId, { agentId: task.agentId, taskId: task.id, leaseId });
-    if (acknowledged.leaseId && acknowledged.leaseId !== leaseId) {
-      return {
-        task: acknowledged,
-        success: true,
-        asyncPending: true,
-        errorCode: 'AGENT_TASK_ALREADY_CLAIMED',
-        errorMessage: 'Agent 已占有该任务，等待 Agent 返回结果',
-        detail: {
-          executionMode: 'queued',
-          taskId: task.id,
-          status: acknowledged.status,
-        },
-      };
-    }
-
-    let direct;
-    try {
-      direct = await this.directClient.executeAction(agent, {
-        actionType,
-        inputs: task.payload ?? {},
-        requestId,
-        onProgress,
-      });
-    } catch (error) {
-      const appError = error instanceof AppError ? error : undefined;
-      const updatedTask = await this.submitResult(tenantId, {
-        agentId: task.agentId,
-        taskId: task.id,
-        leaseId,
-        success: false,
-        status: 'UNKNOWN',
-        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        detail: {
-          executionMode: 'direct',
-          mode: 'agent_direct_execute_failed',
-          executionStatus: 'UNKNOWN',
-        },
-      });
-      return {
-        task: updatedTask,
-        success: false,
-        asyncPending: true,
-        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        detail: {
-          mode: 'agent_direct_execute_failed',
-          executionStatus: 'UNKNOWN',
-          taskId: task.id,
-        },
-      };
-    }
-
-    await this.submitResult(tenantId, {
-      agentId: task.agentId,
-      taskId: task.id,
-      leaseId,
-      success: direct.success,
-      status: direct.outcome ?? (direct.success ? 'SUCCESS' : actionType === 'agent.plan.execute' ? 'UNKNOWN' : 'FAILED'),
-      errorCode: direct.errorCode,
-      errorMessage: direct.errorMessage,
-      detail: {
-        executionMode: 'direct',
-        ...(direct.detail ?? {}),
-      },
+    void tenantId;
+    void taskId;
+    void requestId;
+    void onProgress;
+    throw new AppError('AUTH_FORBIDDEN', 'Agent 直连执行旁路已禁用，任务必须由 Agent v2 控制面队列消费', {
+      reason: 'AGENT_DIRECT_BYPASS_RETIRED',
+      fallback: false,
     });
-
-    const updatedTask = await this.requireTask(tenantId, task.agentId, task.id);
-    return {
-      task: updatedTask,
-      success: direct.success,
-      asyncPending: direct.outcome === 'UNKNOWN',
-      errorCode: direct.errorCode,
-      errorMessage: direct.errorMessage,
-      detail: {
-        mode: 'agent_direct_execute',
-        executionStatus: direct.outcome ?? (direct.success ? 'SUCCESS' : 'FAILED'),
-        taskId: task.id,
-        directTaskId: direct.taskId,
-        directControl: direct.directControl,
-        ...(direct.detail ?? {}),
-      },
-    };
   }
 
   async submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): Promise<AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number }> {
@@ -1395,7 +1281,6 @@ export class AgentsApplicationService {
       degradedReasons,
       offlineEvidence,
       failureCounts,
-      directControl: latestHeartbeat?.directControl ?? agent.directControl ?? runtimeHealth?.directControl,
       runtimeHealth,
     };
   }
@@ -1443,7 +1328,7 @@ export class AgentsApplicationService {
           siteName: readStringValue(payload.siteName),
           bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
           dryRun: payload.dryRun === true,
-          executionMode: task.leaseId?.startsWith('direct:') ? 'direct' as const : 'queued' as const,
+          executionMode: 'queued' as const,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -1521,6 +1406,118 @@ const AGENT_MACHINE_ROUTES = new Set([
 
 function isAgentMachineRoute(method: string, path: string): boolean {
   return AGENT_MACHINE_ROUTES.has(`${method.toUpperCase()} ${path}`);
+}
+
+function validateQueuedAgentV2Receipt(
+  task: AgentTaskEnvelope,
+  detail: Record<string, unknown>,
+  tenantId: string,
+  submittedStatus?: AgentSecurityStatus,
+  submittedSuccess = false,
+): AgentExecutionReceiptV1 | undefined {
+  const gatewayTaskPayload = readOptionalRecord(readOptionalRecord(task.payload.gatewayTask)?.payload);
+  const authorizationPayload = gatewayTaskPayload ?? task.payload;
+  const actionType = resolveAgentTaskActionType(task.payload) ?? resolveAgentTaskActionType(authorizationPayload);
+  const receiptValue = readOptionalRecord(detail.receipt);
+  if (!actionType) {
+    if (receiptValue) {
+      throw new AppError('VALIDATION_FAILED', '非 Agent v2 任务不能提交 AgentExecutionReceiptV1', {
+        reason: 'AGENT_V2_RECEIPT_ACTION_REQUIRED',
+        taskId: task.id,
+      });
+    }
+    return undefined;
+  }
+
+  const receiptRequired = actionType === 'agent.plan.execute' || actionType === 'agent.execution.receipt';
+  const executionStatus = submittedStatus ?? readAgentSecurityStatus(detail.executionStatus);
+  const gatewayResult = readOptionalRecord(detail.gatewayResult);
+  const gatewayPreDispatchFailure = gatewayResult?.forwarded === false && executionStatus === 'FAILED' && submittedSuccess === false;
+  if (!receiptValue) {
+    // 授权未离开 Gateway，或已进入 UNKNOWN，均不能凭空生成 Receipt；只落协调结果并失败关闭。
+    if (receiptRequired && executionStatus !== 'UNKNOWN' && !gatewayPreDispatchFailure) {
+      throw new AppError('VALIDATION_FAILED', 'Agent v2 写操作结果缺少完整 Execution Receipt', {
+        reason: 'AGENT_V2_RECEIPT_REQUIRED',
+        taskId: task.id,
+        actionType,
+      });
+    }
+    return undefined;
+  }
+
+  const receipt = validateAgentExecutionReceipt(receiptValue);
+  const expectedReceiptAgentId = readStringValue(readOptionalRecord(authorizationPayload.token)?.agentId) ?? task.agentId;
+  if (receipt.agentId !== expectedReceiptAgentId || receipt.tenantId !== tenantId) {
+    throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 的 Agent 或租户绑定不一致', {
+      reason: 'AGENT_V2_RECEIPT_IDENTITY_DENIED',
+      taskId: task.id,
+      agentId: receipt.agentId,
+      tenantId: receipt.tenantId,
+    });
+  }
+
+  const tokenValue = readOptionalRecord(authorizationPayload.token);
+  const decisionValue = readOptionalRecord(authorizationPayload.policyDecision);
+  const planValue = readOptionalRecord(authorizationPayload.plan);
+  if (!tokenValue || !decisionValue) {
+    throw new AppError('AUTH_FORBIDDEN', 'Agent v2 任务缺少 Token 或 Policy Decision，拒绝接受 Receipt', {
+      reason: 'AGENT_V2_AUTHORIZATION_MATERIAL_REQUIRED',
+      taskId: task.id,
+    });
+  }
+  const token = validateAgentCapabilityToken(tokenValue);
+  const decision = validatePolicyAuthorityDecision(decisionValue);
+  const plan = planValue ? validateAgentPlan(planValue) : undefined;
+  if (token.agentId !== receipt.agentId || token.tenantId !== receipt.tenantId
+    || token.tokenId !== receipt.tokenId || token.planDigest !== receipt.planDigest
+    || decision.agentId !== token.agentId || decision.tenantId !== token.tenantId
+    || decision.tokenId !== token.tokenId || decision.planDigest !== token.planDigest
+    || decision.nonce !== token.nonce) {
+    throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 Token、Decision 绑定不一致', {
+      reason: 'AGENT_V2_RECEIPT_BINDING_DENIED',
+      taskId: task.id,
+    });
+  }
+  if (plan && (plan.planId !== receipt.planId || plan.planDigest !== receipt.planDigest
+    || plan.agentId !== receipt.agentId || plan.tenantId !== receipt.tenantId
+    || !plan.operations.some((operation) => operation.operationId === receipt.operationId))) {
+    throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 AgentPlanV1 绑定不一致', {
+      reason: 'AGENT_V2_RECEIPT_PLAN_BINDING_DENIED',
+      taskId: task.id,
+    });
+  }
+  if (receiptRequired && !receipt.nonceConsumed) {
+    throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 未确认 Nonce 已消费', {
+      reason: 'AGENT_V2_NONCE_NOT_CONSUMED',
+      taskId: task.id,
+    });
+  }
+  return receipt;
+}
+
+function readAgentSecurityStatus(value: unknown): AgentSecurityStatus | undefined {
+  return value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED'
+    ? value
+    : undefined;
+}
+
+function readAgentTaskOutcome(task: AgentTaskEnvelope): AgentSecurityStatus | undefined {
+  const result = readRecord(task.result);
+  const status = result.status ?? readRecord(result.detail).executionStatus;
+  return status === 'SUCCESS' || status === 'FAILED' || status === 'UNKNOWN' || status === 'CANCELLED'
+    ? status
+    : undefined;
+}
+
+function readReceipt(value: unknown): AgentExecutionReceiptV1 | undefined {
+  const receipt = readOptionalRecord(readOptionalRecord(value)?.receipt);
+  return receipt as AgentExecutionReceiptV1 | undefined;
+}
+
+function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {
@@ -1617,14 +1614,4 @@ function installMaterialProfile(platform: AgentInstallMaterialPlatform, role: 'f
       dataDir: '/var/lib/gcac/linux-agent',
       logDir: '/var/log/gcac/linux-agent',
     };
-}
-
-function resolveDirectControlHost(listenAddress?: string): string | undefined {
-  const value = listenAddress?.trim();
-  if (!value) return undefined;
-  try {
-    return new URL(value.includes('://') ? value : `http://${value}`).hostname || undefined;
-  } catch {
-    return undefined;
-  }
 }

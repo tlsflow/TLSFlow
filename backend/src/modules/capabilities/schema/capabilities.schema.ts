@@ -12,7 +12,6 @@ export const builtInCapabilityDefinitions = [
   definition('gateway.probe.http', 'Gateway HTTP 探测', 'gateway', 'low', 'boolean', true, 'Gateway 能探测目标 HTTP/HTTPS 可达性'),
   definition('gateway.probe.agent', 'Gateway Agent 探测', 'gateway', 'low', 'boolean', true, 'Gateway 能探测区域内 Agent 可用性'),
   definition('gateway.forward.agent_task', 'Gateway 转发 Agent 任务', 'gateway', 'medium', 'boolean', true, 'Gateway 能把任务转发给区域内 Agent'),
-  definition('gateway.forward.direct_control', 'Gateway 转发 Direct Control', 'gateway', 'medium', 'boolean', true, 'Gateway 能把 Direct Control 请求转发给区域内 Agent'),
   definition('file.read', '文件读取', 'file', 'medium', 'boolean', true, '能读取目标路径文件'),
   definition('file.write', '文件写入', 'file', 'high', 'boolean', true, '能写入目标路径文件'),
   definition('file.backup', '文件备份', 'file', 'high', 'boolean', true, '能备份证书、配置或 keystore'),

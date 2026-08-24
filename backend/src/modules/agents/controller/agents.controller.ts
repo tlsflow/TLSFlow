@@ -188,6 +188,7 @@ export class AgentsController {
   }
 
   private registerAgent(request: HttpRequest) {
+    rejectRetiredDirectControl(request.body);
     const body = validateObject(request.body, {
       agentKey: { type: 'string', required: true },
       machineId: { type: 'string' },
@@ -211,7 +212,6 @@ export class AgentsController {
       successRate: { type: 'number' },
       certificateFingerprint: { type: 'string' },
       certificateExpiresAt: { type: 'string' },
-      directControl: { type: 'object' },
     });
     return { statusCode: 201, body: this.service.register(tenantId(request), body as unknown as RegisterAgentInput, requestId(request)) };
   }
@@ -264,6 +264,7 @@ export class AgentsController {
   }
 
   private heartbeat(request: HttpRequest) {
+    rejectRetiredDirectControl(request.body);
     const body = validateObject(request.body, {
       agentId: { type: 'string', required: true },
       status: { type: 'string', enum: AgentStatuses },
@@ -276,7 +277,6 @@ export class AgentsController {
       currentLoad: { type: 'number' },
       maxConcurrentTasks: { type: 'number' },
       successRate: { type: 'number' },
-      directControl: { type: 'object' },
     });
     return this.service.heartbeat(tenantId(request), body as unknown as AgentHeartbeatInput, requestId(request));
   }
@@ -573,4 +573,20 @@ function validateExactObject(input: unknown, schema: ObjectValidationSchema): Re
     throw new AppError('VALIDATION_FAILED', '请求体包含不支持的字段', { fields: unknownFields.sort() });
   }
   return value;
+}
+
+function rejectRetiredDirectControl(input: unknown): void {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
+  const value = input as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(value, 'directControl')) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Direct Control 协议已退役', {
+      field: 'directControl',
+      reason: 'AGENT_DIRECT_BYPASS_RETIRED',
+      fallback: false,
+    });
+  }
+  const runtimeHealth = value.runtimeHealth;
+  if (runtimeHealth && typeof runtimeHealth === 'object' && !Array.isArray(runtimeHealth)) {
+    rejectRetiredDirectControl(runtimeHealth);
+  }
 }

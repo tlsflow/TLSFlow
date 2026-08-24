@@ -293,9 +293,7 @@ export class FilePolicyAuthorityStateStoreV1 implements AtomicPolicyAuthoritySta
     }
     if (value.revokedTokenIds.some((item) => !isRevocationReference(item as string))
       || value.revokedDecisionIds.some((item) => !isRevocationReference(item as string))
-      || value.revokedKeyIds.some((item) => !isSafeIdentifier(item as string))
-      || value.revokedTokenIds.some((item) => /(?:default|development|dev-key)/i.test(item as string))
-      || value.revokedKeyIds.some((item) => /(?:default|development|dev-key)/i.test(item as string))) {
+      || value.revokedKeyIds.some((item) => !isSafeIdentifier(item as string))) {
       failClosed('生产撤销状态包含开发默认密钥');
     }
     const nonces = value.nonces.map((item) => validateNonceConsumptionRecord(item));
@@ -411,6 +409,8 @@ export class PolicyAuthorityServiceV1 {
     this.evaluator = requireObject(options.evaluator, 'evaluator');
     this.revocations = requireObject(options.revocations, 'revocations');
     this.nonceStore = requireObject(options.nonceStore, 'nonceStore');
+    requireCallable(this.signingKeySource, 'getPrivateKey');
+    requireCallable(this.evaluator, 'evaluate');
     requireCallable(this.revocations, 'isTokenRevoked');
     requireCallable(this.revocations, 'isDecisionRevoked');
     requireCallable(this.revocations, 'isKeyRevoked');
@@ -903,7 +903,7 @@ const allowedPolicyActions = new Set([
   'service.start', 'service.stop', 'service.reload', 'command.execute_allowlisted',
 ]);
 function isSafeIdentifier(value: string): boolean {
-  return /^[A-Za-z0-9._:-]{1,256}$/.test(value) && !/(?:default|development|dev-key)/i.test(value);
+  return /^[A-Za-z0-9._:-]{1,256}$/.test(value) && !isDevelopmentIdentifier(value);
 }
 function isRevocationReference(value: string): boolean {
   const separator = value.indexOf(':');
@@ -944,6 +944,9 @@ function parseSigningKeys(raw: string): ReadonlyMap<string, string> {
   return new Map(entries.map(([keyId, privateKey]) => [keyId, (privateKey as string).replaceAll('\\n', '\n')]));
 }
 function requireText(value: string, path: string): string { if (typeof value !== 'string' || value.trim() === '') failClosed(`${path} 缺失`); return value; }
+function isDevelopmentIdentifier(value: string): boolean {
+  return /(?:^|[-_.:])(?:default|development|dev|test|fixture)(?:[-_.:]|$)/i.test(value);
+}
 function validateTrustRoot(root: PolicyAuthorityTrustRootV1): PolicyAuthorityTrustRootV1 {
   exactRuntimeKeys(root, ['rootKeyId', 'authorityId', 'algorithm', 'publicKeyPem', 'fingerprintSha256'], '独立信任根');
   if (!root || root.algorithm !== 'Ed25519' || !root.rootKeyId || !root.authorityId || !root.publicKeyPem || !/^[a-f0-9]{64}$/.test(root.fingerprintSha256)) failClosed('独立信任根配置不完整');
@@ -1021,6 +1024,6 @@ function exactRuntimeKeys(value: unknown, allowed: string[], path: string): asse
   if (unknown.length > 0) failClosed(`${path} 包含未知字段`);
 }
 function rejectDevelopmentIdentifier(value: string, path: string): void {
-  if (/(?:^|[-_.:])(?:default|development|dev|test|fixture)(?:[-_.:]|$)/i.test(value)) failClosed(`${path} 禁止使用开发默认密钥`);
+  if (isDevelopmentIdentifier(value)) failClosed(`${path} 禁止使用开发默认密钥`);
 }
 function failClosed(message: string): never { throw new AppError('SYSTEM_INTERNAL_ERROR', `Policy Authority 已失败关闭：${message}`, undefined, false); }

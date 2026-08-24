@@ -388,11 +388,11 @@ export class AgentsDomainService {
 }
 
 function defaultGatewayRouteChannels(): string[] {
-  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'];
+  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'];
 }
 
 function defaultGatewayCapabilities(): string[] {
-  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task', 'gateway.forward.direct_control'];
+  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task'];
 }
 
 function normalizeGatewayRouteChannels(values: string[]): string[] {
@@ -402,7 +402,9 @@ function normalizeGatewayRouteChannels(values: string[]): string[] {
     if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
     if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
     if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
-    if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+    if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
+      throw new AppError('VALIDATION_FAILED', 'Gateway 旧 Direct Control 能力已退役，只允许 forward.agent_task', { value });
+    }
     return normalized;
   }));
 }
@@ -452,6 +454,8 @@ function sanitizeUnknown(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => sanitizeUnknown(item));
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+    // 这些是 Agent v2 合同中的公开绑定标识，不是 bearer token；脱敏会破坏 Receipt 摘要和审计关联。
+    if (['tokenId', 'policyDecisionId', 'authorityKeyId', 'revocationRef'].includes(key)) return [key, sanitizeUnknown(item)];
     if (/authorization|token|password|api[_-]?key|secret/i.test(key)) {
       if (typeof item === 'string' && /^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(item.trim())) return [key, item];
       return [key, '[REDACTED]'];
