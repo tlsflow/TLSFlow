@@ -25,7 +25,9 @@ export const statusDictionary = {
   OFFLINE: { label: '离线', tone: 'danger' },
   DISABLED: { label: '已禁用', tone: 'muted' },
   UPGRADING: { label: '升级中', tone: 'info' },
-  UNKNOWN: { label: '未知', tone: 'muted' }
+  UPDATE_REQUIRED: { label: '需更新', tone: 'warning' },
+  UP_TO_DATE: { label: '已最新', tone: 'success' },
+  UNKNOWN: { label: '未知', tone: 'muted' },
 } satisfies Record<string, StatusMeta>
 
 export function resolveStatusMeta(status: string): StatusMeta {

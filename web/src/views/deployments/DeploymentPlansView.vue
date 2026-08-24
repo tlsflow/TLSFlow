@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ApiClientError } from '@/api/client'
-import { listAssets } from '@/api/modules/assets.api'
+import { getAssetDetail, listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
@@ -10,9 +10,7 @@ import {
   createDeploymentPlanFromApplicationAsset,
   deleteDraftDeploymentPlan,
   dryRunDeploymentPlan,
-  executeDeploymentPlan,
   listDeploymentPlans,
-  submitDeploymentPlan,
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
@@ -42,11 +40,17 @@ interface RelatedExecutionRecord {
   readonly raw: ApiRecord
 }
 
+interface CurrentAssetCertificateState {
+  readonly version: ApiRecord | null
+  readonly versionId: string
+  readonly notAfter: string
+  readonly notAfterTime: number
+}
+
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const createDialogOpen = ref(false)
 const loading = ref(false)
 const editingPlanId = ref('')
-const editingSourcePlanId = ref('')
 const wizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const errorMessage = ref('')
 const infoMessage = ref('')
@@ -87,6 +91,7 @@ const pageConfig: BusinessPageConfig = {
   showDetailPanel: false,
   showActionPanel: false,
   showToolbarDangerHint: false,
+  load: loadDeploymentPlansPage,
   primaryAction: openCreateDialog,
   actions: (deploymentPlansPageConfig.actions ?? []).map((action) => ({
     ...action,
@@ -116,15 +121,6 @@ const pageConfig: BusinessPageConfig = {
         await openEditDialog(row)
       },
     },
-    {
-      label: '基于此计划新建草稿',
-      permission: 'deployment.plan.write',
-      hidden: (row) => ['DRAFT', 'RUNNING'].includes(String(row.status)),
-      reloadAfterRun: false,
-      run: async (row) => {
-        await openCloneDialog(row)
-      },
-    },
     ...((deploymentPlansPageConfig.rowActions ?? []).map((action) => ({
       ...action,
       run: async (row: ViewRow) => {
@@ -139,13 +135,6 @@ const pageConfig: BusinessPageConfig = {
   ],
 }
 
-const modalTitle = computed(() => (editingPlanId.value || editingSourcePlanId.value ? '编辑部署计划' : '创建部署计划'))
-const modalDescription = computed(() => {
-  if (loading.value) return '正在加载部署目标与证书数据。'
-  if (editingPlanId.value) return `当前正在编辑草稿计划 ${editingPlanId.value}。保存会更新当前草稿，dry-run、提交和执行会作用于当前草稿。`
-  if (editingSourcePlanId.value) return `当前基于计划 ${editingSourcePlanId.value} 编辑配置。保存会创建新草稿，原计划和执行记录会保留。`
-  return '从应用资产选择部署目标，再选择证书版本与证书格式配置。'
-})
 const latestExecutionTitle = computed(() => resolveExecutionDialogTitle(latestExecutionMode.value))
 const latestExecutionViewMode = computed<'dry-run' | 'execution'>(() => (
   latestExecutionMode.value === 'dry-run' ? 'dry-run' : 'execution'
@@ -166,10 +155,257 @@ const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
   return normalizeExecutionMode(type) === 'dry-run' ? 'dry-run' : 'execution'
 })
 
+async function loadDeploymentPlansPage() {
+  const [plansResult, versions, assetsResult] = await Promise.all([
+    listDeploymentPlans({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
+    fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
+    fetchAllPages((page, pageSize) => listAssets({ page, pageSize, sort: 'updatedAt:desc' })),
+  ])
+  const page = plansResult.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
+  const assets = assetsResult
+  const assetDetails = await loadApplicationAssetDetailMap(page.items ?? [], assets)
+  return {
+    ...plansResult,
+    data: {
+      ...page,
+      items: (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails)),
+    },
+  }
+}
+
+async function loadApplicationAssetDetailMap(
+  plans: readonly ApiRecord[],
+  assets: readonly ApiRecord[],
+): Promise<Map<string, ApiRecord>> {
+  const applicationAssetIds = Array.from(new Set(
+    plans
+      .map((plan) => resolveApplicationAssetIdForPlan(plan, assets))
+      .filter(Boolean),
+  ))
+  const entries = await Promise.all(applicationAssetIds.map(async (applicationAssetId) => {
+    try {
+      const detail = await getAssetDetail(applicationAssetId)
+      return [applicationAssetId, detail.data ?? null] as const
+    } catch {
+      return [applicationAssetId, null] as const
+    }
+  }))
+  return new Map(entries.filter((entry): entry is readonly [string, ApiRecord] => Boolean(entry[1])))
+}
+
+function enrichDeploymentPlanRecord(
+  plan: ApiRecord,
+  versions: readonly ApiRecord[],
+  assets: readonly ApiRecord[],
+  assetDetails: ReadonlyMap<string, ApiRecord>,
+): ApiRecord {
+  const effectivePlanVersion = resolveLatestDeployableVersionForPlan(readString(plan, ['certificateVersionId']), versions)
+    ?? resolveEffectivePlannedCertificateVersion(plan, versions)
+  const currentAssetState = resolveCurrentAssetCertificateState(plan, versions, assets, assetDetails)
+  const planNotAfter = parseCertificateNotAfter(effectivePlanVersion)
+  const currentNotAfter = currentAssetState.notAfterTime
+  const needsUpdate = Number.isFinite(planNotAfter) && Number.isFinite(currentNotAfter)
+    ? currentNotAfter < planNotAfter
+    : undefined
+
+  return {
+    ...plan,
+    updateNeeded: needsUpdate === undefined
+      ? 'UNKNOWN'
+      : (needsUpdate ? 'UPDATE_REQUIRED' : 'UP_TO_DATE'),
+    effectivePlanCertificateVersionId: readString(effectivePlanVersion, ['id', 'certificateVersionId']),
+    effectivePlanCertificateNotAfter: readString(effectivePlanVersion, ['notAfter', 'validTo', 'expiresAt']),
+    currentAssetCertificateVersionId: currentAssetState.versionId,
+    currentAssetCertificateNotAfter: currentAssetState.notAfter,
+    currentAssetCertificateExpiresAt: currentAssetState.notAfter,
+    currentAssetCertificate: {
+      expiresAt: currentAssetState.notAfter,
+      versionId: currentAssetState.versionId,
+    },
+    needsUpdate,
+  }
+}
+
+function resolveEffectivePlannedCertificateVersion(plan: ApiRecord, versions: readonly ApiRecord[]): ApiRecord | null {
+  const plannedCertificateVersionId = readString(plan, ['certificateVersionId'])
+  const selectionMode = readString(plan, ['selectionMode'], 'EXPLICIT')
+  if (!plannedCertificateVersionId) return null
+  if (selectionMode !== 'LATEST_AUTO') {
+    return versions.find((item) => readString(item, ['id', 'certificateVersionId']) === plannedCertificateVersionId) ?? null
+  }
+  return resolveLatestDeployableVersionForPlan(plannedCertificateVersionId, versions)
+    ?? (versions.find((item) => readString(item, ['id', 'certificateVersionId']) === plannedCertificateVersionId) ?? null)
+}
+
+function resolveCurrentAssetCertificateState(
+  plan: ApiRecord,
+  versions: readonly ApiRecord[],
+  assets: readonly ApiRecord[],
+  assetDetails: ReadonlyMap<string, ApiRecord>,
+): CurrentAssetCertificateState {
+  const emptyState: CurrentAssetCertificateState = {
+    version: null,
+    versionId: '',
+    notAfter: '',
+    notAfterTime: Number.NaN,
+  }
+  const applicationAssetId = resolveApplicationAssetIdForPlan(plan, assets)
+  if (!applicationAssetId) return emptyState
+  const assetDetail = assetDetails.get(applicationAssetId)
+  if (!assetDetail) return emptyState
+  const target = Array.isArray(plan.targets) ? (plan.targets[0] as ApiRecord | undefined) : undefined
+  const certificateBindingId = readString(target, ['certificateBindingId'])
+  const binding = resolveCurrentCertificateBinding(assetDetail, certificateBindingId)
+  const currentCertificateVersionId = readString(binding, ['certificateVersionId'])
+  if (currentCertificateVersionId) {
+    const currentVersion = versions.find((item) => readString(item, ['id', 'certificateVersionId']) === currentCertificateVersionId) ?? null
+    if (currentVersion) {
+      return {
+        version: currentVersion,
+        versionId: readString(currentVersion, ['id', 'certificateVersionId']),
+        notAfter: readString(currentVersion, ['notAfter', 'validTo', 'expiresAt']),
+        notAfterTime: parseCertificateNotAfter(currentVersion),
+      }
+    }
+  }
+  const snapshot = resolveCurrentCertificateSnapshot(assetDetail, binding)
+  if (!snapshot) return emptyState
+  const currentVersion = resolveCertificateVersionFromSnapshot(snapshot, versions)
+  if (currentVersion) {
+    return {
+      version: currentVersion,
+      versionId: readString(currentVersion, ['id', 'certificateVersionId']),
+      notAfter: readString(currentVersion, ['notAfter', 'validTo', 'expiresAt']),
+      notAfterTime: parseCertificateNotAfter(currentVersion),
+    }
+  }
+  const snapshotNotAfter = readString(snapshot, ['metadata.detail.verify.notAfter'])
+  const snapshotNotAfterTime = Date.parse(snapshotNotAfter)
+  return {
+    version: null,
+    versionId: '',
+    notAfter: snapshotNotAfter,
+    notAfterTime: Number.isFinite(snapshotNotAfterTime) ? snapshotNotAfterTime : Number.NaN,
+  }
+}
+
+function resolveCurrentCertificateBinding(assetDetail: ApiRecord, certificateBindingId: string): ApiRecord | null {
+  const bindings = Array.isArray(readPath(assetDetail, 'targetBindingDetail.certificateBindings'))
+    ? readPath(assetDetail, 'targetBindingDetail.certificateBindings') as ApiRecord[]
+    : []
+  return bindings.find((item) => certificateBindingId && readString(item, ['id']) === certificateBindingId) ?? bindings[0] ?? null
+}
+
+function resolveCurrentCertificateSnapshot(assetDetail: ApiRecord, binding: ApiRecord | null): ApiRecord | null {
+  const bindingId = readString(binding, ['id'])
+  const currentThumbprint = normalizeHexString(readString(binding, ['storeThumbprint']))
+    || normalizeHexString(readString(assetDetail, [
+      'targetBinding.metadata.currentThumbprint',
+      'targetBindingDetail.metadata.currentThumbprint',
+      'targetBindingDetail.siteAsset.metadata.currentThumbprint',
+    ]))
+  const snapshots = (Array.isArray(assetDetail.targetSnapshots) ? assetDetail.targetSnapshots as ApiRecord[] : [])
+    .filter((item) => !bindingId || readString(item, ['certificateBindingId']) === bindingId)
+    .sort((left, right) => {
+      const rightCapturedAt = Date.parse(readString(right, ['capturedAt', 'createdAt', 'updatedAt']))
+      const leftCapturedAt = Date.parse(readString(left, ['capturedAt', 'createdAt', 'updatedAt']))
+      if (Number.isFinite(rightCapturedAt) && Number.isFinite(leftCapturedAt) && rightCapturedAt !== leftCapturedAt) {
+        return rightCapturedAt - leftCapturedAt
+      }
+      return readString(right, ['id']).localeCompare(readString(left, ['id']))
+    })
+  if (currentThumbprint) {
+    const matchedByThumbprint = snapshots.find((item) => resolveSnapshotThumbprints(item).includes(currentThumbprint))
+    if (matchedByThumbprint) return matchedByThumbprint
+  }
+  return snapshots.find((item) => Boolean(readString(item, ['metadata.detail.verify.notAfter']))) ?? null
+}
+
+function resolveSnapshotThumbprints(snapshot: ApiRecord): string[] {
+  return [
+    readString(snapshot, ['storeThumbprint']),
+    readString(snapshot, ['metadata.detail.verify.remoteThumbprint']),
+    readString(snapshot, ['metadata.detail.newThumbprint']),
+    readString(snapshot, ['metadata.detail.installResult.newThumbprint']),
+  ]
+    .map((value) => normalizeHexString(value))
+    .filter(Boolean)
+}
+
+function resolveCertificateVersionFromSnapshot(snapshot: ApiRecord, versions: readonly ApiRecord[]): ApiRecord | null {
+  const fingerprint = normalizeHexString(readString(snapshot, [
+    'metadata.detail.verify.remoteCertificateSha256',
+    'metadata.detail.installedCertificateSha256',
+    'metadata.detail.installResult.targetCertificateSha256',
+    'metadata.detail.targetCertificateSha256',
+  ]))
+  if (!fingerprint) return null
+  return versions.find((item) => normalizeHexString(readString(item, ['fingerprintSha256'])) === fingerprint) ?? null
+}
+
+function normalizeHexString(value: string): string {
+  return value.replace(/[^0-9a-f]/gi, '').toUpperCase()
+}
+
+function resolveApplicationAssetIdForPlan(plan: ApiRecord, assets: readonly ApiRecord[]): string {
+  const directApplicationAssetId = readString(Array.isArray(plan.targets) ? plan.targets[0] as ApiRecord | undefined : undefined, ['applicationAssetId', 'serviceAssetId'])
+  if (directApplicationAssetId) return directApplicationAssetId
+  return readString(resolveApplicationAssetRecordForPlan(plan, assets), ['id'])
+}
+
+function resolveApplicationAssetRecordForPlan(plan: ApiRecord, assets: readonly ApiRecord[]): ApiRecord | null {
+  const targets = Array.isArray(plan.targets) ? plan.targets as ApiRecord[] : []
+  const target = targets[0]
+  if (!target) return null
+  const executionTargetId = readString(target, ['executionTargetId', 'managedTargetId'])
+  const applicationAssetId = readString(target, ['applicationAssetId', 'serviceAssetId'])
+  return assets.find((item) => {
+    if (applicationAssetId && readString(item, ['id']) === applicationAssetId) return true
+    if (executionTargetId && readString(item, ['targetBinding.managedTargetId']) === executionTargetId) return true
+    return false
+  }) ?? null
+}
+
+function parseCertificateNotAfter(version: ApiRecord | null): number {
+  const notAfter = Date.parse(readString(version, ['notAfter', 'validTo', 'expiresAt']))
+  return Number.isFinite(notAfter) ? notAfter : Number.NaN
+}
+
+function resolveLatestDeployableVersionForPlan(
+  currentCertificateVersionId: string,
+  versions: readonly ApiRecord[],
+): ApiRecord | null {
+  if (!currentCertificateVersionId) return null
+  const currentVersion = versions.find((item) => readString(item, ['id', 'certificateVersionId']) === currentCertificateVersionId)
+  const certificateAssetId = readString(currentVersion, ['certificateAssetId', 'certificateId'])
+  if (!certificateAssetId) return null
+  return [...versions]
+    .filter((item) => readString(item, ['certificateAssetId', 'certificateId']) === certificateAssetId)
+    .filter((item) => isDeployableCertificateVersion(item))
+    .sort((left, right) => {
+      const rightNotAfter = Date.parse(readString(right, ['notAfter', 'validTo', 'expiresAt']))
+      const leftNotAfter = Date.parse(readString(left, ['notAfter', 'validTo', 'expiresAt']))
+      if (Number.isFinite(rightNotAfter) && Number.isFinite(leftNotAfter) && rightNotAfter !== leftNotAfter) return rightNotAfter - leftNotAfter
+
+      const rightCreatedAt = Date.parse(readString(right, ['createdAt', 'issuedAt']))
+      const leftCreatedAt = Date.parse(readString(left, ['createdAt', 'issuedAt']))
+      if (Number.isFinite(rightCreatedAt) && Number.isFinite(leftCreatedAt) && rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt
+
+      return readString(right, ['id', 'certificateVersionId']).localeCompare(readString(left, ['id', 'certificateVersionId']))
+    })[0] ?? null
+}
+
+function isDeployableCertificateVersion(item: ApiRecord): boolean {
+  const notAfter = Date.parse(readString(item, ['notAfter', 'validTo', 'expiresAt']))
+  return readString(item, ['status']).toLowerCase() === 'active'
+    && readBoolean(item, ['deployable'])
+    && Number.isFinite(notAfter)
+    && notAfter > Date.now()
+}
+
 async function openCreateDialog() {
   createDialogOpen.value = true
   editingPlanId.value = ''
-  editingSourcePlanId.value = ''
   wizardInitialPlan.value = null
   resetMessages()
   await loadWizardOptions()
@@ -178,26 +414,9 @@ async function openCreateDialog() {
 async function openEditDialog(row: ViewRow) {
   createDialogOpen.value = true
   const planId = readString(row.raw, ['id', 'planId'])
-  editingPlanId.value = String(row.status) === 'DRAFT' ? planId : ''
-  editingSourcePlanId.value = String(row.status) === 'DRAFT' ? '' : planId
+  editingPlanId.value = planId
   wizardInitialPlan.value = null
   resetMessages()
-  if (editingSourcePlanId.value) {
-    infoMessage.value = `将基于计划 ${editingSourcePlanId.value} 创建新的部署草稿，原计划和执行记录会保留。`
-  }
-  await loadWizardOptions()
-  wizardInitialPlan.value = buildInitialPlanFromRow(row.raw)
-}
-
-async function openCloneDialog(row: ViewRow) {
-  createDialogOpen.value = true
-  editingPlanId.value = ''
-  editingSourcePlanId.value = readString(row.raw, ['id', 'planId'])
-  wizardInitialPlan.value = null
-  resetMessages()
-  infoMessage.value = editingSourcePlanId.value
-    ? `将基于计划 ${editingSourcePlanId.value} 创建新的部署草稿，原计划和执行记录会保留。`
-    : '将创建新的部署草稿，原计划和执行记录会保留。'
   await loadWizardOptions()
   wizardInitialPlan.value = buildInitialPlanFromRow(row.raw)
 }
@@ -206,7 +425,6 @@ function closeCreateDialog() {
   if (loading.value) return
   createDialogOpen.value = false
   editingPlanId.value = ''
-  editingSourcePlanId.value = ''
   wizardInitialPlan.value = null
 }
 
@@ -281,19 +499,18 @@ async function handleSave(plan: DeploymentWizardPlan) {
   try {
     if (editingPlanId.value) {
       const updated = await updateDeploymentPlanDraft(editingPlanId.value, plan)
-      infoMessage.value = `部署计划草稿已更新。planId: ${String(updated.data?.id ?? editingPlanId.value)}`
+      infoMessage.value = `部署计划已保存。planId: ${String(updated.data?.id ?? editingPlanId.value)}`
       await pageRef.value?.reload()
+      closeCreateDialog()
       return
     }
     const planId = await createPlanDraft(plan)
-    infoMessage.value = editingSourcePlanId.value
-      ? `已基于计划 ${editingSourcePlanId.value} 创建新的部署草稿。planId: ${planId}`
-      : `部署计划草稿已保存。planId: ${planId}`
+    infoMessage.value = `部署计划已保存。planId: ${planId}`
     editingPlanId.value = planId
-    editingSourcePlanId.value = ''
     await pageRef.value?.reload()
+    closeCreateDialog()
   } catch (cause) {
-    errorMessage.value = toErrorMessage(cause, '保存部署计划草稿失败')
+    errorMessage.value = toErrorMessage(cause, '保存部署计划失败')
   } finally {
     loading.value = false
   }
@@ -408,62 +625,6 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
   }
 }
 
-async function handleSubmit(plan: DeploymentWizardPlan) {
-  if (!plan.applicationAssetId) {
-    errorMessage.value = '缺少应用资产 ID，无法提交部署计划。'
-    return
-  }
-  loading.value = true
-  resetMessages()
-  try {
-    const planId = await ensurePlanId(plan)
-    const submitted = await submitDeploymentPlan(planId)
-    submitRequestId.value = submitted.requestId
-    const status = String(submitted.data?.status ?? '')
-    approvalHint.value = status === 'PENDING_APPROVAL'
-      ? '该计划已提交审批，等待审批完成后才能执行。'
-      : status === 'READY'
-        ? '该计划已进入 READY，可以继续执行部署。'
-        : ''
-    infoMessage.value = approvalHint.value || '部署计划已提交。'
-    await pageRef.value?.reload()
-  } catch (cause) {
-    errorMessage.value = toErrorMessage(cause, '提交部署计划失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleExecute(plan: DeploymentWizardPlan) {
-  if (!plan.applicationAssetId) {
-    errorMessage.value = '缺少应用资产 ID，无法执行部署计划。'
-    return
-  }
-  loading.value = true
-  resetMessages()
-  try {
-    const planId = await ensurePlanId(plan)
-    const submitted = await submitDeploymentPlan(planId)
-    submitRequestId.value = submitted.requestId
-    const status = String(submitted.data?.status ?? '')
-    if (status === 'PENDING_APPROVAL') {
-      approvalHint.value = '该计划已进入审批，当前不能直接执行。'
-      infoMessage.value = approvalHint.value
-      await pageRef.value?.reload()
-      return
-    }
-    const executed = await executeDeploymentPlan(planId)
-    openExecutionModalFromResult(executed, 'apply')
-    infoMessage.value = `部署执行已发起。requestId: ${executed.requestId}`
-    await pageRef.value?.reload()
-    createDialogOpen.value = false
-  } catch (cause) {
-    errorMessage.value = toErrorMessage(cause, '执行部署计划失败')
-  } finally {
-    loading.value = false
-  }
-}
-
 async function ensurePlanId(plan: DeploymentWizardPlan): Promise<string> {
   if (editingPlanId.value) return editingPlanId.value
   const planId = await createPlanDraft(plan)
@@ -497,7 +658,7 @@ async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () =
   const result = await run()
   if (actionLabel === 'Dry-run 影响预览') {
     openExecutionModalFromResult(result, 'dry-run', row)
-  } else if (actionLabel === '执行部署' || actionLabel === '重新执行' || actionLabel === '重试执行') {
+  } else if (actionLabel === '执行部署') {
     openExecutionModalFromResult(result, 'apply', row)
   } else if (actionLabel === '回滚执行') {
     openExecutionModalFromResult(result, 'rollback', row)
@@ -513,7 +674,7 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
     infoMessage.value = planId ? `部署计划已删除。planId: ${planId}` : '部署计划已删除。'
   } else if (actionLabel === '提交审批') {
     infoMessage.value = planId ? `部署计划已提交。planId: ${planId}` : '部署计划已提交。'
-  } else if (actionLabel === '执行部署' || actionLabel === '重新执行') {
+  } else if (actionLabel === '执行部署') {
     infoMessage.value = runId
       ? `部署执行已触发，正在模态框中显示执行过程。runId: ${runId}`
       : (planId ? `部署执行已触发。planId: ${planId}` : '部署执行已触发。')
@@ -552,7 +713,7 @@ function handleActionError(actionLabel: string, row: ViewRow | null, cause: unkn
 }
 
 function shouldPromptDryRun(actionLabel: string, cause: unknown): boolean {
-  if (!['执行部署', '重新执行', '重试执行'].includes(actionLabel)) return false
+  if (actionLabel !== '执行部署') return false
   const message = toErrorMessage(cause, '').toLowerCase()
   return (
     message.includes('dry-run')
@@ -669,12 +830,13 @@ function buildInitialPlanFromRow(row: ApiRecord): DeploymentWizardInitialPlan {
   const certificateVersionId = readString(row, ['certificateVersionId'])
   const certificateFormatId = readString(row, ['certificateFormatId'])
   const certificateVersion = certificateVersionItems.value.find((item) => readString(item, ['id', 'certificateVersionId']) === certificateVersionId)
+  const selectionMode = readString(row, ['selectionMode'], 'EXPLICIT')
   return {
     certificateId: readString(certificateVersion, ['certificateAssetId', 'certificateId']),
     certificateVersionId,
     certificateFormatId,
     applicationAssetId: resolveApplicationAssetIdFromPlan(row),
-    selectionMode: 'EXPLICIT',
+    selectionMode: selectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT',
   }
 }
 
@@ -733,6 +895,18 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
     return String(value)
   }
   return fallback
+}
+
+function readBoolean(record: ApiRecord | null | undefined, candidates: readonly string[]): boolean {
+  for (const candidate of candidates) {
+    const value = readPath(record, candidate)
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'string') {
+      if (value === 'true') return true
+      if (value === 'false') return false
+    }
+  }
+  return false
 }
 
 function normalizeRisk(value: string): ViewRow['risk'] {
@@ -823,36 +997,28 @@ async function fetchAllPages(
 
     <GcModal
       v-model:open="createDialogOpen"
-      :title="modalTitle"
-      :description="modalDescription"
       size="xxl"
       width="1120px"
+      frameless
     >
-      <section class="deployment-plans-page__wizard">
-        <p v-if="errorMessage" class="deployment-plans-page__error">{{ errorMessage }}</p>
-        <p v-else-if="infoMessage" class="deployment-plans-page__info">{{ infoMessage }}</p>
+      <p v-if="errorMessage" class="deployment-plans-page__error deployment-plans-page__wizard-message">{{ errorMessage }}</p>
+      <p v-else-if="infoMessage" class="deployment-plans-page__info deployment-plans-page__wizard-message">{{ infoMessage }}</p>
 
-        <GcDeploymentWizard
-          :certificates="certificateItems"
-          :certificate-versions="certificateVersionItems"
-          :certificate-formats="certificateFormatItems"
-          :targets="targetItems"
-          :loading="loading"
-          :initial-plan="wizardInitialPlan"
-          :dry-run-request-id="dryRunRequestId"
-          :submit-request-id="submitRequestId"
-          :approval-hint="approvalHint"
-          :dry-run-checks="dryRunChecks"
-          @save="handleSave"
-          @dry-run="handleDryRun"
-          @submit="handleSubmit"
-          @execute="handleExecute"
-        />
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="loading" @click="closeCreateDialog">关闭</button>
-      </template>
+      <GcDeploymentWizard
+        :certificates="certificateItems"
+        :certificate-versions="certificateVersionItems"
+        :certificate-formats="certificateFormatItems"
+        :targets="targetItems"
+        :loading="loading"
+        :initial-plan="wizardInitialPlan"
+        :dry-run-request-id="dryRunRequestId"
+        :submit-request-id="submitRequestId"
+        :approval-hint="approvalHint"
+        :dry-run-checks="dryRunChecks"
+        @save="handleSave"
+        @dry-run="handleDryRun"
+        @cancel="closeCreateDialog"
+      />
     </GcModal>
 
     <GcDryRunResultModal
@@ -911,8 +1077,8 @@ async function fetchAllPages(
           <div class="deployment-plan-detail__hero-side">
             <GcStatusTag :status="readString(detailPlanRow.raw, ['status', 'state'])" />
             <div class="deployment-plan-detail__spotlight">
-              <small>影响目标数</small>
-              <strong>{{ readString(detailPlanRow.raw, ['targetCount', 'affectedCount', 'targets.length']) }}</strong>
+              <small>需要更新</small>
+              <GcStatusTag :status="readString(detailPlanRow.raw, ['updateNeeded'], 'UNKNOWN')" />
             </div>
           </div>
         </section>
@@ -1011,11 +1177,6 @@ async function fetchAllPages(
   flex-wrap: wrap;
 }
 
-.deployment-plans-page__wizard {
-  display: grid;
-  gap: var(--gc-space-3);
-}
-
 .deployment-plans-page__dry-run-required {
   display: grid;
   gap: 12px;
@@ -1045,6 +1206,10 @@ async function fetchAllPages(
   border: 1px solid #dbeafe;
   color: #1d4ed8;
   background: #eff6ff;
+}
+
+.deployment-plans-page__wizard-message {
+  margin-bottom: 10px;
 }
 
 .deployment-plan-detail {

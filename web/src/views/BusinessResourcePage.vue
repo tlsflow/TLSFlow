@@ -269,6 +269,14 @@ defineExpose({
         {{ readNumber(row.raw, ['count', 'targetCount', 'affectedCount']) ?? row.count }}
       </template>
 
+      <template #cell-updateNeeded="{ row }">
+        <GcStatusTag
+          v-if="readString(row.raw, ['updateNeeded'], String(row.updateNeeded ?? ''))"
+          :status="readString(row.raw, ['updateNeeded'], String(row.updateNeeded ?? 'UNKNOWN'))"
+        />
+        <span v-else>—</span>
+      </template>
+
       <template #cell-actions="{ row }">
         <div class="business-page__row-actions">
           <template v-for="(action, index) in config.rowActions ?? []" :key="`${row.id}-${action.label}`">
@@ -278,6 +286,7 @@ defineExpose({
               :impact-count="1"
               :risk-text="action.riskText"
               :confirm-text="action.confirmText"
+              :danger="action.danger"
               :disabled="Boolean(action.disabledReason?.(row))"
               :disabled-reason="action.disabledReason?.(row)"
               @confirm="runRowAction(row, index)"
@@ -346,6 +355,7 @@ defineExpose({
             :impact-count="action.requiresSelection ? 1 : state.total.value"
             :risk-text="action.riskText"
             :confirm-text="action.confirmText"
+            :danger="action.danger"
             :disabled="Boolean(action.disabledReason?.(selectedRow))"
             :disabled-reason="action.disabledReason?.(selectedRow)"
             @confirm="runAction(action)"

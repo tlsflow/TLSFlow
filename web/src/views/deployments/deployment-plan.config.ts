@@ -1,5 +1,5 @@
 import { createDeploymentPlan, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlans, submitDeploymentPlan, cancelDeploymentPlan, deleteDraftDeploymentPlan } from '@/api/modules/deployments.api'
-import { retryExecution, rollbackExecution } from '@/api/modules/executions.api'
+import { rollbackExecution } from '@/api/modules/executions.api'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -21,7 +21,7 @@ export type DeploymentPlanStatus =
   | 'ROLLBACK_FAILED'
 
 export interface DeploymentPlanUiAction {
-  readonly key: 'dry-run' | 'submit' | 'execute' | 're-execute' | 'cancel' | 'retry' | 'rollback' | 'delete'
+  readonly key: 'dry-run' | 'submit' | 'execute' | 'cancel' | 'rollback' | 'delete'
   readonly label: string
   readonly permission: string
   readonly danger?: boolean
@@ -39,7 +39,6 @@ export const deploymentPlanActions = {
   executeDeploymentPlan,
   cancelDeploymentPlan,
   deleteDraftDeploymentPlan,
-  retryExecution,
   rollbackExecution,
 }
 
@@ -68,25 +67,14 @@ export const deploymentPlanUiActions: readonly DeploymentPlanUiAction[] = [
     permission: 'deployment.plan.execute',
     danger: true,
     confirmText: 'EXECUTE',
-    riskText: '执行会修改目标证书配置，必须处于 READY 或已审批状态。',
-    visibleWhen: ['APPROVED', 'READY'],
-    run: (row) => executeDeploymentPlan(requirePlanId(row)),
+    riskText: '执行会修改目标证书配置。已完成或失败的计划再次执行也使用这个入口；执行前应先运行 Dry-run 影响预览。',
+    visibleWhen: ['APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    run: (row) => executeDeploymentPlan(requirePlanId(row), isFinishedPlan(row) ? { reason: 'deployment-plan-reexecute' } : {}),
     disabledReason: (row) => {
-      if (!canExecute(row)) return '缺少审批通过信息，不能执行。'
+      if (!isFinishedPlan(row) && !canExecute(row)) return '缺少审批通过信息，不能执行。'
       if (!hasPassedLatestDryRun(row)) return '正式执行前必须先完成一次成功的 Dry-run 影响预览。'
       return ''
     },
-  },
-  {
-    key: 're-execute',
-    label: '重新执行',
-    permission: 'deployment.plan.execute',
-    danger: true,
-    confirmText: undefined,
-    riskText: '重新执行会再次修改目标证书配置。用于 SUCCESS 误判、失败修复或回滚后重新部署；执行前应先运行 Dry-run 影响预览。',
-    visibleWhen: ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
-    run: (row) => executeDeploymentPlan(requirePlanId(row), { reason: 'deployment-plan-reexecute' }),
-    disabledReason: (row) => hasPassedLatestDryRun(row) ? '' : '重新执行前必须先完成一次成功的 Dry-run 影响预览。',
   },
   {
     key: 'cancel',
@@ -98,24 +86,13 @@ export const deploymentPlanUiActions: readonly DeploymentPlanUiAction[] = [
     run: (row) => cancelDeploymentPlan(requirePlanId(row)),
   },
   {
-    key: 'retry',
-    label: '重试执行',
-    permission: 'deployment.plan.execute',
-    danger: true,
-    confirmText: 'RETRY',
-    riskText: '重试最近一次失败执行批次，必须能解析真实 runId。',
-    visibleWhen: ['FAILED', 'PARTIAL_SUCCESS'],
-    run: (row) => retryExecution(requireLatestRunId(row), { planId: requirePlanId(row), reason: 'deployment-plan-retry' }),
-    disabledReason: (row) => latestRunId(row) ? '' : '缺少 runId，不能重试。',
-  },
-  {
     key: 'rollback',
     label: '回滚执行',
     permission: 'execution.rollback',
     danger: true,
     confirmText: 'ROLLBACK',
     riskText: '回滚会再次修改目标服务证书配置，必须使用真实 runId。',
-    visibleWhen: ['SUCCESS', 'FAILED', 'PARTIAL_SUCCESS', 'ROLLBACK_FAILED'],
+    visibleWhen: ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLBACK_FAILED'],
     run: (row) => rollbackExecution(requireLatestRunId(row), { planId: requirePlanId(row), reason: 'deployment-plan-rollback' }),
     disabledReason: (row) => latestRunId(row) ? '' : '缺少 runId，不能回滚。',
   },
@@ -146,8 +123,8 @@ export const deploymentPlansPageConfig: BusinessPageConfig = {
   columns: [
     { key: 'name', title: '计划名称', candidates: ['name', 'title', 'planName'] },
     { key: 'status', title: '状态', candidates: ['status', 'state'] },
-    { key: 'risk', title: '风险', candidates: ['risk', 'riskLevel'] },
-    { key: 'count', title: '影响目标数', candidates: ['targetCount', 'affectedCount', 'targets.length'], kind: 'count' },
+    { key: 'currentAssetCertificateExpiresAt', title: '当前证书结束时间', candidates: ['currentAssetCertificate.expiresAt'], kind: 'date' },
+    { key: 'updateNeeded', title: '需要更新', candidates: ['updateNeeded'] },
     { key: 'scheduledAt', title: '计划时间', candidates: ['scheduledAt', 'createdAt'], kind: 'date' },
     { key: 'actions', title: '操作', candidates: [] },
   ],
@@ -162,7 +139,8 @@ export const deploymentPlansPageConfig: BusinessPageConfig = {
     { label: '审批状态', candidates: ['approval.status', 'approvalStatus'] },
     { label: '证书版本 ID', candidates: ['certificateVersionId'] },
     { label: '证书格式配置 ID', candidates: ['certificateFormatId'] },
-    { label: '影响目标数', candidates: ['targetCount', 'affectedCount', 'targets.length'] },
+    { label: '当前证书结束时间', candidates: ['currentAssetCertificate.expiresAt', 'currentAssetCertificateExpiresAt', 'currentAssetCertificateNotAfter'] },
+    { label: '需要更新', candidates: ['updateNeeded'] },
     { label: '目标绑定摘要', candidates: ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId'] },
     { label: '最新执行批次', candidates: ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id'] },
     { label: '审批 ID', candidates: ['approvalId', 'approval.id', 'approval.approvalId'] },
@@ -238,6 +216,10 @@ function canExecute(row: ViewRow): boolean {
   const approvalStatus = stringFromCandidates(row.raw, ['approvalStatus', 'approval.status'])
   if (approvalStatus === 'NOT_REQUIRED' || approvalStatus === 'APPROVED') return true
   return Boolean(stringFromCandidates(row.raw, ['approvalId', 'approval.id', 'approval.approvalId', 'approvedBy']))
+}
+
+function isFinishedPlan(row: ViewRow): boolean {
+  return ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'].includes(String(row.status))
 }
 
 function hasPassedLatestDryRun(row: ViewRow): boolean {
