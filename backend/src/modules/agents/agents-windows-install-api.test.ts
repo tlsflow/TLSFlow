@@ -61,8 +61,15 @@ describe('Agent 一键安装会话', () => {
 	assert.match(script, /authorizationMaterialPath/);
 	assert.match(script, /authorizationTrustKeySet/);
 	assert.match(script, /agent-trust-material\.json/);
-	assert.match(script, /Go Agent policy directory ACL configuration failed/);
+    assert.match(script, /Go Agent policy directory ACL configuration failed/);
     assert.match(script, /S-1-5-18/);
+    assert.match(script, /\$pluginSource = Join-Path \$root "plugins\/windows-runtime-discovery\.exe"/);
+    assert.match(script, /Windows Agent-side discovery plugin is missing from the bootstrap bundle/);
+    assert.match(script, /\$pluginTarget = Join-Path \$manifest\.installRoot "plugins\/windows-runtime-discovery\.exe"/);
+    assert.match(script, /Copy-Item -LiteralPath \$pluginSource -Destination \$pluginTarget -Force/);
+    assert.ok(script.indexOf('Windows Agent-side discovery plugin is missing from the bootstrap bundle') < script.indexOf('foreach ($serviceName in $serviceNames) { Remove-GoAgentService'));
+    assert.ok(script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force') < script.indexOf('Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force'));
+    assert.ok(script.indexOf('Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force') < script.indexOf('register-once'));
     assert.ok(script.indexOf('Remove-GoAgentLegacyFirewallRules') < script.indexOf('Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930'));
     assert.ok(script.indexOf('foreach ($serviceName in $serviceNames) { Remove-GoAgentService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe/);

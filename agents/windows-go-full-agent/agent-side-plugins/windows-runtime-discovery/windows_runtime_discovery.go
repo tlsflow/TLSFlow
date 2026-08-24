@@ -282,18 +282,28 @@ func discoverWindowsApache(facts windowsRuntimeFactSnapshot) windowsApacheDetail
 			Version:        service.Version,
 		}
 	}
+	// Win32_Process.ExecutablePath 在受限权限下可能为空，但命令行或 SCM
+	// 服务 ImagePath 仍然是同一份已确认的程序事实，不能因此把 Apache 判成未安装。
+	serviceCommandLine := ""
+	serviceBinaryPath := ""
+	if service != nil {
+		serviceCommandLine = service.PathName
+		serviceBinaryPath = service.ExecutablePath
+	}
+	binaryPath := firstNonEmpty(
+		strings.TrimSpace(process.ExecutablePath),
+		extractWindowsExecutablePath(process.CommandLine),
+		strings.TrimSpace(serviceBinaryPath),
+		extractWindowsExecutablePath(serviceCommandLine),
+	)
 	detail := windowsApacheDetail{
-		Installed:   strings.TrimSpace(process.ExecutablePath) != "",
+		Installed:   binaryPath != "",
 		Running:     firstWindowsRuntimeProcess(facts.Processes, "httpd", "apache2", "apache") != nil,
 		Version:     firstNonEmpty(process.Version, serviceVersion(service)),
-		BinaryPath:  strings.TrimSpace(process.ExecutablePath),
+		BinaryPath:  binaryPath,
 		ServiceName: serviceName(service),
 	}
 	detail.ServiceStatus = serviceState(service)
-	serviceCommandLine := ""
-	if service != nil {
-		serviceCommandLine = service.PathName
-	}
 	serverRoot := firstNonEmpty(
 		windowsServiceArgument(service, "-d"),
 		windowsCommandArgument(process.CommandLine, "-d"),
@@ -410,11 +420,23 @@ func firstWindowsRuntimeProcess(processes []windowsRuntimeProcessFact, names ...
 
 func firstWindowsRuntimeService(services []windowsRuntimeServiceFact, names ...string) *windowsRuntimeServiceFact {
 	for index := range services {
-		if windowsRuntimeNameMatches(services[index].Name, names...) || windowsRuntimeNameMatches(services[index].DisplayName, names...) || windowsRuntimeNameMatches(filepath.Base(services[index].ExecutablePath), names...) {
+		if windowsRuntimeNameMatches(services[index].Name, names...) ||
+			windowsRuntimeNameMatches(services[index].DisplayName, names...) ||
+			windowsRuntimeNameMatches(windowsRuntimeExecutableName(services[index].ExecutablePath), names...) ||
+			windowsRuntimeNameMatches(windowsRuntimeExecutableName(extractWindowsExecutablePath(services[index].PathName)), names...) {
 			return &services[index]
 		}
 	}
 	return nil
+}
+
+func windowsRuntimeExecutableName(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), "\"'")
+	value = strings.ReplaceAll(value, "\\", "/")
+	if separator := strings.LastIndexByte(value, '/'); separator >= 0 {
+		return value[separator+1:]
+	}
+	return value
 }
 
 func windowsRuntimeNameMatches(value string, names ...string) bool {
