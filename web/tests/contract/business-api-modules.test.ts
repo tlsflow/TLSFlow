@@ -13,7 +13,7 @@ import { createBinding, deleteBinding, detectBindingDrift, listBindingUsages, li
 import { executeDeploymentPlan, listDeploymentPlans } from '@/api/modules/deployments.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listAudits } from '@/api/modules/audits.api'
-import { disableUnifiedPluginVersion, listPluginCatalog } from '@/api/modules/plugins.api'
+import { disablePlugin, listPlugins } from '@/api/modules/plugins.api'
 import { listGateways, probeGateway, routeGateway, updateGatewayStatus } from '@/api/modules/gateways.api'
 
 function mockPage() {
@@ -36,7 +36,7 @@ describe('业务 API modules', () => {
     await listBindings()
     await listDeploymentPlans()
     await listAudits()
-    await listPluginCatalog()
+    await listPlugins()
     await listGateways()
 
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
@@ -48,7 +48,7 @@ describe('业务 API modules', () => {
       '/api/v1/certificate-bindings?page=1&pageSize=20',
       '/api/v1/deployment-plans?page=1&pageSize=20',
       '/api/v1/audit-events?page=1&pageSize=20',
-      '/api/v1/plugin-catalog?page=1&pageSize=20',
+      '/api/v1/plugins/packages?page=1&pageSize=20',
       '/api/v1/gateways?page=1&pageSize=20'
     ]))
     expect(urls).not.toContain('/api/v1/plugins?page=1&pageSize=20')
@@ -63,7 +63,7 @@ describe('业务 API modules', () => {
 
     await executeDeploymentPlan('plan-1', { approvalId: 'approval-1' })
     await rollbackExecution('run-1', { dryRun: true })
-    await disableUnifiedPluginVersion('plugin-version-1')
+    await disablePlugin('pluginpkg-1', { dryRun: true })
     await importCertificate({ certificatePem: '-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----' })
     const executeCall = vi.mocked(fetch).mock.calls[0]
     const rollbackCall = vi.mocked(fetch).mock.calls[1]
@@ -71,12 +71,12 @@ describe('业务 API modules', () => {
     const importCertificateCall = vi.mocked(fetch).mock.calls[3]
     expect(executeCall?.[0]).toBe('/api/v1/deployment-plans/execute')
     expect(rollbackCall?.[0]).toBe('/api/v1/execution-runs/rollback')
-    expect(disablePluginCall?.[0]).toBe('/api/v1/plugin-versions/disable')
+    expect(disablePluginCall?.[0]).toBe('/api/v1/plugins/disable')
     expect(importCertificateCall?.[0]).toBe('/api/v1/certificate-versions/import')
     expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({ planId: 'plan-1', approvalId: 'approval-1' })
     expect(JSON.parse(String(executeCall?.[1]?.body))).not.toHaveProperty('dryRun')
     expect(JSON.parse(String(rollbackCall?.[1]?.body))).toMatchObject({ runId: 'run-1', dryRun: true })
-    expect(JSON.parse(String(disablePluginCall?.[1]?.body))).toMatchObject({ pluginVersionId: 'plugin-version-1' })
+    expect(JSON.parse(String(disablePluginCall?.[1]?.body))).toMatchObject({ pluginPackageId: 'pluginpkg-1', dryRun: true })
     expect(JSON.parse(String(importCertificateCall?.[1]?.body))).toMatchObject({ certificatePem: expect.stringContaining('BEGIN CERTIFICATE') })
     const headers = executeCall?.[1]?.headers as Headers
     expect(headers.get('X-Idempotency-Key')).toMatch(/^deployment_execute_/)

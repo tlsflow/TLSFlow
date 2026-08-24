@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { App } from '../../common/http/app.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -9,52 +11,13 @@ import { WorkflowTemplatesApplicationService } from './application/workflow-temp
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
+import { WorkflowTemplateFileLibrary } from './domain/workflow-template-file-library.js';
 import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../plugins/repository/plugin-workflow-bindings.repository.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { DeploymentAssetContextV1 } from '../deployment-inputs/dto/deployment-asset-context.dto.js';
-import type { DeploymentInputContractV1 } from '../deployment-inputs/dto/deployment-input-contract.dto.js';
-
-function workflowInputContract(extraVariables: DeploymentInputContractV1['variables'] = {}): DeploymentInputContractV1 {
-  const requiredVariable = (type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file', defaultValue?: unknown) => ({
-    type,
-    required: defaultValue === undefined,
-    configurationMode: defaultValue === undefined ? 'required' as const : 'advanced' as const,
-    source: defaultValue === undefined ? { kind: 'binding' as const } : { kind: 'default' as const },
-    lifecycle: 'pre_execution' as const,
-    bindingPolicy: defaultValue === undefined ? 'required_binding' as const : 'default_overridable' as const,
-    ...(defaultValue === undefined ? {} : { default: defaultValue }),
-  });
-  const connectionField = (type: 'string' | 'number', defaultValue?: string | number) => ({
-    type, required: true, configurationMode: defaultValue === undefined ? 'required' as const : 'advanced' as const,
-    source: defaultValue === undefined ? { kind: 'binding' as const } : { kind: 'default' as const },
-    lifecycle: 'pre_execution' as const,
-    bindingPolicy: defaultValue === undefined ? 'required_binding' as const : 'default_overridable' as const,
-    ...(defaultValue === undefined ? {} : { default: defaultValue }),
-  });
-  return {
-    apiVersion: 'gcac.deployment-input/v1',
-    variables: {
-      deviceHost: requiredVariable('string'),
-      shouldUpload: requiredVariable('boolean', true),
-      ...extraVariables,
-    },
-    connections: {
-      management: { transport: 'http', host: connectionField('string'), port: connectionField('number', 443), credentialSlot: 'credential' },
-      targetSsh: { transport: 'ssh', host: connectionField('string'), port: connectionField('number', 22), username: connectionField('string'), credentialSlot: 'credential', hostKey: { policy: 'strict' } },
-    },
-    credentials: {
-      credential: { allowedKinds: ['USERNAME_PASSWORD', 'SSH_KEY'], required: true, configurationMode: 'required', lifecycle: 'pre_execution' },
-      apiCredential: { allowedKinds: ['BEARER_TOKEN'], required: false, configurationMode: 'advanced', lifecycle: 'pre_execution' },
-      sshCredential: { allowedKinds: ['USERNAME_PASSWORD', 'SSH_KEY'], required: false, configurationMode: 'advanced', lifecycle: 'pre_execution' },
-    },
-    artifacts: {
-      cert: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: { pem: { role: 'public_certificate', required: true }, privateKey: { role: 'private_key', required: true, sensitive: true }, fingerprintSha256: { role: 'fingerprint_sha256', required: true } } } },
-    },
-  };
-}
 
 function resolvedWorkflowInput(input: Partial<Pick<ResolvedDeploymentInputV1, 'variables' | 'connections' | 'credentials' | 'artifacts' | 'assetContext'>> = {}): ResolvedDeploymentInputV1 {
   const assetContext: DeploymentAssetContextV1 = input.assetContext ?? {
@@ -126,7 +89,10 @@ function templateFixture(): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'edge-cert-update', category: 'load_balancer' },
-    inputContract: workflowInputContract(),
+    variables: {
+      deviceHost: { type: 'string', required: true },
+      shouldUpload: { type: 'boolean', default: true },
+    },
     steps: [
       {
         name: 'login',
@@ -206,6 +172,15 @@ function runtimeInput(versionId: string) {
   };
 }
 
+function createIsolatedWorkflowService(rootDirs: { builtinRootDir?: string; userRootDir: string } | string) {
+  const db = new PgliteDatabase();
+  const templates = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
+  const versions = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
+  return new WorkflowTemplatesApplicationService(
+    new WorkflowTemplatesDomainService(templates, versions, new WorkflowTemplateFileLibrary(rootDirs)),
+  );
+}
+
 describe('WorkflowTemplates', () => {
   it('校验 DSL v1 schema，拒绝未知字段、缺失引用、类型错误、明文 Secret 和私钥', async () => {
     workflowTemplatesSchemaRegistry.validate(templateFixture());
@@ -235,14 +210,7 @@ describe('WorkflowTemplates', () => {
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingReference), /变量引用不存在|missingHost/);
 
     const wrongType = templateFixture();
-    wrongType.inputContract.variables.deviceHost = {
-      ...wrongType.inputContract.variables.deviceHost,
-      type: 'number',
-      configurationMode: 'advanced',
-      source: { kind: 'default' },
-      bindingPolicy: 'default_overridable',
-      default: 'bad',
-    } as never;
+    wrongType.variables.deviceHost = { type: 'number', default: 'bad' } as never;
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(wrongType), /必须是数字|number/);
 
     const plainSecret = templateFixture();
@@ -270,29 +238,28 @@ describe('WorkflowTemplates', () => {
   it('拒绝把 Credential 和 Certificate 继续声明为普通变量', () => {
     for (const legacyType of ['credential', 'certificate']) {
       const content = templateFixture();
-      content.inputContract.variables.legacyInput = { type: legacyType, required: true } as never;
-      assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /type 不支持/);
+      content.variables.legacyInput = { type: legacyType, required: true } as never;
+      assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /变量类型不支持/);
     }
   });
 
   it('Workflow 变量固定默认值使用 standard default Source，拒绝旧 dsl Source', () => {
     const content = templateFixture();
-    content.inputContract.variables.deviceHost = {
-      ...content.inputContract.variables.deviceHost,
+    content.variables.deviceHost = {
+      ...content.variables.deviceHost,
+      configurationMode: 'required',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'required_binding',
+    };
+    content.variables.shouldUpload = {
+      ...content.variables.shouldUpload,
       configurationMode: 'advanced',
       source: { kind: 'default' },
       lifecycle: 'pre_execution',
       bindingPolicy: 'default_overridable',
-      default: 'edge.example.com',
     };
-    content.inputContract.variables.shouldUpload = {
-      ...content.inputContract.variables.shouldUpload,
-      configurationMode: 'advanced',
-      source: { kind: 'default' },
-      lifecycle: 'pre_execution',
-      bindingPolicy: 'default_overridable',
-    };
-    content.inputContract.variables.fixed = {
+    content.variables.fixed = {
       type: 'string',
       required: true,
       default: 'fixed-value',
@@ -303,17 +270,28 @@ describe('WorkflowTemplates', () => {
     };
     assert.doesNotThrow(() => workflowTemplatesSchemaRegistry.validate(content));
 
-    const legacy = templateFixture() as unknown as { inputContract: { variables: Record<string, Record<string, unknown>> } };
-    legacy.inputContract.variables.fixed = {
-      type: 'string',
-      required: true,
+    const legacy = templateFixture() as unknown as Record<string, unknown>;
+    const variables = legacy.variables as Record<string, Record<string, unknown>>;
+    variables.deviceHost = {
+      ...variables.deviceHost,
+      configurationMode: 'required',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'required_binding',
+    };
+    variables.shouldUpload = {
+      ...variables.shouldUpload,
       configurationMode: 'advanced',
-      default: 'fixed-value',
-      source: { kind: 'dsl', value: 'fixed-value' },
+      source: { kind: 'default' },
       lifecycle: 'pre_execution',
       bindingPolicy: 'default_overridable',
     };
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(legacy), /source.kind 不支持/);
+    variables.fixed = {
+      type: 'string',
+      default: 'fixed-value',
+      source: { kind: 'dsl', value: 'fixed-value' },
+    };
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(legacy), /变量类型不支持|kind 不支持/);
   });
 
   it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
@@ -354,6 +332,118 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: edited }), /duplicate workflow version content/);
   });
 
+  it('可以扫描内置与用户导入文件模板，并支持基于模板新建或覆盖现有工作流', async () => {
+    const builtinRootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-builtin-files-'));
+    const userRootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-user-files-'));
+    await mkdir(join(builtinRootDir, 'apache'), { recursive: true });
+    await mkdir(join(userRootDir, 'apache'), { recursive: true });
+    const validDsl = {
+      ...templateFixture(),
+      metadata: {
+        ...templateFixture().metadata,
+        name: 'file_template_create',
+        displayName: '文件模板新建',
+        description: '用于验证插件市场元数据。',
+        version: '1.2.0',
+        logoUrl: '/plugin-logos/test.svg',
+        platforms: ['linux', 'apache'],
+        updateMethods: ['ssh', 'curl'],
+        maintainer: 'GCAC Test',
+        homepage: 'https://example.com/plugins/file-template-create',
+      },
+      steps: [
+        {
+          name: 'prepare_login',
+          type: 'http',
+          stage: 'prepare',
+          request: { connectionRef: 'management', method: 'GET', url: 'https://{{variables.deviceHost}}/ping' },
+        },
+      ],
+      rollback: [
+        {
+          name: 'rollback_manual',
+          type: 'manual',
+          instruction: '回退文件模板',
+        },
+      ],
+    } satisfies WorkflowDslV1;
+    const overwriteDsl = {
+      ...validDsl,
+      metadata: {
+        ...validDsl.metadata,
+        name: 'file_template_overwrite',
+        displayName: '文件模板覆盖',
+      },
+      steps: [
+        {
+          name: 'verify_manual',
+          type: 'manual',
+          stage: 'verify',
+          instruction: '验证覆盖内容',
+        },
+      ],
+    } satisfies WorkflowDslV1;
+    await writeFile(join(builtinRootDir, 'apache', 'valid-create.json'), `${JSON.stringify(validDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(userRootDir, 'apache', 'valid-overwrite.json'), `${JSON.stringify(overwriteDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(userRootDir, 'broken.json'), '{ bad json', 'utf8');
+
+    const service = createIsolatedWorkflowService({ builtinRootDir, userRootDir });
+    const files = await service.listFileTemplates();
+
+    assert.equal(files.length, 3);
+    assert.equal(files.some((item) => item.id === 'builtin/apache/valid-create.json' && item.source === 'builtin' && item.valid), true);
+    assert.equal(files.some((item) => item.id === 'user/broken.json' && item.source === 'user' && item.valid === false), true);
+    assert.equal(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.version, '1.2.0');
+    assert.equal(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.logoUrl, '/plugin-logos/test.svg');
+    assert.deepEqual(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.platforms, ['linux', 'apache']);
+    assert.deepEqual(files.find((item) => item.id === 'builtin/apache/valid-create.json')?.metadata?.updateMethods, ['ssh', 'curl']);
+
+    const createdFromFile = await service.createTemplateFromFile({
+      fileTemplateId: 'builtin/apache/valid-create.json',
+      changeSummary: '从文件模板创建',
+    });
+    assert.equal(createdFromFile.template.name, 'file_template_create');
+    assert.equal(createdFromFile.version.content.metadata.displayName, '文件模板新建');
+
+    const target = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'existing_workflow', displayName: '现有工作流' },
+        variables: { deviceHost: { type: 'string', required: true } },
+        steps: [{ name: 'wait_one', type: 'wait', seconds: 1 }],
+      },
+      changeSummary: '初始空白工作流',
+    });
+    const applied = await service.applyFileTemplateToTemplate({
+      templateId: target.template.id,
+      fileTemplateId: 'apache/valid-overwrite.json',
+      changeSummary: '文件模板覆盖',
+    });
+
+    assert.equal(applied.content.metadata.name, 'existing_workflow');
+    assert.equal(applied.content.metadata.displayName, '文件模板覆盖');
+    assert.deepEqual(applied.content.steps.map((step) => step.name), ['verify_manual']);
+    assert.deepEqual(applied.content.rollback?.map((step) => step.name), ['rollback_manual']);
+
+    const appliedAgain = await service.applyFileTemplateToTemplate({
+      templateId: target.template.id,
+      fileTemplateId: 'apache/valid-overwrite.json',
+      changeSummary: '重复套用同一文件模板',
+    });
+    const targetVersions = await service.listVersions(target.template.id);
+    const currentTarget = (await service.listTemplates()).find((item) => item.id === target.template.id);
+
+    assert.equal(applied.version, 2);
+    assert.equal(appliedAgain.version, 3);
+    assert.notEqual(appliedAgain.id, applied.id);
+    assert.equal(appliedAgain.status, 'draft');
+    assert.equal(appliedAgain.contentHash, applied.contentHash);
+    assert.equal(targetVersions.length, 3);
+    assert.equal(currentTarget?.status, 'draft');
+    assert.equal(currentTarget?.currentVersionLabel, 'V3');
+  });
+
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
     const app = new App();
     const service = new WorkflowTemplatesApplicationService();
@@ -375,7 +465,7 @@ describe('WorkflowTemplates', () => {
   it('通用首次创建接口退出，工作流列表保留用户来源并排除 plugin_internal', async () => {
     const app = new App();
     const currentBindings: PluginWorkflowBindingRecord[] = [];
-    const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository(currentBindings));
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, undefined, workflowBindingsRepository(currentBindings));
     new WorkflowTemplatesController(service).register(app.router);
 
     const legacy = await service.createTemplate({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } });
@@ -498,7 +588,9 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'runtime_output_flow', displayName: '运行时输出传递' },
-      inputContract: workflowInputContract(),
+      variables: {
+        deviceHost: { type: 'string', required: true },
+      },
       steps: [
         {
           name: 'prepare_auth',
@@ -583,7 +675,9 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'flexible_auth_fields_flow', displayName: '灵活认证字段提取' },
-      inputContract: workflowInputContract(),
+      variables: {
+        deviceHost: { type: 'string', required: true },
+      },
       steps: [
         {
           name: 'prepare_auth',
@@ -667,7 +761,9 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'extract_failure_detail', displayName: '提取失败详情' },
-      inputContract: workflowInputContract(),
+      variables: {
+        deviceHost: { type: 'string', required: true },
+      },
       steps: [
         {
           name: 'prepare_auth',
@@ -927,9 +1023,7 @@ describe('WorkflowTemplates', () => {
         description: '只允许 Linux 目标继续',
       },
     ];
-    content.inputContract.variables = {
-      deviceOs: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-    };
+    content.variables = { deviceOs: { type: 'string', required: true } };
     content.rollback = undefined;
 
     const passed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', resolvedInput: resolvedWorkflowInput({ variables: { deviceOs: 'linux' } }) });
@@ -1054,7 +1148,17 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'connection-ref-runtime' },
-      inputContract: workflowInputContract(),
+      connections: {
+        targetSsh: {
+          protocol: 'ssh',
+          host: { configurationMode: 'required', source: 'binding' },
+          port: { configurationMode: 'advanced', source: 'dsl_default', default: 22 },
+          username: { configurationMode: 'required', source: 'binding' },
+          credential: { slot: 'sshCredential', configurationMode: 'required', source: 'credential' },
+          hostKey: { configurationMode: 'advanced', policy: 'trust_on_first_use' },
+        },
+      },
+      variables: {},
       steps: [
         { name: 'sshStep', type: 'ssh', stage: 'prepare', ssh: { mode: 'command', connectionRef: 'targetSsh', command: 'echo ok' } },
         { name: 'sftpStep', type: 'sftp', stage: 'install', sftp: { direction: 'download', connectionRef: 'targetSsh', remotePath: '/tmp/a', localPath: '/tmp/local-a' } },
@@ -1088,7 +1192,7 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'http-connection-ref-runtime' },
-      inputContract: workflowInputContract(),
+      variables: {},
       steps: [{ name: 'probe', type: 'http', request: { method: 'GET', url: 'https://api.example.com/health', connectionRef: 'management' } }],
     };
     const result = await service.testStep({
@@ -1228,7 +1332,7 @@ describe('WorkflowTemplates', () => {
   it('transform step 可以用 JSONata 生成上下文变量并供后续步骤引用', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
-    content.inputContract.variables.previousServices = { type: 'object', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' };
+    content.variables.previousServices = { type: 'object', required: true };
     content.steps = [
       {
         name: 'build_bindings',
@@ -1247,7 +1351,7 @@ describe('WorkflowTemplates', () => {
               format: 'jsonString',
             },
           },
-          timeoutMs: 1000,
+          timeoutMs: 500,
           maxInputBytes: 4096,
           maxOutputBytes: 4096,
         },
@@ -1310,7 +1414,7 @@ describe('WorkflowTemplates', () => {
 
     const service = new WorkflowTemplatesApplicationService();
     const oversizedInput = templateFixture();
-    oversizedInput.inputContract.variables.largeValue = { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' };
+    oversizedInput.variables.largeValue = { type: 'string', required: true };
     oversizedInput.steps = [{
       name: 'oversized_input',
       type: 'transform',
@@ -1335,7 +1439,6 @@ describe('WorkflowTemplates', () => {
       transform: {
         engine: 'jsonata',
         outputs: { value: { expression: '"0123456789abcdef"' } },
-        timeoutMs: 1000,
         maxOutputBytes: 8,
       },
     }];
@@ -1365,9 +1468,9 @@ describe('WorkflowTemplates', () => {
   it('Synology DSM 模板不要求手工填写证书 ID 和服务绑定 JSON', async () => {
     const raw = await readFile('src/modules/workflow-templates/builtin-workflows/synology-dsm-cert-import.json', 'utf8');
     const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(raw));
-    assert.equal(content.inputContract.variables.previousCertificateId?.required, false);
-    assert.equal(content.inputContract.variables.newCertificateId?.required, false);
-    assert.equal(content.inputContract.variables.serviceBindingsJson?.required, false);
+    assert.equal(content.variables.previousCertificateId?.required, false);
+    assert.equal(content.variables.newCertificateId?.required, false);
+    assert.equal(content.variables.serviceBindingsJson?.required, false);
 
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content });
@@ -1449,9 +1552,9 @@ describe('WorkflowTemplates', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'contains-render' },
-        inputContract: workflowInputContract({
-          expectedResponseContains: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-        }),
+        variables: {
+          expectedResponseContains: { type: 'string', required: true },
+        },
         steps: [{
           name: 'verify_body',
           type: 'http',
@@ -1481,9 +1584,9 @@ describe('WorkflowTemplates', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'foreach-sequential' },
-        inputContract: workflowInputContract({
-          apiToken: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding', sensitive: true },
-        }),
+        variables: {
+          apiToken: { type: 'string', required: true, sensitive: true },
+        },
         steps: [{
           name: 'deploy_targets',
           type: 'foreach',
@@ -1534,7 +1637,7 @@ describe('WorkflowTemplates', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'foreach-fail-fast' },
-        inputContract: workflowInputContract(),
+        variables: {},
         steps: [{
           name: 'probe_targets',
           type: 'foreach',
@@ -1582,7 +1685,7 @@ describe('WorkflowTemplates', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'foreach-best-effort' },
-        inputContract: workflowInputContract(),
+        variables: {},
         steps: [{
           name: 'probe_targets',
           type: 'foreach',
@@ -1628,7 +1731,7 @@ describe('WorkflowTemplates', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'foreach-depth' },
-      inputContract: workflowInputContract(),
+      variables: {},
       steps: [nested('level1', nested('level2', nested('level3', nested('level4', leaf))))],
     };
 
@@ -1642,10 +1745,10 @@ describe('WorkflowTemplates', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'checkpoint-capture' },
-        inputContract: workflowInputContract({
-          remoteState: { type: 'object', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-          apiToken: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding', sensitive: true },
-        }),
+        variables: {
+          remoteState: { type: 'object', required: true },
+          apiToken: { type: 'string', required: true, sensitive: true },
+        },
         steps: [{
           name: 'before_write',
           type: 'checkpoint',

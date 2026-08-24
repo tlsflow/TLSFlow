@@ -7,7 +7,9 @@ import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import type {
+  ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
+  CreateWorkflowTemplateFromFileInput,
   RenameWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   UpdateWorkflowTemplateVersionNoteInput,
@@ -25,6 +27,7 @@ import type {
   WorkflowRunResult,
   WorkflowRuntimeInput,
   WorkflowSingleStepRunResult,
+  WorkflowFileTemplate,
   WorkflowStage,
   WorkflowStep,
   WorkflowSshConnection,
@@ -33,8 +36,10 @@ import type {
   WorkflowStepRunResult,
   WorkflowTemplate,
   WorkflowTemplateVersion,
+  WorkflowVariableDefinition,
 } from '../dto/workflow-templates.dto.js';
-import { normalizeExtractors, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
+import { WorkflowTemplateFileLibrary } from './workflow-template-file-library.js';
+import { normalizeExtractors, validateVariableValue, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 import type { ResolvedConnectionV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 interface RuntimeContext {
@@ -67,8 +72,13 @@ export class WorkflowTemplatesDomainService {
   constructor(
     private readonly templatesRepository: AsyncRepositoryPort<WorkflowTemplate> = WorkflowTemplatesDomainService.createDefaultTemplatesRepository(),
     private readonly versionsRepository: AsyncRepositoryPort<WorkflowTemplateVersion> = WorkflowTemplatesDomainService.createDefaultVersionsRepository(),
+    private readonly fileTemplateLibrary = new WorkflowTemplateFileLibrary(),
   ) {
     this.ready = this.rehydrate();
+  }
+
+  async listFileTemplates(): Promise<WorkflowFileTemplate[]> {
+    return await this.fileTemplateLibrary.list();
   }
 
   async createTemplate(
@@ -111,6 +121,17 @@ export class WorkflowTemplatesDomainService {
     return this.withCurrentVersionSummary(template);
   }
 
+  async createTemplateFromFile(
+    input: CreateWorkflowTemplateFromFileInput,
+    origin: NonNullable<WorkflowTemplate['origin']> = 'user',
+  ): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
+    const content = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
+    return await this.createTemplate({
+      content,
+      changeSummary: input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 创建工作流草稿`,
+    }, origin);
+  }
+
   async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
@@ -142,6 +163,26 @@ export class WorkflowTemplatesDomainService {
     await this.templatesRepository.upsert(template);
     await this.versionsRepository.upsert(version);
     return clone(version);
+  }
+
+  async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const imported = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
+    const content = workflowTemplatesSchemaRegistry.validate({
+      ...clone(imported),
+      metadata: {
+        ...clone(imported.metadata),
+        name: template.name,
+      },
+    });
+    return await this.appendDraftVersion(
+      template,
+      content,
+      input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 覆盖工作流草稿`,
+      { rejectDuplicateContent: false, enforcePluginVersionIncrement: false },
+    );
   }
 
   async publishVersion(versionId: string, allowInternal = false): Promise<WorkflowTemplateVersion> {

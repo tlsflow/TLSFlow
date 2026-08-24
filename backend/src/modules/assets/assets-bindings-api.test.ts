@@ -178,21 +178,8 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name, category: 'certificate_deployment' },
-    inputContract: {
-      apiVersion: 'gcac.deployment-input/v1',
-      variables: {
-        host: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-      },
-      connections: {
-        targetSsh: {
-          transport: 'ssh',
-          host: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-          port: { type: 'number', required: true, configurationMode: 'advanced', source: { kind: 'default' }, lifecycle: 'pre_execution', bindingPolicy: 'default_overridable', default: 22 },
-          hostKey: { policy: 'strict' },
-        },
-      },
-      credentials: {},
-      artifacts: {},
+    variables: {
+      host: { type: 'string', required: true },
     },
     steps: [
       {

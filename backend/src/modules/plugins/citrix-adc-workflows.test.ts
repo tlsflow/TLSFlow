@@ -465,7 +465,7 @@ function deploymentVariables(): Record<string, unknown> {
         { sequence: 2, hasNext: false, pemBase64: Buffer.from('ca-2').toString('base64') },
       ],
     },
-    targetVirtualServers: [{ name: 'lb-one', serverName: 'lb.example.com', metadata: { sniCertificate: false, previousFingerprintSha256: 'bb'.repeat(32) } }],
+    targetVirtualServers: [{ name: 'lb-one', sniCertificate: false, serverName: 'lb.example.com', previousFingerprintSha256: 'bb'.repeat(32) }],
   };
 }
 
@@ -495,7 +495,7 @@ function recoverySnapshot(): Record<string, unknown> {
     versionResponse: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } },
     bindings: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }],
     certkeys: [{ resource: [{ certkey: 'old-cert', cert: '/nsconfig/ssl/old.pem', key: '/nsconfig/ssl/old.key', linkcertkeyname: 'old-ca', status: 'Valid' }], sharedBindings: [{ vservername: 'lb-one', certkeyname: 'old-cert' }] }],
-    targets: [{ name: 'lb-one', serverName: 'lb.example.com', metadata: { previousFingerprintSha256: 'bb'.repeat(32) } }],
+    targets: [{ name: 'lb-one', serverName: 'lb.example.com', previousFingerprintSha256: 'bb'.repeat(32) }],
     newCertificateKeyName: 'gcac-leaf-20260724',
     targetFingerprintSha256: 'aa'.repeat(32),
   };

@@ -66,6 +66,151 @@
       }
     }
   },
+  "variables": {
+    "frameworkType": {
+      "type": "enum",
+      "configurationMode": "required",
+      "required": true,
+      "default": "CUSTOM",
+      "source": { "kind": "asset", "path": "target.frameworkType" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "enum": [
+        "NGINX",
+        "APACHE",
+        "TOMCAT",
+        "IIS",
+        "CUSTOM"
+      ],
+      "description": "应用资产框架类型，Synology DSM API 证书导入按自定义设备处理。"
+    },
+    "siteName": {
+      "type": "string",
+      "configurationMode": "required",
+      "required": true,
+      "default": "Synology DSM",
+      "source": { "kind": "asset", "path": "target.siteName" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "应用资产站点显示名称。"
+    },
+    "bindingInformation": {
+      "type": "string",
+      "configurationMode": "advanced",
+      "required": false,
+      "default": "*:5001:nas.example.com",
+      "source": { "kind": "asset", "path": "target.bindingInformation" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "DSM HTTPS 入口绑定信息。"
+    },
+    "hostHeader": {
+      "type": "string",
+      "configurationMode": "advanced",
+      "required": false,
+      "default": "nas.example.com",
+      "source": { "kind": "asset", "path": "target.hostHeader" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "验证请求使用的 Host 头。"
+    },
+    "port": {
+      "type": "number",
+      "configurationMode": "required",
+      "required": true,
+      "default": 5001,
+      "source": { "kind": "asset", "path": "target.port" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "DSM HTTPS 管理端口。"
+    },
+    "protocol": {
+      "type": "enum",
+      "configurationMode": "required",
+      "required": true,
+      "default": "HTTPS",
+      "source": { "kind": "asset", "path": "target.protocol" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "enum": [
+        "HTTP",
+        "HTTPS",
+        "TLS",
+        "CUSTOM"
+      ],
+      "description": "应用资产访问协议。"
+    },
+    "verifyUrl": {
+      "type": "string",
+      "configurationMode": "required",
+      "required": true,
+      "default": "https://nas.example.com:5001/",
+      "source": { "kind": "asset", "path": "target.verifyUrl" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "证书导入后用于验证 DSM HTTPS 入口的 URL。"
+    },
+    "sniName": {
+      "type": "string",
+      "configurationMode": "advanced",
+      "required": false,
+      "default": "nas.example.com",
+      "source": { "kind": "asset", "path": "target.sniName" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "TLS SNI 名称。"
+    },
+    "deviceBaseUrl": {
+      "type": "string",
+      "configurationMode": "advanced",
+      "required": true,
+      "default": "https://nas.example.com:5001",
+      "source": { "kind": "derived", "resolver": "endpoint_url" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "fixed",
+      "description": "DSM WebAPI 基础地址，不包含末尾斜杠。"
+    },
+    "previousCertificateId": {
+      "type": "string",
+      "configurationMode": "runtime",
+      "required": false,
+      "default": "",
+      "source": { "kind": "step_output", "step": "build_previous_synology_certificate_context", "output": "previousCertificateId" },
+      "lifecycle": "step_output",
+      "bindingPolicy": "fixed",
+      "description": "迁移前承载服务绑定的旧证书 ID，由上传前证书列表实时解析生成，用作回滚目标。"
+    },
+    "newCertificateId": {
+      "type": "string",
+      "configurationMode": "runtime",
+      "required": false,
+      "default": "",
+      "source": { "kind": "step_output", "step": "build_synology_service_bindings", "output": "newCertificateId" },
+      "lifecycle": "step_output",
+      "bindingPolicy": "fixed",
+      "description": "新增证书导入成功后从 SYNO.Core.Certificate.CRT list 解析出的新证书 ID。创建应用资产时未知，不能作为必填输入；仅用于记录或回滚辅助。"
+    },
+    "certificateDescription": {
+      "type": "string",
+      "configurationMode": "advanced",
+      "required": false,
+      "default": "GCAC active certificate",
+      "source": { "kind": "default" },
+      "lifecycle": "pre_execution",
+      "bindingPolicy": "default_overridable",
+      "description": "新增证书描述，用于 DSM 列表中区分当前目标证书。"
+    },
+    "serviceBindingsJson": {
+      "type": "string",
+      "configurationMode": "runtime",
+      "required": false,
+      "default": "",
+      "source": { "kind": "step_output", "step": "build_synology_service_bindings", "output": "serviceBindingsJson" },
+      "lifecycle": "step_output",
+      "bindingPolicy": "fixed",
+      "description": "SYNO.Core.Certificate.Service set 的 settings JSON 字符串。运行时应由证书列表实时转换生成，创建应用资产时不能手工必填。"
+    }
+  },
   "steps": [
     {
       "name": "prepare_synology_login",
