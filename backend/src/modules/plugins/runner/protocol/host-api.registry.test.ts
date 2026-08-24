@@ -14,7 +14,7 @@ import {
 } from './host-api.registry.js';
 
 const expectedMethods = [
-  'artifact.grant.read', 'secret.grant.resolve', 'execution.progress', 'execution.checkpoint.save', 'execution.checkpoint.load',
+  'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'http.request', 'execution.progress', 'execution.checkpoint.save', 'execution.checkpoint.load',
   'execution.isCancelled', 'resourceLock.acquire', 'resourceLock.release', 'audit.append',
 ].sort();
 
@@ -40,6 +40,8 @@ test('Host API Registry 覆盖 IPC v1 要求的全部通用方法且没有厂商
 });
 
 test('Host API request/result Schema 拒绝未知字段、错误类型和非法结果', () => {
+  validateHostApiRequest('cloudService.get', { cloudServiceRef: 'caa-1' });
+  validateHostApiRequest('http.request', { url: 'https://example.invalid/api', method: 'GET', headers: {} });
   validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' });
   validateHostApiResult('artifact.grant.read', { ok: true, data: { id: 'artifact-1' } });
   assert.throws(() => validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1', secret: 'must-not-pass' }));
@@ -56,11 +58,13 @@ test('Host API Grant 权限和引用缺失时失败关闭', () => {
   assert.throws(() => assertHostApiGrant('artifact.grant.read', [], ['grant-1']), /权限不足/);
   assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read'], []), /Grant 引用/);
   assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read'], ['grant-1', 'grant-1']), /重复/);
+  assert.doesNotThrow(() => assertHostApiGrant('secret.grant.resolve', ['secret.resolve'], ['grant-1']));
   assert.throws(() => assertHostApiGrant('secret.grant.resolve', ['secret.read'], ['grant-1']));
   assert.throws(() => validateHostApiPermissions(undefined as never), /权限格式/);
   assert.throws(() => validateHostApiPermissions(['artifact.read', 'artifact.read']), /重复/);
   assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read', 'artifact.read'], ['grant-1']), /重复/);
   assert.throws(() => validateHostApiRequest('certificate.get', { id: 'certificate-1' }));
+  assert.throws(() => validateHostApiRequest('http.request', { url: 'http://example.invalid', method: 'GET', headers: {} }));
 });
 
 test('Host API JSON Schema 文件保留同一份方法目录', () => {

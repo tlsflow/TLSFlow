@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import type { OutboundHttpClient, OutboundHttpRequest, OutboundHttpResponse } from '../../../common/http/outbound-http-client.js';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
 import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
 import { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
@@ -7,6 +8,7 @@ import { WorkflowRecoveryLedgerService } from '../../executions/application/work
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { AgentTaskLogEntry } from '../../agents/schema/agents.schema.js';
+import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateHostApiResult, type HostApiMethodDefinition } from './protocol/host-api.registry.js';
 import { PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestBinding, type HostApiRequestOutcome } from './host-api.request-gate.js';
 import type { PluginRunnerHostApiHandler, PluginRunnerHostCallContext } from './plugin-runner-client.js';
@@ -20,6 +22,10 @@ export interface PluginRunnerHostApiDependencies {
   executions: Pick<ExecutionsRepository, 'getRunOrThrow' | 'getStepOrThrow'>;
   /** 生产必须注入数据库支持的原子消费账本；缺失时所有 Host API 请求失败关闭。 */
   requestGate?: PluginRunnerHostApiRequestGate;
+  /** 生产必须注入租户隔离的 Cloud Service 查询端口。 */
+  cloudServices?: Pick<CloudAccountAssetsApplicationService, 'get' | 'list'>;
+  /** 生产必须注入不跟随重定向的通用 HTTPS 客户端。 */
+  httpClient?: Pick<OutboundHttpClient, 'request'>;
 }
 
 /**
@@ -243,6 +249,10 @@ async function dispatchHostApiCall(
       return await readArtifact(dependencies, context, input, grants);
     case 'secret.grant.resolve':
       return await resolveSecret(dependencies, context, input, grants);
+    case 'cloudService.get':
+      return await readCloudService(dependencies, context, input);
+    case 'http.request':
+      return await requestHttp(dependencies, context, definition, input);
     case 'execution.progress':
       return publishProgress(dependencies, context, input);
     case 'execution.checkpoint.save':
@@ -259,6 +269,149 @@ async function dispatchHostApiCall(
       return await appendPluginAudit(dependencies, context, input);
     default:
       throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 方法未注册生产处理器', { method: definition.method });
+  }
+}
+
+async function readCloudService(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
+  const cloudServiceRef = stringValue(input.cloudServiceRef, 'cloudServiceRef');
+  const service = await dependencies.cloudServices.get(context.tenantId, cloudServiceRef);
+  if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service 不属于当前插件、当前租户或不是 ACTIVE 标准对象', { cloudServiceRef });
+  }
+  if (service.scope.endpoint !== undefined) assertHttpsUrl(service.scope.endpoint, 'Cloud Service endpoint');
+  return {
+    ok: true,
+    data: {
+      apiVersion: 'gcac.cloud-service/v1',
+      kind: 'CloudService',
+      cloudServiceRef: service.id,
+      providerKey: service.providerKey,
+      displayName: service.displayName,
+      ...(service.accountId ? { accountId: service.accountId } : {}),
+      scope: service.scope,
+      metadata: service.metadata,
+      status: service.status,
+      version: service.version,
+    },
+  };
+}
+
+async function requestHttp(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  definition: HostApiMethodDefinition,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!dependencies.httpClient) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP Host API 未装配');
+  const url = stringValue(input.url, 'url');
+  assertHttpsUrl(url, 'HTTP URL');
+  await assertRegisteredCloudEndpoint(dependencies, context, url);
+  const method = stringValue(input.method, 'method');
+  const headers = stringRecordValue(input.headers, 'headers');
+  assertHttpHeaders(url, headers);
+  const body = input.body === undefined
+    ? undefined
+    : typeof input.body === 'string'
+      ? input.body
+      : stringValue(input.body, 'body');
+  if (body !== undefined && Buffer.byteLength(body, 'utf8') > 1024 * 1024) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 请求体超过大小上限');
+  }
+  const request: OutboundHttpRequest = {
+    url,
+    method: method as OutboundHttpRequest['method'],
+    headers,
+    ...(body !== undefined ? { body } : {}),
+    timeoutMs: Math.min(context.timeoutMs, definition.timeoutMs),
+    maxResponseBytes: definition.maxOutputBytes,
+  };
+  const response = await dependencies.httpClient.request(request);
+  return { ok: true, data: normalizeHttpResponse(response, definition.maxOutputBytes) };
+}
+
+function normalizeHttpResponse(response: OutboundHttpResponse, maxResponseBytes: number): Record<string, unknown> {
+  if (!response || !Number.isInteger(response.statusCode) || response.statusCode < 100 || response.statusCode > 599) {
+    throw new AppError('PLUGIN_CONTRACT_INVALID', 'HTTP Host API 返回无效状态码');
+  }
+  const bodyText = typeof response.bodyText === 'string' ? response.bodyText : '';
+  if (Buffer.byteLength(bodyText, 'utf8') > maxResponseBytes) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 响应超过大小上限');
+  const headers = stringRecordValue(response.headers, 'response.headers');
+  assertResponseHeaders(headers);
+  return { statusCode: response.statusCode, headers, body: response.body === undefined ? bodyText : response.body, bodyText };
+}
+
+async function assertRegisteredCloudEndpoint(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  urlValue: string,
+): Promise<void> {
+  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
+  const requestOrigin = new URL(urlValue).origin;
+  const services = await dependencies.cloudServices.list(context.tenantId);
+  const allowed = services.items.some((service) => {
+    if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) return false;
+    if (typeof service.scope.endpoint !== 'string') return false;
+    try {
+      return new URL(service.scope.endpoint).origin === requestOrigin;
+    } catch {
+      return false;
+    }
+  });
+  if (!allowed) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP URL 未绑定到当前插件的 ACTIVE Cloud Service', { url: urlValue });
+  }
+}
+
+function assertHttpsUrl(value: string, name: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', `${name} 不是有效 URL`);
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', `${name} 必须是无凭据、无 Fragment 的 HTTPS URL`);
+  }
+}
+
+function stringRecordValue(value: unknown, name: string): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', `Host API ${name} 无效`);
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 100) throw new AppError('PLUGIN_HOST_CALL_DENIED', `Host API ${name} 超过字段上限`);
+  const result: Record<string, string> = {};
+  for (const [key, item] of entries) {
+    if (typeof item !== 'string' || item.length > 8192) throw new AppError('PLUGIN_HOST_CALL_DENIED', `Host API ${name} 包含无效字符串字段`);
+    result[key] = item;
+  }
+  return result;
+}
+
+function assertHttpHeaders(urlValue: string, headers: Record<string, string>): void {
+  const url = new URL(urlValue);
+  for (const [name, value] of Object.entries(headers)) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value)) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 请求头名称或值无效');
+    }
+    const lowerName = name.toLowerCase();
+    if (['connection', 'proxy-connection', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'].includes(lowerName)) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 请求包含禁止的 Hop-by-hop 请求头');
+    }
+    if (lowerName === 'host' && value.toLowerCase() !== url.host.toLowerCase()) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP Host 请求头必须匹配 URL 主机');
+    }
+  }
+}
+
+function assertResponseHeaders(headers: Record<string, string>): void {
+  for (const [name, value] of Object.entries(headers)) {
+    if (/[\r\n]/.test(name) || /[\r\n]/.test(value)) throw new AppError('PLUGIN_CONTRACT_INVALID', 'HTTP 响应头包含非法换行');
   }
 }
 

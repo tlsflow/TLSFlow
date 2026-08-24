@@ -10,9 +10,9 @@ import { getHostApiMethod } from './protocol/host-api.registry.js';
 import type { PluginRunnerError } from './protocol/protocol.types.js';
 
 const planDigest = 'b'.repeat(64);
-const allActions = ['artifact.read', 'secret.resolve', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'];
+const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'network.http', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'];
 
-test('Host API 的九个已登记方法均走绑定 Grant、持久化端口和审计', async () => {
+test('Host API 的十一项已登记方法均走绑定 Grant、持久化端口和审计', async () => {
   const fixture = createFixture();
   const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
 
@@ -78,6 +78,86 @@ test('Host API 对错步骤、未绑定 Grant、权限不足、checkpoint 越权
     /未注册/,
   );
   assert.equal(fixture.audits.some((event) => event.result === 'denied'), true);
+});
+
+test('Cloud Service 只读取当前租户 ACTIVE 标准对象，HTTP 只允许有界 HTTPS', async () => {
+  const fixture = createFixture();
+  const requests: unknown[] = [];
+  fixture.dependencies.cloudServices = {
+    get: async (tenantId: string, id: string) => ({
+      id,
+      tenantId,
+      assetKind: 'cloud.account',
+      providerKey: 'cloud.aliyun',
+      displayName: '开发云账号',
+      credentialRef: 'credential://not-returned',
+      scope: { endpoint: 'https://cloud.example.invalid', metadata: { region: 'cn-test-1' } },
+      status: 'ACTIVE',
+      metadata: { managed: true },
+      createdAt: '2026-08-10T00:00:00.000Z',
+      updatedAt: '2026-08-10T00:00:00.000Z',
+      version: 1,
+    }),
+    list: async (tenantId: string) => ({
+      items: [{
+        id: 'caa-1',
+        tenantId,
+        assetKind: 'cloud.account',
+        providerKey: 'cloud.aliyun',
+        displayName: '开发云账号',
+        credentialRef: 'credential://not-returned',
+        scope: { endpoint: 'https://cloud.example.invalid', metadata: { region: 'cn-test-1' } },
+        status: 'ACTIVE',
+        metadata: { managed: true },
+        createdAt: '2026-08-10T00:00:00.000Z',
+        updatedAt: '2026-08-10T00:00:00.000Z',
+        version: 1,
+      }],
+      page: 1,
+      pageSize: 1,
+      total: 1,
+    }),
+  };
+  fixture.dependencies.httpClient = {
+    request: async (request) => {
+      requests.push(request);
+      return { statusCode: 200, headers: { 'content-type': 'application/json' }, bodyText: '{"status":"SUCCEEDED"}', body: { status: 'SUCCEEDED' } };
+    },
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+
+  const cloudContext = { ...context('cloudService.get', ['cloud.service.get']), pluginId: 'cloud.aliyun' };
+  const service = await handler({ ...cloudContext, input: { cloudServiceRef: 'caa-1' } });
+  assert.equal((service.data as Record<string, unknown>).kind, 'CloudService');
+  assert.equal((service.data as Record<string, unknown>).credentialRef, undefined);
+  assert.equal((service.data as Record<string, unknown>).endpoint, undefined);
+  assert.deepEqual((service.data as Record<string, unknown>).scope, { endpoint: 'https://cloud.example.invalid', metadata: { region: 'cn-test-1' } });
+  const response = await handler({ ...context('http.request', ['network.http']), pluginId: 'cloud.aliyun', input: { url: 'https://cloud.example.invalid/api', method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' } });
+  assert.equal((response.data as Record<string, unknown>).statusCode, 200);
+  assert.equal(requests.length, 1);
+
+  await assert.rejects(
+    handler({ ...context('http.request', ['network.http']), pluginId: 'cloud.aliyun', input: { url: 'http://cloud.example.invalid/api', method: 'GET', headers: {} } }),
+    /Schema|格式|HTTPS/,
+  );
+  await assert.rejects(
+    handler({ ...context('http.request', ['network.http']), pluginId: 'cloud.aliyun', input: { url: 'https://unbound.example.invalid/api', method: 'GET', headers: {} } }),
+    /ACTIVE Cloud Service/,
+  );
+});
+
+test('Cloud Service 非 ACTIVE 或 Host API 装配缺失时失败关闭', async () => {
+  const fixture = createFixture();
+  fixture.dependencies.cloudServices = { get: async () => ({ tenantId: 'tenant-1', status: 'DISABLED' } as never), list: async () => ({ items: [], page: 1, pageSize: 0, total: 0 }) };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  await assert.rejects(
+    handler({ ...context('cloudService.get', ['cloud.service.get']), pluginId: 'cloud.aliyun', input: { cloudServiceRef: 'caa-1' } }),
+    /ACTIVE/,
+  );
+  await assert.rejects(
+    handler({ ...context('http.request', ['network.http']), input: { url: 'https://example.invalid', method: 'GET', headers: {} } }),
+    /HTTP Host API 未装配/,
+  );
 });
 
 test('生产 Host API 未装配持久化消费门禁时失败关闭，不使用内存 fallback', async () => {

@@ -1,4 +1,5 @@
 import { App } from './common/http/app.js';
+import { NodeOutboundHttpClient } from './common/http/outbound-http-client.js';
 import { AppError } from './common/errors/app-error.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
 import type { RouteContract } from './common/openapi/route-contract.js';
@@ -232,6 +233,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
+  const providerCatalogService = new ProviderCatalogApplicationService();
+  const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
   const pluginRunnerSupervisor = productionPluginRunner
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
@@ -245,6 +248,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
       executionDetails: executionDetailStream,
       executions: executionPersistence.executions,
       requestGate: new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(appDb)),
+      cloudServices: cloudAccountAssetsService,
+      httpClient: new NodeOutboundHttpClient(),
     })
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
@@ -256,9 +261,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
         builtinRegistry: builtinPluginRegistry,
       }
       : undefined);
-  const providerCatalogService = new ProviderCatalogApplicationService();
-  let cloudAccountAssetsService!: CloudAccountAssetsApplicationService;
-  cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
   new ProvidersController(
     cloudAccountAssetsService,
     security,
