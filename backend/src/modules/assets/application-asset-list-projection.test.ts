@@ -8,6 +8,10 @@ import { PgBindingsRepository } from '../bindings/repository/bindings.repository
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
 import { PgMonitorsRepository } from '../monitors/repository/monitors.repository.js';
 import { PgAssetsRepository } from './repository/assets.repository.js';
+import { PluginBindingsApplicationService } from '../plugins/application/plugin-bindings.application-service.js';
+import { PluginBindingsRepository } from '../plugins/repository/plugin-bindings.repository.js';
+import { insertCanonicalPluginVersion } from '../plugins/plugin-test-fixtures.js';
+import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 
 test('应用资产列表投影设备、框架和站点名称', async () => {
   const database = new PgliteDatabase();
@@ -59,6 +63,23 @@ test('应用资产列表投影设备、框架和站点名称', async () => {
     applicationAssetId: applicationAsset.id,
     managedTargetId: managedTarget.id,
   });
+  const pluginVersionId = 'version-asset-card-logo';
+  await insertCanonicalPluginVersion(database, pluginVersionId, tenantId);
+  const pluginBindings = new PluginBindingsApplicationService(new PluginBindingsRepository(database));
+  const pluginBinding = await pluginBindings.createBinding(tenantId, {
+    pluginVersionId,
+    mode: 'MANAGED',
+    inputBindings: emptyInputBindingsV1(),
+    managedContext: { hostId: host.id, managedTargetId: managedTarget.id },
+  });
+  await pluginBindings.assignCapability(tenantId, {
+    ownerType: 'APPLICATION_ASSET',
+    ownerId: applicationAsset.id,
+    capabilityKey: 'certificate.deploy',
+    pluginVersionId,
+    pluginBindingId: pluginBinding.id,
+    precedence: 'ASSET_OVERRIDE',
+  });
 
   const result = await repository.listServiceAssets(tenantId, {
     page: 1,
@@ -71,6 +92,7 @@ test('应用资产列表投影设备、框架和站点名称', async () => {
   assert.equal(result.items[0]?.targetBinding?.frameworkType, 'web.iis');
   assert.equal(result.items[0]?.targetBinding?.frameworkDisplayName, 'Microsoft IIS');
   assert.equal(result.items[0]?.targetBinding?.siteName, 'TEST');
+  assert.equal(result.items[0]?.targetBinding?.pluginVersionId, pluginVersionId);
 });
 
 test('应用资产部分更新保留验证 URL 并支持显式清空', async () => {

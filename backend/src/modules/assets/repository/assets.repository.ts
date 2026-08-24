@@ -929,6 +929,43 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!managedTarget) return { ...asset, targetBinding };
     // Repository 可能绑定到事务专用 client；事务 client 不允许并发 query。
     // 顺序读取避免 pg 触发“client already executing a query”并发警告。
+    // 应用资产卡片必须使用当前生效的证书部署插件，而不是从 DeviceAsset 猜测插件。
+    // 能力指派的优先级与执行解析保持一致：应用资产覆盖 > 受管目标覆盖 > 设备默认。
+    const effectivePluginRow = (await this.db.query<{ plugin_version_id: string | null }>(
+      `select assignment.plugin_version_id
+       from plugin_capability_assignments assignment
+       join unified_plugin_bindings binding
+         on binding.tenant_id = assignment.tenant_id
+        and binding.id = assignment.plugin_binding_id
+        and binding.plugin_version_id = assignment.plugin_version_id
+        and binding.status = 'ACTIVE'
+       where assignment.tenant_id = $1
+         and assignment.capability_key = 'certificate.deploy'
+         and assignment.status = 'ACTIVE'
+         and (
+           (assignment.owner_type = 'APPLICATION_ASSET'
+             and assignment.owner_id = $2
+             and binding.managed_context->>'hostId' = $4
+             and (binding.managed_context->>'managedTargetId' is null
+               or binding.managed_context->>'managedTargetId' = $3))
+           or (assignment.owner_type = 'MANAGED_TARGET'
+             and assignment.owner_id = $3
+             and binding.managed_context->>'hostId' = $4
+             and (binding.managed_context->>'managedTargetId' is null
+               or binding.managed_context->>'managedTargetId' = $3))
+           or (assignment.owner_type = 'DEVICE'
+             and assignment.owner_id = $4
+             and binding.managed_context->>'hostId' = $4)
+         )
+       order by case assignment.owner_type
+         when 'APPLICATION_ASSET' then 1
+         when 'MANAGED_TARGET' then 2
+         when 'DEVICE' then 3
+         else 4
+       end
+       limit 1`,
+      [tenantId, asset.id, targetBinding.managedTargetId, managedTarget.deviceId],
+    )).rows[0];
     const devicePluginRows = (await this.db.query<{ plugin_version_ids: string[] | null }>(
       `select coalesce(array_agg(distinct plugin_version_id) filter (where plugin_version_id is not null), '{}') as plugin_version_ids
        from pg_device_assets
@@ -938,7 +975,8 @@ export class PgAssetsRepository implements AssetsRepository {
     const pluginVersionIds = Array.isArray(devicePluginRows?.plugin_version_ids)
       ? devicePluginRows.plugin_version_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       : [];
-    const pluginVersionId = pluginVersionIds.length === 1 ? pluginVersionIds[0] : undefined;
+    const pluginVersionId = effectivePluginRow?.plugin_version_id
+      ?? (pluginVersionIds.length === 1 ? pluginVersionIds[0] : undefined);
     const host = await this.getHostIncludingDeleted(tenantId, managedTarget.deviceId);
     const frameworkInstance = managedTarget.frameworkInstanceId
       ? await this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId)
