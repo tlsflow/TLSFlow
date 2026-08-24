@@ -20,6 +20,7 @@ const assetMocks = vi.hoisted(() => ({
   startDiscovery: vi.fn(),
   createServiceAsset: vi.fn(),
   listAgents: vi.fn(),
+  listSiteAssets: vi.fn(),
 }))
 
 const certificateMocks = vi.hoisted(() => ({
@@ -100,6 +101,7 @@ describe('资产与证书产物视图', () => {
       { id: 'svc-1', displayName: 'nginx-main', providerType: 'NGINX', hostId: 'host-1', rawFacts: { ports: [443] } },
     ]))
     assetMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', displayName: 'agent-1' }]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([]))
     assetMocks.listCapabilities.mockResolvedValue(okPage([]))
     assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({ satisfiedCapabilities: [], missingCapabilities: [] }))
     assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({ compatibilityLevel: 'L2', manualDeclarations: [] }))
@@ -145,6 +147,39 @@ describe('资产与证书产物视图', () => {
 
     expect(assetMocks.listAssets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('www.example.com')
+  })
+
+  it('asset list renders site and agent display names instead of ids', async () => {
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-name-1',
+        address: 'named.example.com',
+        displayName: 'named.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        agentId: 'agt_001',
+        targetBinding: {
+          frameworkType: 'NGINX',
+          siteAssetId: 'sit_001',
+        },
+        status: 'ACTIVE',
+      },
+    ]))
+    assetMocks.listAgents.mockResolvedValue(okPage([
+      { id: 'agt_001', displayName: 'prod-agent' },
+    ]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([
+      { id: 'sit_001', siteName: 'prod-site' },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('prod-site')
+    expect(wrapper.text()).toContain('prod-agent')
+    expect(wrapper.text()).not.toContain('sit_001')
+    expect(wrapper.text()).not.toContain('agt_001')
   })
 
   it('证书产物页展示真实内容格式与包含内容', async () => {

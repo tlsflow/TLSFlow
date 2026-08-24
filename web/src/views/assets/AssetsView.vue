@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
-import type { ApiRecord } from '@/api/modules/common'
+import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
@@ -132,8 +132,8 @@ const config: BusinessPageConfig = {
     { key: 'protocol', title: '协议', candidates: ['protocol'] },
     { key: 'platform', title: '平台', candidates: ['platform'] },
     { key: 'frameworkType', title: '框架', candidates: ['targetBinding.frameworkType'] },
-    { key: 'siteName', title: '站点', candidates: ['targetBindingDetail.siteAsset.siteName', 'targetBinding.siteAssetId'] },
-    { key: 'agentId', title: 'Agent', candidates: ['agentId'] },
+    { key: 'siteName', title: '站点', candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'targetBinding.siteAssetId'] },
+    { key: 'agentId', title: 'Agent', candidates: ['agentDisplayName', 'agentName', 'targetBinding.agentDisplayName', 'agentId'] },
     { key: 'status', title: '状态', candidates: ['status'] },
     { key: 'actions', title: '操作', candidates: [] },
   ],
@@ -165,7 +165,7 @@ const config: BusinessPageConfig = {
   ],
   emptyTitle: '暂无应用资产',
   emptyDescription: '等待发现链路写入 ServiceAsset，或通过后端接口补录应用入口。',
-  load: () => listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
+  load: loadAssetsWithDisplayNames,
   actions: [],
   rowActions: [
     {
@@ -582,6 +582,62 @@ function splitCsv(value: string): string[] {
 
 function renderValue(value: unknown, fallback = '—'): string {
   return formatMaybeLocalTime(value, fallback)
+}
+
+async function loadAssetsWithDisplayNames(): Promise<ApiPageResult> {
+  const result = await listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' })
+  const page = result.data
+  if (!page || page.items.length === 0) return result
+  const items = page.items
+
+  try {
+    const [agents, sites] = await Promise.all([
+      listAgents({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listSiteAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+    ])
+    const agentById = new Map((agents.data?.items ?? []).map((agent) => [String(agent.id ?? ''), agent]))
+    const siteById = new Map((sites.data?.items ?? []).map((site) => [String(site.id ?? ''), site]))
+    return {
+      ...result,
+      data: {
+        ...page,
+        items: items.map((item) => enrichAssetDisplayNames(item, agentById, siteById)),
+      },
+    }
+  } catch {
+    return result
+  }
+}
+
+function enrichAssetDisplayNames(
+  asset: ApiRecord,
+  agentById: ReadonlyMap<string, ApiRecord>,
+  siteById: ReadonlyMap<string, ApiRecord>,
+): ApiRecord {
+  const agentId = String(readNested(asset, ['agentId']) ?? readNested(asset, ['targetBinding', 'agentId']) ?? '')
+  const siteAssetId = String(readNested(asset, ['targetBinding', 'siteAssetId']) ?? '')
+  const agent = agentById.get(agentId)
+  const site = siteById.get(siteAssetId)
+  return {
+    ...asset,
+    agentDisplayName: agent ? agentName(agent) : readNested(asset, ['agentDisplayName']),
+    siteDisplayName: site ? siteName(site) : readNested(asset, ['siteDisplayName']),
+  }
+}
+
+function agentName(agent: ApiRecord): string {
+  return String(
+    agent.displayName
+    ?? readNested(agent, ['descriptor', 'hostname'])
+    ?? agent.hostname
+    ?? agent.name
+    ?? agent.id
+    ?? '',
+  )
+}
+
+function siteName(site: ApiRecord): string {
+  return String(site.siteName ?? site.name ?? site.displayName ?? site.id ?? '')
 }
 
 function readNested(value: unknown, path: string[]): unknown {
