@@ -417,7 +417,7 @@ function simulateClients(protocols, cipherSuites, protocolDetails, certificate) 
       resultFlags: buildSimulationResultFlags(profile, negotiated),
       forwardSecrecy: negotiated?.forwardSecrecy ?? false,
       failureReason: null,
-      explanation: buildSimulationSuccessExplanation(profile, negotiated, protocolDetails),
+      explanation: buildSimulationSuccessExplanation(profile, protocol, negotiated, protocolDetails),
       boundaryNote: '该结果来自版本化画像匹配，不等价于真实终端握手。'
     }
   })
