@@ -20,11 +20,11 @@ func (runner *recordingRunner) Run(_ context.Context, spec command.Spec) (comman
 func TestSudoUsesNonInteractiveExecution(t *testing.T) {
 	runner := &recordingRunner{}
 	adapter := NewSudo(runner, Policy{AllowedExecutables: []string{"/usr/bin/systemctl"}})
-	_, err := adapter.Execute(context.Background(), command.Spec{Name: "/usr/bin/systemctl", Args: []string{"reload", "nginx"}})
+	_, err := adapter.Execute(context.Background(), command.Spec{Name: "/usr/bin/systemctl", Args: []string{"reload", "gcac-agent"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runner.spec.Name != "sudo" || !reflect.DeepEqual(runner.spec.Args, []string{"-n", "--", "/usr/bin/systemctl", "reload", "nginx"}) {
+	if runner.spec.Name != "sudo" || !reflect.DeepEqual(runner.spec.Args, []string{"-n", "--", "/usr/bin/systemctl", "reload", "gcac-agent"}) {
 		t.Fatalf("sudo 命令不安全: %#v", runner.spec)
 	}
 }

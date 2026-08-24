@@ -19,7 +19,7 @@ func TestCapabilitiesUsePublicVersionedKeys(t *testing.T) {
 			t.Fatalf("缺少公共 Capability Key: %s", key)
 		}
 	}
-	for _, key := range []string{"nginx.cert.install", "apache.cert.install", "tomcat.keystore.replace"} {
+	for _, key := range []string{"product.config.parse", "product.binding.manage", "vendor.signing.algorithm"} {
 		if capabilities[key] {
 			t.Fatalf("Agent 不得声明插件拥有的产品能力: %s", key)
 		}

@@ -5,19 +5,6 @@ import (
 )
 
 const (
-	StorePOSIXFilesystem = "certificate-store.posix-filesystem"
-	CodecPEM             = "artifact-codec.pem"
-	CodecPKCS12          = "artifact-codec.pkcs12"
-	CodecJKS             = "artifact-codec.jks"
-	VerifierTLSRemote    = "verifier.tls-remote"
-	RollbackPOSIXFiles   = "rollback.posix-certificate-files"
-	RollbackJavaKeystore = "rollback.java-keystore"
-	ServiceSystemd       = "service-controller.systemd"
-	ServiceSysV          = "service-controller.sysv"
-	ServiceOpenRC        = "service-controller.openrc"
-)
-
-const (
 	CapabilityAgentOnline       = "agent.full.online"
 	CapabilityTaskReceive       = "agent.task.receive"
 	CapabilityRollbackRestore   = "rollback.restore"
@@ -46,16 +33,4 @@ func PublicCapabilityKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func PublicAdapterIDs() []string {
-	items := []string{
-		StorePOSIXFilesystem,
-		CodecPEM, CodecPKCS12, CodecJKS,
-		VerifierTLSRemote,
-		RollbackPOSIXFiles, RollbackJavaKeystore,
-		ServiceSystemd, ServiceSysV, ServiceOpenRC,
-	}
-	sort.Strings(items)
-	return items
 }

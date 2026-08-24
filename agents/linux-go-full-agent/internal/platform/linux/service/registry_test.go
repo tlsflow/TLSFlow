@@ -19,11 +19,11 @@ func (runner *recordingRunner) Run(_ context.Context, spec command.Spec) (comman
 
 func TestSystemdControllerBuildsCapabilityCommand(t *testing.T) {
 	runner := &recordingRunner{}
-	_, err := NewSystemd(runner).Execute(context.Background(), Reload, "nginx", command.Spec{})
+	_, err := NewSystemd(runner).Execute(context.Background(), Reload, "gcac-agent", command.Spec{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runner.spec.Name != "systemctl" || !reflect.DeepEqual(runner.spec.Args, []string{"reload", "nginx"}) {
+	if runner.spec.Name != "systemctl" || !reflect.DeepEqual(runner.spec.Args, []string{"reload", "gcac-agent"}) {
 		t.Fatalf("systemd 命令错误: %#v", runner.spec)
 	}
 }

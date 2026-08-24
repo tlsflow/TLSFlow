@@ -23,7 +23,7 @@ func TestBuildResolvesSingleCapabilityPath(t *testing.T) {
 			compatibility.CapabilitySecurityNone:  true,
 		},
 		AllowedRoots: []string{filepath.Clean(t.TempDir())},
-		Executables:  []string{"systemctl", "apachectl"},
+		Executables:  []string{"systemctl", "restorecon"},
 		Runner:       runnerStub{},
 	})
 	if err != nil {

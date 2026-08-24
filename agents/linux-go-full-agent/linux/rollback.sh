@@ -12,24 +12,34 @@ if [ -z "${BACKUP_BINARY}" ]; then
 fi
 [ -f "${BACKUP_BINARY}" ] || { echo "错误：未找到可用备份" >&2; exit 1; }
 
+if ! printf '%s' "${SERVICE_NAME}" | grep -Eq '^[A-Za-z0-9_.@-]+$'; then
+  echo "错误：服务名包含不允许的字符" >&2
+  exit 1
+fi
+
 if [ -d "${GCAC_SYSTEMD_RUNTIME_DIR:-/run/systemd/system}" ] && command -v systemctl >/dev/null 2>&1; then
-  stop_command="systemctl stop ${SERVICE_NAME}.service"
-  start_command="systemctl start ${SERVICE_NAME}.service"
+  service_manager="systemd"
 elif command -v rc-service >/dev/null 2>&1; then
-  stop_command="rc-service ${SERVICE_NAME} stop"
-  start_command="rc-service ${SERVICE_NAME} start"
+  service_manager="openrc"
 elif command -v service >/dev/null 2>&1; then
-  stop_command="service ${SERVICE_NAME} stop"
-  start_command="service ${SERVICE_NAME} start"
+  service_manager="service"
 else
   echo "错误：未发现受支持的服务管理能力" >&2
   exit 1
 fi
 
-sh -c "${stop_command}" || true
+case "${service_manager}" in
+  systemd) systemctl stop "${SERVICE_NAME}.service" || true ;;
+  openrc) rc-service "${SERVICE_NAME}" stop || true ;;
+  service) service "${SERVICE_NAME}" stop || true ;;
+esac
 temporary_binary="${INSTALL_ROOT}/.gcac-linux-agent.rollback.$$"
 install -m 0755 "${BACKUP_BINARY}" "${temporary_binary}"
 mv -f "${temporary_binary}" "${INSTALL_ROOT}/gcac-linux-agent"
-sh -c "${start_command}"
+case "${service_manager}" in
+  systemd) systemctl start "${SERVICE_NAME}.service" ;;
+  openrc) rc-service "${SERVICE_NAME}" start ;;
+  service) service "${SERVICE_NAME}" start ;;
+esac
 "${INSTALL_ROOT}/gcac-linux-agent" version >/dev/null
 printf '回滚完成：%s\n' "${BACKUP_BINARY}"

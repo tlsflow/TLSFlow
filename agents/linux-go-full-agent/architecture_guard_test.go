@@ -1,71 +1,63 @@
 package main
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-var forbiddenDistributionPattern = regexp.MustCompile(`(?i)\b(ubuntu|debian|rhel|centos|fedora|alpine|suse)\b`)
-var forbiddenProductVersionPattern = regexp.MustCompile(`(?i)\b(nginx|apache|tomcat)\w*version\b`)
-
-func TestArchitectureGuardRejectsDistributionAndProductVersionDispatch(t *testing.T) {
-	root := "."
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
+	forbidden := []string{
+		"agent.atomic_plan.execute",
+		"exec --shell",
+		"/bin/sh -c",
+		"powershell.exe",
+		"gcac-development-agent-plan-key",
+		"agent.self_test",
+		"buildstableagentkey",
+		"stableagentkey",
+		"nginx",
+		"apache",
+		"tomcat",
+		"iis",
+	}
+	err := filepath.WalkDir(".", func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
 		}
-		return inspectGuardedFile(t, path)
+		lower := strings.ToLower(string(content))
+		for _, value := range forbidden {
+			if strings.Contains(lower, value) {
+				t.Errorf("生产源码包含禁止内容 %q: %s", value, path)
+			}
+		}
+		if strings.Contains(lower, "command.execute\"") || strings.Contains(lower, "command.execute'") {
+			t.Errorf("生产源码包含自由 command.execute: %s", path)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("架构守卫扫描失败: %v", err)
 	}
 }
 
-func inspectGuardedFile(t *testing.T, path string) error {
-	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, path, nil, 0)
+func TestAgentTemplateDoesNotShipCredentials(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("config", "agent.config.template.json"))
 	if err != nil {
-		return err
+		t.Fatalf("读取配置模板失败: %v", err)
 	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		var expression ast.Expr
-		switch statement := node.(type) {
-		case *ast.IfStmt:
-			expression = statement.Cond
-		case *ast.SwitchStmt:
-			expression = statement.Tag
-		}
-		if expression == nil {
-			return true
-		}
-		start := fileSet.Position(expression.Pos()).Offset
-		end := fileSet.Position(expression.End()).Offset
-		content, readErr := os.ReadFile(path)
-		if readErr != nil || start < 0 || end > len(content) || start >= end {
-			return true
-		}
-		condition := string(content[start:end])
-		if forbiddenDistributionPattern.MatchString(condition) {
-			t.Errorf("%s 禁止按发行版名称分派: %s", path, condition)
-		}
-		if forbiddenProductVersionPattern.MatchString(condition) {
-			t.Errorf("%s 禁止按产品版本分派: %s", path, condition)
-		}
-		return true
-	})
-	return nil
+	lower := strings.ToLower(string(content))
+	if strings.Contains(lower, "change_me_agent_key") || strings.Contains(lower, "linuxgo.mid.") {
+		t.Fatal("配置模板不得包含默认 Agent Key")
+	}
 }
 
 func TestArchitectureGuardHasNoDistributionSpecificAgentTrees(t *testing.T) {

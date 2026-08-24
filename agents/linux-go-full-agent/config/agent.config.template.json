@@ -1,7 +1,7 @@
 {
   "schemaVersion": "full-agent.linux-go.config.v1",
   "tenantId": "CHANGE_ME_TENANT_ID",
-  "agentKey": "CHANGE_ME_AGENT_KEY",
+  "agentKey": "",
   "role": "full_agent",
   "gatewayEnabled": false,
   "zone": "default",

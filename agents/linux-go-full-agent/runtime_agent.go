@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -18,11 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"gcac/linux-go-full-agent/internal/atomicplan"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
-	"gcac/linux-go-full-agent/internal/handlers/productruntime"
-	linuxCommand "gcac/linux-go-full-agent/internal/platform/linux/command"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
@@ -161,12 +157,6 @@ type rescanState struct {
 	Running bool
 }
 
-type persistedRuntimeState struct {
-	StableAgentKey        string `json:"stableAgentKey,omitempty"`
-	EnrollmentCompleted   bool   `json:"enrollmentCompleted,omitempty"`
-	LastRegisteredAgentID string `json:"lastRegisteredAgentId,omitempty"`
-}
-
 type runtimeStatusSnapshot struct {
 	SchemaVersion                string              `json:"schemaVersion"`
 	UpdatedAt                    string              `json:"updatedAt"`
@@ -193,48 +183,8 @@ type runtimeStatusSnapshot struct {
 type directControlServer struct {
 	state   *directControlState
 	server  *http.Server
+	actions *directControlActionStore
 	started bool
-}
-
-type directDiscoveryRequest struct {
-	ProviderTypes   []string `json:"providerTypes"`
-	Scope           string   `json:"scope,omitempty"`
-	IncludeBindings bool     `json:"includeBindings"`
-	RequestID       string   `json:"requestId,omitempty"`
-}
-
-type directActionExecuteRequest struct {
-	ActionType string         `json:"actionType"`
-	Inputs     map[string]any `json:"inputs"`
-	RequestID  string         `json:"requestId,omitempty"`
-}
-
-type directActionStartRequest struct {
-	ActionType string         `json:"actionType"`
-	Inputs     map[string]any `json:"inputs"`
-	RequestID  string         `json:"requestId,omitempty"`
-}
-
-type directActionStatusSnapshot struct {
-	ActionID     string         `json:"actionId"`
-	ActionType   string         `json:"actionType"`
-	RequestID    string         `json:"requestId,omitempty"`
-	Status       string         `json:"status"`
-	StartedAt    string         `json:"startedAt"`
-	FinishedAt   string         `json:"finishedAt,omitempty"`
-	Success      bool           `json:"success"`
-	ErrorCode    string         `json:"errorCode,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Detail       map[string]any `json:"detail,omitempty"`
-}
-
-type directActionStatusStore struct {
-	mu      sync.Mutex
-	actions map[string]directActionStatusSnapshot
-}
-
-var globalDirectActionStatusStore = &directActionStatusStore{
-	actions: map[string]directActionStatusSnapshot{},
 }
 
 type pendingTaskResult struct {
@@ -289,11 +239,7 @@ func handleRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	identity := collectRuntimeIdentity(config.AgentKey, config.ControlPlane)
-	runtimeStatePath := resolveRuntimeStatePath(config)
-	if identity.StableAgentKey != "" {
-		config.AgentKey = identity.StableAgentKey
-	}
+	identity := collectRuntimeIdentity(config.ControlPlane)
 	if !isValidControlPlaneURL(config.ControlPlane) {
 		return errors.New("controlPlaneUrl 无效或仍是模板占位值，Linux Agent 无法启动")
 	}
@@ -315,12 +261,6 @@ func handleRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	savePersistedRuntimeState(runtimeStatePath, persistedRuntimeState{
-		StableAgentKey:        config.AgentKey,
-		EnrollmentCompleted:   true,
-		LastRegisteredAgentID: state.AgentID,
-	})
-
 	counters := &runtimeCounters{}
 	rescan := &rescanState{}
 	ledger := loadResultLedger(resolveResultLedgerPath(config))
@@ -347,14 +287,8 @@ func handleRun(args []string) error {
 	saveRuntimeStatusSnapshot(statusPath, status)
 
 	fmt.Fprintf(os.Stderr, "GCAC Linux Agent running service=%s config=%s agentId=%s\n", config.Service.Name, configPath, state.AgentID)
-	if err := productruntime.RecoverPending(ctx, filepath.Join(config.Paths.Linux.DataDir, "recovery"), linuxCommand.ExecRunner{}); err != nil {
-		status.LastError = err.Error()
-		status.ConsecutiveRecoveryFailures++
-		fmt.Fprintf(os.Stderr, "[operation-recovery] %v\n", err)
-	} else {
-		status.LastRecoveryAt = time.Now().Format(time.RFC3339)
-		status.ConsecutiveRecoveryFailures = 0
-	}
+	status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+	status.ConsecutiveRecoveryFailures = 0
 	if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
 		status.LastError = err.Error()
 		status.ConsecutiveHeartbeatFailures++
@@ -488,14 +422,6 @@ func handleRun(args []string) error {
 	})
 }
 
-func resolveRuntimeStatePath(config *AgentConfig) string {
-	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
-	if dataDir == "" {
-		return "/var/lib/gcac/linux-agent/runtime-state.json"
-	}
-	return filepath.Join(dataDir, "runtime-state.json")
-}
-
 func resolveAgentRuntimeStatusPath(config *AgentConfig) string {
 	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
 	if dataDir == "" {
@@ -510,30 +436,6 @@ func resolveResultLedgerPath(config *AgentConfig) string {
 		return "/var/lib/gcac/linux-agent/task-results.json"
 	}
 	return filepath.Join(dataDir, "task-results.json")
-}
-
-func loadPersistedRuntimeState(path string) persistedRuntimeState {
-	bytes, err := os.ReadFile(path)
-	if err != nil {
-		return persistedRuntimeState{}
-	}
-	var state persistedRuntimeState
-	if err := json.Unmarshal(bytes, &state); err != nil {
-		return persistedRuntimeState{}
-	}
-	return state
-}
-
-func savePersistedRuntimeState(path string, state persistedRuntimeState) {
-	parent := filepath.Dir(path)
-	if parent != "" {
-		_ = os.MkdirAll(parent, 0o750)
-	}
-	encoded, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(path, append(encoded, '\n'), 0o640)
 }
 
 func loadRuntimeStatusSnapshot(path string) runtimeStatusSnapshot {
@@ -847,7 +749,7 @@ func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
 	if strings.TrimSpace(config.DirectControlAdvertiseHost) != "" {
 		return strings.TrimSpace(config.DirectControlAdvertiseHost)
 	}
-	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.AgentKey, config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
+	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
 		return primaryIP
 	}
 	return effectiveDirectControlListenHost(config)
@@ -858,7 +760,7 @@ func newDirectControlState(config *AgentConfig) *directControlState {
 		Enabled:          config.DirectControlEnabled,
 		Reachable:        false,
 		ProtocolVersion:  "v1",
-		SupportedActions: []string{"health", "discovery.run", "agent.capability.rescan", "agent.atomic_plan.execute", "certificate.trust.inspect"},
+		SupportedActions: []string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt},
 	}
 	if config.DirectControlEnabled {
 		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
@@ -881,6 +783,10 @@ func startDirectControlServer(
 	port := effectiveDirectControlListenPort(config)
 	directState := newDirectControlState(config)
 	mux := http.NewServeMux()
+	actions := newDirectControlActionStore()
+	registerDirectControlActionRoutes(mux, actions, func(ctx context.Context, request map[string]any, _ string) (bool, string, string, map[string]any) {
+		return executeAgentV2(ctx, request, runtimeState.AgentID)
+	})
 	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
 		payload := map[string]any{
 			"success":         true,
@@ -896,61 +802,6 @@ func startDirectControlServer(
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(payload)
-	})
-	mux.HandleFunc("/api/v1/control/discovery/run", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directDiscoveryRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		payload := buildDirectDiscoveryPayloadLinux(config.ControlPlane, request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-	mux.HandleFunc("/api/v1/control/actions/execute", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directActionExecuteRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		response, statusCode := executeDirectControlActionWithRuntime(r.Context(), client, config, runtimeState, counters, rescan, request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
-	})
-	mux.HandleFunc("/api/v1/control/actions/start", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directActionStartRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		response, statusCode := startDirectControlActionWithRuntime(client, config, runtimeState, counters, rescan, request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
-	})
-	mux.HandleFunc("/api/v1/control/actions/status", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		actionID := strings.TrimSpace(r.URL.Query().Get("actionId"))
-		response, statusCode := readDirectControlActionStatus(actionID)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
 	})
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
@@ -969,7 +820,7 @@ func startDirectControlServer(
 			directState.LastDirectError = serveErr.Error()
 		}
 	}()
-	return &directControlServer{state: directState, server: server, started: true}, nil
+	return &directControlServer{state: directState, server: server, actions: actions, started: true}, nil
 }
 
 func (s *directControlServer) snapshot() *directControlState {
@@ -985,494 +836,10 @@ func (s *directControlServer) shutdown(ctx context.Context) {
 	if s == nil || s.server == nil || !s.started {
 		return
 	}
+	if s.actions != nil {
+		s.actions.close()
+	}
 	_ = s.server.Shutdown(ctx)
-}
-
-func executeDirectControlAction(request directActionExecuteRequest) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	payload := cloneMap(request.Inputs)
-	payload["type"] = actionType
-	schemaVersion := resolveActionSchemaVersion(actionType, payload)
-
-	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
-	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
-		TaskID:        taskID,
-		ActionType:    actionType,
-		SchemaVersion: schemaVersion,
-		Payload:       payload,
-	})
-	statusCode := http.StatusOK
-	if !result.Success {
-		statusCode = http.StatusBadRequest
-	}
-	return map[string]any{
-		"success":      result.Success,
-		"errorCode":    result.ErrorCode,
-		"errorMessage": result.ErrorMessage,
-		"detail":       result.Detail,
-		"taskId":       taskID,
-		"requestId":    request.RequestID,
-		"actionType":   actionType,
-	}, statusCode
-}
-
-func executeDirectControlActionWithRuntime(
-	ctx context.Context,
-	client *http.Client,
-	config *AgentConfig,
-	state *runtimeState,
-	counters *runtimeCounters,
-	rescan *rescanState,
-	request directActionExecuteRequest,
-) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
-	success, errorCode, errorMessage, detail := executeDirectActionPayload(ctx, client, config, state, counters, rescan, taskID, actionType, request.Inputs)
-	statusCode := http.StatusOK
-	if !success {
-		statusCode = http.StatusBadRequest
-	}
-	return map[string]any{
-		"success":      success,
-		"errorCode":    errorCode,
-		"errorMessage": errorMessage,
-		"detail":       detail,
-		"taskId":       taskID,
-		"requestId":    request.RequestID,
-		"actionType":   actionType,
-	}, statusCode
-}
-
-func startDirectControlAction(request directActionStartRequest) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	payload := cloneMap(request.Inputs)
-	payload["type"] = actionType
-	schemaVersion := resolveActionSchemaVersion(actionType, payload)
-	registry := newLinuxActionRegistry(nil)
-	if _, err := registry.Lookup(actionType, schemaVersion); err != nil {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "ACTION_HANDLER_NOT_REGISTERED",
-			"errorMessage": fmt.Sprintf("action handler not registered: %s", actionType),
-		}, http.StatusBadRequest
-	}
-
-	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
-	startedAt := time.Now().Format(time.RFC3339)
-	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-		ActionID:   actionID,
-		ActionType: actionType,
-		RequestID:  request.RequestID,
-		Status:     "running",
-		StartedAt:  startedAt,
-	})
-
-	go func() {
-		result := registry.Execute(context.Background(), coreRegistry.Request{
-			TaskID:        actionID,
-			ActionType:    actionType,
-			SchemaVersion: schemaVersion,
-			Payload:       payload,
-		})
-		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-			ActionID:     actionID,
-			ActionType:   actionType,
-			RequestID:    request.RequestID,
-			Status:       "completed",
-			StartedAt:    startedAt,
-			FinishedAt:   time.Now().Format(time.RFC3339),
-			Success:      result.Success,
-			ErrorCode:    result.ErrorCode,
-			ErrorMessage: result.ErrorMessage,
-			Detail:       result.Detail,
-		})
-	}()
-
-	return map[string]any{
-		"success":    true,
-		"accepted":   true,
-		"actionId":   actionID,
-		"requestId":  request.RequestID,
-		"actionType": actionType,
-		"status":     "running",
-	}, http.StatusAccepted
-}
-
-func startDirectControlActionWithRuntime(
-	client *http.Client,
-	config *AgentConfig,
-	state *runtimeState,
-	counters *runtimeCounters,
-	rescan *rescanState,
-	request directActionStartRequest,
-) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	if actionType == "" {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": "unsupported direct action: ",
-		}, http.StatusBadRequest
-	}
-
-	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
-	startedAt := time.Now().Format(time.RFC3339)
-	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-		ActionID:   actionID,
-		ActionType: actionType,
-		RequestID:  request.RequestID,
-		Status:     "running",
-		StartedAt:  startedAt,
-	})
-
-	go func() {
-		runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		success, errorCode, errorMessage, detail := executeDirectActionPayload(runCtx, client, config, state, counters, rescan, actionID, actionType, request.Inputs)
-		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-			ActionID:     actionID,
-			ActionType:   actionType,
-			RequestID:    request.RequestID,
-			Status:       "completed",
-			StartedAt:    startedAt,
-			FinishedAt:   time.Now().Format(time.RFC3339),
-			Success:      success,
-			ErrorCode:    errorCode,
-			ErrorMessage: errorMessage,
-			Detail:       detail,
-		})
-	}()
-
-	return map[string]any{
-		"success":    true,
-		"accepted":   true,
-		"actionId":   actionID,
-		"requestId":  request.RequestID,
-		"actionType": actionType,
-		"status":     "running",
-	}, http.StatusAccepted
-}
-
-func executeDirectActionPayload(
-	ctx context.Context,
-	client *http.Client,
-	config *AgentConfig,
-	state *runtimeState,
-	counters *runtimeCounters,
-	rescan *rescanState,
-	taskID string,
-	actionType string,
-	inputs map[string]any,
-) (bool, string, string, map[string]any) {
-	if strings.EqualFold(strings.TrimSpace(actionType), "agent.atomic_plan.execute") {
-		ctx = atomicplan.WithProgressReporter(ctx, func(detail map[string]any) {
-			globalDirectActionStatusStore.updateProgress(taskID, detail)
-		})
-	}
-	payload := cloneMap(inputs)
-	payload["type"] = actionType
-	registry := newLinuxActionRegistry(&linuxActionRuntime{
-		client:   client,
-		config:   config,
-		state:    state,
-		counters: counters,
-		rescan:   rescan,
-	})
-	result := registry.Execute(ctx, coreRegistry.Request{
-		TaskID:        taskID,
-		ActionType:    actionType,
-		SchemaVersion: resolveActionSchemaVersion(actionType, payload),
-		Payload:       payload,
-	})
-	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
-}
-
-func readDirectControlActionStatus(actionID string) (map[string]any, int) {
-	if strings.TrimSpace(actionID) == "" {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "ACTION_ID_REQUIRED",
-			"errorMessage": "actionId is required",
-		}, http.StatusBadRequest
-	}
-	snapshot, ok := globalDirectActionStatusStore.get(actionID)
-	if !ok {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_NOT_FOUND",
-			"errorMessage": fmt.Sprintf("direct action not found: %s", actionID),
-		}, http.StatusNotFound
-	}
-	return map[string]any{
-		"success":      snapshot.Success,
-		"actionId":     snapshot.ActionID,
-		"actionType":   snapshot.ActionType,
-		"requestId":    snapshot.RequestID,
-		"status":       snapshot.Status,
-		"startedAt":    snapshot.StartedAt,
-		"finishedAt":   snapshot.FinishedAt,
-		"errorCode":    snapshot.ErrorCode,
-		"errorMessage": snapshot.ErrorMessage,
-		"detail":       snapshot.Detail,
-	}, http.StatusOK
-}
-
-func (s *directActionStatusStore) upsert(snapshot directActionStatusSnapshot) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.actions[snapshot.ActionID] = snapshot
-}
-
-func (s *directActionStatusStore) get(actionID string) (directActionStatusSnapshot, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	snapshot, ok := s.actions[actionID]
-	return snapshot, ok
-}
-
-func (s *directActionStatusStore) updateProgress(actionID string, detail map[string]any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	snapshot, ok := s.actions[actionID]
-	if !ok || snapshot.Status != "running" {
-		return
-	}
-	snapshot.Detail = cloneMap(detail)
-	s.actions[actionID] = snapshot
-}
-
-func buildDirectDiscoveryPayloadLinux(controlPlaneURL string, request directDiscoveryRequest) map[string]any {
-	identity := collectRuntimeIdentity("", controlPlaneURL)
-	hostname, _ := os.Hostname()
-	hosts := []map[string]any{
-		{
-			"hostname":        hostname,
-			"primaryIp":       identity.PrimaryIPAddress,
-			"ipAddresses":     firstIPv4Addresses(identity.NetworkInterfaces),
-			"osType":          "LINUX",
-			"osName":          identity.LinuxDistribution,
-			"osVersion":       identity.OSVersion,
-			"arch":            runtime.GOARCH,
-			"discoverySource": "AGENT",
-			"managementMode":  "AGENT",
-			"status":          "ACTIVE",
-		},
-	}
-	payload := map[string]any{
-		"collectedAt":   time.Now().Format(time.RFC3339),
-		"source":        "agent_direct",
-		"platform":      "linux",
-		"requestId":     request.RequestID,
-		"hosts":         hosts,
-		"services":      []map[string]any{},
-		"serviceAssets": []map[string]any{},
-		"siteAssets":    []map[string]any{},
-		"bindings":      []map[string]any{},
-	}
-
-	appendLinuxDetailDiscovery(payload, hostname, "NGINX", "nginx", detectNginxDetail(), request.IncludeBindings)
-	appendLinuxDetailDiscovery(payload, hostname, "APACHE", "apache", detectApacheDetail(), request.IncludeBindings)
-	appendLinuxTomcatDiscovery(payload, hostname, detectTomcatDetail(), request.IncludeBindings)
-	return payload
-}
-
-func firstIPv4Addresses(items []NetworkInterfaceInfo) []string {
-	results := make([]string, 0)
-	for _, item := range items {
-		results = append(results, item.IPv4...)
-	}
-	return results
-}
-
-func appendLinuxDetailDiscovery(payload map[string]any, hostname, providerType, serviceName string, detail any, includeBindings bool) {
-	if detail == nil {
-		return
-	}
-	detailMap, ok := anyToMap(detail)
-	if !ok || !readBool(detailMap, "Installed", "installed") {
-		return
-	}
-	services := payload["services"].([]map[string]any)
-	services = append(services, map[string]any{
-		"hostname":        hostname,
-		"providerType":    providerType,
-		"serviceName":     serviceName,
-		"displayName":     serviceName,
-		"configPath":      readStringMap(detailMap, "ConfigPath", "configPath"),
-		"discoverySource": "AGENT",
-		"status":          "ACTIVE",
-		"rawFacts":        detail,
-	})
-	payload["services"] = services
-
-	sites := readObjectSlice(detailMap, "Sites", "sites")
-	serviceAssets := payload["serviceAssets"].([]map[string]any)
-	bindings := payload["bindings"].([]map[string]any)
-	for _, site := range sites {
-		serverNames := readStringSliceMap(site, "ServerNames", "serverNames")
-		address := ""
-		if len(serverNames) > 0 {
-			address = serverNames[0]
-		}
-		if address == "" {
-			address = readStringMap(site, "Name", "name")
-		}
-		for _, listen := range readObjectSlice(site, "Listen", "listen") {
-			port := readIntMap(listen, "Port", "port")
-			protocol := normalizeProtocolString(readStringMap(listen, "Protocol", "protocol"))
-			if address == "" || port <= 0 || protocol == "" {
-				continue
-			}
-			serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, port, protocol))
-			serviceAssets = append(serviceAssets, map[string]any{
-				"serviceAssetRef": serviceAssetRef,
-				"hostname":        hostname,
-				"providerType":    providerType,
-				"serviceName":     serviceName,
-				"address":         address,
-				"port":            port,
-				"protocol":        protocol,
-				"sniName":         address,
-				"displayName":     address,
-				"metadata": map[string]any{
-					"testCommand":   readStringMap(listen, "TestCommand", "testCommand"),
-					"reloadCommand": readStringMap(listen, "ReloadCommand", "reloadCommand"),
-					"permission":    readMapValue(listen, "Permission", "permission"),
-				},
-			})
-			if includeBindings {
-				bindings = append(bindings, map[string]any{
-					"serviceAssetRef": serviceAssetRef,
-					"hostname":        hostname,
-					"providerType":    providerType,
-					"serviceName":     serviceName,
-					"domainName":      address,
-					"port":            port,
-					"protocol":        protocol,
-					"bindingType":     "FILE_PATH",
-					"certPath":        readStringMap(listen, "CertificatePath", "certificatePath"),
-					"keyPath":         readStringMap(listen, "CertificateKeyPath", "certificateKeyPath"),
-					"metadata": map[string]any{
-						"testCommand":   readStringMap(listen, "TestCommand", "testCommand"),
-						"reloadCommand": readStringMap(listen, "ReloadCommand", "reloadCommand"),
-						"permission":    readMapValue(listen, "Permission", "permission"),
-					},
-					"verifyMethod": "TLS_CONNECT",
-				})
-			}
-		}
-	}
-	payload["serviceAssets"] = serviceAssets
-	payload["bindings"] = bindings
-}
-
-func anyToMap(value any) (map[string]any, bool) {
-	if value == nil {
-		return nil, false
-	}
-	bytes, err := json.Marshal(value)
-	if err != nil {
-		return nil, false
-	}
-	var out map[string]any
-	if err := json.Unmarshal(bytes, &out); err != nil {
-		return nil, false
-	}
-	return out, true
-}
-
-func readMapValue(value map[string]any, primary string, secondary string) map[string]any {
-	if direct, ok := value[primary].(map[string]any); ok {
-		return direct
-	}
-	if direct, ok := value[secondary].(map[string]any); ok {
-		return direct
-	}
-	return map[string]any{}
-}
-
-func readBool(value map[string]any, keys ...string) bool {
-	for _, key := range keys {
-		if raw, ok := value[key].(bool); ok {
-			return raw
-		}
-	}
-	return false
-}
-
-func readStringMap(value map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if raw, ok := value[key].(string); ok && strings.TrimSpace(raw) != "" {
-			return strings.TrimSpace(raw)
-		}
-	}
-	return ""
-}
-
-func readIntMap(value map[string]any, keys ...string) int {
-	for _, key := range keys {
-		switch raw := value[key].(type) {
-		case float64:
-			return int(raw)
-		case int:
-			return raw
-		}
-	}
-	return 0
-}
-
-func readObjectSlice(value map[string]any, keys ...string) []map[string]any {
-	for _, key := range keys {
-		raw, ok := value[key]
-		if !ok {
-			continue
-		}
-		items, ok := raw.([]any)
-		if !ok {
-			continue
-		}
-		result := make([]map[string]any, 0, len(items))
-		for _, item := range items {
-			if record, ok := item.(map[string]any); ok {
-				result = append(result, record)
-			}
-		}
-		return result
-	}
-	return nil
-}
-
-func readStringSliceMap(value map[string]any, keys ...string) []string {
-	for _, key := range keys {
-		raw, ok := value[key]
-		if !ok {
-			continue
-		}
-		items, ok := raw.([]any)
-		if !ok {
-			continue
-		}
-		result := make([]string, 0, len(items))
-		for _, item := range items {
-			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
-				result = append(result, strings.TrimSpace(text))
-			}
-		}
-		return result
-	}
-	return nil
-}
-
-func normalizeProtocolString(value string) string {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	switch normalized {
-	case "HTTPS", "HTTP", "TLS", "STARTTLS":
-		return normalized
-	case "HTTP/1.1":
-		return "HTTPS"
-	default:
-		return ""
-	}
 }
 
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
@@ -1507,31 +874,16 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 
 	var response registerResponse
 	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); err != nil {
-		if strings.TrimSpace(request.EnrollmentToken) != "" && strings.Contains(err.Error(), "AUTH_FORBIDDEN") {
-			request.EnrollmentToken = ""
-			if retryErr := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); retryErr == nil {
-				goto registered
-			}
-		}
 		return nil, fmt.Errorf("注册 Agent 失败: %w", err)
 	}
-registered:
 	if strings.TrimSpace(response.ID) == "" {
 		return nil, errors.New("注册 Agent 失败: 服务端未返回 agentId")
 	}
-
-	return &runtimeState{
-		AgentID:  response.ID,
-		Hostname: hostname,
-		Version:  agentVersion,
-	}, nil
+	return &runtimeState{AgentID: response.ID, Hostname: hostname, Version: agentVersion}, nil
 }
 
 func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
-	request := heartbeatRequest{
-		AgentID: state.AgentID,
-		Version: state.Version,
-	}
+	request := heartbeatRequest{AgentID: state.AgentID, Version: state.Version}
 	if isGatewayEnabled(config) {
 		request.Adapters = gatewayRouteChannels()
 		request.Capabilities = gatewayCapabilityKeys()
@@ -1546,7 +898,6 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
 		request.DirectControl = status.DirectControl
 	}
-
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
 
@@ -1620,15 +971,7 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	}
 
 	success, errorCode, errorMessage, detail := executeTask(ctx, client, config, state, counters, rescan, task)
-	request := submitResultRequest{
-		AgentID:      state.AgentID,
-		TaskID:       task.ID,
-		LeaseID:      leaseID,
-		Success:      success,
-		ErrorCode:    errorCode,
-		ErrorMessage: errorMessage,
-		Detail:       detail,
-	}
+	request := submitResultRequest{AgentID: state.AgentID, TaskID: task.ID, LeaseID: leaseID, Success: success, ErrorCode: errorCode, ErrorMessage: errorMessage, Detail: detail}
 	if err := ledger.stage(request); err != nil {
 		return fmt.Errorf("暂存任务结果失败: %w", err)
 	}
@@ -1650,15 +993,7 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 
 func recoverPendingResults(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, ledger *resultLedger) error {
 	for _, item := range ledger.pending() {
-		request := submitResultRequest{
-			AgentID:      state.AgentID,
-			TaskID:       item.TaskID,
-			LeaseID:      item.LeaseID,
-			Success:      item.Success,
-			ErrorCode:    item.ErrorCode,
-			ErrorMessage: item.ErrorMessage,
-			Detail:       item.Detail,
-		}
+		request := submitResultRequest{AgentID: state.AgentID, TaskID: item.TaskID, LeaseID: item.LeaseID, Success: item.Success, ErrorCode: item.ErrorCode, ErrorMessage: item.ErrorMessage, Detail: item.Detail}
 		if _, err := submitTaskResult(ctx, client, config, request); err != nil {
 			return fmt.Errorf("恢复上报任务结果失败 taskId=%s: %w", item.TaskID, err)
 		}
@@ -1681,89 +1016,37 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
+	taskType := strings.TrimSpace(stringFromMap(payload, "actionType"))
 	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
 		return success, code, message, detail
 	}
-	if strings.TrimSpace(taskType) == "" {
-		taskType = "agent.self_test"
-	}
-	registry := newLinuxActionRegistry(&linuxActionRuntime{
-		client:   client,
-		config:   config,
-		state:    state,
-		counters: counters,
-		rescan:   rescan,
-	})
-	result := registry.Execute(ctx, coreRegistry.Request{
-		TaskID:        task.ID,
-		ActionType:    taskType,
-		SchemaVersion: resolveActionSchemaVersion(taskType, payload),
-		Payload:       payload,
-	})
+	registry := newLinuxActionRegistry(&linuxActionRuntime{client: client, config: config, state: state, counters: counters, rescan: rescan})
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: resolveActionSchemaVersion(taskType, payload), Payload: payload})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
 func runCapabilityRescan(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, _ *runtimeCounters, rescan *rescanState, trigger string, payload map[string]any) (map[string]any, error) {
 	if rescan != nil && rescan.Running {
-		return map[string]any{
-			"trigger": trigger,
-			"skipped": true,
-		}, errors.New("能力重扫正在执行中")
+		return map[string]any{"trigger": trigger, "skipped": true}, errors.New("能力重扫正在执行中")
 	}
 	if rescan != nil {
 		rescan.Running = true
 		defer func() { rescan.Running = false }()
 	}
-
 	startedAt := time.Now().Format(time.RFC3339)
 	capabilities := collectCapabilityReports()
-	request := capabilityReportRequest{
-		AgentID:            state.AgentID,
-		CompatibilityLevel: "L1",
-		Capabilities:       capabilities,
-	}
+	request := capabilityReportRequest{AgentID: state.AgentID, CompatibilityLevel: "L1", Capabilities: capabilities}
 	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil); err != nil {
-		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
-			AgentID:   state.AgentID,
-			Category:  runtimeLogCategoryForTrigger(trigger),
-			Level:     "error",
-			Summary:   runtimeLogSummaryForTrigger(trigger, false),
-			Detail:    map[string]any{"error": err.Error(), "requestedBy": readRequestedBy(payload)},
-			EmittedAt: time.Now().Format(time.RFC3339),
-		})
-		return map[string]any{
-			"trigger":         trigger,
-			"startedAt":       startedAt,
-			"finishedAt":      time.Now().Format(time.RFC3339),
-			"capabilityCount": len(capabilities),
-			"requestedBy":     readRequestedBy(payload),
-		}, err
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{AgentID: state.AgentID, Category: runtimeLogCategoryForTrigger(trigger), Level: "error", Summary: runtimeLogSummaryForTrigger(trigger, false), Detail: map[string]any{"error": err.Error(), "requestedBy": readRequestedBy(payload)}, EmittedAt: time.Now().Format(time.RFC3339)})
+		return map[string]any{"trigger": trigger, "startedAt": startedAt, "finishedAt": time.Now().Format(time.RFC3339), "capabilityCount": len(capabilities), "requestedBy": readRequestedBy(payload)}, err
 	}
-	_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
-		AgentID:   state.AgentID,
-		Category:  runtimeLogCategoryForTrigger(trigger),
-		Level:     "info",
-		Summary:   runtimeLogSummaryForTrigger(trigger, true),
-		Detail:    map[string]any{"requestedBy": readRequestedBy(payload), "capabilityCount": len(capabilities)},
-		EmittedAt: time.Now().Format(time.RFC3339),
-	})
-	return map[string]any{
-		"trigger":         trigger,
-		"startedAt":       startedAt,
-		"finishedAt":      time.Now().Format(time.RFC3339),
-		"capabilityCount": len(capabilities),
-		"requestedBy":     readRequestedBy(payload),
-	}, nil
+	_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{AgentID: state.AgentID, Category: runtimeLogCategoryForTrigger(trigger), Level: "info", Summary: runtimeLogSummaryForTrigger(trigger, true), Detail: map[string]any{"requestedBy": readRequestedBy(payload), "capabilityCount": len(capabilities)}, EmittedAt: time.Now().Format(time.RFC3339)})
+	return map[string]any{"trigger": trigger, "startedAt": startedAt, "finishedAt": time.Now().Format(time.RFC3339), "capabilityCount": len(capabilities), "requestedBy": readRequestedBy(payload)}, nil
 }
 
 func ackTask(ctx context.Context, client *http.Client, config *AgentConfig, agentID string, taskID string, leaseID string) (*agentTaskEnvelope, error) {
 	var response agentTaskEnvelope
-	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/ack", ackTaskRequest{
-		AgentID: agentID,
-		TaskID:  taskID,
-		LeaseID: leaseID,
-	}, &response); err != nil {
+	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/ack", ackTaskRequest{AgentID: agentID, TaskID: taskID, LeaseID: leaseID}, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -1783,13 +1066,6 @@ func submitRuntimeLog(ctx context.Context, client *http.Client, config *AgentCon
 
 func newLeaseID(taskID string) string {
 	return fmt.Sprintf("lease_%s_%d", strings.ReplaceAll(taskID, "-", "_"), time.Now().UnixNano())
-}
-
-func rescanTickerChannel(ticker *time.Ticker) <-chan time.Time {
-	if ticker == nil {
-		return nil
-	}
-	return ticker.C
 }
 
 func readRequestedBy(payload map[string]any) string {
@@ -1823,7 +1099,7 @@ func runtimeLogSummaryForTrigger(trigger string, success bool) string {
 func collectCapabilityReports() []reportedCapability {
 	snapshot := collectLinuxPlatformFacts()
 	publicCapabilities := linuxFacts.Capabilities(snapshot)
-	capabilities := make([]reportedCapability, 0, len(publicCapabilities)+3)
+	capabilities := make([]reportedCapability, 0, len(publicCapabilities))
 	for _, capability := range publicCapabilities {
 		capabilities = append(capabilities, reportedCapability{
 			CapabilityKey: capability.Key,
@@ -1832,96 +1108,5 @@ func collectCapabilityReports() []reportedCapability {
 			Evidence:      capability.Evidence,
 		})
 	}
-	if detail := detectNginxDetail(); detail != nil && detail.Installed {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "linux.nginx.detail",
-			Value:         detail,
-			Confidence:    0.92,
-			Evidence: map[string]any{
-				"source": "runtime-inspection",
-			},
-		})
-	}
-	if detail := detectApacheDetail(); detail != nil && detail.Installed {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "linux.apache.detail",
-			Value:         detail,
-			Confidence:    0.9,
-			Evidence: map[string]any{
-				"source": "runtime-inspection",
-			},
-		})
-	}
-	if detail := detectTomcatDetail(); detail != nil && detail.Installed {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "linux.tomcat.detail",
-			Value:         detail,
-			Confidence:    0.88,
-			Evidence: map[string]any{
-				"source": "runtime-inspection",
-			},
-		})
-	}
 	return capabilities
-}
-
-func appendLinuxTomcatDiscovery(payload map[string]any, hostname string, detail *tomcatDetail, includeBindings bool) {
-	if detail == nil || !detail.Installed {
-		return
-	}
-	services := payload["services"].([]map[string]any)
-	services = append(services, map[string]any{
-		"hostname":        hostname,
-		"providerType":    "TOMCAT",
-		"serviceName":     "tomcat",
-		"displayName":     "tomcat",
-		"configPath":      detail.ConfigPath,
-		"discoverySource": "AGENT",
-		"status":          "ACTIVE",
-		"rawFacts":        detail,
-	})
-	payload["services"] = services
-
-	serviceAssets := payload["serviceAssets"].([]map[string]any)
-	bindings := payload["bindings"].([]map[string]any)
-	for _, connector := range detail.Connectors {
-		protocol := normalizeProtocolString(connector.Protocol)
-		if connector.Port <= 0 || protocol == "" {
-			continue
-		}
-		address := strings.TrimSpace(connector.Address)
-		if address == "" || address == "0.0.0.0" {
-			address = hostname
-		}
-		serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, connector.Port, protocol))
-		serviceAssets = append(serviceAssets, map[string]any{
-			"serviceAssetRef": serviceAssetRef,
-			"hostname":        hostname,
-			"providerType":    "TOMCAT",
-			"serviceName":     "tomcat",
-			"address":         address,
-			"port":            connector.Port,
-			"protocol":        protocol,
-			"sniName":         address,
-			"displayName":     address,
-		})
-		if includeBindings {
-			bindings = append(bindings, map[string]any{
-				"serviceAssetRef": serviceAssetRef,
-				"hostname":        hostname,
-				"providerType":    "TOMCAT",
-				"serviceName":     "tomcat",
-				"domainName":      address,
-				"port":            connector.Port,
-				"protocol":        protocol,
-				"bindingType":     "FILE_PATH",
-				"certPath":        connector.CertificatePath,
-				"keyPath":         connector.CertificateKeyPath,
-				"keystorePath":    connector.KeystorePath,
-				"verifyMethod":    "TLS_CONNECT",
-			})
-		}
-	}
-	payload["serviceAssets"] = serviceAssets
-	payload["bindings"] = bindings
 }

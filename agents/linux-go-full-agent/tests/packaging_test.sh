@@ -55,10 +55,6 @@ fi
 echo "发布签名验证测试通过"
 
 mkdir -p "${TEMP_ROOT}/upgrade/install" "${TEMP_ROOT}/upgrade/data" "${TEMP_ROOT}/upgrade/systemd"
-mkdir -p "${TEMP_ROOT}/upgrade/helper"
-printf 'old-helper\n' > "${TEMP_ROOT}/upgrade/helper/current-helper"
-printf 'good-helper\n' > "${TEMP_ROOT}/upgrade/helper/good-helper"
-printf 'bad-helper\n' > "${TEMP_ROOT}/upgrade/helper/bad-helper"
 cat > "${TEMP_ROOT}/upgrade/install/gcac-linux-agent" <<'EOF'
 #!/usr/bin/env sh
 [ "${1:-}" = version ] && { echo '{"version":"2.1.0"}'; exit 0; }
@@ -89,19 +85,14 @@ GCAC_TEST_EUID=0 \
 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" \
 INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" \
 DATA_DIR="${TEMP_ROOT}/upgrade/data" \
-HELPER_TARGET="${TEMP_ROOT}/upgrade/helper/current-helper" \
-HELPER_SOURCE="${TEMP_ROOT}/upgrade/helper/good-helper" \
 PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" \
 SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" \
-"${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
-grep -q '^good-helper$' "${TEMP_ROOT}/upgrade/helper/current-helper"
+    "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" HELPER_TARGET="${TEMP_ROOT}/upgrade/helper/current-helper" HELPER_SOURCE="${TEMP_ROOT}/upgrade/helper/bad-helper" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/bad-agent" "" "${TEMP_ROOT}/upgrade/bad-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/bad-agent" "" "${TEMP_ROOT}/upgrade/bad-agent.sig" >/dev/null 2>&1; then
   echo "坏版本升级必须失败" >&2
   exit 1
 fi
-grep -q '^good-helper$' "${TEMP_ROOT}/upgrade/helper/current-helper"
-
 if ! "${TEMP_ROOT}/upgrade/install/gcac-linux-agent" version; then
   echo "失败升级后旧版本未恢复" >&2
   exit 1
@@ -111,16 +102,16 @@ grep -q 'upgrade_succeeded' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
 grep -q 'upgrade_rolled_back' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
 echo "升级和自动回滚测试通过"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" HELPER_TARGET="${TEMP_ROOT}/upgrade/helper/current-helper" HELPER_SOURCE="${TEMP_ROOT}/upgrade/helper/good-helper" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/downgrade-agent" "" "${TEMP_ROOT}/upgrade/downgrade-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/downgrade-agent" "" "${TEMP_ROOT}/upgrade/downgrade-agent.sig" >/dev/null 2>&1; then
   echo "major 降级必须默认拒绝" >&2
   exit 1
 fi
 echo "major 降级边界测试通过"
 
-if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_TEST_INTERRUPT_AFTER_REPLACE=1 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" HELPER_TARGET="${TEMP_ROOT}/upgrade/helper/current-helper" HELPER_SOURCE="${TEMP_ROOT}/upgrade/helper/bad-helper" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
+if PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_TEST_INTERRUPT_AFTER_REPLACE=1 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig" >/dev/null 2>&1; then
   echo "中断注入必须返回非零" >&2
   exit 1
 fi
-PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" HELPER_TARGET="${TEMP_ROOT}/upgrade/helper/current-helper" HELPER_SOURCE="${TEMP_ROOT}/upgrade/helper/good-helper" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
+PATH="${TEMP_ROOT}/bin:${PATH}" GCAC_TEST_EUID=0 GCAC_SYSTEMD_RUNTIME_DIR="${TEMP_ROOT}/upgrade/systemd" INSTALL_ROOT="${TEMP_ROOT}/upgrade/install" DATA_DIR="${TEMP_ROOT}/upgrade/data" PUBLIC_KEY_FILE="${TEMP_ROOT}/release-public.key" SIGNATURE_VERIFIER="${TEMP_ROOT}/release-sign" "${AGENT_DIR}/linux/upgrade.sh" "${TEMP_ROOT}/upgrade/good-agent" "" "${TEMP_ROOT}/upgrade/good-agent.sig"
 grep -q 'upgrade_power_loss_recovered' "${TEMP_ROOT}/upgrade/data/upgrade-audit.jsonl"
 echo "升级断电恢复测试通过"
