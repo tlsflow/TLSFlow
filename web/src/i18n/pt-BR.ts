@@ -1,7 +1,9 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
+import { devicesPtBR } from './devices.locale'
 export default {
+  devices: devicesPtBR,
   app: {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',

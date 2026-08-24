@@ -1,7 +1,9 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
+import { devicesRuRU } from './devices.locale'
 export default {
+  devices: devicesRuRU,
   app: {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',

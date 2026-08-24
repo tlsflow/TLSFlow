@@ -1,6 +1,8 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { devicesZhCN } from './devices.locale'
 export default {
+  devices: devicesZhCN,
   app: {
     brand: 'GCAC 控制台',
     platform: '企业 SSL 证书生命周期管理平台',

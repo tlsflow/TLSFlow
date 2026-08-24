@@ -2717,8 +2717,8 @@ async function previewSelectedAgentPlugin(): Promise<void> {
               :class="{ 'is-selected': assetDraft.managementMode === 'MANAGED_TARGET' }"
               @click="assetDraft.managementMode = 'MANAGED_TARGET'"
             >
-              <span>{{ t('assets.managementModes.managedTarget') }}</span>
-              <strong>{{ t('assets.managementModes.managedTargetDescription') }}</strong>
+              <span>{{ t('devices.deployment.managedTarget') }}</span>
+              <strong>{{ t('devices.deployment.managedTargetDescription') }}</strong>
             </button>
             <button
               type="button"
@@ -2726,8 +2726,8 @@ async function previewSelectedAgentPlugin(): Promise<void> {
               :class="{ 'is-selected': assetDraft.managementMode === 'WORKFLOW' }"
               @click="assetDraft.managementMode = 'WORKFLOW'"
             >
-              <span>{{ t('assets.managementModes.independentWorkflow') }}</span>
-              <strong>{{ t('assets.managementModes.independentWorkflowDescription') }}</strong>
+              <span>{{ t('devices.deployment.independentWorkflow') }}</span>
+              <strong>{{ t('devices.deployment.independentWorkflowDescription') }}</strong>
             </button>
           </div>
 
@@ -2785,8 +2785,8 @@ async function previewSelectedAgentPlugin(): Promise<void> {
         <section v-else-if="assetWizardStep === 2" class="asset-wizard__panel">
           <header class="asset-wizard__panel-header">
             <div>
-              <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('assets.wizard.panels.managedTargetTitle') }}</h3>
-              <p v-if="assetDraft.managementMode === 'MANAGED_TARGET'">{{ t('assets.wizard.panels.managedTargetDescription') }}</p>
+              <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('devices.deployment.managedTargetTitle') }}</h3>
+              <p v-if="assetDraft.managementMode === 'MANAGED_TARGET'">{{ t('devices.deployment.managedTargetPanelDescription') }}</p>
             </div>
             <span class="asset-wizard__panel-state" :class="modeStepReady ? 'is-done' : 'is-active'">
               {{ modeStepReady ? t('assets.wizard.stepState.readyNext') : t('assets.wizard.stepState.incomplete') }}
@@ -3233,7 +3233,7 @@ async function previewSelectedAgentPlugin(): Promise<void> {
             </div>
             <div>
               <dt>{{ t('assets.review.deploymentMode') }}</dt>
-              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.managementModes.independentWorkflow') : t('assets.managementModes.managedTarget') }}</dd>
+              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('devices.deployment.independentWorkflow') : t('devices.deployment.managedTarget') }}</dd>
             </div>
             <div>
               <dt>{{ t('assets.fields.platform') }}</dt>

@@ -105,7 +105,7 @@ async function submit() {
       </section>
     </div>
     <template #actions>
-      <button class="gc-button" type="button" @click="emit('update:open', false)">{{ t('common.cancel') }}</button>
+      <button class="gc-button" type="button" @click="emit('update:open', false)">{{ t('devices.actions.cancel') }}</button>
       <button class="gc-button gc-button--primary" type="button" :disabled="!canSubmit" @click="submit">
         {{ pending ? t('common.loading') : t('devices.actions.add') }}
       </button>

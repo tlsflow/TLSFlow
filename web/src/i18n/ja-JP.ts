@@ -1,7 +1,9 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
+import { devicesJaJP } from './devices.locale'
 export default {
+  devices: devicesJaJP,
   app: {
     brand: 'GCAC コンソール',
     platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',

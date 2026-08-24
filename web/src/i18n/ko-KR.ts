@@ -1,7 +1,9 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
+import { devicesKoKR } from './devices.locale'
 export default {
+  devices: devicesKoKR,
   app: {
     brand: 'GCAC 콘솔',
     platform: '기업 SSL 인증서 수명 주기 관리 플랫폼',
