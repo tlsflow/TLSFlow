@@ -649,16 +649,23 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
   assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings.length, 1);
   assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
-test('Spec033 平台 Registry 按 Windows Server 版本提供 Agent 安装入口，并兼容旧请求键', () => {
+test('Spec033 平台 Registry 按 Agent 分组提供 Windows 与 Linux 发行版入口，并兼容旧请求键', () => {
   const registry = new DevicePlatformRegistry();
   const platforms = registry.list();
-  assert.equal(platforms.length, 4);
+  assert.equal(platforms.length, 7);
   assert.deepEqual(platforms.filter((item) => item.supportStatus === 'SUPPORTED').map((item) => item.key), [
-    'windows-server-2008-r2', 'windows-server-2012-r2', 'windows-server-2016-plus', 'linux',
+    'windows-server-2008-r2', 'windows-server-2012-r2', 'windows-server-2016-plus', 'linux-red-hat', 'linux-debian-ubuntu', 'linux-kylin', 'linux-uos',
   ]);
   assert.ok(platforms.every((item) => item.onboardingKind === 'AGENT_INSTALL'));
+  assert.ok(platforms.every((item) => item.group === 'AGENT'));
+  assert.deepEqual(platforms.filter((item) => item.key.startsWith('linux-')).map((item) => item.handlerKey), ['LINUX_GO', 'LINUX_GO', 'LINUX_GO', 'LINUX_GO']);
+  assert.deepEqual(platforms.filter((item) => item.key.startsWith('linux-')).map((item) => item.supportDescriptionKey), [
+    'devices.platforms.linuxRedHatDescription', 'devices.platforms.linuxDebianUbuntuDescription',
+    'devices.platforms.linuxKylinDescription', 'devices.platforms.linuxUosDescription',
+  ]);
   assert.equal(registry.requireSupported('windows').key, 'windows-server-2016-plus');
   assert.equal(registry.requireSupported('windows-compatibility').key, 'windows-server-2012-r2');
+  assert.equal(registry.requireSupported('linux').key, 'linux-red-hat');
 });
 
 test('Spec033 统一添加生成 Agent 一键安装会话', async () => {

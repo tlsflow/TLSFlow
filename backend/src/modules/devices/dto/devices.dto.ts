@@ -196,9 +196,10 @@ export interface DeviceOnboardingFieldDescriptor {
 export interface DeviceOnboardingPlatformDescriptor {
   key: string;
   displayNameKey: string;
+  supportDescriptionKey?: string;
   productFamily: string;
   managementMethod: string;
-  group: 'WINDOWS' | 'OTHER';
+  group: 'AGENT' | 'OTHER';
   onboardingKind: DeviceOnboardingKind;
   supportStatus: DevicePlatformSupportStatus;
   formSchema: DeviceOnboardingFieldDescriptor[];
