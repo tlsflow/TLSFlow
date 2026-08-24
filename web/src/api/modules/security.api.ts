@@ -45,6 +45,120 @@ export interface ObjectPermissionContextResponse extends CurrentUserResponse {
   readonly expiresAt: string
 }
 
+export type TenantMode = 'single' | 'hierarchical'
+export type TenantScopeType = 'SELF' | 'SUBTREE' | 'EXPLICIT' | 'SYSTEM'
+
+export interface AccessibleTenantResponse {
+  readonly tenantId: string
+  readonly name: string
+  readonly code: string
+  readonly type: 'GROUP' | 'COMPANY'
+  readonly parentTenantId?: string
+  readonly membershipType: 'owner' | 'admin' | 'operator' | 'auditor' | 'member'
+  readonly membershipStatus: 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  readonly current: boolean
+  readonly canSwitch: boolean
+  readonly mode: TenantMode
+  readonly scopeType?: TenantScopeType
+}
+
+export interface TenantContextResponse {
+  readonly mode: TenantMode
+  readonly currentTenantId: string
+  readonly homeTenantId: string
+  readonly accessibleTenantIds: readonly string[]
+  readonly managementScope?: { readonly type: TenantScopeType; readonly rootTenantId?: string; readonly tenantIds?: readonly string[] }
+  readonly version: string
+}
+
+export interface TenantAdministratorSummary {
+  readonly membershipId: string
+  readonly subjectType: 'user' | 'group' | 'external_group'
+  readonly subjectId: string
+  readonly displayName: string
+  readonly username?: string
+  readonly membershipType: 'owner' | 'admin'
+  readonly status: 'ACTIVE'
+  readonly effectiveFrom: string
+  readonly effectiveUntil?: string
+}
+
+export interface TenantArchitectureNode {
+  readonly id: string
+  readonly name: string
+  readonly code: string
+  readonly type: 'GROUP' | 'COMPANY'
+  readonly parentId?: string
+  readonly status: 'ACTIVE' | 'SUSPENDED'
+  readonly current: boolean
+  readonly administrators: readonly TenantAdministratorSummary[]
+  readonly administratorsTruncated?: boolean
+  readonly children: readonly TenantArchitectureNode[]
+}
+
+export interface TenantArchitectureResponse {
+  readonly mode: TenantMode
+  readonly currentTenantId: string
+  readonly contextVersion: string
+  readonly managementScope?: { readonly type: TenantScopeType; readonly rootTenantId?: string; readonly tenantIds?: readonly string[] }
+  readonly roots: readonly TenantArchitectureNode[]
+}
+
+export interface TenantModeSummaryResponse {
+  readonly state: { readonly mode: TenantMode; readonly lifecycleState: string; readonly updatedAt?: string; readonly lastPreflightBatchId?: string; readonly lastEnableBatchId?: string; readonly lastRollbackBatchId?: string }
+  readonly lastPreflightBatch?: ApiRecord
+  readonly lastEnableBatch?: ApiRecord
+  readonly lastRollbackBatch?: ApiRecord
+}
+
+export function listAccessibleTenants(): Promise<ApiResult<{ currentTenantId: string; version: string; mode: TenantMode; items: readonly AccessibleTenantResponse[] }>> {
+  return apiClient.get('/v1/tenants/accessible')
+}
+
+export function getTenantContext(): Promise<ApiResult<TenantContextResponse & { readonly currentTenant?: ApiRecord }>> {
+  return apiClient.get('/v1/tenant-context/current')
+}
+
+export function switchTenant(body: { readonly tenantId: string; readonly contextVersion: string }): Promise<ApiResult<TenantContextResponse & { readonly token: string }>> {
+  return apiClient.post('/v1/tenant-context/switch', body)
+}
+
+export function getTenantArchitecture(): Promise<ApiResult<TenantArchitectureResponse>> {
+  return apiClient.get('/v1/tenants/architecture')
+}
+
+export function getTenantModeSummary(): Promise<ApiResult<TenantModeSummaryResponse>> {
+  return apiClient.get('/v1/system/tenant-mode')
+}
+
+export function runTenantModePreflight(body: { readonly confirmation?: string } = {}): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post('/v1/system/tenant-mode/preflight', body)
+}
+
+export function enableTenantMode(body: { readonly preflightBatchId: string; readonly confirmation: string }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post('/v1/system/tenant-mode/enable', body)
+}
+
+export function rollbackTenantMode(body: { readonly confirmation: string }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post('/v1/system/tenant-mode/rollback', body)
+}
+
+export function createTenant(body: { readonly name: string; readonly code: string; readonly type: 'COMPANY'; readonly parentId: string }): Promise<ApiResult<{ readonly tenant: ApiRecord }>> {
+  return apiClient.post('/v1/tenants', body)
+}
+
+export function createTenantMembership(body: { readonly tenantId: string; readonly subjectType: 'user' | 'group' | 'external_group'; readonly subjectId: string; readonly membershipType: 'owner' | 'admin' }): Promise<ApiResult<{ readonly membership: ApiRecord }>> {
+  return apiClient.post('/v1/tenant-memberships', body)
+}
+
+export function revokeTenantMembership(membershipId: string): Promise<ApiResult<{ readonly membership: ApiRecord }>> {
+  return apiClient.request('/v1/tenant-memberships', { method: 'DELETE', body: { membershipId } })
+}
+
+export function updateTenantStatus(body: { readonly tenantId: string; readonly status: 'ACTIVE' | 'SUSPENDED' }): Promise<ApiResult<{ readonly tenant: ApiRecord }>> {
+  return apiClient.request('/v1/tenants/status', { method: 'PATCH', body })
+}
+
 export function login(body: LoginRequest): Promise<ApiResult<AuthSessionResponse>> {
   return apiClient.post<AuthSessionResponse>('/v1/auth/login', body)
 }

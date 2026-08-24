@@ -34,6 +34,7 @@ import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import type { TenantContextService } from './tenant-context.service.js';
 import { TenantScopeService } from './tenant-scope.service.js';
 import type { TenantModeService } from './tenant-mode.service.js';
+import type { TenantArchitectureService } from './tenant-architecture.service.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -55,6 +56,7 @@ export interface SecurityServices {
   tenantHierarchy?: TenantHierarchyService;
   tenantContext?: TenantContextService;
   tenantMode?: TenantModeService;
+  tenantArchitecture?: TenantArchitectureService;
 }
 
 export interface AuditPresentationPort {
@@ -117,6 +119,9 @@ export class SecurityController {
       router.get('/api/v1/tenant-memberships', '查询租户成员列表', ['Security'], (request) => this.listTenantMemberships(request));
       router.post('/api/v1/tenant-memberships', '新增租户成员', ['Security'], (request) => this.createTenantMembership(request));
       router.delete('/api/v1/tenant-memberships', '撤销租户成员', ['Security'], (request) => this.revokeTenantMembership(request));
+      if (this.services.tenantArchitecture) {
+        router.get('/api/v1/tenants/architecture', '查询租户架构聚合', ['Security'], (request) => this.getTenantArchitecture(request));
+      }
     }
     if (this.services.tenantMode) {
       router.get('/api/v1/system/tenant-mode', '查询多租户模式状态', ['Security'], (request) => this.getTenantModeState(request));
@@ -389,6 +394,21 @@ export class SecurityController {
       managementScope: subject.scope?.tenantScope,
       items: buildTenantTree(governableTenants, context.currentTenantId),
     };
+  }
+
+  private async getTenantArchitecture(request: HttpRequest) {
+    const { subject, context, currentTenant } = await this.resolveTenantGovernanceContext(request);
+    await this.assertTenantManage(subject, request, currentTenant.id);
+    if (!this.services.tenantArchitecture) {
+      throw new AppError('TENANT_CONTEXT_INVALID', '租户架构服务未配置');
+    }
+    return this.services.tenantArchitecture.getArchitecture({
+      actorId: subject.id,
+      mode: context.mode,
+      currentTenantId: context.currentTenantId,
+      contextVersion: context.version,
+      managementScope: subject.scope?.tenantScope ?? context.managementScope,
+    });
   }
 
   private async createTenant(request: HttpRequest) {
@@ -1652,6 +1672,81 @@ function readHeader(request: HttpRequest, key: string): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+const tenantArchitectureAdministratorSchema = {
+  type: 'object',
+  required: ['membershipId', 'subjectType', 'subjectId', 'displayName', 'membershipType', 'status', 'effectiveFrom'],
+  properties: {
+    membershipId: { type: 'string' },
+    subjectType: { type: 'string', enum: ['user', 'group', 'external_group'] },
+    subjectId: { type: 'string' },
+    displayName: { type: 'string' },
+    username: { type: 'string' },
+    membershipType: { type: 'string', enum: ['owner', 'admin'] },
+    status: { type: 'string', enum: ['ACTIVE'] },
+    effectiveFrom: { type: 'string', format: 'date-time' },
+    effectiveUntil: { type: 'string', format: 'date-time' },
+  },
+  additionalProperties: false,
+};
+
+const tenantArchitectureCompanyNodeSchema = {
+  type: 'object',
+  required: ['id', 'name', 'code', 'type', 'status', 'current', 'administrators', 'children'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    code: { type: 'string' },
+    type: { type: 'string', enum: ['COMPANY'] },
+    parentId: { type: 'string' },
+    status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+    current: { type: 'boolean' },
+    administrators: { type: 'array', items: tenantArchitectureAdministratorSchema },
+    administratorsTruncated: { type: 'boolean' },
+    children: { type: 'array', maxItems: 0 },
+  },
+  additionalProperties: false,
+};
+
+const tenantArchitectureNodeSchema = {
+  type: 'object',
+  required: ['id', 'name', 'code', 'type', 'status', 'current', 'administrators', 'children'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    code: { type: 'string' },
+    type: { type: 'string', enum: ['GROUP', 'COMPANY'] },
+    parentId: { type: 'string' },
+    status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED'] },
+    current: { type: 'boolean' },
+    administrators: { type: 'array', items: tenantArchitectureAdministratorSchema },
+    administratorsTruncated: { type: 'boolean' },
+    children: { type: 'array', items: tenantArchitectureCompanyNodeSchema },
+  },
+  additionalProperties: false,
+};
+
+const tenantArchitectureResponseSchema = {
+  type: 'object',
+  required: ['mode', 'currentTenantId', 'contextVersion', 'roots'],
+  properties: {
+    mode: { type: 'string', enum: ['single', 'hierarchical'] },
+    currentTenantId: { type: 'string' },
+    contextVersion: { type: 'string' },
+    managementScope: {
+      type: 'object',
+      required: ['type'],
+      properties: {
+        type: { type: 'string', enum: ['SELF', 'SUBTREE', 'EXPLICIT', 'SYSTEM'] },
+        rootTenantId: { type: 'string' },
+        tenantIds: { type: 'array', items: { type: 'string' } },
+      },
+      additionalProperties: false,
+    },
+    roots: { type: 'array', items: tenantArchitectureNodeSchema },
+  },
+  additionalProperties: false,
+};
+
 export function getSecurityRouteContracts(): RouteContract[] {
   return [
     { method: 'POST', path: '/api/v1/auth/login', operationId: 'login', summary: '登录', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -1669,6 +1764,7 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/tenant-context/switch', operationId: 'switchTenant', summary: '切换当前租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenants/current', operationId: 'getCurrentTenant', summary: '查询当前租户详情', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenants/tree', operationId: 'getTenantTree', summary: '查询租户树', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenants/architecture', operationId: 'getTenantArchitecture', summary: '查询租户架构聚合', tags: ['Security'], responseSchema: tenantArchitectureResponseSchema },
     { method: 'POST', path: '/api/v1/tenants', operationId: 'createTenant', summary: '创建子租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/tenants/status', operationId: 'updateTenantStatus', summary: '停用或恢复租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenant-memberships', operationId: 'listTenantMemberships', summary: '查询租户成员列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

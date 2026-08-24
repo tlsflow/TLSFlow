@@ -14,6 +14,7 @@ export const AUDIT_EVENT_TYPES = {
   TENANT_CREATED: 'tenant.created',
   TENANT_STATUS_CHANGED: 'tenant.status.changed',
   TENANT_CONTEXT_SWITCHED: 'tenant.context.switched',
+  TENANT_ARCHITECTURE_QUERIED: 'tenant.architecture.queried',
   TENANT_MODE_PREFLIGHT_COMPLETED: 'tenant.mode.preflight.completed',
   TENANT_MODE_ENABLED: 'tenant.mode.enabled',
   TENANT_MODE_ENABLE_FAILED: 'tenant.mode.enable.failed',

@@ -4848,6 +4848,21 @@ export default {
     riskTypes: { certificate_fingerprint_reuse: '同一证书跨资产复用', public_key_reuse: '同一公钥跨资产复用' },
     common: { unknown: '未知' }, aria: { tabs: '内部 CA 功能导航' }
   },
+  tenantArchitecture: {
+    nav: '集团架构', eyebrow: '多租户治理', title: '集团架构', description: '管理集团、子公司及其管理员关系。',
+    mode: { aria: '集团架构模式', label: '集团架构模式', hierarchical: '已开启', single: '已关闭', updated: '最近更新：{time}' },
+    actions: { checking: '检查中', preflight: '执行预检查', enabling: '启用中', enable: '启用集团架构', rollingBack: '回滚中', rollback: '关闭集团架构', suspend: '停用', resume: '恢复', revokeAdministrator: '撤销管理员' },
+    preflight: { title: '启用预检查', summary: '阻断项：{blockers}', passed: { title: '已满足', summary: '{count} 项检查通过' }, blocked: { title: '需要处理', summary: '{count} 项阻断', description: '请先解决以下问题，再重新执行预检查。' } },
+    confirm: { enable: '确认启用集团架构？', rollback: '确认关闭集团架构并回滚到单租户模式？', revokeAdministrator: '确认撤销该管理员关系？' },
+    messages: { preflightCompleted: '预检查已完成。', enabled: '集团架构已启用。', rolledBack: '已回滚到单租户模式。', companyCreated: '子公司已创建。', administratorAdded: '管理员已配置。', administratorRevoked: '管理员关系已撤销。', statusUpdated: '子公司状态已更新。' },
+    errors: { emptyMode: '未返回集团架构状态。', loadFailed: '集团架构加载失败。', preflightFailed: '预检查失败。', enableFailed: '启用集团架构失败。', rollbackFailed: '回滚集团架构失败。', companyCreateFailed: '创建子公司失败。', administratorFailed: '配置管理员失败。', administratorRevokeFailed: '撤销管理员失败。', statusFailed: '更新子公司状态失败。' },
+    company: { title: '新增子公司', name: '名称', namePlaceholder: '输入子公司名称', code: '编码', codePlaceholder: '输入唯一编码', submit: '创建子公司' },
+    administrator: { title: '配置子公司管理员', tenant: '子公司', tenantPlaceholder: '选择子公司', subjectId: '用户 ID', subjectPlaceholder: '输入用户 ID', submit: '添加管理员', empty: '未配置管理员' },
+    tree: { aria: '集团架构图', empty: '当前管理范围内没有可显示的租户。' },
+    history: { aria: '最近模式记录', title: '最近模式记录', kind: { PREFLIGHT: '预检查', ENABLE: '启用', ROLLBACK: '回滚' }, status: { RUNNING: '进行中', COMPLETED: '已完成', FAILED: '失败' } },
+    types: { GROUP: '集团', COMPANY: '子公司' }, status: { ACTIVE: '正常', SUSPENDED: '已停用' }, membership: { owner: '所有者', admin: '管理员' }
+  },
+  tenantSwitcher: { title: '切换租户', aria: '可切换租户', current: '当前', switching: '切换中', confirm: '切换到 {tenant}？', success: '已切换到 {tenant}。', errors: { contextStale: '租户上下文已过期，已刷新可用租户，请重新选择。', membershipRequired: '当前用户已不具备目标租户的有效成员关系。', modeConflict: '租户模式正在变更，暂时无法切换。', switchFailed: '租户切换失败，仍保留原租户。' } },
   errors: {
     forbiddenTitle: '403 无权限',
     forbiddenMessage: '你没有访问该页面所需的权限。',

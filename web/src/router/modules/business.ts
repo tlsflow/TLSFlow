@@ -452,6 +452,23 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/settings/tenant-architecture',
+    name: 'settings.tenantArchitecture',
+    component: () => import('@/views/settings/TenantArchitectureView.vue'),
+    meta: {
+      title: 'Tenant architecture',
+      titleKey: 'tenantArchitecture.title',
+      heroTitle: true,
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'settings.read',
+      resourceType: 'settings',
+      riskLevel: 'high',
+      breadcrumbKeys: ['nav.systemSettings', 'tenantArchitecture.title'],
+      keepAlive: true,
+    }
+  },
+  {
     path: '/monitors/tls',
     name: 'monitor.tls.overview',
     redirect: (to) => ({

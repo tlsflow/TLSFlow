@@ -85,6 +85,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.settingsDesc',
     children: [
       { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
+      { titleKey: 'tenantArchitecture.nav', path: '/settings/tenant-architecture', module: 'settings', permission: 'settings.read', descriptionKey: 'tenantArchitecture.description' },
       { titleKey: 'credentials.title', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
       { titleKey: 'settings.version.title', path: '/settings/version', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.version.description' },
       ...licensingMenuItems,

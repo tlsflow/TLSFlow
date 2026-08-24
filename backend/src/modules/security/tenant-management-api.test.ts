@@ -66,6 +66,22 @@ describe('租户治理 API', () => {
     const groupToken = await fixture.login('group-admin', 'group-admin-pass');
     const adminToken = await fixture.login('admin', fixture.adminPassword);
 
+    const architecture = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/tenants/architecture',
+      headers: { authorization: `Bearer ${groupToken}` },
+    });
+    assert.equal(architecture.statusCode, 200);
+    const architectureBody = architecture.body as {
+      mode: string;
+      roots: Array<{ code: string; type: string; administrators: Array<{ username?: string; membershipType: string }>; children: Array<{ code: string }> }>;
+    };
+    assert.equal(architectureBody.mode, 'hierarchical');
+    assert.equal(architectureBody.roots.length, 1);
+    assert.equal(architectureBody.roots[0]?.type, 'GROUP');
+    assert.deepEqual(architectureBody.roots[0]?.children.map((child) => child.code), [fixture.companyA.code, fixture.companyB.code]);
+    assert.equal(architectureBody.roots[0]?.administrators.some((item) => item.username === 'group-admin' && item.membershipType === 'admin'), true);
+
     const current = await fixture.app.inject({
       method: 'GET',
       path: '/api/v1/tenants/current',
@@ -276,15 +292,12 @@ describe('租户治理 API', () => {
 });
 
 async function createFixture(mode: 'single' | 'hierarchical') {
-  const previousMode = process.env.GCAC_TENANT_MODE;
-  process.env.GCAC_TENANT_MODE = mode;
-
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, {
     appliedBy: `tenant-management-api-${mode}`,
     checksum: (content) => createHash('sha256').update(content).digest('hex'),
   });
-  const security = createPersistedSecurityServices(db).services;
+  const security = createPersistedSecurityServices(db, { initialTenantMode: mode }).services;
   await security.tenantMode?.getCurrentMode();
   const app = createApp({ db, security, corePersistence: { mode: 'memory' } });
   const adminPassword = process.env.GCAC_INITIAL_ADMIN_PASSWORD ?? 'admin12345';
@@ -415,9 +428,6 @@ async function createFixture(mode: 'single' | 'hierarchical') {
       tenantId: companyA.id,
     },
   });
-
-  if (previousMode === undefined) delete process.env.GCAC_TENANT_MODE;
-  else process.env.GCAC_TENANT_MODE = previousMode;
 
   return {
     app,

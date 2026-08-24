@@ -4796,6 +4796,21 @@ export default {
     riskTypes: { certificate_fingerprint_reuse: 'Same certificate reused across assets', public_key_reuse: 'Same public key reused across assets' },
     common: { unknown: 'Unknown' }, aria: { tabs: 'Internal CA navigation' }
   },
+  tenantArchitecture: {
+    nav: 'Group architecture', eyebrow: 'Multi-tenant governance', title: 'Group architecture', description: 'Manage group, subsidiary, and administrator relationships.',
+    mode: { aria: 'Group architecture mode', label: 'Group architecture mode', hierarchical: 'Enabled', single: 'Disabled', updated: 'Last updated: {time}' },
+    actions: { checking: 'Checking', preflight: 'Run preflight', enabling: 'Enabling', enable: 'Enable group architecture', rollingBack: 'Rolling back', rollback: 'Disable group architecture', suspend: 'Suspend', resume: 'Resume', revokeAdministrator: 'Revoke administrator' },
+    preflight: { title: 'Enablement preflight', summary: 'Blockers: {blockers}', passed: { title: 'Satisfied', summary: '{count} checks passed' }, blocked: { title: 'Action required', summary: '{count} blockers', description: 'Resolve the following issues before running preflight again.' } },
+    confirm: { enable: 'Enable group architecture?', rollback: 'Disable group architecture and return to single-tenant mode?', revokeAdministrator: 'Revoke this administrator relationship?' },
+    messages: { preflightCompleted: 'Preflight completed.', enabled: 'Group architecture enabled.', rolledBack: 'Returned to single-tenant mode.', companyCreated: 'Subsidiary created.', administratorAdded: 'Administrator configured.', administratorRevoked: 'Administrator relationship revoked.', statusUpdated: 'Subsidiary status updated.' },
+    errors: { emptyMode: 'Group architecture state was not returned.', loadFailed: 'Failed to load group architecture.', preflightFailed: 'Preflight failed.', enableFailed: 'Failed to enable group architecture.', rollbackFailed: 'Failed to roll back group architecture.', companyCreateFailed: 'Failed to create subsidiary.', administratorFailed: 'Failed to configure administrator.', administratorRevokeFailed: 'Failed to revoke administrator.', statusFailed: 'Failed to update subsidiary status.' },
+    company: { title: 'Add subsidiary', name: 'Name', namePlaceholder: 'Enter subsidiary name', code: 'Code', codePlaceholder: 'Enter unique code', submit: 'Create subsidiary' },
+    administrator: { title: 'Configure subsidiary administrator', tenant: 'Subsidiary', tenantPlaceholder: 'Select subsidiary', subjectId: 'User ID', subjectPlaceholder: 'Enter user ID', submit: 'Add administrator', empty: 'No administrator configured' },
+    tree: { aria: 'Group architecture diagram', empty: 'No tenant is visible in the current management scope.' },
+    history: { aria: 'Recent mode records', title: 'Recent mode records', kind: { PREFLIGHT: 'Preflight', ENABLE: 'Enable', ROLLBACK: 'Rollback' }, status: { RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed' } },
+    types: { GROUP: 'Group', COMPANY: 'Subsidiary' }, status: { ACTIVE: 'Active', SUSPENDED: 'Suspended' }, membership: { owner: 'Owner', admin: 'Administrator' }
+  },
+  tenantSwitcher: { title: 'Switch tenant', aria: 'Switchable tenants', current: 'Current', switching: 'Switching', confirm: 'Switch to {tenant}?', success: 'Switched to {tenant}.', errors: { contextStale: 'Tenant context has expired. Available tenants were refreshed; select the target again.', membershipRequired: 'The current user no longer has an active membership in the target tenant.', modeConflict: 'Tenant mode is changing. Switching is temporarily unavailable.', switchFailed: 'Tenant switch failed. The original tenant remains active.' } },
   errors: {
     forbiddenTitle: '403 Forbidden',
     forbiddenMessage: 'You do not have permission to access this page.',

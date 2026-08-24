@@ -1,4 +1,5 @@
 import { apiClient, createRequestId, readApiRequestContext, readApiToken } from '@/api/client'
+import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 import { i18n } from '@/i18n'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 import { buildListPath } from './common'
@@ -7,6 +8,8 @@ import type { ApiPage } from './common'
 const EXECUTION_RUNS_PATH = '/api/v1/execution-runs'
 const EXECUTION_STEPS_PATH = '/api/v1/execution-steps'
 const AGENT_TASK_LOGS_PATH = '/api/v1/agents/tasks/logs'
+const activeStreamDisposers = new Set<() => void>()
+let streamContextListenerAttached = false
 
 export function listExecutions(query?: BusinessListQuery) {
   return listRecords(EXECUTION_RUNS_PATH, query)
@@ -77,12 +80,20 @@ export async function streamExecutionDetail(
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const requestContext = readApiRequestContext()
+  const streamTenantId = requestContext?.tenantId?.trim()
+  const streamContextVersion = requestContext?.tenantContextVersion?.trim()
   if (requestContext?.actorId) {
     headers.set('X-Actor-Id', requestContext.actorId)
     headers.set('X-Actor-Type', requestContext.actorType ?? 'user')
   }
   if (requestContext?.tenantId) {
     headers.set('X-Tenant-Id', requestContext.tenantId)
+  }
+  if (streamContextVersion) headers.set('X-Tenant-Context-Version', streamContextVersion)
+
+  if (typeof window !== 'undefined' && !streamContextListenerAttached) {
+    window.addEventListener(TENANT_CONTEXT_CHANGED_EVENT, closeAllExecutionDetailStreams)
+    streamContextListenerAttached = true
   }
 
   const response = await fetch(`${(import.meta.env.VITE_API_BASE_URL ?? '/api')}${toClientPath(`${EXECUTION_RUNS_PATH}/stream`)}?runId=${encodeURIComponent(runId)}`, {
@@ -111,7 +122,19 @@ export async function streamExecutionDetail(
         while (boundary) {
           const rawEvent = buffer.slice(0, boundary.index)
           buffer = buffer.slice(boundary.index + boundary.length)
-          consumeSseEvent(rawEvent, handlers)
+          consumeSseEvent(rawEvent, {
+            onSnapshot: (snapshot) => {
+              const current = readApiRequestContext()
+              if (current?.tenantId !== streamTenantId || current?.tenantContextVersion !== streamContextVersion) return
+              handlers.onSnapshot?.(snapshot)
+            },
+            onEvent: (event) => {
+              const current = readApiRequestContext()
+              if (current?.tenantId !== streamTenantId || current?.tenantContextVersion !== streamContextVersion) return
+              handlers.onEvent?.(event)
+            },
+            onError: handlers.onError,
+          })
           boundary = findSseBoundary(buffer)
         }
       }
@@ -122,11 +145,20 @@ export async function streamExecutionDetail(
   }
 
   void pump()
+  activeStreamDisposers.add(dispose)
 
-  return () => {
+  return dispose
+
+  function dispose(): void {
     closed = true
     controller.abort()
+    activeStreamDisposers.delete(dispose)
   }
+}
+
+function closeAllExecutionDetailStreams(): void {
+  for (const dispose of [...activeStreamDisposers]) dispose()
+  activeStreamDisposers.clear()
 }
 
 function findSseBoundary(buffer: string): { index: number; length: number } | null {

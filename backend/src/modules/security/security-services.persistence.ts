@@ -32,6 +32,8 @@ import { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import { TenantContextService, type TenantContextStateEntity } from './tenant-context.service.js';
 import { TenantModeService, type TenantModeBatchEntity, type TenantModeStateEntity } from './tenant-mode.service.js';
 
+import { TenantArchitectureService } from './tenant-architecture.service.js';
+import type { TenantMode } from '../../shared/security-types.js';
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
 
@@ -40,7 +42,7 @@ export interface PersistedSecurityServicesBundle {
   flushers: Array<{ flush: () => Promise<void> }>;
 }
 
-export function createPersistedSecurityServices(db: DatabasePort): PersistedSecurityServicesBundle {
+export function createPersistedSecurityServices(db: DatabasePort, options: { initialTenantMode?: TenantMode } = {}): PersistedSecurityServicesBundle {
   const auditLogs = new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs');
   const approvalsRepo = new PgDocumentRepository<ApprovalRequestEntity>(db, 'security.approval_requests');
   const executionGrants = new PgDocumentRepository<ExecutionGrantEntity>(db, 'security.execution_grants');
@@ -75,14 +77,15 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
   const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
-  const tenantMode = new TenantModeService(db, tenantModeStates, tenantModeBatches, audit, tenantHierarchy, objectPermissions);
+  const tenantMode = new TenantModeService(db, tenantModeStates, tenantModeBatches, audit, tenantHierarchy, objectPermissions, options.initialTenantMode ?? 'single');
   const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates, tenantMode);
   tenantMode.attachTenantContext(tenantContext);
+  const tenantArchitecture = new TenantArchitectureService(tenantHierarchy, users, groups, audit);
   const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity, tenantContext);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
-    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode },
+    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode, tenantArchitecture },
     flushers: [],
   };
 }

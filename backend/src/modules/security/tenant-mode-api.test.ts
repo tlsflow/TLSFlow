@@ -479,21 +479,15 @@ describe('多租户模式 API', () => {
 });
 
 async function createFixture(mode: 'single' | 'hierarchical') {
-  const previousMode = process.env.GCAC_TENANT_MODE;
-  process.env.GCAC_TENANT_MODE = mode;
-
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, {
     appliedBy: `tenant-mode-api-${mode}`,
     checksum: (content) => createHash('sha256').update(content).digest('hex'),
   });
-  const security = createPersistedSecurityServices(db).services;
+  const security = createPersistedSecurityServices(db, { initialTenantMode: mode }).services;
   const app = new App();
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new SecurityController(security).register(app.router);
-
-  if (previousMode === undefined) delete process.env.GCAC_TENANT_MODE;
-  else process.env.GCAC_TENANT_MODE = previousMode;
 
   return {
     app,

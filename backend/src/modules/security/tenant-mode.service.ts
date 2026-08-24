@@ -114,6 +114,7 @@ export class TenantModeService implements TenantModeReader {
     private readonly audit: AuditPort,
     private readonly tenantHierarchy: TenantHierarchyPort,
     private readonly objectPermissions: ObjectPermissionPort,
+    private readonly initialMode: TenantMode = 'single',
   ) {}
 
   attachTenantContext(tenantContext: TenantContextInvalidator): void {
@@ -514,11 +515,10 @@ export class TenantModeService implements TenantModeReader {
     if (existing) {
       return existing;
     }
-    const initialMode = readInitialMode();
     const initialState: TenantModeStateEntity = {
       id: STATE_ID,
-      mode: initialMode,
-      lifecycleState: initialMode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
+      mode: this.initialMode,
+      lifecycleState: this.initialMode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
       updatedAt: new Date().toISOString(),
       version: 1,
     };
@@ -754,9 +754,11 @@ export class TenantModeService implements TenantModeReader {
   private async collectLegacyTenantOwnershipOffenders(): Promise<string[]> {
     const columns = await this.db.query<{ table_name: string; column_name: string }>(
       `select table_name, column_name
-         from information_schema.columns
+        from information_schema.columns
         where table_schema = 'public'
           and column_name in ('tenant_id', 'owner_tenant_id')
+          and table_name !~ '(^|_)(backup|backups)(_|$)'
+          and table_name <> 'legacy_plugin_migration_results'
         order by table_name, column_name`,
     );
     const offenders: string[] = [];
@@ -765,6 +767,7 @@ export class TenantModeService implements TenantModeReader {
         `select count(*)::int as count
            from ${quoteIdent(column.table_name)}
           where ${quoteIdent(column.column_name)} is not null
+            and ${quoteIdent(column.column_name)}::text <> 'SYSTEM'
             and (
               ${quoteIdent(column.column_name)}::text in ('default', 'tenant_default', '00000000-0000-0000-0000-000000000000')
               or not exists (
@@ -861,8 +864,4 @@ function stableSerialize(value: unknown): string {
 
 function quoteIdent(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
-}
-
-function readInitialMode(): TenantMode {
-  return process.env.GCAC_TENANT_MODE === 'hierarchical' ? 'hierarchical' : 'single';
 }

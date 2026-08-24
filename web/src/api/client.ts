@@ -21,6 +21,7 @@ export interface ApiRequestContext {
   readonly actorId?: string | null
   readonly actorType?: string | null
   readonly tenantId?: string | null
+  readonly tenantContextVersion?: string | null
 }
 
 export class ApiClientError extends Error {
@@ -77,6 +78,9 @@ export class ApiClient {
     if (requestContext?.tenantId) {
       headers.set('X-Tenant-Id', requestContext.tenantId)
     }
+    if (requestContext?.tenantContextVersion) {
+      headers.set('X-Tenant-Context-Version', requestContext.tenantContextVersion)
+    }
     if (options.idempotencyKey) {
       headers.set('X-Idempotency-Key', options.idempotencyKey)
     }
@@ -126,6 +130,9 @@ export class ApiClient {
     }
     if (requestContext?.tenantId) {
       headers.set('X-Tenant-Id', requestContext.tenantId)
+    }
+    if (requestContext?.tenantContextVersion) {
+      headers.set('X-Tenant-Context-Version', requestContext.tenantContextVersion)
     }
     if (options.idempotencyKey) {
       headers.set('X-Idempotency-Key', options.idempotencyKey)

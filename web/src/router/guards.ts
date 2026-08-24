@@ -2,6 +2,7 @@ import type { Router } from 'vue-router'
 import { i18n } from '@/i18n'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { useTenantStore } from '@/stores/tenant.store'
 import { useSystemCapabilitiesStore, type SystemFeature } from '@/stores/system-capabilities.store'
 
 const publicRouteNames = new Set(['login', 'error.forbidden', 'error.notFound'])
@@ -10,6 +11,7 @@ export function registerRouterGuards(router: Router): void {
   router.beforeEach(async (to) => {
     const authStore = useAuthStore()
     const permissionStore = usePermissionStore()
+    const tenantStore = useTenantStore()
     const systemCapabilities = useSystemCapabilitiesStore()
 
     const routeName = String(to.name ?? '')
@@ -27,6 +29,10 @@ export function registerRouterGuards(router: Router): void {
 
     if (to.meta.requiresAuth && !permissionStore.isLoaded) {
       await permissionStore.loadPermissions()
+    }
+
+    if (to.meta.requiresAuth && !tenantStore.contextVersion) {
+      await tenantStore.loadAccessibleTenants()
     }
 
     if (!systemCapabilities.isLoaded) {

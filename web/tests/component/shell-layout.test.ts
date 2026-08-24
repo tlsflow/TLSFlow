@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { defineComponent, h, nextTick, onMounted } from 'vue'
 import { i18n } from '@/i18n'
 import ShellLayout from '@/layouts/ShellLayout.vue'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { useTenantStore } from '@/stores/tenant.store'
+import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 
-function createTestRouter() {
+function createTestRouter(dashboardComponent: object = { template: '<div />' }) {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -15,7 +18,7 @@ function createTestRouter() {
         path: '/',
         component: ShellLayout,
         children: [
-          { path: '/dashboard', name: 'dashboard', component: { template: '<div />' }, meta: { title: '仪表盘', titleKey: 'nav.dashboard', module: 'dashboard', requiresAuth: true, heroTitle: true } },
+          { path: '/dashboard', name: 'dashboard', component: dashboardComponent, meta: { title: '仪表盘', titleKey: 'nav.dashboard', module: 'dashboard', requiresAuth: true, heroTitle: true } },
           { path: '/certificates', name: 'certificates', component: { template: '<div />' }, meta: { title: '证书', titleKey: 'nav.certificates', module: 'certificate', requiresAuth: true, heroTitle: true } },
           { path: '/workflows', name: 'workflows', component: { template: '<div />' }, meta: { title: '工作流', titleKey: 'nav.workflowTemplates', module: 'workflow-template', requiresAuth: true, heroTitle: true } },
         ],
@@ -174,6 +177,51 @@ describe('ShellLayout', () => {
 
     await wrapper.get('.gc-shell__user-button').trigger('click')
     expect(wrapper.find('.gc-shell__user-menu .gc-shell__view-mode').exists()).toBe(true)
+  })
+
+  it('仅层级模式下存在两个直接可切换租户时显示租户切换入口', async () => {
+    const router = createTestRouter()
+    await router.push('/dashboard')
+    await router.isReady()
+    useTenantStore().$patch({
+      mode: 'hierarchical',
+      currentTenantId: 'tenant-1',
+      tenants: [
+        { id: 'tenant-1', tenantId: 'tenant-1', name: '集团 A', code: 'group-a', type: 'GROUP', membershipType: 'admin', membershipStatus: 'ACTIVE', current: true, canSwitch: true, mode: 'hierarchical' },
+        { id: 'tenant-2', tenantId: 'tenant-2', name: '子公司 A', code: 'company-a', type: 'COMPANY', membershipType: 'admin', membershipStatus: 'ACTIVE', current: false, canSwitch: true, mode: 'hierarchical' },
+      ],
+    })
+
+    const wrapper = mount(ShellLayout, {
+      global: { plugins: [router, i18n], stubs: { RouterLink: false, RouterView: { template: '<div />' } } },
+    })
+    await wrapper.get('.gc-shell__user-button').trigger('click')
+
+    expect(wrapper.find('.gc-shell__tenant-switcher').exists()).toBe(true)
+    expect(wrapper.find('.gc-shell__tenant-switcher').text()).toContain('集团 A')
+    expect(wrapper.find('.gc-shell__tenant-switcher').text()).toContain('子公司 A')
+  })
+
+  it('租户上下文切换成功后重新挂载当前页面，清空页面本地数据', async () => {
+    let mountedCount = 0
+    const dashboard = defineComponent({
+      setup() {
+        onMounted(() => { mountedCount += 1 })
+        return () => h('div', { 'data-test': 'tenant-bound-page' })
+      },
+    })
+    const router = createTestRouter(dashboard)
+    await router.push('/dashboard')
+    await router.isReady()
+
+    const wrapper = mount(ShellLayout, { global: { plugins: [router, i18n], stubs: { RouterLink: false } } })
+    expect(mountedCount).toBe(1)
+
+    window.dispatchEvent(new CustomEvent(TENANT_CONTEXT_CHANGED_EVENT, { detail: { tenantId: 'tenant-2', contextVersion: 'context-2' } }))
+    await nextTick()
+
+    expect(mountedCount).toBe(2)
+    expect(wrapper.find('[data-test="tenant-bound-page"]').exists()).toBe(true)
   })
 
   it('支持桌面侧栏收起展开，并在模态打开时临时收起后恢复', async () => {

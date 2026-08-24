@@ -161,6 +161,14 @@ export const usePermissionStore = defineStore('permission', {
       this.expiresAt = null
       this.loadedAt = new Date().toISOString()
     },
+    clear(): void {
+      this.permissions = []
+      this.objectSets = []
+      this.roleBindings = []
+      this.objectPermissionVersion = null
+      this.expiresAt = null
+      this.loadedAt = null
+    },
     hasPermission(permission: string, options?: { explicitOnly?: boolean }): boolean {
       const activePermissionSet = options?.explicitOnly ? this.explicitPermissionSet : this.permissionSet
       return permissionGranted(activePermissionSet, permission)

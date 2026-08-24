@@ -95,6 +95,8 @@ export class MockPermissionProvider implements PermissionProvider {
       objectSets: [],
       roleBindings: [],
       objectPermissionVersion: 'mock',
+      businessPermissions: [],
+      businessPermissionVersion: 'mock',
       expiresAt: new Date(Date.now() + 300_000).toISOString()
     }
   }

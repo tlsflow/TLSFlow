@@ -23,7 +23,8 @@ setApiRequestContextProvider(() => {
   return {
     actorId: authStore.user?.id ?? null,
     actorType: 'user',
-    tenantId: authStore.user?.tenantId ?? tenantStore.currentTenantId ?? null
+    tenantId: tenantStore.currentTenantId ?? authStore.user?.tenantId ?? null,
+    tenantContextVersion: tenantStore.contextVersion
   }
 })
 

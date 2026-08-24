@@ -1,5 +1,6 @@
 import { readApiRequestContext } from '@/api/client'
 import type { TaskRun } from '@/api/modules/tasks.api'
+import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 
 export interface TaskRealtimeSnapshotMessage {
   readonly type: 'snapshot'
@@ -63,6 +64,8 @@ let reconnectTimer: number | undefined
 let connectStarted = false
 let realtimeConnected = false
 let pendingDeploymentExecutionOpen: DeploymentExecutionOpenDetail | undefined
+
+let tenantContextListenerAttached = false
 
 export function isExecutionTask(task: TaskRun): boolean {
   return task.category === 'EXECUTION' || EXECUTION_TASK_TYPES.has(task.taskType)
@@ -153,8 +156,24 @@ export function isTaskRealtimeConnected(): boolean {
   return realtimeConnected
 }
 
+export function resetTaskRealtimeConnection(): void {
+  clearReconnectTimer()
+  connectStarted = false
+  socket?.close()
+  socket = undefined
+  realtimeConnected = false
+  activeExecutionTasks.clear()
+  recentTasks.clear()
+  emitActivity()
+  if (realtimeListeners.size > 0) ensureTaskRealtimeConnection()
+}
+
 function ensureTaskRealtimeConnection(): void {
   if (typeof window === 'undefined') return
+  if (!tenantContextListenerAttached) {
+    window.addEventListener(TENANT_CONTEXT_CHANGED_EVENT, resetTaskRealtimeConnection)
+    tenantContextListenerAttached = true
+  }
   if (connectStarted && socket) return
   const url = buildTaskRealtimeUrl()
   if (!url) return
@@ -212,6 +231,8 @@ function buildTaskRealtimeUrl(): string | undefined {
   const protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:'
   const url = new URL(`${baseUrl.pathname}/v1/tasks/stream`, `${protocol}//${baseUrl.host}`)
   url.searchParams.set('tenantId', tenantId)
+  const contextVersion = requestContext?.tenantContextVersion?.trim()
+  if (contextVersion) url.searchParams.set('contextVersion', contextVersion)
   return url.toString()
 }
 

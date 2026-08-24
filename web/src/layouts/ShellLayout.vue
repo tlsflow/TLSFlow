@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
+import { ApiClientError } from '@/api/client'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
 import { GcModal } from '@/design-system/components'
 import { productBrand } from '@/brand/product-brand'
@@ -10,6 +11,8 @@ import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
+import { useTenantStore, type TenantOption } from '@/stores/tenant.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
@@ -35,6 +38,7 @@ const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const permissionStore = usePermissionStore()
+const tenantStore = useTenantStore()
 const { t } = useI18n()
 
 const USER_MODE_MENU_ITEMS: readonly MenuItem[] = [
@@ -85,6 +89,7 @@ const currentPageTitle = computed(() => {
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
 const globalSearchOpen = ref(false)
 const taskDrawerOpen = ref(false)
+const tenantViewVersion = ref(0)
 const activeTaskCount = ref(0)
 const taskEntryConnected = ref(false)
 const mobileNavOpen = ref(false)
@@ -107,10 +112,12 @@ const passwordForm = reactive({
   confirmPassword: ''
 })
 const currentUserName = computed(() => authStore.user?.displayName ?? t('common.userFallback'))
-const currentTenantName = computed(() => authStore.user?.tenantName ?? t('common.tenantFallback'))
+const currentTenantName = computed(() => tenantStore.tenants.find((tenant) => tenant.tenantId === tenantStore.currentTenantId)?.name ?? authStore.user?.tenantName ?? t('common.tenantFallback'))
 const currentUserInitial = computed(() => currentUserName.value.slice(0, 1).toUpperCase())
 const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferences.themeDark') : t('preferences.themeLight'))
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
+const switchableTenants = computed(() => tenantStore.switchableTenants)
+const tenantSwitcherVisible = computed(() => tenantStore.hasTenantSwitcher)
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 let toastSequence = 0
@@ -257,6 +264,39 @@ async function logout() {
   await router.push({ name: 'login' })
 }
 
+async function switchTenant(target: TenantOption): Promise<void> {
+  if (tenantStore.switching || target.current) return
+  if (!window.confirm(t('tenantSwitcher.confirm', { tenant: target.name }))) return
+  try {
+    await tenantStore.switchTenant(target.tenantId)
+    closeUserMenu()
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: { message: t('tenantSwitcher.success', { tenant: target.name }), tone: 'success' },
+    }))
+  } catch (cause) {
+    if (cause instanceof ApiClientError && cause.errorCode === 'TENANT_CONTEXT_STALE') {
+      try {
+        await tenantStore.refreshTenantContext()
+        await tenantStore.loadAccessibleTenants()
+      } catch {
+        // 中文说明：上下文刷新失败时保留原租户状态，向用户给出可操作的统一提示。
+      }
+      window.dispatchEvent(new CustomEvent('gcac:toast', {
+        detail: { message: t('tenantSwitcher.errors.contextStale'), tone: 'warning' },
+      }))
+      return
+    }
+    const key = cause instanceof ApiClientError && cause.errorCode === 'TENANT_MEMBERSHIP_REQUIRED'
+      ? 'tenantSwitcher.errors.membershipRequired'
+      : cause instanceof ApiClientError && cause.errorCode === 'TENANT_MODE_CONFLICT'
+        ? 'tenantSwitcher.errors.modeConflict'
+        : 'tenantSwitcher.errors.switchFailed'
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: { message: t(key), tone: 'danger' },
+    }))
+  }
+}
+
 function toggleUserMenu() {
   globalSearchOpen.value = false
   taskDrawerOpen.value = false
@@ -279,6 +319,10 @@ function openGlobalSearch() {
 function closeUserMenu() {
   userMenuOpen.value = false
   languageMenuOpen.value = false
+}
+
+function refreshTenantBoundRoute(): void {
+  tenantViewVersion.value += 1
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
@@ -376,6 +420,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleShellKeydown)
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   window.addEventListener('gcac:toast', handleToastEvent as EventListener)
+  window.addEventListener(TENANT_CONTEXT_CHANGED_EVENT, refreshTenantBoundRoute)
   disposeTaskActivity = subscribeTaskActivity((state) => {
     taskEntryConnected.value = state.connected
     activeTaskCount.value = state.activeCount
@@ -391,6 +436,7 @@ onBeforeUnmount(() => {
   overlayStateObserver = undefined
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
+  window.removeEventListener(TENANT_CONTEXT_CHANGED_EVENT, refreshTenantBoundRoute)
   disposeTaskActivity?.()
   disposeTaskRealtime?.()
   disposeTaskActivity = undefined
@@ -619,11 +665,27 @@ function removeToastNotice(id: number): void {
                 <span class="gc-shell__user-avatar gc-shell__user-avatar--menu" aria-hidden="true">{{ currentUserInitial }}</span>
                 <span>
                   <strong>{{ currentUserName }}</strong>
-                  <small>{{ currentTenantName }}</small>
+                  <small v-if="tenantStore.mode === 'hierarchical'">{{ currentTenantName }}</small>
                 </span>
               </div>
 
               <div class="gc-shell__user-menu-list" role="none">
+                <div v-if="tenantSwitcherVisible" class="gc-shell__tenant-switcher" role="group" :aria-label="t('tenantSwitcher.aria')">
+                  <span class="gc-shell__tenant-switcher-label">{{ t('tenantSwitcher.title') }}</span>
+                  <button
+                    v-for="tenant in switchableTenants"
+                    :key="tenant.tenantId"
+                    class="gc-shell__tenant-switcher-option"
+                    :class="{ 'gc-shell__tenant-switcher-option--current': tenant.current }"
+                    type="button"
+                    :disabled="tenantStore.switching || tenant.current"
+                    @click="switchTenant(tenant)"
+                  >
+                    <span><strong>{{ tenant.name }}</strong><small>{{ tenant.code }}</small></span>
+                    <span v-if="tenant.current" class="gc-shell__tenant-switcher-current">{{ t('tenantSwitcher.current') }}</span>
+                    <span v-else-if="tenantStore.switching" class="gc-shell__tenant-switcher-current">{{ t('tenantSwitcher.switching') }}</span>
+                  </button>
+                </div>
                 <button class="gc-shell__user-menu-action" type="button" role="menuitem" @click="openPasswordDialog">
                   <span class="gc-shell__user-menu-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path d="M14 10a4 4 0 1 0-3.2 3.9L13 16h2v2h3v-3.2l-3.7-3.7" /><path d="M7.5 10.5h.01" /></svg>
@@ -729,7 +791,7 @@ function removeToastNotice(id: number): void {
         'gc-workbench__content--dashboard': route.path === '/dashboard',
       }"
     >
-      <RouterView />
+      <RouterView :key="`${route.fullPath}:${tenantViewVersion}`" />
     </main>
     </div>
 
@@ -784,6 +846,53 @@ function removeToastNotice(id: number): void {
 </template>
 
 <style scoped>
+.gc-shell__tenant-switcher {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-thin) solid var(--gc-color-border-soft);
+}
+
+.gc-shell__tenant-switcher-label,
+.gc-shell__tenant-switcher-option small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.gc-shell__tenant-switcher-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  width: 100%;
+  padding: var(--gc-space-3);
+  color: var(--gc-color-text);
+  text-align: left;
+  border: var(--gc-border-width-thin) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface);
+}
+
+.gc-shell__tenant-switcher-option:not(:disabled):hover {
+  background: var(--gc-color-surface-subtle);
+}
+
+.gc-shell__tenant-switcher-option:disabled {
+  cursor: default;
+  opacity: var(--gc-opacity-disabled);
+}
+
+.gc-shell__tenant-switcher-option > span:first-child {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.gc-shell__tenant-switcher-current {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-sm);
+}
+
 .gc-workbench__content--locked {
   height: calc(100vh - var(--gc-control-height-md) - var(--gc-space-4));
   overflow: hidden;
