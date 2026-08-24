@@ -9,7 +9,7 @@ import type { CaSyncRunEntity } from './schema/internal-ca.schema.js';
 
 const now = new Date('2026-07-25T08:00:00.000Z');
 
-test('自动调度器首次只为同一 AD CS Provider 创建一个高优先级运行', async () => {
+test('自动调度器首次只为同一插件 Provider 创建一个高优先级运行', async () => {
   const { operationsRepository } = await fixture();
   const inputs: Array<Record<string, unknown>> = [];
   const scheduler = new CaAutoSyncScheduler(operationsRepository, {
@@ -114,8 +114,8 @@ async function fixture() {
   await runMigrations(database, 'src/database/migrations');
   const internalRepository = new InternalCaRepository(database);
   await internalRepository.saveProvider({
-    id: 'provider-adcs', tenantId: 'tenant-1', name: 'AD CS', type: 'microsoft_adcs',
-    deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
+    id: 'provider-plugin', tenantId: 'tenant-1', name: '通用 CA 插件', type: 'plugin',
+    deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single',
     capabilities: {
       discoverHierarchy: true, createRoot: false, createIntermediate: false, signCsr: true,
       queryIssuance: true, revokeCertificate: true, publishCrl: true, ocsp: false, listProfiles: true,
@@ -125,8 +125,8 @@ async function fixture() {
     createdAt: '2026-07-25T07:00:00.000Z', updatedAt: '2026-07-25T07:00:00.000Z',
   });
   await internalRepository.saveAuthority({
-    id: 'ca-adcs', tenantId: 'tenant-1', name: 'AD CS CA', role: 'root', topologyMode: 'external_managed',
-    providerId: 'provider-adcs', securityDomain: 'production', status: 'active', subjectCommonName: 'AD CS CA',
+    id: 'ca-plugin', tenantId: 'tenant-1', name: '通用 CA', role: 'root', topologyMode: 'external_managed',
+    providerId: 'provider-plugin', securityDomain: 'production', status: 'active', subjectCommonName: '通用 CA',
     createdAt: '2026-07-25T07:00:00.000Z', updatedAt: '2026-07-25T07:00:00.000Z',
   });
   return { database, operationsRepository: new CaOperationsRepository(database) };
@@ -136,8 +136,8 @@ function createRun(id: string, overrides: Partial<CaSyncRunEntity> = {}): CaSync
   return {
     id,
     tenantId: 'tenant-1',
-    providerId: 'provider-adcs',
-    caId: 'ca-adcs',
+    providerId: 'provider-plugin',
+    caId: 'ca-plugin',
     objectType: 'request',
     mode: 'incremental',
     status: 'queued',

@@ -1,4 +1,4 @@
-export const caProviderTypes = ['gcac_builtin', 'gcac_managed_node', 'microsoft_adcs', 'acme', 'est', 'scep', 'product_adapter'] as const;
+export const caProviderTypes = ['gcac_builtin', 'gcac_managed_node', 'plugin'] as const;
 export const caDeploymentModes = ['builtin', 'managed_node', 'external'] as const;
 export const caRuntimePlatforms = ['embedded', 'windows', 'linux', 'external'] as const;
 export const caAvailabilityModes = ['offline', 'single', 'active_standby', 'active_active'] as const;
@@ -259,7 +259,7 @@ export interface CaNodeTaskEntity {
   tenantId: string;
   providerId: string;
   nodeId?: string;
-  taskType: 'discover_adcs' | 'inspect_adcs_view' | 'sync_adcs_records' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
+  taskType: 'sync_records' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
   idempotencyKey: string;
   payload: Record<string, unknown>;
   status: 'queued' | 'leased' | 'succeeded' | 'failed';

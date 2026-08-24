@@ -248,7 +248,7 @@ export class CaOperationsRepository {
              and status = 'succeeded'
            order by completed_at desc nulls last, created_at desc limit 1
          ) successful on true
-         where provider.type = 'microsoft_adcs'
+      where provider.type = 'plugin'
            and provider.status = 'active'
            and authority.status = 'active'
            and case

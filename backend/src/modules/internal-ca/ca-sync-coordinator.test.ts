@@ -44,20 +44,20 @@ async function fixture(adapter = new FakeSyncAdapter()) {
   await runMigrations(database, 'src/database/migrations');
   const repository = new InternalCaRepository(database);
   await repository.saveProvider({
-    id: providerId, tenantId, name: 'Microsoft AD CS', type: 'microsoft_adcs', deploymentMode: 'external',
-    runtimePlatform: 'windows', availabilityMode: 'single', capabilities: {
+    id: providerId, tenantId, name: '通用 CA 插件', type: 'plugin', deploymentMode: 'external',
+    runtimePlatform: 'external', availabilityMode: 'single', capabilities: {
       discoverHierarchy: true, createRoot: false, createIntermediate: false, signCsr: true, queryIssuance: true,
       revokeCertificate: true, publishCrl: true, ocsp: false, listProfiles: true, deviceLocalCsr: false,
       hardwareBackedKey: true, highAvailability: false,
     }, status: 'active', configuration: {}, createdAt: '2026-07-24T12:00:00.000Z', updatedAt: '2026-07-24T12:00:00.000Z',
   });
   await repository.saveAuthority({
-    id: caId, tenantId, name: 'AD CS CA', role: 'root', topologyMode: 'external_managed', providerId,
-    securityDomain: 'production', status: 'active', subjectCommonName: 'AD CS CA',
+    id: caId, tenantId, name: '通用 CA', role: 'root', topologyMode: 'external_managed', providerId,
+    securityDomain: 'production', status: 'active', subjectCommonName: '通用 CA',
     createdAt: '2026-07-24T12:00:00.000Z', updatedAt: '2026-07-24T12:00:00.000Z',
   });
   const auditEvents: Array<Record<string, unknown>> = [];
-  const registry = new CaOperationsAdapterRegistry().register('microsoft_adcs', adapter);
+  const registry = new CaOperationsAdapterRegistry().register('plugin', adapter);
   const coordinator = new CaSyncCoordinator(database, registry, {
     async write(input) {
       auditEvents.push(input as unknown as Record<string, unknown>);

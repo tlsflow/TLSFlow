@@ -11,7 +11,7 @@ import {
 import { caOperationsOpenApiSchemas } from '../dto/ca-operations.dto.js';
 
 const provider: CaProviderEntity = {
-  id: 'provider-adcs', tenantId: 'tenant-operations', name: 'AD CS', type: 'microsoft_adcs',
+  id: 'provider-plugin', tenantId: 'tenant-operations', name: '通用 CA 插件', type: 'plugin',
   deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single', capabilities: {
     discoverHierarchy: true, createRoot: false, createIntermediate: false, signCsr: true, queryIssuance: true,
     revokeCertificate: true, publishCrl: true, ocsp: false, listProfiles: true, deviceLocalCsr: false,
@@ -20,7 +20,7 @@ const provider: CaProviderEntity = {
 };
 
 const authority: CertificateAuthorityEntity = {
-  id: 'ca-adcs', tenantId: provider.tenantId, name: 'AD CS CA', role: 'root', topologyMode: 'external_managed',
+  id: 'ca-plugin', tenantId: provider.tenantId, name: '通用 CA', role: 'root', topologyMode: 'external_managed',
   providerId: provider.id, securityDomain: 'production', status: 'active', subjectCommonName: 'AD CS CA',
   createdAt: provider.createdAt, updatedAt: provider.updatedAt,
 };
@@ -61,9 +61,9 @@ test('运营批次要求稳定外部 ID、受限摘要且批次内不重复', ()
 
 test('未注册运营适配器必须明确拒绝，不能伪造通用能力', () => {
   const registry = new CaOperationsAdapterRegistry();
-  assert.equal(registry.has('microsoft_adcs'), false);
+  assert.equal(registry.has('plugin'), false);
   assert.throws(
-    () => registry.get('microsoft_adcs'),
+    () => registry.get('plugin'),
     (error: unknown) => error instanceof AppError && error.errorCode === 'CA_OPERATIONS_CAPABILITY_UNSUPPORTED',
   );
 });

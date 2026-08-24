@@ -9,8 +9,8 @@ test('CA Node Task 可按幂等键恢复同一任务', async () => {
   await runMigrations(database, 'src/database/migrations');
   const repository = new InternalCaRepository(database);
   await repository.saveProvider({
-    id: 'provider-1', tenantId: 'tenant-1', name: 'AD CS', type: 'microsoft_adcs',
-    deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
+    id: 'provider-1', tenantId: 'tenant-1', name: '通用 CA 插件', type: 'plugin',
+    deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single',
     capabilities: {
       discoverHierarchy: true, createRoot: false, createIntermediate: false, signCsr: true,
       queryIssuance: true, revokeCertificate: true, publishCrl: true, ocsp: false, listProfiles: true,
@@ -19,7 +19,7 @@ test('CA Node Task 可按幂等键恢复同一任务', async () => {
     status: 'active', configuration: {}, createdAt: '2026-07-25T08:00:00.000Z', updatedAt: '2026-07-25T08:00:00.000Z',
   });
   const task = await repository.saveNodeTask({
-    id: 'task-1', tenantId: 'tenant-1', providerId: 'provider-1', taskType: 'sync_adcs_records',
+    id: 'task-1', tenantId: 'tenant-1', providerId: 'provider-1', taskType: 'sync_records',
     idempotencyKey: 'sync:run-1:request:initial', payload: { objectType: 'request' }, status: 'queued',
     createdAt: '2026-07-25T08:00:00.000Z', updatedAt: '2026-07-25T08:00:00.000Z',
   });
