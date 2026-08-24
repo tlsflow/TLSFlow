@@ -22,7 +22,7 @@ export class DeploymentInputProjectionService {
       sensitive: definition.sensitive,
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
-      value: definition.sensitive ? undefined : definition.bindingPolicy === 'fixed' ? resolvedInput.variables[slot] : effectiveBinding?.inputBindings.variables[slot],
+      value: definition.sensitive ? undefined : resolvedInput.variables[slot],
     } satisfies DeploymentInputFieldProjectionV1));
     const fixedValues = variables.filter((item) => item.bindingPolicy === 'fixed' && item.value !== undefined).map((item) => ({ slot: item.slot, value: item.value, source: item.source }));
     const runtimeValues = variables
@@ -33,7 +33,7 @@ export class DeploymentInputProjectionService {
       slot,
       transport: definition.transport,
       credentialSlot: definition.credentialSlot,
-      fields: connectionFields(definition, effectiveBinding?.inputBindings.connections[slot]),
+      fields: connectionFields(definition, effectiveBinding?.inputBindings.connections[slot], resolvedInput.connections[slot]),
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
     } satisfies DeploymentConnectionProjectionV1));
@@ -58,8 +58,8 @@ export class DeploymentInputProjectionService {
     }));
     return {
       contractVersion: contract.apiVersion,
-      requiredVariables: variables.filter((item) => item.configurationMode === 'required'),
-      advancedVariables: variables.filter((item) => item.configurationMode === 'advanced'),
+      requiredVariables: variables.filter(isRequiredEditableField),
+      advancedVariables: variables.filter((item) => item.configurationMode !== 'runtime' && !isRequiredEditableField(item)),
       connections,
       credentials,
       artifacts,
@@ -71,16 +71,24 @@ export class DeploymentInputProjectionService {
   }
 }
 
-function connectionFields(definition: DeploymentInputContractV1['connections'][string], binding?: InputBindingsV1['connections'][string]): Record<string, DeploymentInputFieldProjectionV1> {
+function isRequiredEditableField(item: DeploymentInputFieldProjectionV1): boolean {
+  return item.configurationMode === 'required' && item.bindingPolicy === 'required_binding';
+}
+
+function connectionFields(
+  definition: DeploymentInputContractV1['connections'][string],
+  binding?: InputBindingsV1['connections'][string],
+  resolved?: { host?: string; port?: number; username?: string; tls?: { verifyPeer?: boolean; serverName?: string }; hostKey?: { expectedFingerprint?: string } },
+): Record<string, DeploymentInputFieldProjectionV1> {
   const fields: Record<string, DeploymentInputFieldProjectionV1> = {};
   for (const [slot, field] of Object.entries({ host: definition.host, port: definition.port, username: definition.username, 'tls.verifyPeer': definition.tls?.verifyPeer, 'tls.serverName': definition.tls?.serverName, 'hostKey.expectedFingerprint': definition.hostKey?.expectedFingerprint })) {
     if (!field) continue;
-    fields[slot] = fieldProjection(slot, field, readConnectionBindingValue(binding, slot));
+    fields[slot] = fieldProjection(slot, field, readConnectionBindingValue(binding, slot), readConnectionBindingValue(resolved, slot));
   }
   return fields;
 }
 
-function fieldProjection(slot: string, field: DeploymentConnectionFieldV1, value?: unknown): DeploymentInputFieldProjectionV1 {
+function fieldProjection(slot: string, field: DeploymentConnectionFieldV1, bindingValue?: unknown, resolvedValue?: unknown): DeploymentInputFieldProjectionV1 {
   return {
     slot,
     type: field.type,
@@ -92,7 +100,7 @@ function fieldProjection(slot: string, field: DeploymentConnectionFieldV1, value
     sensitive: field.sensitive,
     descriptionKey: field.descriptionKey,
     ui: field.ui,
-    value: field.sensitive ? undefined : value,
+    value: field.sensitive ? undefined : resolvedValue ?? bindingValue,
   };
 }
 

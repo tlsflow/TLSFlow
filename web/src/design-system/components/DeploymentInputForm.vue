@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type {
   DeploymentArtifactOption,
   DeploymentArtifactProjectionV1,
+  DeploymentConnectionProjectionV1,
   DeploymentCredentialOption,
   DeploymentInputBindingsV1,
   DeploymentInputFieldProjectionV1,
@@ -26,10 +27,8 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const advancedExpanded = ref(false)
-const advancedConnections = computed(() => props.projection.connections.filter((item) =>
-  Object.values(item.fields).every((field) => field.configurationMode !== 'required')))
-const requiredConnections = computed(() => props.projection.connections.filter((item) =>
-  Object.values(item.fields).some((field) => field.configurationMode === 'required')))
+const requiredConnections = computed(() => filterConnections((field) => isRequiredEditable(field)))
+const advancedConnections = computed(() => filterConnections((field) => !isRequiredEditable(field)))
 const advancedCredentials = computed(() => props.projection.credentials.filter((item) => item.configurationMode === 'advanced'))
 const requiredCredentials = computed(() => props.projection.credentials.filter((item) => item.configurationMode === 'required'))
 const advancedArtifacts = computed(() => props.projection.artifacts.filter((item) => item.configurationMode === 'advanced'))
@@ -37,7 +36,22 @@ const requiredArtifacts = computed(() => props.projection.artifacts.filter((item
 const hasAdvanced = computed(() => props.projection.advancedVariables.length > 0
   || advancedConnections.value.length > 0
   || advancedCredentials.value.length > 0
-  || advancedArtifacts.value.length > 0)
+  || advancedArtifacts.value.length > 0
+  || props.projection.runtimeValues.length > 0)
+
+function filterConnections(predicate: (field: DeploymentInputFieldProjectionV1) => boolean): DeploymentConnectionProjectionV1[] {
+  return props.projection.connections
+    .map((connection) => ({ ...connection, fields: Object.fromEntries(Object.entries(connection.fields).filter(([, field]) => predicate(field))) }))
+    .filter((connection) => Object.keys(connection.fields).length > 0)
+}
+
+function isRequiredEditable(item: DeploymentInputFieldProjectionV1): boolean {
+  return item.configurationMode === 'required' && item.bindingPolicy === 'required_binding'
+}
+
+function isEditable(item: DeploymentInputFieldProjectionV1): boolean {
+  return item.configurationMode !== 'runtime' && item.bindingPolicy !== 'fixed'
+}
 
 function label(slot: string, item?: { ui?: { labelKey?: string }; descriptionKey?: string }): string {
   const key = item?.ui?.labelKey ?? item?.descriptionKey
@@ -60,6 +74,7 @@ function variableValue(item: DeploymentInputFieldProjectionV1): unknown {
 }
 
 function updateVariable(item: DeploymentInputFieldProjectionV1, value: unknown): void {
+  if (!isEditable(item)) return
   const variables = { ...model.value.variables }
   if (value === '' || value === undefined) delete variables[item.slot]
   else variables[item.slot] = normalizeFieldValue(item.type, value)
@@ -71,6 +86,7 @@ function connectionValue(slot: string, path: string, item: DeploymentInputFieldP
 }
 
 function updateConnection(slot: string, path: string, item: DeploymentInputFieldProjectionV1, value: unknown): void {
+  if (!isEditable(item)) return
   const current = structuredClone(model.value.connections[slot] ?? {}) as Record<string, unknown>
   writePath(current, path, value === '' ? undefined : normalizeFieldValue(item.type, value))
   const connections = { ...model.value.connections }
@@ -235,23 +251,18 @@ function hasValues(value: Record<string, unknown>): boolean {
       <section v-if="hasAdvanced" class="deployment-input-form__section">
         <header><h4>{{ t('deploymentInputs.groups.advanced') }}</h4><button class="gc-button gc-button--ghost" type="button" @click="advancedExpanded = !advancedExpanded">{{ advancedExpanded ? t('deploymentInputs.actions.collapse') : t('deploymentInputs.actions.expand') }}</button></header>
         <div v-if="advancedExpanded" class="deployment-input-form__grid">
-          <label v-for="item in projection.advancedVariables" :key="`advanced-variable:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><input :value="String(variableValue(item) ?? '')" :disabled="disabled" autocomplete="off" @input="updateVariable(item, ($event.target as HTMLInputElement).value)"></label>
-          <template v-for="connection in advancedConnections" :key="`advanced-connection:${connection.slot}`"><label v-for="(field, path) in connection.fields" :key="`${connection.slot}:${path}`" class="deployment-input-form__field"><span>{{ label(connection.slot, connection) }} · {{ label(String(path), field) }}</span><input :value="String(connectionValue(connection.slot, String(path), field) ?? '')" :disabled="disabled" autocomplete="off" @input="updateConnection(connection.slot, String(path), field, ($event.target as HTMLInputElement).value)"></label></template>
+          <label v-for="item in projection.advancedVariables" :key="`advanced-variable:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><input :value="String(variableValue(item) ?? '')" :disabled="disabled || !isEditable(item)" autocomplete="off" @input="updateVariable(item, ($event.target as HTMLInputElement).value)"><small>{{ sourceLabel(item) }}</small></label>
+          <template v-for="connection in advancedConnections" :key="`advanced-connection:${connection.slot}`"><label v-for="(field, path) in connection.fields" :key="`${connection.slot}:${path}`" class="deployment-input-form__field"><span>{{ label(connection.slot, connection) }} · {{ label(String(path), field) }}</span><input :value="String(connectionValue(connection.slot, String(path), field) ?? '')" :disabled="disabled || !isEditable(field)" autocomplete="off" @input="updateConnection(connection.slot, String(path), field, ($event.target as HTMLInputElement).value)"><small>{{ sourceLabel(field) }}</small></label></template>
           <label v-for="item in advancedCredentials" :key="`advanced-credential:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><select :value="selectedCredential(item.slot, item.selectedCredentialId)" :disabled="disabled" @change="updateCredential(item.slot, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.credential') }}</option><option v-for="option in credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
           <template v-for="item in advancedArtifacts" :key="`advanced-artifact:${item.slot}`">
             <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><select :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
             <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
           </template>
+          <p v-for="item in projection.runtimeValues" :key="'runtime:' + item.slot" class="deployment-input-form__runtime">{{ item.slot }} · {{ t('deploymentInputs.runtimeValue', { source: item.source.kind }) }}</p>
         </div>
       </section>
 
-      <section v-if="projection.fixedValues.length || projection.runtimeValues.length" class="deployment-input-form__section">
-        <header><h4>{{ t('deploymentInputs.groups.readonly') }}</h4></header>
-        <dl class="deployment-input-form__readonly">
-          <div v-for="item in projection.fixedValues" :key="`fixed:${item.slot}`"><dt>{{ item.slot }}</dt><dd>{{ String(item.value) }}</dd></div>
-          <div v-for="item in projection.runtimeValues" :key="`runtime:${item.slot}`"><dt>{{ item.slot }}</dt><dd>{{ t('deploymentInputs.runtimeValue', { source: item.source.kind }) }}</dd></div>
-        </dl>
-      </section>
+
     </template>
   </section>
 </template>
@@ -263,7 +274,7 @@ function hasValues(value: Record<string, unknown>): boolean {
 .deployment-input-form__header p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
 .deployment-input-form__header > span, .deployment-input-form__section header > span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
 .deployment-input-form__section { display: grid; gap: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-subtle); }
-.deployment-input-form__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.deployment-input-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .deployment-input-form__field, .deployment-input-form__field label { display: grid; gap: var(--gc-space-2); }
 .deployment-input-form__field span { color: var(--gc-color-text); font-size: var(--gc-font-size-sm); }
 .deployment-input-form__field small { color: var(--gc-color-text-muted); }
@@ -273,9 +284,6 @@ function hasValues(value: Record<string, unknown>): boolean {
 .deployment-input-form__issue { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-3); border: var(--gc-space-hairline) solid; border-radius: var(--gc-radius-sm); }
 .deployment-input-form__issue--error { color: var(--gc-color-danger); border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-soft); }
 .deployment-input-form__issue--warning { color: var(--gc-color-warning); border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-soft); }
-.deployment-input-form__readonly { display: grid; gap: var(--gc-space-2); margin: 0; }
-.deployment-input-form__readonly div { display: flex; justify-content: space-between; gap: var(--gc-space-3); }
-.deployment-input-form__readonly dt { color: var(--gc-color-text-muted); }
-.deployment-input-form__readonly dd { margin: 0; color: var(--gc-color-text); }
+.deployment-input-form__runtime { margin: 0; color: var(--gc-color-text-muted); }
 .deployment-input-form__empty { color: var(--gc-color-text-muted); }
 </style>

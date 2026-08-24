@@ -10,15 +10,19 @@ test('Projection 只根据 Contract 和 Resolver 输出生成统一分组', () =
   const resolved = fixtureResolved();
   const projection = new DeploymentInputProjectionService().project({ contract, resolvedInput: resolved, effectiveBinding: fixtureEffectiveBinding() });
   assert.deepEqual(projection.requiredVariables.map((item) => item.slot), ['requiredValue']);
-  assert.deepEqual(projection.advancedVariables.map((item) => item.slot), ['advancedValue']);
+  assert.deepEqual(projection.advancedVariables.map((item) => item.slot), ['assetRequiredValue', 'advancedValue']);
   assert.equal(projection.connections[0]?.fields.host.type, 'string');
   assert.equal(projection.connections[0]?.fields.host.slot, 'host');
-  assert.equal(projection.connections[0]?.fields.host.value, 'device.example.com');
+  assert.equal(projection.connections[0]?.fields.host.value, 'host');
   assert.equal(projection.credentials[0]?.selectedCredentialId, 'cred-1');
   assert.equal(projection.artifacts[0]?.outputs.privateKey.sensitive, true);
   assert.deepEqual(projection.artifacts[0]?.binding, { certificateFormatId: 'format-1', outputBindings: { privateKey: 'privateKeyPem' } });
   assert.equal(projection.requiredVariables[0]?.value, 'configured');
-  assert.deepEqual(projection.fixedValues, [{ slot: 'fixedValue', value: 'asset-value', source: { kind: 'asset', path: 'application.name' } }]);
+  assert.deepEqual(projection.fixedValues, [
+    { slot: 'fixedValue', value: 'asset-value', source: { kind: 'asset', path: 'application.name' } },
+    { slot: 'assetRequiredValue', value: 'asset-required-value', source: { kind: 'asset', path: 'application.address' } },
+  ]);
+  assert.equal(projection.advancedVariables[0]?.value, 'asset-required-value');
   assert.equal(projection.saveable, true);
 });
 
@@ -35,6 +39,7 @@ function fixtureContract(): DeploymentInputContractV1 {
     apiVersion: 'gcac.deployment-input/v1',
     variables: {
       fixedValue: { ...field, configurationMode: 'runtime', source: { kind: 'asset', path: 'application.name' }, bindingPolicy: 'fixed' },
+      assetRequiredValue: { ...field, source: { kind: 'asset', path: 'application.address' }, bindingPolicy: 'fixed' },
       requiredValue: field,
       advancedValue: { ...field, configurationMode: 'advanced', bindingPolicy: 'default_overridable', source: { kind: 'default' }, default: 'default-value' },
     },
@@ -56,7 +61,7 @@ function fixtureEffectiveBinding() {
 function fixtureResolved(): ResolvedDeploymentInputV1 {
   return {
     apiVersion: 'gcac.resolved-deployment-input/v1', contractVersion: 'gcac.deployment-input/v1', assetContext: {} as never,
-    variables: { fixedValue: 'asset-value', requiredValue: 'configured', advancedValue: 'advanced' }, connections: { management: { transport: 'http', host: 'host', port: 443 } },
+    variables: { fixedValue: 'asset-value', assetRequiredValue: 'asset-required-value', requiredValue: 'configured', advancedValue: 'advanced' }, connections: { management: { transport: 'http', host: 'host', port: 443 } },
     credentials: { managementCredential: { credentialId: 'cred-1', credentialVersionId: '1', kind: 'USERNAME_PASSWORD' } }, artifacts: { certificate: { outputs: { privateKey: { ref: 'artifact://private-key' } } } },
     provenance: {}, sensitivePaths: ['credentials.managementCredential', 'artifacts.certificate.outputs.privateKey'], issues: [], executable: true, resolvedSha256: 'hash',
   };

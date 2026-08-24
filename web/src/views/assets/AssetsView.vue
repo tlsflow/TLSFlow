@@ -791,16 +791,48 @@ async function refreshWorkflowBindingProjection() {
 }
 
 function filterEditableInputBindings(projection: DeploymentInputProjectionV1, bindings: DeploymentInputBindingsV1): DeploymentInputBindingsV1 {
-  const variableSlots = new Set([...projection.requiredVariables, ...projection.advancedVariables].map((item) => item.slot))
-  const connectionSlots = new Set(projection.connections.map((item) => item.slot))
+  const variableSlots = new Set(
+    [...projection.requiredVariables, ...projection.advancedVariables]
+      .filter((item) => item.configurationMode !== 'runtime' && item.bindingPolicy !== 'fixed')
+      .map((item) => item.slot),
+  )
+  const connectionFields = new Map(
+    projection.connections.map((connection) => [
+      connection.slot,
+      new Set(Object.entries(connection.fields)
+        .filter(([, field]) => field.configurationMode !== 'runtime' && field.bindingPolicy !== 'fixed')
+        .map(([path]) => path)),
+    ]),
+  )
   const credentialSlots = new Set(projection.credentials.map((item) => item.slot))
   const artifactSlots = new Set(projection.artifacts.map((item) => item.slot))
   return createInputBindingsV1({
     variables: Object.fromEntries(Object.entries(bindings.variables).filter(([slot]) => variableSlots.has(slot))),
-    connections: Object.fromEntries(Object.entries(bindings.connections).filter(([slot]) => connectionSlots.has(slot))),
+    connections: Object.fromEntries(Object.entries(bindings.connections).flatMap(([slot, binding]) => {
+      const paths = connectionFields.get(slot)
+      if (!paths) return []
+      const editableBinding: Record<string, unknown> = {}
+      for (const fieldPath of paths) {
+        const value = readNested(binding, fieldPath.split('.'))
+        if (value !== undefined) writeNested(editableBinding, fieldPath.split('.'), value)
+      }
+      return Object.keys(editableBinding).length ? [[slot, editableBinding]] : []
+    })),
     credentials: Object.fromEntries(Object.entries(bindings.credentials).filter(([slot]) => credentialSlots.has(slot))),
     artifacts: Object.fromEntries(Object.entries(bindings.artifacts).filter(([slot]) => artifactSlots.has(slot))),
   })
+}
+
+function writeNested(target: Record<string, unknown>, path: string[], value: unknown): void {
+  const leaf = path[path.length - 1]
+  if (!leaf) return
+  let current = target
+  for (const segment of path.slice(0, -1)) {
+    const child = current[segment]
+    current[segment] = child && typeof child === 'object' && !Array.isArray(child) ? child : {}
+    current = current[segment] as Record<string, unknown>
+  }
+  current[leaf] = value
 }
 
 async function loadGateways() {
