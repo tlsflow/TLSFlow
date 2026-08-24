@@ -5,7 +5,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { defaultDefinitions, TaskRegistry } from './task.registry.js';
 import { TasksApplicationService } from './task.application-service.js';
-import { TaskRepository } from './task.repository.js';
+import { appendEvent, TaskRepository } from './task.repository.js';
 
 async function createFixture() {
   const db = new PgliteDatabase();
@@ -97,10 +97,12 @@ test('任务详情包含尝试、事件、资源引用，监控探测单独分�
      values ('probe-1', $1, $2, 'monitor-1', 'asset-1', 'UP', now(), 'ok', '{"token":"hidden"}'::jsonb)`,
     [task.id, task.tenantId],
   );
+  await appendEvent(db, task.id, 'LOG', { message: 'monitor log should not be returned' });
   const detail = await service.detail(task.tenantId, task.id);
   assert.equal(detail.task.id, task.id);
   assert.equal(detail.resourceRefs[0]?.resourceId, 'monitor-1');
   assert.equal(detail.events[0]?.eventType, 'CREATED');
+  assert.equal(detail.events.some((event) => event.eventType === 'LOG'), false);
   assert.equal(JSON.stringify(detail.events).includes('hidden'), false);
   const probes = await service.listMonitoringProbes({ tenantId: task.tenantId, page: 1, pageSize: 20 });
   assert.equal(probes.total, 1);

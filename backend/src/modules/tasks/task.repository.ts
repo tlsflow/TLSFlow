@@ -302,9 +302,13 @@ export class TaskRepository {
   async detail(tenantId: string, id: string): Promise<TaskDetail | undefined> {
     const task = await this.getById(tenantId, id);
     if (!task) return undefined;
+    // 监控任务会持续产生大量探测日志，详情只返回状态事件和探测记录，避免通用任务详情接口携带无用日志。
+    const eventsQuery = task.category === 'MONITORING'
+      ? 'select * from task_events where task_run_id = $1 and event_type <> \'LOG\' order by created_at asc'
+      : 'select * from task_events where task_run_id = $1 order by created_at asc';
     const [attempts, events, childTasks, resourceRefs, auditEvents] = await Promise.all([
       this.db.query<Record<string, unknown>>('select * from task_attempts where task_run_id = $1 order by attempt_no asc', [id]),
-      this.db.query<Record<string, unknown>>('select * from task_events where task_run_id = $1 order by created_at asc', [id]),
+      this.db.query<Record<string, unknown>>(eventsQuery, [id]),
       this.db.query<TaskRunRow>('select * from task_runs where tenant_id = $1 and parent_task_id = $2 order by created_at asc', [tenantId, id]),
       this.db.query<Record<string, unknown>>('select resource_type, resource_id, display_key from task_resource_refs where task_run_id = $1', [id]),
       this.db.query<{ payload: Record<string, unknown> }>(
