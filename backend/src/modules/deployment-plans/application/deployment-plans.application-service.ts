@@ -3053,16 +3053,10 @@ export class DeploymentPlansApplicationService {
       || !manifestSha256
       || !resourceSha256
       || !workflowContentSha256) {
-      throw new AppError('VALIDATION_FAILED', '部署目标缺少完整的固定工作流执行身份快照', {
-        code: 'DEPLOYMENT_WORKFLOW_IDENTITY_SNAPSHOT_INVALID',
-        deploymentPlanTargetId: target.id,
-        sourceType,
-        workflowVersionSelection,
-        workflowId,
-        workflowVersionId,
-        pluginVersionId,
-        capabilityKey,
-      });
+      // 列表和详情是只读审计视图。历史计划可能在固定身份快照收紧前创建，
+      // 不能因为其中一个目标缺字段就让整个部署计划列表失败；执行链路仍在
+      // resolveLiveWorkflowStrategyPayloadForTarget 中严格拒绝这类快照。
+      return undefined;
     }
 
     let workflowVersion: WorkflowVersion | undefined;
@@ -3073,15 +3067,9 @@ export class DeploymentPlansApplicationService {
         () => this.workflows!.getVersion(workflowVersionId),
       );
       if (!workflowVersion || workflowVersion.templateId !== workflowId || workflowVersion.contentHash !== workflowContentSha256) {
-        throw new AppError('VALIDATION_FAILED', '部署目标的 WorkflowVersion 快照与固定摘要不一致', {
-          code: 'DEPLOYMENT_WORKFLOW_IDENTITY_HASH_MISMATCH',
-          deploymentPlanTargetId: target.id,
-          workflowId,
-          workflowVersionId,
-          workflowContentSha256,
-          actualTemplateId: workflowVersion?.templateId,
-          actualContentHash: workflowVersion?.contentHash,
-        });
+        // 工作流目录中的历史版本可能已清理或重新投影。身份摘要只用于展示，
+        // 不能让目录不一致阻断读取；正式执行仍通过固定快照校验保护。
+        return undefined;
       }
     }
 
@@ -3110,7 +3098,8 @@ export class DeploymentPlansApplicationService {
   ): Promise<WorkflowVersion | undefined> {
     const cached = cache.get(key);
     if (cached) return cached;
-    const pending = load();
+    // 目录版本可能已被历史清理；列表摘要是只读信息，目录异常不能阻断计划读取。
+    const pending = load().catch(() => undefined);
     cache.set(key, pending);
     return pending;
   }

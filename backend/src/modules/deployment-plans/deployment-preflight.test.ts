@@ -215,6 +215,161 @@ test('临时部署计划不进入部署计划列表，并可在执行结束后�
   assert.deepEqual(deleted, [temporaryPlan.id]);
 });
 
+test('历史工作流目标缺少固定身份快照时仍可读取部署计划列表', async () => {
+  const now = '2026-08-12T00:00:00.000Z';
+  const plan: DeploymentPlanEntity = {
+    id: 'plan-legacy-workflow-list',
+    tenantId: 'tenant-legacy-workflow-list',
+    name: '历史工作流计划',
+    planType: 'UPDATE',
+    selectionMode: 'EXPLICIT',
+    certificateVersionId: 'certver-legacy-workflow-list',
+    status: 'READY',
+    approvalStatus: 'NOT_REQUIRED',
+    snapshotHash: 'snapshot-legacy-workflow-list',
+    idempotencyKey: 'idempotency-legacy-workflow-list',
+    requestHash: 'request-legacy-workflow-list',
+    policy: { riskLevel: 'medium', approvalRequired: false, failurePolicy: 'stop' },
+    createdReason: 'MANUAL',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: 'user-legacy-workflow-list',
+    version: 1,
+  };
+  const target = {
+    id: 'target-legacy-workflow-list',
+    tenantId: plan.tenantId,
+    deploymentPlanId: plan.id,
+    executorType: 'WORKFLOW',
+    requiredCapabilities: ['workflow.run'],
+    strategyPayload: {
+      executionSource: {
+        type: 'WORKFLOW',
+        workflowVersionSelection: 'FIXED',
+        workflowTemplateId: 'workflow-legacy',
+      },
+    },
+    status: 'READY',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: plan.createdBy,
+    version: 1,
+  };
+  const service = new DeploymentPlansApplicationService({
+    repository: {
+      listPlans: async () => [plan],
+      listTargetsByPlans: async () => [target],
+      listTargetsByPlan: async () => [target],
+    } as never,
+    executions: { listRuns: async () => [] } as never,
+    approval: { getMany: async () => new Map() } as never,
+  });
+
+  const listed = await service.list({ tenantId: plan.tenantId });
+
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]?.id, plan.id);
+  assert.equal(listed[0]?.targets[0]?.id, target.id);
+  assert.equal(listed[0]?.workflowExecutionIdentities, undefined);
+});
+
+test('历史工作流快照读取兼容不放宽正式执行校验', async () => {
+  const target = {
+    id: 'target-legacy-workflow-execution',
+    tenantId: 'tenant-legacy-workflow-execution',
+    deploymentPlanId: 'plan-legacy-workflow-execution',
+    executorType: 'WORKFLOW',
+    requiredCapabilities: ['workflow.run'],
+    strategyPayload: {
+      executionSource: {
+        type: 'WORKFLOW',
+        workflowVersionSelection: 'FIXED',
+        workflowTemplateId: 'workflow-legacy',
+      },
+      workflowRequest: { workflowId: 'workflow-legacy' },
+    },
+    status: 'READY',
+    createdAt: '2026-08-12T00:00:00.000Z',
+    updatedAt: '2026-08-12T00:00:00.000Z',
+    version: 1,
+  };
+  const service = new DeploymentPlansApplicationService();
+
+  await assert.rejects(
+    () => (service as any).resolveLiveWorkflowStrategyPayloadForTarget(target),
+    (error: unknown) => error instanceof AppError
+      && error.errorCode === 'VALIDATION_FAILED'
+      && (error.details as { code?: string })?.code === 'DEPLOYMENT_WORKFLOW_SNAPSHOT_INVALID',
+  );
+});
+
+test('工作流版本已清理时部署计划列表仍可读取', async () => {
+  const now = '2026-08-12T00:00:00.000Z';
+  const plan = {
+    id: 'plan-missing-workflow-version-list',
+    tenantId: 'tenant-missing-workflow-version-list',
+    name: '工作流版本已清理的计划',
+    planType: 'UPDATE',
+    selectionMode: 'EXPLICIT',
+    certificateVersionId: 'certver-missing-workflow-version-list',
+    status: 'READY',
+    approvalStatus: 'NOT_REQUIRED',
+    snapshotHash: 'snapshot-missing-workflow-version-list',
+    idempotencyKey: 'idempotency-missing-workflow-version-list',
+    requestHash: 'request-missing-workflow-version-list',
+    policy: { riskLevel: 'medium', approvalRequired: false, failurePolicy: 'stop' },
+    createdReason: 'MANUAL',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: 'user-missing-workflow-version-list',
+    version: 1,
+  };
+  const target = {
+    id: 'target-missing-workflow-version-list',
+    tenantId: plan.tenantId,
+    deploymentPlanId: plan.id,
+    executorType: 'WORKFLOW',
+    requiredCapabilities: ['workflow.run'],
+    strategyPayload: {
+      executionSource: {
+        type: 'WORKFLOW',
+        workflowTemplateId: 'workflow-missing',
+        workflowVersionSelection: 'FIXED',
+        workflowVersionId: 'workflow-version-missing',
+        pluginId: 'plugin-missing',
+        pluginVersion: '1.0.0',
+        pluginVersionId: 'plugin-version-missing',
+        capabilityKey: 'certificate.deploy',
+        packageSha256: 'package-hash',
+        manifestSha256: 'manifest-hash',
+        resourceSha256: { workflow: 'resource-hash' },
+        workflowContentSha256: 'workflow-content-hash',
+      },
+    },
+    status: 'READY',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: plan.createdBy,
+    version: 1,
+  };
+  const service = new DeploymentPlansApplicationService({
+    repository: {
+      listPlans: async () => [plan],
+      listTargetsByPlans: async () => [target],
+      listTargetsByPlan: async () => [target],
+    } as never,
+    executions: { listRuns: async () => [] } as never,
+    approval: { getMany: async () => new Map() } as never,
+    workflows: { getVersion: async () => { throw new Error('workflow version not found'); } } as never,
+  });
+
+  const listed = await service.list({ tenantId: plan.tenantId });
+
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]?.id, plan.id);
+  assert.equal(listed[0]?.workflowExecutionIdentities, undefined);
+});
+
 test('自动化运行审批可以直接提交高风险临时计划且不会消费第二张审批单', async () => {
   const plan: DeploymentPlanEntity = {
     id: 'plan-automation-approval',
