@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+
+name="gcac-linux-agent"
+description="GCAC Linux Go Full Agent"
+command="/opt/gcac/linux-agent/gcac-linux-agent"
+command_args="run --config=/etc/gcac/linux-agent/agent.config.json"
+command_background="yes"
+pidfile="/run/gcac-linux-agent.pid"
+output_log="/var/log/gcac/linux-agent/agent.log"
+error_log="/var/log/gcac/linux-agent/agent.err.log"
+
+depend() {
+  need net
+  after firewall
+}

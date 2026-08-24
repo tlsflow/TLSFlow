@@ -56,6 +56,15 @@
 GOOS=linux GOARCH=amd64 ./build.sh
 ```
 
+正式双架构发布：
+
+```bash
+./release/build-release.sh
+./release/verify-reproducible.sh
+```
+
+发布目录包含 amd64/arm64 二进制、`SHA256SUMS`、构建环境记录和 SPDX SBOM。
+
 ## 安装 `systemd` 服务
 
 安装脚本只负责注册和 `enable`，**默认不自动启动**。
@@ -64,6 +73,15 @@ GOOS=linux GOARCH=amd64 ./build.sh
 sudo bash ./linux/install-systemd.sh
 sudo systemctl start gcac-linux-agent.service
 ```
+
+能力驱动安装预检与安装：
+
+```bash
+sudo ./linux/install.sh --preflight-only
+sudo ./linux/install.sh
+```
+
+安装器根据实际能力选择 systemd、OpenRC 或 SysV，不读取发行版名称。升级和手工回滚入口为 `linux/upgrade.sh`、`linux/rollback.sh`。
 
 卸载：
 
