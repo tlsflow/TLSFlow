@@ -1931,7 +1931,7 @@ export default {
         footer: { consult: '采购咨询', faq: '授权常见问题' },
         cards: {
           free: { summary: '适合评估、自用或轻量场景', price: '免费使用', features: { full: '全功能可用', usage: '仅限非商业用途使用', automation: '包含自动化更新流程', quota: '限制 5 个应用资产', support: '社区 / 邮件支持' } },
-          commercial: { summary: '适合标准生产环境和按需扩容', priceCny: '288 ￥ 资产*年', priceUsd: 'USD 50 / asset / year', features: { full: '全功能可用', usage: '可用于商业场景', automation: '包含自动化更新流程', approval: '包含流程审批引擎', quota: '按需购买应用资产', support: '1 年技术支持' } },
+          commercial: { summary: '适合标准生产环境和按需扩容', priceCny: '699 元 / 应用资产', priceUsd: 'USD 99 / application asset', features: { full: '全功能可用', usage: '可用于商业场景', automation: '包含自动化更新流程', approval: '包含流程审批引擎', quota: '按需购买应用资产', term: '授权不限使用期限', support: '1 年版本升级服务及技术支持' } },
           enterprise: { summary: '适合私有化、离线和定制合作', price: '联系销售', features: { full: '全功能可用', usage: '可用于商业场景', automation: '包含自动化更新流程', approval: '包含流程审批引擎', quota: '支持插件定制与买断', support: '专属技术支持' } },
         }
       },

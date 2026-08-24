@@ -36,7 +36,7 @@ interface ComparisonCard {
 
 const comparisonFeatureKeys: Record<ProductPlanCode, string[]> = {
   free: ['full', 'usage', 'automation', 'quota', 'support'],
-  commercial: ['full', 'usage', 'automation', 'approval', 'quota', 'support'],
+  commercial: ['full', 'usage', 'automation', 'approval', 'quota', 'term', 'support'],
   enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'support'],
 }
 
@@ -562,6 +562,7 @@ onMounted(loadStatus)
 .licensing-upgrade-modal__card {
   position: relative;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: var(--gc-space-4);
   min-height: 20rem;
   padding: var(--gc-space-5);
@@ -649,6 +650,7 @@ onMounted(loadStatus)
   color: var(--gc-color-info);
   font-size: var(--gc-font-size-sm);
   font-weight: 700;
+  text-align: center;
 }
 
 .licensing-upgrade-modal__footer {

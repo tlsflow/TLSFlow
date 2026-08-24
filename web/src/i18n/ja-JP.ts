@@ -1820,7 +1820,7 @@ export default {
         footer: { consult: '購入相談', faq: 'ライセンス FAQ' },
         cards: {
           free: { summary: '評価、個人利用、軽量な用途向け', price: '無料で利用可能', features: { full: '全機能を利用可能', usage: '非商用利用に限定', automation: '自動更新ワークフローを含む', quota: 'アプリケーション資産は 5 件まで', support: 'コミュニティ / メールサポート' } },
-          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 288 / asset / year', priceUsd: 'USD 50 / asset / year', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じて資産数を追加購入', support: '1 年間の技術サポート' } },
+          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じて資産数を追加購入', term: 'ライセンス期間の制限なし', support: '1 年間のバージョンアップと技術サポート' } },
           enterprise: { summary: 'プライベート配備、オフライン環境、個別対応向け', price: '営業へお問い合わせ', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: 'プラグインの個別開発と買い切りに対応', support: '専任技術サポート' } },
         }
       },

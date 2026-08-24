@@ -1794,7 +1794,7 @@ export default {
         footer: { consult: '구매 상담', faq: '라이선스 FAQ' },
         cards: {
           free: { summary: '평가, 개인 사용, 경량 시나리오에 적합', price: '무료 사용', features: { full: '모든 기능 사용 가능', usage: '비상업적 용도에 한해 사용 가능', automation: '자동화 업데이트 워크플로 포함', quota: '애플리케이션 자산 5개까지', support: '커뮤니티 / 이메일 지원' } },
-          commercial: { summary: '표준 운영 환경과 단계적 확장에 적합', priceCny: 'CNY 288 / asset / year', priceUsd: 'USD 50 / asset / year', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '필요한 만큼 자산 수 확장 구매', support: '1년 기술 지원' } },
+          commercial: { summary: '표준 운영 환경과 단계적 확장에 적합', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '필요한 만큼 자산 수 확장 구매', term: '라이선스 사용 기간 제한 없음', support: '1년 버전 업그레이드 및 기술 지원' } },
           enterprise: { summary: '프라이빗 배포, 오프라인 환경, 맞춤 협업에 적합', price: '영업팀 문의', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '플러그인 맞춤 개발과 영구 매입 지원', support: '전담 기술 지원' } },
         }
       },
