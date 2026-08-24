@@ -9,11 +9,14 @@ const props = withDefaults(defineProps<{
   max?: number
   /** 进度条的语义状态。 */
   tone?: StatusTone
+  /** 是否显示进度轨道边界。 */
+  outlined?: boolean
   /** 传入翻译后的进度说明，用于 progressbar 的 ARIA 名称。 */
   ariaLabel: string
 }>(), {
   max: 100,
   tone: 'info',
+  outlined: false,
 })
 
 const normalizedMax = computed(() => Math.max(props.max, 1))
@@ -24,7 +27,7 @@ const percentage = computed(() => (normalizedValue.value / normalizedMax.value) 
 <template>
   <div
     class="gc-progress"
-    :class="`gc-progress--${tone}`"
+    :class="[`gc-progress--${tone}`, { 'gc-progress--outlined': outlined }]"
     role="progressbar"
     :aria-label="ariaLabel"
     :aria-valuemin="0"
@@ -52,6 +55,11 @@ const percentage = computed(() => (normalizedValue.value / normalizedMax.value) 
   overflow: hidden;
   border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-muted);
+}
+
+.gc-progress--outlined .gc-progress__track {
+  box-sizing: border-box;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .gc-progress__fill {
