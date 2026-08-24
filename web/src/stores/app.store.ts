@@ -56,6 +56,8 @@ export const useAppStore = defineStore('app', {
       this.theme = preferences.theme
       this.locale = preferences.locale
       applyThemeToDocument(preferences.theme)
+      // setI18nLocale 是异步方法，非默认语言会在首次使用时懒加载语言包。
+      // 默认语言会立即完成，其余语言按需加载。
       setI18nLocale(preferences.locale)
       if (options.cache) writeCachedPreferences(preferences)
     },
