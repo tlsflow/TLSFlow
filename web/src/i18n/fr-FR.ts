@@ -926,6 +926,11 @@ export default {
       emptyRelatedRecords: 'No related records.',
       loadingRelatedRecords: 'Loading related records...',
       noExecutionRecords: 'This plan has no execution records yet.',
+      inputSourcesLoadFailed: 'Échec du chargement des sources des entrées de déploiement',
+      inputSourcesTitle: 'Sources des entrées de déploiement',
+      inputSource: 'Source : {source}',
+      inputSourceTarget: 'Cible de déploiement : {targetId}',
+      noInputSources: 'Aucune source de variable disponible pour ce plan.',
       noTargetSummary: 'Target summary not provided',
       planIdLine: 'Plan ID {planId}',
       recordKinds: {
@@ -2426,6 +2431,7 @@ export default {
     placeholders: { select: 'Sélectionner', credential: 'Sélectionner un identifiant', artifact: "Sélectionner un format d'artefact", output: 'Sélectionner une sortie' },
     artifacts: { format: "Format d'artefact" },
     runtimeValue: "Fourni par {source} lors de l'exécution",
+    source: 'Source : {source}',
     issues: { title: "Problèmes d'entrée", missing: 'Une entrée de déploiement obligatoire est manquante' }
   },
   assets: {

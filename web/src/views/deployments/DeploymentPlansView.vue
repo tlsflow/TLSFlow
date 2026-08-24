@@ -12,6 +12,7 @@ import {
   createDeploymentPlanFromApplicationAsset,
   deleteDraftDeploymentPlan,
   dryRunDeploymentPlan,
+  listDeploymentInputSnapshots,
   listDeploymentPlans,
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
@@ -20,6 +21,7 @@ import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcMo
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { requestExecutionRecordsRefresh } from '@/utils/execution-records-refresh'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { createDeploymentPlansPageConfig } from './deployment-plan.config'
@@ -44,6 +46,14 @@ interface RelatedExecutionRecord {
   readonly raw: ApiRecord
 }
 
+interface DeploymentInputSourceRow {
+  readonly id: string
+  readonly targetId: string
+  readonly path: string
+  readonly value: string
+  readonly source: string
+}
+
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t } = useI18n()
 const createDialogOpen = ref(false)
@@ -61,6 +71,9 @@ const detailPlanRow = ref<ViewRow | null>(null)
 const relatedRecords = ref<RelatedExecutionRecord[]>([])
 const relatedRecordsLoading = ref(false)
 const relatedRecordsError = ref('')
+const deploymentInputSnapshots = ref<ApiRecord[]>([])
+const deploymentInputSnapshotsLoading = ref(false)
+const deploymentInputSnapshotsError = ref('')
 const activeDetailTab = ref<'summary' | 'versions' | 'execution'>('summary')
 const relatedExecutionRow = ref<ViewRow | null>(null)
 const relatedExecutionDetail = useExecutionDetail(relatedExecutionRow, { t })
@@ -179,6 +192,24 @@ const activeExecutionChecks = computed(() => {
   if (activeExecutionSource.value === 'related') return relatedExecutionDetail.dryRunChecks.value
   return dryRunChecks.value.length ? dryRunChecks.value : dryRunExecutionDetail.dryRunChecks.value
 })
+const deploymentInputSourceRows = computed<DeploymentInputSourceRow[]>(() => deploymentInputSnapshots.value.flatMap((entity) => {
+  const targetId = readString(entity, ['deploymentPlanTargetId'])
+  const snapshot = readRecord(entity, ['snapshot'])
+  const sources = readRecord(snapshot, ['sources'])
+  const input = readRecord(snapshot, ['input'])
+  if (!sources || !input) return []
+  return Object.entries(sources).flatMap(([path, provenance]) => {
+    if (!path.startsWith('variables.')) return []
+    const sourceRecord = provenance && typeof provenance === 'object' && !Array.isArray(provenance) ? provenance as ApiRecord : undefined
+    return [{
+      id: `${targetId}:${path}`,
+      targetId,
+      path,
+      value: displayInputValue(readPath(input, path)),
+      source: readString(sourceRecord, ['source'], 'unknown'),
+    }]
+  })
+}))
 const activeExecutionError = computed(() => {
   if (activeExecutionSource.value === 'related') return relatedExecutionDetail.error.value
   if (latestExecutionMode.value !== 'dry-run') return dryRunExecutionDetail.error.value
@@ -200,6 +231,7 @@ const terminalPlanExecutionRunId = computed(() => {
 watch(terminalPlanExecutionRunId, async (runId) => {
   if (!runId || refreshedTerminalRunIds.has(runId)) return
   refreshedTerminalRunIds.add(runId)
+  requestExecutionRecordsRefresh()
   await pageRef.value?.reload()
 })
 
@@ -298,7 +330,23 @@ async function openDetailDialog(row: ViewRow) {
   await Promise.all([
     loadRelatedRecords(row),
     openExecutionDetailFromPlan(row),
+    loadDeploymentInputSnapshots(row),
   ])
+}
+
+async function loadDeploymentInputSnapshots(row: ViewRow): Promise<void> {
+  deploymentInputSnapshotsLoading.value = true
+  deploymentInputSnapshotsError.value = ''
+  deploymentInputSnapshots.value = []
+  try {
+    const planId = readString(row.raw, ['id', 'planId'], row.id)
+    const result = await listDeploymentInputSnapshots(planId)
+    deploymentInputSnapshots.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    deploymentInputSnapshotsError.value = toErrorMessage(cause, t('deploymentPlans.detail.inputSourcesLoadFailed'))
+  } finally {
+    deploymentInputSnapshotsLoading.value = false
+  }
 }
 
 function resetMessages() {
@@ -313,9 +361,11 @@ function resetMessages() {
 }
 
 function closeDryRunResultModal() {
+  const wasOpen = dryRunResultModalOpen.value
   dryRunResultModalOpen.value = false
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
+  if (wasOpen) requestExecutionRecordsRefresh()
 }
 
 function closeDryRunRequiredModal(force = false) {
@@ -935,6 +985,12 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
   return fallback
 }
 
+function displayInputValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return t('deploymentPlans.common.notProvided')
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
 function normalizeRisk(value: string): ViewRow['risk'] {
   const risk = value.toUpperCase()
   return risk === 'LOW' || risk === 'MEDIUM' || risk === 'HIGH' || risk === 'CRITICAL' ? risk : 'HIGH'
@@ -1126,6 +1182,22 @@ async function fetchAllPages(
             <div><dt>{{ t('deploymentPlans.fields.latestRun') }}</dt><dd>{{ readString(detailPlanRow.raw, ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.failureReason') }}</dt><dd>{{ readString(detailPlanRow.raw, ['failureReason', 'error.message', 'latestRun.failureReason']) }}</dd></div>
           </dl>
+          <section class="deployment-plan-detail__input-sources">
+            <h3>{{ t('deploymentPlans.detail.inputSourcesTitle') }}</h3>
+            <p v-if="deploymentInputSnapshotsLoading" class="deployment-plan-detail__loading">{{ t('common.loading') }}</p>
+            <p v-else-if="deploymentInputSnapshotsError" class="deployment-plan-detail__error">{{ deploymentInputSnapshotsError }}</p>
+            <ul v-else-if="deploymentInputSourceRows.length" class="deployment-plan-detail__list">
+              <li v-for="item in deploymentInputSourceRows" :key="item.id" class="deployment-plan-detail__list-item">
+                <div class="deployment-plan-detail__list-head">
+                  <strong>{{ item.path }}</strong>
+                  <span>{{ t('deploymentPlans.detail.inputSource', { source: item.source }) }}</span>
+                </div>
+                <p>{{ item.value }}</p>
+                <small>{{ t('deploymentPlans.detail.inputSourceTarget', { targetId: item.targetId }) }}</small>
+              </li>
+            </ul>
+            <p v-else class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.noInputSources') }}</p>
+          </section>
         </section>
 
         <section v-else-if="activeDetailTab === 'versions'" class="deployment-plan-detail__section">
@@ -1347,6 +1419,8 @@ async function fetchAllPages(
   border-radius: 16px;
   background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
+.deployment-plan-detail__input-sources { display: grid; gap: var(--gc-space-3); }
+.deployment-plan-detail__input-sources h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
 
 .deployment-plan-detail__facts {
   display: grid;

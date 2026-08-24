@@ -959,6 +959,11 @@ export default {
       emptyRelatedRecords: 'No related records.',
       loadingRelatedRecords: 'Loading related records...',
       noExecutionRecords: 'This plan has no execution records yet.',
+      inputSourcesLoadFailed: 'Failed to load deployment input sources',
+      inputSourcesTitle: 'Deployment input sources',
+      inputSource: 'Source: {source}',
+      inputSourceTarget: 'Deployment target: {targetId}',
+      noInputSources: 'No variable sources are available for this plan.',
       noTargetSummary: 'Target summary not provided',
       planIdLine: 'Plan ID {planId}',
       recordKinds: {
@@ -2459,6 +2464,7 @@ export default {
     placeholders: { select: 'Select an option', credential: 'Select a credential', artifact: 'Select an artifact format', output: 'Select an output' },
     artifacts: { format: 'Artifact format' },
     runtimeValue: 'Provided by {source} at runtime',
+    source: 'Source: {source}',
     issues: { title: 'Input issues', missing: 'A required deployment input is missing' }
   },
   assets: {

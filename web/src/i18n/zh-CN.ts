@@ -978,6 +978,11 @@ export default {
       emptyRelatedRecords: '暂无关联记录。',
       loadingRelatedRecords: '正在加载关联记录...',
       noExecutionRecords: '当前计划还没有执行记录。',
+      inputSourcesLoadFailed: '加载部署输入来源失败',
+      inputSourcesTitle: '部署输入来源',
+      inputSource: '来源：{source}',
+      inputSourceTarget: '部署目标：{targetId}',
+      noInputSources: '当前计划没有可展示的变量来源。',
       noTargetSummary: '未提供目标摘要',
       planIdLine: '计划 ID {planId}',
       recordKinds: {
@@ -2478,6 +2483,7 @@ export default {
     placeholders: { select: '请选择', credential: '请选择凭据', artifact: '请选择产物格式', output: '请选择输出' },
     artifacts: { format: '产物格式' },
     runtimeValue: '运行时由 {source} 提供',
+    source: '来源：{source}',
     issues: { title: '输入问题', missing: '缺少必填部署输入' }
   },
   assets: {

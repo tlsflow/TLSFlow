@@ -49,6 +49,10 @@ function help(item: { ui?: { helpKey?: string }; descriptionKey?: string }): str
   return key ? t(key) : ''
 }
 
+function sourceLabel(item: DeploymentInputFieldProjectionV1): string {
+  return t('deploymentInputs.source', { source: item.source.kind })
+}
+
 function variableValue(item: DeploymentInputFieldProjectionV1): unknown {
   return Object.prototype.hasOwnProperty.call(model.value.variables, item.slot)
     ? model.value.variables[item.slot]
@@ -181,6 +185,7 @@ function hasValues(value: Record<string, unknown>): boolean {
             </select>
             <input v-else :type="item.type === 'number' || item.type === 'integer' ? 'number' : 'text'" :value="String(variableValue(item) ?? '')" :disabled="disabled" autocomplete="off" @input="updateVariable(item, ($event.target as HTMLInputElement).value)">
             <small v-if="help(item)">{{ help(item) }}</small>
+            <small>{{ sourceLabel(item) }}</small>
           </label>
         </div>
       </section>
@@ -194,6 +199,7 @@ function hasValues(value: Record<string, unknown>): boolean {
               <option value="">{{ t('deploymentInputs.placeholders.select') }}</option><option value="true">true</option><option value="false">false</option>
             </select>
             <input v-else :type="field.type === 'number' ? 'number' : 'text'" :value="String(connectionValue(connection.slot, String(path), field) ?? '')" :disabled="disabled" autocomplete="off" @input="updateConnection(connection.slot, String(path), field, ($event.target as HTMLInputElement).value)">
+            <small>{{ sourceLabel(field) }}</small>
           </label>
         </div>
       </section>

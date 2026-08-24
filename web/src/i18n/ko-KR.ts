@@ -892,6 +892,11 @@ export default {
       emptyRelatedRecords: '잠시 관련 기록이 없다.',
       loadingRelatedRecords: '연결된 레코드 불러오는 중...',
       noExecutionRecords: '현재의 계획은 아직 집행 기록이 없다.',
+      inputSourcesLoadFailed: '배포 입력 출처를 불러오지 못했습니다',
+      inputSourcesTitle: '배포 입력 출처',
+      inputSource: '출처: {source}',
+      inputSourceTarget: '배포 대상: {targetId}',
+      noInputSources: '이 계획에 표시할 변수 출처가 없습니다.',
       noTargetSummary: '대상 요약이 제공되지 않았습니다',
       planIdLine: '계획 ID {planId}',
       recordKinds: {
@@ -2351,6 +2356,7 @@ export default {
     placeholders: { select: '선택하세요', credential: '자격 증명 선택', artifact: '아티팩트 형식 선택', output: '출력 선택' },
     artifacts: { format: '아티팩트 형식' },
     runtimeValue: '런타임에 {source}에서 제공',
+    source: '출처: {source}',
     issues: { title: '입력 문제', missing: '필수 배포 입력이 없습니다' }
   },
   assets: {

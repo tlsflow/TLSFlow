@@ -892,6 +892,11 @@ export default {
       emptyRelatedRecords: 'Nenhum registro relacionado.',
       loadingRelatedRecords: 'Carregando registros relacionados...',
       noExecutionRecords: 'Este plano ainda não tem registros de execução.',
+      inputSourcesLoadFailed: 'Falha ao carregar as origens das entradas de implantação',
+      inputSourcesTitle: 'Origens das entradas de implantação',
+      inputSource: 'Origem: {source}',
+      inputSourceTarget: 'Alvo de implantação: {targetId}',
+      noInputSources: 'Nenhuma origem de variável disponível para este plano.',
       noTargetSummary: 'Resumo do alvo não informado',
       planIdLine: 'ID do plano {planId}',
       recordKinds: {
@@ -2351,6 +2356,7 @@ export default {
     placeholders: { select: 'Selecione', credential: 'Selecione uma credencial', artifact: 'Selecione um formato de artefato', output: 'Selecione uma saída' },
     artifacts: { format: 'Formato do artefato' },
     runtimeValue: 'Fornecido por {source} durante a execução',
+    source: 'Origem: {source}',
     issues: { title: 'Problemas de entrada', missing: 'Falta uma entrada de implantação obrigatória' }
   },
   assets: {

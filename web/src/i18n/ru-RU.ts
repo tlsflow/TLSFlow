@@ -892,6 +892,11 @@ export default {
       emptyRelatedRecords: 'Связанных записей нет.',
       loadingRelatedRecords: 'Загрузка связанных записей...',
       noExecutionRecords: 'У этого плана пока нет записей выполнения.',
+      inputSourcesLoadFailed: 'Не удалось загрузить источники входных данных развертывания',
+      inputSourcesTitle: 'Источники входных данных развертывания',
+      inputSource: 'Источник: {source}',
+      inputSourceTarget: 'Цель развертывания: {targetId}',
+      noInputSources: 'Для этого плана нет доступных источников переменных.',
       noTargetSummary: 'Сводка целей не предоставлена',
       planIdLine: 'ID плана {planId}',
       recordKinds: {
@@ -2351,6 +2356,7 @@ export default {
     placeholders: { select: 'Выберите значение', credential: 'Выберите учетные данные', artifact: 'Выберите формат артефакта', output: 'Выберите выход' },
     artifacts: { format: 'Формат артефакта' },
     runtimeValue: 'Предоставляется источником {source} во время выполнения',
+    source: 'Источник: {source}',
     issues: { title: 'Проблемы входных данных', missing: 'Отсутствуют обязательные входные данные развертывания' }
   },
   assets: {

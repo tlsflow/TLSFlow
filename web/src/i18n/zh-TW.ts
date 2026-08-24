@@ -917,6 +917,11 @@ export default {
       emptyRelatedRecords: "暫無關聯記錄。",
       loadingRelatedRecords: "正在載入關聯記錄...",
       noExecutionRecords: "目前計畫還沒有執行記錄。",
+      inputSourcesLoadFailed: '載入部署輸入來源失敗',
+      inputSourcesTitle: '部署輸入來源',
+      inputSource: '來源：{source}',
+      inputSourceTarget: '部署目標：{targetId}',
+      noInputSources: '目前計畫沒有可顯示的變數來源。',
       noTargetSummary: "未提供目標摘要",
       planIdLine: "計畫 ID {planId}",
       recordKinds: {
@@ -2376,6 +2381,7 @@ export default {
     placeholders: { select: '請選擇', credential: '請選擇憑證', artifact: '請選擇產物格式', output: '請選擇輸出' },
     artifacts: { format: '產物格式' },
     runtimeValue: '執行階段由 {source} 提供',
+    source: '來源：{source}',
     issues: { title: '輸入問題', missing: '缺少必填部署輸入' }
   },
   assets: {

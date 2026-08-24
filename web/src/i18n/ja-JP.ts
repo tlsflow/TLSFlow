@@ -918,6 +918,11 @@ export default {
       emptyRelatedRecords: '関連記録。はまだありません',
       loadingRelatedRecords: '読み込み関連記録中...',
       noExecutionRecords: '現在プランまだありません実行記録。',
+      inputSourcesLoadFailed: 'デプロイ入力ソースの読み込みに失敗しました',
+      inputSourcesTitle: 'デプロイ入力ソース',
+      inputSource: 'ソース：{source}',
+      inputSourceTarget: 'デプロイ対象：{targetId}',
+      noInputSources: 'この計画には表示可能な変数ソースがありません。',
       noTargetSummary: '未提供ターゲットサマリー',
       planIdLine: 'プラン ID {planId}',
       recordKinds: {
@@ -2377,6 +2382,7 @@ export default {
     placeholders: { select: '選択してください', credential: '認証情報を選択', artifact: '成果物形式を選択', output: '出力を選択' },
     artifacts: { format: '成果物形式' },
     runtimeValue: '実行時に {source} から提供',
+    source: 'ソース：{source}',
     issues: { title: '入力の問題', missing: '必須のデプロイ入力がありません' }
   },
   assets: {

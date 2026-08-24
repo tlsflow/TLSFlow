@@ -1,4 +1,5 @@
-import { listRecords, postAction, type ApiBody, type BusinessListQuery } from './common'
+import { apiClient } from '@/api/client'
+import { listRecords, postAction, toClientPath, type ApiBody, type ApiPage, type BusinessListQuery } from './common'
 import { i18n } from '@/i18n'
 
 const DEPLOYMENT_PLANS_PATH = '/api/v1/deployment-plans'
@@ -11,6 +12,11 @@ function requireId(value: string, actionName: string): string {
 
 export function listDeploymentPlans(query?: BusinessListQuery) {
   return listRecords(DEPLOYMENT_PLANS_PATH, query)
+}
+
+export function listDeploymentInputSnapshots(planId: string) {
+  const params = new URLSearchParams({ planId: requireId(planId, i18n.global.t('deploymentPlans.actions.detail')) })
+  return apiClient.get<ApiPage>(`${toClientPath(`${DEPLOYMENT_PLANS_PATH}/input-snapshots`)}?${params.toString()}`)
 }
 
 export function createDeploymentPlan(payload: ApiBody) {
