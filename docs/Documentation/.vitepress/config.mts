@@ -52,7 +52,11 @@ const zhSidebar = [
       { text: "发现与证书位置", link: "/developer-guide/plugins/discovery-and-assets" },
       { text: "Agent 插件运行时", link: "/developer-guide/plugins/agent-runtime" },
       { text: "插件安全与成熟度", link: "/developer-guide/plugins/security-and-maturity" },
-      { text: "工作流开发", link: "/developer-guide/workflows/" }
+      { text: "工作流开发", link: "/developer-guide/workflows/" },
+      { text: "工作流 DSL 与模板来源", link: "/developer-guide/workflows/20260802-工作流DSL与模板来源" },
+      { text: "部署输入契约与快照", link: "/developer-guide/workflows/20260802-部署输入契约与快照" },
+      { text: "工作流执行器、恢复与回滚", link: "/developer-guide/workflows/20260802-工作流执行器与恢复回滚" },
+      { text: "证书部署工作流主链", link: "/developer-guide/certificate-deployment/20260802-证书部署工作流开发主链" }
     ]
   },
   {

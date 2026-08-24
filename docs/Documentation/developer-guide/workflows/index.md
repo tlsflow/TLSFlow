@@ -1,7 +1,7 @@
 ---
 title: 工作流开发
 description: GCAC 工作流 DSL 和证书部署工作流开发入口
-docStatus: todo
+docStatus: in_review
 productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
@@ -17,10 +17,19 @@ lastVerified: 2026-08-02
 
 # 工作流开发
 
-工作流开发正文将在阶段 3.5 编写。当前入口固定 DSL、模板来源和证书部署文档的边界。
+工作流 DSL（领域专用语言）是 GCAC 的私有领域协议，不是脚本容器。开发新模板时，先阅读 DSL 与模板来源，再阅读输入契约和执行器，最后按证书部署主链完成预检、快照、执行、验证和回滚设计。
 
-重点主题：
+推荐阅读顺序：
 
-- `backend/src/modules/workflow-templates/builtin-workflows` 和 `data/workflows` 两类模板来源。
-- 输入契约、连接槽位、Credential、Artifact 和变量生命周期。
-- SSH/SFTP/SCP/CURL、stage、foreach、checkpoint、assert 和 rollback。
+1. [工作流 DSL 与模板来源](./20260802-工作流DSL与模板来源.md)
+2. [部署输入契约与快照](./20260802-部署输入契约与快照.md)
+3. [工作流执行器、恢复与回滚](./20260802-工作流执行器与恢复回滚.md)
+4. [证书部署工作流开发主链](../certificate-deployment/20260802-证书部署工作流开发主链.md)
+
+开发时必须遵守：
+
+- 新 DSL 只能使用 `gcac.workflow/v1` 和 `CurlSshWorkflow`。
+- 模板文件来源只有内置模板目录和用户导入目录；运行时选择必须经过已发布的 PluginVersion。
+- 连接、Credential、Artifact 和变量必须声明在 `DeploymentInputContractV1` 中。
+- 执行器只能消费 `ResolvedDeploymentInputV1` 和受控 Grant，不能从模板根作用域或宿主对象猜测秘密。
+- 部署、变更和回滚默认失败关闭；只读发现才可以按契约使用 `foreach.continueOnError`。
