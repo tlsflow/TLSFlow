@@ -13,6 +13,7 @@ import type {
 import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import type { TenantMembershipFilter } from './repository/tenant.repository.js';
 import type { TenantIdentityResolver } from './tenant-identity.service.js';
+import { TenantScopeService } from './tenant-scope.service.js';
 
 export interface TenantContextStateEntity {
   id: string;
@@ -29,11 +30,12 @@ type TenantHierarchyPort = Pick<TenantHierarchyService, 'listTenants' | 'listMem
  * 计算并保存当前租户上下文。
  *
  * 这个服务只处理“用户能进入哪些租户”和“当前请求进入哪个租户”。
- * 它不计算 SELF、SUBTREE、EXPLICIT、SYSTEM，也不把成员关系转换成
+ * 它会把成员关系整理成结构化租户范围，但不把成员关系直接翻译成
  * 业务对象权限。
  */
 export class TenantContextService {
   private readonly memoryStates = new Map<string, TenantContextStateEntity>();
+  private readonly scope = new TenantScopeService();
 
   constructor(
     private readonly tenantIdentity: TenantIdentityResolver,
@@ -49,41 +51,43 @@ export class TenantContextService {
   async initialize(actorId: string, homeTenantIdentifier?: string): Promise<TenantContext> {
     this.assertActor(actorId);
     const existing = await this.readState(actorId);
+    const tenants = await this.hierarchy.listTenants();
+    const memberships = await this.accessibleForUser(actorId);
     if (this.mode === 'single') {
       const defaultTenantId = await this.tenantIdentity.resolveDefault();
       if (existing && existing.currentTenantId === defaultTenantId && existing.homeTenantId === defaultTenantId) {
-        return this.toContext(existing, [defaultTenantId]);
+        return this.toContext(existing, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] });
       }
       return this.saveState({
         actorId,
         homeTenantId: defaultTenantId,
         currentTenantId: defaultTenantId,
         version: newContextVersion(),
-      });
+      }, [defaultTenantId], { type: 'SELF', rootTenantId: defaultTenantId, tenantIds: [defaultTenantId] });
     }
 
-    const accessible = await this.accessibleForUser(actorId);
-    if (accessible.length === 0) {
+    const accessibleTenantIds = this.scope.resolveAccessibleTenantIds(memberships, tenants);
+    if (accessibleTenantIds.length === 0) {
       throw new AppError('TENANT_MEMBERSHIP_REQUIRED', '用户没有有效租户成员关系', { actorId });
     }
-    if (existing && accessible.some((item) => item.tenantId === existing.currentTenantId)) {
-      return this.toContext(existing, accessible.map((item) => item.tenantId));
+    if (existing && accessibleTenantIds.includes(existing.currentTenantId)) {
+      return this.toContext(existing, accessibleTenantIds, this.scope.resolveManagementScope(existing.currentTenantId, memberships, tenants));
     }
 
     const homeTenantId = homeTenantIdentifier
       ? await this.resolveTenantIdentifier(homeTenantIdentifier)
       : undefined;
-    const currentTenantId = homeTenantId && accessible.some((item) => item.tenantId === homeTenantId)
+    const currentTenantId = homeTenantId && accessibleTenantIds.includes(homeTenantId)
       ? homeTenantId
-      : accessible[0]!.tenantId;
+      : accessibleTenantIds[0]!;
     return this.saveState({
       actorId,
-      homeTenantId: homeTenantId && accessible.some((item) => item.tenantId === homeTenantId)
+      homeTenantId: homeTenantId && accessibleTenantIds.includes(homeTenantId)
         ? homeTenantId
         : currentTenantId,
       currentTenantId,
       version: newContextVersion(),
-    });
+    }, accessibleTenantIds, this.scope.resolveManagementScope(currentTenantId, memberships, tenants));
   }
 
   async resolve(
@@ -116,9 +120,8 @@ export class TenantContextService {
     this.assertActor(actorId);
     const context = await this.initialize(actorId, homeTenantIdentifier);
     const tenants = await this.hierarchy.listTenants();
-    const byId = new Map(tenants.map((tenant) => [tenant.id, tenant]));
     if (this.mode === 'single') {
-      const tenant = byId.get(context.currentTenantId);
+      const tenant = tenants.find((item) => item.id === context.currentTenantId);
       if (!tenant) {
         throw new AppError('TENANT_CONTEXT_INVALID', '默认租户记录不存在', {
           tenantId: context.currentTenantId,
@@ -127,14 +130,12 @@ export class TenantContextService {
       return [this.toAccessibleTenant(tenant, {
         membershipType: 'owner',
         status: 'ACTIVE',
+        scopeType: 'SELF',
       }, context)];
     }
 
     const memberships = await this.accessibleForUser(actorId);
-    return memberships.flatMap((membership) => {
-      const tenant = byId.get(membership.tenantId);
-      return tenant ? [this.toAccessibleTenant(tenant, membership, context)] : [];
-    });
+    return this.scope.resolveAccessibleTenants(memberships, tenants, context);
   }
 
   async switchTenant(input: {
@@ -160,11 +161,18 @@ export class TenantContextService {
         homeTenantId: current.homeTenantId,
         currentTenantId: current.currentTenantId,
         version: newContextVersion(),
+      }, [current.currentTenantId], {
+        type: 'SELF',
+        rootTenantId: current.currentTenantId,
+        tenantIds: [current.currentTenantId],
       });
     }
 
     const accessible = await this.accessibleForUser(input.actorId);
-    if (!accessible.some((membership) => membership.tenantId === targetTenantId)) {
+    const tenants = await this.hierarchy.listTenants();
+    const target = this.scope.resolveAccessibleTenants(accessible, tenants, current)
+      .find((item) => item.tenantId === targetTenantId);
+    if (!target?.canSwitch) {
       throw new AppError('TENANT_MEMBERSHIP_REQUIRED', '用户没有目标租户的有效成员关系', {
         tenantId: targetTenantId,
       });
@@ -174,7 +182,7 @@ export class TenantContextService {
       homeTenantId: current.homeTenantId,
       currentTenantId: targetTenantId,
       version: newContextVersion(),
-    });
+    }, this.scope.resolveAccessibleTenantIds(accessible, tenants), this.scope.resolveManagementScope(targetTenantId, accessible, tenants));
   }
 
   private async accessibleForUser(actorId: string): Promise<TenantMembershipEntity[]> {
@@ -207,7 +215,11 @@ export class TenantContextService {
     return this.states ? this.states.get(actorId) : this.memoryStates.get(actorId);
   }
 
-  private async saveState(input: Omit<TenantContextStateEntity, 'id' | 'updatedAt'>): Promise<TenantContext> {
+  private async saveState(
+    input: Omit<TenantContextStateEntity, 'id' | 'updatedAt'>,
+    accessibleTenantIds: string[],
+    managementScope?: TenantContext['managementScope'],
+  ): Promise<TenantContext> {
     const state: TenantContextStateEntity = {
       ...input,
       id: input.actorId,
@@ -215,28 +227,24 @@ export class TenantContextService {
     };
     if (this.states) await this.states.upsert(state);
     else this.memoryStates.set(state.actorId, state);
-    return this.toContext(state, await this.accessibleTenantIds(state));
+    return this.toContext(state, accessibleTenantIds, managementScope);
   }
 
-  private async accessibleTenantIds(state: TenantContextStateEntity): Promise<string[]> {
-    if (this.mode === 'single') return [state.currentTenantId];
-    return (await this.accessibleForUser(state.actorId)).map((item) => item.tenantId);
-  }
-
-  private toContext(state: TenantContextStateEntity, accessibleTenantIds: string[]): TenantContext {
+  private toContext(state: TenantContextStateEntity, accessibleTenantIds: string[], managementScope?: TenantContext['managementScope']): TenantContext {
     return {
       mode: this.mode,
       actorId: state.actorId,
       currentTenantId: state.currentTenantId,
       homeTenantId: state.homeTenantId,
       accessibleTenantIds: [...new Set(accessibleTenantIds)],
+      managementScope,
       version: state.version,
     };
   }
 
   private toAccessibleTenant(
     tenant: TenantEntity,
-    membership: Pick<TenantMembershipEntity, 'membershipType' | 'status'>,
+    membership: Pick<TenantMembershipEntity, 'membershipType' | 'status'> & { scopeType?: 'SELF' | 'SUBTREE' | 'EXPLICIT' | 'SYSTEM' },
     context: TenantContext,
   ): AccessibleTenant {
     return {
@@ -248,7 +256,9 @@ export class TenantContextService {
       membershipType: membership.membershipType,
       membershipStatus: membership.status,
       current: tenant.id === context.currentTenantId,
+      canSwitch: true,
       mode: context.mode,
+      scopeType: membership.scopeType,
     };
   }
 

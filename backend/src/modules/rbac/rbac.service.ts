@@ -7,6 +7,7 @@ import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
+import { TenantScopeService } from '../security/tenant-scope.service.js';
 
 export interface RbacDecision {
   allowed: boolean;
@@ -16,6 +17,7 @@ export interface RbacDecision {
 
 export class RBACService {
   private static readonly defaultDb = new PgliteDatabase();
+  private readonly tenantScope = new TenantScopeService();
 
   private static createDefaultUsersRepository(): AsyncRepositoryPort<UserEntity> {
     return new PgDocumentRepository<UserEntity>(RBACService.defaultDb, 'security.users');
@@ -194,6 +196,10 @@ export class RBACService {
   }
 
   async can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): Promise<RbacDecision> {
+    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, resource.scope ?? {})) {
+      await this.auditDeny(subject, action, resource, context, 'tenant scope denied');
+      return { allowed: false, reason: 'tenant scope denied', matchedPolicyIds: [] };
+    }
     const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
     if (subject.type === 'user') {
       for (const userRole of await this.userRoles.list((row) => row.userId === subject.id)) {
@@ -244,7 +250,11 @@ export class RBACService {
   }
 
   private matchesScope(policyScope: ResourceScope, resourceScope: ResourceScope): boolean {
+    if (policyScope.tenantScope && !this.tenantScope.allowsResource(policyScope.tenantScope, resourceScope)) {
+      return false;
+    }
     for (const [key, policyValue] of Object.entries(policyScope) as Array<[keyof ResourceScope, string | undefined]>) {
+      if (key === 'tenantScope') continue;
       if (policyValue === undefined || policyValue === '*') {
         continue;
       }

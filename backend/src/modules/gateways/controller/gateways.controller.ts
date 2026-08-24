@@ -60,7 +60,11 @@ export class GatewaysController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    return { id: request.context.actorId ?? 'system_gateways', type: request.context.actorId ? 'user' : 'system', scope: { tenantId: request.context.tenantId } };
+    return {
+      id: request.context.actorId ?? 'system_gateways',
+      type: request.context.actorId ? 'user' : 'system',
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+    };
   }
 
   private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {

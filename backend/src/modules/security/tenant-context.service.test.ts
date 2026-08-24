@@ -50,15 +50,51 @@ describe('TenantContextService', () => {
     const tenants = await fixture.context.listAccessibleTenants(fixture.userId);
     assert.deepEqual(tenants.map((item) => item.tenantId), [fixture.defaultTenant.id, fixture.otherTenant.id]);
     assert.deepEqual(tenants.map((item) => item.membershipType), ['admin', 'member']);
+    assert.equal(tenants.find((item) => item.tenantId === fixture.otherTenant.id)?.scopeType, 'EXPLICIT');
+    assert.equal(tenants.find((item) => item.tenantId === fixture.otherTenant.id)?.canSwitch, true);
   });
 
-  it('无成员关系的租户切换被拒绝', async () => {
+  it('集团管理员可通过子树范围看到下级公司，但不会把兄弟集团纳入范围', async () => {
     const fixture = await createFixture('hierarchical');
-    const context = await fixture.context.initialize(fixture.userId, fixture.defaultTenant.id).catch((error) => {
-      assert.equal((error as { errorCode: string }).errorCode, 'TENANT_MEMBERSHIP_REQUIRED');
-      return undefined;
+    await fixture.addMembership(fixture.defaultTenant.id, 'admin');
+    const company = await fixture.hierarchy.createTenant({
+      name: '默认集团下级公司',
+      code: `company-child-${fixture.userId}`,
+      type: 'COMPANY',
+      parentId: fixture.defaultTenant.id,
+      actorId: 'user_admin',
     });
-    assert.equal(context, undefined);
+
+    const context = await fixture.context.initialize(fixture.userId, fixture.defaultTenant.id);
+    assert.equal(context.managementScope?.type, 'SUBTREE');
+    assert.deepEqual(context.managementScope?.tenantIds?.sort(), [company.id, fixture.defaultTenant.id].sort());
+    assert.equal(context.accessibleTenantIds.includes(company.id), true);
+
+    const tenants = await fixture.context.listAccessibleTenants(fixture.userId);
+    const child = tenants.find((item) => item.tenantId === company.id);
+    assert.equal(child?.scopeType, 'SUBTREE');
+    assert.equal(child?.membershipType, 'admin');
+    assert.equal(child?.current, false);
+    assert.equal(child?.canSwitch, false);
+  });
+
+  it('普通成员不会自动进入其 COMPANY', async () => {
+    const fixture = await createFixture('hierarchical');
+    await fixture.addMembership(fixture.defaultTenant.id, 'member');
+    const company = await fixture.hierarchy.createTenant({
+      name: '普通成员下级公司',
+      code: `company-member-${fixture.userId}`,
+      type: 'COMPANY',
+      parentId: fixture.defaultTenant.id,
+      actorId: 'user_admin',
+    });
+
+    const context = await fixture.context.initialize(fixture.userId, fixture.defaultTenant.id);
+    assert.equal(context.managementScope?.type, 'SELF');
+    assert.deepEqual(context.accessibleTenantIds, [fixture.defaultTenant.id]);
+
+    const tenants = await fixture.context.listAccessibleTenants(fixture.userId);
+    assert.equal(tenants.some((item) => item.tenantId === company.id), false);
   });
 
   it('REVOKED 成员不能切换', async () => {
@@ -121,29 +157,6 @@ describe('TenantContextService', () => {
         expectedVersion: context.version,
       }),
       { errorCode: 'TENANT_NOT_FOUND' },
-    );
-  });
-
-  it('有效 GROUP 成员不能自动进入其 COMPANY', async () => {
-    const fixture = await createFixture('hierarchical');
-    const company = await fixture.hierarchy.createTenant({
-      name: '分子公司',
-      code: `company-${fixture.userId}`,
-      type: 'COMPANY',
-      parentId: fixture.defaultTenant.id,
-      actorId: 'user_admin',
-    });
-    await fixture.addMembership(fixture.defaultTenant.id, 'admin');
-    const context = await fixture.context.initialize(fixture.userId, fixture.defaultTenant.id);
-
-    assert.deepEqual(context.accessibleTenantIds, [fixture.defaultTenant.id]);
-    await assert.rejects(
-      fixture.context.switchTenant({
-        actorId: fixture.userId,
-        tenantId: company.id,
-        expectedVersion: context.version,
-      }),
-      { errorCode: 'TENANT_MEMBERSHIP_REQUIRED' },
     );
   });
 

@@ -759,9 +759,9 @@ export class AssetsController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    if (!this.security) return { id: request.context.actorId ?? 'system_assets', type: 'system', scope: { tenantId: request.context.tenantId } };
+    if (!this.security) return { id: request.context.actorId ?? 'system_assets', type: 'system', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
   private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
@@ -769,7 +769,7 @@ export class AssetsController {
     await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
       id: resourceId,
-      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
   }
 
@@ -778,7 +778,7 @@ export class AssetsController {
     await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
       id: resourceId,
-      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
   }
 

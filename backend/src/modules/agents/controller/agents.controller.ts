@@ -104,7 +104,7 @@ export class AgentsController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
   private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {

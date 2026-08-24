@@ -1,4 +1,5 @@
 import { AppError } from '../errors/app-error.js';
+import type { ResourceOwnerType, TenantScopeFilter } from '../../shared/security-types.js';
 
 export interface SortSpec {
   field: string;
@@ -13,7 +14,7 @@ export interface PageQuery {
   authorization?: PageAuthorizationFilter;
 }
 
-export interface PageAuthorizationFilter {
+export interface PageAuthorizationFilter extends TenantScopeFilter {
   unrestricted?: boolean;
   empty?: boolean;
   objectIdField?: string;
@@ -63,7 +64,9 @@ export function withAuthorization(query: PageQuery, authorization: PageAuthoriza
 
 export function applyAuthorizationFilter<T extends object>(items: T[], query: PageQuery): T[] {
   const authorization = query.authorization;
-  if (!authorization || authorization.unrestricted) return items;
+  if (!authorization) return items;
+  const scopedItems = items.filter((item) => matchesTenantScopeFilter(item, authorization));
+  if (authorization.unrestricted) return scopedItems;
   if (authorization.empty) return [];
 
   const allowedIds = new Set(authorization.objectIds ?? []);
@@ -72,7 +75,7 @@ export function applyAuthorizationFilter<T extends object>(items: T[], query: Pa
   const deniedConditions = authorization.deniedDynamicConditions ?? [];
   const objectIdField = authorization.objectIdField ?? 'id';
 
-  return items.filter((item) => {
+  return scopedItems.filter((item) => {
     const id = readObjectField(item, objectIdField);
     const allowed = (typeof id === 'string' && allowedIds.has(id))
       || allowedConditions.some((condition) => conditionMatches(item, condition));
@@ -80,6 +83,24 @@ export function applyAuthorizationFilter<T extends object>(items: T[], query: Pa
     if (typeof id === 'string' && deniedIds.has(id)) return false;
     return !deniedConditions.some((condition) => conditionMatches(item, condition));
   });
+}
+
+function matchesTenantScopeFilter(item: object, authorization: TenantScopeFilter): boolean {
+  if (authorization.tenantIds !== undefined) {
+    const tenantId = readObjectField(item, 'tenantId') ?? readObjectField(item, 'tenant_id');
+    if (typeof tenantId !== 'string' || !authorization.tenantIds.includes(tenantId)) return false;
+  }
+  if (authorization.ownerTypes !== undefined) {
+    const declaredOwnerType = readObjectField(item, 'ownerType') ?? readObjectField(item, 'owner_type');
+    const tenantId = readObjectField(item, 'tenantId') ?? readObjectField(item, 'tenant_id');
+    const ownerType = typeof declaredOwnerType === 'string'
+      ? declaredOwnerType
+      : typeof tenantId === 'string'
+        ? 'TENANT'
+        : undefined;
+    if (!authorization.ownerTypes.includes(ownerType as ResourceOwnerType)) return false;
+  }
+  return true;
 }
 
 function parseSort(value: string, allowedFields: readonly string[]): SortSpec {

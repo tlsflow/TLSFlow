@@ -32,3 +32,47 @@ test('RBAC 支持作用域匹配和 deny 优先', async () => {
   assert.equal(denied.reason, 'explicit deny');
   assert.equal((await audit.query({ eventType: 'permission.denied' })).length, 1);
 });
+
+test('RBAC 先校验结构化租户范围，再处理动作策略', async () => {
+  const rbac = new RBACService();
+  await rbac.createPolicy({
+    id: 'allow_group_read',
+    subjectType: 'user',
+    subjectId: 'user_group_admin',
+    effect: 'allow',
+    actions: ['host.read'],
+    resourceTypes: ['host'],
+    scope: { tenantId: '*' },
+  });
+
+  const subject = {
+    id: 'user_group_admin',
+    type: 'user' as const,
+    scope: {
+      tenantId: 'group_a',
+      tenantScope: {
+        type: 'SUBTREE' as const,
+        rootTenantId: 'group_a',
+        tenantIds: ['group_a', 'company_a'],
+      },
+    },
+  };
+  assert.equal((await rbac.can(subject, 'host.read', {
+    type: 'host',
+    scope: { tenantId: 'company_a', ownerType: 'TENANT' },
+  })).allowed, true);
+
+  const sibling = await rbac.can(subject, 'host.read', {
+    type: 'host',
+    scope: { tenantId: 'company_b', ownerType: 'TENANT' },
+  });
+  assert.equal(sibling.allowed, false);
+  assert.equal(sibling.reason, 'tenant scope denied');
+
+  const system = await rbac.can(subject, 'host.read', {
+    type: 'host',
+    scope: { ownerType: 'SYSTEM' },
+  });
+  assert.equal(system.allowed, false);
+  assert.equal(system.reason, 'tenant scope denied');
+});

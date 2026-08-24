@@ -1030,7 +1030,7 @@ export class InternalCaController {
       try {
         await this.security.rbac.assertCan(subject, candidateAction, {
           type: resourceType,
-          scope: { tenantId: request.context.tenantId, ownerId: subject.id, resourceType },
+          scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id, resourceType },
         }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
         return;
       } catch (error) {
@@ -1132,7 +1132,7 @@ function actorId(request: HttpRequest): string {
 }
 
 function subjectFromRequest(request: HttpRequest): SecuritySubject {
-  return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+  return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
 }
 
 function objectBody(request: HttpRequest): Record<string, unknown> {

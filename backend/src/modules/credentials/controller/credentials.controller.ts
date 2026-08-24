@@ -142,7 +142,7 @@ export class CredentialsController {
   private async authorize(request: HttpRequest, action: string, id?: string): Promise<SecuritySubject> {
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, action, {
-      type: 'credential', id, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      type: 'credential', id, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     return subject;
   }
@@ -152,11 +152,11 @@ export class CredentialsController {
       return {
         id: request.context.actorId ?? 'system_credentials',
         type: 'system',
-        scope: { tenantId: request.context.tenantId },
+        scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
       };
     }
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 }
 

@@ -100,7 +100,11 @@ export class WorkflowTemplatesController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    return { id: request.context.actorId ?? 'system_workflows', type: request.context.actorId ? 'user' : 'system', scope: { tenantId: request.context.tenantId } };
+    return {
+      id: request.context.actorId ?? 'system_workflows',
+      type: request.context.actorId ? 'user' : 'system',
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+    };
   }
 
   private async authorizedItems<T extends object>(subject: SecuritySubject, objectType: string, items: T[], objectIdField = 'id'): Promise<T[]> {

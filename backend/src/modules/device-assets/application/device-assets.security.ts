@@ -17,7 +17,7 @@ export class SecurityServicesDeviceAssetPort implements DeviceAssetSecurityPort 
     const actorId = request.context.actorId;
     if (!actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     const decision = await this.security.objectPermissions.can(
-      { id: actorId, type: 'user', scope: { tenantId: request.context.tenantId } },
+      { id: actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } },
       accessLevel,
       { objectType: 'device_asset', objectId: deviceAssetId, tenantId: request.context.tenantId },
       securityContext(request),

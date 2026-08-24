@@ -1,10 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import type { TenantScope } from '../../shared/security-types.js';
 
 export interface RequestContext {
   requestId: string;
   traceId: string;
   tenantId?: string;
+  tenantScope?: TenantScope;
   tenantContextVersion?: string;
   actorId?: string;
   actorType?: 'USER' | 'AGENT' | 'SYSTEM';

@@ -75,15 +75,15 @@ export class BrowserCredentialSessionController {
   private async authorize(request: HttpRequest, action: string): Promise<SecuritySubject> {
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, action, {
-      type: 'credential', scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      type: 'credential', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     return subject;
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    if (!this.security) return { id: request.context.actorId ?? 'system_browser_credentials', type: 'system', scope: { tenantId: request.context.tenantId } };
+    if (!this.security) return { id: request.context.actorId ?? 'system_browser_credentials', type: 'system', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 }
 

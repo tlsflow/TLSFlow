@@ -62,7 +62,7 @@ export class DeploymentPlansController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    return { id: this.actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: this.actorId(request), type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
   private async authorizedItems<T extends object>(subject: SecuritySubject, objectType: string, items: T[]): Promise<T[]> {
@@ -350,7 +350,7 @@ export class DeploymentPlansController {
     return {
       requestId: request.context.requestId,
       sourceIp: request.context.ip,
-      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId } },
+      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } },
     };
   }
 }

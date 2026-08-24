@@ -6,7 +6,7 @@ import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../
 import type { PermissionPolicyEntity, RoleEntity, UserEntity } from '../../persistence/entities/rbac.entity.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
-import type { SecuritySubject, TenantContext } from '../../shared/security-types.js';
+import type { SecuritySubject, TenantContext, TenantScope } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { RBACService } from '../rbac/rbac.service.js';
@@ -233,11 +233,16 @@ export class AuthService {
   async parseRequestIdentity(
     authorization: string | undefined,
     cookieHeader: string | undefined,
-  ): Promise<{ actorId: string; tenantId: string; contextVersion?: string } | undefined> {
+  ): Promise<{ actorId: string; tenantId: string; tenantScope?: TenantScope; contextVersion?: string } | undefined> {
     const bearer = this.parseAuthorizationHeader(authorization);
     if (bearer) {
       const context = await this.resolveContext(bearer.actorId, bearer.tenantId, bearer.contextVersion);
-      return { actorId: bearer.actorId, tenantId: context.currentTenantId, contextVersion: context.version };
+      return {
+        actorId: bearer.actorId,
+        tenantId: context.currentTenantId,
+        tenantScope: context.managementScope,
+        contextVersion: context.version,
+      };
     }
     const parsed = parseSessionCookie(cookieHeader);
     if (!parsed) return undefined;
@@ -248,7 +253,12 @@ export class AuthService {
     // 浏览器 Session 代表登录身份；当前租户版本由服务端 actor 上下文决定，
     // 切换后同一浏览器 Session 应自动跟随新上下文，而不是复用旧租户。
     const context = await this.resolveContext(session.userId);
-    return { actorId: session.userId, tenantId: context.currentTenantId, contextVersion: context.version };
+    return {
+      actorId: session.userId,
+      tenantId: context.currentTenantId,
+      tenantScope: context.managementScope,
+      contextVersion: context.version,
+    };
   }
 
   buildSessionSetCookie(cookieValue: string, expiresAt: string): string {
@@ -315,7 +325,7 @@ export class AuthService {
       id: user.id,
       type: 'user',
       roleIds: roles.map((role) => role.id),
-      scope: { tenantId: context.currentTenantId },
+      scope: { tenantId: context.currentTenantId, tenantScope: context.managementScope },
     };
   }
 

@@ -149,7 +149,7 @@ export class ExecutionsController {
     return {
       requestId: request.context.requestId,
       sourceIp: request.context.ip,
-      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId } },
+      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } },
     };
   }
 

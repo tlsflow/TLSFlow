@@ -454,13 +454,13 @@ export class CertificatesController {
     if (!request.context.actorId) {
       throw new AppError('AUTH_UNAUTHENTICATED', 'Missing actor context');
     }
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
   private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest): Promise<void> {
     await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
-      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
   }
 

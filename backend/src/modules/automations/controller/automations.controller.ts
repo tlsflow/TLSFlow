@@ -155,9 +155,9 @@ export class AutomationsController {
   }
 
   private subject(request: HttpRequest): SecuritySubject {
-    if (!this.security) return { id: request.context.actorId ?? 'system_automations', type: 'system', scope: { tenantId: request.context.tenantId } };
+    if (!this.security) return { id: request.context.actorId ?? 'system_automations', type: 'system', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
   private tenantId(request: HttpRequest): string {
@@ -166,7 +166,7 @@ export class AutomationsController {
 
   private assertCan(subject: SecuritySubject, action: string, request: HttpRequest, id?: string): Promise<void> {
     if (!this.security) return Promise.resolve();
-    return this.security.rbac.assertCan(subject, action, { type: 'automation', id, scope: { tenantId: this.tenantId(request), ownerId: subject.id } }, {
+    return this.security.rbac.assertCan(subject, action, { type: 'automation', id, scope: { tenantId: this.tenantId(request), tenantScope: request.context.tenantScope, ownerId: subject.id } }, {
       requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject,
     });
   }

@@ -14,17 +14,19 @@ import type {
   PrincipalType,
   RoleBindingEntity,
 } from '../../persistence/entities/object-permission.entity.js';
-import type { RequestContext, SecuritySubject } from '../../shared/security-types.js';
+import type { RequestContext, ResourceOwnerType, SecuritySubject, TenantScope } from '../../shared/security-types.js';
 import type { PageAuthorizationFilter } from '../../common/pagination/pagination.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
+import { TenantScopeService } from './tenant-scope.service.js';
 
 export interface ObjectRef {
   objectType: string;
   objectId?: string;
   tenantId?: string;
+  ownerType?: ResourceOwnerType;
   attributes?: Record<string, unknown>;
 }
 
@@ -56,6 +58,8 @@ export class ObjectPermissionService {
   private static repo<T extends { id: string }>(namespace: string): AsyncRepositoryPort<T> {
     return new PgDocumentRepository<T>(ObjectPermissionService.defaultDb, namespace);
   }
+
+  private readonly tenantScope = new TenantScopeService();
 
   constructor(
     private readonly groups: AsyncRepositoryPort<GroupEntity> = ObjectPermissionService.repo<GroupEntity>('security.groups'),
@@ -219,6 +223,10 @@ export class ObjectPermissionService {
   async can(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef, context: RequestContext = {}): Promise<PermissionDecision> {
     await this.ensureDefaultObjectTypes();
     const action = actionFor(object.objectType, accessLevel);
+    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, object)) {
+      await this.auditDeny(subject, action, object, context, 'tenant scope denied');
+      return decision(false, accessLevel, action, 'tenant scope denied', [], []);
+    }
     if (await this.hasAdminWildcard(subject)) {
       return {
         allowed: true,
@@ -237,7 +245,7 @@ export class ObjectPermissionService {
     const bindings = await this.roleBindings.list((item) =>
       item.enabled
       && principalKeys.has(principalKey(item))
-      && tenantMatches(item.tenantId, object.tenantId ?? subject.scope?.tenantId)
+      && tenantBindingMatches(item.tenantId, object.tenantId, subject.scope?.tenantId, subject.scope?.tenantScope)
       && isBindingCurrentlyActive(item),
     );
     const activeSets = new Map((await this.objectSets.list((item) => item.status === 'active')).map((item) => [item.id, item]));
@@ -283,14 +291,17 @@ export class ObjectPermissionService {
   }
 
   async buildAuthorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: AccessLevel): Promise<AuthorizedQuery> {
-    if (await this.hasAdminWildcard(subject)) return { empty: false, unrestricted: true, dynamicConditions: [] };
+    const tenantFilter = subject.scope?.tenantScope ? this.tenantScope.toFilter(subject.scope.tenantScope) : {};
+    if (await this.hasAdminWildcard(subject)) {
+      return { ...tenantFilter, empty: false, unrestricted: true, dynamicConditions: [] };
+    }
     const principals = await this.resolvePrincipals(subject);
     const principalKeys = new Set(principals.map(principalKey));
     const tenantId = subject.scope?.tenantId;
     const bindings = await this.roleBindings.list((item) =>
       item.enabled
       && principalKeys.has(principalKey(item))
-      && tenantMatches(item.tenantId, tenantId)
+      && tenantBindingMatches(item.tenantId, undefined, tenantId, subject.scope?.tenantScope)
       && isBindingCurrentlyActive(item),
     );
     const grants = await this.accessGrants.list((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]);
@@ -322,6 +333,7 @@ export class ObjectPermissionService {
     const dynamicConditions = allowSets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
     const deniedDynamicConditions = denySets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
     return {
+      ...tenantFilter,
       empty: staticIds.length === 0 && dynamicConditions.length === 0,
       objectIds: [...new Set(staticIds)],
       dynamicConditions,
@@ -435,6 +447,18 @@ function principalKey(principal: { principalType?: PrincipalType; principalId?: 
 function tenantMatches(bindingTenantId: string, tenantId?: string): boolean {
   if (!tenantId) return false;
   return bindingTenantId === '*' || bindingTenantId === tenantId;
+}
+
+function tenantBindingMatches(
+  bindingTenantId: string,
+  objectTenantId: string | undefined,
+  subjectTenantId: string | undefined,
+  tenantScope: TenantScope | undefined,
+): boolean {
+  if (tenantScope?.type === 'SYSTEM' && !objectTenantId) {
+    return bindingTenantId === '*' || bindingTenantId === 'SYSTEM';
+  }
+  return tenantMatches(bindingTenantId, objectTenantId ?? subjectTenantId);
 }
 
 function isBindingCurrentlyActive(binding: RoleBindingEntity): boolean {

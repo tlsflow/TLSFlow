@@ -9,6 +9,7 @@ import { toErrorResponse } from '../errors/error-handler.js';
 import { generateRequestId, generateTraceId, runWithRequestContext, type RequestContext } from '../tracing/request-context.js';
 import { Router } from './router.js';
 import type { HttpRequest } from './http-types.js';
+import type { TenantScope } from '../../shared/security-types.js';
 
 export interface InjectRequest {
   method: string;
@@ -27,8 +28,8 @@ export interface InjectResponse {
 export type AuthTokenResolver = (
   authorization: string | undefined,
   cookie: string | undefined,
-) => Promise<{ actorId: string; tenantId?: string; contextVersion?: string } | undefined>
-  | { actorId: string; tenantId?: string; contextVersion?: string }
+) => Promise<{ actorId: string; tenantId?: string; tenantScope?: TenantScope; contextVersion?: string } | undefined>
+  | { actorId: string; tenantId?: string; tenantScope?: TenantScope; contextVersion?: string }
   | undefined;
 export type AgentTokenResolver = (
   token: string,
@@ -239,6 +240,7 @@ export class App {
       requestId,
       traceId,
       tenantId: tokenIdentity?.tenantId ?? agentIdentity?.tenantId ?? legacyContext.tenantId,
+      tenantScope: tokenIdentity?.tenantScope,
       tenantContextVersion: tokenIdentity?.contextVersion,
       actorId: tokenIdentity?.actorId ?? agentIdentity?.actorId ?? legacyContext.actorId,
       actorType: tokenIdentity

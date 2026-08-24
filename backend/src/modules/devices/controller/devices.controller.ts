@@ -26,7 +26,7 @@ export class DevicesController {
   private async onboard(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, 'host.create', {
-      type: 'host', scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      type: 'host', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     const result = await this.service.onboard(
       tenantId(request),
@@ -45,7 +45,7 @@ export class DevicesController {
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, 'host.read', {
       type: 'host',
-      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     const authorization = await this.security?.objectPermissions.buildAuthorizedQuery(subject, 'host', 'read');
     const authorizedHostIds = authorization && !authorization.unrestricted ? authorization.objectIds ?? [] : undefined;
@@ -57,7 +57,7 @@ export class DevicesController {
     if (!deviceId) throw new AppError('VALIDATION_FAILED', 'deviceId 不能为空', { field: 'deviceId' });
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, 'host.read', {
-      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     const locale = Array.isArray(request.query.locale) ? request.query.locale[0] : request.query.locale;
     return this.service.get(tenantId(request), deviceId, locale ?? 'zh-CN');
@@ -69,7 +69,7 @@ export class DevicesController {
     if (!deviceId || !capabilityKey) throw new AppError('VALIDATION_FAILED', 'deviceId 和 capabilityKey 不能为空');
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, 'host.update', {
-      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     return this.service.executeCapability(
       tenantId(request),
@@ -81,9 +81,9 @@ export class DevicesController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    if (!this.security) return { id: request.context.actorId ?? 'system_devices', type: 'system', scope: { tenantId: request.context.tenantId } };
+    if (!this.security) return { id: request.context.actorId ?? 'system_devices', type: 'system', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 }
 

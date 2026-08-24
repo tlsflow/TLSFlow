@@ -119,14 +119,14 @@ export class TasksController {
       id: request.context.actorId,
       type: 'user',
       roleIds: user ? (await this.security.rbac.rolesForUser(user.id)).map((role) => role.id) : undefined,
-      scope: { tenantId: requireTenantId(request) },
+      scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope },
     };
   }
 
   private async assertRead(subject: SecuritySubject, request: HttpRequest, action: string): Promise<void> {
     await this.security.rbac.assertCan(subject, action, {
       type: 'task',
-      scope: { tenantId: requireTenantId(request) },
+      scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope },
     }, {
       requestId: request.context.requestId,
       sourceIp: request.context.ip,

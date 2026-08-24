@@ -266,6 +266,7 @@ export class SecurityController {
       currentTenantId: context.currentTenantId,
       homeTenantId: context.homeTenantId,
       accessibleTenantIds: context.accessibleTenantIds,
+      managementScope: context.managementScope,
       mode: context.mode,
       version: context.version,
     };
@@ -296,6 +297,7 @@ export class SecurityController {
       currentTenantId: context.currentTenantId,
       homeTenantId: context.homeTenantId,
       accessibleTenantIds: context.accessibleTenantIds,
+      managementScope: context.managementScope,
       mode: context.mode,
       version: context.version,
       token: await this.services.auth.issueTokenForContext(subject.id, context),
@@ -321,7 +323,7 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     await this.services.rbac.assertCan(subject, 'secret.create', {
       type: 'secret',
-      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
 
     return {
@@ -342,7 +344,7 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     await this.services.rbac.assertCan(subject, 'secret.read', {
       type: 'secret',
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     const type = readOptionalQueryString(request, 'type');
     const scopeType = readOptionalQueryString(request, 'scopeType');
@@ -362,7 +364,7 @@ export class SecurityController {
     await this.services.rbac.assertCan(subject, 'secret.read', {
       type: 'secret',
       id,
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     return this.services.secrets.getMetadata(id);
   }
@@ -378,7 +380,7 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     await this.services.rbac.assertCan(subject, 'approval.create', {
       type: 'approval',
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     return {
       statusCode: 201,
@@ -403,7 +405,7 @@ export class SecurityController {
     await this.services.rbac.assertCan(subject, 'approval.decide', {
       type: 'approval',
       id: String(body.approvalId),
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     return this.services.approvals.decide({
       approvalId: String(body.approvalId),
@@ -1076,7 +1078,7 @@ export class SecurityController {
       id: request.context.actorId,
       type: 'user',
       roleIds: user ? (await this.services.rbac.rolesForUser(user.id)).map((role) => role.id) : undefined,
-      scope: { tenantId },
+      scope: { tenantId, tenantScope: request.context.tenantScope },
     };
   }
 
@@ -1095,7 +1097,7 @@ export class SecurityController {
   private async assertSecurityCan(subject: SecuritySubject, action: string, request: HttpRequest, resourceType: string): Promise<void> {
     await this.services.rbac.assertCan(subject, action, {
       type: resourceType,
-      scope: { tenantId: requireTenantId(request) },
+      scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
   }
 

@@ -85,6 +85,130 @@ test('对象级权限兼容管理员通配权限', async () => {
   );
   assert.equal(result.allowed, true);
   assert.equal(result.reason, 'admin wildcard');
+
+  const constrained = await service.can(
+    {
+      id: 'user_admin',
+      type: 'user',
+      roleIds: ['role_admin'],
+      scope: {
+        tenantId: 'tenant_a',
+        tenantScope: { type: 'SELF', rootTenantId: 'tenant_a', tenantIds: ['tenant_a'] },
+      },
+    },
+    'control',
+    { objectType: 'gateway', objectId: 'gw_b', tenantId: 'tenant_b' },
+  );
+  assert.equal(constrained.allowed, false);
+  assert.equal(constrained.reason, 'tenant scope denied');
+});
+
+test('结构化租户范围约束旧通配绑定和列表授权', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_group_reader', code: 'group_reader', name: '集团只读', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_group_hosts',
+    tenantId: '*',
+    name: '集团主机集合',
+    kind: 'static',
+    objectTypes: ['host'],
+    status: 'active',
+  });
+  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_a', addedBy: 'admin' });
+  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_b', addedBy: 'admin' });
+  await service.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_group_reader',
+    roleId: 'role_group_reader',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createAccessGrant({
+    roleId: 'role_group_reader',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+
+  const subject = {
+    id: 'user_group_reader',
+    type: 'user' as const,
+    scope: {
+      tenantId: 'group_a',
+      tenantScope: {
+        type: 'SUBTREE' as const,
+        rootTenantId: 'group_a',
+        tenantIds: ['group_a', 'company_a'],
+      },
+    },
+  };
+  assert.equal((await service.can(subject, 'read', { objectType: 'host', objectId: 'host_a', tenantId: 'company_a' })).allowed, true);
+  const sibling = await service.can(subject, 'read', { objectType: 'host', objectId: 'host_b', tenantId: 'company_b' });
+  assert.equal(sibling.allowed, false);
+  assert.equal(sibling.reason, 'tenant scope denied');
+
+  const authorization = await service.buildAuthorizedQuery(subject, 'host', 'read');
+  assert.deepEqual(authorization.tenantIds, ['group_a', 'company_a']);
+  assert.deepEqual(authorization.ownerTypes, ['TENANT']);
+  const items = applyAuthorizationFilter([
+    { id: 'host_a', tenantId: 'company_a' },
+    { id: 'host_b', tenantId: 'company_b' },
+  ], { page: 1, pageSize: 20, filter: {}, authorization });
+  assert.deepEqual(items.map((item) => item.id), ['host_a']);
+});
+
+test('SYSTEM 范围只允许系统所有权对象', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_system_reader', code: 'system_reader', name: '系统资源只读', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_system_settings',
+    tenantId: '*',
+    name: '系统设置集合',
+    kind: 'static',
+    objectTypes: ['system_setting'],
+    status: 'active',
+  });
+  await service.addObjectSetMember({
+    objectSetId: objectSet.id,
+    objectType: 'system_setting',
+    objectId: 'setting_builtin',
+    addedBy: 'system',
+  });
+  await service.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_system_reader',
+    roleId: 'role_system_reader',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createAccessGrant({
+    roleId: 'role_system_reader',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+
+  const subject = {
+    id: 'user_system_reader',
+    type: 'user' as const,
+    scope: { tenantScope: { type: 'SYSTEM' as const } },
+  };
+  assert.equal((await service.can(subject, 'read', {
+    objectType: 'system_setting',
+    objectId: 'setting_builtin',
+    ownerType: 'SYSTEM',
+  })).allowed, true);
+  assert.equal((await service.can(subject, 'read', {
+    objectType: 'system_setting',
+    objectId: 'setting_builtin',
+    tenantId: 'tenant_a',
+  })).allowed, false);
 });
 
 test('列表授权查询支持静态成员、动态条件和 deny 优先', async () => {
