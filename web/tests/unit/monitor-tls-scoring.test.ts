@@ -5,6 +5,7 @@ import {
   computeOverallScore,
   countRealTrustPathIssues,
   countUnsupportedTrustPaths,
+  TLS_SCORE_WEIGHTS,
 } from '@/views/monitoring/monitor-tls-scoring'
 
 function createSnapshot(overrides: Partial<TlsInspectionSnapshot> = {}): TlsInspectionSnapshot {
@@ -62,7 +63,7 @@ describe('TLS 深度探测评分口径', () => {
     expect(countRealTrustPathIssues(snapshot)).toBe(0)
     expect(countUnsupportedTrustPaths(snapshot)).toBe(1)
     expect(computeCertificateScore(snapshot, new Date('2026-08-08T00:00:00.000Z'))).toBe(100)
-    expect(computeOverallScore(snapshot)).toBe(100)
+    expect(computeOverallScore(snapshot, new Date('2026-08-08T00:00:00.000Z'))).toBe(99)
   })
 
   it('只在证书七天内到期时扣临期分', () => {
@@ -98,6 +99,32 @@ describe('TLS 深度探测评分口径', () => {
       },
     })
 
-    expect(computeOverallScore(snapshot)).toBe(90)
+    expect(computeOverallScore(snapshot, new Date('2026-08-08T00:00:00.000Z'))).toBe(94)
+  })
+
+  it('综合评分使用四个分项的加权平均，不直接取最低分', () => {
+    const snapshot = createSnapshot({
+      riskSummary: {
+        legacyProtocolEnabled: true,
+        weakCipherDetected: false,
+        tls13Supported: false,
+        hstsTooShort: false,
+        trustPathIssueCount: 0,
+        trustPathUnsupportedCount: 1,
+        simulationFailedCount: 0,
+        boundaryNotes: [],
+      },
+      protocols: [
+        { id: 'tls1_3', label: 'TLS 1.3', supported: false },
+        { id: 'tls1_2', label: 'TLS 1.2', supported: true },
+        { id: 'ssl3', label: 'SSL 3.0', supported: true },
+      ],
+    })
+
+    const score = computeOverallScore(snapshot, new Date('2026-08-08T00:00:00.000Z'))
+
+    expect(TLS_SCORE_WEIGHTS.certificate + TLS_SCORE_WEIGHTS.protocol + TLS_SCORE_WEIGHTS.keyExchange + TLS_SCORE_WEIGHTS.cipherStrength).toBe(1)
+    expect(score).toBe(76)
+    expect(score).toBeGreaterThan(60)
   })
 })

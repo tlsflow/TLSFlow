@@ -3,6 +3,13 @@ import { getExpiryCountdown } from '@/utils/browser-local-time'
 
 const REAL_TRUST_PATH_ISSUE_STATUSES = new Set(['untrusted', 'incomplete'])
 
+export const TLS_SCORE_WEIGHTS = {
+  certificate: 0.3,
+  protocol: 0.3,
+  keyExchange: 0.2,
+  cipherStrength: 0.2,
+} as const
+
 export function countRealTrustPathIssues(snapshot: TlsInspectionSnapshot): number {
   return snapshot.trustPaths.filter((item) => REAL_TRUST_PATH_ISSUE_STATUSES.has(item.status.toLowerCase())).length
 }
@@ -11,15 +18,17 @@ export function countUnsupportedTrustPaths(snapshot: TlsInspectionSnapshot): num
   return snapshot.trustPaths.filter((item) => item.status.toLowerCase() === 'unsupported').length
 }
 
-export function computeOverallScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  if (!current.riskSummary.tls13Supported) score -= 12
-  if (current.riskSummary.legacyProtocolEnabled) score -= 22
-  if (current.riskSummary.weakCipherDetected) score -= 24
-  if (current.riskSummary.hstsTooShort) score -= 8
-  score -= Math.min(countRealTrustPathIssues(current) * 10, 30)
-  score -= Math.min(current.riskSummary.simulationFailedCount * 2, 18)
-  if (current.status === 'failed') score = Math.min(score, 45)
+export function computeOverallScore(current: TlsInspectionSnapshot, now = new Date()): number {
+  const componentScores = {
+    certificate: computeCertificateScore(current, now),
+    protocol: computeProtocolScore(current),
+    keyExchange: computeKeyExchangeScore(current),
+    cipherStrength: computeCipherStrengthScore(current),
+  }
+  const score = Object.entries(TLS_SCORE_WEIGHTS).reduce(
+    (total, [key, weight]) => total + componentScores[key as keyof typeof componentScores] * weight,
+    0,
+  )
   return clampScore(score)
 }
 
