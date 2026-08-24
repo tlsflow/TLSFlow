@@ -4,7 +4,7 @@ create table if not exists pg_monitor_targets (
   service_asset_id text not null references pg_service_assets(id),
   metrics jsonb not null default '[]'::jsonb,
   interval_seconds integer not null check (interval_seconds > 0),
-  status text not null check (status in ('active', 'paused')),
+  status text not null,
   created_by text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
