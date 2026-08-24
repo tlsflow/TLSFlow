@@ -407,6 +407,53 @@ describe('安全 API 最小闭环', () => {
     });
     assert.equal(disabled.statusCode, 403);
   });
+  it('审计查询默认按创建时间从新到旧排序并支持分页', async () => {
+    const security = createSecurityServices();
+    await security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_audit_sort',
+      effect: 'allow',
+      actions: ['audit.read'],
+      resourceTypes: ['audit_sort_probe'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    await security.audit.write({
+      eventType: 'auth.login.success',
+      actorType: 'user',
+      actorId: 'user_old',
+      action: 'auth.login',
+      resourceType: 'audit_sort_probe',
+      result: 'success',
+      riskLevel: 'low',
+      context: { requestId: 'req_old' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await security.audit.write({
+      eventType: 'secret.created',
+      actorType: 'user',
+      actorId: 'user_new',
+      action: 'secret.create',
+      resourceType: 'audit_sort_probe',
+      result: 'success',
+      riskLevel: 'high',
+      context: { requestId: 'req_new' },
+    });
+
+    const app = createApp({ security });
+    const response = await app.inject({
+      method: 'GET',
+      path: '/api/v1/audit-events?resourceType=audit_sort_probe&page=1&pageSize=1',
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_audit_sort' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.body as { items: Array<{ actorId: string }>; page: number; pageSize: number; total: number };
+    assert.equal(body.page, 1);
+    assert.equal(body.pageSize, 1);
+    assert.equal(body.total, 2);
+    assert.equal(body.items.length, 1);
+    assert.equal(body.items[0]?.actorId, 'user_new');
+  });
 
   it('Secret 创建只返回元数据和 SecretRef，并写入审计', async () => {
     const security = createSecurityServices();

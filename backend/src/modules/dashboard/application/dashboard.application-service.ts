@@ -5,6 +5,9 @@ import type { BindingsRepository } from '../../bindings/repository/bindings.repo
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
+import type { AuditLogEntity } from '../../../persistence/entities/audit-log.entity.js';
+import type { DeploymentPlansRepository } from '../../deployment-plans/repository/deployment-plans.repository.js';
+import { buildAuditPresentationContext, emptyAuditPresentationContext, presentAuditLog, type AuditPresentationContext } from '../../audits/audit-presentation.service.js';
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
 
@@ -15,7 +18,10 @@ export interface DashboardApplicationDependencies {
   agents: AgentsRepository;
   gateways: GatewaysRepository;
   audit: AuditService;
+  deploymentPlans: DeploymentPlansRepository;
 }
+
+const DASHBOARD_AUDIT_LIMIT = 8;
 
 export class DashboardApplicationService {
   constructor(private readonly dependencies: DashboardApplicationDependencies) {}
@@ -52,6 +58,13 @@ export class DashboardApplicationService {
       bindingCountByVersionId: countBindingsByVersionId(bindings.items),
       nowIso: generatedAt,
     });
+    const auditContext = await buildAuditPresentationContext({
+      tenantId: input.tenantId,
+      auditLogs,
+      deploymentPlans: this.dependencies.deploymentPlans,
+      applicationAssets: applicationAssets.items,
+      bindings: bindings.items,
+    });
 
     return {
       generatedAt,
@@ -71,23 +84,134 @@ export class DashboardApplicationService {
         agents: agents.items,
         gateways: gateways.items,
       }),
-      recentAudits: auditLogs
-        .slice()
-        .sort((left, right) => compareTimeDesc(left.createdAt, right.createdAt))
-        .slice(0, 8)
-        .map((log) => ({
-          id: log.id,
-          eventType: log.eventType,
-          actorId: log.actorId,
-          action: log.action,
-          resourceType: log.resourceType,
-          resourceId: log.resourceId,
-          result: log.result,
-          requestId: log.requestId,
-          createdAt: log.createdAt,
-        })),
+      recentAudits: buildRecentDashboardAudits(auditLogs, auditContext),
     };
   }
+}
+
+export function buildRecentDashboardAudits(auditLogs: AuditLogEntity[], context: AuditPresentationContext = emptyAuditPresentationContext()): DashboardOverview['recentAudits'] {
+  return selectDashboardAuditLogs(auditLogs
+    .filter(shouldShowOnDashboardAudits)
+    .slice())
+    .map((log) => {
+      const presented = presentAuditLog(log, context);
+      return {
+        id: presented.id,
+        eventType: presented.eventType,
+        actorType: presented.actorType,
+        actorId: presented.actorId,
+        action: presented.action,
+        resourceType: presented.resourceType,
+        resourceId: presented.resourceId,
+        result: presented.result,
+        riskLevel: presented.riskLevel,
+        requestId: presented.requestId,
+        detail: presented.detail,
+        summary: presented.summary,
+        createdAt: presented.createdAt,
+      };
+    });
+}
+
+function selectDashboardAuditLogs(logs: AuditLogEntity[]): AuditLogEntity[] {
+  const selected: AuditLogEntity[] = [];
+  const selectedIds = new Set<string>();
+  const selectedGroups = new Set<string>();
+  const byPriority = logs.slice().sort(compareDashboardAuditPriority);
+  const byTime = logs.slice().sort(compareTimeDescByCreatedAt);
+
+  for (const log of byPriority) {
+    if (selected.length >= Math.min(4, DASHBOARD_AUDIT_LIMIT)) break;
+    trySelectDashboardAudit(log, selected, selectedIds, selectedGroups, false);
+  }
+  for (const log of byTime) {
+    if (selected.length >= DASHBOARD_AUDIT_LIMIT) break;
+    trySelectDashboardAudit(log, selected, selectedIds, selectedGroups, false);
+  }
+  for (const log of byTime) {
+    if (selected.length >= DASHBOARD_AUDIT_LIMIT) break;
+    trySelectDashboardAudit(log, selected, selectedIds, selectedGroups, true);
+  }
+
+  return selected.sort(compareTimeDescByCreatedAt);
+}
+
+function trySelectDashboardAudit(
+  log: AuditLogEntity,
+  selected: AuditLogEntity[],
+  selectedIds: Set<string>,
+  selectedGroups: Set<string>,
+  allowSameGroup: boolean,
+): void {
+  if (selectedIds.has(log.id)) return;
+  const group = dashboardAuditDiversityKey(log);
+  if (!allowSameGroup && selectedGroups.has(group)) return;
+  selectedIds.add(log.id);
+  selectedGroups.add(group);
+  selected.push(log);
+}
+
+function dashboardAuditDiversityKey(log: AuditLogEntity): string {
+  return [log.eventType, log.action, log.resourceType, log.result].join('|');
+}
+
+function shouldShowOnDashboardAudits(log: AuditLogEntity): boolean {
+  return !isSuccessfulSecretHealthCheck(log);
+}
+
+function compareDashboardAuditPriority(left: AuditLogEntity, right: AuditLogEntity): number {
+  const priorityDiff = dashboardAuditPriority(right) - dashboardAuditPriority(left);
+  if (priorityDiff !== 0) return priorityDiff;
+  return compareTimeDescByCreatedAt(left, right);
+}
+
+function compareTimeDescByCreatedAt(left: AuditLogEntity, right: AuditLogEntity): number {
+  return compareTimeDesc(left.createdAt, right.createdAt);
+}
+
+function dashboardAuditPriority(log: AuditLogEntity): number {
+  let score = 0;
+  if (log.result === 'denied') score += 1200;
+  if (log.result === 'failure') score += 1100;
+  if (log.actorType === 'user') score += 500;
+  if (log.riskLevel === 'critical') score += 450;
+  if (log.riskLevel === 'high') score += 320;
+  if (log.riskLevel === 'medium') score += 80;
+  if (isKeyBusinessAudit(log)) score += 260;
+  if (isNonHealthCheckSecretRead(log)) score += 240;
+  if (isChangeAudit(log)) score += 140;
+  return score;
+}
+
+function isSuccessfulSecretHealthCheck(log: AuditLogEntity): boolean {
+  return log.eventType === 'secret.used'
+    && log.result === 'success'
+    && readDetailString(log.detail, 'purpose') === 'secret.health_check';
+}
+
+function isNonHealthCheckSecretRead(log: AuditLogEntity): boolean {
+  return log.eventType === 'secret.used'
+    && readDetailString(log.detail, 'purpose') !== 'secret.health_check';
+}
+
+function isKeyBusinessAudit(log: AuditLogEntity): boolean {
+  return startsWithAny(log.eventType, ['deployment.', 'approval.', 'certificate.', 'permission.', 'security.'])
+    || startsWithAny(log.action, ['deployment.', 'approval.', 'certificate.', 'permission.', 'security.'])
+    || startsWithAny(log.resourceType, ['deployment', 'approval', 'certificate', 'permission', 'security']);
+}
+
+function isChangeAudit(log: AuditLogEntity): boolean {
+  return /(?:^|\.)(create|created|update|updated|delete|deleted|execute|executed|approve|approved|reject|rejected|rotate|rotated|import|imported|rollback|sync|synced)(?:\.|$)/.test(`${log.action}.${log.eventType}`);
+}
+
+function startsWithAny(value: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => value.startsWith(prefix));
+}
+
+function readDetailString(detail: unknown, key: string): string | undefined {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
+  const value = (detail as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function buildStatusGroups(input: {

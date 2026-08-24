@@ -2,11 +2,14 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { HttpRequest } from '../../common/http/http-types.js';
 import type { Router } from '../../common/http/router.js';
 import type { RouteContract } from '../../common/openapi/route-contract.js';
+import { parsePageQuery } from '../../common/pagination/pagination.js';
 import { validateObject } from '../../common/validation/schema-validation.js';
+import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
 import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject } from '../../shared/security-types.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
+import type { PresentedAuditLog } from '../audits/audit-presentation.service.js';
 import { ExecutionGrantService } from '../executions/execution-grant.service.js';
 import { RBACService } from '../rbac/rbac.service.js';
 import { CryptoService } from '../secrets/crypto.service.js';
@@ -24,6 +27,10 @@ export interface SecurityServices {
   externalIdentity: ExternalIdentityService;
 }
 
+export interface AuditPresentationPort {
+  present(tenantId: string, auditLogs: AuditLogEntity[]): Promise<PresentedAuditLog[]>;
+}
+
 export function createSecurityServices(): SecurityServices {
   const audit = new AuditService();
   const approvals = new ApprovalService(undefined, audit);
@@ -36,7 +43,10 @@ export function createSecurityServices(): SecurityServices {
 }
 
 export class SecurityController {
-  constructor(private readonly services: SecurityServices = createSecurityServices()) {}
+  constructor(
+    private readonly services: SecurityServices = createSecurityServices(),
+    private readonly auditPresentation?: AuditPresentationPort,
+  ) {}
 
   register(router: Router): void {
     router.post('/api/v1/auth/login', '鐧诲綍', ['Auth'], (request) => this.login(request));
@@ -245,6 +255,11 @@ export class SecurityController {
 
   private async queryAudits(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
+    const pageQuery = parsePageQuery(request.query, {
+      allowedSortFields: ['createdAt', 'result', 'riskLevel', 'eventType', 'actorId', 'resourceType'],
+      defaultPageSize: 50,
+      maxPageSize: 200,
+    });
     const items = await this.services.audit.queryWithPermission({
       subject,
       query: {
@@ -258,11 +273,16 @@ export class SecurityController {
       context: this.securityContext(request, subject),
       assertCan: this.services.rbac.assertCan.bind(this.services.rbac),
     });
+    const presentedItems = this.auditPresentation
+      ? await this.auditPresentation.present(request.context.tenantId ?? '', items)
+      : items;
+    const sortedItems = sortAuditItems(presentedItems, pageQuery.sort ?? { field: 'createdAt', direction: 'desc' });
+    const start = (pageQuery.page - 1) * pageQuery.pageSize;
     return {
-      items,
-      page: 1,
-      pageSize: 200,
-      total: (await this.services.audit.query()).length,
+      items: sortedItems.slice(start, start + pageQuery.pageSize),
+      page: pageQuery.page,
+      pageSize: pageQuery.pageSize,
+      total: sortedItems.length,
     };
   }
 
@@ -703,6 +723,30 @@ export class SecurityController {
 
 function page<T>(items: T[]) {
   return { items, page: 1, pageSize: 20, total: items.length };
+}
+
+function sortAuditItems<T extends AuditLogEntity>(items: T[], sort: { field: string; direction: 'asc' | 'desc' }): T[] {
+  const direction = sort.direction === 'asc' ? 1 : -1;
+  return [...items].sort((left, right) => compareAuditField(left, right, sort.field) * direction);
+}
+
+function compareAuditField(left: AuditLogEntity, right: AuditLogEntity, field: string): number {
+  if (field === 'createdAt') return toTime(left.createdAt) - toTime(right.createdAt);
+  return String(readAuditField(left, field) ?? '').localeCompare(String(readAuditField(right, field) ?? ''));
+}
+
+function readAuditField(item: AuditLogEntity, field: string): unknown {
+  return (item as unknown as Record<string, unknown>)[field];
+}
+
+function toTime(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 function toStringArray(value: unknown, field: string): string[] {

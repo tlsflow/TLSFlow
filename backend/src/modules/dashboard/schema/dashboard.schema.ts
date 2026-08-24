@@ -45,12 +45,16 @@ export interface DashboardCertificateStatusItem {
 export interface DashboardAuditItem {
   id: string;
   eventType: string;
+  actorType: string;
   actorId: string;
   action: string;
   resourceType: string;
   resourceId?: string;
   result: string;
+  riskLevel: string;
   requestId?: string;
+  detail?: unknown;
+  summary?: string;
   createdAt: string;
 }
 

@@ -20,6 +20,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
+import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
@@ -115,7 +116,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);
-  new SecurityController(security).register(app.router);
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
@@ -152,6 +152,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificatesApp: certificateServices.certificates,
   }));
   deploymentPlans.register(app.router);
+  new SecurityController(security, new AuditPresentationService({
+    deploymentPlans: deploymentPlans.getRepository(),
+    assets: assetsService.getRepository(),
+    bindings: bindingsService.getRepository(),
+    secrets: security.secrets,
+    certificates: certificateServices.certificates.getRepository(),
+  })).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
   executionResultSync.setContinuationRunner(({ runId, actorId, tenantId }) =>
     executionsService.runDispatchedExecution(runId, actorId, tenantId, executorRegistry),
@@ -196,6 +203,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService.getRepository(),
     gateways: gatewaysService.getRepository(),
     audit: security.audit,
+    deploymentPlans: deploymentPlans.getRepository(),
   })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
 

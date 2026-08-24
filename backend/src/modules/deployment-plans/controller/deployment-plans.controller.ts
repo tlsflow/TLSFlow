@@ -9,6 +9,7 @@ import type { ExecutionsApplicationService } from '../../executions/application/
 import type { FallbackSuggestion } from '../../gateway-agents/gateway-agent.types.js';
 import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
+import type { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 
 export class DeploymentPlansController {
   private readonly service: DeploymentPlansApplicationService;
@@ -19,6 +20,10 @@ export class DeploymentPlansController {
 
   getExecutionsService(): ExecutionsApplicationService {
     return this.service.getExecutionsService();
+  }
+
+  getRepository(): DeploymentPlansRepository {
+    return this.service.getRepository();
   }
 
   register(router: Router): void {
