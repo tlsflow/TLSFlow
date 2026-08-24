@@ -191,7 +191,6 @@ export default {
       feed: {
         completed: 'Выполнение завершено',
         failed: 'Выполнение завершилось ошибкой',
-        failedFriendly: 'Этот шаг не удалось завершить. Откройте подробности, чтобы узнать причину.',
         warning: 'Завершено с предупреждениями'
       },
       loading: {
@@ -260,6 +259,7 @@ export default {
       subtitle: {
         completed: 'Задача завершена.',
         failed: 'Задача завершена, но вернула ошибку.',
+        failedFriendly: 'Этот шаг не удалось завершить. Откройте подробности, чтобы узнать причину.',
         failedChecks: 'Проверок: {total}, ошибок: {failed}',
         passedChecks: 'Проверок пройдено: {total}',
         queued: 'Задача создана и ожидает выполнения.',
@@ -2603,9 +2603,6 @@ export default {
         credential: 'Учетные данные рабочего процесса',
         certificate: 'Артефакт сертификата',
         targetPlatform: 'Целевая платформа',
-        verifyHost: 'Хост проверки',
-        verifyPort: 'Порт проверки',
-        verifyPath: 'Путь проверки',
         apacheServiceName: 'Имя службы Apache systemd',
         apacheSiteConfigPath: 'Путь конфигурации сайта Apache',
         certificateFilePath: 'Целевой путь сертификата',

@@ -191,7 +191,6 @@ export default {
       feed: {
         completed: 'Execução concluída',
         failed: 'Execução com falha',
-        failedFriendly: 'Não foi possível concluir esta etapa. Abra os detalhes para ver o motivo.',
         warning: 'Concluída com avisos'
       },
       loading: {
@@ -260,6 +259,7 @@ export default {
       subtitle: {
         completed: 'A tarefa foi concluída.',
         failed: 'A tarefa terminou, mas retornou resultado de falha.',
+        failedFriendly: 'Não foi possível concluir esta etapa. Abra os detalhes para ver o motivo.',
         failedChecks: '{total} verificações, {failed} com falha',
         passedChecks: '{total} verificações aprovadas',
         queued: 'A tarefa foi criada e aguarda execução.',
@@ -2603,9 +2603,6 @@ export default {
         credential: 'Credencial do workflow',
         certificate: 'Artefato de certificado',
         targetPlatform: 'Plataforma de destino',
-        verifyHost: 'Host de verificação',
-        verifyPort: 'Porta de verificação',
-        verifyPath: 'Caminho de verificação',
         apacheServiceName: 'Nome do serviço systemd do Apache',
         apacheSiteConfigPath: 'Caminho da configuração do site Apache',
         certificateFilePath: 'Caminho de destino do certificado',

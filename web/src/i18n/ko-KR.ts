@@ -191,7 +191,6 @@ export default {
       feed: {
         completed: '실행 완료',
         failed: '실행 실패',
-        failedFriendly: '이 단계를 완료하지 못했습니다. 자세한 기록에서 원인을 확인하세요.',
         warning: '완료, 경고와 함께'
       },
       loading: {
@@ -260,6 +259,7 @@ export default {
       subtitle: {
         completed: '임무를 이미 완수하였다.',
         failed: '작업이 끝났지만 실패한 결과를 반환했습니다.',
+        failedFriendly: '이 단계를 완료하지 못했습니다. 자세한 기록에서 원인을 확인하세요.',
         failedChecks: '{total} 항목 검사, {failed} 항목 실패',
         passedChecks: '{total} 항목 검사 통과',
         queued: '작업이 생성되었습니다. 대기 중입니다.',
@@ -2603,9 +2603,6 @@ export default {
         credential: '업무 흐름 자격 증명',
         certificate: '인증서 아티팩트',
         targetPlatform: '대상 플랫폼',
-        verifyHost: '검증호스트',
-        verifyPort: '포트 인증',
-        verifyPath: '검증경로',
         apacheServiceName: 'Apache systemd 서비스명',
         apacheSiteConfigPath: 'Apache 사이트 설정 경로',
         certificateFilePath: '인증서 대상 경로',

@@ -191,7 +191,6 @@ export default {
       feed: {
         completed: 'Execution completed',
         failed: 'Execution failed',
-        failedFriendly: 'Cette étape n’a pas pu être terminée. Ouvrez les détails pour connaître la cause.',
         warning: 'Completed with warnings'
       },
       loading: {
@@ -260,6 +259,7 @@ export default {
       subtitle: {
         completed: 'The task has completed.',
         failed: 'The task ended with a failed result.',
+        failedFriendly: 'Cette étape n’a pas pu être terminée. Ouvrez les détails pour connaître la cause.',
         failedChecks: '{total} checks, {failed} failed',
         passedChecks: '{total} checks passed',
         queued: 'The task has been created and is waiting to run.',
@@ -2673,9 +2673,6 @@ export default {
         credential: 'Workflow credential',
         certificate: 'Certificate artifact',
         targetPlatform: 'Target platform',
-        verifyHost: 'Verification host',
-        verifyPort: 'Verification port',
-        verifyPath: 'Verification path',
         apacheServiceName: 'Apache systemd service name',
         apacheSiteConfigPath: 'Apache site config path',
         certificateFilePath: 'Certificate destination path',

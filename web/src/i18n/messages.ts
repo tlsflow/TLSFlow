@@ -2372,7 +2372,7 @@ const zhCN = {
       certificateDescription: '证书版本由部署计划选择，应用资产在下方绑定格式配置和输出项，运行时注入 {name}.outputs.*.content。',
       presets: {
         deviceHost: '目标主机或设备地址', sshUsername: 'SSH 用户名', credential: '工作流凭据', certificate: '证书产物', targetPlatform: '目标平台',
-        verifyHost: '验证主机', verifyPort: '验证端口', verifyPath: '验证路径', apacheServiceName: 'Apache systemd 服务名',
+        apacheServiceName: 'Apache systemd 服务名',
         apacheSiteConfigPath: 'Apache 站点配置路径', certificateFilePath: '证书目的路径', certificateKeyFilePath: '私钥目的路径',
         backupRoot: '证书备份根目录', expectedResponseContains: '验证响应包含文本', virtualHostServerName: '虚拟主机 ServerName'
       }
@@ -5521,7 +5521,7 @@ const enUS = {
       certificateDescription: 'The certificate version is selected by the deployment plan. Bind format config and outputs below; {name}.outputs.*.content is injected at runtime.',
       presets: {
         deviceHost: 'Target host or device address', sshUsername: 'SSH user name', credential: 'Workflow credential', certificate: 'Certificate artifact', targetPlatform: 'Target platform',
-        verifyHost: 'Verification host', verifyPort: 'Verification port', verifyPath: 'Verification path', apacheServiceName: 'Apache systemd service name',
+        apacheServiceName: 'Apache systemd service name',
         apacheSiteConfigPath: 'Apache site config path', certificateFilePath: 'Certificate destination path', certificateKeyFilePath: 'Private key destination path',
         backupRoot: 'Certificate backup root', expectedResponseContains: 'Expected response contains text', virtualHostServerName: 'VirtualHost ServerName'
       }

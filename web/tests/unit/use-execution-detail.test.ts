@@ -85,4 +85,42 @@ describe('useExecutionDetail', () => {
 
     wrapper.unmount()
   })
+
+  it('dry-run 失败时优先展示真实错误而不是通用等待文案', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-dry-run-failed',
+      data: {
+        items: [{
+          id: 'step-atomic-failed',
+          name: 'CUSTOM target-1',
+          status: 'FAILED',
+          lastErrorCode: 'VALIDATION_FAILED',
+          lastErrorMessage: 'Agent task 缺少 actionType/type，不能直连执行',
+          inputSnapshot: { dryRun: true },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({
+      id: 'run-dry-run-failed',
+      raw: { id: 'run-dry-run-failed', status: 'FAILED' },
+    })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => {
+      expect(detail?.steps.value).toHaveLength(1)
+    })
+    expect(detail?.steps.value[0]?.detail).toContain('VALIDATION_FAILED')
+    expect(detail?.steps.value[0]?.detail).toContain('Agent task 缺少 actionType/type，不能直连执行')
+    expect(detail?.steps.value[0]?.detail).not.toContain('dryRunPending.failed')
+
+    wrapper.unmount()
+  })
 })

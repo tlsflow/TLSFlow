@@ -190,7 +190,6 @@ export default {
       feed: {
         completed: "執行完成",
         failed: "執行失敗",
-        failedFriendly: "此步驟未能完成，請展開詳細記錄查看原因。",
         warning: "完成，帶警告"
       },
       loading: {
@@ -259,6 +258,7 @@ export default {
       subtitle: {
         completed: "任務已完成。",
         failed: "任務已結束，但返回了失敗結果。",
+        failedFriendly: "此步驟未能完成，請展開詳細記錄查看原因。",
         failedChecks: "{total} 項檢查，{failed} 項失敗",
         passedChecks: "{total} 項檢查通過",
         queued: "任務已建立，等待執行。",
@@ -2628,9 +2628,6 @@ export default {
         credential: "工作流憑據",
         certificate: "憑證產物",
         targetPlatform: "目標平台",
-        verifyHost: "驗證主機",
-        verifyPort: "驗證埠",
-        verifyPath: "驗證路徑",
         apacheServiceName: "Apache systemd 服務名",
         apacheSiteConfigPath: "Apache 站點設定路徑",
         certificateFilePath: "憑證目的路徑",

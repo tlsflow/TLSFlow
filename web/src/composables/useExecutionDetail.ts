@@ -464,6 +464,12 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
     return text('executionDetail.step.dryRunCheckSummary', { passed, warning, failed, unknown, topChecks })
   }
 
+  if (['FAILED', 'TIMEOUT', 'CANCELLED'].includes(stepStatus)) {
+    const code = lastErrorCode || resultErrorCode || stringValue(readPath(failureDetail ?? {}, 'errorCode'), 'STEP_FAILED')
+    const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
+    return `${code}: ${message}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
+  }
+
   if (readPath(record, 'inputSnapshot.dryRun') === true) {
     const pendingText = stepStatus === 'PENDING' || stepStatus === 'DISPATCHED'
       ? text('executionDetail.step.dryRunPending.queued')
@@ -488,12 +494,6 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
       })
     }
     return text('executionDetail.step.dryRunCreated', { pendingText })
-  }
-
-  if (['FAILED', 'TIMEOUT', 'CANCELLED'].includes(stepStatus)) {
-    const code = lastErrorCode || resultErrorCode || stringValue(readPath(failureDetail ?? {}, 'errorCode'), 'STEP_FAILED')
-    const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
-    return `${code}: ${message}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
   }
 
   if (stepStatus === 'RUNNING') {

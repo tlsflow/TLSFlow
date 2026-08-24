@@ -203,9 +203,6 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
   { name: 'credential', type: 'credential', descriptionKey: 'assets.workflowVariables.presets.credential' },
   { name: 'certificate', type: 'certificate', descriptionKey: 'assets.workflowVariables.presets.certificate' },
   { name: 'targetPlatform', type: 'enum', descriptionKey: 'assets.workflowVariables.presets.targetPlatform' },
-  { name: 'verifyHost', type: 'string', descriptionKey: 'assets.workflowVariables.presets.verifyHost' },
-  { name: 'verifyPort', type: 'number', descriptionKey: 'assets.workflowVariables.presets.verifyPort' },
-  { name: 'verifyPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.verifyPath' },
   { name: 'apacheServiceName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheServiceName' },
   { name: 'apacheSiteConfigPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheSiteConfigPath' },
   { name: 'certificateFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateFilePath' },
@@ -1807,10 +1804,9 @@ function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): st
 }
 
 function suggestedAssetVariableValue(name: string): string | undefined {
-  if (name === 'deviceHost' || name === 'verifyHost') return assetDraft.address.trim()
-  if (name === 'verifyPort' || name === 'port') return assetDraft.port.trim()
+  if (name === 'deviceHost') return assetDraft.address.trim()
+  if (name === 'port') return assetDraft.port.trim()
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
-  if (name === 'verifyPath') return '/'
   if (name === 'targetPlatform') return assetDraft.platform.toLowerCase()
   if (name === 'frameworkType') return assetDraft.frameworkType
   if (name === 'siteName') return String(selectedSiteAsset.value?.siteName ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'siteAsset', 'siteName']) ?? '').trim()

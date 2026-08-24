@@ -191,7 +191,6 @@ export default {
       feed: {
         completed: '実行完了',
         failed: '実行失敗',
-        failedFriendly: 'この手順を完了できませんでした。詳細を開いて原因を確認してください。',
         warning: '警告付きで完了'
       },
       loading: {
@@ -260,6 +259,7 @@ export default {
       subtitle: {
         completed: 'タスクは完了しました。',
         failed: 'タスク終了済み、但戻る了失敗結果。',
+        failedFriendly: 'この手順を完了できませんでした。詳細を開いて原因を確認してください。',
         failedChecks: '{total} 件チェック、{failed} 件に失敗しました',
         passedChecks: '{total} 件チェック合格',
         queued: 'タスクは作成済みです。実行を待っています。',
@@ -2629,9 +2629,6 @@ export default {
         credential: 'ワークフロー認証情報',
         certificate: '証明書成果物',
         targetPlatform: 'ターゲットプラットフォーム',
-        verifyHost: '検証ホスト',
-        verifyPort: '検証ポート',
-        verifyPath: '検証パス',
         apacheServiceName: 'Apache systemd サービス名',
         apacheSiteConfigPath: 'Apache サイト設定パス',
         certificateFilePath: '証明書目のパス',
