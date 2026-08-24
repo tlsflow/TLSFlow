@@ -119,7 +119,9 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
       pluginId,
-      version: incrementPatchVersion(workflow.metadata.version),
+      // Workflow DSL 的 metadata.version 就是该内置 Workflow 插件的发布版本。
+      // 这里不能运行时隐式递增，否则源码版本、包台账和数据库版本会互相漂移。
+      version: workflow.metadata.version,
       displayNameKey: `${localeKey}.name`,
       descriptionKey: `${localeKey}.description`,
       logoUrl: workflow.metadata.logoUrl,

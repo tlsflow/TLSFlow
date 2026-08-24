@@ -5,7 +5,7 @@
     "name": "synology-dsm-cert-import",
     "displayName": "更新Synology DSM 证书",
     "description": "通过 Synology DSM WebAPI 导入证书并迁移现有服务绑定。",
-    "version": "1.2.1",
+    "version": "1.2.3",
     "logoUrl": "/plugin-logos/synology.svg",
     "platforms": ["synology-dsm"],
     "updateMethods": ["curl"],

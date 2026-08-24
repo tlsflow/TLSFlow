@@ -5,7 +5,7 @@
     "name": "apache-8444-cert-switch",
     "displayName": "SSH更新Apache站点证书",
     "description": "通过 SSH 更新 Apache 证书文件并验证 8444 HTTPS 服务。",
-    "version": "1.2.3",
+    "version": "1.2.5",
     "logoUrl": "/plugin-logos/apache-wordmark.svg",
     "platforms": ["linux"],
     "updateMethods": ["ssh"],
