@@ -46,7 +46,20 @@ export interface UnifiedPluginManifestV1 {
     presentations?: Record<string, string>;
     locales?: Record<string, string>;
     discoveryMappings?: Record<string, string>;
+    actionAliases?: Record<string, string>;
   };
+}
+
+export interface PluginActionAliasDescriptorV1 {
+  actionType: string;
+  capabilityKey: string;
+  inputContract: string;
+}
+
+export interface PluginActionAliasesV1 {
+  apiVersion: 'gcac.plugin-action-aliases/v1';
+  kind: 'PluginActionAliases';
+  aliases: PluginActionAliasDescriptorV1[];
 }
 
 export interface UnifiedPluginVersionRecord {

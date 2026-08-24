@@ -6,6 +6,7 @@ import type { HostDto, ManagedTargetDto } from '../assets/dto/assets.dto.js';
 import { ManagedTargetContextResolver, type ManagedTargetAssetsPort, type ResolvedManagedTargetContext } from '../assets/application/managed-target-context.resolver.js';
 import { createBuiltinDeploymentDriverRegistry } from '../deployment-plans/application/deployment-driver.registry.js';
 import { AgentExecutorAdapter, createDefaultExecutorRegistry } from './application/executors.js';
+import { AppError } from '../../common/errors/app-error.js';
 
 const now = '2026-07-30T00:00:00.000Z';
 
@@ -49,9 +50,9 @@ test('T06 不支持的 Agent Action Schema 必须在入队前失败关闭', asyn
   assert.equal(queue.directCount(), 0);
 });
 
-test('T07 无 Assignment 的历史 Action 必须拒绝且不入队', { todo: '034.1-T07' }, async () => {
+test('T07 无统一输入的历史 Action 必须要求重建计划且不入队', async () => {
   const queue = createAgentQueueProbe();
-  const result = await new AgentExecutorAdapter(queue.agents).executeStep(stepInput({
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never, {} as never).executeStep(stepInput({
     type: 'windows.iis.deploy_certificate',
   }));
 
@@ -59,6 +60,46 @@ test('T07 无 Assignment 的历史 Action 必须拒绝且不入队', { todo: '03
   assert.equal(result.errorCode, 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED');
   assert.equal(queue.enqueueCount(), 0);
   assert.equal(queue.directCount(), 0);
+});
+
+test('T07 无 Assignment 的历史 Action 必须拒绝且不入队', async () => {
+  const queue = createAgentQueueProbe();
+  const resolver = { resolve: async () => { throw new AppError('HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED', 'fixture'); } };
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never, resolver as never).executeStep(stepInput({
+    type: 'windows.iis.deploy_certificate',
+    resolvedDeploymentInput: resolvedInput(),
+  }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED');
+  assert.equal(queue.enqueueCount(), 0);
+  assert.equal(queue.directCount(), 0);
+});
+
+test('T07 可转换历史 Action 只能作为带迁移审计的 Atomic Plan 入队', async () => {
+  let payload: Record<string, unknown> | undefined;
+  const queue = createAgentQueueProbe((value) => { payload = value; });
+  const resolver = { resolve: async () => ({
+    originalActionType: 'linux.nginx.deploy_certificate',
+    alias: { actionType: 'linux.nginx.deploy_certificate', capabilityKey: 'certificate.deploy', inputContract: 'certificate.deploy.v1' },
+    capability: { pluginVersionId: 'plugin-version-fixture', binding: { id: 'binding-fixture' } },
+  }) };
+  const compiler = { compile: async () => ({ apiVersion: 'gcac.agent-plan/v1', planId: 'plan-fixture', authorization: { keyId: 'key-fixture', signature: 'signature-fixture' } }) };
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, compiler as never, resolver as never).executeStep(stepInput({
+    type: 'linux.nginx.deploy_certificate',
+    resolvedDeploymentInput: resolvedInput(),
+    privateKeyPem: 'must-not-forward',
+  }));
+
+  assert.equal(result.success, true);
+  assert.equal(payload?.actionType, 'agent.atomic_plan.execute');
+  assert.equal(payload?.actionSchemaVersion, '1.0');
+  assert.equal('privateKeyPem' in (payload ?? {}), false);
+  const audit = payload?.historicalActionMigration as Record<string, unknown>;
+  assert.equal(audit.originalActionType, 'linux.nginx.deploy_certificate');
+  assert.match(String(audit.planSha256), /^sha256:[a-f0-9]{64}$/);
+  assert.equal(queue.enqueueCount(), 1);
+  assert.equal(queue.directCount(), 1);
 });
 
 test('T08 默认生产执行器注册表不得注册 Legacy SCRIPT_PACKAGE', { todo: '034.1-T08' }, () => {
@@ -87,7 +128,7 @@ test('T10 未知 Framework 不得被宿主固定列表拒绝', { todo: '034.1-T1
   assert.doesNotThrow(() => registry.resolve(driverContext('runtime.fixture')));
 });
 
-function createAgentQueueProbe(): {
+function createAgentQueueProbe(onEnqueue?: (payload: Record<string, unknown>) => void): {
   agents: AgentsApplicationService;
   enqueueCount(): number;
   directCount(): number;
@@ -95,8 +136,9 @@ function createAgentQueueProbe(): {
   let enqueued = 0;
   let direct = 0;
   const agents = {
-    enqueueDirectTask: async () => {
+    enqueueDirectTask: async (_tenantId: string, input: { payload: Record<string, unknown> }) => {
       enqueued += 1;
+      onEnqueue?.(input.payload);
       return { id: 'task_fixture', status: 'acked' };
     },
     executeTaskDirect: async () => {
@@ -105,6 +147,21 @@ function createAgentQueueProbe(): {
     },
   } as unknown as AgentsApplicationService;
   return { agents, enqueueCount: () => enqueued, directCount: () => direct };
+}
+
+function resolvedInput() {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1', contractVersion: 'gcac.deployment-input-contract/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_fixture', address: 'fixture.example.com', serverName: 'fixture.example.com', port: 443, protocol: 'HTTPS' },
+      host: { id: 'host_fixture', osType: 'LINUX' },
+      target: { id: 'target_fixture', type: 'tls.binding', key: 'fixture', metadata: { frameworkType: 'web.nginx' } },
+      deployment: { targets: [], certificateResourceName: 'fixture-certificate' },
+    },
+    variables: {}, connections: {}, credentials: {}, artifacts: {}, provenance: {}, sensitivePaths: [], issues: [], executable: true,
+    resolvedSha256: 'sha256:fixture',
+  };
 }
 
 function stepInput(snapshot: Record<string, unknown>) {

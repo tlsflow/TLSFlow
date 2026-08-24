@@ -69,6 +69,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       presentations: readStringMap(resources.presentations),
       locales: readStringMap(resources.locales),
       discoveryMappings: readStringMap(resources.discoveryMappings),
+      actionAliases: readStringMap(resources.actionAliases),
     },
   };
 }
@@ -123,7 +124,7 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  for (const key of ['workflows', 'agentRecipes', 'forms', 'presentations', 'locales', 'discoveryMappings']) {
+  for (const key of ['workflows', 'agentRecipes', 'forms', 'presentations', 'locales', 'discoveryMappings', 'actionAliases']) {
     readStringMap(resources[key], `resources.${key}`);
   }
 }

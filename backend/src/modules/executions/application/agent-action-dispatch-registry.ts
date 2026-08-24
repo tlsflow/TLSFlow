@@ -90,13 +90,6 @@ export class AgentActionDispatchRegistry {
 export function defaultAgentActionDispatchDescriptors(): AgentActionDispatchDescriptor[] {
   return [
     {
-      actionType: 'certificate.deploy',
-      aliases: ['windows.iis.deploy_certificate', 'linux.nginx.deploy_certificate'],
-      mode: 'direct_required',
-      kind: 'HISTORICAL_PLUGIN_ALIAS',
-      contract: { schemaVersions: ['legacy'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: true },
-    },
-    {
       actionType: 'agent.atomic_plan.execute',
       aliases: [],
       mode: 'direct_required',

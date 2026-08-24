@@ -131,7 +131,9 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
       pluginId: agentManifest.pluginId,
-      version: incrementPatchVersion(agentManifest.version),
+      version: hasHistoricalActionAlias(agentManifest.pluginId)
+        ? incrementPatchVersion(incrementPatchVersion(agentManifest.version))
+        : incrementPatchVersion(agentManifest.version),
       displayNameKey: `${localeKey}.name`,
       descriptionKey: `${localeKey}.description`,
       logoUrl: agentManifest.metadata?.logoUrl,
@@ -158,12 +160,22 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       },
       resources: {
         agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
+        ...(hasHistoricalActionAlias(agentManifest.pluginId) ? { actionAliases: { certificateDeploy: 'action-aliases/certificate-deploy.json' } } : {}),
         locales: localeResources.paths,
       },
     };
-    const resources = { [resourcePath]: recipe, ...localeResources.contents };
+    const aliasResource = agentManifest.pluginId === 'builtin.linux.nginx.pem'
+      ? { apiVersion: 'gcac.plugin-action-aliases/v1', kind: 'PluginActionAliases', aliases: [{ actionType: 'linux.nginx.deploy_certificate', capabilityKey: 'certificate.deploy', inputContract: 'certificate.deploy.v1' }] }
+      : agentManifest.pluginId === 'builtin.windows.iis.pfx'
+        ? { apiVersion: 'gcac.plugin-action-aliases/v1', kind: 'PluginActionAliases', aliases: [{ actionType: 'windows.iis.deploy_certificate', capabilityKey: 'certificate.deploy', inputContract: 'certificate.deploy.v1' }] }
+        : undefined;
+    const resources = { [resourcePath]: recipe, ...(aliasResource ? { 'action-aliases/certificate-deploy.json': JSON.stringify(aliasResource) } : {}), ...localeResources.contents };
     return { manifest, resources, packageContent: JSON.stringify({ manifest, resources }) };
   });
+}
+
+function hasHistoricalActionAlias(pluginId: string): boolean {
+  return pluginId === 'builtin.linux.nginx.pem' || pluginId === 'builtin.windows.iis.pfx';
 }
 
 interface BuiltinLocaleResources {
