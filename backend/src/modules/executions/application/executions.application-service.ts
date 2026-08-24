@@ -34,6 +34,8 @@ export interface ExecutionsApplicationDependencies {
   executorRegistry?: ExecutorRegistry;
   resultSync?: ExecutionResultSyncService;
   detailStream?: ExecutionDetailStreamService;
+  stageIntervalMs?: number;
+  delay?: (milliseconds: number) => Promise<void>;
 }
 
 export class ExecutionsApplicationService {
@@ -49,6 +51,8 @@ export class ExecutionsApplicationService {
   private readonly executorRegistry: ExecutorRegistry;
   private readonly resultSync?: ExecutionResultSyncService;
   private readonly detailStream?: ExecutionDetailStreamService;
+  private readonly stageIntervalMs: number;
+  private readonly delay: (milliseconds: number) => Promise<void>;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -62,6 +66,8 @@ export class ExecutionsApplicationService {
     this.executorRegistry = dependencies.executorRegistry ?? new ExecutorRegistry();
     this.resultSync = dependencies.resultSync;
     this.detailStream = dependencies.detailStream;
+    this.stageIntervalMs = Math.max(0, dependencies.stageIntervalMs ?? 1_000);
+    this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.queue = dependencies.queue ?? new PgJobRunner(
       (job) => new StepRunner(this, this.executorRegistry).run(job),
       dependencies.queueDb,
@@ -467,16 +473,16 @@ export class ExecutionsApplicationService {
     deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
     agentPayloadByTargetId?: Map<string, Record<string, unknown>>,
   ): Promise<ExecutionStepEntity[]> {
-    const defaultStepTypes = run.type === 'rollback' ? ['ROLLBACK', 'VERIFY'] as const : run.type === 'dry_run' ? ['DISCOVER', 'VERIFY'] as const : ['BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const;
+    const defaultStepTypes = run.type === 'rollback'
+      ? ['ROLLBACK', 'VERIFY'] as const
+      : ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const;
     const created: ExecutionStepEntity[] = [];
     let stepNo = 1;
     for (const targetId of targetIds) {
       let previousStepNo: number | undefined;
       const targetExecutorType = executorTypeByTargetId.get(targetId);
       const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
-      const isAgentAtomic = readString(agentPayload.actionType) === 'agent.atomic_plan.execute'
-        || readString(agentPayload.pluginRuntimeCapability, 'runtime') === 'AGENT_ATOMIC';
-      const stepTypes = targetExecutorType === 'WORKFLOW' || isAgentAtomic ? ['CUSTOM'] as const : defaultStepTypes;
+      const stepTypes = defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
 	        const baseExecutorType = targetExecutorType;
@@ -680,9 +686,14 @@ export class ExecutionsApplicationService {
   }
 
   private async executeSingleStep(stepId: string, run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry): Promise<{ success: boolean; asyncPending?: boolean; errorCode?: string; errorMessage?: string; deploymentPlanTargetId?: string }> {
-    const current = await this.repository.getStepOrThrow(stepId, tenantId);
+    let current = await this.repository.getStepOrThrow(stepId, tenantId);
     if (current.status !== 'PENDING') {
       return { success: true, deploymentPlanTargetId: current.deploymentPlanTargetId };
+    }
+    await this.waitForStageInterval(current, run, tenantId);
+    current = await this.repository.getStepOrThrow(stepId, tenantId);
+    if (current.status !== 'PENDING') {
+      return { success: current.status !== 'FAILED' && current.status !== 'TIMEOUT', deploymentPlanTargetId: current.deploymentPlanTargetId };
     }
     const runningStep = await this.transitionStepEntity(current, 'RUNNING', actorId, 'step.started', {
       attemptCount: current.attemptCount + 1,
@@ -856,6 +867,23 @@ export class ExecutionsApplicationService {
     return { ...step };
   }
 
+  private async waitForStageInterval(step: ExecutionStepEntity, run: ExecutionRunEntity, tenantId?: string): Promise<void> {
+    if (run.type === 'rollback' || this.stageIntervalMs === 0) return;
+    const dependencyNumbers = step.dependsOn ?? [];
+    if (dependencyNumbers.length === 0) return;
+    const steps = await this.repository.listSteps(tenantId, step.executionRunId);
+    const dependencies = steps.filter((candidate) => dependencyNumbers.includes(candidate.stepNo));
+    const latestFinishedAt = dependencies.reduce<number | undefined>((latest, dependency) => {
+      if (!dependency.finishedAt) return latest;
+      const timestamp = Date.parse(dependency.finishedAt);
+      if (!Number.isFinite(timestamp)) return latest;
+      return latest === undefined ? timestamp : Math.max(latest, timestamp);
+    }, undefined);
+    if (latestFinishedAt === undefined) return;
+    const remaining = this.stageIntervalMs - Math.max(0, Date.now() - latestFinishedAt);
+    if (remaining > 0) await this.delay(remaining);
+  }
+
   private readRunFailurePolicy(run: ExecutionRunEntity): FailurePolicy {
     const value = String(run.summary.failurePolicy ?? 'stop');
     return value === 'continue' || value === 'rollback' ? value : 'stop';
@@ -872,7 +900,7 @@ function readRetryBackoff(summary: Record<string, unknown>): number | undefined 
 function mapStepTypeToOperation(stepType: 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'RELOAD' | 'VERIFY' | 'ROLLBACK' | 'CUSTOM'): string {
   switch (stepType) {
     case 'DISCOVER':
-      return 'dryRun';
+      return 'prepare';
     case 'BACKUP':
       return 'backup';
     case 'INSTALL':
@@ -891,8 +919,12 @@ function mapStepTypeToOperation(stepType: 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'R
 }
 
 function resolveStepExecutorType(baseExecutorType: string, stepType: string, payload: Record<string, unknown>): string {
-  const frameworkType = typeof payload.frameworkType === 'string' ? payload.frameworkType.toLowerCase() : undefined;
-  if (frameworkType === 'web.nginx' && stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
+  if (baseExecutorType === 'MOCK') return 'MOCK';
+  if (stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
+  if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
+  const runtime = readString(payload.pluginRuntimeCapability, 'runtime');
+  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'AGENT_ATOMIC';
+  if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
 }
 

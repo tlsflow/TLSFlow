@@ -43,6 +43,34 @@ export interface Executor {
   executeStep(input: StepExecutionInput): Promise<StepExecutionResult>;
 }
 
+export class PlatformStageExecutor implements Executor {
+  readonly type = 'PLATFORM_STAGE';
+
+  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
+    const stage = input.step.stepType;
+    if (stage !== 'DISCOVER' && stage !== 'BACKUP' && stage !== 'RELOAD') {
+      return {
+        success: false,
+        errorCode: 'PLATFORM_STAGE_UNSUPPORTED',
+        errorMessage: `Unsupported platform lifecycle stage: ${stage}`,
+      };
+    }
+    return {
+      success: true,
+      detail: {
+        mode: 'platform_certificate_lifecycle',
+        stage,
+        dryRun: input.dryRun,
+        operation: stage === 'DISCOVER'
+          ? 'prepare_certificate_update'
+          : stage === 'BACKUP'
+            ? 'prepare_recovery_checkpoint'
+            : 'confirm_service_reload',
+      },
+    };
+  }
+}
+
 export class MockExecutor implements Executor {
   readonly type = 'MOCK';
 
@@ -84,6 +112,7 @@ export class ExecutorRegistry {
   constructor(executors: Executor[] = createDefaultExecutors(), options: ExecutorRegistryOptions = {}) {
     this.allowMock = options.allowMock ?? false;
     for (const executor of executors) this.register(executor);
+    if (!this.executors.has('PLATFORM_STAGE')) this.register(new PlatformStageExecutor());
     if (this.allowMock && !this.executors.has('MOCK')) this.register(new MockExecutor());
   }
 
