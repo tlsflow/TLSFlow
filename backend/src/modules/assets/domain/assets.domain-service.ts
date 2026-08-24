@@ -25,6 +25,7 @@ import type {
   ServiceEndpointStatus,
   ServiceAssetPlatform,
   ServiceAssetStatus,
+  ServiceAssetDto,
   FrameworkInstanceStatus,
   SiteAssetStatus,
   SiteAssetType,
@@ -198,6 +199,46 @@ export class AssetsDomainService {
     if (input.status !== undefined) normalized.status = readEnum(input.status, serviceAssetStatuses, 'status');
     if (input.tags !== undefined) normalized.tags = normalizeStringArray(input.tags);
     return normalized;
+  }
+
+  /**
+   * 地址是应用资产的主身份。只有在 SNI 由访问域名派生时才同步 SNI，
+   * 但 verifyUrl/accessDomain 作为访问地址派生字段始终跟随地址变更。
+   */
+  synchronizeAddressDerivedFields(
+    current: Pick<ServiceAssetDto, 'address' | 'sniName' | 'verifyUrl' | 'metadata'>,
+    patch: UpdateServiceAssetDto,
+  ): UpdateServiceAssetDto {
+    if (patch.address === undefined) return patch;
+
+    const nextAddress = normalizeOptionalString(patch.address)?.toLowerCase();
+    const currentAddress = normalizeOptionalString(current.address)?.toLowerCase();
+    if (!nextAddress || !currentAddress) return patch;
+
+    const metadata = isRecord(current.metadata) ? current.metadata : {};
+    const accessDomain = readOptionalString(metadata.accessDomain)?.toLowerCase();
+    const currentSni = normalizeOptionalString(current.sniName)?.toLowerCase();
+    const explicitWorkflowSni = isRecord(metadata.workflowTarget)
+      ? readOptionalString(metadata.workflowTarget.sniName)?.toLowerCase()
+      : undefined;
+    const sniDerived = !explicitWorkflowSni && (!currentSni
+      || currentSni === currentAddress
+      || (accessDomain === currentSni && accessDomain !== currentAddress));
+
+    const synchronized: UpdateServiceAssetDto = { ...patch };
+    if (patch.sniName === undefined && sniDerived) synchronized.sniName = nextAddress;
+
+    if (accessDomain && (accessDomain === currentAddress || accessDomain === currentSni)) {
+      const patchMetadata = isRecord(patch.metadata) ? patch.metadata : metadata;
+      synchronized.metadata = { ...patchMetadata, accessDomain: nextAddress };
+    }
+
+    if (current.verifyUrl && patch.verifyUrl === undefined) {
+      const updatedVerifyUrl = replaceUrlHostname(current.verifyUrl, new Set([currentAddress, accessDomain].filter(Boolean) as string[]), nextAddress);
+      if (updatedVerifyUrl) synchronized.verifyUrl = updatedVerifyUrl;
+    }
+
+    return synchronized;
   }
 
   normalizeServiceEndpoint(input: CreateServiceEndpointDto): Required<Pick<CreateServiceEndpointDto, 'serviceInstanceId' | 'protocol' | 'port' | 'status'>> & CreateServiceEndpointDto {
@@ -453,4 +494,24 @@ function inferAddressType(address: string): 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN' 
   if (address.includes(':')) return 'IPV6';
   if (address.includes('.')) return 'DNS';
   return 'UNKNOWN';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function replaceUrlHostname(value: string, sourceHosts: Set<string>, nextHost: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (!sourceHosts.has(url.hostname.toLowerCase())) return undefined;
+    if (url.hostname.toLowerCase() === nextHost.toLowerCase()) return value;
+    url.hostname = nextHost;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }

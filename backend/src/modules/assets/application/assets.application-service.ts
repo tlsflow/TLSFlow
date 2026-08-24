@@ -183,16 +183,17 @@ export class AssetsApplicationService {
     const normalized = this.domain.normalizeServiceAssetPatch(input);
     const current = await this.repository.getServiceAsset(tenantId, serviceAssetId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
-    if (normalized.deploymentStrategy) {
+    const synchronized = this.domain.synchronizeAddressDerivedFields(current, normalized);
+    if (synchronized.deploymentStrategy) {
       const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
-      const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(normalized.deploymentStrategy, {
+      const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(synchronized.deploymentStrategy, {
         asset: current,
         targetBinding,
       }));
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
-      normalized.deploymentStrategy = strategy;
+      synchronized.deploymentStrategy = strategy;
     }
-    const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
+    const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, synchronized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
     if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
