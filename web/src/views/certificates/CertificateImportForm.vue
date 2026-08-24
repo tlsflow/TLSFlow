@@ -201,8 +201,8 @@ function cancelImport() {
       <li :class="{ 'is-active': currentStep === 3 }">3. 校验并导入</li>
     </ol>
 
-    <section v-if="currentStep === 1" class="gc-card certificate-import-wizard__panel">
-      <header class="certificate-import-wizard__header">
+    <section v-if="currentStep === 1" class="gc-card gc-form-panel certificate-import-wizard__panel">
+      <header class="gc-form-header certificate-import-wizard__header">
         <div>
           <h3>仅保留两种导入格式</h3>
           <p>当前入口只支持 PEM + KEY 和 PFX。PFX 仅支持文件导入，PEM 支持文件或粘贴。</p>
@@ -248,8 +248,8 @@ function cancelImport() {
       </div>
     </section>
 
-    <section v-else-if="currentStep === 2" class="gc-card certificate-import-wizard__panel">
-      <header class="certificate-import-wizard__header">
+    <section v-else-if="currentStep === 2" class="gc-card gc-form-panel certificate-import-wizard__panel">
+      <header class="gc-form-header certificate-import-wizard__header">
         <div>
           <h3>{{ methodSpecificTitle }}</h3>
           <p>{{ chainCheckHint }}</p>
@@ -257,7 +257,7 @@ function cancelImport() {
       </header>
 
       <form class="certificate-import-wizard__form" @submit.prevent="nextStep">
-        <label v-if="draft.format === 'PEM' && needsCertificateFile" class="certificate-import-wizard__field certificate-import-wizard__field--full">
+        <label v-if="draft.format === 'PEM' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
           <span>证书链文件</span>
           <input
             :key="`certificate-${fileInputKey}`"
@@ -270,7 +270,7 @@ function cancelImport() {
           <small v-if="certificateFileName">已选择：{{ certificateFileName }}</small>
         </label>
 
-        <label v-if="needsCertificateText" class="certificate-import-wizard__field certificate-import-wizard__field--full">
+        <label v-if="needsCertificateText" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
           <span>证书 PEM / 证书链文本</span>
           <textarea
             v-model="draft.certificatePem"
@@ -280,7 +280,7 @@ function cancelImport() {
           />
         </label>
 
-        <label v-if="draft.format === 'PEM'" class="certificate-import-wizard__field certificate-import-wizard__field--full">
+        <label v-if="draft.format === 'PEM'" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
           <span>私钥 {{ effectiveMethod === 'file' ? '文件' : 'PEM 文本' }}</span>
           <input
             v-if="effectiveMethod === 'file'"
@@ -300,7 +300,7 @@ function cancelImport() {
           <small v-if="effectiveMethod === 'file' && privateKeyFileName">已选择：{{ privateKeyFileName }}</small>
         </label>
 
-        <label v-if="draft.format === 'PFX' && needsCertificateFile" class="certificate-import-wizard__field certificate-import-wizard__field--full">
+        <label v-if="draft.format === 'PFX' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
           <span>PFX 文件</span>
           <input
             :key="`certificate-${fileInputKey}`"
@@ -313,11 +313,11 @@ function cancelImport() {
         </label>
 
         <div class="certificate-import-wizard__meta">
-          <label class="certificate-import-wizard__field">
+          <label class="gc-form-field certificate-import-wizard__field">
             <span>证书名称（可选）</span>
             <input v-model="draft.name" placeholder="默认使用 CN 或 SAN" />
           </label>
-          <label v-if="draft.format === 'PFX'" class="certificate-import-wizard__field">
+          <label v-if="draft.format === 'PFX'" class="gc-form-field certificate-import-wizard__field">
             <span>PFX 密码</span>
             <input v-model="draft.pfxPassword" type="password" autocomplete="off" placeholder="必填" />
           </label>
@@ -325,8 +325,8 @@ function cancelImport() {
       </form>
     </section>
 
-    <section v-else class="gc-card certificate-import-wizard__panel">
-      <header class="certificate-import-wizard__header">
+    <section v-else class="gc-card gc-form-panel certificate-import-wizard__panel">
+      <header class="gc-form-header certificate-import-wizard__header">
         <div>
           <h3>有效性与完整性校验</h3>
           <p>校验规则：必须有服务器证书、完整中间证书链和私钥，且私钥必须与叶子证书匹配。根证书不强制导入，缺少时仅警告。</p>
@@ -409,11 +409,11 @@ function cancelImport() {
         </article>
       </div>
 
-      <p v-if="error" class="certificate-import-wizard__error">{{ error }}</p>
-      <p v-if="resultId" class="certificate-import-wizard__success">导入成功：{{ resultId }}</p>
+      <p v-if="error" class="gc-form-error certificate-import-wizard__error">{{ error }}</p>
+      <p v-if="resultId" class="gc-form-success certificate-import-wizard__success">导入成功：{{ resultId }}</p>
     </section>
 
-    <footer class="certificate-import-wizard__footer">
+    <footer class="gc-form-actions certificate-import-wizard__footer">
       <div class="certificate-import-wizard__footer-left">
         <button class="gc-button" type="button" :disabled="loading || validating" @click="cancelImport">取消</button>
       </div>
@@ -473,20 +473,6 @@ function cancelImport() {
   border-color: rgb(10 132 255 / 24%);
   color: #0a84ff;
   background: rgb(10 132 255 / 8%);
-}
-
-.certificate-import-wizard__panel {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 18px;
-}
-
-.certificate-import-wizard__header {
-  display: grid;
-  gap: 4px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgb(15 23 42 / 6%);
 }
 
 .certificate-import-wizard__header h3,
@@ -568,33 +554,11 @@ function cancelImport() {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.certificate-import-wizard__field {
-  display: grid;
-  gap: 5px;
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .certificate-import-wizard__field--full {
   grid-column: 1 / -1;
 }
 
-.certificate-import-wizard__field input,
 .certificate-import-wizard__field textarea {
-  width: 100%;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  min-height: 38px;
-  padding: 9px 11px;
-  color: var(--gc-color-text);
-  background: rgb(255 255 255 / 72%);
-  outline: none;
-}
-
-.certificate-import-wizard__field textarea {
-  min-height: 100px;
-  resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
 }
@@ -685,28 +649,6 @@ function cancelImport() {
 .certificate-import-wizard__list {
   margin: 0;
   padding-left: 18px;
-}
-
-.certificate-import-wizard__error,
-.certificate-import-wizard__success {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.certificate-import-wizard__error {
-  color: var(--gc-color-danger);
-}
-
-.certificate-import-wizard__success {
-  color: #047857;
-}
-
-.certificate-import-wizard__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .certificate-import-wizard__footer-left,

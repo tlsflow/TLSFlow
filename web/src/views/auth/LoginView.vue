@@ -60,26 +60,26 @@ async function submit() {
     </section>
 
     <section class="login-page__panel" aria-label="登录表单">
-      <form class="login-card" @submit.prevent="submit">
-        <header>
+      <form class="gc-form-panel login-card" @submit.prevent="submit">
+        <header class="gc-form-header">
           <p>安全入口</p>
           <h2>登录 GCAC</h2>
           <span>使用控制台账号进入。开发默认账号已预填，生产环境必须替换。</span>
         </header>
 
-        <label>
+        <label class="gc-form-field">
           <span>用户名</span>
           <input v-model="username" autocomplete="username" required placeholder="请输入用户名" />
         </label>
 
-        <label>
+        <label class="gc-form-field">
           <span>密码</span>
           <input v-model="password" autocomplete="current-password" required type="password" placeholder="请输入密码" />
         </label>
 
-        <p v-if="error" class="login-card__error" role="alert">{{ error }}</p>
+        <p v-if="error" class="gc-form-error" role="alert">{{ error }}</p>
 
-        <button class="login-card__submit" type="submit" :disabled="loading">
+        <button class="gc-button gc-button--primary login-card__submit" type="submit" :disabled="loading">
           {{ loading ? '正在校验身份…' : '登录控制台' }}
         </button>
 
@@ -129,16 +129,11 @@ async function submit() {
 .login-page__signals strong { display: block; margin-bottom: 6px; color: #0f172a; }
 .login-page__signals span { color: var(--gc-color-text-muted); font-size: 13px; font-weight: 700; }
 .login-page__panel { display: grid; place-items: center; padding: 42px; }
-.login-card { width: min(100%, 460px); display: grid; gap: 20px; padding: 34px; border: 1px solid rgb(226 232 240 / 86%); border-radius: 28px; background: rgb(255 255 255 / 82%); backdrop-filter: blur(22px); box-shadow: 0 28px 80px rgb(15 23 42 / 14%); }
-.login-card header { display: grid; gap: 8px; margin-bottom: 4px; }
+.login-card { width: min(100%, 460px); gap: 20px; padding: 34px; border: 1px solid rgb(226 232 240 / 86%); border-radius: 18px; background: rgb(255 255 255 / 82%); backdrop-filter: blur(22px); box-shadow: 0 28px 80px rgb(15 23 42 / 14%); }
 .login-card header p { margin: 0; color: var(--gc-color-primary); font-size: 12px; font-weight: 950; letter-spacing: .18em; }
-.login-card h2 { margin: 0; font-size: 32px; letter-spacing: -0.055em; }
+.login-card h2 { font-size: 24px; }
 .login-card header span, .login-card footer { color: var(--gc-color-text-muted); font-size: 13px; line-height: 1.6; font-weight: 650; }
-.login-card label { display: grid; gap: 8px; color: var(--gc-color-text-muted); font-size: 13px; font-weight: 850; }
-.login-card input, .login-card select { width: 100%; border: 1px solid var(--gc-color-border); border-radius: 16px; padding: 14px 15px; color: var(--gc-color-text); background: rgb(248 250 252 / 82%); outline: none; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.login-card input:focus, .login-card select:focus { border-color: #60a5fa; background: #fff; box-shadow: 0 0 0 4px rgb(96 165 250 / 16%); }
-.login-card__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 11px 13px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-size: 13px; font-weight: 750; }
-.login-card__submit { border: 0; border-radius: 16px; min-height: 50px; color: #fff; background: linear-gradient(135deg, #2563eb, #0284c7); box-shadow: 0 18px 32px rgb(37 99 235 / 24%); cursor: pointer; font-weight: 950; }
+.login-card__submit { min-height: 40px; box-shadow: 0 18px 32px rgb(37 99 235 / 24%); font-weight: 850; }
 .login-card__submit:disabled { cursor: wait; opacity: .72; }
 .login-card footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 4px; }
 @media (max-width: 1100px) {
