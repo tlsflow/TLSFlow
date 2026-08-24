@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "web.apache",
-  "version": "1.0.2",
+  "version": "1.0.9",
   "profiles": [
     {
       "id": "linux.agent_plan.pem",
       "pluginId": "web.apache",
-      "version": "1.0.2",
+      "version": "1.0.9",
       "sources": [
         "linux"
       ],
@@ -61,7 +61,7 @@
     {
       "id": "windows.agent_plan.pem",
       "pluginId": "web.apache",
-      "version": "1.0.2",
+      "version": "1.0.9",
       "sources": [
         "windows"
       ],

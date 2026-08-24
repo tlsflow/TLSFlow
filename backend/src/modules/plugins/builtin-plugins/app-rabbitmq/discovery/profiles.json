@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "app.rabbitmq",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "profiles": [
     {
       "id": "linux.agent_plan.pem",
       "pluginId": "app.rabbitmq",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "sources": [
         "linux"
       ],

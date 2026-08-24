@@ -4,16 +4,15 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { BuiltinPluginRegistry, type P2PluginReleaseManifest } from './builtin-plugin-registry.js';
+import { BuiltinPluginRegistry } from './builtin-plugin-registry.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-unified-plugin-loader.js';
 
-test('P2 Registry 只登记固定版本和 Runner 入口，不加载插件模块', async () => {
+test('Registry 直接从 Manifest 派生版本和 Runner 入口，不加载插件模块', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);
   const [pluginPackage] = await loader.loadPackages();
   assert.ok(pluginPackage);
-  const release = releaseManifest(pluginPackage.packageContent);
-  const registry = new BuiltinPluginRegistry(loader, release);
+  const registry = new BuiltinPluginRegistry(loader);
 
   const [entry] = await registry.refresh();
 
@@ -22,20 +21,15 @@ test('P2 Registry 只登记固定版本和 Runner 入口，不加载插件模块
   assert.equal(entry?.runtimeEntrypoint, 'runtime/index.js');
   assert.equal(entry?.ipcProtocol, 'gcac.plugin-runner/v1');
   assert.match(entry?.runtimeEntrypointPath ?? '', /runtime[\\/]index\.js$/);
-  assert.throws(() => registry.get('web.nginx', '1.0.1'), /固定的 P2 PluginVersion/);
+  assert.throws(() => registry.get('web.nginx', '1.0.1'), /固定的 Manifest PluginVersion/);
 });
 
-test('P2 Registry 对未发布包默认失败关闭，开发显式选项不能改变固定身份', async () => {
+test('未登记在历史发布台账中的包仍可按 Manifest 注册', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);
-  const [pluginPackage] = await loader.loadPackages();
-  assert.ok(pluginPackage);
-  const release = releaseManifest(pluginPackage.packageContent);
-  release.plugins[0]!.packageDigest = { status: 'NOT_BUILT', sha256: null };
-  const registry = new BuiltinPluginRegistry(loader, release);
+  const registry = new BuiltinPluginRegistry(loader);
 
-  assert.deepEqual(await registry.refresh(), []);
-  assert.equal((await registry.refresh({ allowUnreleased: true }))[0]?.version, '1.0.0');
+  assert.equal((await registry.refresh())[0]?.pluginId, 'web.nginx');
 });
 
 test('同一插件版本且摘要相同的重复扫描保持幂等', async () => {
@@ -47,7 +41,7 @@ test('同一插件版本且摘要相同的重复扫描保持幂等', async () =>
     loadPackages: async () => [pluginPackage, pluginPackage],
     installPackages: loader.installPackages.bind(loader),
   } as unknown as BuiltinUnifiedPluginLoader;
-  const registry = new BuiltinPluginRegistry(repeatedLoader, releaseManifest(pluginPackage.packageContent));
+  const registry = new BuiltinPluginRegistry(repeatedLoader);
 
   const entries = await registry.refresh();
 
@@ -60,24 +54,42 @@ test('同一插件版本摘要不同会拒绝刷新并保留旧 Registry 快照'
   const loader = new BuiltinUnifiedPluginLoader(root);
   const [pluginPackage] = await loader.loadPackages();
   assert.ok(pluginPackage);
-  const release = releaseManifest(pluginPackage.packageContent);
-  release.plugins[0]!.packageDigest = { status: 'NOT_BUILT', sha256: null };
   let scannedPackages = [pluginPackage];
   const dynamicLoader = {
     loadPackages: async () => scannedPackages,
     installPackages: loader.installPackages.bind(loader),
   } as unknown as BuiltinUnifiedPluginLoader;
-  const registry = new BuiltinPluginRegistry(dynamicLoader, release);
-  await registry.refresh({ allowUnreleased: true });
+  const registry = new BuiltinPluginRegistry(dynamicLoader);
+  await registry.refresh();
 
   const conflictingPackage = { ...pluginPackage, packageContent: `${pluginPackage.packageContent}changed` };
   scannedPackages = [pluginPackage, conflictingPackage];
 
   await assert.rejects(
-    () => registry.refresh({ allowUnreleased: true }),
+    () => registry.refresh(),
     /同一插件版本存在不同包内容/,
   );
   assert.equal(registry.get('web.nginx', '1.0.0').version, '1.0.0');
+});
+
+test('Registry 在 Manifest 边界拒绝非法 SemVer', async () => {
+  const root = await createPackageRoot();
+  const manifestPath = join(root, 'web-nginx', 'manifest.json');
+  const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+  manifest.version = 'v1.0.0';
+  await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
+
+  await assert.rejects(() => new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), /合法 SemVer/);
+});
+
+test('Registry 在 Policy 边界拒绝未知 Canonical Plugin ID', async () => {
+  const root = await createPackageRoot();
+  const manifestPath = join(root, 'web-nginx', 'manifest.json');
+  const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+  manifest.pluginId = 'web.unknown';
+  await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
+
+  await assert.rejects(() => new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), /Canonical Plugin ID/);
 });
 
 async function createPackageRoot(): Promise<string> {
@@ -107,26 +119,6 @@ async function createPackageRoot(): Promise<string> {
   await writeFile(join(packageRoot, 'runtime/index.js'), 'export function createPluginRunnerExecutor() {}\n', 'utf8');
   await writeFile(join(packageRoot, 'workflows/read.json'), '{"steps":[]}\n', 'utf8');
   return root;
-}
-
-function releaseManifest(packageContent: string): P2PluginReleaseManifest {
-  return {
-    packageContract: {
-      rootDirectory: 'builtin-plugins',
-      runtimeEntrypoint: 'runtime/index.js',
-      executionMode: 'PLUGIN_RUNNER',
-      ipcProtocol: 'gcac.plugin-runner/v1',
-    },
-    plugins: [{
-      canonicalPluginId: 'web.nginx',
-      packageDirectory: 'web-nginx',
-      implementationStatus: 'P2_RELEASED',
-      executionMode: 'PLUGIN_RUNNER',
-      agentSidePlugin: false,
-      packageDigest: { status: 'P2_RELEASED', sha256: `sha256:${sha256(packageContent)}`, catalogEntryRequired: true },
-      hostApiGrants: [],
-    }],
-  };
 }
 
 function sha256(value: string): string {

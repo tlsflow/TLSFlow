@@ -3,14 +3,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PLUGIN_ID = 'web.apache';
-const PLUGIN_VERSION = '1.0.2';
-const CAPABILITIES = ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'];
+const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+const packageDirectory = resolve(runtimeDirectory, '..');
+const packageManifest = JSON.parse(readFileSync(join(packageDirectory, 'manifest.json'), 'utf8'));
+const PLUGIN_ID = packageManifest.pluginId;
+const PLUGIN_VERSION = packageManifest.version;
+const CAPABILITIES = packageManifest.capabilities.map((item) => item.key);
 const WRITE_CAPABILITIES = new Set(['certificate.deploy', 'certificate.rollback']);
 const SECURITY_VERSION = 'gcac.agent-security/v1';
 const BINDING_VERSION = 'gcac.plugin-runner-binding/v1';
-const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
-const packageDirectory = resolve(runtimeDirectory, '..');
 
 export function createPluginRunnerExecutor() {
   const manifest = readJson(join(packageDirectory, 'manifest.json'));

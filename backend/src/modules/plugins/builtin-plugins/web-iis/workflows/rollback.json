@@ -22,7 +22,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 131072,

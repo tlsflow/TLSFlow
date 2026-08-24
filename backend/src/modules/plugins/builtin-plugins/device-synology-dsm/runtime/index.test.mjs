@@ -6,8 +6,12 @@ import { createPluginRunnerExecutor } from './index.js';
 import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
 
 const hash = `sha256:${'c'.repeat(64)}`;
+const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const pluginVersion = manifest.version;
+const capabilities = manifest.capabilities.map((item) => item.key);
+const permissions = manifest.permissions;
 const env = {
-  GCAC_PLUGIN_VERSION_ID: 'device-synology-1-0-0-dev',
+  GCAC_PLUGIN_VERSION_ID: `device-synology-${pluginVersion.replaceAll('.', '-')}-dev`,
   GCAC_PLUGIN_PACKAGE_HASH: hash,
   GCAC_PLUGIN_MANIFEST_HASH: hash,
   GCAC_PLUGIN_RESOURCE_HASH: hash,
@@ -20,9 +24,9 @@ test('Synology 工厂只导出标准入口并读取适配器注入的四项身�
     assert.deepEqual(createPluginRunnerExecutor().descriptor, {
       pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
       pluginId: 'device.synology-dsm',
-      pluginVersion: '1.0.0',
-      capabilities: ['device.connection.test', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-      permissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+      pluginVersion,
+      capabilities,
+      permissions,
       packageHash: hash,
       manifestHash: hash,
       resourceHash: hash,
@@ -41,7 +45,7 @@ test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标�
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.synology-dsm',
-    pluginVersion: '1.0.0',
+    pluginVersion,
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/device-synology-dsm/runtime/index.js')],
@@ -49,8 +53,8 @@ test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标�
     environment: env,
     runnerVersion: '1.0.0',
     sdkVersion: '1.0.0',
-    capabilities: ['device.connection.test', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    capabilities,
+    hostPermissions: permissions,
     packageHash: hash,
     manifestHash: hash,
     resourceHash: hash,
@@ -89,7 +93,7 @@ test('Synology 真实 Runner 子进程在 DSM 业务故障时失败关闭', asyn
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.synology-dsm',
-    pluginVersion: '1.0.0',
+    pluginVersion,
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/device-synology-dsm/runtime/index.js')],
@@ -97,8 +101,8 @@ test('Synology 真实 Runner 子进程在 DSM 业务故障时失败关闭', asyn
     environment: env,
     runnerVersion: '1.0.0',
     sdkVersion: '1.0.0',
-    capabilities: ['device.connection.test', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    capabilities,
+    hostPermissions: permissions,
     packageHash: hash,
     manifestHash: hash,
     resourceHash: hash,
@@ -167,7 +171,7 @@ function context(capability, grantRefs, writeEffect, input) {
   return {
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.synology-dsm',
-    pluginVersion: '1.0.0',
+    pluginVersion,
     tenantId: 'tenant-device', executionId: 'run-synology', executionStepId: 'step-device', capability, input,
     grantRefs, idempotencyKey: 'idem-device', deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect,
     signal: new AbortController().signal,

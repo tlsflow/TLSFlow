@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.device-fixture/v1",
   "pluginId": "device.citrix.netscaler-adc",
-  "pluginVersion": "2.0.1",
+  "pluginVersion": "2.0.7",
   "protocol": "NITRO",
   "cases": {
     "discovery-business-error": {

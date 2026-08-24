@@ -1,26 +1,12 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const PLUGIN_ID = 'web.iis';
-const PLUGIN_VERSION = '1.0.2';
+const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const PLUGIN_ID = packageManifest.pluginId;
+const PLUGIN_VERSION = packageManifest.version;
 const AGENT_SIDE_PROTOCOL = 'gcac.agent-side-plugin/v1';
-const CAPABILITIES = Object.freeze([
-  'application.discover',
-  'certificate.deploy',
-  'certificate.verify',
-  'certificate.rollback',
-]);
-const PERMISSIONS = Object.freeze([
-  'artifact.read',
-  'agent.fact.collect',
-  'agent.plan.validate',
-  'agent.plan.execute',
-  'agent.execution.receipt',
-  'execution.progress',
-  'execution.checkpoint',
-  'execution.cancel',
-  'resource.lock',
-  'audit.append',
-]);
+const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
+const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/;
@@ -53,7 +39,7 @@ export function createPluginRunnerExecutor() {
 async function execute(context, hostApi) {
   assertContext(context);
   const operation = CAPABILITY_OPERATIONS[context.capability];
-  if (!operation) fail('Capability 未绑定到 IIS P2 PluginVersion');
+  if (!operation) fail('Capability 未绑定到 IIS Manifest PluginVersion');
   const input = record(context.input, 'input');
   if (context.capability === 'application.discover' && input.discoveryMode === 'full-agent') {
     return fullAgentDiscovery(input, context);

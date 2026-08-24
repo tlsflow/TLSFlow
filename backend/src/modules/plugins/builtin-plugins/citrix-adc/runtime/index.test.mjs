@@ -6,8 +6,12 @@ import { createPluginRunnerExecutor } from './index.js';
 import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
 
 const hash = `sha256:${'a'.repeat(64)}`;
+const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const pluginVersion = manifest.version;
+const capabilities = manifest.capabilities.map((item) => item.key);
+const permissions = manifest.permissions;
 const env = {
-  GCAC_PLUGIN_VERSION_ID: 'device-citrix-2-0-1-dev',
+  GCAC_PLUGIN_VERSION_ID: `device-citrix-${pluginVersion.replaceAll('.', '-')}-dev`,
   GCAC_PLUGIN_PACKAGE_HASH: hash,
   GCAC_PLUGIN_MANIFEST_HASH: hash,
   GCAC_PLUGIN_RESOURCE_HASH: hash,
@@ -21,9 +25,9 @@ test('Citrix 工厂只导出标准入口并从适配器环境读取四项固定�
     assert.deepEqual(executor.descriptor, {
       pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
       pluginId: 'device.citrix.netscaler-adc',
-      pluginVersion: '2.0.1',
-      capabilities: ['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-      permissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+      pluginVersion,
+      capabilities,
+      permissions,
       packageHash: hash,
       manifestHash: hash,
       resourceHash: hash,
@@ -48,7 +52,7 @@ test('Citrix 真实 Runner 子进程执行 NITRO discovery Fixture 并脱敏 Sec
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.citrix.netscaler-adc',
-    pluginVersion: '2.0.1',
+    pluginVersion,
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [runnerServer, '--executor-module', executorPath],
@@ -56,8 +60,8 @@ test('Citrix 真实 Runner 子进程执行 NITRO discovery Fixture 并脱敏 Sec
     environment: env,
     runnerVersion: '1.0.0',
     sdkVersion: '1.0.0',
-    capabilities: ['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    capabilities,
+    hostPermissions: permissions,
     packageHash: hash,
     manifestHash: hash,
     resourceHash: hash,
@@ -94,7 +98,7 @@ test('Citrix 真实 Runner 子进程在 NITRO 业务故障时失败关闭', asyn
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.citrix.netscaler-adc',
-    pluginVersion: '2.0.1',
+    pluginVersion,
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/citrix-adc/runtime/index.js')],
@@ -102,8 +106,8 @@ test('Citrix 真实 Runner 子进程在 NITRO 业务故障时失败关闭', asyn
     environment: env,
     runnerVersion: '1.0.0',
     sdkVersion: '1.0.0',
-    capabilities: ['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
-    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    capabilities,
+    hostPermissions: permissions,
     packageHash: hash,
     manifestHash: hash,
     resourceHash: hash,
@@ -141,7 +145,7 @@ test('Citrix 写入传输中断 Fixture 在插件边界收敛为 UNKNOWN', async
     const result = await executor.execute({
       pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
       pluginId: 'device.citrix.netscaler-adc',
-      pluginVersion: '2.0.1',
+      pluginVersion,
       tenantId: 'tenant-device', executionId: 'run-citrix-write-failure', executionStepId: 'step-deploy', capability: failureCase.capability,
       grantRefs: ['secret-grant', 'artifact-grant'], idempotencyKey: 'idem-citrix-write-failure', deadlineAt: new Date(Date.now() + 10_000).toISOString(),
       writeEffect: failureCase.writeEffect, signal: new AbortController().signal,

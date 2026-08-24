@@ -1,7 +1,7 @@
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 
 /**
- * 发布清单中一个不可变的 Workflow 声明。
+ * 内置插件 Registry 中一个不可变的 Workflow 声明。
  * workflowKey 标识具体工作流，capabilityKey 标识它向宿主暴露的标准能力。
  */
 export interface PluginWorkflowDeclaration {
@@ -15,7 +15,7 @@ export type PluginWorkflowDeclarationResolver = (
   pluginVersion: string,
 ) => readonly PluginWorkflowDeclaration[] | undefined;
 
-/** 从同一份已验证的发布清单构造发布器和开发切换共用的解析器。 */
+/** 从同一份已验证的 Registry 快照构造发布器和开发切换共用的解析器。 */
 export function createPluginWorkflowDeclarationResolver(
   entries: readonly { pluginId: string; version: string; workflows: readonly PluginWorkflowDeclaration[] }[],
 ): PluginWorkflowDeclarationResolver {

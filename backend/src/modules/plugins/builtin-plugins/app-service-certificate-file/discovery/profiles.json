@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "app.service-certificate-file",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "profiles": [
     {
       "id": "windows.agent_plan.file",
       "pluginId": "app.service-certificate-file",
-      "version": "1.0.0",
+      "version": "1.0.3",
       "sources": [
         "windows"
       ],

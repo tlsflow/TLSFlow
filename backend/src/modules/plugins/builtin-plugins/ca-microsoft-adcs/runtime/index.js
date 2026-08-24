@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const PLUGIN_ID = 'ca.microsoft-adcs';
-const PLUGIN_VERSION = '1.0.0';
-const PLUGIN_VERSION_ID = 'ca.microsoft-adcs:1.0.0';
+const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const PLUGIN_ID = packageManifest.pluginId;
+const PLUGIN_VERSION = packageManifest.version;
 const WORKFLOW_VERSION = '1.0.0';
 const RECOVERY_WORKFLOW = 'ca.operation.recover';
-const CAPABILITIES = Object.freeze(['ca.certificate.issue', 'ca.certificate.renew', 'ca.certificate.revoke']);
-const PERMISSIONS = Object.freeze(['secret.resolve', 'audit.append']);
+const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
+const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
 const operationLedger = new Map();
 
 // 控制面只生成带完整授权绑定的 Agent Plan，不接触 Windows 本机 API。
@@ -218,7 +219,7 @@ function assertContext(context, descriptor) {
 
 async function appendAudit(context, hostApi, security, operation, result, detail) { await hostApi.call('audit.append', { eventType: 'ca.plugin.operation', action: `${PLUGIN_ID}.${operation}`, resourceType: 'ca_operation', resourceId: context.idempotencyKey, result, detail: { pluginVersionId: context.pluginVersionId, capability: context.capability, operation, detail: typeof detail === 'object' ? 'recorded' : redact(String(detail)), receiptRef: security.receiptRef, operationDigest: security.operationDigest } }, context.grantRefs, 5000); }
 async function appendAuditSafely(context, hostApi, security, operation, result, detail) { try { await appendAudit(context, hostApi, security, operation, result, detail); } catch { /* 审计故障由宿主恢复账本接管。 */ } }
-function createDescriptor() { const pluginVersionId = requiredEnvironment('GCAC_PLUGIN_VERSION_ID'); if (pluginVersionId !== PLUGIN_VERSION_ID) throw failure('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 注入的 PluginVersion 与包身份不匹配', false, false); return Object.freeze({ pluginVersionId, pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, capabilities: [...CAPABILITIES], permissions: [...PERMISSIONS], packageHash: requiredDigest('GCAC_PLUGIN_PACKAGE_HASH'), resourceHash: requiredDigest('GCAC_PLUGIN_RESOURCE_HASH'), manifestHash: requiredDigest('GCAC_PLUGIN_MANIFEST_HASH') }); }
+function createDescriptor() { const pluginVersionId = requiredEnvironment('GCAC_PLUGIN_VERSION_ID'); return Object.freeze({ pluginVersionId, pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, capabilities: [...CAPABILITIES], permissions: [...PERMISSIONS], packageHash: requiredDigest('GCAC_PLUGIN_PACKAGE_HASH'), resourceHash: requiredDigest('GCAC_PLUGIN_RESOURCE_HASH'), manifestHash: requiredDigest('GCAC_PLUGIN_MANIFEST_HASH') }); }
 function requiredEnvironment(name) { const value = process.env[name]?.trim(); if (!value) throw failure('PLUGIN_RUNNER_START_FAILED', `Runner 缺少必需环境变量 ${name}`, false, false); return value; }
 function requiredDigest(name) { const value = requiredEnvironment(name); if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw failure('PLUGIN_RUNNER_START_FAILED', `Runner 环境变量 ${name} 不是有效 SHA-256 摘要`, false, false); return value; }
 function checkDeadline(context) { if (!Number.isFinite(Date.parse(context.deadlineAt)) || Date.parse(context.deadlineAt) <= Date.now()) throw failure('PLUGIN_RUNNER_TIMEOUT', 'ADCS 执行已超过 deadline', true, Boolean(context.writeEffect)); }

@@ -20,7 +20,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "target": "{{variables.target}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "target": "{{variables.target}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,

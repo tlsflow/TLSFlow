@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "app.java-keystore",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "profiles": [
     {
       "id": "cross-platform.agent_plan.pkcs12",
       "pluginId": "app.java-keystore",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "sources": [
         "linux",
         "windows"

@@ -10,7 +10,7 @@
       "stage": "prepare",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.2", "operation": "discover", "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "discover", "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,

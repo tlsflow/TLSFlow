@@ -1138,6 +1138,8 @@ export async function initializeBuiltinPlugins(
     throw error;
   }
 
+  // Registry/Manifest/Policy/包摘要校验是启动硬门禁；Workflow 发布只是已注册版本的派生后处理。
+  // 后处理失败只隔离对应插件，不把第二套 Workflow 版本事实带回启动边界。
   for (let index = 0; index < installed.length; index += 1) {
     const plugin = installed[index]!;
     try {

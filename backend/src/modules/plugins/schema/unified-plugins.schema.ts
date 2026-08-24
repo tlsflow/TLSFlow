@@ -16,6 +16,8 @@ export const unifiedPluginTrustLevels = ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSI
 export const unifiedPluginSupportLevels = ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] as const satisfies readonly UnifiedPluginSupport[];
 
 export const unifiedPluginRuntimes = ['AGENT_PLAN', 'WORKFLOW_DSL'] as const satisfies readonly UnifiedPluginRuntime[];
+/** Manifest 版本必须是完整的 SemVer 2.0.0，不接受 v 前缀或隐式版本。 */
+export const semanticVersionPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const executableCodeExtensions = ['.js', '.mjs', '.cjs'];
 const forbiddenExecutableExtensions = ['.ts', '.tsx', '.vue', '.ps1', '.sh', '.bat', '.cmd', '.exe', '.dll', '.so', '.dylib'];
 const maximumResourceCount = 500;
@@ -31,6 +33,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   assertKnownKeys(manifest, manifestKeys, 'manifest');
   if (manifest.apiVersion !== 'gcac.plugin-manifest/v1') fail('apiVersion', '仅支持 gcac.plugin-manifest/v1');
   if (manifest.kind !== 'GcacPlugin') fail('kind', '仅支持 GcacPlugin');
+  const version = requireSemanticVersion(manifest.version, 'version');
   const runtime = requireEnum(manifest.runtime, unifiedPluginRuntimes, 'runtime');
   const source = requireEnum(manifest.source, unifiedPluginSources, 'source');
   const scope = requireEnum(manifest.scope, unifiedPluginScopes, 'scope');
@@ -52,7 +55,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     apiVersion: 'gcac.plugin-manifest/v1',
     kind: 'GcacPlugin',
     pluginId: requireString(manifest.pluginId, 'pluginId'),
-    version: requireString(manifest.version, 'version'),
+    version,
     displayNameKey: requireString(manifest.displayNameKey, 'displayNameKey'),
     descriptionKey: optionalString(manifest.descriptionKey, 'descriptionKey'),
     logoUrl: optionalLogoUrl(manifest.logoUrl),
@@ -82,6 +85,14 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       ...(resources.onboarding === undefined ? {} : { onboarding: validateOnboardingResources(resources.onboarding) }),
     },
   };
+}
+
+export function isSemanticVersion(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = semanticVersionPattern.exec(value);
+  if (!match) return false;
+  const prerelease = match[4]?.split('.') ?? [];
+  return !prerelease.some((part) => /^0[0-9]+$/.test(part));
 }
 
 function validateCredentialAcquire(input: unknown, capabilities: UnifiedPluginCapabilityDescriptor[]): CredentialAcquireContract | undefined {
@@ -281,6 +292,11 @@ function requireArray(input: unknown, path: string): unknown[] {
 
 function requireString(input: unknown, path: string): string {
   if (typeof input !== 'string' || input.trim() === '') fail(path, '必须是非空字符串');
+  return input;
+}
+
+function requireSemanticVersion(input: unknown, path: string): string {
+  if (!isSemanticVersion(input)) fail(path, '必须是合法 SemVer');
   return input;
 }
 

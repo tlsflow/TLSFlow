@@ -9,7 +9,6 @@ const packageRoot = resolve(process.cwd(), 'backend/src/modules/plugins/builtin-
 const runnerServer = resolve(process.cwd(), 'backend/dist/modules/plugins/runner/runner-server.js');
 const securityVersion = 'gcac.agent-security/v1';
 const bindingVersion = 'gcac.plugin-runner-binding/v1';
-const pluginVersion = '1.0.0';
 const hashPattern = /^sha256:[a-f0-9]{64}$/;
 
 const packages = [
@@ -66,6 +65,7 @@ function readPackage(pkg) {
     directory,
     manifest,
     resources,
+    workflowVersion: JSON.parse(resources['workflows/discover.json']).metadata.version,
     resourceSha256,
     packageHash: sha256(packageContent),
     manifestHash: sha256(JSON.stringify(manifest)),
@@ -76,7 +76,7 @@ function readPackage(pkg) {
 
 function fixedEnvironment(pkg) {
   return {
-    GCAC_PLUGIN_VERSION_ID: 'dev.' + basename(pkg.directory) + '.1.0.0',
+    GCAC_PLUGIN_VERSION_ID: 'dev.' + basename(pkg.directory) + '.' + pkg.manifest.version,
     GCAC_PLUGIN_PACKAGE_HASH: pkg.packageHash,
     GCAC_PLUGIN_MANIFEST_HASH: pkg.manifestHash,
     GCAC_PLUGIN_RESOURCE_HASH: pkg.resourceHash,
@@ -244,12 +244,12 @@ function executionInput(pkg, fixtureName = pkg.fixture) {
   const executionStepId = 'step-' + packageKey(pkg) + '-discover';
   const binding = {
     apiVersion: bindingVersion,
-    workflowVersionId: 'workflow.' + basename(pkg.directory) + '.application.discover.1.0.0',
-    workflowVersion: pluginVersion,
+    workflowVersionId: 'workflow.' + basename(pkg.directory) + '.application.discover.' + pkg.workflowVersion,
+    workflowVersion: pkg.manifest.version,
     profile: pkg.profile,
     pluginVersionId: fixedEnvironment(pkg).GCAC_PLUGIN_VERSION_ID,
     pluginId: pkg.pluginId,
-    pluginVersion,
+    pluginVersion: pkg.manifest.version,
     packageHash: pkg.packageHash,
     manifestHash: pkg.manifestHash,
     resourceHash: pkg.resourceHash,
@@ -279,7 +279,7 @@ function clientSpec(pkg, environment = fixedEnvironment(pkg)) {
   return {
     pluginVersionId: environment.GCAC_PLUGIN_VERSION_ID,
     pluginId: pkg.pluginId,
-    pluginVersion,
+    pluginVersion: pkg.manifest.version,
     tenantId: 'tenant-fixture',
     executablePath: process.execPath,
     args: [runnerServer, '--executor-module', pkg.runtimePath],
@@ -397,7 +397,7 @@ test('web.nginx application.discover 通过真实 Runner 返回标准对象和�
     assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
     assert.equal(result.success, true);
     assert.equal(result.summary.pluginId, pkg.pluginId);
-    assert.equal(result.summary.workflowVersion, pluginVersion);
+    assert.equal(result.summary.workflowVersion, pkg.manifest.version);
     assert.equal(result.summary.operationResults.length, 4);
     assert.deepEqual(result.normalizedObjects.map((item) => item.kind), ['Application', 'CertificateBinding']);
     assert.equal(result.normalizedObjects[0].metadata.managementMethod, 'AGENT');

@@ -19,7 +19,7 @@ export interface PluginRunnerExecutionDependencies {
   /** 生产只能注入 Supervisor；测试可以注入同样形状的 Fixture。 */
   supervisor?: Pick<PluginRunnerSupervisor, 'start'>;
   runner?: ProductionPluginRunnerConfig;
-  /** 生产必须从固定 P2 Registry 解析 Runner 入口；测试 Fixture 可不注入。 */
+  /** 生产必须从当前内置 Registry 解析 Runner 入口；测试 Fixture 可不注入。 */
   builtinRegistry?: Pick<BuiltinPluginRegistry, 'refresh' | 'get'>;
   hostApiHandler?: PluginRunnerHostApiHandler;
   /** 生产主链必须注入，用于在 Runner 启动前验证完整 Grant 绑定。 */

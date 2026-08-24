@@ -61,7 +61,8 @@ test('开发 Runner 能以独立子进程握手固定 ca.microsoft-adcs PluginVe
   assert.ok(config);
   const registry = new BuiltinPluginRegistry();
   await registry.refresh();
-  const entry = registry.get('ca.microsoft-adcs', '1.0.0');
+  const entry = registry.list().find((candidate) => candidate.pluginId === 'ca.microsoft-adcs');
+  assert.ok(entry);
   const client = new PluginRunnerClient({
     ...config,
     args: replaceExecutorModule(config.args, entry.runtimeEntrypointPath),

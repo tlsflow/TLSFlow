@@ -73,7 +73,7 @@ export interface UnifiedPluginManifestV1 {
     artifactContracts?: string[];
   };
   resources: {
-    /** P2 固定的 Runner 执行入口；宿主只保存路径和摘要，不在宿主进程加载。 */
+    /** Manifest 固定的 Runner 执行入口；宿主只保存路径和摘要，不在宿主进程加载。 */
     runtimeEntrypoint?: string;
     agentPlans?: Record<string, string>;
     workflows?: Record<string, string>;

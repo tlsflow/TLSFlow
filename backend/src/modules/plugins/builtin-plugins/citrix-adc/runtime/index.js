@@ -1,24 +1,12 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const PLUGIN_ID = 'device.citrix.netscaler-adc';
-const PLUGIN_VERSION = '2.0.1';
+const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const PLUGIN_ID = packageManifest.pluginId;
+const PLUGIN_VERSION = packageManifest.version;
 const PROTOCOL = 'NITRO';
-const CAPABILITIES = Object.freeze([
-  'device.connection.test',
-  'device.identity.detect',
-  'device.discover',
-  'certificate.deploy',
-  'certificate.rollback',
-]);
-const PERMISSIONS = Object.freeze([
-  'secret.resolve',
-  'artifact.read',
-  'execution.progress',
-  'execution.checkpoint',
-  'execution.cancel',
-  'resource.lock',
-  'audit.append',
-]);
+const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
+const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/;
 const SECRET_REF_PATTERN = /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
@@ -43,7 +31,7 @@ export function createPluginRunnerExecutor() {
 
 async function execute(context, hostApi) {
   assertContext(context);
-  if (!CAPABILITIES.includes(context.capability)) fail('Capability 未绑定到 Citrix P2 PluginVersion');
+  if (!CAPABILITIES.includes(context.capability)) fail('Capability 未绑定到 Citrix Manifest PluginVersion');
   const input = record(context.input, 'input');
   const state = { writeStarted: false };
   const fixture = requireFixture(input.protocolFixture, PROTOCOL);

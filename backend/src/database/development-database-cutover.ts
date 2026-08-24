@@ -306,7 +306,7 @@ async function assertDatabasePostflight(
   if (rows.rows.length !== expected.length) throw new Error(`开发数据库 PluginVersion 数量不一致：${rows.rows.length}/${expected.length}`);
   for (const row of rows.rows) {
     const entry = expectedByKey.get(`${row.plugin_id}@${row.plugin_version}`);
-    if (!entry || row.status !== 'ENABLED') throw new Error(`开发 PluginVersion 未启用或不在发布清单：${row.plugin_id}@${row.plugin_version}`);
+    if (!entry || row.status !== 'ENABLED') throw new Error(`开发 PluginVersion 未启用或不在当前内置 Registry：${row.plugin_id}@${row.plugin_version}`);
     if (row.package_sha256 !== entry.packageSha256) throw new Error(`开发 PluginVersion 包摘要不一致：${row.plugin_id}@${row.plugin_version}`);
     if (row.manifest_sha256 !== entry.manifestSha256) throw new Error(`开发 PluginVersion Manifest 摘要不一致：${row.plugin_id}@${row.plugin_version}`);
     if (!digestMapsEqual(row.resource_sha256, entry.resourceSha256)) throw new Error(`开发 PluginVersion 资源摘要不一致：${row.plugin_id}@${row.plugin_version}`);
@@ -367,7 +367,7 @@ async function assertDatabasePostflight(
     if (!expectedBinding
       || expectedBinding.workflow.capabilityKey !== binding.capability_key
       || expectedBinding.workflow.path !== binding.workflow_resource_path) {
-      throw new Error(`Workflow Binding 未逐项匹配 P2 发布清单：${bindingKey}`);
+      throw new Error(`Workflow Binding 未逐项匹配当前内置 Registry：${bindingKey}`);
     }
     seenBindings.add(bindingKey);
     const version = versionById.get(binding.workflow_version_id);
@@ -386,7 +386,7 @@ async function assertDatabasePostflight(
   }
   if (seenBindings.size !== expectedBindings.size) {
     const missing = [...expectedBindings.keys()].filter((key) => !seenBindings.has(key));
-    throw new Error(`开发 Workflow Binding 缺少发布清单声明：${missing.join(', ')}`);
+    throw new Error(`开发 Workflow Binding 缺少当前内置 Registry 声明：${missing.join(', ')}`);
   }
 
   const auditCount = await scalarNumber(db, `
@@ -458,9 +458,9 @@ function digestMapsEqual(left: Record<string, string> | undefined, right: Record
 }
 
 function assertExpectedPluginSet(entries: readonly BuiltinPluginRegistryEntry[]): void {
-  if (entries.length === 0) throw new Error('P2 开发发布清单未加载任何可发布内置插件');
+  if (entries.length === 0) throw new Error('当前内置 Registry 未加载任何可发布插件');
   const keys = new Set(entries.map((entry) => `${entry.pluginId}@${entry.version}`));
-  if (keys.size !== entries.length) throw new Error('P2 开发发布清单存在重复 PluginVersion');
+  if (keys.size !== entries.length) throw new Error('当前内置 Registry 存在重复 PluginVersion');
 }
 
 async function closeDatabase(db: DatabasePort): Promise<void> {

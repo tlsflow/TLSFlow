@@ -20,8 +20,8 @@ test('Fact Runner 只从固定 Registry 生成 Runner 启动规格', async () =>
       get() {
         return {
           pluginId: 'web.nginx', version: '1.0.0', packageDirectory: 'web-nginx', runtimeEntrypoint: 'runtime/index.js',
-          runtimeEntrypointPath: 'C:/packages/web-nginx/runtime/index.js', executionMode: 'PLUGIN_RUNNER', ipcProtocol: 'gcac.plugin-runner/v1', agentSidePlugin: false,
-          manifest: {} as never, capabilities: [{ key: 'application.discover' }] as never, hostApiGrants: [], workflows: [],
+          runtimeEntrypointPath: 'C:/packages/web-nginx/runtime/index.js', executionMode: 'PLUGIN_RUNNER', ipcProtocol: 'gcac.plugin-runner/v1',
+          manifest: {} as never, capabilities: [{ key: 'application.discover' }] as never, workflows: [],
           packageSha256: `sha256:${'b'.repeat(64)}`, manifestSha256: `sha256:${'c'.repeat(64)}`, resourceSha256: {}, resourceHash: `sha256:${'d'.repeat(64)}`,
         };
       },
@@ -57,7 +57,7 @@ test('Fact Runner 将真实 Runner 进程异常收敛为 UNKNOWN', async () => {
     },
     builtinRegistry: {
       async refresh() { return []; },
-      get() { return { pluginId: 'web.nginx', version: '1.0.0', packageDirectory: 'web-nginx', runtimeEntrypoint: 'runtime/index.js', runtimeEntrypointPath: 'C:/packages/web-nginx/runtime/index.js', executionMode: 'PLUGIN_RUNNER', ipcProtocol: 'gcac.plugin-runner/v1', agentSidePlugin: false, manifest: {} as never, capabilities: [{ key: 'application.discover' }] as never, hostApiGrants: [], workflows: [], packageSha256: `sha256:${'b'.repeat(64)}`, manifestSha256: `sha256:${'c'.repeat(64)}`, resourceSha256: {}, resourceHash: `sha256:${'d'.repeat(64)}` }; },
+      get() { return { pluginId: 'web.nginx', version: '1.0.0', packageDirectory: 'web-nginx', runtimeEntrypoint: 'runtime/index.js', runtimeEntrypointPath: 'C:/packages/web-nginx/runtime/index.js', executionMode: 'PLUGIN_RUNNER', ipcProtocol: 'gcac.plugin-runner/v1', manifest: {} as never, capabilities: [{ key: 'application.discover' }] as never, workflows: [], packageSha256: `sha256:${'b'.repeat(64)}`, manifestSha256: `sha256:${'c'.repeat(64)}`, resourceSha256: {}, resourceHash: `sha256:${'d'.repeat(64)}` }; },
     },
     supervisor: { async start() { throw new Error('runner crashed'); } },
   });

@@ -2,12 +2,12 @@
   "apiVersion": "gcac.plugin-discovery/v1",
   "kind": "AgentFactProfileSet",
   "pluginId": "web.nginx",
-  "version": "1.0.3",
+  "version": "1.0.10",
   "profiles": [
     {
       "id": "linux.agent_plan.pem",
       "pluginId": "web.nginx",
-      "version": "1.0.3",
+      "version": "1.0.10",
       "sources": [
         "linux"
       ],
@@ -54,7 +54,7 @@
     {
       "id": "windows.agent_plan.pem",
       "pluginId": "web.nginx",
-      "version": "1.0.3",
+      "version": "1.0.10",
       "sources": [
         "windows"
       ],

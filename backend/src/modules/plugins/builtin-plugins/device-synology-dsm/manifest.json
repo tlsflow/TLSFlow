@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.synology-dsm",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "displayNameKey": "plugin.synologyDsm.name",
   "descriptionKey": "plugin.synologyDsm.description",
   "logoUrl": "/plugin-logos/synology.svg",
@@ -20,7 +20,7 @@
     { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
   ],
   "permissions": [
-    "secret.read",
+    "secret.resolve",
     "artifact.read",
     "network.http",
     "device.write",

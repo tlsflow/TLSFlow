@@ -1,26 +1,13 @@
 import { createHash, createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const PLUGIN_ID = 'cloud.aliyun';
-const PLUGIN_VERSION = '2.0.1';
+const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const PLUGIN_ID = packageManifest.pluginId;
+const PLUGIN_VERSION = packageManifest.version;
 const PROVIDER = 'aliyun';
 const SIGNATURE_ALGORITHM = 'ALIYUN-RPC-HMAC-SHA1';
-const CAPABILITIES = Object.freeze([
-  'cloud.service.connection-test',
-  'cloud.service.discover',
-  'certificate.deploy',
-  'certificate.rollback',
-]);
-const PERMISSIONS = Object.freeze([
-  'artifact.read',
-  'audit.append',
-  'cloud.service.get',
-  'execution.cancel',
-  'execution.checkpoint',
-  'execution.progress',
-  'network.http',
-  'resource.lock',
-  'secret.resolve',
-]);
+const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
+const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
 const OPERATION_BY_CAPABILITY = Object.freeze({
   'cloud.service.connection-test': 'connection-test',
   'cloud.service.discover': 'discover',

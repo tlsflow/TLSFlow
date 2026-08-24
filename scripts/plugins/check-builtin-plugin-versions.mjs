@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -8,6 +8,7 @@ const repositoryRoot = resolve(scriptDirectory, '..', '..');
 const builtinPluginRoot = 'backend/src/modules/plugins/builtin-plugins';
 
 export function checkBuiltinPluginVersions(root = repositoryRoot, options = {}) {
+  const manifestViolations = findBuiltinPluginManifestViolations(root);
   const baseRef = options.baseRef ?? resolveBaseRef(root, options.environment ?? process.env);
   const { committedPaths, workingTreePaths } = collectChangedPaths(root, baseRef);
   const committedViolations = findBuiltinPluginVersionViolations({
@@ -24,7 +25,32 @@ export function checkBuiltinPluginVersions(root = repositoryRoot, options = {}) 
     readCurrentResource: (resourcePath) => readJsonFile(resolve(root, resourcePath)),
     readBaseResource: (resourcePath) => readJsonFromGit(root, 'HEAD', resourcePath),
   });
-  return uniqueViolations([...committedViolations, ...workingTreeViolations]);
+  return uniqueViolations([...manifestViolations, ...committedViolations, ...workingTreeViolations]);
+}
+
+/** 所有内置包都必须先通过同一条严格 SemVer 语法门禁，不能只校验发生 diff 的包。 */
+export function findBuiltinPluginManifestViolations(root = repositoryRoot) {
+  const builtinRoot = resolve(root, builtinPluginRoot);
+  if (!existsSync(builtinRoot)) return [];
+  return readdirSync(builtinRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const pluginDirectory = entry.name;
+      const manifestPath = `${builtinPluginRoot}/${pluginDirectory}/manifest.json`;
+      const manifest = readJsonFile(resolve(root, manifestPath));
+      if (!manifest) return undefined;
+      if (!isSemanticVersion(manifest.version)) {
+        return {
+          kind: 'manifest',
+          pluginId: typeof manifest.pluginId === 'string' ? manifest.pluginId : pluginDirectory,
+          pluginDirectory,
+          version: manifest.version ?? '(未声明)',
+          manifestPath,
+        };
+      }
+      return undefined;
+    })
+    .filter(Boolean);
 }
 
 export function findBuiltinPluginVersionViolations({
@@ -43,6 +69,8 @@ export function findBuiltinPluginVersionViolations({
     const currentManifest = readCurrentManifest(manifestPath);
     const baseManifest = readBaseManifest(manifestPath);
     if (!currentManifest || !baseManifest) continue;
+    // 非法当前版本由全量 Manifest SemVer 门禁报告，避免重复生成“版本未递进”噪声。
+    if (!isSemanticVersion(currentManifest.version)) continue;
     const pluginId = currentManifest.pluginId ?? baseManifest.pluginId ?? pluginDirectory;
     const pluginVersionIncremented = isSemanticVersionIncrement(currentManifest.version, baseManifest.version);
     if (!pluginVersionIncremented) {
@@ -113,6 +141,13 @@ function compareSemanticVersions(left, right) {
     return leftPart.localeCompare(rightPart);
   }
   return 0;
+}
+
+function isSemanticVersion(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
+  if (!match) return false;
+  return !(match[4]?.split('.').some((part) => /^0[0-9]+$/.test(part)) ?? false);
 }
 
 function resolveBaseRef(root, environment) {
@@ -204,6 +239,9 @@ function run() {
   for (const violation of violations) {
     if (violation.kind === 'plugin') {
       console.error(`- 插件 ${violation.pluginId} 或其内置 Workflow 内容已变化：Manifest.version 必须从 ${violation.previousVersion} 递进，文件 ${violation.manifestPath}`);
+    }
+    if (violation.kind === 'manifest') {
+      console.error(`- 插件 ${violation.pluginId} 的 Manifest.version 不是合法 SemVer：${violation.version}，文件 ${violation.manifestPath}`);
     }
   }
   process.exitCode = 1;

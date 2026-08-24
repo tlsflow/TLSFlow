@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "app.java-keystore",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "displayNameKey": "plugin.appJavaKeystore.name",
   "descriptionKey": "plugin.appJavaKeystore.description",
   "defaultLocale": "zh-CN",

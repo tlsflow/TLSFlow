@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkBuiltinPluginVersions, findBuiltinPluginVersionViolations } from './check-builtin-plugin-versions.mjs';
+import { checkBuiltinPluginVersions, findBuiltinPluginManifestViolations, findBuiltinPluginVersionViolations } from './check-builtin-plugin-versions.mjs';
 
 test('内置插件资源变化但 Manifest 版本不变时报告违规', () => {
   const violations = findBuiltinPluginVersionViolations({
@@ -80,6 +80,18 @@ test('Git 工作区资源变化必须同步升级 Manifest 版本', () => {
 
     writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.1')), 'utf8');
     assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('即使没有 Git 变更，非法 Manifest SemVer 也必须失败关闭', () => {
+  const root = createGitFixture();
+  try {
+    const manifestPath = join(root, 'backend/src/modules/plugins/builtin-plugins/example/manifest.json');
+    writeFileSync(manifestPath, JSON.stringify(createManifest('1.0')), 'utf8');
+    assert.deepEqual(findBuiltinPluginManifestViolations(root).map((violation) => violation.kind), ['manifest']);
+    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.kind), ['manifest']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
