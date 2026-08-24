@@ -35,11 +35,19 @@ export class BuiltinUnifiedPluginLoader {
     ];
   }
 
-  async installAll(tenantId: string, service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
+  async installAll(service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]>;
+  /** @deprecated 测试和旧调用方仍可传入历史存储 tenantId。生产代码应使用无 tenant 参数的重载。 */
+  async installAll(tenantId: string, service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]>;
+  async installAll(
+    tenantIdOrService: string | UnifiedPluginsApplicationService,
+    legacyService?: UnifiedPluginsApplicationService,
+  ): Promise<UnifiedPluginVersionRecord[]> {
+    const service = typeof tenantIdOrService === 'string' ? legacyService! : tenantIdOrService;
+    const storageTenantId = typeof tenantIdOrService === 'string' ? tenantIdOrService : 'SYSTEM';
     const packages = await this.loadPackages();
     const installed: UnifiedPluginVersionRecord[] = [];
     for (const pluginPackage of packages) {
-      const imported = await service.importVersion(tenantId, pluginPackage, 'BUILTIN');
+      const imported = await service.importVersion(storageTenantId, pluginPackage, 'BUILTIN');
       const approved = imported.permissionApprovalStatus === 'APPROVED'
         ? imported
         : await service.approvePermissions(imported.id, imported.manifest.permissions);

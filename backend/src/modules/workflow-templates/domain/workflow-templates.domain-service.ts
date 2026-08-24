@@ -387,6 +387,19 @@ export class WorkflowTemplatesDomainService {
       const mockOutput = transformOutput ?? input.mockResponses?.[step.name] ?? defaultMockOutput(step, rollback, attempt);
       const preOutput = normalizeStepOutput(step, mockOutput);
       const plan = adaptStep(step, context, input.mode, preOutput);
+      if (
+        step.type === 'checkpoint'
+        && step.checkpoint.requiredForRollback
+        && isRecord(plan)
+        && isRecord(plan.capture)
+        && typeof plan.captureHash === 'string'
+      ) {
+        const variables = isRecord(context.values.variables) ? context.values.variables : {};
+        // 受保护的 checkpoint 是同一 WorkflowVersion 回滚分支的输入快照来源。
+        variables.recoverySnapshot = plan.capture;
+        variables.recoverySnapshotHash = plan.captureHash;
+        context.values.variables = variables;
+      }
       const dispatchOutput = dispatcher && input.mode !== 'render_only' && step.type !== 'transform'
         ? await dispatcher({ runId, step: executionName === step.name ? step : { ...step, name: executionName }, renderedPlan: plan, attempt, rollback })
         : undefined;
@@ -1107,7 +1120,10 @@ async function executeTransformStep(step: WorkflowTransformStep, values: Record<
   for (const [name, config] of Object.entries(step.transform.outputs)) {
     assertJsonataExpressionSafe(config.expression);
     const scope = { ...asRecord(input), ...outputValues };
-    const raw = await evaluateJsonata(config.expression, scope, step.transform.timeoutMs ?? defaultTransformTimeoutMs);
+    const raw = await evaluateJsonata(config.expression, scope, step.transform.timeoutMs ?? defaultTransformTimeoutMs, {
+      step: step.name,
+      output: name,
+    });
     if ((raw === undefined || raw === null) && !config.optional) {
       throw new AppError('WORKFLOW_ASSERTION_FAILED', '转换输出为空', { step: step.name, output: name });
     }
@@ -1127,7 +1143,12 @@ function readTransformOutputs(step: WorkflowTransformStep, output: WorkflowMockS
   return outputs;
 }
 
-async function evaluateJsonata(expression: string, input: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
+async function evaluateJsonata(
+  expression: string,
+  input: Record<string, unknown>,
+  timeoutMs: number,
+  location?: { step: string; output: string },
+): Promise<unknown> {
   return await new Promise<unknown>((resolve, reject) => {
     const worker = createJsonataWorker({ expression, input });
     let settled = false;
@@ -1145,14 +1166,17 @@ async function evaluateJsonata(expression: string, input: Record<string, unknown
     worker.once('message', (message: JsonataWorkerMessage) => {
       finish(() => {
         if (message.ok) resolve(message.value);
-        else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { message: message.message }));
+        else reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, message: message.message }));
       });
     });
     worker.once('error', (error) => {
-      finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { message: error instanceof Error ? error.message : String(error) })));
+      finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', {
+        ...location,
+        message: error instanceof Error ? error.message : String(error),
+      })));
     });
     worker.once('exit', (code) => {
-      if (code !== 0) finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { code })));
+      if (code !== 0) finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { ...location, code })));
     });
   });
 }

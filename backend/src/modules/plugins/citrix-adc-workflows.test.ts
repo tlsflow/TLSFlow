@@ -441,13 +441,13 @@ test('Citrix ADC systemfile 接受 200 且绑定失败时不执行保存', async
   responses.uploadLeafCertificate = { statusCode: 200, body: {} };
   responses.uploadPrivateKey = { statusCode: 200, body: {} };
   responses.bindNewCertificate = { statusCode: 500, body: { errorcode: 999, message: 'fixture failure' } };
-  responses.rollbackReadCurrentVersion = responses.preflight;
-  responses.rollbackRestoreOldBinding = { statusCode: 201, body: { errorcode: 0 } };
-  responses.rollbackReadBindingsAfterRestore = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }] } };
-  responses.rollbackRemoveNewBinding = { statusCode: 200, body: { errorcode: 0 } };
-  responses.rollbackReadFinalBindings = responses.rollbackReadBindingsAfterRestore;
-  responses.rollbackSaveConfiguration = { statusCode: 200, body: { errorcode: 0 } };
-  responses.rollbackVerifyPreviousTlsHandshake = { statusCode: 200, body: { remoteCertificateSha256: 'bb'.repeat(32) } };
+  responses.readCurrentVersion = responses.preflight;
+  responses.restoreOldBinding = { statusCode: 201, body: { errorcode: 0 } };
+  responses.readBindingsAfterRestore = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }] } };
+  responses.removeNewBinding = { statusCode: 200, body: { errorcode: 0 } };
+  responses.readFinalBindings = responses.readBindingsAfterRestore;
+  responses.saveConfiguration = { statusCode: 200, body: { errorcode: 0 } };
+  responses.verifyPreviousTlsHandshake = { statusCode: 200, body: { remoteCertificateSha256: 'bb'.repeat(32) } };
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
@@ -468,8 +468,8 @@ test('Citrix ADC 自动补偿失败时不得伪装为已回滚', async () => {
   const { version } = await workflows.createTemplate({ content });
   const responses = deploymentResponses();
   responses.bindNewCertificate = { statusCode: 500, body: { errorcode: 999 } };
-  responses.rollbackReadCurrentVersion = responses.preflight;
-  responses.rollbackRestoreOldBinding = { statusCode: 500, body: { errorcode: 998 } };
+  responses.readCurrentVersion = responses.preflight;
+  responses.restoreOldBinding = { statusCode: 500, body: { errorcode: 998 } };
   const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(deploymentVariables()), mockResponses: responses });
   assert.equal(result.status, 'failed');
   assert.equal(result.rollbackResults.some((item) => item.status === 'failed'), true);
@@ -477,51 +477,52 @@ test('Citrix ADC 自动补偿失败时不得伪装为已回滚', async () => {
 
 test('Citrix ADC 回滚恢复旧绑定、移除新绑定并验证集合语义等价', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
-  const content = JSON.parse(pluginPackage.resources['workflows/certificate-rollback.json']!);
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
   const workflows = new WorkflowTemplatesApplicationService();
   const { version } = await workflows.createTemplate({ content });
   const snapshot = recoverySnapshot();
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    resolvedInput: resolvedWorkflowInput(recoveryVariables(snapshot)),
+    executionBranch: 'rollback',
+    resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }),
     mockResponses: recoveryResponses(),
   });
   assert.equal(result.status, 'success');
-  assert.deepEqual(result.stepResults.map((item) => item.name).slice(-4), [
+  assert.deepEqual(result.rollbackResults.map((item) => item.name).slice(-4), [
     'readFinalBindings', 'compareFinalBindings', 'requireFinalBindingsEquivalent', 'saveConfiguration',
   ]);
-  const remove = result.stepResults.find((item) => item.name === 'removeNewBindings')?.children?.[0];
+  const remove = result.rollbackResults.find((item) => item.name === 'removeNewBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:gcac-leaf-20260724/);
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
 });
 
 test('Citrix ADC 回滚快照哈希损坏时在首个写操作前停止', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
-  const content = JSON.parse(pluginPackage.resources['workflows/certificate-rollback.json']!);
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
   const workflows = new WorkflowTemplatesApplicationService();
   const { version } = await workflows.createTemplate({ content });
   const snapshot = recoverySnapshot();
   const variables = recoveryVariables(snapshot);
   variables.recoverySnapshotHash = '00'.repeat(32);
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(variables), mockResponses: recoveryResponses() });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', executionBranch: 'rollback', resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...variables }), mockResponses: recoveryResponses() });
   assert.equal(result.status, 'failed');
-  assert.deepEqual(result.stepResults.map((item) => item.name), ['verifyRecoverySnapshot']);
-  assert.equal(result.stepResults.some((item) => item.name === 'restoreOldBindings'), false);
+  assert.deepEqual(result.rollbackResults.map((item) => item.name), ['verifyRecoverySnapshot']);
+  assert.equal(result.rollbackResults.some((item) => item.name === 'restoreOldBindings'), false);
 });
 
 test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
-  const content = JSON.parse(pluginPackage.resources['workflows/certificate-rollback.json']!);
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
   const workflows = new WorkflowTemplatesApplicationService();
   const { version } = await workflows.createTemplate({ content });
   const responses = recoveryResponses();
   responses.readCurrentVersion = { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS14.1: Build 1.0.nc' } } };
   const snapshot = recoverySnapshot();
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(recoveryVariables(snapshot)), mockResponses: responses });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', executionBranch: 'rollback', resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }), mockResponses: responses });
   assert.equal(result.status, 'failed');
-  assert.deepEqual(result.stepResults.map((item) => item.name), ['verifyRecoverySnapshot', 'readCurrentVersion', 'verifyDeviceVersion']);
-  assert.equal(result.stepResults.some((item) => item.name === 'restoreOldBindings'), false);
+  assert.deepEqual(result.rollbackResults.map((item) => item.name), ['verifyRecoverySnapshot', 'readCurrentVersion', 'verifyDeviceVersion']);
+  assert.equal(result.rollbackResults.some((item) => item.name === 'restoreOldBindings'), false);
 });
 
 function deploymentVariables(): Record<string, unknown> {
@@ -573,9 +574,10 @@ function recoverySnapshot(): Record<string, unknown> {
 }
 
 function recoveryVariables(snapshot: Record<string, unknown>): Record<string, unknown> {
+  const wrapped = { snapshot };
   return {
-    recoverySnapshot: snapshot,
-    recoverySnapshotHash: createHash('sha256').update(stableJson(snapshot)).digest('hex'),
+    recoverySnapshot: wrapped,
+    recoverySnapshotHash: createHash('sha256').update(stableJson(wrapped)).digest('hex'),
   };
 }
 

@@ -441,7 +441,7 @@ export async function createAppAsync(
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
   if (unifiedPlugins && pluginWorkflowPublisher) {
-    const installed = await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
+    const installed = await new BuiltinUnifiedPluginLoader().installAll(unifiedPlugins);
     for (const plugin of installed) await pluginWorkflowPublisher.publishPlugin(plugin);
     const database = app.getResource<DatabasePort>('database');
     if (database) {
