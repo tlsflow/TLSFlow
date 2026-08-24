@@ -37,7 +37,7 @@ fluxbox -display "${DISPLAY}" \
   >"${SESSION_DIR}/logs/fluxbox.log" 2>&1 &
 pids+=("$!")
 
-x11vnc -display "${DISPLAY}" -forever -shared -nopw -localhost -rfbport "${RFB_PORT}" \
+x11vnc -display "${DISPLAY}" -forever -shared -nopw -localhost -xrandr -rfbport "${RFB_PORT}" \
   >"${SESSION_DIR}/logs/x11vnc.log" 2>&1 &
 pids+=("$!")
 
@@ -60,6 +60,7 @@ pids+=("$!")
   --disable-component-update \
   --disable-default-apps \
   --disable-sync \
+  --start-maximized \
   --metrics-recording-only \
   --password-store=basic \
   about:blank \

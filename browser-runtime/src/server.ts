@@ -22,6 +22,7 @@ interface SessionRecord {
   context?: BrowserContext;
   page?: Page;
   responseHeaders: Record<string, string>;
+  screenSize: string;
 }
 
 interface BrowserAction {
@@ -120,12 +121,13 @@ async function createSession(input: unknown) {
   const loginUrl = text(request.loginUrl, 'loginUrl');
   const allowedOrigins = arrayOfText(request.allowedOrigins, 'allowedOrigins');
   const ttlSeconds = number(request.ttlSeconds, 'ttlSeconds');
+  const screenSize = normalizeScreenSize(request.screenWidth, request.screenHeight);
   ensureAllowedUrl(loginUrl, allowedOrigins);
 
   const existing = sessions.get(sessionId);
   if (existing && existing.status !== 'stopped') return view(existing);
 
-  const processHandle = await processLauncher.start(sessionId);
+  const processHandle = await processLauncher.start(sessionId, screenSize);
   const record: SessionRecord = {
     sessionId,
     status: 'created',
@@ -133,9 +135,10 @@ async function createSession(input: unknown) {
     allowedOrigins,
     expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
     cdpUrl: `http://127.0.0.1:${processHandle.cdpPort}`,
-    vncUrl: `${publicBaseUrl}/vnc/${encodeURIComponent(sessionId)}/vnc.html?autoconnect=true&resize=scale&path=vnc/${encodeURIComponent(sessionId)}/websockify`,
+    vncUrl: `${publicBaseUrl}/vnc/${encodeURIComponent(sessionId)}/vnc.html?autoconnect=true&resize=remote&path=vnc/${encodeURIComponent(sessionId)}/websockify`,
     processHandle,
     responseHeaders: {},
+    screenSize,
   };
   sessions.set(sessionId, record);
   void processHandle.exit.then(() => {
@@ -320,6 +323,7 @@ async function cleanupSession(record: SessionRecord, terminalStatus: SessionStat
   record.page = undefined;
   await browser?.close().catch(() => undefined);
   await processLauncher.stop(record.processHandle).catch(() => undefined);
+  if (sessions.get(record.sessionId) === record) sessions.delete(record.sessionId);
 }
 
 function view(record: SessionRecord) {
@@ -330,6 +334,7 @@ function view(record: SessionRecord) {
     cdpConnected: record.browser?.isConnected() === true,
     processAlive: processLauncher.isAlive(record.processHandle),
     contextVersion: 1,
+    screenSize: record.screenSize,
     expiresAt: record.expiresAt,
   };
 }
@@ -479,6 +484,20 @@ function arrayOfText(value: unknown, field: string): string[] {
 function number(value: unknown, field: string): number {
   if (!Number.isInteger(value) || Number(value) <= 0) {
     throw httpError(400, 'VALIDATION_FAILED', `${field} 必须是正整数`);
+  }
+  return Number(value);
+}
+
+function normalizeScreenSize(width: unknown, height: unknown): string {
+  const normalizedWidth = dimension(width, 1280, 3840);
+  const normalizedHeight = dimension(height, 800, 2160);
+  return `${normalizedWidth}x${normalizedHeight}x24`;
+}
+
+function dimension(value: unknown, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || Number(value) < 600 || Number(value) > maximum) {
+    throw httpError(400, 'VALIDATION_FAILED', '浏览器视口尺寸不合法');
   }
   return Number(value);
 }

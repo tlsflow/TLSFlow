@@ -60,7 +60,7 @@ export class SessionProcessLauncher {
   private readonly rootDirectory: string;
   private readonly scriptPath: string;
   private readonly chromiumExecutable: string;
-  private readonly screenSize: string;
+  private readonly defaultScreenSize: string;
   private readonly displayBase: number;
   private readonly cdpPortBase: number;
   private readonly rfbPortBase: number;
@@ -72,14 +72,14 @@ export class SessionProcessLauncher {
     this.rootDirectory = resolve(options.rootDirectory ?? process.env.BROWSER_SESSION_ROOT ?? '/run/gcac-browser-sessions');
     this.scriptPath = resolve(options.scriptPath ?? process.env.BROWSER_SESSION_SCRIPT ?? 'container/start-session.sh');
     this.chromiumExecutable = options.chromiumExecutable ?? process.env.BROWSER_CHROMIUM_EXECUTABLE ?? 'chromium';
-    this.screenSize = options.screenSize ?? process.env.BROWSER_SCREEN_SIZE ?? '1280x800x24';
+    this.defaultScreenSize = options.screenSize ?? process.env.BROWSER_SCREEN_SIZE ?? '1280x800x24';
     this.displayBase = options.displayBase ?? 100;
     this.cdpPortBase = options.cdpPortBase ?? 19_000;
     this.rfbPortBase = options.rfbPortBase ?? 15_900;
     this.slots = new SessionSlotPool(options.maxSessions ?? positiveInteger(process.env.BROWSER_RUNTIME_MAX_SESSIONS, 4));
   }
 
-  async start(sessionId: string): Promise<SessionProcessHandle> {
+  async start(sessionId: string, screenSize = this.defaultScreenSize): Promise<SessionProcessHandle> {
     const slot = this.slots.allocate(sessionId);
     const sessionDirectory = buildSessionDirectory(this.rootDirectory, sessionId);
     await mkdir(this.rootDirectory, { recursive: true, mode: 0o700 });
@@ -101,7 +101,7 @@ export class SessionProcessLauncher {
           CDP_PORT: String(cdpPort),
           RFB_PORT: String(rfbPort),
           CHROMIUM_EXECUTABLE: this.chromiumExecutable,
-          SCREEN_SIZE: this.screenSize,
+          SCREEN_SIZE: screenSize,
         },
       });
       if (!child.pid) throw new Error('无法取得浏览器会话进程 PID');
