@@ -1,4 +1,5 @@
 import type { GcRouteRecord } from '@/types/router'
+import { licensingRoutes } from '@/edition/licensing'
 
 export const businessRoutes: GcRouteRecord[] = [
   {
@@ -473,22 +474,7 @@ export const businessRoutes: GcRouteRecord[] = [
       keepAlive: true
     }
   },
-  {
-    path: '/settings/licensing',
-    name: 'settings.licensing',
-    component: () => import('@/views/settings/LicensingView.vue'),
-    meta: {
-      title: 'settings.licensing.title',
-      titleKey: 'settings.licensing.title',
-      module: 'settings',
-      requiresAuth: true,
-      permission: 'settings.read',
-      resourceType: 'settings',
-      riskLevel: 'medium',
-      breadcrumbKeys: ['nav.systemSettings', 'settings.licensing.title'],
-      keepAlive: true
-    }
-  },
+  ...licensingRoutes,
   {
     path: '/settings/notifications',
     name: 'settings.notifications',

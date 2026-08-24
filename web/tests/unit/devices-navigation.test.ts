@@ -10,12 +10,12 @@ describe('统一设备导航', () => {
     expect(typeof agents?.redirect).toBe('function')
 
     const redirect = (agents?.redirect as (to: { query: Record<string, string>; hash: string }) => unknown)({ query: { status: 'online' }, hash: '#list' })
-    expect(redirect).toEqual({ path: '/devices', query: { status: 'online' }, hash: '#list' })
+    expect(redirect).toEqual({ path: '/assets/devices', query: { status: 'online' }, hash: '#list' })
   })
 
   it('主菜单只暴露统一设备入口', () => {
     const assetsMenu = mainMenuItems.find((item) => item.path === '/assets')
-    expect(assetsMenu?.children?.some((item) => item.path === '/devices')).toBe(true)
+    expect(assetsMenu?.children?.find((item) => item.path === '/assets/devices')).toMatchObject({ titleKey: 'nav.devices' })
     expect(assetsMenu?.children?.some((item) => item.path === '/agents')).toBe(false)
   })
 })
