@@ -1,18 +1,26 @@
 import { AppError } from '../../common/errors/app-error.js';
 import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import { newId } from '../../shared/id.js';
+import {
+  validateAgentCapabilityToken,
+  validatePolicyAuthorityDecision,
+} from '../agents/security/agent-security.contract.js';
 import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
 import type { GatewayTaskAuditWriter } from './gateway-target-history.service.js';
+import type { DurableGatewayTaskRepositories } from './gateway-task.repository.js';
 
 export interface GatewayTaskRepositories {
   tasks: RepositoryPort<GatewayTask>;
   evidence: RepositoryPort<GatewayEvidence>;
+  flush?: () => Promise<void>;
 }
 
 export interface GatewayTaskServiceOptions {
   repositories?: GatewayTaskRepositories;
   auditWriter?: GatewayTaskAuditWriter;
 }
+
+type GatewayV2NonceBinding = Omit<NonNullable<GatewayTask['v2NonceBinding']>, 'consumedAt'>;
 
 export class GatewayTaskService {
   private readonly tasks = new Map<string, GatewayTask>();
@@ -22,13 +30,13 @@ export class GatewayTaskService {
   private readonly evidenceRefIndex = new Map<string, string>();
   private readonly v2NonceIndex = new Map<string, string>();
 
-  private readonly repositories?: GatewayTaskRepositories;
+  private repositories?: GatewayTaskRepositories;
   private readonly auditWriter?: GatewayTaskAuditWriter;
 
   constructor(options?: GatewayTaskRepositories | GatewayTaskServiceOptions) {
     this.repositories = isGatewayTaskRepositories(options) ? options : options?.repositories;
     this.auditWriter = isGatewayTaskRepositories(options) ? undefined : options?.auditWriter;
-    // 默认路径仍是纯内存 Map。只有调用方显式传入 RepositoryPort 时，才从持久层重建状态。
+    // 生产 Agent v2 必须显式注入持久化仓储；未注入时只能承载非生产的合同记录。
     for (const task of this.repositories?.tasks.list() ?? []) {
       this.tasks.set(task.id, task);
       this.idempotencyIndex.set(this.idempotencyKey(task.tenantId, task.idempotencyKey), task.id);
@@ -38,6 +46,40 @@ export class GatewayTaskService {
       this.evidence.set(item.id, item);
       this.indexEvidence(item);
     }
+  }
+
+  /** 生产应用启动时恢复持久化任务；内存测试服务不调用此入口。 */
+  async initialize(repositories: GatewayTaskRepositories | DurableGatewayTaskRepositories): Promise<void> {
+    if (this.repositories) {
+      if (this.repositories !== repositories) throw new AppError('SYSTEM_INTERNAL_ERROR', 'GatewayTaskService 持久化仓储重复初始化');
+      return;
+    }
+    if (this.tasks.size > 0 || this.evidence.size > 0) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'GatewayTaskService 已有未持久化运行数据，拒绝切换仓储');
+    }
+    this.repositories = repositories;
+    for (const task of repositories.tasks.list()) {
+      this.tasks.set(task.id, task);
+      this.idempotencyIndex.set(this.idempotencyKey(task.tenantId, task.idempotencyKey), task.id);
+      if (task.v2NonceBinding) this.v2NonceIndex.set(this.v2NonceKey(task.v2NonceBinding), task.id);
+    }
+    for (const item of repositories.evidence.list()) {
+      this.evidence.set(item.id, item);
+      this.indexEvidence(item);
+    }
+  }
+
+  async flushPersistence(): Promise<void> {
+    await this.repositories?.flush?.();
+  }
+
+  /** 应用级持久化钩子；生产请求结束时由 App 统一调用。 */
+  async flush(): Promise<void> {
+    await this.flushPersistence();
+  }
+
+  get hasDurablePersistence(): boolean {
+    return Boolean(this.repositories);
   }
 
   dispatch(input: GatewayDelegatedTaskInput): GatewayTask {
@@ -75,9 +117,9 @@ export class GatewayTaskService {
       target: input.target,
       adapter,
       action,
-      payload: input.payload ?? {},
-      grant: input.grant,
-      forwardingGrant: input.forwardingGrant,
+      payload: structuredClone(input.payload ?? {}),
+      grant: input.grant ? structuredClone(input.grant) : undefined,
+      forwardingGrant: input.forwardingGrant ? structuredClone(input.forwardingGrant) : undefined,
       status: 'queued',
       evidenceIds: [],
       evidenceAckCursor: 0,
@@ -103,6 +145,33 @@ export class GatewayTaskService {
   }
 
   appendEvidence(input: Omit<GatewayEvidence, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): GatewayEvidence {
+    return this.appendEvidenceInternal(input);
+  }
+
+  /** 迟到响应只允许形成拒绝证据，不能改变已经落盘的终态。 */
+  recordLateV2Response(taskId: string, leaseId: string, requestId: string, detail: Record<string, unknown>, now = new Date()): GatewayTask {
+    const task = this.requireLease(taskId, leaseId);
+    this.appendEvidenceInternal({
+      taskId,
+      gatewayId: task.gatewayId,
+      delegatedTargetId: task.delegatedTargetId,
+      adapter: task.adapter,
+      forwardingGrantId: task.forwardingGrant?.id,
+      delegatedAgentId: task.forwardingGrant?.delegatedAgentId,
+      executionRunId: task.executionRunId,
+      stepId: task.stepId,
+      action: task.action,
+      result: 'unknown',
+      evidenceRef: `audit://gateway-route/${task.id}/late/${requestId}`,
+      kind: 'response_summary',
+      summary: 'Agent v2 返回迟到 Receipt，Gateway 已拒绝该结果',
+      metadata: { ...detail, requestId, rejected: true, reason: 'GATEWAY_LATE_RECEIPT' },
+      createdAt: now.toISOString(),
+    }, 'unknown');
+    return this.get(task.id)!;
+  }
+
+  private appendEvidenceInternal(input: Omit<GatewayEvidence, 'id' | 'createdAt'> & { id?: string; createdAt?: string }, resultOverride?: GatewayEvidence['result']): GatewayEvidence {
     const task = this.requireTask(input.taskId);
     const { executionRunId: _executionRunId, stepId: _stepId, action: _action, result: _result, evidenceRef: _evidenceRef, ...safeInput } = input;
     const evidenceRef = _evidenceRef ?? input.id ?? newId('evidence_ref');
@@ -116,7 +185,7 @@ export class GatewayTaskService {
       executionRunId: task.executionRunId,
       stepId: task.stepId,
       action: task.action,
-      result: task.result?.status ?? (task.status === 'failed' || task.status === 'cancelled' || task.status === 'timeout' ? task.status : 'success'),
+      result: resultOverride ?? task.result?.status ?? (task.status === 'failed' || task.status === 'cancelled' || task.status === 'timeout' ? task.status : 'success'),
       evidenceRef,
       sequence,
       id: input.id ?? newId('gw_evd'),
@@ -132,6 +201,7 @@ export class GatewayTaskService {
   result(taskId: string, leaseId: string, result: Omit<GatewayTaskResult, 'evidenceIds' | 'finishedAt'> & Partial<Pick<GatewayTaskResult, 'evidenceIds' | 'finishedAt'>>): GatewayTask {
     const task = this.requireLease(taskId, leaseId);
     if (task.result) return task;
+    assertTaskResultConsistency(result);
     const finishedAt = result.finishedAt ?? new Date().toISOString();
     const evidenceIds = result.evidenceIds ?? task.evidenceIds;
     const firstEvidenceRef = evidenceIds.map((id) => this.evidence.get(id)?.evidenceRef).find((ref): ref is string => Boolean(ref));
@@ -159,34 +229,51 @@ export class GatewayTaskService {
 
   updateForwardingGrant(taskId: string, forwardingGrant: GatewayTask['forwardingGrant'], now = new Date()): GatewayTask {
     const task = this.requireTask(taskId);
+    if (!forwardingGrant) throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 不能清除 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_MUTATION_DENIED' });
+    if (task.forwardingGrant && task.forwardingGrant.id !== forwardingGrant.id) {
+      throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 不能替换已绑定的 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_MUTATION_DENIED', taskId });
+    }
+    if (task.forwardingGrant?.status === 'used' && forwardingGrant.status !== 'used') {
+      throw new AppError('AUTH_FORBIDDEN', '已消费的 ForwardingGrant 不能恢复', { reason: 'GATEWAY_FORWARDING_GRANT_RESTORE_DENIED', taskId });
+    }
     return this.save({ ...task, forwardingGrant, updatedAt: now.toISOString() });
   }
 
-  assertV2NonceAvailable(binding: Omit<NonNullable<GatewayTask['v2NonceBinding']>, 'consumedAt'>): void {
+  assertV2NonceAvailable(binding: GatewayV2NonceBinding): void {
+    this.assertDurableV2NonceStore();
     const taskId = this.v2NonceIndex.get(this.v2NonceKey(binding));
     if (taskId) throw new AppError('AUTH_FORBIDDEN', 'Gateway 拒绝重复使用 Agent v2 nonce', { reason: 'GATEWAY_V2_NONCE_REPLAY', taskId, tokenId: binding.tokenId, nonce: binding.nonce });
   }
 
-  consumeV2Nonce(taskId: string, binding: Omit<NonNullable<GatewayTask['v2NonceBinding']>, 'consumedAt'>, now = new Date()): GatewayTask {
-    this.assertV2NonceAvailable(binding);
+  consumeV2Nonce(taskId: string, binding: GatewayV2NonceBinding, now = new Date()): GatewayTask {
+    this.assertDurableV2NonceStore();
     const task = this.requireTask(taskId);
-    const { taskId: _taskId, ...nonceBinding } = binding as typeof binding & { taskId?: string };
+    assertV2TaskBinding(task, binding);
+    this.assertV2NonceAvailable(binding);
+    const nonceBinding = binding;
     const next = { ...task, v2NonceBinding: { ...nonceBinding, consumedAt: now.toISOString() }, updatedAt: now.toISOString() };
+    const saved = this.save(next);
     this.v2NonceIndex.set(this.v2NonceKey(binding), taskId);
-    return this.save(next);
+    return saved;
   }
 
   get(taskId: string): GatewayTask | undefined {
-    return this.tasks.get(taskId);
+    const task = this.tasks.get(taskId);
+    return task ? structuredClone(task) : undefined;
   }
 
   listRecoverable(): GatewayTask[] {
-    return [...this.tasks.values()].filter((task) => ['queued', 'acknowledged', 'running'].includes(task.status));
+    return [...this.tasks.values()]
+      .filter((task) => ['queued', 'acknowledged', 'running'].includes(task.status))
+      .map((task) => structuredClone(task));
   }
 
   listEvidence(taskId: string): GatewayEvidence[] {
     const task = this.requireTask(taskId);
-    return task.evidenceIds.map((id) => this.evidence.get(id)).filter((item): item is GatewayEvidence => item !== undefined);
+    return task.evidenceIds
+      .map((id) => this.evidence.get(id))
+      .filter((item): item is GatewayEvidence => item !== undefined)
+      .map((item) => structuredClone(item));
   }
 
   private requireTask(taskId: string): GatewayTask {
@@ -202,17 +289,19 @@ export class GatewayTaskService {
   }
 
   private save(task: GatewayTask): GatewayTask {
-    this.tasks.set(task.id, task);
-    this.idempotencyIndex.set(this.idempotencyKey(task.tenantId, task.idempotencyKey), task.id);
-    this.repositories?.tasks.upsert(task);
-    return task;
+    const snapshot = structuredClone(task);
+    this.tasks.set(snapshot.id, snapshot);
+    this.idempotencyIndex.set(this.idempotencyKey(snapshot.tenantId, snapshot.idempotencyKey), snapshot.id);
+    this.repositories?.tasks.upsert(snapshot);
+    return structuredClone(snapshot);
   }
 
   private saveEvidence(evidence: GatewayEvidence): GatewayEvidence {
-    this.evidence.set(evidence.id, evidence);
-    this.indexEvidence(evidence);
-    this.repositories?.evidence.upsert(evidence);
-    return evidence;
+    const snapshot = structuredClone(evidence);
+    this.evidence.set(snapshot.id, snapshot);
+    this.indexEvidence(snapshot);
+    this.repositories?.evidence.upsert(snapshot);
+    return structuredClone(snapshot);
   }
 
   private indexEvidence(evidence: GatewayEvidence): void {
@@ -236,6 +325,15 @@ export class GatewayTaskService {
     return [binding.tenantId, binding.agentId, binding.tokenId, binding.nonce].join(':');
   }
 
+  private assertDurableV2NonceStore(): void {
+    if (!this.repositories) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Gateway v2 Nonce 持久化仓储未装配，拒绝执行', {
+        reason: 'GATEWAY_V2_NONCE_STORE_UNAVAILABLE',
+        fallback: false,
+      });
+    }
+  }
+
   private evidenceSequenceKey(taskId: string, sequence: number): string {
     return `${taskId}:${sequence}`;
   }
@@ -243,6 +341,72 @@ export class GatewayTaskService {
   private evidenceRefKey(taskId: string, evidenceRef: string): string {
     return `${taskId}:${evidenceRef}`;
   }
+}
+
+function assertTaskResultConsistency(result: Omit<GatewayTaskResult, 'evidenceIds' | 'finishedAt'> & Partial<Pick<GatewayTaskResult, 'evidenceIds' | 'finishedAt'>>): void {
+  if (result.success === true && result.executionStatus !== undefined && result.executionStatus !== 'SUCCESS') {
+    throw new AppError('VALIDATION_FAILED', 'GatewayTask 成功状态必须对应 SUCCESS 执行结果', { reason: 'GATEWAY_RESULT_STATUS_MISMATCH' });
+  }
+  if (result.status === 'unknown' && result.executionStatus !== 'UNKNOWN') {
+    throw new AppError('VALIDATION_FAILED', 'GatewayTask UNKNOWN 状态必须对应 UNKNOWN 执行结果', { reason: 'GATEWAY_RESULT_STATUS_MISMATCH' });
+  }
+  if (result.executionStatus === 'UNKNOWN' && result.status !== 'unknown') {
+    throw new AppError('VALIDATION_FAILED', 'UNKNOWN 执行结果必须进入 GatewayTask UNKNOWN 状态', { reason: 'GATEWAY_RESULT_STATUS_MISMATCH' });
+  }
+}
+
+function assertV2TaskBinding(task: GatewayTask, binding: GatewayV2NonceBinding): void {
+  if (task.action !== 'gateway.forward.agent_task' || task.adapter !== 'forward.agent_task' || !task.tenantId || !task.planId) {
+    throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 不具备完整 Agent v2 执行绑定', { reason: 'GATEWAY_V2_TASK_BINDING_REQUIRED', taskId: task.id });
+  }
+  const source = asRecord(task.payload);
+  const token = validateAgentCapabilityToken(source.token);
+  const decision = validatePolicyAuthorityDecision(source.policyDecision);
+  const gatewayGrant = asRecord(source.gatewayGrant ?? task.grant);
+  const forwardingGrant = task.forwardingGrant;
+  if (!forwardingGrant
+    || forwardingGrant.status !== 'active'
+    || forwardingGrant.remainingUses !== 1
+    || forwardingGrant.tenantId !== task.tenantId
+    || forwardingGrant.delegatedAgentId !== token.agentId
+    || forwardingGrant.gatewayId !== task.gatewayId
+    || forwardingGrant.delegatedTargetId !== task.delegatedTargetId
+    || forwardingGrant.taskType !== task.action
+    || forwardingGrant.routeChannel !== task.adapter
+    || forwardingGrant.executionRunId !== task.executionRunId
+    || forwardingGrant.stepId !== task.stepId
+    || typeof gatewayGrant.grantId !== 'string'
+    || gatewayGrant.forwardingGrantId !== forwardingGrant.id
+    || gatewayGrant.tenantId !== task.tenantId
+    || gatewayGrant.agentId !== token.agentId
+    || gatewayGrant.planId !== task.planId
+    || gatewayGrant.planDigest !== token.planDigest
+    || gatewayGrant.pluginId !== token.pluginId
+    || gatewayGrant.pluginVersionId !== token.pluginVersionId
+    || gatewayGrant.tokenId !== token.tokenId
+    || gatewayGrant.nonce !== token.nonce
+    || gatewayGrant.revocationRef !== decision.revocationRef
+    || decision.allowed !== true
+    || token.tenantId !== binding.tenantId
+    || token.agentId !== binding.agentId
+    || token.tokenId !== binding.tokenId
+    || token.nonce !== binding.nonce
+    || decision.revocationRef !== binding.revocationRef
+    || decision.agentId !== token.agentId
+    || decision.tenantId !== token.tenantId
+    || decision.pluginId !== token.pluginId
+    || decision.pluginVersionId !== token.pluginVersionId
+    || decision.capability !== token.capability
+    || decision.planDigest !== token.planDigest
+    || decision.tokenId !== token.tokenId
+    || decision.nonce !== token.nonce) {
+    throw new AppError('AUTH_FORBIDDEN', 'Gateway v2 Nonce 消费绑定不一致', { reason: 'GATEWAY_V2_NONCE_BINDING_DENIED', taskId: task.id });
+  }
+}
+
+function asRecord(value: unknown): Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, any>;
 }
 
 function isGatewayTaskRepositories(value: GatewayTaskRepositories | GatewayTaskServiceOptions | undefined): value is GatewayTaskRepositories {

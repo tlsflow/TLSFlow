@@ -9,10 +9,10 @@ import type {
 
 export type ZoneType = 'production' | 'dmz' | 'office' | 'device' | 'custom';
 export type GatewayStatus = 'online' | 'offline' | 'disabled' | 'revoked' | 'upgrading';
-export const GatewayRouteChannels = ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'] as const;
+export const GatewayRouteChannels = ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task'] as const;
 export type GatewayRouteChannel = (typeof GatewayRouteChannels)[number];
 export type GatewayAdapterType = GatewayRouteChannel | string;
-export const GatewayTaskTypes = ['gateway.probe', 'gateway.forward.agent_task', 'gateway.forward.direct_control'] as const;
+export const GatewayTaskTypes = ['gateway.probe', 'gateway.forward.agent_task'] as const;
 export type GatewayTaskType = (typeof GatewayTaskTypes)[number];
 export type ReachabilityStatus = 'reachable' | 'unreachable' | 'unknown' | 'expired';
 export type ForwardingGrantStatus = 'active' | 'used' | 'expired' | 'revoked';
@@ -46,7 +46,6 @@ export interface ZoneMaintenanceWindow {
 export interface ZonePolicy {
   priority?: number;
   requireApproval?: boolean;
-  allowDirectControlPlaneAccess?: boolean;
   /** Gateway 允许的路由/探测通道。 */
   allowedAdapters?: GatewayAdapterType[];
   allowedActions?: string[];
@@ -184,7 +183,7 @@ export interface GatewayTask {
   target: GatewayTaskTarget;
   /** 实际值只能是 probe.* 或 forward.* 路由通道。 */
   adapter: GatewayAdapterType;
-  /** Gateway 任务类型：gateway.probe / gateway.forward.agent_task / gateway.forward.direct_control。 */
+  /** Gateway 任务类型：gateway.probe / gateway.forward.agent_task。 */
   action: GatewayTaskType | string;
   payload: Record<string, unknown>;
   grant?: GatewayGrantV1;

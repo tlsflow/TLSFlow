@@ -4,6 +4,7 @@ export * from './gateway-agent-process.js';
 export * from './gateway-agent.types.js';
 export * from './gateway-target-history.service.js';
 export * from './gateway-task.service.js';
+export * from './gateway-task.repository.js';
 export * from './gateway-v2-forwarding.service.js';
 export * from './reachability.service.js';
 export * from './zone-router.js';

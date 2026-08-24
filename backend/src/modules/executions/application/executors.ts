@@ -175,7 +175,12 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   };
   // Runner 只接受已固定的 PLUGIN_RUNNER 绑定，不复用 Agent、Workflow 或 Trusted JS 类型。
   const pluginRunnerExecutors = createPluginRunnerExecutors(pluginRunner);
+  // Agent v2 只有在控制面同时提供 Agent 服务和统一 Plan 编译器时才注册；依赖缺失时保持未注册并失败关闭。
+  const agentExecutor = dependencies.agents && dependencies.agentPlanCompiler
+    ? [new AgentExecutorAdapter(dependencies.agents, undefined, dependencies.agentPlanCompiler)]
+    : [];
   return [
+    ...agentExecutor,
     sshExecutor,
     curlExecutor,
     new WorkflowExecutorAdapter({
@@ -187,7 +192,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
       executionGrants: dependencies.executionGrants,
     }),
     ...pluginRunnerExecutors,
-    new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
+    new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter, agentPlanCompiler: dependencies.agentPlanCompiler }),
     new ControlPlaneTlsExecutor(),
   ];
 }
@@ -224,41 +229,24 @@ export class AgentExecutorAdapter implements Executor {
   }
 
   private async executeResolvedPayload(input: StepExecutionInput, agentId: string, payload: Record<string, unknown>, dispatch: AgentActionDispatchResolution): Promise<StepExecutionResult> {
-    const tenantId = requireExecutionTenantId(input.step, 'agent direct task');
-    const task = await this.agents.enqueueDirectTask(tenantId, {
+    const tenantId = requireExecutionTenantId(input.step, 'agent v2 task queue');
+    const task = await this.agents.enqueueTask(tenantId, {
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
       payload,
     }, `execution-step:${input.step.id}`);
-    try {
-      const direct = await this.agents.executeTaskDirect(
-        tenantId,
-        task.id,
-        `execution-direct:${input.step.id}`,
-        input.reportProgress,
-      );
-      return {
-        success: direct.asyncPending === true || direct.success,
-        asyncPending: direct.asyncPending,
-        errorCode: direct.errorCode,
-        errorMessage: direct.errorMessage,
-        detail: direct.detail,
-      };
-    } catch (error) {
-      const appError = error instanceof AppError ? error : undefined;
-      return {
-        success: false,
-        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        detail: {
-          mode: 'agent_direct_execute_failed',
-          dispatchMode: dispatch.mode,
-          taskId: task.id,
-        },
-      };
-    }
+    return {
+      success: true,
+      asyncPending: true,
+      detail: {
+        mode: 'agent_v2_control_plane_queue',
+        dispatchMode: dispatch.mode,
+        taskId: task.id,
+        actionType: dispatch.actionType,
+      },
+    };
   }
 
   private async resolveAgentPayload(input: StepExecutionInput, agentId: string, dispatch: AgentActionDispatchResolution): Promise<{
@@ -279,9 +267,15 @@ export class AgentExecutorAdapter implements Executor {
     if (!this.agentPlanCompiler) {
       return { error: { success: false, errorCode: 'AGENT_PLUGIN_SERVICE_REQUIRED', errorMessage: '统一 Agent Plan 编译器未配置' } };
     }
-    const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId);
+    const runtimeCapability = readRecord(snapshot.pluginRuntimeCapability);
+    const executionSource = readRecord(snapshot.executionSource);
+    const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId)
+      ?? stringFromSnapshot(runtimeCapability?.pluginBindingId)
+      ?? stringFromSnapshot(executionSource?.pluginBindingId);
     if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
-    const pluginVersionId = stringFromSnapshot(readRecord(snapshot.pluginRuntimeCapability)?.pluginVersionId);
+    const pluginVersionId = stringFromSnapshot(runtimeCapability?.pluginVersionId)
+      ?? stringFromSnapshot(executionSource?.pluginVersionId)
+      ?? stringFromSnapshot(snapshot.pluginVersionId);
     if (!pluginVersionId) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 插件执行缺少固定 PluginVersion' } };
     const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
     if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
@@ -297,20 +291,19 @@ export class AgentExecutorAdapter implements Executor {
       v2Request: {
         actionType,
         plan: snapshot.plan,
-        token: snapshot.token,
-        policyDecision: snapshot.policyDecision,
+        authorization: readAgentPlanAuthorization(snapshot.executionAuthorization),
       },
     });
     if (plan.actionType !== actionType) {
       return { error: { success: false, errorCode: 'AGENT_V2_ACTION_MODE_MISMATCH', errorMessage: 'Agent v2 编译结果与执行模式不匹配' } };
     }
-    return { payload: {
-        actionType: plan.actionType,
-        actionSchemaVersion: '1.0',
-        plan: plan.plan,
-        token: plan.token,
-        policyDecision: plan.policyDecision,
-      } };
+    return { payload: buildAgentV2ControlPayload({
+      actionType: plan.actionType,
+      actionSchemaVersion: '1.0',
+      plan: plan.plan,
+      token: plan.token,
+      policyDecision: plan.policyDecision,
+    }, input) };
   }
 }
 
@@ -343,12 +336,64 @@ export class TrustedJsExecutorAdapter implements Executor {
 }
 
 function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(snapshot)) payload[key] = value;
-  payload.stepType = input.step.stepType;
-  payload.runType = input.runType;
-  payload.dryRun = input.dryRun;
-  return payload;
+  return {
+    ...buildAgentV2ControlPayload(snapshot, input),
+    stepType: input.step.stepType,
+    runType: input.runType,
+    dryRun: input.dryRun,
+  };
+}
+
+/**
+ * 控制面入队的唯一 Agent v2 载荷形状。
+ * Go Agent 不应猜测宿主上下文；所有授权绑定字段在入队时一次性固定。
+ */
+function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
+  const actionType = requireGatewayActionType(snapshot.actionType);
+  const token = requireRecord(snapshot.token, 'AgentCapabilityTokenV1');
+  const policyDecision = requireRecord(snapshot.policyDecision, 'PolicyAuthorityDecisionV1');
+  const plan = readRecord(snapshot.plan);
+  const receipt = readRecord(snapshot.receipt);
+  if ((actionType === 'agent.plan.validate' || actionType === 'agent.plan.execute') && !plan) {
+    throw new AppError('VALIDATION_FAILED', 'Agent v2 Plan 缺失，拒绝入队');
+  }
+  if (actionType === 'agent.execution.receipt' && !receipt) {
+    throw new AppError('VALIDATION_FAILED', 'Agent v2 Receipt 缺失，拒绝入队');
+  }
+  const agentId = requireStringValue(token.agentId, 'agentId');
+  const tenantId = requireStringValue(token.tenantId, 'tenantId');
+  const pluginId = requireStringValue(token.pluginId, 'pluginId');
+  const pluginVersionId = requireStringValue(token.pluginVersionId, 'pluginVersionId');
+  const capability = requireStringValue(token.capability, 'capability');
+  const planDigest = requireStringValue(token.planDigest, 'planDigest');
+  return {
+    action: actionType,
+    actionType,
+    actionSchemaVersion: stringFromSnapshot(snapshot.actionSchemaVersion) ?? '1.0',
+    requestId: stringFromSnapshot(snapshot.requestId) ?? `execution:${input.step.executionRunId}:${input.step.id}`,
+    agentId,
+    tenantId,
+    pluginId,
+    pluginVersion: pluginVersionId,
+    pluginVersionId,
+    capability,
+    actions: readStringArray(token.actions),
+    paths: readStringArray(token.allowedPaths),
+    services: readStringArray(token.allowedServices),
+    artifactDigests: readStringArray(token.artifactDigests),
+    planDigest,
+    token,
+    policyDecision,
+    ...(plan ? { plan } : {}),
+    ...(receipt ? { receipt } : {}),
+  };
+}
+
+type AgentPlanAuthorizationInput = NonNullable<NonNullable<Parameters<UnifiedAgentPlanCompilerService['compile']>[0]['v2Request']>['authorization']>;
+
+function readAgentPlanAuthorization(value: unknown): AgentPlanAuthorizationInput | undefined {
+  const record = readRecord(value);
+  return record ? record as AgentPlanAuthorizationInput : undefined;
 }
 
 
@@ -747,11 +792,13 @@ export class GatewayRouteExecutorAdapter implements Executor {
   private readonly gatewayTasks: GatewayTaskService;
   private readonly agents: AgentsApplicationService;
   private readonly grants: ForwardingGrantService;
+  private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService;
 
-  constructor(options: { gatewayTasks?: GatewayTaskService; agents?: AgentsApplicationService; grants?: ForwardingGrantService; auditWriter?: GatewayTaskAuditWriter } = {}) {
+  constructor(options: { gatewayTasks?: GatewayTaskService; agents?: AgentsApplicationService; grants?: ForwardingGrantService; auditWriter?: GatewayTaskAuditWriter; agentPlanCompiler?: UnifiedAgentPlanCompilerService } = {}) {
     this.gatewayTasks = options.gatewayTasks ?? new GatewayTaskService({ auditWriter: options.auditWriter });
     this.agents = options.agents ?? new AgentsApplicationService();
     this.grants = options.grants ?? new ForwardingGrantService();
+    this.agentPlanCompiler = options.agentPlanCompiler;
   }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -778,7 +825,8 @@ export class GatewayRouteExecutorAdapter implements Executor {
     });
     let v2Payload: Record<string, unknown>;
     try {
-      v2Payload = buildGatewayRoutePayload(input, taskType, delegatedTargetId, delegatedAgentId, forwardingGrant.id, forwardingGrant);
+      const preparedSnapshot = await this.prepareGatewayV2Snapshot(input, delegatedAgentId);
+      v2Payload = buildGatewayRoutePayload(input, taskType, delegatedTargetId, delegatedAgentId, forwardingGrant.id, forwardingGrant, preparedSnapshot);
     } catch (error) {
       const appError = error instanceof AppError ? error : undefined;
       return {
@@ -809,6 +857,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
       grant: v2Payload.gatewayGrant as GatewayGrantV1,
       forwardingGrant,
     });
+    await this.gatewayTasks.flushPersistence();
 
     if (!gatewayAgentId) {
       return {
@@ -819,7 +868,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
       };
     }
 
-    const agentTask = await this.agents.enqueueDirectTask(tenantId, {
+    const agentTask = await this.agents.enqueueTask(tenantId, {
       agentId: gatewayAgentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
@@ -833,56 +882,68 @@ export class GatewayRouteExecutorAdapter implements Executor {
         ...(v2Payload.receipt ? { receipt: v2Payload.receipt } : {}),
         gatewayTask: task,
       },
-    }, `gateway-execution-step:${input.step.id}`);
+      }, `gateway-execution-step:${input.step.id}`);
+    await this.gatewayTasks.flushPersistence();
+    return {
+      success: true,
+      asyncPending: true,
+      detail: {
+        mode: 'gateway_v2_control_plane_queue',
+        gatewayTaskId: task.id,
+        agentTaskId: agentTask.id,
+        gatewayId,
+        gatewayAgentId,
+        delegatedTargetId,
+        delegatedAgentId,
+        forwardingGrantId: forwardingGrant.id,
+        taskType,
+        routeChannel,
+      },
+    };
+  }
 
-    try {
-      const direct = await this.agents.executeTaskDirect(
-        tenantId,
-        agentTask.id,
-        `gateway-execution-direct:${input.step.id}`,
-        input.reportProgress,
-      );
-      const writeEffect = gatewayActionIsWrite(v2Payload.actionType);
-      const executionStatus = readExecutionStatus(direct.detail) ?? (direct.success ? 'SUCCESS' : writeEffect ? 'UNKNOWN' : 'FAILED');
-      const unknown = writeEffect && executionStatus !== 'SUCCESS';
-      return {
-        success: unknown ? false : direct.success,
-        asyncPending: unknown || direct.asyncPending,
-        errorCode: unknown ? 'PLUGIN_OPERATION_UNKNOWN_STATE' : direct.errorCode,
-        errorMessage: unknown ? 'Gateway Agent v2 写操作结果不明，必须进入恢复流程' : direct.errorMessage,
-        detail: {
-          mode: 'gateway_route_direct_execute',
-          executionStatus: unknown ? 'UNKNOWN' : executionStatus,
-          gatewayTaskId: task.id,
-          agentTaskId: agentTask.id,
-          gatewayId,
-          gatewayAgentId,
-          delegatedTargetId,
-          delegatedAgentId,
-          forwardingGrantId: forwardingGrant.id,
-          taskType,
-          routeChannel,
-          ...(direct.detail ?? {}),
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        detail: {
-          mode: 'gateway_route_direct_execute_failed',
-          executionStatus: 'UNKNOWN',
-          mayBeUnknown: true,
-          gatewayTaskId: task.id,
-          agentTaskId: agentTask.id,
-          gatewayId,
-          gatewayAgentId,
-          taskType,
-          routeChannel,
-        },
-      };
+  private async prepareGatewayV2Snapshot(input: StepExecutionInput, agentId: string): Promise<Record<string, unknown>> {
+    const snapshot = input.step.inputSnapshot;
+    const requestedActionType = requireGatewayActionType(snapshot.actionType);
+    if (requestedActionType !== 'agent.plan.validate' && requestedActionType !== 'agent.plan.execute') return snapshot;
+    if (!this.agentPlanCompiler) {
+      throw new AppError('AGENT_PLUGIN_SERVICE_REQUIRED', 'Gateway Agent v2 缺少统一 Plan 编译器，拒绝进入执行队列');
     }
+    const runtimeCapability = readRecord(snapshot.pluginRuntimeCapability);
+    const executionSource = readRecord(snapshot.executionSource);
+    const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId)
+      ?? stringFromSnapshot(runtimeCapability?.pluginBindingId)
+      ?? stringFromSnapshot(executionSource?.pluginBindingId);
+    if (!pluginBindingId) throw new AppError('AGENT_PLUGIN_BINDING_REQUIRED', 'Gateway Agent v2 缺少统一 Binding ID');
+    const pluginVersionId = stringFromSnapshot(runtimeCapability?.pluginVersionId)
+      ?? stringFromSnapshot(executionSource?.pluginVersionId)
+      ?? stringFromSnapshot(snapshot.pluginVersionId);
+    if (!pluginVersionId) throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 缺少固定 PluginVersion');
+    const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
+    if (!resolvedInput) throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 缺少统一部署输入快照');
+    const actionType = input.dryRun && requestedActionType === 'agent.plan.execute' ? 'agent.plan.validate' : requestedActionType;
+    const envelope = await this.agentPlanCompiler.compile({
+      tenantId: requireExecutionTenantId(input.step, 'gateway agent plan compile'),
+      agentId,
+      executionRunId: input.step.executionRunId,
+      executionStepId: input.step.id,
+      pluginVersionId,
+      pluginBindingId,
+      resolvedInput,
+      executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
+      v2Request: {
+        actionType,
+        plan: snapshot.plan,
+        authorization: readAgentPlanAuthorization(snapshot.executionAuthorization),
+      },
+    });
+    return {
+      ...snapshot,
+      actionType: envelope.actionType,
+      plan: envelope.plan,
+      token: envelope.token,
+      policyDecision: envelope.policyDecision,
+    };
   }
 }
 
@@ -1397,11 +1458,12 @@ function enforceWorkflowResultLimits(result: WorkflowExecutorDispatchResult): Wo
   return result;
 }
 
-function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'gateway.forward.agent_task' | 'gateway.forward.direct_control' {
+function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'gateway.forward.agent_task' {
   const explicit = stringFromSnapshot(step.inputSnapshot.gatewayTaskType);
-  if (explicit === 'gateway.probe' || explicit === 'gateway.forward.agent_task' || explicit === 'gateway.forward.direct_control') return explicit;
+  if (explicit === 'gateway.probe' || explicit === 'gateway.forward.agent_task') return explicit;
+  if (explicit) throw new AppError('VALIDATION_FAILED', 'Gateway 旧直连任务类型已退役，只允许 gateway.forward.agent_task', { gatewayTaskType: explicit });
   const forwardMode = stringFromSnapshot(step.inputSnapshot.gatewayForwardMode);
-  if (forwardMode === 'direct_control') return 'gateway.forward.direct_control';
+  if (forwardMode) throw new AppError('VALIDATION_FAILED', 'Gateway 旧直连转发模式已退役，只允许 Agent v2 队列转发', { gatewayForwardMode: forwardMode });
   if (step.stepType === 'DISCOVER' || step.stepType === 'VERIFY') return 'gateway.probe';
   return 'gateway.forward.agent_task';
 }
@@ -1411,7 +1473,6 @@ function gatewayRouteChannel(taskType: string, snapshot: Record<string, unknown>
   const explicit = stringFromSnapshot(snapshot.gatewayRouteChannel) ?? stringFromSnapshot(snapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter);
   if (explicit) return normalizeGatewayRouteChannel(explicit, taskType);
   if (taskType === 'gateway.probe') return 'probe.tcp';
-  if (taskType === 'gateway.forward.direct_control') return 'forward.direct_control';
   return 'forward.agent_task';
 }
 
@@ -1421,7 +1482,9 @@ function normalizeGatewayRouteChannel(value: string, taskType: string): string {
   if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
   if (['tcp', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
   if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
-  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) {
+    throw new AppError('VALIDATION_FAILED', 'Gateway 旧 Direct Control 路由已退役，只允许 forward.agent_task', { gatewayRouteChannel: value });
+  }
   if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
   if (taskType === 'gateway.probe') return 'probe.tcp';
   return 'forward.agent_task';
@@ -1434,8 +1497,9 @@ function buildGatewayRoutePayload(
   delegatedAgentId: string | undefined,
   forwardingGrantId: string,
   forwardingGrant: unknown,
+  preparedSnapshot: Record<string, unknown> = input.step.inputSnapshot,
 ): Record<string, unknown> {
-  const snapshot = input.step.inputSnapshot;
+  const snapshot = preparedSnapshot;
   const token = requireRecord(snapshot.token, 'AgentCapabilityTokenV1');
   const policyDecision = requireRecord(snapshot.policyDecision, 'PolicyAuthorityDecisionV1');
   const actionType = requireGatewayActionType(snapshot.actionType);
@@ -1448,17 +1512,17 @@ function buildGatewayRoutePayload(
   if (actionType === 'agent.execution.receipt' && Object.keys(receipt).length === 0) {
     throw new AppError('VALIDATION_FAILED', 'Gateway Agent v2 Receipt 缺失，拒绝提交执行');
   }
+  if (!delegatedAgentId) {
+    throw new AppError('AUTH_FORBIDDEN', 'Gateway Agent v2 缺少 delegatedAgentId，拒绝提交执行');
+  }
   if (token.tenantId !== input.step.tenantId || token.agentId !== delegatedAgentId || policyDecision.tenantId !== input.step.tenantId) {
     throw new AppError('AUTH_FORBIDDEN', 'Gateway Agent v2 授权材料与执行租户或目标 Agent 不一致');
   }
-  const gatewayGrant = buildGatewayGrant(input, actionType, pluginBinding, token, policyDecision, forwardingGrantId, delegatedTargetId);
+  const gatewayGrant = buildGatewayGrant(input, actionType, pluginBinding, token, policyDecision, forwardingGrantId, delegatedAgentId);
+  const agentPayload = buildAgentV2ControlPayload(snapshot, input);
   return {
     type: taskType,
-    actionType,
-    token,
-    policyDecision,
-    ...(Object.keys(plan).length > 0 ? { plan } : {}),
-    ...(Object.keys(receipt).length > 0 ? { receipt } : {}),
+    ...agentPayload,
     gatewayGrant,
     forwardingGrant: forwardingGrant as Record<string, unknown>,
     pluginBinding,
@@ -1471,7 +1535,7 @@ function buildGatewayRoutePayload(
     stepType: input.step.stepType,
     executionRunId: input.step.executionRunId,
     executionStepId: input.step.id,
-    targetPayload: maskWorkflowRequest(snapshot),
+    targetPayload: agentPayload,
   };
 }
 
@@ -1482,12 +1546,12 @@ function buildGatewayGrant(
   token: Record<string, unknown>,
   policyDecision: Record<string, unknown>,
   forwardingGrantId: string,
-  delegatedTargetId: string,
+  delegatedAgentId: string,
 ): GatewayGrantV1 {
   const grant: GatewayGrantV1 = {
     grantId: stringFromSnapshot(input.step.inputSnapshot.gatewayGrantId) ?? newId('gwgrant'),
     tenantId: requireStringValue(input.step.tenantId, 'tenantId'),
-    agentId: delegatedTargetId,
+    agentId: delegatedAgentId,
     actionType: actionType as GatewayGrantV1['actionType'],
     planId: stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId) ?? requireStringValue(readRecord(input.step.inputSnapshot.plan)?.planId, 'planId'),
     planDigest: requireStringValue(token.planDigest, 'planDigest'),

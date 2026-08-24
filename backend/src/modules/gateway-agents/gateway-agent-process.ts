@@ -3,7 +3,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import type { AgentTaskEnvelope } from '../agents/schema/agents.schema.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
-import { GatewayTaskReplayGuard, GatewayV2ForwardingService, HttpGatewayAgentV2Forwarder, type GatewayV2ReplayGuardPort } from './gateway-v2-forwarding.service.js';
+import { FailClosedGatewayAgentV2Forwarder, GatewayTaskReplayGuard, GatewayV2ForwardingService, type GatewayV2ReplayGuardPort } from './gateway-v2-forwarding.service.js';
 import type { GatewayAgentV2Forwarder, GatewayTask } from './gateway-agent.types.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 
@@ -36,7 +36,7 @@ export class GatewayAgentProcess {
   constructor(private readonly options: GatewayAgentProcessOptions) {
     this.leaseFactory = options.leaseFactory ?? (() => newId('gw_lease'));
     this.grants = options.grants ?? new ForwardingGrantService();
-    this.forwarder = options.forwarder ?? new HttpGatewayAgentV2Forwarder();
+    this.forwarder = options.forwarder ?? new FailClosedGatewayAgentV2Forwarder();
     this.replayGuard = options.replayGuard ?? new GatewayTaskReplayGuard(options.gatewayTasks);
   }
 
@@ -161,9 +161,17 @@ export class GatewayAgentProcess {
         success: false,
         errorCode: failed.result?.errorCode,
         errorMessage: failed.result?.errorMessage,
-        detail: { mode: 'gateway_agent_process', gatewayTaskId: failed.id, gatewayTaskStatus: failed.status, executionStatus: failed.result?.executionStatus ?? 'FAILED' },
+        detail: {
+          mode: 'gateway_agent_process',
+          gatewayTaskId: failed.id,
+          gatewayTaskStatus: failed.status,
+          executionStatus: failed.result?.executionStatus ?? 'FAILED',
+          gatewayResult: toGatewayCoordinationResult(failed),
+        },
       });
       return { success: false };
+    } finally {
+      await this.options.gatewayTasks.flushPersistence();
     }
   }
 
@@ -233,6 +241,7 @@ export class GatewayAgentProcess {
         evidenceRef: completed.result?.evidenceRef,
         summary: completed.result?.summary,
         executionStatus: completed.result?.executionStatus,
+        gatewayResult: toGatewayCoordinationResult(completed),
         receipt: completed.result?.receipt,
         gatewayV2: completed.payload,
       },
@@ -245,6 +254,19 @@ export class GatewayAgentProcess {
       && (task.payload.gatewayTask as GatewayTask).id === gatewayTask.id
       && ['queued', 'leased', 'acked'].includes(task.status));
   }
+}
+
+function toGatewayCoordinationResult(task: GatewayTask): Record<string, unknown> {
+  return {
+    taskId: task.id,
+    status: task.status,
+    success: task.result?.success === true,
+    executionStatus: task.result?.executionStatus,
+    summary: task.result?.summary,
+    evidenceIds: task.result?.evidenceIds ?? [],
+    finishedAt: task.result?.finishedAt,
+    forwarded: task.forwardingGrant?.status === 'used',
+  };
 }
 
 function isGatewayTaskRun(task: AgentTaskEnvelope): boolean {

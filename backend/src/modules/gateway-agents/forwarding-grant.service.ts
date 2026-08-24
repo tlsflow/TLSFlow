@@ -16,6 +16,18 @@ export interface IssueForwardingGrantInput {
   now?: Date;
 }
 
+export interface ValidateV2ForwardingGrantInput {
+  gatewayId: string;
+  delegatedTargetId: string;
+  delegatedAgentId: string;
+  tenantId: string;
+  taskType: GatewayTaskType | string;
+  routeChannel: GatewayAdapterType;
+  executionRunId: string;
+  stepId: string;
+  now?: Date;
+}
+
 export class ForwardingGrantService {
   issue(input: IssueForwardingGrantInput): ForwardingGrant {
     const taskType = assertGatewayTaskType(input.taskType, 'taskType');
@@ -70,6 +82,24 @@ export class ForwardingGrantService {
       });
     }
     return grant;
+  }
+
+  /**
+   * Agent v2 只接受租户、目标 Agent 和执行步骤都固定的单次 Grant。
+   * 普通 Gateway 记录仍可使用 validate()，但不能借此进入 Agent v2 主链。
+   */
+  validateV2(grant: ForwardingGrant | undefined, expected: ValidateV2ForwardingGrantInput): ForwardingGrant {
+    const validated = this.validate(grant, expected);
+    if (validated.tenantId !== expected.tenantId
+      || validated.delegatedAgentId !== expected.delegatedAgentId
+      || validated.maxUses !== 1
+      || validated.remainingUses !== 1) {
+      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 只允许绑定租户、目标 Agent 和单次使用 Grant', {
+        reason: 'GATEWAY_V2_FORWARDING_GRANT_BINDING_DENIED',
+        grantId: validated.id,
+      });
+    }
+    return validated;
   }
 
   consume(grant: ForwardingGrant, now = new Date()): ForwardingGrant {

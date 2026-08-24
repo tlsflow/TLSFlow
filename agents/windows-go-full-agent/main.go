@@ -1663,6 +1663,10 @@ func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
 
 func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
 	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
+	gatewayTask := mapFromMap(payload, "gatewayTask")
+	if taskType == "" {
+		taskType = strings.TrimSpace(stringFromMap(gatewayTask, "action"))
+	}
 	if taskType == "gateway.forward.direct_control" {
 		return false, "GATEWAY_FORWARD_DIRECT_CONTROL_DISABLED", "旧 Direct Control Action 路径已移除，必须提交 Agent v2 计划", map[string]any{"taskId": task.ID, "type": taskType}, true
 	}
@@ -1672,7 +1676,6 @@ func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentC
 	if !isGatewayEnabled(config) {
 		return false, "GATEWAY_ROLE_REQUIRED", "当前 Agent 未以 gateway 角色运行，拒绝处理 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
 	}
-	gatewayTask := mapFromMap(payload, "gatewayTask")
 	gatewayPayload := mapFromMap(gatewayTask, "payload")
 	if gatewayPayload == nil {
 		gatewayPayload = payload
@@ -1829,42 +1832,174 @@ func probeHTTPReachability(ctx context.Context, gatewayPayload map[string]any) (
 }
 
 func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
-	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
-	if targetPayload == nil {
-		targetPayload = mapFromMap(gatewayTask, "payload")
+	if gatewayPayload == nil {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发缺少 Agent v2 授权载荷", map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
 	}
+	token := mapFromMap(gatewayPayload, "token")
+	forwardingGrant := mapFromMap(gatewayTask, "forwardingGrant")
 	targetAgentID := firstNonEmpty(
+		stringFromMap(token, "agentId"),
+		stringFromMap(forwardingGrant, "delegatedAgentId"),
 		stringFromMap(gatewayPayload, "targetAgentId"),
 		stringFromMap(gatewayPayload, "delegatedAgentId"),
-		stringFromMap(targetPayload, "agentId"),
-		stringFromMap(targetPayload, "executionTargetId"),
-		stringFromMap(gatewayTask, "delegatedTargetId"),
 	)
 	if targetAgentID == "" {
 		return false, "GATEWAY_FORWARD_TARGET_AGENT_REQUIRED", "Gateway 转发缺少目标 agentId", map[string]any{"taskId": task.ID, "mode": "gateway.forward"}, true
 	}
-	if targetPayload == nil {
-		targetPayload = map[string]any{}
+	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != "" && tokenAgentID != targetAgentID {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 Token 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "tokenAgentId": tokenAgentID}, true
 	}
-	forwardPayload := map[string]any{}
-	for key, value := range targetPayload {
-		forwardPayload[key] = value
+	if grantAgentID := stringFromMap(forwardingGrant, "delegatedAgentId"); grantAgentID != "" && grantAgentID != targetAgentID {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 ForwardingGrant 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "grantAgentId": grantAgentID}, true
 	}
-	forwardPayload["gatewayForwarded"] = true
-	forwardPayload["gatewayTaskId"] = stringFromMap(gatewayTask, "id")
+	forwardPayload, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
+	if err != nil {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
+	}
 	var response agentTaskEnvelope
-	err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks", enqueueAgentTaskRequest{
+	err = doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks", enqueueAgentTaskRequest{
 		AgentID:         targetAgentID,
 		ExecutionRunID:  firstNonEmpty(stringFromMap(gatewayTask, "executionRunId"), task.ExecutionRunID),
 		ExecutionStepID: firstNonEmpty(stringFromMap(gatewayTask, "stepId"), task.ExecutionStepID),
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": stringFromMap(forwardPayload, "actionType")}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}
-	return true, "", "", detail, true
+	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, stringFromMap(forwardPayload, "actionType"), detail, gatewayForwardWaitDuration(gatewayPayload))
+}
+
+func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, error) {
+	token := mapFromMap(source, "token")
+	decision := mapFromMap(source, "policyDecision")
+	if token == nil || decision == nil {
+		return nil, errors.New("Gateway 转发缺少 Token 或 Policy Decision")
+	}
+	actionType := firstNonEmpty(stringFromMap(source, "actionType"), stringFromMap(source, "action"))
+	if actionType == "" {
+		return nil, errors.New("Gateway 转发缺少 Agent v2 actionType")
+	}
+	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
+		return nil, errors.New("Gateway Token agentId 与目标 Agent 不一致")
+	}
+	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
+	planDigest := stringFromMap(token, "planDigest")
+	payload := map[string]any{
+		"action":              actionType,
+		"actionType":          actionType,
+		"actionSchemaVersion": firstNonEmpty(stringFromMap(source, "actionSchemaVersion"), "1.0"),
+		"requestId":           firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
+		"agentId":             targetAgentID,
+		"tenantId":            firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
+		"pluginId":            stringFromMap(token, "pluginId"),
+		"pluginVersion":       pluginVersion,
+		"pluginVersionId":     stringFromMap(token, "pluginVersionId"),
+		"capability":          stringFromMap(token, "capability"),
+		"actions":             token["actions"],
+		"paths":               token["allowedPaths"],
+		"services":            token["allowedServices"],
+		"artifactDigests":     token["artifactDigests"],
+		"planDigest":          planDigest,
+		"token":               token,
+		"policyDecision":      decision,
+	}
+	if plan := mapFromMap(source, "plan"); plan != nil {
+		payload["plan"] = plan
+	}
+	if receipt := mapFromMap(source, "receipt"); receipt != nil {
+		payload["receipt"] = receipt
+	}
+	return payload, nil
+}
+
+func waitForGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, taskID, targetAgentID, actionType string, detail map[string]any, timeout time.Duration) (bool, string, string, map[string]any, bool) {
+	waitContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	lastError := ""
+	for {
+		var queue struct {
+			Tasks []agentTaskEnvelope `json:"tasks"`
+		}
+		err := doJSONRequest(waitContext, client, config, http.MethodGet, "/api/v1/agents/tasks?agentId="+url.QueryEscape(targetAgentID), nil, &queue)
+		if err != nil {
+			lastError = err.Error()
+		} else if target := findAgentTask(queue.Tasks, taskID); target != nil {
+			return gatewayAgentTaskResult(*target, actionType, detail)
+		}
+		select {
+		case <-waitContext.Done():
+			unknown := cloneMap(detail)
+			unknown["executionStatus"] = "UNKNOWN"
+			unknown["targetAgentId"] = targetAgentID
+			unknown["unknownReason"] = "Gateway 等待目标 Agent Receipt 超时，禁止重放"
+			if lastError != "" {
+				unknown["lastPollError"] = lastError
+			}
+			return false, "AGENT_EXECUTION_UNKNOWN", "Gateway 等待目标 Agent Receipt 超时，写入状态不明", unknown, true
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func findAgentTask(tasks []agentTaskEnvelope, taskID string) *agentTaskEnvelope {
+	for index := range tasks {
+		if tasks[index].ID == taskID {
+			return &tasks[index]
+		}
+	}
+	return nil
+}
+
+func gatewayAgentTaskResult(task agentTaskEnvelope, actionType string, detail map[string]any) (bool, string, string, map[string]any, bool) {
+	result := cloneMap(detail)
+	result["targetTaskStatus"] = task.Status
+	result["targetTaskId"] = task.ID
+	targetResult := task.Result
+	targetDetail := mapFromMap(targetResult, "detail")
+	if receipt := mapFromMap(targetDetail, "receipt"); receipt != nil {
+		result["receipt"] = receipt
+		result["executionStatus"] = firstNonEmpty(stringFromMap(receipt, "status"), stringFromMap(targetDetail, "executionStatus"))
+	}
+	if actionType == "agent.plan.execute" || actionType == "agent.execution.receipt" {
+		if stringFromMap(result, "executionStatus") == "SUCCESS" {
+			return true, "", "", result, true
+		}
+		result["executionStatus"] = "UNKNOWN"
+		result["unknownReason"] = firstNonEmpty(stringFromMap(receiptOrEmpty(targetDetail), "unknownReason"), "目标 Agent 未返回可确认的成功 Receipt")
+		return false, "AGENT_EXECUTION_UNKNOWN", "目标 Agent 写入结果不明，禁止 Gateway 重放", result, true
+	}
+	if task.Status == "succeeded" {
+		result["executionStatus"] = "SUCCESS"
+		return true, "", "", result, true
+	}
+	result["executionStatus"] = "FAILED"
+	return false, firstNonEmpty(stringFromMap(targetResult, "errorCode"), "AGENT_V2_TARGET_FAILED"), firstNonEmpty(stringFromMap(targetResult, "errorMessage"), "目标 Agent 任务失败"), result, true
+}
+
+func receiptOrEmpty(detail map[string]any) map[string]any {
+	if receipt := mapFromMap(detail, "receipt"); receipt != nil {
+		return receipt
+	}
+	return map[string]any{}
+}
+
+func gatewayForwardWaitDuration(gatewayPayload map[string]any) time.Duration {
+	seconds := 30
+	plan := mapFromMap(gatewayPayload, "plan")
+	if operations, ok := plan["operations"].([]any); ok {
+		for _, raw := range operations {
+			operation, _ := raw.(map[string]any)
+			if timeoutSeconds := intFromMap(operation, "timeoutSeconds"); timeoutSeconds > seconds {
+				seconds = timeoutSeconds
+			}
+		}
+	}
+	if seconds > 3600 {
+		seconds = 3600
+	}
+	return time.Duration(seconds+30) * time.Second
 }
 
 func recordGatewayReachability(ctx context.Context, client *http.Client, config *AgentConfig, gatewayTask map[string]any, detail map[string]any, status string) {

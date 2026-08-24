@@ -98,6 +98,7 @@ type agentTaskEnvelope struct {
 	Payload         map[string]any `json:"payload"`
 	Status          string         `json:"status"`
 	LeaseID         string         `json:"leaseId,omitempty"`
+	Result          map[string]any `json:"result,omitempty"`
 }
 
 type ackTaskRequest struct {

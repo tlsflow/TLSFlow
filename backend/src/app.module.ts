@@ -61,7 +61,7 @@ import {
   type ProductionPolicyAuthorityServicesV1,
 } from './modules/agents/security/policy-authority.service.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
-import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
+import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
@@ -189,6 +189,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
+  app.setResource('gatewayTasksService', gatewayTasksService);
   const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
   app.setResource('assetsService', assetsService);
@@ -776,6 +777,13 @@ export async function createAppAsync(
   const app = createApp(dependencies);
   if (options.registerFlushers) {
     await options.registerFlushers(app);
+  }
+  const gatewayTasksService = app.getResource<GatewayTaskService>('gatewayTasksService');
+  const database = app.getResource<DatabasePort>('database');
+  if (gatewayTasksService && database) {
+    const repositories = await createDurableGatewayTaskRepositories(database);
+    await gatewayTasksService.initialize(repositories);
+    app.registerPersistenceFlusher(gatewayTasksService);
   }
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   if (!tasksService) throw new Error('任务控制面服务未完成应用装配');
