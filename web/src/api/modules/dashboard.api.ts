@@ -52,12 +52,16 @@ export interface DashboardCertificateStatusItem {
 export interface DashboardAuditItem {
   readonly id: string
   readonly eventType: string
+  readonly actorType: string
   readonly actorId: string
   readonly action: string
   readonly resourceType: string
   readonly resourceId?: string
   readonly result: string
+  readonly riskLevel: string
   readonly requestId?: string
+  readonly detail?: unknown
+  readonly summary?: string
   readonly createdAt: string
 }
 

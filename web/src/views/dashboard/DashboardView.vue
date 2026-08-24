@@ -5,6 +5,7 @@ import { getDashboardOverview, type DashboardCertificateState, type DashboardOve
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
+import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel } from '@/utils/audit-format'
 
 const permissionStore = usePermissionStore()
 const overview = ref<DashboardOverview | null>(null)
@@ -205,19 +206,24 @@ function hideTooltip() {
         <header class="dashboard-panel__header">
           <div>
             <h2>最近审计日志</h2>
-            <p>最近 8 条操作记录。</p>
+            <p>优先展示失败、拒绝、高风险和关键业务变更。</p>
           </div>
           <RouterLink class="gc-button" to="/audits">审计</RouterLink>
         </header>
 
         <ol class="dashboard-audits">
-          <li v-for="item in overview?.recentAudits ?? []" :key="item.id">
-            <div>
-              <strong>{{ item.action }}</strong>
-              <span>{{ item.actorId }} · {{ item.resourceType }}</span>
+          <li v-for="item in overview?.recentAudits ?? []" :key="item.id" :data-result="item.result">
+            <span class="dashboard-audits__result" :data-result="item.result">
+              {{ auditResultLabel(item.result) }}
+            </span>
+            <div class="dashboard-audits__body">
+              <div class="dashboard-audits__title-row">
+                <strong>{{ auditReadableTitle(item) }}</strong>
+                <span class="dashboard-audits__type">{{ auditTypeLabel(item) }}</span>
+              </div>
+              <p>{{ auditSummary(item) }}</p>
             </div>
             <time>{{ formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) }}</time>
-            <small>{{ item.result }}<template v-if="item.requestId"> · {{ item.requestId }}</template></small>
           </li>
         </ol>
 
@@ -636,34 +642,106 @@ function hideTooltip() {
 
 .dashboard-audits li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 6px 12px;
-  padding: 13px 16px;
+  grid-template-columns: 56px minmax(0, 1fr) max-content;
+  gap: 10px 12px;
+  align-items: start;
+  padding: 14px 16px;
   border-bottom: 1px solid rgb(15 23 42 / 7%);
 }
 
-.dashboard-audits div {
+.dashboard-audits__result {
+  display: inline-grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 24px;
+  border: 1px solid var(--gc-color-border);
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-soft);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dashboard-audits__result[data-result="success"] {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
+  border-color: rgb(22 163 74 / 22%);
+}
+
+.dashboard-audits__result[data-result="failure"] {
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+  border-color: rgb(220 38 38 / 22%);
+}
+
+.dashboard-audits__result[data-result="denied"] {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: rgb(245 158 11 / 28%);
+}
+
+.dashboard-audits__body {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
 }
 
-.dashboard-audits strong,
-.dashboard-audits span {
+.dashboard-audits__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dashboard-audits__title-row strong,
+.dashboard-audits__body p {
   overflow-wrap: anywhere;
 }
 
-.dashboard-audits span,
-.dashboard-audits small,
+.dashboard-audits__title-row strong {
+  color: var(--gc-color-text);
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 950;
+}
+
+.dashboard-audits__type {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dashboard-audits__type {
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.dashboard-audits__body p {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  line-height: 1.45;
+  font-weight: 700;
+}
+
 .dashboard-audits time {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
-.dashboard-audits small {
-  grid-column: 1 / -1;
-  overflow-wrap: anywhere;
+.dashboard-audits time {
+  padding-top: 3px;
+  white-space: nowrap;
 }
 
 .dashboard-empty {
@@ -707,6 +785,15 @@ function hideTooltip() {
 
   .dashboard-audits li {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-audits__result {
+    justify-self: start;
+  }
+
+  .dashboard-audits time {
+    padding-top: 0;
+    white-space: normal;
   }
 }
 </style>
