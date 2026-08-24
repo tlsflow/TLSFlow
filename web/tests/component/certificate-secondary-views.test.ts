@@ -91,12 +91,17 @@ describe('证书辅助页面', () => {
     expect(wrapper.find('.gc-tag--success').exists()).toBe(true)
   })
 
-  it('导入表单保留三步流转，并使用选择卡、状态标签和本地有效期时间', async () => {
+  it('导入表单从来源选择进入手工导入、校验审阅，并使用本地有效期时间', async () => {
     const draft = reactive(createCertificateImportDraft())
     const wrapper = mount(CertificateImportForm, {
       props: { draft },
     })
 
+    expect(wrapper.findAll('.certificate-import-wizard__steps li')).toHaveLength(4)
+    expect(wrapper.findAll('.certificate-import-wizard__source-card')).toHaveLength(2)
+    expect(wrapper.find('.certificate-import-wizard__steps li.is-active')?.text()).toContain('添加方式')
+
+    await wrapper.findAll('.certificate-import-wizard__source-card')[0]?.trigger('click')
     expect(wrapper.findAll('.gc-selection-card')).toHaveLength(4)
     expect(wrapper.find('.certificate-import-wizard__steps li.is-active')?.text()).toContain('格式与方式')
 
@@ -139,6 +144,23 @@ describe('证书辅助页面', () => {
     expect(wrapper.text()).toContain(formatBrowserLocalTime(notBefore))
     expect(wrapper.text()).toContain(formatBrowserLocalTime(notAfter))
     expect(wrapper.find('.gc-tag--success').exists()).toBe(true)
+  })
+
+  it('ACME 来源保持不可提交，并允许返回来源选择', async () => {
+    const draft = reactive(createCertificateImportDraft())
+    const wrapper = mount(CertificateImportForm, {
+      props: { draft },
+    })
+
+    await wrapper.findAll('.certificate-import-wizard__source-card')[1]?.trigger('click')
+
+    expect(wrapper.find('.certificate-import-wizard__panel--acme').exists()).toBe(true)
+    expect(wrapper.find('.certificate-import-wizard__footer-right .gc-button--primary').exists()).toBe(false)
+    expect(wrapper.emitted('validate')).toBeUndefined()
+    expect(wrapper.emitted('submit')).toBeUndefined()
+
+    await wrapper.find('.certificate-import-wizard__footer-right .gc-button--secondary').trigger('click')
+    expect(wrapper.find('.certificate-import-wizard__panel--source').exists()).toBe(true)
   })
 
   it('根证书弹层保留空态，并在有数据时展示统一详情状态和本地时间', async () => {

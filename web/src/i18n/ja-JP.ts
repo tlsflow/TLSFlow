@@ -103,6 +103,7 @@ export default {
       MANAGED: '管理対象',
       DRIFTED: 'ドリフト検出済み',
       EXPIRED: '期限切れ',
+      REVOKED: '失効',
       ERROR: '異常',
       IGNORED: '無視済み',
       ONLINE: 'オンライン',
@@ -2634,6 +2635,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: 'カード表示',
+      list: 'リスト表示',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3295,6 +3300,24 @@ export default {
       title: '証明書をインポート'
     },
     importForm: {
+      source: {
+        title: '証明書の追加方法を選択',
+        description: '既存の証明書をインポートするか、利用可能な場合は ACME 自動発行を使用します。',
+        manual: {
+          title: '既存の証明書をインポート',
+          description: 'PEM、CRT、または PFX の証明書ファイルと秘密鍵をアップロードします。',
+          recommended: '推奨'
+        },
+        acme: {
+          title: 'ACME で証明書を申請',
+          description: '認証局から証明書を自動で申請し、更新します。',
+          unavailable: '現在利用できません'
+        },
+        unavailable: {
+          title: 'ACME 発行チャネルが未設定です',
+          description: 'このコンソールには利用可能な ACME 発行エントリがありません。既存の証明書をインポートするか、自動発行チャネルを設定してから再試行してください。'
+        }
+      },
       hints: {
         pemChainCheck: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵をアップロードまたは貼り付けてください。システムが証明書チェーンと秘密鍵の一致関係を検証します。',
         pfxChainCheck: 'PFX/P12 ファイルをアップロードし、パスワードを入力してください。システムがコンテナ内のサーバー証明書、証明書チェーン、秘密鍵を解析します。',
@@ -3307,6 +3330,7 @@ export default {
       },
       steps: {
         ariaLabel: '証明書インポートステップ',
+        source: '追加方法',
         formatAndMethod: '形式と方式',
         materials: 'インポートマテリアル',
         validateAndImport: '検証かつインポート'
@@ -4157,7 +4181,8 @@ export default {
     labels: {
       applicationAsset: 'アプリケーション資産',
       currentTarget: '現在の対象',
-      probeInterval: '検査間隔'
+      probeInterval: '検査間隔',
+      secondsUnit: '秒'
     },
     metrics: {
       availability: '可用性',

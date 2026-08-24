@@ -6,7 +6,7 @@ defineProps<{
 </script>
 
 <template>
-  <header class="gc-card gc-page-header">
+  <header class="gc-page-header">
     <div>
       <h1>{{ title }}</h1>
       <p v-if="description">{{ description }}</p>
@@ -24,17 +24,15 @@ defineProps<{
   gap: var(--gc-space-4);
   flex-wrap: wrap;
   align-items: flex-start;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  min-width: 0;
 }
 h1 {
   margin: 0;
   color: var(--gc-color-text-strong);
   font-size: var(--gc-font-size-heading-md);
-  line-height: 1.1;
+  line-height: var(--gc-line-height-tight);
   letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 p {
   max-width: min(100%, var(--gc-size-content-readable));
@@ -42,18 +40,10 @@ p {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-label);
   font-weight: 520;
-  line-height: 1.6;
+  line-height: var(--gc-line-height-relaxed);
+  overflow-wrap: anywhere;
 }
-.gc-page-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); padding-top: var(--gc-space-1); }
-.gc-page-header__actions :slotted(.gc-button) {
-  min-height: var(--gc-size-icon-button);
-  padding-inline: var(--gc-space-panel);
-  color: var(--gc-color-surface-solid);
-  background: var(--gc-color-primary);
-  border-color: var(--gc-color-primary);
-  box-shadow: 0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-primary-weak);
-}
-.gc-page-header__actions :slotted(.gc-button:hover) { background: var(--gc-color-primary-hover); }
+.gc-page-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); min-width: 0; padding-top: var(--gc-space-1); }
 
 @media (max-width: 40rem) {
   .gc-page-header__actions {

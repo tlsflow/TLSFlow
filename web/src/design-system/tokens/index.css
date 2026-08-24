@@ -117,6 +117,8 @@
   --gc-size-sidebar: var(--gc-size-shell-sidebar);
   --gc-size-modal-default: 672px;
   --gc-size-modal-confirm: 480px;
+  --gc-size-modal-lg: 720px;
+  --gc-size-modal-xl: 860px;
   --gc-size-drawer-default: 420px;
   --gc-size-drawer-wide: 620px;
   --gc-size-icon-button: 36px;

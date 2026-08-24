@@ -559,28 +559,98 @@
   box-shadow: var(--gc-shadow-sm);
 }
 
-.gc-icon-button,
-.gc-button {
+/*
+ * 所有按钮形态（原生按钮、RouterLink 和图标按钮）共用这一份全局基线。
+ * 不能将同名外观规则分散到组件 scoped 样式中，否则旧页面和设计系统组件会产生两套结果。
+ */
+.gc-button,
+.gc-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--gc-space-2);
   min-height: var(--gc-control-height-sm);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-sm);
+  border-radius: var(--gc-radius-control);
+  color: var(--gc-color-text);
   background: var(--gc-color-surface-panel);
-  padding: var(--gc-space-compact) var(--gc-space-3);
+  padding: var(--gc-space-2) var(--gc-space-3);
   cursor: pointer;
   font-size: var(--gc-font-size-xs);
   font-weight: 650;
+  text-decoration: none;
   box-shadow: var(--gc-shadow-sm);
   transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
 }
-.gc-icon-button:hover,
-.gc-button:hover { box-shadow: 0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-border-soft); }
-.gc-button--primary { background: var(--gc-color-primary); color: var(--gc-color-surface-solid); border-color: var(--gc-color-primary); box-shadow: 0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-primary-weak); }
-.gc-button--primary:hover { background: var(--gc-color-primary-hover); }
-.gc-button--danger { background: var(--gc-color-danger); color: var(--gc-color-surface-solid); border-color: var(--gc-color-danger); }
+
+.gc-button:hover:not(:disabled),
+.gc-icon-button:hover:not(:disabled) {
+  box-shadow: var(--gc-shadow-hover);
+}
+
+.gc-button--primary {
+  border-color: var(--gc-color-primary);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-primary);
+}
+
+.gc-button--primary:hover:not(:disabled) {
+  background: var(--gc-color-primary-hover);
+  box-shadow: var(--gc-shadow-primary);
+}
+
+.gc-button--secondary:hover:not(:disabled) {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-hover);
+  box-shadow: var(--gc-shadow-hover);
+}
+
+.gc-button--danger {
+  border-color: var(--gc-color-danger);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-danger);
+}
+
+.gc-button--danger:hover:not(:disabled) {
+  box-shadow: var(--gc-shadow-hover);
+}
+
+.gc-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.gc-button--ghost:hover:not(:disabled) {
+  border-color: var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-hover);
+  box-shadow: none;
+}
+
+.gc-button--icon {
+  width: var(--gc-control-height-sm);
+  min-width: var(--gc-control-height-sm);
+  padding: 0;
+}
+
+.gc-button--loading .gc-button__content {
+  opacity: var(--gc-opacity-disabled);
+}
+
+.gc-button__content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gc-space-2);
+}
+
+.gc-button:focus-visible,
+.gc-icon-button:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
 .gc-icon-button:disabled,
 .gc-button:disabled {
   cursor: not-allowed;
@@ -590,12 +660,17 @@
 }
 
 .gc-card {
-  background: var(--gc-color-surface);
-  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
-  border-radius: var(--gc-radius-lg);
-  box-shadow: 0 var(--gc-space-compact) var(--gc-space-section) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-solid);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  box-shadow: var(--gc-shadow-sm);
   backdrop-filter: blur(var(--gc-space-5)) saturate(130%);
   padding: var(--gc-space-panel);
+}
+
+/* EmptyState 的 scoped 旧圆角优先级更高，仍须遵循共享卡片外轮廓。 */
+section.gc-card.gc-empty-state {
+  border-radius: var(--gc-radius-card);
 }
 
 .gc-page { display: flex; flex-direction: column; gap: var(--gc-space-4); min-width: 0; }
@@ -862,18 +937,6 @@ select.gc-native-select:disabled,
   font-weight: 800;
 }
 
-.gc-icon-button,
-.gc-button {
-  border-radius: var(--gc-radius-control);
-}
-
-.gc-card {
-  border-radius: var(--gc-radius-card);
-  background: var(--gc-color-surface-solid);
-  border-color: var(--gc-color-border);
-  box-shadow: var(--gc-shadow-sm);
-}
-
 .gc-form-field input,
 .gc-form-field select,
 .gc-form-field textarea,
@@ -936,7 +999,7 @@ select.gc-native-select:disabled,
   display: grid;
   grid-template-columns: var(--gc-size-shell-sidebar) minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--gc-color-bg);
+  background: var(--gc-color-bg-strong);
 }
 
 .gc-workbench__sidebar {
@@ -949,9 +1012,11 @@ select.gc-native-select:disabled,
   min-height: 100vh;
   padding: var(--gc-space-5) var(--gc-space-4) var(--gc-space-4);
   overflow-y: auto;
-  border-right: var(--gc-border-width-default) solid var(--gc-color-border);
-  background: var(--gc-color-surface-solid);
-  box-shadow: var(--gc-shadow-sm);
+  border-right: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-md);
+  backdrop-filter: blur(var(--gc-space-4));
+  -webkit-backdrop-filter: blur(var(--gc-space-4));
 }
 
 .gc-workbench__sidebar-header {
@@ -1068,6 +1133,17 @@ select.gc-native-select:disabled,
   background: var(--gc-color-primary-hover);
 }
 
+.gc-workbench__nav-item:focus-visible,
+.gc-workbench__submenu-item:focus-visible,
+.gc-workbench__view-mode-button:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.gc-workbench__nav-item--active:focus-visible {
+  box-shadow: var(--gc-shadow-primary), var(--gc-shadow-focus);
+}
+
 .gc-workbench__nav-active-mark {
   width: var(--gc-space-1);
   height: var(--gc-space-1);
@@ -1080,6 +1156,7 @@ select.gc-native-select:disabled,
   gap: var(--gc-space-3);
   margin-top: auto;
   padding-top: var(--gc-space-6);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .gc-workbench__view-mode {
@@ -1148,10 +1225,11 @@ select.gc-native-select:disabled,
   gap: var(--gc-space-4);
   min-height: var(--gc-control-height-md);
   padding: var(--gc-space-3) var(--gc-space-8);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
-  background: var(--gc-color-surface-overlay);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
-  backdrop-filter: blur(var(--gc-space-3));
+  backdrop-filter: blur(var(--gc-space-4));
+  -webkit-backdrop-filter: blur(var(--gc-space-4));
 }
 
 .gc-workbench__context {

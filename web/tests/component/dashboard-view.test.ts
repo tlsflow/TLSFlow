@@ -81,7 +81,15 @@ describe('DashboardView', () => {
         generatedAt: '2026-07-06T08:34:00.000Z',
         metrics: [{ key: 'applications', title: '应用', value: 4, description: '已纳管应用', trend: 'good' }],
         quickActions: [],
-        statusGroups: [],
+        statusGroups: [
+          {
+            key: 'certificates',
+            title: '证书',
+            summary: '正常',
+            total: 1,
+            blocks: [{ id: 'cert-1', label: 'api.example.com', status: '正常', tone: 'ok' }],
+          },
+        ],
         certificateStatuses: [],
         recentAudits: [],
       },
@@ -95,5 +103,8 @@ describe('DashboardView', () => {
     })
     expect(wrapper.find('.dashboard-page__header').text()).toContain('总览')
     expect(wrapper.find('.dashboard-page__header .gc-button').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-status-summary .gc-donut-chart').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-status-summary .gc-donut-chart__segment--success').exists()).toBe(true)
+    expect(wrapper.find('.dashboard-status-summary__total').text()).toBe('1')
   })
 })

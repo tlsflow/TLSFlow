@@ -102,6 +102,7 @@ export default {
       MANAGED: '已纳管',
       DRIFTED: '已漂移',
       EXPIRED: '已过期',
+      REVOKED: '已吊销',
       ERROR: '异常',
       IGNORED: '已忽略',
       ONLINE: '在线',
@@ -1586,6 +1587,10 @@ export default {
         description: '查看在线状态和任务能力。'
       },
   assets: {
+    presentation: {
+      cards: '卡片视图',
+      list: '列表视图',
+    },
     userView: {
       stepLabel: '第 2 步 / 3 · 应用',
       title: '接入一个应用',
@@ -3408,6 +3413,24 @@ export default {
       title: '导入证书'
     },
     importForm: {
+      source: {
+        title: '选择添加方式',
+        description: '选择导入已有证书，或在可用时使用 ACME 自动申请。',
+        manual: {
+          title: '导入已有证书',
+          description: '上传 PEM、CRT 或 PFX 证书文件及私钥。',
+          recommended: '推荐'
+        },
+        acme: {
+          title: '通过 ACME 申请证书',
+          description: '自动向证书颁发机构申请并续期证书。',
+          unavailable: '当前不可用'
+        },
+        unavailable: {
+          title: 'ACME 申请通道尚未配置',
+          description: '当前控制台没有可用的 ACME 申请入口。请选择导入已有证书，或在配置自动化申请通道后重试。'
+        }
+      },
       hints: {
         pemChainCheck: '请上传或粘贴服务器证书、完整中间证书链和私钥，系统会校验证书链与私钥匹配关系。',
         pfxChainCheck: '请上传 PFX/P12 文件并填写密码，系统会解析容器中的服务器证书、证书链和私钥。',
@@ -3420,6 +3443,7 @@ export default {
       },
       steps: {
         ariaLabel: '证书导入步骤',
+        source: '添加方式',
         formatAndMethod: '格式与方式',
         materials: '导入材料',
         validateAndImport: '校验并导入'
@@ -4281,7 +4305,8 @@ export default {
     labels: {
       applicationAsset: '应用资产',
       currentTarget: '当前目标',
-      probeInterval: '探测频率'
+      probeInterval: '探测频率',
+      secondsUnit: '秒'
     },
     metrics: {
       availability: '可访问性',

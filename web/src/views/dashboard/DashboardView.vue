@@ -15,7 +15,8 @@ import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
 import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel } from '@/utils/audit-format'
-import { GcButton, GcPageHeader, GcStatusTag } from '@/design-system/components'
+import type { StatusTone } from '@/design-system/status/status-map'
+import { GcButton, GcDonutChart, GcPageHeader, GcStatusTag } from '@/design-system/components'
 
 const permissionStore = usePermissionStore()
 const { t, te } = useI18n()
@@ -57,6 +58,27 @@ let activeLoad: Promise<void> | null = null
 
 const visibleQuickActions = computed(() =>
   (overview.value?.quickActions ?? []).filter((action) => permissionStore.hasPermission(action.permission)),
+)
+
+const dashboardStatusDistribution = computed(() => {
+  const values: Record<StatusTone, number> = {
+    success: 0,
+    warning: 0,
+    danger: 0,
+    info: 0,
+    muted: 0,
+  }
+
+  for (const group of overview.value?.statusGroups ?? []) {
+    for (const block of group.blocks) values[dashboardStatusTone(block.tone)] += 1
+  }
+
+  return (['success', 'warning', 'danger', 'info', 'muted'] as const)
+    .map((tone) => ({ tone, value: values[tone] }))
+})
+
+const dashboardStatusTotal = computed(() =>
+  dashboardStatusDistribution.value.reduce((total, item) => total + item.value, 0),
 )
 
 async function loadOverview() {
@@ -103,6 +125,22 @@ function stateLabel(state: DashboardCertificateState): string {
     unknown: t('dashboard.certificateState.unknown'),
   }
   return labels[state]
+}
+
+function dashboardStatusTone(tone: DashboardStatusBlock['tone']): StatusTone {
+  if (tone === 'ok') return 'success'
+  if (tone === 'warning') return 'warning'
+  if (tone === 'error') return 'danger'
+  if (tone === 'unknown') return 'info'
+  return 'muted'
+}
+
+function dashboardStatusToneLabel(tone: StatusTone): string {
+  if (tone === 'success') return t('dashboard.legend.ok')
+  if (tone === 'warning') return t('dashboard.legend.warning')
+  if (tone === 'danger') return t('dashboard.legend.error')
+  if (tone === 'info') return t('dashboard.legend.unknown')
+  return t('dashboard.legend.disabled')
 }
 
 function daysText(value: number | undefined): string {
@@ -232,6 +270,33 @@ function hideTooltip() {
     </nav>
 
     <section class="dashboard-grid">
+      <section class="gc-card dashboard-panel dashboard-panel--status" :aria-label="t('dashboard.aria.statusHeatmap')">
+        <header class="dashboard-panel__header">
+          <div>
+            <h2>{{ t('dashboard.aria.statusHeatmap') }}</h2>
+            <p v-if="overview?.generatedAt">{{ t('dashboard.assets.updatedAt', { time: formatBrowserLocalTime(overview.generatedAt) }) }}</p>
+          </div>
+        </header>
+        <div class="dashboard-status-summary">
+          <GcDonutChart
+            :segments="dashboardStatusDistribution"
+            :ariaLabel="t('dashboard.aria.statusHeatmap')"
+            :empty-label="t('dashboard.empty.noObjects')"
+          >
+            <template #center>
+              <strong class="dashboard-status-summary__total">{{ dashboardStatusTotal }}</strong>
+            </template>
+          </GcDonutChart>
+          <div class="dashboard-status-summary__legend" :aria-label="t('dashboard.aria.statusLegend')">
+            <span v-for="item in dashboardStatusDistribution" :key="item.tone">
+              <i :class="`dashboard-status-summary__dot dashboard-status-summary__dot--${item.tone}`" aria-hidden="true" />
+              <strong>{{ item.value }}</strong>
+              <small>{{ dashboardStatusToneLabel(item.tone) }}</small>
+            </span>
+          </div>
+        </div>
+      </section>
+
       <section class="gc-card dashboard-panel dashboard-panel--certificates" :aria-label="t('dashboard.aria.assetHeatmap')">
         <header class="dashboard-panel__header">
           <div>
@@ -487,7 +552,7 @@ function hideTooltip() {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-4);
   align-items: start;
 }
@@ -497,6 +562,77 @@ function hideTooltip() {
   padding: 0;
   overflow: hidden;
 }
+
+.dashboard-panel--status {
+  min-height: calc(var(--gc-space-12) * 6);
+}
+
+.dashboard-panel--certificates {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.dashboard-panel--audits {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.dashboard-status-summary {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--gc-space-12) * 3), calc(var(--gc-size-card-min) + var(--gc-space-7))) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--gc-space-5);
+  padding: var(--gc-space-4);
+}
+
+.dashboard-status-summary .gc-donut-chart {
+  justify-self: center;
+}
+
+.dashboard-status-summary__total {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-heading-sm);
+  font-weight: 900;
+}
+
+.dashboard-status-summary__legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.dashboard-status-summary__legend span {
+  display: grid;
+  grid-template-columns: var(--gc-space-2) max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 750;
+}
+
+.dashboard-status-summary__legend strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-md);
+}
+
+.dashboard-status-summary__legend small {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-status-summary__dot {
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-muted);
+}
+
+.dashboard-status-summary__dot--success { background: var(--gc-color-success); }
+.dashboard-status-summary__dot--warning { background: var(--gc-color-warning); }
+.dashboard-status-summary__dot--danger { background: var(--gc-color-danger); }
+.dashboard-status-summary__dot--info { background: var(--gc-color-info); }
+.dashboard-status-summary__dot--muted { background: var(--gc-color-muted); }
 
 .dashboard-panel__header {
   display: flex;
@@ -869,6 +1005,12 @@ function hideTooltip() {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .dashboard-panel--certificates,
+  .dashboard-panel--audits {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
 
 @media (max-width: 47.5rem) {
@@ -878,6 +1020,14 @@ function hideTooltip() {
   }
 
   .dashboard-heatmap__group {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-status-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-status-summary__legend {
     grid-template-columns: 1fr;
   }
 

@@ -103,6 +103,7 @@ export default {
       MANAGED: 'Managed',
       DRIFTED: 'Drifted',
       EXPIRED: 'Expired',
+      REVOKED: 'Revoked',
       ERROR: 'Error',
       IGNORED: 'Ignored',
       ONLINE: 'Online',
@@ -2683,6 +2684,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: 'Vue cartes',
+      list: 'Vue liste',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3339,6 +3344,24 @@ export default {
       title: 'Import certificate'
     },
     importForm: {
+      source: {
+        title: 'Choisir le mode d’ajout du certificat',
+        description: 'Importez un certificat existant ou utilisez l’émission automatique ACME lorsqu’elle est disponible.',
+        manual: {
+          title: 'Importer un certificat existant',
+          description: 'Téléversez un fichier de certificat PEM, CRT ou PFX et sa clé privée.',
+          recommended: 'Recommandé'
+        },
+        acme: {
+          title: 'Demander un certificat via ACME',
+          description: 'Demandez et renouvelez automatiquement des certificats auprès d’une autorité de certification.',
+          unavailable: 'Indisponible'
+        },
+        unavailable: {
+          title: 'Aucun canal d’émission ACME n’est configuré',
+          description: 'Cette console ne possède pas de point d’entrée ACME disponible. Importez un certificat existant ou réessayez après avoir configuré un canal d’émission automatisé.'
+        }
+      },
       hints: {
         pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
         pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
@@ -3351,6 +3374,7 @@ export default {
       },
       steps: {
         ariaLabel: 'Certificate import steps',
+        source: 'Méthode d’ajout',
         formatAndMethod: 'Format and method',
         materials: 'Import materials',
         validateAndImport: 'Validate and import'
@@ -4201,7 +4225,8 @@ export default {
     labels: {
       applicationAsset: 'Actif applicatif',
       currentTarget: 'Cible actuelle',
-      probeInterval: 'Fréquence d’inspection'
+      probeInterval: 'Fréquence d’inspection',
+      secondsUnit: 'secondes'
     },
     metrics: {
       availability: 'Disponibilité',

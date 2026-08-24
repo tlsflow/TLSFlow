@@ -39,7 +39,7 @@ describe('CertificatesView', () => {
     document.body.innerHTML = ''
   })
 
-  it('资产筛选默认隐藏，并支持切换显示状态', async () => {
+  it('资产筛选默认隐藏，并通过 Shell 操作槽切换显示状态', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       data: { items: [], page: 1, pageSize: 20, total: 0 },
     }), { status: 200 })))
@@ -51,7 +51,7 @@ describe('CertificatesView', () => {
       expect(document.querySelector(filterToggleSelector)).not.toBeNull()
     })
 
-    expect(wrapper.find('.certificate-page__header').exists()).toBe(true)
+    expect(wrapper.find('.certificate-page__header').exists()).toBe(false)
     expect(wrapper.findAll('.certificate-page__metric')).toHaveLength(3)
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
 
@@ -206,8 +206,10 @@ describe('CertificatesView', () => {
       ]),
     )
 
-    const assetListText = wrapper.find('.certificate-page__asset-list').text()
-    expect(assetListText).toContain('即将过期')
+    const assetCard = wrapper.find('.certificate-page__asset-card')
+    expect(assetCard.exists()).toBe(true)
+    expect(assetCard.text()).toContain('即将过期')
+    expect(assetCard.find('[role="progressbar"]').exists()).toBe(true)
 
     const headerButtons = wrapper.findAll('.certificate-page__header-sort')
     const nameHeader = headerButtons.find((button) => button.text().includes('证书名称'))
@@ -520,13 +522,17 @@ describe('CertificatesView', () => {
 
     const wrapper = mount(CertificatesView, { attachTo: document.body })
     await waitFor(() => {
-      expect(wrapper.findAll('.certificate-page__asset-item')).toHaveLength(2)
+      expect(wrapper.findAll('.certificate-page__asset-card')).toHaveLength(2)
     })
 
-    const assetListText = wrapper.find('.certificate-page__asset-list').text()
-    expect((assetListText.match(/\*\.jacksonz\.cn/g) ?? [])).toHaveLength(1)
-    expect(assetListText).toContain('www.weichaipower.com')
-    expect(assetListText).not.toContain('暂无补充信息')
+    expect(wrapper.find('.certificate-page__asset-card-list').exists()).toBe(true)
+    expect(wrapper.findAll('.certificate-page__presentation-toggle-button')).toHaveLength(0)
+    expect(wrapper.find('.certificate-page__asset-list').exists()).toBe(false)
+
+    const assetCardText = wrapper.find('.certificate-page__asset-card-list').text()
+    expect((assetCardText.match(/\*\.jacksonz\.cn/g) ?? [])).toHaveLength(1)
+    expect(assetCardText).toContain('www.weichaipower.com')
+    expect(assetCardText).not.toContain('暂无补充信息')
 
     await waitFor(() => {
       expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(1)

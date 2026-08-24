@@ -12,7 +12,7 @@ import {
   type TlsInspectionSnapshot,
   type TlsInspectorTargetRecord,
 } from '@/api/modules/tls-inspector.api'
-import { GcEmptyState, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcEmptyState, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
 import {
   computeCertificateScore,
@@ -801,14 +801,14 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               </div>
               <div class="monitor-tls-page__header-meta">
                 <span class="monitor-tls-page__header-grade" :data-tone="currentRatingTone">{{ currentRating }}</span>
-                <button
-                  class="gc-button gc-button--primary"
-                  type="button"
-                  :disabled="loading || scanning || !inspectorTarget"
+                <GcButton
+                  variant="primary"
+                  :loading="scanning"
+                  :disabled="loading || !inspectorTarget"
                   @click="refreshInspection"
                 >
                   {{ scanning ? t('monitoring.tls.actions.refreshing') : t('monitoring.tls.actions.refresh') }}
-                </button>
+                </GcButton>
               </div>
             </div>
             <nav class="ca-operations__views monitor-tls-page__views" :aria-label="t('monitoring.tls.report.tabsAriaLabel')">
@@ -833,16 +833,16 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
           :title="t('monitoring.tls.messages.loadFailed')"
           :description="error"
         >
-          <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="loadDetail">
+          <GcButton variant="primary" :loading="loading" @click="loadDetail">
             {{ t('businessPage.retry') }}
-          </button>
+          </GcButton>
         </GcEmptyState>
         <div v-else-if="loading" class="tls-report-page__loading">{{ t('common.loading') }}</div>
         <div v-if="error && snapshot" class="tls-report-page__inline-error" role="alert">
           <span>{{ error }}</span>
-          <button class="gc-button" type="button" :disabled="scanning || !inspectorTarget" @click="refreshInspection">
+          <GcButton variant="secondary" :loading="scanning" :disabled="!inspectorTarget" @click="refreshInspection">
             {{ scanning ? t('monitoring.tls.actions.refreshing') : t('businessPage.retry') }}
-          </button>
+          </GcButton>
         </div>
         <template v-else-if="snapshot">
       <section v-if="activeTab === 'overview'" class="tls-section-stack">

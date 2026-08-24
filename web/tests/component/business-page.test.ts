@@ -221,5 +221,18 @@ describe('BusinessResourcePage', () => {
     await flushPromises()
     await vi.waitFor(() => expect(wrapper.text()).toContain('空状态说明'))
     expect(wrapper.text()).toContain('暂无测试数据')
+    expect(wrapper.findAll('.gc-empty-state')).toHaveLength(0)
+    expect(wrapper.get('.gc-data-table').attributes('aria-label')).toContain('测试资源')
+  })
+
+  it('未提供主操作时不会渲染无效按钮', async () => {
+    usePermissionStore().setPermissions(['test.write'])
+
+    const wrapper = mount(BusinessResourcePage, {
+      props: { config: createConfig({ primaryAction: undefined }) },
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('资源一'))
+    expect(wrapper.text()).not.toContain('新增测试')
   })
 })

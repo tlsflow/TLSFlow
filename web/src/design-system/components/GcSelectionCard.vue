@@ -65,7 +65,7 @@ function toggle(): void {
   width: 100%;
   min-width: 0;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-lg);
+  border-radius: var(--gc-radius-card);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
   padding: var(--gc-space-4);

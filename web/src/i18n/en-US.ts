@@ -102,6 +102,7 @@ export default {
       MANAGED: 'Managed',
       DRIFTED: 'Drifted',
       EXPIRED: 'Expired',
+      REVOKED: 'Revoked',
       ERROR: 'Error',
       IGNORED: 'Ignored',
       ONLINE: 'Online',
@@ -2724,6 +2725,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: 'Card view',
+      list: 'List view',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3380,6 +3385,24 @@ export default {
       title: 'Import certificate'
     },
     importForm: {
+      source: {
+        title: 'Choose how to add a certificate',
+        description: 'Import an existing certificate or use ACME automatic issuance when it is available.',
+        manual: {
+          title: 'Import an existing certificate',
+          description: 'Upload a PEM, CRT, or PFX certificate file and its private key.',
+          recommended: 'Recommended'
+        },
+        acme: {
+          title: 'Request a certificate through ACME',
+          description: 'Automatically request and renew certificates from a certificate authority.',
+          unavailable: 'Unavailable'
+        },
+        unavailable: {
+          title: 'No ACME issuance channel is configured',
+          description: 'This console does not have an available ACME issuance entry point. Import an existing certificate, or retry after an automated issuance channel is configured.'
+        }
+      },
       hints: {
         pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
         pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
@@ -3392,6 +3415,7 @@ export default {
       },
       steps: {
         ariaLabel: 'Certificate import steps',
+        source: 'Add method',
         formatAndMethod: 'Format and method',
         materials: 'Import materials',
         validateAndImport: 'Validate and import'
@@ -4242,7 +4266,8 @@ export default {
     labels: {
       applicationAsset: 'Application asset',
       currentTarget: 'Current target',
-      probeInterval: 'Probe interval'
+      probeInterval: 'Probe interval',
+      secondsUnit: 'seconds'
     },
     metrics: {
       availability: 'Availability',

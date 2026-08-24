@@ -103,6 +103,7 @@ export default {
       MANAGED: '관리 중',
       DRIFTED: '드리프트됨',
       EXPIRED: '만료됨',
+      REVOKED: '폐기됨',
       ERROR: '예외',
       IGNORED: '무시됨',
       ONLINE: '온라인',
@@ -2608,6 +2609,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: '카드 보기',
+      list: '목록 보기',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3269,6 +3274,24 @@ export default {
       title: '인증서 가져오기'
     },
     importForm: {
+      source: {
+        title: '인증서 추가 방법 선택',
+        description: '기존 인증서를 가져오거나 사용할 수 있을 때 ACME 자동 발급을 사용합니다.',
+        manual: {
+          title: '기존 인증서 가져오기',
+          description: 'PEM, CRT 또는 PFX 인증서 파일과 개인 키를 업로드합니다.',
+          recommended: '권장'
+        },
+        acme: {
+          title: 'ACME로 인증서 요청',
+          description: '인증 기관에서 인증서를 자동으로 요청하고 갱신합니다.',
+          unavailable: '현재 사용할 수 없음'
+        },
+        unavailable: {
+          title: 'ACME 발급 채널이 구성되지 않았습니다',
+          description: '이 콘솔에는 사용할 수 있는 ACME 발급 진입점이 없습니다. 기존 인증서를 가져오거나 자동 발급 채널을 구성한 후 다시 시도하세요.'
+        }
+      },
       hints: {
         pemChainCheck: '서버 인증서, 전체 중간 인증서 체인과 개인 키를 업로드하거나 붙여넣으십시오. 그러면 시스템이 인증서 체인과 개인 키 일치 관계를 검사합니다.',
         pfxChainCheck: 'PFX/P12 파일을 업로드하고 비밀번호를 기입하세요. 그러면 컨테이너 안에 있는 서버 인증서, 인증서 체인 및 개인 전용 키가 분석됩니다.',
@@ -3281,6 +3304,7 @@ export default {
       },
       steps: {
         ariaLabel: '인증서 가져오기 단계',
+        source: '추가 방법',
         formatAndMethod: '격식과 방법',
         materials: '자료 가져오기',
         validateAndImport: '체크하고 가져옵니다'
@@ -4131,7 +4155,8 @@ export default {
     labels: {
       applicationAsset: '애플리케이션 자산',
       currentTarget: '현재 대상',
-      probeInterval: '검사 주기'
+      probeInterval: '검사 주기',
+      secondsUnit: '초'
     },
     metrics: {
       availability: '가용성',

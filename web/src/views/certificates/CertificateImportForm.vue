@@ -15,6 +15,10 @@ import {
   isMaterialReady,
 } from './certificate-import.shared'
 
+type ImportSource = 'manual' | 'acme'
+type FlowStep = 'source' | 'format' | 'materials' | 'review'
+type FormStep = FlowStep | 'acme'
+
 const props = withDefaults(defineProps<{
   draft: CertificateImportDraft
   loading?: boolean
@@ -37,7 +41,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const currentStep = ref(1)
+const currentStep = ref<FormStep>('source')
+const selectedSource = ref<ImportSource | null>(null)
 const fileInputKey = ref(0)
 const certificateFileName = ref('')
 const privateKeyFileName = ref('')
@@ -54,9 +59,21 @@ const selectedMethod = computed(() =>
   importMethodOptions.value.find((item) => item.key === effectiveMethod.value) ?? importMethodOptions.value[0],
 )
 const materialReady = computed(() => isMaterialReady(props.draft))
-const canGoToStepTwo = computed(() => Boolean(selectedFormat.value.supported))
-const canGoToStepThree = computed(() => materialReady.value && !props.loading && !props.validating)
+const canGoToMaterials = computed(() => Boolean(selectedFormat.value.supported))
+const canGoToReview = computed(() => materialReady.value && !props.loading && !props.validating)
 const canSubmit = computed(() => Boolean(props.validationResult?.importable) && !props.loading && !props.validating)
+const flowSteps = computed(() => [
+  { id: 'source' as const, label: t('certificates.importForm.steps.source') },
+  { id: 'format' as const, label: t('certificates.importForm.steps.formatAndMethod') },
+  { id: 'materials' as const, label: t('certificates.importForm.steps.materials') },
+  { id: 'review' as const, label: t('certificates.importForm.steps.validateAndImport') },
+])
+const activeFlowStep = computed<FlowStep>(() => (
+  currentStep.value === 'acme' ? 'source' : currentStep.value
+))
+const activeStepIndex = computed(() => (
+  flowSteps.value.findIndex((step) => step.id === activeFlowStep.value)
+))
 
 const chainCheckHint = computed(() => {
   if (props.draft.format === 'PEM') {
@@ -76,8 +93,11 @@ const chainCertificates = computed(() => props.validationResult?.chain.certifica
 watch(
   () => props.validationResult,
   (result) => {
-    if (result) currentStep.value = 3
+    if (!result) return
+    selectedSource.value = 'manual'
+    currentStep.value = 'review'
   },
+  { immediate: true },
 )
 
 watch(
@@ -114,18 +134,37 @@ function resetMaterialState() {
   props.draft.privateKeyPem = ''
 }
 
+function selectSource(source: ImportSource) {
+  selectedSource.value = source
+  currentStep.value = source === 'manual' ? 'format' : 'acme'
+}
+
+function isStepDone(step: FlowStep) {
+  return flowSteps.value.findIndex((item) => item.id === step) < activeStepIndex.value
+}
+
 function nextStep() {
-  if (currentStep.value === 1 && canGoToStepTwo.value) {
-    currentStep.value = 2
+  if (currentStep.value === 'format' && canGoToMaterials.value) {
+    currentStep.value = 'materials'
     return
   }
-  if (currentStep.value === 2 && canGoToStepThree.value) {
-    currentStep.value = 3
+  if (currentStep.value === 'materials' && canGoToReview.value) {
+    currentStep.value = 'review'
   }
 }
 
 function prevStep() {
-  if (currentStep.value > 1) currentStep.value -= 1
+  if (currentStep.value === 'materials') {
+    currentStep.value = 'format'
+    return
+  }
+  if (currentStep.value === 'review') {
+    currentStep.value = 'materials'
+    return
+  }
+  if (currentStep.value === 'format' || currentStep.value === 'acme') {
+    currentStep.value = 'source'
+  }
 }
 
 async function handleCertificateFileChange(event: Event) {
@@ -201,18 +240,76 @@ function cancelImport() {
 <template>
   <section class="certificate-import-wizard">
     <ol class="certificate-import-wizard__steps" :aria-label="t('certificates.importForm.steps.ariaLabel')">
-      <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }" :aria-current="currentStep === 1 ? 'step' : undefined">
-        1. {{ t('certificates.importForm.steps.formatAndMethod') }}
-      </li>
-      <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }" :aria-current="currentStep === 2 ? 'step' : undefined">
-        2. {{ t('certificates.importForm.steps.materials') }}
-      </li>
-      <li :class="{ 'is-active': currentStep === 3 }" :aria-current="currentStep === 3 ? 'step' : undefined">
-        3. {{ t('certificates.importForm.steps.validateAndImport') }}
+      <li
+        v-for="(step, index) in flowSteps"
+        :key="step.id"
+        :class="{ 'is-active': activeFlowStep === step.id, 'is-done': isStepDone(step.id) }"
+        :aria-current="activeFlowStep === step.id ? 'step' : undefined"
+      >
+        {{ index + 1 }}. {{ step.label }}
       </li>
     </ol>
 
-    <section v-if="currentStep === 1" class="certificate-import-wizard__panel">
+    <section v-if="currentStep === 'source'" class="certificate-import-wizard__panel certificate-import-wizard__panel--source">
+      <header class="certificate-import-wizard__header">
+        <div>
+          <h2>{{ t('certificates.importForm.source.title') }}</h2>
+          <p>{{ t('certificates.importForm.source.description') }}</p>
+        </div>
+      </header>
+
+      <div class="certificate-import-wizard__source-cards">
+        <GcSelectionCard
+          class="certificate-import-wizard__source-card"
+          :title="t('certificates.importForm.source.manual.title')"
+          :description="t('certificates.importForm.source.manual.description')"
+          :model-value="selectedSource === 'manual'"
+          @select="selectSource('manual')"
+        >
+          <GcStatusTag
+            status="RECOMMENDED"
+            :label="t('certificates.importForm.source.manual.recommended')"
+            tone="info"
+          />
+        </GcSelectionCard>
+
+        <GcSelectionCard
+          class="certificate-import-wizard__source-card"
+          :title="t('certificates.importForm.source.acme.title')"
+          :description="t('certificates.importForm.source.acme.description')"
+          :model-value="selectedSource === 'acme'"
+          @select="selectSource('acme')"
+        >
+          <GcStatusTag
+            status="UNAVAILABLE"
+            :label="t('certificates.importForm.source.acme.unavailable')"
+            tone="muted"
+          />
+        </GcSelectionCard>
+      </div>
+    </section>
+
+    <section v-else-if="currentStep === 'acme'" class="certificate-import-wizard__panel certificate-import-wizard__panel--acme">
+      <header class="certificate-import-wizard__header">
+        <div>
+          <h2>{{ t('certificates.importForm.source.unavailable.title') }}</h2>
+          <p>{{ t('certificates.importForm.source.acme.description') }}</p>
+        </div>
+      </header>
+
+      <GcCard as="article" class="certificate-import-wizard__acme-card">
+        <template #header>
+          <GcStatusTag
+            status="UNAVAILABLE"
+            :label="t('certificates.importForm.source.acme.unavailable')"
+            tone="muted"
+          />
+        </template>
+        <p>{{ t('certificates.importForm.source.unavailable.description') }}</p>
+      </GcCard>
+    </section>
+
+    <section v-else-if="currentStep === 'format'" class="certificate-import-wizard__panel">
       <header class="certificate-import-wizard__header">
         <div>
           <h2>{{ t('certificates.importForm.formatIntro.title') }}</h2>
@@ -267,7 +364,7 @@ function cancelImport() {
       </div>
     </section>
 
-    <GcCard v-else-if="currentStep === 2" as="section" class="certificate-import-wizard__material-card">
+    <GcCard v-else-if="currentStep === 'materials'" as="section" class="certificate-import-wizard__material-card">
       <template #header>
         <div class="certificate-import-wizard__header">
           <h2>{{ methodSpecificTitle }}</h2>
@@ -344,7 +441,7 @@ function cancelImport() {
       </form>
     </GcCard>
 
-    <section v-else class="certificate-import-wizard__panel certificate-import-wizard__panel--validation">
+    <section v-else-if="currentStep === 'review'" class="certificate-import-wizard__panel certificate-import-wizard__panel--validation">
       <header class="certificate-import-wizard__header">
         <div>
           <h2>{{ t('certificates.importForm.validation.title') }}</h2>
@@ -466,20 +563,20 @@ function cancelImport() {
           {{ t('certificates.importForm.actions.cancel') }}
         </GcButton>
       </div>
-      <div class="certificate-import-wizard__footer-right">
-        <GcButton variant="secondary" :disabled="currentStep === 1 || loading || validating" @click="prevStep">
+      <div v-if="currentStep !== 'source'" class="certificate-import-wizard__footer-right">
+        <GcButton variant="secondary" :disabled="loading || validating" @click="prevStep">
           {{ t('certificates.importForm.actions.previous') }}
         </GcButton>
         <GcButton
-          v-if="currentStep < 3"
+          v-if="currentStep === 'format' || currentStep === 'materials'"
           variant="primary"
-          :disabled="currentStep === 1 ? !canGoToStepTwo : !canGoToStepThree"
+          :disabled="currentStep === 'format' ? !canGoToMaterials : !canGoToReview"
           @click="nextStep"
         >
           {{ t('certificates.importForm.actions.next') }}
         </GcButton>
         <GcButton
-          v-else
+          v-else-if="currentStep === 'review'"
           variant="primary"
           :disabled="!canSubmit"
           :loading="loading"
@@ -493,14 +590,19 @@ function cancelImport() {
 </template>
 
 <style scoped>
+:global(.gc-modal:has(.certificate-import-wizard)) {
+  --gc-modal-width: var(--gc-size-modal-default);
+}
+
 .certificate-import-wizard {
   display: grid;
   gap: var(--gc-space-5);
+  min-width: 0;
 }
 
 .certificate-import-wizard__steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--gc-space-2);
   margin: 0;
   padding: 0;
@@ -534,6 +636,7 @@ function cancelImport() {
 .certificate-import-wizard__choice-grid,
 .certificate-import-wizard__choice-group,
 .certificate-import-wizard__cards,
+.certificate-import-wizard__source-cards,
 .certificate-import-wizard__form,
 .certificate-import-wizard__meta,
 .certificate-import-wizard__report,
@@ -587,6 +690,22 @@ function cancelImport() {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
 }
 
+.certificate-import-wizard__source-card :deep(.gc-selection-card__extra) {
+  display: inline-flex;
+}
+
+.certificate-import-wizard__acme-card :deep(.gc-pro-card__body) {
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.certificate-import-wizard__acme-card p {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
 .certificate-import-wizard__selection :deep(.gc-selection-card__extra) {
   display: inline-flex;
 }
@@ -609,10 +728,15 @@ function cancelImport() {
   font-size: var(--gc-font-size-sm);
 }
 
-.certificate-import-wizard__summary,
-.certificate-import-wizard__report-grid {
+.certificate-import-wizard__summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-4);
+}
+
+.certificate-import-wizard__report-grid {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--gc-space-4);
 }
 

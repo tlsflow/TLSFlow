@@ -102,6 +102,7 @@ export default {
       MANAGED: "已納管",
       DRIFTED: "已漂移",
       EXPIRED: "已過期",
+      REVOKED: "已吊銷",
       ERROR: "異常",
       IGNORED: "已忽略",
       ONLINE: "線上",
@@ -2633,6 +2634,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: '卡片檢視',
+      list: '列表檢視',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3294,6 +3299,24 @@ export default {
       title: "匯入憑證"
     },
     importForm: {
+      source: {
+        title: "選擇新增方式",
+        description: "選擇匯入既有憑證，或在可用時使用 ACME 自動申請。",
+        manual: {
+          title: "匯入既有憑證",
+          description: "上傳 PEM、CRT 或 PFX 憑證檔案及私密金鑰。",
+          recommended: "推薦"
+        },
+        acme: {
+          title: "透過 ACME 申請憑證",
+          description: "自動向憑證頒發機構申請並續期憑證。",
+          unavailable: "目前無法使用"
+        },
+        unavailable: {
+          title: "尚未設定 ACME 申請通道",
+          description: "目前控制台沒有可用的 ACME 申請入口。請選擇匯入既有憑證，或在設定自動化申請通道後重試。"
+        }
+      },
       hints: {
         pemChainCheck: "請上傳或貼上伺服器憑證、完整中間憑證鏈和私密金鑰，系統會驗證憑證鏈與私密金鑰匹配關係。",
         pfxChainCheck: "請上傳 PFX/P12 檔案並填寫密碼，系統會解析容器中的伺服器憑證、憑證鏈和私密金鑰。",
@@ -3306,6 +3329,7 @@ export default {
       },
       steps: {
         ariaLabel: "憑證匯入步驟",
+        source: "新增方式",
         formatAndMethod: "格式與方式",
         materials: "匯入材料",
         validateAndImport: "驗證並匯入"
@@ -4156,7 +4180,8 @@ export default {
     labels: {
       applicationAsset: "應用資產",
       currentTarget: "目前目標",
-      probeInterval: "探測頻率"
+      probeInterval: "探測頻率",
+      secondsUnit: "秒"
     },
     metrics: {
       availability: "可存取性",

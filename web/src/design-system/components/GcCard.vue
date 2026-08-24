@@ -41,6 +41,7 @@ withDefaults(defineProps<{
 .gc-pro-card {
   display: grid;
   gap: var(--gc-space-4);
+  min-width: 0;
   padding: var(--gc-space-4);
 }
 
@@ -50,7 +51,10 @@ withDefaults(defineProps<{
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-3);
+  min-width: 0;
 }
+
+.gc-pro-card__body { min-width: 0; }
 
 .gc-pro-card__header {
   padding-bottom: var(--gc-space-3);

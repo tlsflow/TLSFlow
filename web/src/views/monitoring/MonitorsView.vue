@@ -23,9 +23,10 @@ import {
   type TlsInspectionSnapshot,
   type TlsInspectorTargetRecord,
 } from '@/api/modules/tls-inspector.api'
-import { GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcEmptyState, GcModal, GcStatusTag, GcTrendChart } from '@/design-system/components'
 import MonitorTlsDetailView from './MonitorTlsDetailView.vue'
 import { computeTlsInspectionRating, tlsRatingTone } from './monitor-tls-scoring'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
@@ -184,6 +185,21 @@ const filteredMonitorRows = computed(() => {
       .includes(normalizedKeyword)
   })
 })
+
+const selectedMonitorRow = computed(() =>
+  monitorRows.value.find((row) => row.target.id === selectedTarget.value?.id) ?? null,
+)
+
+const selectedProbeTrendData = computed(() =>
+  selectedProbeHistory.value
+    .slice(0, 10)
+    .reverse()
+    .map((result) => ({ value: result.latencyMs ?? Number.NaN })),
+)
+
+const selectedProbeTrendTone = computed(() =>
+  selectedMonitorRow.value ? monitorStatusTone(selectedMonitorRow.value.status) : 'muted',
+)
 
 const monitorStatusOptions = computed(() => [
   { value: 'ALL' as const, label: t('businessPage.all') },
@@ -740,30 +756,17 @@ function readPath(record: ApiRecord | null | undefined, path: string): unknown {
 }
 
 function formatLocalTime(value: number | string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return t('monitoring.fallback.notCollected')
-  const year = date.getFullYear()
-  const month = pad(date.getMonth() + 1)
-  const day = pad(date.getDate())
-  const hour = pad(date.getHours())
-  const minute = pad(date.getMinutes())
-  const second = pad(date.getSeconds())
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+  const normalizedValue = typeof value === 'number' ? new Date(value).toString() : value
+  return formatBrowserLocalTime(normalizedValue) || t('monitoring.fallback.notCollected')
 }
 
 function formatLocalDateText(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, '0')
+  return formatBrowserLocalTime(value, { includeTime: false }) || t('monitoring.fallback.notCollected')
 }
 
 function sourceLabel(source: string | undefined): string {
   if (source === 'control_plane') return t('monitoring.source.controlPlane')
-  if (source === 'gateway') return 'Gateway'
+  if (source === 'gateway') return t('nav.gateways')
   return t('designSystem.status.UNKNOWN')
 }
 
@@ -892,22 +895,22 @@ function trimProbeStateToTargets() {
   <section class="gc-page monitor-page">
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportActions">
       <div class="monitor-page__actions">
-        <button class="gc-button" type="button" :disabled="loading" @click="() => refreshAll({ scanRisks: true })">
+        <GcButton variant="secondary" :loading="loading" @click="() => refreshAll({ scanRisks: true })">
           {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
-        </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
+        </GcButton>
+        <GcButton variant="primary" :loading="probing" :disabled="monitorTargets.length === 0" @click="() => probeAllTargets()">
           {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
-        </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="openAddDialog">
+        </GcButton>
+        <GcButton variant="primary" :disabled="loading" @click="openAddDialog">
           {{ t('monitoring.actions.add') }}
-        </button>
+        </GcButton>
       </div>
     </Teleport>
 
     <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error">
-      <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="refreshAll()">
+      <GcButton variant="primary" :loading="loading" @click="refreshAll()">
         {{ loading ? t('monitoring.actions.refreshing') : t('businessPage.retry') }}
-      </button>
+      </GcButton>
     </GcEmptyState>
 
     <GcEmptyState
@@ -931,14 +934,14 @@ function trimProbeStateToTargets() {
               </option>
             </select>
           </label>
-          <button
+          <GcButton
             v-if="monitorKeyword || monitorStatusFilter !== 'ALL'"
-            class="gc-button monitor-page__filter-reset"
-            type="button"
+            class="monitor-page__filter-reset"
+            variant="ghost"
             @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'"
           >
             {{ t('businessPage.clearFilters') }}
-          </button>
+          </GcButton>
         </div>
         <header class="monitor-page__section-head">
           <div>
@@ -987,9 +990,9 @@ function trimProbeStateToTargets() {
         <div v-if="filteredMonitorRows.length === 0" class="monitor-page__filtered-empty">
           <strong>{{ t('monitoring.empty.title') }}</strong>
           <span>{{ t('businessPage.clearFilters') }}</span>
-          <button class="gc-button" type="button" @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'">
+          <GcButton variant="secondary" @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'">
             {{ t('businessPage.clearFilters') }}
-          </button>
+          </GcButton>
         </div>
       </aside>
 
@@ -1010,11 +1013,11 @@ function trimProbeStateToTargets() {
                   step="10"
                   @change="handleTargetIntervalInput(selectedTarget.id, $event)"
                 />
-                <b>s</b>
+                <b>{{ t('monitoring.labels.secondsUnit') }}</b>
               </label>
-              <button class="gc-button" type="button" @click="removeMonitorTarget(selectedTarget.id)">
+              <GcButton class="monitor-page__remove" variant="ghost" @click="removeMonitorTarget(selectedTarget.id)">
                 {{ t('monitoring.actions.remove') }}
-              </button>
+              </GcButton>
             </div>
           </div>
           <div class="monitor-page__kpi-grid">
@@ -1038,14 +1041,14 @@ function trimProbeStateToTargets() {
               <span>{{ t('monitoring.tls.metrics.entryRating') }}</span>
               <div class="monitor-page__tls-kpi-body">
                 <strong class="monitor-page__tls-grade" :data-tone="selectedTlsRatingTone">{{ selectedTlsRating }}</strong>
-                <button
-                  class="gc-button monitor-page__tls-open"
-                  type="button"
+                <GcButton
+                  class="monitor-page__tls-open"
+                  variant="secondary"
                   :disabled="!selectedTarget"
                   @click="openTlsDialog()"
                 >
                   {{ t('monitoring.tls.actions.openDetail') }}
-                </button>
+                </GcButton>
               </div>
             </article>
           </div>
@@ -1086,7 +1089,7 @@ function trimProbeStateToTargets() {
                 <dd>{{ verificationLabel(selectedActualCertificate) }}</dd>
               </div>
               <div>
-                <dt>SAN</dt>
+                <dt>{{ t('certificates.fields.san') }}</dt>
                 <dd>{{ selectedActualCertificate.dnsNames?.join(', ') || t('monitoring.fallback.notCollected') }}</dd>
               </div>
               <div>
@@ -1174,8 +1177,15 @@ function trimProbeStateToTargets() {
                 <span>{{ t('monitoring.sections.probeHistoryHint') }}</span>
               </div>
             </header>
-            <div v-if="selectedProbeHistory.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.probeHistory') }}</div>
-            <table v-else class="monitor-page__table">
+            <div class="monitor-page__probe-trend">
+              <GcTrendChart
+                :data="selectedProbeTrendData"
+                :tone="selectedProbeTrendTone"
+                :ariaLabel="t('monitoring.probe.recentAria')"
+                :empty-label="t('monitoring.empty.probeHistory')"
+              />
+            </div>
+            <table v-if="selectedProbeHistory.length" class="monitor-page__table">
               <thead>
                 <tr>
                   <th>{{ t('monitoring.columns.time') }}</th>
@@ -1239,7 +1249,7 @@ function trimProbeStateToTargets() {
           <span>{{ t('monitoring.labels.probeInterval') }}</span>
           <span class="monitor-page__dialog-number">
             <input v-model.number="selectedIntervalSeconds" type="number" min="10" step="10" />
-            <b>s</b>
+            <b>{{ t('monitoring.labels.secondsUnit') }}</b>
           </span>
         </label>
         <div v-if="assetOptions.length === 0 && !loading" class="monitor-page__empty-line">
@@ -1248,10 +1258,10 @@ function trimProbeStateToTargets() {
         <p>{{ t('monitoring.dialog.defaultMetricsHint') }}</p>
       </div>
       <template #actions>
-        <button class="gc-button" type="button" @click="addDialogOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="!selectedAssetId" @click="addMonitorTarget">
+        <GcButton variant="secondary" @click="addDialogOpen = false">{{ t('designSystem.confirm.cancel') }}</GcButton>
+        <GcButton variant="primary" :disabled="!selectedAssetId" @click="addMonitorTarget">
           {{ t('monitoring.actions.add') }}
-        </button>
+        </GcButton>
       </template>
     </GcModal>
   </section>
@@ -1673,6 +1683,20 @@ function trimProbeStateToTargets() {
   border-color: var(--gc-color-primary-border);
   background: var(--gc-color-surface-selected);
   color: var(--gc-color-primary-strong);
+}
+
+.monitor-page__remove {
+  color: var(--gc-color-danger);
+}
+
+.monitor-page__probe-trend {
+  display: grid;
+  min-width: 0;
+}
+
+.monitor-page__probe-trend :deep(.gc-trend-chart) {
+  width: min(100%, calc(var(--gc-space-12) * 12));
+  aspect-ratio: 3 / 1;
 }
 
 .monitor-page__panels {

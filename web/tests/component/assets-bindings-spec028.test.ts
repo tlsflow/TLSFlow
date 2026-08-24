@@ -282,24 +282,124 @@ describe('资产与证书产物视图', () => {
     document.body.innerHTML = ''
   })
 
-  it('应用页使用统一页面头、指标、状态标签和三步执行进度', async () => {
+  it('应用页使用统一工作台和三步执行进度', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    expect(wrapper.find('.asset-page__header').exists()).toBe(true)
-    expect(wrapper.findAll('.asset-page__metric')).toHaveLength(2)
-    expect(wrapper.find('.business-page').exists()).toBe(true)
-    expect(wrapper.find('.business-page .gc-tag').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-professional-workspace"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-professional-card-grid"]').exists()).toBe(true)
+    expect(wrapper.find('.business-page').exists()).toBe(false)
 
     const addButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
     expect(addButton).toBeTruthy()
     await addButton!.trigger('click')
     await flushPromises()
 
-    const progress = wrapper.find('[role="progressbar"]')
+    const progress = wrapper.find('.asset-wizard__progress [role="progressbar"]')
     expect(progress.exists()).toBe(true)
     expect(progress.attributes('aria-valuenow')).toBe('1')
     expect(progress.attributes('aria-valuemax')).toBe('3')
+  })
+
+  it('专业应用页只显示证书生命周期卡片，详情仍从卡片操作可达', async () => {
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-card-1',
+        address: 'card.example.com',
+        displayName: 'card.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        status: 'ACTIVE',
+        targetBinding: {
+          siteName: 'production-web',
+        },
+        currentCertificate: {
+          commonName: '*.example.com',
+          notBefore: '2026-01-01T00:00:00.000Z',
+          notAfter: '2099-06-15T23:59:59.000Z',
+        },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const card = wrapper.get('[data-testid="asset-professional-card"]')
+    expect(card.text()).toContain('card.example.com')
+    expect(card.text()).toContain('*.example.com')
+    expect(card.text()).toContain('production-web')
+    expect(Number(card.find('[role="progressbar"]').attributes('aria-valuenow'))).toBeGreaterThan(0)
+
+    await wrapper.get('[data-testid="asset-card-detail-asset-card-1"]').trigger('click')
+    await flushPromises()
+    expect(assetMocks.getAssetDetail).toHaveBeenCalledWith('asset-card-1')
+
+    expect(wrapper.find('[data-testid="asset-professional-view-tabs"]').exists()).toBe(false)
+    expect(wrapper.find('.business-page').exists()).toBe(false)
+  })
+
+  it('卡片工作台按服务端分页和筛选条件加载资产', async () => {
+    assetMocks.listAssets.mockImplementation(async (query?: { readonly page?: number }) => {
+      const page = query?.page ?? 1
+      return {
+        data: {
+          items: page === 1
+            ? [{ id: 'asset-page-1', address: 'first.example.com', status: 'ACTIVE' }]
+            : [{ id: 'asset-page-2', address: 'second.example.com', status: 'INACTIVE' }],
+          page,
+          pageSize: 20,
+          total: 21,
+        },
+        requestId: `req_asset_page_${page}`,
+        timestamp: '2026-06-09T00:00:00.000Z',
+      }
+    })
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      sort: 'updatedAt:desc',
+      filters: { address: '', status: '' },
+    })
+    expect(wrapper.find('[data-testid="asset-overview-pagination"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="asset-overview-next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+      page: 2,
+      pageSize: 20,
+      sort: 'updatedAt:desc',
+      filters: { address: '', status: '' },
+    })
+    expect(wrapper.text()).toContain('second.example.com')
+
+    await wrapper.get('[data-testid="asset-overview-filter-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="asset-overview-status-filter"]').setValue('ACTIVE')
+    await flushPromises()
+
+    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 20,
+      sort: 'updatedAt:desc',
+      filters: { address: '', status: 'ACTIVE' },
+    })
+  })
+
+  it('卡片操作遵守应用资产读写权限', async () => {
+    usePermissionStore().setPermissions(['service_asset.read'])
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="asset-card-detail-asset-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-card-edit-asset-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="asset-card-delete-asset-1"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === '添加资产')).toBe(false)
   })
 
   it('应用资产平台使用固定标识选项且不依赖设备记录', async () => {
@@ -347,8 +447,8 @@ describe('资产与证书产物视图', () => {
 
     expect(assetMocks.listAssets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('www.example.com')
-    expect(wrapper.find('.asset-page__header').exists()).toBe(true)
-    expect(wrapper.findAll('.asset-page__metric')).toHaveLength(2)
+    expect(wrapper.find('[data-testid="asset-professional-workspace"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-professional-card-grid"]').exists()).toBe(true)
   })
 
   it('应用资产支持确认后手动删除并刷新列表', async () => {
@@ -362,7 +462,7 @@ describe('资产与证书产物视图', () => {
 
     const confirmInput = wrapper.find('.gc-confirm input')
     expect(confirmInput.exists()).toBe(true)
-    await confirmInput.setValue('DELETE')
+    await confirmInput.setValue(i18n.global.t('assets.actions.delete'))
     await wrapper.find('.gc-confirm footer .gc-button--danger').trigger('click')
     await flushPromises()
 

@@ -18,6 +18,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--gc-space-3);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .gc-page-toolbar__actions {
@@ -43,6 +45,7 @@
   flex: 0 0 auto;
   justify-content: flex-start;
   min-width: 0;
+  max-width: 100%;
 }
 
 @media (max-width: 40rem) {

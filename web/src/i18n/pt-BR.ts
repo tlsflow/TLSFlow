@@ -103,6 +103,7 @@ export default {
       MANAGED: 'Gerenciado',
       DRIFTED: 'Com desvio',
       EXPIRED: 'Expirado',
+      REVOKED: 'Revogado',
       ERROR: 'Erro',
       IGNORED: 'Ignorado',
       ONLINE: 'Online',
@@ -2608,6 +2609,10 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: 'Visualização de cartões',
+      list: 'Visualização de lista',
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -3269,6 +3274,24 @@ export default {
       title: 'Importar certificado'
     },
     importForm: {
+      source: {
+        title: 'Escolha como adicionar o certificado',
+        description: 'Importe um certificado existente ou use a emissão automática ACME quando ela estiver disponível.',
+        manual: {
+          title: 'Importar um certificado existente',
+          description: 'Envie um arquivo de certificado PEM, CRT ou PFX e sua chave privada.',
+          recommended: 'Recomendado'
+        },
+        acme: {
+          title: 'Solicitar um certificado via ACME',
+          description: 'Solicite e renove certificados automaticamente com uma autoridade certificadora.',
+          unavailable: 'Indisponível'
+        },
+        unavailable: {
+          title: 'Nenhum canal de emissão ACME está configurado',
+          description: 'Este console não possui um ponto de entrada ACME disponível. Importe um certificado existente ou tente novamente após configurar um canal de emissão automatizada.'
+        }
+      },
       hints: {
         pemChainCheck: 'Envie ou cole o certificado do servidor, a cadeia intermediária completa e a chave privada; o sistema validará a cadeia de certificados e a correspondência da chave privada.',
         pfxChainCheck: 'Envie um arquivo PFX/P12 e informe a senha; o sistema analisará o certificado do servidor, a cadeia de certificados e a chave privada dentro do contêiner.',
@@ -3281,6 +3304,7 @@ export default {
       },
       steps: {
         ariaLabel: 'Etapas de importação do certificado',
+        source: 'Método de adição',
         formatAndMethod: 'Formato e método',
         materials: 'Materiais de importação',
         validateAndImport: 'Validar e importar'
@@ -4131,7 +4155,8 @@ export default {
     labels: {
       applicationAsset: 'Ativo de aplicação',
       currentTarget: 'Alvo atual',
-      probeInterval: 'Frequência de verificação'
+      probeInterval: 'Frequência de verificação',
+      secondsUnit: 'segundos'
     },
     metrics: {
       availability: 'Disponibilidade',

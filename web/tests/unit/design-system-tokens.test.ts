@@ -87,6 +87,8 @@ const commonLayoutTokens = [
   '--gc-size-icon-md',
   '--gc-size-icon-lg',
   '--gc-size-modal-confirm',
+  '--gc-size-modal-lg',
+  '--gc-size-modal-xl',
   '--gc-size-modal-xxl',
   '--gc-size-progress',
   '--gc-font-family-mono',
@@ -135,6 +137,8 @@ describe('设计系统主题令牌合同', () => {
 
     expect(light).toMatch(/--gc-size-shell-sidebar\s*:\s*260px/)
     expect(light).toMatch(/--gc-size-modal-default\s*:\s*672px/)
+    expect(light).toMatch(/--gc-size-modal-lg\s*:\s*720px/)
+    expect(light).toMatch(/--gc-size-modal-xl\s*:\s*860px/)
     expect(light).toMatch(/--gc-radius-control\s*:\s*8px/)
     expect(light).toMatch(/--gc-radius-card\s*:\s*12px/)
     expect(light).toMatch(/--gc-radius-modal\s*:\s*16px/)

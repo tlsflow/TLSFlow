@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import GcButton from '@/design-system/components/GcButton.vue'
 import GcCard from '@/design-system/components/GcCard.vue'
+import GcDonutChart from '@/design-system/components/GcDonutChart.vue'
 import GcProgressBar from '@/design-system/components/GcProgressBar.vue'
 import GcSelectionCard from '@/design-system/components/GcSelectionCard.vue'
+import GcTrendChart from '@/design-system/components/GcTrendChart.vue'
 
 describe('Cloud Security Pro 共享组件', () => {
   it('GcButton 提供四种变体并在忙碌时禁止提交', () => {
@@ -60,5 +62,69 @@ describe('Cloud Security Pro 共享组件', () => {
     await wrapper.setProps({ modelValue: true })
     expect(wrapper.get('button').classes()).toContain('gc-selection-card--selected')
     expect(wrapper.get('button').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('GcTrendChart 忽略非法数据并应用 StatusTone', () => {
+    const wrapper = mount(GcTrendChart, {
+      props: {
+        data: [{ value: 12 }, { value: 24 }, { value: Number.NaN }, { value: 36 }],
+        ariaLabel: '证书趋势',
+        emptyLabel: '暂无趋势数据',
+        tone: 'warning',
+      },
+    })
+
+    expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('证书趋势')
+    expect(wrapper.classes()).toContain('gc-trend-chart--warning')
+    expect(wrapper.findAll('.gc-trend-chart__point')).toHaveLength(3)
+    expect(wrapper.findAll('.gc-trend-chart__line')).toHaveLength(1)
+    expect(wrapper.html()).not.toContain('NaN')
+  })
+
+  it('GcTrendChart 在无有效数据时显示调用方提供的空态文案', () => {
+    const wrapper = mount(GcTrendChart, {
+      props: {
+        data: [{ value: Number.POSITIVE_INFINITY }],
+        ariaLabel: '证书趋势',
+        emptyLabel: '暂无趋势数据',
+      },
+    })
+
+    expect(wrapper.find('.gc-trend-chart__empty').text()).toBe('暂无趋势数据')
+  })
+
+  it('GcDonutChart 归一化有效分段并映射各分段 StatusTone', () => {
+    const wrapper = mount(GcDonutChart, {
+      props: {
+        segments: [
+          { value: 7, tone: 'success' },
+          { value: 3, tone: 'danger' },
+          { value: Number.NaN, tone: 'info' },
+          { value: -1, tone: 'warning' },
+        ],
+        ariaLabel: '证书状态分布',
+        emptyLabel: '暂无状态数据',
+      },
+      slots: { center: '<strong>10</strong>' },
+    })
+
+    expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('证书状态分布')
+    expect(wrapper.findAll('.gc-donut-chart__segment')).toHaveLength(2)
+    expect(wrapper.find('.gc-donut-chart__segment--success').exists()).toBe(true)
+    expect(wrapper.find('.gc-donut-chart__segment--danger').exists()).toBe(true)
+    expect(wrapper.find('.gc-donut-chart__center').text()).toBe('10')
+    expect(wrapper.html()).not.toContain('NaN')
+  })
+
+  it('GcDonutChart 在无有效分段时显示调用方提供的空态文案', () => {
+    const wrapper = mount(GcDonutChart, {
+      props: {
+        segments: [{ value: 0, tone: 'muted' }],
+        ariaLabel: '证书状态分布',
+        emptyLabel: '暂无状态数据',
+      },
+    })
+
+    expect(wrapper.find('.gc-donut-chart__empty').text()).toBe('暂无状态数据')
   })
 })

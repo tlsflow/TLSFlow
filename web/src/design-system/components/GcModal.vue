@@ -332,14 +332,14 @@ onBeforeUnmount(() => {
 }
 
 .gc-modal {
-  width: min(var(--gc-modal-width), calc(100vw - var(--gc-space-6)));
+  width: min(var(--gc-modal-width, var(--gc-size-modal-default)), calc(100vw - var(--gc-space-6)));
   max-height: var(--gc-modal-max-height, calc(100vh - var(--gc-space-6)));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--gc-space-3);
   overflow: hidden;
-  border-radius: var(--gc-radius-xl);
-  padding: var(--gc-space-4);
+  border-radius: var(--gc-radius-modal);
+  padding: var(--gc-space-modal-y) var(--gc-space-modal-x);
   border-color: var(--gc-color-surface-field);
   box-shadow: var(--gc-shadow-overlay);
 }
@@ -355,11 +355,11 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-.gc-modal--sm { --gc-modal-width: 26.25rem; }
-.gc-modal--md { --gc-modal-width: 35rem; }
-.gc-modal--lg { --gc-modal-width: 45rem; }
-.gc-modal--xl { --gc-modal-width: 53.75rem; }
-.gc-modal--xxl { --gc-modal-width: 70rem; }
+.gc-modal--sm { --gc-modal-width: var(--gc-size-modal-confirm); }
+.gc-modal--md { --gc-modal-width: var(--gc-size-modal-default); }
+.gc-modal--lg { --gc-modal-width: var(--gc-size-modal-lg); }
+.gc-modal--xl { --gc-modal-width: var(--gc-size-modal-xl); }
+.gc-modal--xxl { --gc-modal-width: var(--gc-size-modal-xxl); }
 
 .gc-modal--edge-to-edge {
   gap: var(--gc-space-2);
@@ -499,7 +499,7 @@ onBeforeUnmount(() => {
 @media (max-width: 40rem) {
   .gc-modal {
     padding: var(--gc-space-3);
-    border-radius: var(--gc-radius-lg);
+    border-radius: var(--gc-radius-modal);
   }
 
   .gc-modal__header h2 {

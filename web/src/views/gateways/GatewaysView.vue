@@ -301,7 +301,7 @@ const config = computed<BusinessPageConfig>(() => ({
   <section class="gc-page gateway-page">
     <BusinessResourcePage ref="pageRef" :config="config" />
 
-    <GcModal v-model:open="installModalOpen" :title="t('gateways.modals.install.title')" size="lg" width="58vw" :close-on-backdrop="false">
+    <GcModal v-model:open="installModalOpen" :title="t('gateways.modals.install.title')" size="lg" :close-on-backdrop="false">
       <section class="gateway-material-modal">
         <div class="gateway-command-modal__field">
           <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
@@ -345,7 +345,7 @@ const config = computed<BusinessPageConfig>(() => ({
       </template>
     </GcModal>
 
-    <GcModal v-model:open="detailModalOpen" :title="t('gateways.modals.detail.title')" size="xl" width="64vw">
+    <GcModal v-model:open="detailModalOpen" :title="t('gateways.modals.detail.title')" size="xl">
       <section v-if="selectedGateway" class="gateway-detail-modal">
         <header class="gateway-detail-modal__hero">
           <div>

@@ -205,8 +205,7 @@ defineExpose({ open })
   <GcModal
     v-model:open="opened"
     :title="t('devices.detail.title')"
-    size="lg"
-    width="82vw"
+    size="xxl"
   >
     <template #header-actions>
       <button
@@ -287,7 +286,6 @@ defineExpose({ open })
     :title="t('devices.unifiedDetail.certificateDetail.title')"
     :description="t('devices.unifiedDetail.certificateDetail.description')"
     size="lg"
-    width="58vw"
   >
     <section v-if="selectedCertificate" class="agent-certificate-modal">
       <header class="agent-certificate-modal__hero">

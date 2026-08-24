@@ -11,16 +11,15 @@ import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { projectApplicationAssetPluginInputs, projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
-import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
+import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPageHeader, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCompatiblePluginSelector, GcConfirmAction, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
+import { usePermissionStore } from '@/stores/permission.store'
 import { useTenantStore } from '@/stores/tenant.store'
-import { formatMaybeLocalTime } from '@/utils/browser-local-time'
-import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
-import type { BusinessPageConfig } from '@/views/business-page.types'
+import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
 import {
   buildManagedTargetDeploymentStrategy,
   collectFrameworkTypeOptions,
@@ -46,6 +45,32 @@ type ManagedExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
+type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
+
+const ASSET_WORKSPACE_PAGE_SIZE = 20
+
+interface AssetCardCertificate {
+  readonly name: string
+  readonly expiresAt: string
+  readonly lifecycle: AssetCertificateLifecycle
+  readonly lifecycleLabel: string
+  readonly remainingLabel: string
+  readonly progress: number
+  readonly tone: StatusTone
+}
+
+interface AssetOverviewCard {
+  readonly id: string
+  readonly asset: ApiRecord
+  readonly name: string
+  readonly address: string
+  readonly device: string
+  readonly framework: string
+  readonly site: string
+  readonly deploymentTarget: string
+  readonly status: string
+  readonly certificate: AssetCardCertificate
+}
 
 interface AssetDraft {
   managementMode: AssetManagementMode
@@ -89,14 +114,26 @@ interface WorkflowTargetInfo {
   sniName?: string
 }
 
-const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, locale } = useI18n()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const permissionStore = usePermissionStore()
 const tenantStore = useTenantStore()
-const assetOverviewCount = computed(() => assetOverviewTotal.value || assetOverviewItems.value.length)
-const assetOverviewActiveCount = computed(() => assetOverviewItems.value.filter((item) => String(item.status ?? '').toUpperCase() === 'ACTIVE').length)
+const assetOverviewCards = computed<AssetOverviewCard[]>(() =>
+  assetOverviewItems.value.map((asset) => toAssetOverviewCard(asset)),
+)
+const assetOverviewPageCount = computed(() =>
+  Math.max(1, Math.ceil(assetOverviewTotal.value / assetOverviewPageSize.value)),
+)
+const canLoadPreviousAssetOverviewPage = computed(() => assetOverviewPage.value > 1)
+const canLoadNextAssetOverviewPage = computed(() => assetOverviewPage.value < assetOverviewPageCount.value)
+const canManageAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
+const assetOverviewStatusOptions = computed(() => [
+  { value: 'ACTIVE', label: t('dashboard.statusBlock.status.active') },
+  { value: 'INACTIVE', label: t('dashboard.statusBlock.status.inactive') },
+  { value: 'DISABLED', label: t('dashboard.statusBlock.status.disabled') },
+])
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const userAssetItems = ref<ApiRecord[]>([])
 const userAssetsLoading = ref(false)
@@ -104,6 +141,14 @@ const userAssetsError = ref('')
 const assetOverviewTotal = ref(0)
 const assetOverviewItems = ref<ApiRecord[]>([])
 const assetOverviewLoading = ref(false)
+const assetOverviewError = ref('')
+const assetOverviewPage = ref(1)
+const assetOverviewPageSize = ref(ASSET_WORKSPACE_PAGE_SIZE)
+const assetOverviewFiltersVisible = ref(false)
+const assetOverviewFilters = reactive({
+  address: '',
+  status: '',
+})
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
 const detailTabs = computed(() => [
@@ -203,35 +248,7 @@ const assetDraft = reactive<AssetDraft>({
   workflowTargetSniName: '',
 })
 
-const config = computed<BusinessPageConfig>(() => ({
-  title: t('assets.title'),
-  description: t('assets.description'),
-  showHeader: false,
-  showMetrics: false,
-  showEmptyState: false,
-  readPermission: 'service_asset.read',
-  primaryPermission: 'service_asset.manage',
-  primaryActionLabel: t('assets.actions.add'),
-  primaryAction: openCreateDialog,
-  moduleName: 'assets',
-  resourceName: t('assets.resourceName'),
-  defaultStatus: 'ACTIVE',
-  defaultRisk: 'MEDIUM',
-  showDetailPanel: false,
-  showActionPanel: false,
-  columns: [
-    { key: 'name', title: t('assets.columns.domain'), candidates: ['address', 'displayName', 'domainName'] },
-    { key: 'port', title: t('assets.columns.port'), candidates: ['port'] },
-    { key: 'protocol', title: t('assets.columns.protocol'), candidates: ['protocol'] },
-    { key: 'platform', title: t('assets.columns.platform'), candidates: ['platform'] },
-    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkDisplayName', 'targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
-    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBinding.siteName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'metadata.workflowTarget.siteName', 'deploymentStrategy.workflow.target.siteName', 'targetBinding.siteAssetId'] },
-    { key: 'deviceId', title: t('devices.unifiedDetail.nodeEyebrow'), candidates: ['targetBinding.deviceDisplayName', 'deviceDisplayName', 'targetBinding.deviceId', 'hostId'] },
-    { key: 'status', title: t('assets.columns.status'), candidates: ['status'] },
-    { key: 'actions', title: t('assets.columns.actions'), candidates: [] },
-  ],
-  metrics: [],
-  detailFields: [
+const assetDetailFields = computed(() => [
     { label: t('assets.fields.assetId'), candidates: ['id'] },
     { label: t('assets.fields.domain'), candidates: ['address', 'displayName'] },
     { label: t('assets.fields.addressType'), candidates: ['addressType'] },
@@ -252,41 +269,12 @@ const config = computed<BusinessPageConfig>(() => ({
     { label: t('assets.fields.discoverySource'), candidates: ['discoverySource'] },
     { label: t('assets.fields.lastDiscoveredAt'), candidates: ['lastDiscoveredAt', 'updatedAt'] },
     { label: t('assets.fields.tags'), candidates: ['tags'] },
-  ],
-  contextLinks: [
+])
+
+const assetContextLinks = computed(() => [
     { label: t('assets.links.certificateBindings'), to: '/bindings', queryKey: 'serviceAssetId', candidates: ['id'] },
     { label: t('assets.links.executions'), to: '/executions', queryKey: 'serviceAssetId', candidates: ['id'] },
-  ],
-  emptyTitle: t('assets.empty.title'),
-  emptyDescription: t('assets.empty.description'),
-  load: loadAssetsWithDisplayNames,
-  actions: [],
-  rowActions: [
-    {
-      label: t('assets.actions.edit'),
-      permission: 'service_asset.manage',
-      reloadAfterRun: false,
-      run: openEditDialog,
-    },
-    {
-      label: t('assets.actions.detail'),
-      permission: 'service_asset.read',
-      reloadAfterRun: false,
-      run: openDetailModal,
-    },
-    {
-      label: t('assets.actions.delete'),
-      permission: 'service_asset.manage',
-      danger: true,
-      confirmText: 'DELETE',
-      riskText: t('assets.actions.deleteRisk'),
-      run: async (row) => {
-        await deleteServiceAsset(String(row.raw?.id ?? row.id ?? ''))
-      },
-    },
-  ],
-  onSelectionChange: handleServiceAssetSelection,
-}))
+])
 
 const latestSnapshot = computed<ApiRecord | null>(() => snapshotItems.value[0] ?? null)
 
@@ -611,12 +599,6 @@ const createDisabled = computed(() => {
 })
 
 const isEditMode = computed(() => Boolean(editingServiceAssetId.value))
-
-function handleServiceAssetSelection(row: ViewRow | null) {
-  selectedServiceAsset.value = row
-  rollbackError.value = ''
-  rollbackRequestId.value = ''
-}
 
 async function openDetailModal(row: ViewRow) {
   selectedServiceAsset.value = row
@@ -1207,8 +1189,7 @@ async function submitCreate() {
       createRequestId.value = result.requestId
       createDialogOpen.value = false
       editingServiceAssetId.value = ''
-      await pageRef.value?.reload()
-      await loadUserAssets()
+      await refreshAssetsAfterMutation()
       return
     }
     const result = await createServiceAsset({
@@ -1225,8 +1206,7 @@ async function submitCreate() {
     }
     createRequestId.value = result.requestId
     createDialogOpen.value = false
-    await pageRef.value?.reload()
-    await loadUserAssets()
+    await refreshAssetsAfterMutation(true)
   } catch (cause) {
     if (cause instanceof ApiClientError) {
       createError.value = cause.message
@@ -1358,7 +1338,11 @@ async function loadUserAssets() {
   userAssetsLoading.value = true
   userAssetsError.value = ''
   try {
-    const result = await loadAssetsWithDisplayNames()
+    const result = await requestAssetsWithDisplayNames({
+      page: 1,
+      pageSize: ASSET_WORKSPACE_PAGE_SIZE,
+      sort: 'updatedAt:desc',
+    })
     userAssetItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     userAssetsError.value = cause instanceof Error ? cause.message : t('assets.userView.loadFailed')
@@ -1385,6 +1369,152 @@ function userAssetTarget(asset: ApiRecord) {
     ?? readNested(asset, ['targetBinding', 'managedTargetLabel'])
     ?? t('assets.userView.targetPending'),
   )
+}
+
+function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
+  const name = userAssetName(asset)
+  return {
+    id: firstAssetText(asset, ['id', 'address', 'displayName']) || name,
+    asset,
+    name,
+    address: userAssetAddress(asset),
+    device: firstAssetText(asset, ['targetBinding.deviceDisplayName', 'deviceDisplayName']) || t('assets.empty.notSet'),
+    framework: firstAssetText(asset, ['targetBinding.frameworkDisplayName', 'frameworkDisplayName', 'targetBinding.frameworkType', 'frameworkType']) || t('assets.empty.notSet'),
+    site: firstAssetText(asset, ['targetBinding.siteName', 'siteDisplayName']) || t('assets.empty.notSet'),
+    deploymentTarget: assetOverviewDeploymentTarget(asset),
+    status: firstAssetText(asset, ['status', 'state']) || 'UNKNOWN',
+    certificate: assetOverviewCertificate(asset),
+  }
+}
+
+function assetOverviewDeploymentTarget(asset: ApiRecord): string {
+  return firstAssetText(asset, [
+    'targetBinding.managedTargetLabel',
+    'targetBinding.siteName',
+    'siteDisplayName',
+    'targetBinding.bindingKey',
+    'targetBinding.targetKey',
+    'deploymentStrategy.workflow.target.siteName',
+    'metadata.workflowTarget.siteName',
+  ]) || t('assets.empty.notSet')
+}
+
+function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
+  const expiresAt = firstAssetText(asset, [
+    'currentCertificate.notAfter',
+    'currentVersion.notAfter',
+    'certificate.notAfter',
+    'certificate.expiresAt',
+    'certificateBinding.notAfter',
+    'targetBinding.certificateBinding.notAfter',
+    'notAfter',
+    'expiresAt',
+    'certificateNotAfter',
+    'certificateExpiresAt',
+  ])
+  const lifecycle = resolveAssetCertificateLifecycle(asset, expiresAt)
+  const countdown = getExpiryCountdown(expiresAt)
+  return {
+    name: firstAssetText(asset, [
+      'currentCertificate.commonName',
+      'currentCertificate.subject.commonName',
+      'currentCertificate.name',
+      'currentVersion.commonName',
+      'certificate.commonName',
+      'certificate.subject.commonName',
+      'certificate.name',
+      'certificateBinding.domain',
+      'certificateBinding.domainName',
+      'targetBinding.certificateBinding.domain',
+      'targetBinding.certificateBinding.domainName',
+      'certificateName',
+      'certificateDomain',
+      'certificateVersionId',
+    ]) || t('assets.empty.notSet'),
+    expiresAt: expiresAt ? formatMaybeLocalTime(expiresAt, t('dashboard.days.notRecorded')) : t('dashboard.days.notRecorded'),
+    lifecycle,
+    lifecycleLabel: t(`dashboard.certificateState.${lifecycle}`),
+    remainingLabel: assetCertificateRemainingLabel(lifecycle, countdown),
+    progress: assetCertificateLifecycleProgress(asset, expiresAt, lifecycle),
+    tone: assetCertificateLifecycleTone(lifecycle),
+  }
+}
+
+function firstAssetText(asset: ApiRecord, candidates: readonly string[]): string {
+  for (const candidate of candidates) {
+    const value = readNested(asset, candidate.split('.'))
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return ''
+}
+
+function resolveAssetCertificateLifecycle(asset: ApiRecord, expiresAt: string): AssetCertificateLifecycle {
+  const status = firstAssetText(asset, [
+    'currentCertificate.status',
+    'currentVersion.status',
+    'certificate.status',
+    'certificateBinding.status',
+    'targetBinding.certificateBinding.status',
+    'certificateStatus',
+    'certificateLifecycle',
+  ]).toUpperCase()
+  if (status === 'EXPIRED') return 'expired'
+  if (status === 'EXPIRING' || status === 'EXPIRING_SOON' || status === 'CRITICAL') return 'expiringSoon'
+
+  const countdown = getExpiryCountdown(expiresAt)
+  if (!countdown) return 'unknown'
+  if (countdown.expired) return 'expired'
+  return countdown.days <= 10 ? 'expiringSoon' : 'valid'
+}
+
+function assetCertificateRemainingLabel(lifecycle: AssetCertificateLifecycle, countdown: ReturnType<typeof getExpiryCountdown>): string {
+  if (!countdown) return t('dashboard.days.notRecorded')
+  if (lifecycle === 'expired') return t('dashboard.days.expired', { days: countdown.days })
+  if (countdown.days === 0) return t('dashboard.days.expiresToday')
+  return t('dashboard.days.remaining', { days: countdown.days })
+}
+
+function assetCertificateLifecycleProgress(
+  asset: ApiRecord,
+  expiresAt: string,
+  lifecycle: AssetCertificateLifecycle,
+): number {
+  if (lifecycle === 'unknown' || lifecycle === 'expired') return 0
+  const notBefore = firstAssetText(asset, [
+    'currentCertificate.notBefore',
+    'currentVersion.notBefore',
+    'certificate.notBefore',
+    'certificateBinding.notBefore',
+    'targetBinding.certificateBinding.notBefore',
+    'notBefore',
+    'certificateNotBefore',
+  ])
+  const startTime = Date.parse(notBefore)
+  const endTime = Date.parse(expiresAt)
+  if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
+    const remainingRatio = (endTime - Date.now()) / (endTime - startTime)
+    return Math.round(Math.min(1, Math.max(0, remainingRatio)) * 100)
+  }
+  return lifecycle === 'expiringSoon' ? 50 : 100
+}
+
+function assetCertificateLifecycleTone(lifecycle: AssetCertificateLifecycle): StatusTone {
+  if (lifecycle === 'valid') return 'success'
+  if (lifecycle === 'expiringSoon') return 'warning'
+  if (lifecycle === 'expired') return 'danger'
+  return 'muted'
+}
+
+function assetOverviewCardRow(card: AssetOverviewCard): ViewRow {
+  const risk = firstAssetText(card.asset, ['risk', 'riskLevel', 'severity']).toUpperCase()
+  return {
+    id: card.id,
+    name: card.name,
+    status: card.status,
+    risk: risk === 'LOW' || risk === 'MEDIUM' || risk === 'HIGH' || risk === 'CRITICAL' ? risk : 'MEDIUM',
+    raw: card.asset,
+  }
 }
 
 function splitCsv(value: string): string[] {
@@ -1697,25 +1827,89 @@ function renderValue(value: unknown, fallback = t('common.notAvailable')): strin
   return formatMaybeLocalTime(value, fallback)
 }
 
-async function loadAssetsWithDisplayNames(): Promise<ApiPageResult> {
+function assetOverviewQueryFilters(): BusinessListQuery['filters'] {
+  return {
+    address: assetOverviewFilters.address.trim(),
+    status: assetOverviewFilters.status,
+  }
+}
+
+async function requestAssetsWithDisplayNames(query: BusinessListQuery): Promise<ApiPageResult> {
+  const result = await listAssets(query)
+  const page = result.data
+  if (!page) return result
+  return {
+    ...result,
+    data: {
+      ...page,
+      items: page.items.map((item) => enrichAssetDisplayNames(item)),
+    },
+  }
+}
+
+async function loadAssetOverviewPage(page: number): Promise<void> {
+  const requestedPage = Math.max(1, Math.trunc(page) || 1)
   assetOverviewLoading.value = true
+  assetOverviewError.value = ''
   try {
-    const result = await listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' })
-    const page = result.data
-    if (!page) return result
-    const items = page.items.map((item) => enrichAssetDisplayNames(item))
-    assetOverviewTotal.value = page.total
-    assetOverviewItems.value = items
-    return {
-      ...result,
-      data: {
-        ...page,
-        items,
-      },
+    let result = await requestAssetsWithDisplayNames({
+      page: requestedPage,
+      pageSize: ASSET_WORKSPACE_PAGE_SIZE,
+      sort: 'updatedAt:desc',
+      filters: assetOverviewQueryFilters(),
+    })
+
+    // 删除或筛选收窄后，服务端可能返回一个空的末页；回退一页保持卡片工作台可导航。
+    if ((result.data?.items.length ?? 0) === 0 && (result.data?.total ?? 0) > 0 && requestedPage > 1) {
+      result = await requestAssetsWithDisplayNames({
+        page: requestedPage - 1,
+        pageSize: ASSET_WORKSPACE_PAGE_SIZE,
+        sort: 'updatedAt:desc',
+        filters: assetOverviewQueryFilters(),
+      })
     }
+
+    const resultPage = result.data
+    if (!resultPage) {
+      assetOverviewPage.value = requestedPage
+      assetOverviewPageSize.value = ASSET_WORKSPACE_PAGE_SIZE
+      assetOverviewTotal.value = 0
+      assetOverviewItems.value = []
+      return
+    }
+
+    assetOverviewPage.value = resultPage.page > 0 ? resultPage.page : requestedPage
+    assetOverviewPageSize.value = resultPage.pageSize > 0 ? resultPage.pageSize : ASSET_WORKSPACE_PAGE_SIZE
+    assetOverviewTotal.value = resultPage.total
+    assetOverviewItems.value = [...resultPage.items]
+  } catch (cause) {
+    assetOverviewError.value = cause instanceof Error ? cause.message : t('businessPage.apiFailed')
   } finally {
     assetOverviewLoading.value = false
   }
+}
+
+async function refreshAssetsAfterMutation(resetPage = false): Promise<void> {
+  if (isUserViewMode.value) {
+    await loadUserAssets()
+    return
+  }
+  await loadAssetOverviewPage(resetPage ? 1 : assetOverviewPage.value)
+}
+
+async function applyAssetOverviewFilters(): Promise<void> {
+  await loadAssetOverviewPage(1)
+}
+
+async function clearAssetOverviewFilters(): Promise<void> {
+  assetOverviewFilters.address = ''
+  assetOverviewFilters.status = ''
+  await applyAssetOverviewFilters()
+}
+
+async function deleteAssetOverviewCard(card: AssetOverviewCard): Promise<void> {
+  await deleteServiceAsset(card.id)
+  await loadAssetOverviewPage(assetOverviewPage.value)
 }
 
 function enrichAssetDisplayNames(asset: ApiRecord): ApiRecord {
@@ -1805,7 +1999,11 @@ watch(
 )
 
 watch(isUserViewMode, (enabled) => {
-  if (enabled) void loadUserAssets()
+  if (enabled) {
+    void loadUserAssets()
+    return
+  }
+  void loadAssetOverviewPage(1)
 }, { immediate: true })
 
 watch([isUserViewMode, deviceItems, certificateFormatItems], () => {
@@ -2063,35 +2261,194 @@ function managedTargetLabel(target: ApiRecord): string {
     </template>
 
     <template v-else>
-      <GcPageHeader
-        class="asset-page__header"
-        :title="t('assets.title')"
-        :description="t('assets.description')"
-      >
-        <template #actions>
-          <GcButton variant="primary" :loading="assetOverviewLoading" @click="pageRef?.reload()">
-            {{ t('common.refresh') }}
+      <section class="asset-page__workspace" data-testid="asset-professional-workspace">
+        <header class="asset-page__workspace-head">
+          <div class="asset-page__workspace-copy">
+            <strong>{{ t('businessPage.resourceList', { resource: t('assets.resourceName') }) }}</strong>
+            <span>{{ t('businessPage.total', { count: assetOverviewTotal }) }}</span>
+          </div>
+          <div class="asset-page__workspace-actions">
+            <GcButton variant="secondary" :loading="assetOverviewLoading" @click="loadAssetOverviewPage(assetOverviewPage)">
+              {{ t('common.refresh') }}
+            </GcButton>
+            <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="openCreateDialog">
+              {{ t('assets.actions.add') }}
+            </GcPermissionButton>
+          </div>
+        </header>
+
+        <div class="asset-page__workspace-controls">
+          <GcButton
+            variant="secondary"
+            :aria-expanded="assetOverviewFiltersVisible"
+            data-testid="asset-overview-filter-toggle"
+            @click="assetOverviewFiltersVisible = !assetOverviewFiltersVisible"
+          >
+            {{ t('businessPage.toggleFilters') }}
           </GcButton>
-          <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="openCreateDialog">
-            {{ t('assets.actions.add') }}
-          </GcPermissionButton>
-        </template>
-      </GcPageHeader>
+        </div>
 
-      <section class="asset-page__metrics" :aria-label="t('businessPage.metricsAria')">
-        <article class="asset-page__metric">
-          <span>{{ t('assets.resourceName') }}</span>
-          <strong>{{ assetOverviewLoading ? t('common.notAvailable') : assetOverviewCount }}</strong>
-          <small>{{ t('assets.description') }}</small>
-        </article>
-        <article class="asset-page__metric asset-page__metric--success">
-          <span>{{ t('assets.columns.status') }}</span>
-          <strong>{{ assetOverviewLoading ? t('common.notAvailable') : assetOverviewActiveCount }}</strong>
-          <small>{{ t('assets.status.unknownStatus') }}</small>
-        </article>
+        <form
+          v-if="assetOverviewFiltersVisible"
+          class="asset-page__filters"
+          data-testid="asset-overview-filters"
+          @submit.prevent="applyAssetOverviewFilters"
+        >
+          <label class="asset-page__filter">
+            <span>{{ t('assets.columns.domain') }}</span>
+            <input
+              v-model="assetOverviewFilters.address"
+              :placeholder="t('assets.columns.domain')"
+              @change="applyAssetOverviewFilters"
+            >
+          </label>
+          <label class="asset-page__filter">
+            <span>{{ t('assets.columns.status') }}</span>
+            <select v-model="assetOverviewFilters.status" data-testid="asset-overview-status-filter" @change="applyAssetOverviewFilters">
+              <option value="">{{ t('businessPage.all') }}</option>
+              <option v-for="option in assetOverviewStatusOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <div class="asset-page__filter-actions">
+            <GcButton type="submit" variant="primary">{{ t('tasks.actions.search') }}</GcButton>
+            <GcButton type="button" variant="ghost" @click="clearAssetOverviewFilters">{{ t('businessPage.clearFilters') }}</GcButton>
+          </div>
+        </form>
+
+        <section class="asset-page__card-view" :aria-label="t('businessPage.resourceList', { resource: t('assets.resourceName') })">
+          <p v-if="assetOverviewLoading" class="asset-page__card-state">{{ t('common.loading') }}</p>
+          <GcEmptyState
+            v-else-if="assetOverviewError"
+            :title="t('businessPage.apiFailed')"
+            :description="assetOverviewError"
+          >
+            <GcButton variant="secondary" @click="loadAssetOverviewPage(assetOverviewPage)">{{ t('businessPage.retry') }}</GcButton>
+          </GcEmptyState>
+          <GcEmptyState
+            v-else-if="assetOverviewCards.length === 0"
+            :title="t('assets.empty.title')"
+            :description="t('assets.empty.description')"
+          />
+          <div v-else class="asset-page__card-grid" data-testid="asset-professional-card-grid">
+            <GcCard
+              v-for="card in assetOverviewCards"
+              :key="card.id"
+              as="article"
+              class="asset-page__card"
+              :aria-label="card.name"
+              data-testid="asset-professional-card"
+            >
+              <template #header>
+                <div class="asset-page__card-heading">
+                  <h3>{{ card.name }}</h3>
+                  <p>{{ card.address }}</p>
+                </div>
+                <GcStatusTag :status="card.status" />
+              </template>
+
+              <template #body>
+                <dl class="asset-page__card-facts">
+                  <div>
+                    <dt>{{ t('devices.unifiedDetail.nodeEyebrow') }}</dt>
+                    <dd>{{ card.device }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.columns.framework') }}</dt>
+                    <dd>{{ card.framework }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.columns.site') }}</dt>
+                    <dd>{{ card.site }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.fields.currentCertificate') }}</dt>
+                    <dd>{{ card.certificate.name }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.fields.managedTarget') }}</dt>
+                    <dd>{{ card.deploymentTarget }}</dd>
+                  </div>
+                </dl>
+
+                <section class="asset-page__card-lifecycle" :aria-label="t('assets.fields.currentCertificate')">
+                  <div class="asset-page__card-lifecycle-head">
+                    <div>
+                      <span>{{ t('assets.fields.currentCertificate') }}</span>
+                      <strong>{{ card.certificate.remainingLabel }}</strong>
+                    </div>
+                    <GcStatusTag
+                      :status="card.certificate.lifecycle"
+                      :label="card.certificate.lifecycleLabel"
+                      :tone="card.certificate.tone"
+                    />
+                  </div>
+                  <GcProgressBar
+                    :value="card.certificate.progress"
+                    :tone="card.certificate.tone"
+                    :ariaLabel="t('assets.fields.currentCertificate')"
+                  >
+                    <span>{{ card.certificate.expiresAt }}</span>
+                  </GcProgressBar>
+                </section>
+              </template>
+
+              <template #footer>
+                <GcPermissionButton
+                  class="gc-button gc-button--primary"
+                  :data-testid="`asset-card-detail-${card.id}`"
+                  permission="service_asset.read"
+                  @click="openDetailModal(assetOverviewCardRow(card))"
+                >
+                  {{ t('assets.actions.detail') }}
+                </GcPermissionButton>
+                <GcPermissionButton
+                  :data-testid="`asset-card-edit-${card.id}`"
+                  permission="service_asset.manage"
+                  @click="openEditDialog(assetOverviewCardRow(card))"
+                >
+                  {{ t('assets.actions.edit') }}
+                </GcPermissionButton>
+                <span v-if="canManageAssets" class="asset-page__card-delete" :data-testid="`asset-card-delete-${card.id}`">
+                  <GcConfirmAction
+                    :action-name="t('assets.actions.delete')"
+                    :impact-count="1"
+                    :risk-text="t('assets.actions.deleteRisk')"
+                    :confirm-text="t('assets.actions.delete')"
+                    @confirm="deleteAssetOverviewCard(card)"
+                  />
+                </span>
+              </template>
+            </GcCard>
+          </div>
+
+          <nav
+            v-if="assetOverviewPageCount > 1 && !assetOverviewLoading && !assetOverviewError"
+            class="asset-page__pagination"
+            :aria-label="t('businessPage.pagination', { page: assetOverviewPage, pageSize: assetOverviewPageSize })"
+            data-testid="asset-overview-pagination"
+          >
+            <GcButton
+              variant="secondary"
+              :disabled="!canLoadPreviousAssetOverviewPage"
+              data-testid="asset-overview-previous-page"
+              @click="loadAssetOverviewPage(assetOverviewPage - 1)"
+            >
+              {{ t('tasks.actions.previousPage') }}
+            </GcButton>
+            <span>{{ t('businessPage.pagination', { page: assetOverviewPage, pageSize: assetOverviewPageSize }) }}</span>
+            <GcButton
+              variant="secondary"
+              :disabled="!canLoadNextAssetOverviewPage"
+              data-testid="asset-overview-next-page"
+              @click="loadAssetOverviewPage(assetOverviewPage + 1)"
+            >
+              {{ t('tasks.actions.nextPage') }}
+            </GcButton>
+          </nav>
+        </section>
       </section>
-
-      <BusinessResourcePage ref="pageRef" :config="config" />
     </template>
 
     <GcModal
@@ -2099,7 +2456,6 @@ function managedTargetLabel(target: ApiRecord): string {
       :title="t('assets.detail.title')"
       :description="t('assets.detail.description')"
       size="xxl"
-      width="72vw"
     >
       <section v-if="selectedServiceAsset" class="asset-detail-modal">
         <header class="asset-detail-modal__hero">
@@ -2130,14 +2486,14 @@ function managedTargetLabel(target: ApiRecord): string {
               <p>{{ t('assets.detail.sections.overview.description') }}</p>
             </div>
             <dl class="asset-detail-modal__grid">
-              <div class="asset-detail-modal__item" v-for="field in config.detailFields" :key="field.label">
+              <div class="asset-detail-modal__item" v-for="field in assetDetailFields" :key="field.label">
                 <dt>{{ field.label }}</dt>
                 <dd>{{ renderValue(detailFieldValue(field.candidates)) }}</dd>
               </div>
             </dl>
             <nav class="asset-detail-modal__links">
               <RouterLink
-                v-for="link in config.contextLinks"
+                v-for="link in assetContextLinks"
                 :key="link.label"
                 class="gc-button"
                 :to="{ path: link.to, query: { [link.queryKey]: String(selectedServiceAsset.raw.id ?? '') } }"
@@ -2769,51 +3125,242 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-4);
 }
 
-.asset-page__header {
-  margin-bottom: 0;
+.asset-page__workspace {
+  display: grid;
+  gap: var(--gc-space-4);
+  min-width: 0;
 }
 
-.asset-page__metrics {
+.asset-page__workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+}
+
+.asset-page__workspace-actions,
+.asset-page__workspace-controls,
+.asset-page__filter-actions,
+.asset-page__pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+}
+
+.asset-page__workspace-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.asset-page__workspace-controls {
+  justify-content: flex-start;
+}
+
+.asset-page__workspace-copy {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__workspace-copy strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+
+.asset-page__workspace-copy span,
+.asset-page__card-state {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.asset-page__card-state {
+  margin: 0;
+  padding: var(--gc-space-6);
+  text-align: center;
+}
+
+.asset-page__filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-color-surface-subtle);
+}
+
+.asset-page__filter {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__filter span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.asset-page__filter input,
+.asset-page__filter select {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--gc-control-height-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-solid);
+  font: inherit;
+}
+
+.asset-page__filter input:focus-visible,
+.asset-page__filter select:focus-visible {
+  outline: none;
+  border-color: var(--gc-color-primary-border);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.asset-page__filter-actions {
+  flex-wrap: wrap;
+}
+
+.asset-page__card-view {
+  display: grid;
   gap: var(--gc-space-3);
 }
 
-.asset-page__metric {
+.asset-page__card-grid {
   display: grid;
-  gap: var(--gc-space-2);
-  min-height: var(--gc-space-12);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
-  border-radius: var(--gc-radius-card);
-  padding: var(--gc-space-4);
-  background: var(--gc-color-surface-panel);
+  grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr));
+  gap: var(--gc-space-3);
+}
+
+.asset-page__card {
+  min-width: 0;
+  border-color: var(--gc-color-border-muted);
+  background: var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-card);
 }
 
-.asset-page__metric span,
-.asset-page__metric small {
+.asset-page__card-heading {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__card-heading h3,
+.asset-page__card-heading p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.asset-page__card-heading h3 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+
+.asset-page__card-heading p {
+  color: var(--gc-color-text-muted);
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-xs);
+}
+
+.asset-page__card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+  padding-bottom: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.asset-page__card-facts div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__card-facts dt,
+.asset-page__card-lifecycle-head span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-overline);
+  font-weight: var(--gc-font-weight-semibold);
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.asset-page__card-facts dd {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.asset-page__card-lifecycle {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding-top: var(--gc-space-3);
+}
+
+.asset-page__card-lifecycle-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.asset-page__card-lifecycle-head > div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__card-lifecycle-head strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.asset-page__card :deep(.gc-pro-card__footer) {
+  align-items: stretch;
+}
+
+.asset-page__card :deep(.gc-pro-card__footer > .gc-button--primary) {
+  flex: 1 1 auto;
+}
+
+.asset-page__card-delete {
+  display: inline-flex;
+}
+
+.asset-page__pagination {
+  justify-content: flex-end;
+  flex-wrap: wrap;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
-  font-weight: 750;
 }
 
-.asset-page__metric strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-2xl);
-  line-height: var(--gc-line-height-tight);
-}
+@media (max-width: 57rem) {
+  .asset-page__workspace-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 
-.asset-page__metric--success {
-  border-color: var(--gc-color-success-border);
-  background: var(--gc-color-success-soft);
-}
+  .asset-page__workspace-actions,
+  .asset-page__filter-actions {
+    justify-content: flex-start;
+  }
 
-.asset-page__metric--success strong {
-  color: var(--gc-color-success);
-}
+  .asset-page__filters {
+    grid-template-columns: 1fr;
+  }
 
-.asset-page :deep(.business-page__toolbar) {
-  display: none;
+  .asset-page__card-facts {
+    grid-template-columns: 1fr;
+  }
 }
 
 .asset-user-form__location,
@@ -3014,7 +3561,7 @@ function managedTargetLabel(target: ApiRecord): string {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-lg);
   line-height: 1.06;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
@@ -3054,7 +3601,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-detail-modal__spotlight strong {
   font-size: var(--gc-font-size-md);
   line-height: 1.15;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
@@ -3085,7 +3632,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-detail-modal__section-head h3 {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .asset-detail-modal__section-head p {
@@ -3125,7 +3672,7 @@ function managedTargetLabel(target: ApiRecord): string {
   font-size: var(--gc-font-size-sm);
   line-height: 1.35;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
@@ -3552,10 +4099,6 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 @media (max-width: 53.75rem) {
-  .asset-page__metrics {
-    grid-template-columns: 1fr;
-  }
-
   .asset-user-view__section-head,
   .asset-user-view__card header {
     align-items: stretch;

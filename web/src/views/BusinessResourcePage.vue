@@ -247,7 +247,7 @@ defineExpose({
     </Teleport>
 
     <GcPageHeader v-if="showHeader" :title="config.title" :description="config.description">
-      <template #actions>
+      <template v-if="showPrimaryAction" #actions>
         <GcPermissionButton class="gc-button gc-button--primary" :permission="config.primaryPermission" :disabled="primaryActionPending" @click="runPrimaryAction">
           {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
         </GcPermissionButton>
@@ -281,6 +281,7 @@ defineExpose({
       :rows="state.rows.value"
       :loading="state.loading.value"
       :empty-text="config.emptyTitle"
+      :aria-label="t('businessPage.resourceList', { resource: config.resourceName })"
       dense
     >
       <template v-if="showInlineToolbarRow || filtersVisible" #toolbar>
@@ -395,16 +396,18 @@ defineExpose({
         </div>
       </template>
 
+      <template #empty>
+        <div v-if="showEmptyState" class="business-page__table-empty">
+          <strong>{{ config.emptyTitle }}</strong>
+          <p v-if="config.emptyDescription">{{ config.emptyDescription }}</p>
+        </div>
+        <span v-else>{{ config.emptyTitle }}</span>
+      </template>
+
       <template #pagination>
         {{ t('businessPage.pagination', { page: state.page.value?.page ?? 1, pageSize: state.page.value?.pageSize ?? 20 }) }}
       </template>
     </GcDataTable>
-
-    <GcEmptyState
-      v-if="showEmptyState && !state.loading.value && !state.error.value && state.rows.value.length === 0"
-      :title="config.emptyTitle"
-      :description="config.emptyDescription"
-    />
 
     <aside v-if="showDetailPanel && selectedRow" class="gc-card business-page__detail" :aria-label="t('businessPage.resourceDetailAria')">
       <header>
@@ -480,29 +483,16 @@ defineExpose({
 }
 .business-page__metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-4); }
 .business-page__metric {
-  position: relative;
   display: grid;
   gap: var(--gc-space-3);
   min-height: var(--gc-size-card-min);
   padding: var(--gc-space-7);
-  overflow: hidden;
   transition: box-shadow .16s ease, border-color .16s ease, background .16s ease;
-}
-.business-page__metric::after {
-  content: '';
-  position: absolute;
-  top: var(--gc-space-6);
-  right: var(--gc-space-6);
-  width: var(--gc-control-height-md);
-  height: var(--gc-control-height-md);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-primary-soft);
-  box-shadow: inset 0 0 0 var(--gc-border-width-default) var(--gc-color-info-border);
 }
 .business-page__metric:hover { background: var(--gc-color-surface-hover); box-shadow: var(--gc-shadow-md); border-color: var(--gc-color-info-border); }
 .business-page__metric strong { color: var(--gc-color-text-muted); font-weight: 850; }
 .business-page__metric-count { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-2xl); line-height: 1; font-weight: 950; }
-.business-page__metric p { max-width: 86%; margin: 0; color: var(--gc-color-text-muted); line-height: 1.55; }
+.business-page__metric p { margin: 0; color: var(--gc-color-text-muted); line-height: var(--gc-line-height-relaxed); }
 .business-page__metric footer { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); align-items: center; }
 .business-page__toolbar { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: center; }
 .business-page__toolbar-title { display: grid; gap: var(--gc-space-1); }
@@ -543,9 +533,19 @@ defineExpose({
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
 }
+.business-page__filter input:focus-visible,
+.business-page__filter select:focus-visible,
+.business-page__row-link:focus-visible {
+  outline: var(--gc-border-width-default) solid var(--gc-color-focus);
+  outline-offset: var(--gc-space-tight);
+  box-shadow: var(--gc-shadow-focus);
+}
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
 .business-page__row-link[aria-pressed="true"] { color: var(--gc-color-primary-hover); text-decoration: underline; text-underline-offset: var(--gc-space-1); }
 .business-page__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.business-page__table-empty { display: grid; justify-items: center; gap: var(--gc-space-2); }
+.business-page__table-empty strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-heading-xs); line-height: var(--gc-line-height-tight); }
+.business-page__table-empty p { max-width: var(--gc-size-content-readable); margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }
 .business-page__detail { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-7); }
 .business-page__detail header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
 .business-page__detail h2, .business-page__detail p { margin: 0; }

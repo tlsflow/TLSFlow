@@ -478,8 +478,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
       v-model:open="detailOpen"
       :title="selectedPlugin ? pluginTitle(selectedPlugin) : t('plugins.detail.title')"
       :description="t('plugins.detail.description')"
-      size="lg"
-      width="82vw"
+      size="xxl"
     >
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">

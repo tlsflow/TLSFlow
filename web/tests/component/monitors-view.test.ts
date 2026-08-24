@@ -46,8 +46,34 @@ describe('MonitorsView', () => {
     monitorMocks.listMonitorTargets.mockResolvedValue(page([
       { id: 'target-1', serviceAssetId: 'asset-1', intervalSeconds: 60, metrics: ['availability'] },
     ]))
-    monitorMocks.listMonitorProbeResults.mockResolvedValue(page([]))
-    monitorMocks.listMonitorCertificateObservations.mockResolvedValue(page([]))
+    monitorMocks.listMonitorProbeResults.mockResolvedValue(page([
+      {
+        serviceAssetId: 'asset-1',
+        status: 'READY',
+        latencyMs: 10,
+        checkedAt: '2026-08-12T08:00:00.000Z',
+      },
+      {
+        serviceAssetId: 'asset-1',
+        status: 'READY',
+        latencyMs: 18,
+        checkedAt: '2026-08-12T08:01:00.000Z',
+      },
+    ]))
+    monitorMocks.listMonitorCertificateObservations.mockResolvedValue(page([
+      {
+        serviceAssetId: 'asset-1',
+        fingerprintSha256: 'AA:BB:CC:DD',
+        subject: 'CN=a.example.com',
+        issuer: 'CN=Example Issuer',
+        serialNumber: 'serial-1',
+        notBefore: 'invalid-date',
+        notAfter: 'invalid-date',
+        dnsNames: ['a.example.com'],
+        checkedAt: '2026-08-12T08:01:00.000Z',
+        source: 'control_plane',
+      },
+    ]))
     monitorMocks.listRiskEvents.mockResolvedValue(page([]))
     monitorMocks.scanMonitorRisks.mockResolvedValue({ data: {} })
     tlsMocks.listTlsInspectorTargets.mockResolvedValue(page([]))
@@ -62,6 +88,14 @@ describe('MonitorsView', () => {
     expect(wrapper.find('.monitor-page__target').text()).toContain('a.example.com')
     expect(wrapper.find('.monitor-page__detail').exists()).toBe(true)
     expect(wrapper.findAll('.gc-tag').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.monitor-page__probe-trend .gc-trend-chart__point')).toHaveLength(2)
+    const certificateDetail = wrapper.find('.monitor-page__certificate-detail')
+    expect(certificateDetail.text()).toContain(i18n.global.t('monitoring.fallback.notCollected'))
+    expect(certificateDetail.text()).not.toContain('invalid-date')
+    expect(certificateDetail.text()).toContain(i18n.global.t('certificates.fields.san'))
+    expect(wrapper.find('.monitor-page__target-interval b').text()).toBe(
+      i18n.global.t('monitoring.labels.secondsUnit'),
+    )
 
     await wrapper.find('.monitor-page__filter-status select').setValue('ERROR')
     expect(wrapper.find('.monitor-page__target').exists()).toBe(false)

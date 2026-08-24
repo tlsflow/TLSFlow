@@ -85,17 +85,19 @@ function cancelImport() {
       </template>
     </GcPageHeader>
 
-    <CertificateImportForm
-      :draft="draft"
-      :loading="loading"
-      :validating="validating"
-      :error="error"
-      :result-id="resultId"
-      :validation-result="validationResult"
-      @validate="validateImport"
-      @submit="submitImport"
-      @cancel="cancelImport"
-    />
+    <div class="certificate-import-page__content">
+      <CertificateImportForm
+        :draft="draft"
+        :loading="loading"
+        :validating="validating"
+        :error="error"
+        :result-id="resultId"
+        :validation-result="validationResult"
+        @validate="validateImport"
+        @submit="submitImport"
+        @cancel="cancelImport"
+      />
+    </div>
   </section>
 </template>
 
@@ -103,5 +105,11 @@ function cancelImport() {
 .certificate-import-page {
   display: grid;
   gap: var(--gc-space-5);
+}
+
+.certificate-import-page__content {
+  width: min(100%, var(--gc-size-modal-default));
+  min-width: 0;
+  margin-inline: auto;
 }
 </style>
