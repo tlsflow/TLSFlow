@@ -1,5 +1,5 @@
 export type AgentActionDispatchMode = 'direct_required';
-export type AgentActionResolutionKind = 'ATOMIC_PLAN' | 'HISTORICAL_PLUGIN_ALIAS' | 'DIRECT_STANDARD';
+export type AgentActionResolutionKind = 'AGENT_V2';
 
 export interface AgentActionContract {
   schemaVersions: string[];
@@ -9,11 +9,9 @@ export interface AgentActionContract {
 
 export interface AgentActionDispatchDescriptor {
   actionType: string;
-  aliases: string[];
   mode: AgentActionDispatchMode;
   kind: AgentActionResolutionKind;
   contract: AgentActionContract;
-  allowExecution?: boolean;
 }
 
 export interface AgentActionDispatchResolution {
@@ -22,8 +20,6 @@ export interface AgentActionDispatchResolution {
   mode: AgentActionDispatchMode;
   kind: AgentActionResolutionKind;
   contract: AgentActionContract;
-  aliased: boolean;
-  allowExecution: boolean;
 }
 
 export type RequiredAgentActionResolution =
@@ -32,7 +28,6 @@ export type RequiredAgentActionResolution =
 
 export class AgentActionDispatchRegistry {
   private readonly descriptors = new Map<string, AgentActionDispatchDescriptor>();
-  private readonly aliases = new Map<string, string>();
 
   constructor(descriptors: AgentActionDispatchDescriptor[] = defaultAgentActionDispatchDescriptors()) {
     for (const descriptor of descriptors) this.register(descriptor);
@@ -42,20 +37,13 @@ export class AgentActionDispatchRegistry {
     const actionType = normalizeActionType(descriptor.actionType);
     if (!actionType) throw new Error('Agent action dispatch descriptor 缺少 actionType');
     if (this.descriptors.has(actionType)) throw new Error(`Agent action dispatch 重复注册：${actionType}`);
-    const aliases = [...new Set(descriptor.aliases.map(normalizeActionType).filter(Boolean))].sort();
-    this.descriptors.set(actionType, { ...descriptor, actionType, aliases });
-    for (const alias of [actionType, ...aliases]) {
-      const existing = this.aliases.get(alias);
-      if (existing) throw new Error(`Agent action alias 冲突：${alias} -> ${existing}/${actionType}`);
-      this.aliases.set(alias, actionType);
-    }
+    this.descriptors.set(actionType, { ...descriptor, actionType });
   }
 
   resolve(snapshot: Record<string, unknown>): AgentActionDispatchResolution | undefined {
     const requestedActionType = readActionType(snapshot);
     if (!requestedActionType) return undefined;
-    const actionType = this.aliases.get(normalizeActionType(requestedActionType));
-    if (!actionType) return undefined;
+    const actionType = normalizeActionType(requestedActionType);
     const descriptor = this.descriptors.get(actionType);
     if (!descriptor) return undefined;
     return {
@@ -64,8 +52,6 @@ export class AgentActionDispatchRegistry {
       mode: descriptor.mode,
       kind: descriptor.kind,
       contract: { ...descriptor.contract, schemaVersions: [...descriptor.contract.schemaVersions] },
-      aliased: normalizeActionType(requestedActionType) !== actionType,
-      allowExecution: descriptor.allowExecution === true,
     };
   }
 
@@ -77,15 +63,11 @@ export class AgentActionDispatchRegistry {
     if (requestedSchemaVersion && !resolution.contract.schemaVersions.includes(requestedSchemaVersion)) {
       return { ok: false, requestedActionType, errorCode: 'AGENT_ACTION_SCHEMA_UNSUPPORTED' };
     }
-    if (resolution.kind === 'DIRECT_STANDARD' && resolution.contract.riskBoundary === 'DEPLOYMENT' && !resolution.allowExecution) {
-      return { ok: false, requestedActionType, errorCode: 'AGENT_ACTION_UNREGISTERED' };
-    }
     return { ok: true, resolution };
   }
 
   list(): AgentActionDispatchDescriptor[] {
     return [...this.descriptors.values()]
-      .map((item) => ({ ...item, aliases: [...item.aliases] }))
       .sort((left, right) => left.actionType.localeCompare(right.actionType));
   }
 }
@@ -93,29 +75,35 @@ export class AgentActionDispatchRegistry {
 export function defaultAgentActionDispatchDescriptors(): AgentActionDispatchDescriptor[] {
   return [
     {
-      actionType: 'agent.atomic_plan.execute',
-      aliases: [],
+      actionType: 'agent.fact.collect',
       mode: 'direct_required',
-      kind: 'ATOMIC_PLAN',
+      kind: 'AGENT_V2',
+      contract: { schemaVersions: ['1.0'], riskBoundary: 'CONTROL', acceptsSecrets: false },
+    },
+    {
+      actionType: 'agent.plan.validate',
+      mode: 'direct_required',
+      kind: 'AGENT_V2',
       contract: { schemaVersions: ['1.0'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
     },
     {
-      actionType: 'certificate.trust.install',
-      aliases: [],
+      actionType: 'agent.plan.execute',
       mode: 'direct_required',
-      kind: 'DIRECT_STANDARD',
+      kind: 'AGENT_V2',
       contract: { schemaVersions: ['1.0'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
-      allowExecution: true,
+    },
+    {
+      actionType: 'agent.execution.receipt',
+      mode: 'direct_required',
+      kind: 'AGENT_V2',
+      contract: { schemaVersions: ['1.0'], riskBoundary: 'CONTROL', acceptsSecrets: false },
     },
   ];
 }
 
 function readActionType(snapshot: Record<string, unknown>): string | undefined {
-  for (const field of ['actionType', 'type']) {
-    const value = snapshot[field];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return undefined;
+  const value = snapshot.actionType;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function normalizeActionType(value: string): string {

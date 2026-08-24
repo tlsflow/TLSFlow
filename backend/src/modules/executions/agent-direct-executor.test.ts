@@ -1,596 +1,336 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
 import test from 'node:test';
-import { createApp } from '../../app.module.js';
-import { runMigrations } from '../../database/migration-runner.js';
-import { PgliteDatabase } from '../../database/pglite-database.js';
+
+import { AppError } from '../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
-import { AgentExecutorAdapter } from './application/executors.js';
+import type { AgentTaskEnvelope } from '../agents/schema/agents.schema.js';
+import { UnifiedAgentPlanCompilerService } from '../plugins/application/unified-agent-plan-compiler.service.js';
+import { AgentExecutorAdapter, TrustedJsExecutorAdapter } from './application/executors.js';
 
-const headers = {
-  'x-tenant-id': 'tenant_agent_direct_executor',
-  'x-actor-id': 'user_1',
-  'x-request-id': 'req_agent_direct_executor',
-};
+const now = '2026-08-09T00:00:00.000Z';
 
-const migratedApp = createMigratedApp();
-
-test('AgentExecutorAdapter 只通过 Atomic Plan 直连成功且不留下待拉取任务', async () => {
-  const server = createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/api/v1/control/actions/start') {
-      res.writeHead(202, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        success: true,
-        accepted: true,
-        actionId: 'direct-action-001',
-        status: 'running',
-      }));
-      return;
-    }
-    if (req.method === 'GET' && req.url === '/api/v1/control/actions/status?actionId=direct-action-001') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        success: true,
-        actionId: 'direct-action-001',
-        status: 'completed',
-        detail: {
-          mode: 'atomic_plan_completed',
-          oldThumbprint: '1111111111111111111111111111111111111111',
-          newThumbprint: '2222222222222222222222222222222222222222',
-          rolledBack: false,
-          manualRequired: false,
-        },
-      }));
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('failed to bind direct execute test server');
-
-  const app = await migratedApp;
-  try {
-    const register = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/register',
-      headers,
-      body: {
-        agentKey: 'direct-executor-01',
-        hostname: 'DIRECT-EXECUTOR-01',
-        version: '0.1.0',
-        osType: 'windows',
-        directControl: {
-          enabled: true,
-          reachable: true,
-          listenAddress: `127.0.0.1:${address.port}`,
-          protocolVersion: 'v1',
-          supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-        },
-      },
-    });
-    assert.equal(register.statusCode, 201, JSON.stringify(register.body));
-    const agentId = (register.body as { id: string }).id;
-
-    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const adapter = new AgentExecutorAdapter(agentsService, undefined, atomicPlanCompiler() as never);
-    const result = await adapter.executeStep({
-      step: {
-        id: 'stp_direct_success',
-        tenantId: headers['x-tenant-id'],
-        executionRunId: 'run_direct_success',
-        deploymentPlanTargetId: 'dpt_direct_success',
-        stepNo: 2,
-        stepType: 'INSTALL',
-        name: 'INSTALL direct success',
-        dependsOn: [1],
-        idempotent: true,
-        attemptCount: 1,
-        maxAttempts: 1,
-        inputSnapshot: atomicInputSnapshot(agentId),
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'tester',
-        version: 1,
-      },
-      runType: 'apply',
-      dryRun: false,
-    });
-
-    assert.equal(result.success, true, JSON.stringify(result));
-    assert.equal(result.asyncPending, undefined);
-    assert.equal(result.detail?.mode, 'atomic_plan_completed');
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  }
-});
-
-test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返回统一检查项', async () => {
-  let enqueueCount = 0;
-  let directCount = 0;
-  let compiledResolvedInput: Record<string, unknown> | undefined;
-  const progressUpdates: Record<string, unknown>[] = [];
-  const agents = {
-    enqueueDirectTask: async () => {
-      enqueueCount += 1;
-      return { id: 'task_atomic_preflight', status: 'acked' };
+test('AgentExecutorAdapter 将完整 Agent v2 授权材料接线到 plan.execute', async () => {
+  let enqueuedPayload: Record<string, unknown> | undefined;
+  let compilerInput: { v2Request?: Record<string, unknown> } | undefined;
+  const materials = v2Materials();
+  const agents = agentsProbe(
+    async (_tenantId, input) => {
+      enqueuedPayload = input.payload;
+      return createTaskEnvelope('task_v2_fixture', input.payload ?? {});
     },
-    executeTaskDirect: async (...args: unknown[]) => {
-      directCount += 1;
-      const reportProgress = args[3] as ((detail: Record<string, unknown>) => Promise<void> | void) | undefined;
-      await reportProgress?.({
-        state: 'RUNNING',
-        currentOperationId: 'nginx-program-preflight',
-        currentOperationType: 'preflight.assert',
-        completedOperationCount: 1,
-        totalOperationCount: 1,
-        operationResults: [{ operationId: 'nginx-program-preflight', operationType: 'preflight.assert', stage: 'prepare', status: 'SUCCEEDED', detail: { passed: true } }],
-      });
-      return {
-        success: true,
-        detail: {
-          planId: 'agplan_atomic_preflight',
-          state: 'SUCCEEDED',
-          operationResults: [
-            {
-              operationId: 'nginx-program-preflight',
-              operationType: 'preflight.assert',
-              stage: 'prepare',
-              status: 'SUCCEEDED',
-              detail: { passed: true },
-            },
-          ],
-        },
-      };
-    },
-  } as unknown as AgentsApplicationService;
+    async () => ({ task: createTaskEnvelope('task_v2_fixture', {}), success: true, detail: { mode: 'agent_v2_execute' } }),
+  );
   const compiler = {
-    compile: async (input: { resolvedInput: Record<string, unknown> }) => {
-      compiledResolvedInput = input.resolvedInput;
+    compile: async (input: { v2Request?: Record<string, unknown> }) => {
+      compilerInput = input;
       return {
-        planId: 'agplan_atomic_preflight',
-        operations: [{ id: 'nginx-program-preflight' }],
+        actionType: 'agent.plan.execute' as const,
+        actionSchemaVersion: '1.0' as const,
+        ...materials,
       };
     },
   };
-  const adapter = new AgentExecutorAdapter(agents, undefined, compiler as never);
 
-  const result = await adapter.executeStep({
-    step: {
-      id: 'stp_atomic_preflight',
-      tenantId: headers['x-tenant-id'],
-      executionRunId: 'run_atomic_preflight',
-      deploymentPlanTargetId: 'dpt_atomic_preflight',
-      stepNo: 1,
-      stepType: 'CUSTOM',
-      name: 'Agent Atomic PREFLIGHT',
-      dependsOn: [],
-      idempotent: true,
-      attemptCount: 1,
-      maxAttempts: 1,
-      inputSnapshot: {
-        ...atomicInputSnapshot('agt_atomic_preflight'),
-        pluginBindingId: 'plgb_atomic_preflight',
-        pluginRuntimeCapability: { pluginVersionId: 'plgv_atomic_preflight' },
-      },
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'tester',
-      version: 1,
-    },
-    runType: 'dry_run',
-    dryRun: true,
-    reportProgress: async (detail) => {
-      progressUpdates.push(detail);
-    },
-  });
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.execute',
+  }));
 
-  assert.equal(enqueueCount, 1);
-  assert.equal(directCount, 1);
   assert.equal(result.success, true);
-  assert.deepEqual(result.detail?.dryRunSummary, { passed: 1, failed: 0, warning: 0, unknown: 0 });
-  assert.equal((result.detail?.dryRunChecks as unknown[]).length, 1);
-  assert.equal((progressUpdates[0]?.dryRunChecks as unknown[]).length, 1);
-  assert.equal(compiledResolvedInput?.apiVersion, 'gcac.resolved-deployment-input/v1');
+  assert.deepEqual(compilerInput?.v2Request, {
+    actionType: 'agent.plan.execute',
+    plan: materials.plan,
+    token: materials.token,
+    policyDecision: materials.policyDecision,
+  });
+  assert.equal(enqueuedPayload?.actionType, 'agent.plan.execute');
+  assert.deepEqual(enqueuedPayload?.plan, materials.plan);
+  assert.deepEqual(enqueuedPayload?.token, materials.token);
+  assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
 });
 
-test('Agent 已通过轮询占有任务时，执行器将结果标记为异步等待', async () => {
-  const agents = {
-    enqueueDirectTask: async () => ({ id: 'task_agent_owned', status: 'acked' }),
-    executeTaskDirect: async () => ({
-      success: true,
-      asyncPending: true,
-      errorCode: 'AGENT_TASK_ALREADY_CLAIMED',
-      errorMessage: 'Agent 已占有该任务，等待 Agent 返回结果',
-      detail: { executionMode: 'queued' },
-    }),
-  } as unknown as AgentsApplicationService;
-  const compiler = {
-    compile: async () => ({
-      planId: 'agplan_agent_owned',
-      operations: [{ id: 'operation-agent-owned' }],
-    }),
-  };
-  const adapter = new AgentExecutorAdapter(agents, undefined, compiler as never);
-
-  const result = await adapter.executeStep({
-    step: {
-      id: 'stp_agent_owned',
-      tenantId: headers['x-tenant-id'],
-      executionRunId: 'run_agent_owned',
-      deploymentPlanTargetId: 'dpt_agent_owned',
-      stepNo: 1,
-      stepType: 'CUSTOM',
-      name: 'Agent owned task',
-      dependsOn: [],
-      idempotent: true,
-      attemptCount: 1,
-      maxAttempts: 1,
-      inputSnapshot: atomicInputSnapshot('agt_agent_owned'),
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'tester',
-      version: 1,
+test('AgentExecutorAdapter 将 agent.plan.validate 送入同一 Agent v2 compiler 主链', async () => {
+  let enqueuedPayload: Record<string, unknown> | undefined;
+  let compilerActionType: unknown;
+  const materials = v2Materials('agent.plan.validate');
+  const agents = agentsProbe(
+    async (_tenantId, input) => {
+      enqueuedPayload = input.payload;
+      return createTaskEnvelope('task_v2_validate_fixture', input.payload ?? {});
     },
-    runType: 'dry_run',
-    dryRun: true,
-  });
+    async () => ({ task: createTaskEnvelope('task_v2_validate_fixture', {}), success: true, detail: { mode: 'agent_v2_validate' } }),
+  );
+  const compiler = {
+    compile: async (input: { v2Request?: Record<string, unknown> }) => {
+      compilerActionType = input.v2Request?.actionType;
+      return {
+        actionType: 'agent.plan.validate' as const,
+        actionSchemaVersion: '1.0' as const,
+        ...materials,
+      };
+    },
+  };
+
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.validate',
+  }));
+
+  assert.equal(result.success, true);
+  assert.equal(compilerActionType, 'agent.plan.validate');
+  assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
+  assert.deepEqual(enqueuedPayload?.plan, materials.plan);
+  assert.deepEqual(enqueuedPayload?.token, materials.token);
+  assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
+});
+
+test('AgentExecutorAdapter 的 dry-run 将计划执行收敛为只读 plan.validate', async () => {
+  let compilerActionType: unknown;
+  let enqueuedPayload: Record<string, unknown> | undefined;
+  const materials = v2Materials('agent.plan.validate');
+  const agents = agentsProbe(
+    async (_tenantId, input) => {
+      enqueuedPayload = input.payload;
+      return createTaskEnvelope('task_v2_preflight_fixture', input.payload ?? {});
+    },
+    async () => ({ task: createTaskEnvelope('task_v2_preflight_fixture', {}), success: true, detail: { validated: true } }),
+  );
+  const compiler = {
+    compile: async (input: { v2Request?: Record<string, unknown> }) => {
+      compilerActionType = input.v2Request?.actionType;
+      return {
+        actionType: 'agent.plan.validate' as const,
+        actionSchemaVersion: '1.0' as const,
+        ...materials,
+      };
+    },
+  };
+
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.execute',
+  }, { dryRun: true, runType: 'dry_run' }));
+
+  assert.equal(result.success, true);
+  assert.equal(compilerActionType, 'agent.plan.validate');
+  assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
+});
+
+test('AgentExecutorAdapter 缺少完整 Policy/Token 时失败关闭且不入队', async () => {
+  let enqueueCount = 0;
+  const agents = agentsProbe(
+    async () => {
+      enqueueCount += 1;
+      return createTaskEnvelope('task_should_not_exist', {});
+    },
+    async () => ({ task: createTaskEnvelope('task_should_not_exist', {}), success: true, detail: {} }),
+  );
+
+  await assert.rejects(
+    new AgentExecutorAdapter(agents, undefined, new UnifiedAgentPlanCompilerService({} as never)).executeStep(createStep({
+      actionType: 'agent.plan.execute',
+      actionSchemaVersion: '1.0',
+      pluginBindingId: 'binding_v2_fixture',
+      pluginRuntimeCapability: { pluginVersionId: 'plugin-version-v2-fixture' },
+      resolvedDeploymentInput: resolvedDeploymentInput(),
+    })),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'AGENT_AUTHORIZATION_UNAVAILABLE',
+  );
+  assert.equal(enqueueCount, 0);
+});
+
+test('AgentExecutorAdapter 不从旧 type 字段猜测动作，也不静默 fallback', async () => {
+  let enqueueCount = 0;
+  const agents = agentsProbe(
+    async () => {
+      enqueueCount += 1;
+      return createTaskEnvelope('task_should_not_exist', {});
+    },
+    async () => ({ task: createTaskEnvelope('task_should_not_exist', {}), success: true, detail: {} }),
+  );
+
+  const result = await new AgentExecutorAdapter(agents).executeStep(createStep({ type: 'legacy.agent.action' }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'AGENT_ACTION_UNREGISTERED');
+  assert.equal(enqueueCount, 0);
+});
+
+test('AgentExecutorAdapter 将 UNKNOWN 直连结果保持为异步等待', async () => {
+  let enqueueCount = 0;
+  const agents = agentsProbe(
+    async (_tenantId, input) => {
+      enqueueCount += 1;
+      return createTaskEnvelope('task_unknown_fixture', input.payload ?? {});
+    },
+    async () => ({
+      task: createTaskEnvelope('task_unknown_fixture', {}),
+      success: false,
+      asyncPending: true,
+      errorCode: 'AGENT_CONNECTION_LOST',
+      detail: { executionStatus: 'UNKNOWN' },
+    }),
+  );
+
+  const result = await new AgentExecutorAdapter(agents).executeStep(createStep({ actionType: 'agent.fact.collect' }));
 
   assert.equal(result.success, true);
   assert.equal(result.asyncPending, true);
-  assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
-  assert.equal(result.detail?.executionMode, 'queued');
+  assert.equal(result.errorCode, 'AGENT_CONNECTION_LOST');
+  assert.equal(enqueueCount, 1);
 });
 
-test('AgentExecutorAdapter 允许受控根信任安装动作直连下发', async () => {
-  let enqueueCount = 0;
-  let directCount = 0;
-  let capturedPayload: Record<string, unknown> | undefined;
-  const agents = {
-    enqueueDirectTask: async (_tenantId: string, input: { payload: Record<string, unknown> }) => {
-      enqueueCount += 1;
-      capturedPayload = input.payload;
-      return { id: 'task_trust_install', status: 'acked' };
-    },
-    executeTaskDirect: async () => {
-      directCount += 1;
-      return {
-        success: true,
-        detail: {
-          mode: 'agent_direct_execute',
-          fingerprintSha256: 'abc123',
-          installed: true,
-        },
-      };
-    },
-  } as unknown as AgentsApplicationService;
-  const adapter = new AgentExecutorAdapter(agents);
+test('Trusted JS 旧 Provider 产品操作入口失败关闭', async () => {
+  const adapter = new TrustedJsExecutorAdapter({
+    executeByAssetId: async () => ({
+      operationId: 'operation_runner_fixture',
+      providerKey: 'cloud.fixture',
+      operationKey: 'certificate.deploy',
+      status: 'SUCCESS',
+      resultSummary: { checkpoint: { id: 'checkpoint_fixture' } },
+      providerOperation: { legacy: true },
+    }),
+  } as never);
 
-  const result = await adapter.executeStep({
+  const result = await adapter.executeStep(createStep({
+    trustedJsRequest: {
+      cloudAccountAssetId: 'cloud-account-fixture',
+      frameworkType: 'cloud.fixture.cdn',
+      target: { resourceId: 'target_v2_fixture' },
+    },
+  }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'PLUGIN_CAPABILITY_EXECUTION_FAILED');
+  assert.equal(result.detail?.executionMode, 'trusted_js_fail_closed');
+});
+
+function agentsProbe(
+  enqueueDirectTask: AgentsApplicationService['enqueueDirectTask'],
+  executeTaskDirect: AgentsApplicationService['executeTaskDirect'],
+): AgentsApplicationService {
+  return { enqueueDirectTask, executeTaskDirect } as unknown as AgentsApplicationService;
+}
+
+function createTaskEnvelope(id: string, payload: Record<string, unknown>): AgentTaskEnvelope {
+  return {
+    id,
+    tenantId: 'tenant_v2_fixture',
+    agentId: 'agent_v2_fixture',
+    executionRunId: 'run_v2_fixture',
+    executionStepId: 'step_v2_fixture',
+    idempotencyKey: `idempotency:${id}`,
+    payload,
+    status: 'acked',
+    leaseId: `direct:${id}`,
+    ackedAt: now,
+    createdAt: now,
+    updatedAt: now,
+    requestId: `request:${id}`,
+  };
+}
+
+function createStep(snapshot: Record<string, unknown>, options: { dryRun?: boolean; runType?: 'apply' | 'dry_run' | 'rollback' } = {}) {
+  return {
     step: {
-      id: 'stp_trust_install',
-      tenantId: headers['x-tenant-id'],
-      executionRunId: 'run_trust_install',
-      deploymentPlanTargetId: 'dpt_trust_install',
+      id: 'step_v2_fixture',
+      tenantId: 'tenant_v2_fixture',
+      executionRunId: 'run_v2_fixture',
+      deploymentPlanTargetId: 'target_v2_fixture',
       stepNo: 1,
-      stepType: 'CUSTOM',
-      name: 'TRUST_INSTALL trust target',
+      stepType: 'INSTALL' as const,
+      name: 'Agent v2 执行接线',
       dependsOn: [],
       idempotent: true,
       attemptCount: 1,
       maxAttempts: 1,
-      inputSnapshot: {
-        agentId: 'agt_trust_install',
-        actionType: 'certificate.trust.install',
-        actionSchemaVersion: '1.0',
-        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
-        fingerprintSha256: 'abc123',
-        trustStore: 'root',
-      },
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'tester',
+      inputSnapshot: { executorType: 'AGENT', agentId: 'agent_v2_fixture', ...snapshot },
+      status: 'PENDING' as const,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'agent-v2-test',
       version: 1,
     },
-    runType: 'apply',
-    dryRun: false,
-  });
+    runType: options.runType ?? 'apply',
+    dryRun: options.dryRun ?? false,
+  } as never;
+}
 
-  assert.equal(enqueueCount, 1);
-  assert.equal(directCount, 1);
-  assert.equal(capturedPayload?.actionType, 'certificate.trust.install');
-  assert.equal(result.success, true);
-  assert.equal(result.detail?.fingerprintSha256, 'abc123');
-});
-
-test('AgentExecutorAdapter 主动直连失败时明确失败且不会调用队列接口', async () => {
-  let directTaskCount = 0;
-  const agents = {
-    enqueueDirectTask: async () => {
-      directTaskCount += 1;
-      return { id: 'task_direct_required', status: 'acked' };
-    },
-    executeTaskDirect: async () => {
-      throw new Error('direct connection failed');
-    },
-  } as unknown as AgentsApplicationService;
-  const adapter = new AgentExecutorAdapter(agents, undefined, atomicPlanCompiler() as never);
-  const result = await adapter.executeStep({
-    step: {
-      id: 'stp_direct_required', tenantId: headers['x-tenant-id'], executionRunId: 'run_direct_required',
-      deploymentPlanTargetId: 'dpt_direct_required', stepNo: 1, stepType: 'INSTALL', name: 'direct required',
-      dependsOn: [], idempotent: true, attemptCount: 1, maxAttempts: 1,
-      inputSnapshot: atomicInputSnapshot('agt_direct_required'),
-      status: 'PENDING', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'tester', version: 1,
-    },
-    runType: 'apply',
-    dryRun: false,
-  });
-
-  assert.equal(directTaskCount, 1);
-  assert.equal(result.success, false);
-  assert.equal(result.asyncPending, undefined);
-  assert.equal(result.detail?.mode, 'agent_direct_execute_failed');
-  assert.equal(result.detail?.dispatchMode, 'direct_required');
-});
-
-test('AgentExecutorAdapter 直连不可达时明确失败且不暴露轮询任务', async () => {
-  const app = await migratedApp;
-  const register = await app.inject({
-    method: 'POST',
-    path: '/api/v1/agents/register',
-    headers,
-    body: {
-      agentKey: 'direct-executor-02',
-      hostname: 'DIRECT-EXECUTOR-02',
-      version: '0.1.0',
-      osType: 'windows',
-      directControl: {
-        enabled: true,
-        reachable: true,
-        listenAddress: '127.0.0.1:9',
-        protocolVersion: 'v1',
-        supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-      },
-    },
-  });
-  assert.equal(register.statusCode, 201, JSON.stringify(register.body));
-  const agentId = (register.body as { id: string }).id;
-
-  const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-  const adapter = new AgentExecutorAdapter(agentsService, undefined, atomicPlanCompiler() as never);
-  const result = await adapter.executeStep({
-    step: {
-      id: 'stp_direct_fallback',
-      tenantId: headers['x-tenant-id'],
-      executionRunId: 'run_direct_fallback',
-      deploymentPlanTargetId: 'dpt_direct_fallback',
-      stepNo: 2,
-      stepType: 'INSTALL',
-      name: 'INSTALL direct fallback',
-      dependsOn: [1],
-      idempotent: true,
-      attemptCount: 1,
-      maxAttempts: 1,
-      inputSnapshot: atomicInputSnapshot(agentId),
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: 'tester',
-      version: 1,
-    },
-    runType: 'apply',
-    dryRun: false,
-  });
-
-  assert.equal(result.success, false, JSON.stringify(result));
-  assert.equal(result.asyncPending, undefined);
-  assert.equal(result.detail?.mode, 'agent_direct_execute_failed');
-  assert.equal(result.detail?.dispatchMode, 'direct_required');
-
-  const pulled = await app.inject({
-    method: 'GET',
-    path: `/api/v1/agents/tasks/pull?agentId=${agentId}`,
-    headers,
-  });
-  assert.equal(pulled.statusCode, 200);
-  const tasks = pulled.body as Array<{ payload?: { type?: string } }>;
-  assert.equal(tasks.length, 0);
-});
-
-test('AgentExecutorAdapter 通过 Atomic Plan 返回统一 Dry-run 结果', async () => {
-  const server = createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/api/v1/control/actions/start') {
-      res.writeHead(202, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        success: true,
-        accepted: true,
-        actionId: 'direct-action-nginx-001',
-        status: 'running',
-      }));
-      return;
-    }
-    if (req.method === 'GET' && req.url === '/api/v1/control/actions/status?actionId=direct-action-nginx-001') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        success: true,
-        actionId: 'direct-action-nginx-001',
-        status: 'completed',
-        detail: {
-          mode: 'atomic_plan_preflight',
-          executable: false,
-          blockers: [{ code: 'WRITE_PERMISSION_DENIED' }],
-        },
-      }));
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('failed to bind nginx direct execute test server');
-
-  const app = await migratedApp;
-  try {
-    const register = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/register',
-      headers,
-      body: {
-        agentKey: 'direct-executor-nginx-01',
-        hostname: 'DIRECT-EXECUTOR-NGINX-01',
-        version: '0.1.0',
-        osType: 'linux',
-        directControl: {
-          enabled: true,
-          reachable: true,
-          listenAddress: `127.0.0.1:${address.port}`,
-          protocolVersion: 'v1',
-          supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-        },
-      },
-    });
-    assert.equal(register.statusCode, 201, JSON.stringify(register.body));
-    const agentId = (register.body as { id: string }).id;
-
-    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const adapter = new AgentExecutorAdapter(agentsService, undefined, atomicPlanCompiler() as never);
-    const result = await adapter.executeStep({
-      step: {
-        id: 'stp_direct_nginx_success',
-        tenantId: headers['x-tenant-id'],
-        executionRunId: 'run_direct_nginx_success',
-        deploymentPlanTargetId: 'dpt_direct_nginx_success',
-        stepNo: 1,
-        stepType: 'DISCOVER',
-        name: 'DISCOVER direct nginx success',
-        dependsOn: [],
-        idempotent: true,
-        attemptCount: 1,
-        maxAttempts: 1,
-        inputSnapshot: atomicInputSnapshot(agentId),
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'tester',
-        version: 1,
-      },
-      runType: 'dry_run',
-      dryRun: true,
-    });
-
-    assert.equal(result.success, true, JSON.stringify(result));
-    assert.equal(result.asyncPending, undefined);
-    assert.equal(result.detail?.mode, 'atomic_plan_preflight');
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  }
-});
-
-test('AgentExecutorAdapter 的 Atomic Plan 在异步直连端点缺失时兼容同步端点', async () => {
-  const server = createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/api/v1/control/actions/start') {
-      res.writeHead(404).end();
-      return;
-    }
-    if (req.method === 'POST' && req.url === '/api/v1/control/actions/execute') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        success: true,
-        taskId: 'legacy-direct-task-001',
-        detail: {
-          mode: 'atomic_plan_sync_completed',
-        },
-      }));
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('failed to bind legacy direct execute test server');
-
-  const app = await migratedApp;
-  try {
-    const register = await app.inject({
-      method: 'POST',
-      path: '/api/v1/agents/register',
-      headers,
-      body: {
-        agentKey: 'direct-executor-legacy-01',
-        hostname: 'DIRECT-EXECUTOR-LEGACY-01',
-        version: '0.1.0',
-        osType: 'windows',
-        directControl: {
-          enabled: true,
-          reachable: true,
-          listenAddress: `127.0.0.1:${address.port}`,
-          protocolVersion: 'v1',
-          supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-        },
-      },
-    });
-    assert.equal(register.statusCode, 201, JSON.stringify(register.body));
-    const agentId = (register.body as { id: string }).id;
-
-    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const adapter = new AgentExecutorAdapter(agentsService, undefined, atomicPlanCompiler() as never);
-    const result = await adapter.executeStep({
-      step: {
-        id: 'stp_direct_legacy_success',
-        tenantId: headers['x-tenant-id'],
-        executionRunId: 'run_direct_legacy_success',
-        deploymentPlanTargetId: 'dpt_direct_legacy_success',
-        stepNo: 2,
-        stepType: 'INSTALL',
-        name: 'INSTALL direct legacy success',
-        dependsOn: [1],
-        idempotent: true,
-        attemptCount: 1,
-        maxAttempts: 1,
-        inputSnapshot: atomicInputSnapshot(agentId),
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'tester',
-        version: 1,
-      },
-      runType: 'apply',
-      dryRun: false,
-    });
-
-    assert.equal(result.success, true, JSON.stringify(result));
-    assert.equal(result.detail?.mode, 'atomic_plan_sync_completed');
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  }
-});
-
-function atomicInputSnapshot(agentId: string): Record<string, unknown> {
+function v2RequestSnapshot(materials: ReturnType<typeof v2Materials>): Record<string, unknown> {
   return {
-    executorType: 'AGENT',
-    agentId,
-    actionType: 'agent.atomic_plan.execute',
     actionSchemaVersion: '1.0',
-    pluginBindingId: 'plgb_atomic_fixture',
-    pluginRuntimeCapability: { pluginVersionId: 'plgv_atomic_fixture' },
+    pluginBindingId: 'binding_v2_fixture',
+    pluginRuntimeCapability: { pluginVersionId: 'plugin-version-v2-fixture' },
     resolvedDeploymentInput: resolvedDeploymentInput(),
+    plan: materials.plan,
+    token: materials.token,
+    policyDecision: materials.policyDecision,
   };
 }
 
-function atomicPlanCompiler() {
-  return {
-    compile: async () => ({
-      apiVersion: 'gcac.agent-plan/v1',
-      planId: 'agplan_atomic_fixture',
-      authorization: { keyId: 'fixture', signature: 'fixture-signature' },
-      operations: [],
-    }),
+function v2Materials(actionType: 'agent.plan.validate' | 'agent.plan.execute' = 'agent.plan.execute') {
+  const plan = {
+    planVersion: 'gcac.agent-security/v1',
+    planId: 'plan_v2_fixture',
+    agentId: 'agent_v2_fixture',
+    tenantId: 'tenant_v2_fixture',
+    pluginId: 'web.nginx',
+    pluginVersionId: 'plugin-version-v2-fixture',
+    capability: 'certificate.deploy',
+    operations: [],
+    planDigest: 'a'.repeat(64),
+    tokenId: 'token_v2_fixture',
+    policyDecisionId: 'decision_v2_fixture',
+    nonce: 'nonce_v2_fixture',
+    expiresAt: now,
+    writeEffect: true,
   };
+  const token = {
+    tokenVersion: 'gcac.agent-security/v1',
+    tokenId: 'token_v2_fixture',
+    agentId: 'agent_v2_fixture',
+    tenantId: 'tenant_v2_fixture',
+    pluginId: 'web.nginx',
+    pluginVersionId: 'plugin-version-v2-fixture',
+    capability: 'certificate.deploy',
+    actions: [actionType],
+    allowedPaths: ['/etc/nginx'],
+    allowedServices: ['nginx'],
+    artifactDigests: ['b'.repeat(64)],
+    policyRef: 'policy_v2_fixture',
+    policyVersion: '1',
+    issuedAt: now,
+    expiresAt: now,
+    nonce: 'nonce_v2_fixture',
+    planDigest: 'a'.repeat(64),
+    authorityKeyId: 'authority-key-v2-fixture',
+    signature: 'token-signature-v2-fixture',
+  };
+  const policyDecision = {
+    decisionVersion: 'gcac.agent-security/v1',
+    decisionId: 'decision_v2_fixture',
+    allowed: true,
+    agentId: 'agent_v2_fixture',
+    tenantId: 'tenant_v2_fixture',
+    pluginId: 'web.nginx',
+    pluginVersionId: 'plugin-version-v2-fixture',
+    capability: 'certificate.deploy',
+    actions: [actionType],
+    allowedPaths: ['/etc/nginx'],
+    allowedServices: ['nginx'],
+    artifactDigests: ['b'.repeat(64)],
+    policyRef: 'policy_v2_fixture',
+    policyVersion: '1',
+    planDigest: 'a'.repeat(64),
+    tokenId: 'token_v2_fixture',
+    nonce: 'nonce_v2_fixture',
+    issuedAt: now,
+    validUntil: now,
+    authorityKeyId: 'authority-key-v2-fixture',
+    revocationRef: 'revocation-v2-fixture',
+    signature: 'policy-signature-v2-fixture',
+  };
+  return { plan, token, policyDecision };
 }
 
 function resolvedDeploymentInput(): Record<string, unknown> {
@@ -599,10 +339,10 @@ function resolvedDeploymentInput(): Record<string, unknown> {
     contractVersion: 'gcac.deployment-input/v1',
     assetContext: {
       apiVersion: 'gcac.deployment-asset-context/v1',
-      application: { id: 'asset_atomic_fixture' },
-      host: { id: 'host_atomic_fixture' },
-      target: { id: 'target_atomic_fixture', type: 'tls.binding', key: 'fixture', metadata: {} },
-      deployment: { targets: [], certificateResourceName: 'certificate' },
+      application: { id: 'asset_v2_fixture', address: 'fixture.example.com', serverName: 'fixture.example.com', port: 443, protocol: 'HTTPS' },
+      host: { id: 'host_v2_fixture', osType: 'LINUX' },
+      target: { id: 'target_v2_fixture', type: 'tls.binding', key: 'fixture', metadata: {} },
+      deployment: { targets: [], certificateResourceName: 'certificate-v2-fixture' },
     },
     variables: {},
     connections: {},
@@ -612,12 +352,6 @@ function resolvedDeploymentInput(): Record<string, unknown> {
     sensitivePaths: [],
     issues: [],
     executable: true,
-    resolvedSha256: 'sha256:atomic-fixture',
+    resolvedSha256: 'c'.repeat(64),
   };
-}
-
-async function createMigratedApp() {
-  const database = new PgliteDatabase();
-  await runMigrations(database, 'src/database/migrations');
-  return createApp({ db: database });
 }

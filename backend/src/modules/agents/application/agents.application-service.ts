@@ -1,8 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
@@ -11,11 +7,12 @@ import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import { AgentDirectClient } from './agent-direct-client.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateGatewayEnableSessionInput, CreateLinuxGoInstallSessionInput, CreateWindowsCompatibilityInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, GatewayEnableSessionProjection, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
-import { buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest } from './linux-agent-bundle.js';
+import { agentV2ContractTypes, type AgentSecurityStatus, type AgentV2ContractType } from '../security/agent-security.contract.js';
+import { AGENT_RELEASE_SIGNING_KEY_ID, getLinuxAgentInstallMaterials, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
@@ -24,6 +21,96 @@ import type { LivenessApplicationService } from '../../liveness/application/live
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+
+export type AgentInstallMaterialPlatform = 'windows_go' | 'windows_compatibility' | 'linux_go';
+
+export interface AgentInstallMaterialRequest {
+  platform: AgentInstallMaterialPlatform;
+  role?: 'full_agent' | 'gateway';
+  zone?: string;
+  agentKey?: string;
+}
+
+interface AgentInstallDescriptor {
+  id: string;
+  role: 'full_agent' | 'gateway';
+  zone: string;
+  agentKey: string;
+  expiresAt: string;
+  enrollmentTokenRecord: EnrollmentToken & { token: string };
+  serviceName: string;
+  displayName: string;
+  installRoot: string;
+  configDir: string;
+  dataDir: string;
+  logDir: string;
+}
+
+export interface AgentInstallMaterialProjection {
+  installationId: string;
+  expiresAt: string;
+  enrollmentToken: string;
+  materials: AgentInstallArtifactMaterial[];
+  task: AgentInstallTaskProjection;
+}
+
+export interface AgentInstallArtifactMaterial {
+  platform: AgentInstallMaterialPlatform;
+  arch: 'amd64' | 'arm64';
+  artifactRef: string;
+  version: string;
+  digest: string;
+  signature: string;
+  signatureAlgorithm: 'Ed25519';
+  signingKeyId: string;
+}
+
+export interface AgentInstallTaskProjection {
+  type: 'agent.plan.execute';
+  contractVersion: 'gcac.agent-security/v1';
+  taskId: string;
+  version: string;
+  artifactRefs: string[];
+  expiresAt: string;
+  digest: string;
+  signature: string;
+  signatureAlgorithm: 'Ed25519';
+  signingKeyId: string;
+  input: {
+    role: 'full_agent' | 'gateway';
+    zone: string;
+    agentKey: string;
+    serviceName: string;
+    displayName: string;
+    installRoot: string;
+    configDir: string;
+    dataDir: string;
+    logDir: string;
+  };
+}
+
+const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
+  windows_go: Object.freeze({
+    platform: 'windows_go',
+    arch: 'amd64',
+    artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe',
+    version: '0.1.9',
+    digest: 'e6681b0aad44fc13fd268adac9692d2bd69d111c66fb7eb8609f629081ee4c7c',
+    signature: 'artifact://gcac/signatures/agents/windows-go-full-agent/0.1.9/windows-amd64.sig',
+    signatureAlgorithm: 'Ed25519',
+    signingKeyId: AGENT_RELEASE_SIGNING_KEY_ID,
+  }),
+  windows_compatibility: Object.freeze({
+    platform: 'windows_compatibility',
+    arch: 'amd64',
+    artifactRef: 'artifact://gcac/agents/windows-compat-full-agent/0.1.0/windows-amd64/GCAC.WindowsCompatibilityAgent.exe',
+    version: '0.1.0',
+    digest: '080d514a338462fcf0c9bbd4bafa015203d3eef7eaf3da090802f9a2fda92a47',
+    signature: 'artifact://gcac/signatures/agents/windows-compat-full-agent/0.1.0/windows-amd64.sig',
+    signatureAlgorithm: 'Ed25519',
+    signingKeyId: AGENT_RELEASE_SIGNING_KEY_ID,
+  }),
+});
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
@@ -364,6 +451,7 @@ export class AgentsApplicationService {
   }
 
   async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
+    assertSupportedAgentTaskPayload(input.payload ?? {});
     await this.requireAgent(tenantId, input.agentId);
     await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
@@ -389,6 +477,7 @@ export class AgentsApplicationService {
    * 该任务不会暴露给 Agent 拉取接口，避免同一动作被直连与轮询重复执行。
    */
   async enqueueDirectTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
+    assertSupportedAgentTaskPayload(input.payload ?? {});
     await this.requireAgent(tenantId, input.agentId);
     await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
@@ -533,6 +622,8 @@ export class AgentsApplicationService {
       throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', { taskId: task.id, status: task.status });
     }
     const sanitizedDetail = this.domain.sanitizeResultDetail(input.detail ?? {});
+    const outcome = resolveAgentTaskOutcome(input, sanitizedDetail);
+    assertAgentTaskResultConsistency(input.success, outcome);
     console.info('[agents.submitResult]', JSON.stringify({
       tenantId,
       agentId: input.agentId,
@@ -563,6 +654,7 @@ export class AgentsApplicationService {
       resultAt: new Date().toISOString(),
       result: {
         success: input.success,
+        status: outcome,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
         detail: sanitizedDetail,
@@ -574,6 +666,7 @@ export class AgentsApplicationService {
         executionRunId: task.executionRunId,
         executionStepId: task.executionStepId,
         success: input.success,
+        status: outcome,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
         detailKeys: Object.keys(sanitizedDetail),
@@ -598,6 +691,7 @@ export class AgentsApplicationService {
         executionRunId: task.executionRunId,
         executionStepId: task.executionStepId,
         success: input.success,
+        status: outcome,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
         detail: sanitizedDetail,
@@ -645,28 +739,28 @@ export class AgentsApplicationService {
   }> {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
+    const actionType = resolveAgentTaskActionType(task.payload);
+    if (!actionType) {
+      throw new AppError('VALIDATION_FAILED', 'Agent task 动作未注册，拒绝进入执行路径', {
+        taskId,
+        actionType: readStringValue(task.payload?.actionType) ?? readStringValue(task.payload?.type),
+      });
+    }
     if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') {
       const result = readRecord(task.result);
       return {
         task,
         success: task.status === 'succeeded',
+        asyncPending: readStringValue(result.status) === 'UNKNOWN',
         errorCode: readStringValue(result.errorCode),
         errorMessage: readStringValue(result.errorMessage),
         detail: readRecord(result.detail),
       };
     }
-    const actionType = resolveAgentTaskActionType(task.payload);
-    if (!actionType) {
-      throw new AppError('VALIDATION_FAILED', 'Agent task 缺少 actionType/type，不能直连执行', { taskId });
-    }
-
     const agent = await this.requireAgent(tenantId, task.agentId);
     const leaseId = `direct:${task.id}`;
     const acknowledged = await this.ackTask(tenantId, { agentId: task.agentId, taskId: task.id, leaseId });
     if (acknowledged.leaseId && acknowledged.leaseId !== leaseId) {
-      if (actionType === 'certificate.trust.inspect') {
-        return this.waitForTaskResult(tenantId, task.id);
-      }
       return {
         task: acknowledged,
         success: true,
@@ -691,16 +785,32 @@ export class AgentsApplicationService {
       });
     } catch (error) {
       const appError = error instanceof AppError ? error : undefined;
-      await this.submitResult(tenantId, {
+      const updatedTask = await this.submitResult(tenantId, {
         agentId: task.agentId,
         taskId: task.id,
         leaseId,
         success: false,
+        status: 'UNKNOWN',
         errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
         errorMessage: error instanceof Error ? error.message : String(error),
-        detail: { executionMode: 'direct', mode: 'agent_direct_execute_failed' },
+        detail: {
+          executionMode: 'direct',
+          mode: 'agent_direct_execute_failed',
+          executionStatus: 'UNKNOWN',
+        },
       });
-      throw error;
+      return {
+        task: updatedTask,
+        success: false,
+        asyncPending: true,
+        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: {
+          mode: 'agent_direct_execute_failed',
+          executionStatus: 'UNKNOWN',
+          taskId: task.id,
+        },
+      };
     }
 
     await this.submitResult(tenantId, {
@@ -708,6 +818,7 @@ export class AgentsApplicationService {
       taskId: task.id,
       leaseId,
       success: direct.success,
+      status: direct.outcome ?? (direct.success ? 'SUCCESS' : actionType === 'agent.plan.execute' ? 'UNKNOWN' : 'FAILED'),
       errorCode: direct.errorCode,
       errorMessage: direct.errorMessage,
       detail: {
@@ -720,50 +831,18 @@ export class AgentsApplicationService {
     return {
       task: updatedTask,
       success: direct.success,
+      asyncPending: direct.outcome === 'UNKNOWN',
       errorCode: direct.errorCode,
       errorMessage: direct.errorMessage,
       detail: {
         mode: 'agent_direct_execute',
+        executionStatus: direct.outcome ?? (direct.success ? 'SUCCESS' : 'FAILED'),
         taskId: task.id,
         directTaskId: direct.taskId,
         directControl: direct.directControl,
         ...(direct.detail ?? {}),
       },
     };
-  }
-
-  private async waitForTaskResult(
-    tenantId: string,
-    taskId: string,
-    timeoutMs = 125_000,
-  ): Promise<{
-    task: AgentTaskEnvelope;
-    success: boolean;
-    errorCode?: string;
-    errorMessage?: string;
-    detail: Record<string, unknown>;
-  }> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const task = await this.repository.getTask(tenantId, taskId);
-      if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
-      if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') {
-        const result = readRecord(task.result);
-        return {
-          task,
-          success: task.status === 'succeeded',
-          errorCode: readStringValue(result.errorCode),
-          errorMessage: readStringValue(result.errorMessage),
-          detail: readRecord(result.detail),
-        };
-      }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '等待 Agent 根信任检查结果超时', {
-      code: 'AGENT_TASK_RESULT_TIMEOUT',
-      taskId,
-      timeoutMs,
-    });
   }
 
   async submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): Promise<AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number }> {
@@ -865,8 +944,8 @@ export class AgentsApplicationService {
       agentId: agent.id,
       releaseId: release.id,
       targetVersion: release.version,
-      status: agent.role === 'legacy_agent' ? 'manual_required' : 'planned',
-      reason: agent.role === 'legacy_agent' ? 'Legacy Agent 不支持自动升级' : '发现可用升级版本',
+      status: 'planned',
+      reason: '发现可用升级版本',
       createdAt: now,
       updatedAt: now,
     });
@@ -929,245 +1008,89 @@ export class AgentsApplicationService {
     return { deleted: true, agentId: agent.id };
   }
 
-  async createWindowsPowerShellInstallSession(tenantId: string, input: CreateWindowsPowerShellInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
-    const session = this.domain.createWindowsPowerShellInstallSession(tenantId, input, requestId, baseUrl);
-    await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
-    await this.repository.createInstallSession({
-      id: session.id,
-      tenantId: session.tenantId,
-      platform: session.platform,
-      role: session.role,
-      bootstrapTokenHash: session.bootstrapTokenHash,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      enrollmentToken: session.enrollmentToken,
-      agentKey: session.agentKey,
-      controlPlaneUrl: session.controlPlaneUrl,
-      zone: session.zone,
-      startAfterInstall: session.startAfterInstall,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
-      usedAt: session.usedAt,
-      usedByIp: session.usedByIp,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-    });
-    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
-    const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
-    const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
+  async createAgentInstallMaterials(
+    tenantId: string,
+    input: AgentInstallMaterialRequest,
+    requestId: string,
+  ): Promise<AgentInstallMaterialProjection> {
+    const descriptor = this.createInstallDescriptor(tenantId, input, requestId);
+    const { token: enrollmentToken, ...enrollmentTokenRecord } = descriptor.enrollmentTokenRecord;
+    await this.repository.createEnrollmentToken(enrollmentTokenRecord);
+
+    const material = this.getPinnedInstallArtifact(input.platform);
+    const unsignedTask = {
+      type: 'agent.plan.execute' as const,
+      contractVersion: 'gcac.agent-security/v1' as const,
+      taskId: descriptor.id,
+      version: material.version,
+      artifactRefs: [material.artifactRef],
+      input: {
+        role: descriptor.role!,
+        zone: descriptor.zone!,
+        agentKey: descriptor.agentKey!,
+        serviceName: descriptor.serviceName,
+        displayName: descriptor.displayName,
+        installRoot: descriptor.installRoot,
+        configDir: descriptor.configDir,
+        dataDir: descriptor.dataDir,
+        logDir: descriptor.logDir,
+      },
+      expiresAt: descriptor.expiresAt,
+    };
+    const taskDigest = sha256(JSON.stringify(unsignedTask));
+    const task: AgentInstallTaskProjection = {
+      ...unsignedTask,
+      digest: taskDigest,
+      signature: material.signature,
+      signatureAlgorithm: material.signatureAlgorithm,
+      signingKeyId: material.signingKeyId,
+    };
+
     return {
-      sessionId: session.id,
-      platform: 'windows_powershell_service',
-      role: session.role,
-      expiresAt: session.expiresAt,
-      bootstrapUrl,
-      installCommand: `irm ${baseUrl}/agent-install.ps1?token=${token} | iex`,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      enrollmentToken: session.enrollmentToken,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-      agentKey: session.agentKey,
-      tenantId: session.tenantId,
-      zone: session.zone,
-      enrollmentTokenPreview: `${session.enrollmentToken.slice(0, 12)}...${session.enrollmentToken.slice(-6)}`,
+      installationId: descriptor.id,
+      expiresAt: descriptor.expiresAt,
+      enrollmentToken,
+      materials: [material],
+      task,
     };
   }
 
-  async createWindowsCompatibilityInstallSession(tenantId: string, input: CreateWindowsCompatibilityInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
-    const session = this.domain.createWindowsCompatibilityInstallSession(tenantId, input, requestId, baseUrl);
-    await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
-    await this.repository.createInstallSession({
-      id: session.id,
-      tenantId: session.tenantId,
-      platform: session.platform,
-      role: session.role,
-      bootstrapTokenHash: session.bootstrapTokenHash,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      enrollmentToken: session.enrollmentToken,
-      agentKey: session.agentKey,
-      controlPlaneUrl: session.controlPlaneUrl,
-      zone: session.zone,
-      startAfterInstall: session.startAfterInstall,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
-      usedAt: session.usedAt,
-      usedByIp: session.usedByIp,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-    });
-    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
-    const token = encodeURIComponent(session.bootstrapToken);
-    const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
-    return {
-      sessionId: session.id,
-      platform: session.platform,
-      role: session.role,
-      expiresAt: session.expiresAt,
-      bootstrapUrl,
-      installCommand: `(New-Object Net.WebClient).DownloadString('${bootstrapUrl}') | Invoke-Expression`,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      enrollmentToken: session.enrollmentToken,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-      agentKey: session.agentKey,
-      tenantId: session.tenantId,
-      zone: session.zone,
-      enrollmentTokenPreview: `${session.enrollmentToken.slice(0, 12)}...${session.enrollmentToken.slice(-6)}`,
-    };
-  }
-
-  async createLinuxGoInstallSession(tenantId: string, input: CreateLinuxGoInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
-    const session = this.domain.createLinuxGoInstallSession(tenantId, input, requestId, baseUrl);
-    await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
-    await this.repository.createInstallSession({
-      id: session.id,
-      tenantId: session.tenantId,
-      platform: session.platform,
-      role: session.role,
-      bootstrapTokenHash: session.bootstrapTokenHash,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      enrollmentToken: session.enrollmentToken,
-      agentKey: session.agentKey,
-      controlPlaneUrl: session.controlPlaneUrl,
-      zone: session.zone,
-      startAfterInstall: session.startAfterInstall,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
-      usedAt: session.usedAt,
-      usedByIp: session.usedByIp,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-    });
-    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
-    const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
-    const bootstrapUrl = `${baseUrl}/agent-install?token=${token}`;
-    const bundleUrl = `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`;
-    return {
-      sessionId: session.id,
-      platform: 'linux_go_systemd',
-      role: session.role,
-      expiresAt: session.expiresAt,
-      bootstrapUrl,
-      bundleUrl,
-      installCommand: `curl -fsSL ${baseUrl}/agent-install?token=${token} | sudo bash`,
-      bootstrapTokenPreview: session.bootstrapTokenPreview,
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-      agentKey: session.agentKey,
-      tenantId: session.tenantId,
-      zone: session.zone,
-      enrollmentTokenPreview: `${session.enrollmentToken.slice(0, 12)}...${session.enrollmentToken.slice(-6)}`,
-    };
-  }
-
-  async createGatewayEnableSession(tenantId: string, input: CreateGatewayEnableSessionInput, _requestId: string, baseUrl: string): Promise<GatewayEnableSessionProjection> {
-    if (input.agentId) {
-      await this.requireAgent(tenantId, input.agentId);
+  private createInstallDescriptor(tenantId: string, input: AgentInstallMaterialRequest, requestId: string): AgentInstallDescriptor {
+    const role = normalizeInstallMaterialRole(input.role);
+    if (input.platform === 'windows_compatibility' && role !== 'full_agent') {
+      throw new AppError('VALIDATION_FAILED', 'Windows Compatibility Agent 只允许 full_agent 角色');
     }
-    const platform = input.platform;
-    const profile = gatewayEnablePlatformProfiles[platform];
-    if (!profile) {
-      throw new AppError('VALIDATION_FAILED', 'platform 只能是 windows_powershell_service 或 linux_go_systemd', { platform });
+    const id = newId('aginst');
+    const zone = normalizeInstallMaterialValue(input.zone ?? 'default', 'zone');
+    const agentKey = normalizeInstallMaterialValue(input.agentKey ?? `${input.platform}.${id.toLowerCase()}`, 'agentKey');
+    const profile = installMaterialProfile(input.platform, role);
+    const enrollmentTokenRecord = this.domain.createEnrollmentToken(tenantId, {
+      allowedRoles: [role],
+      allowedZones: [zone],
+      maxUses: 1,
+      ttlSeconds: 1800,
+      createdBy: 'agent.install-materials',
+    }, requestId);
+    return {
+      id,
+      role,
+      zone,
+      agentKey,
+      enrollmentTokenRecord,
+      expiresAt: enrollmentTokenRecord.expiresAt,
+      ...profile,
+    };
+  }
+
+  private getPinnedInstallArtifact(platform: AgentInstallMaterialPlatform): AgentInstallArtifactMaterial {
+    if (platform === 'linux_go') {
+      const artifact = getLinuxAgentInstallMaterials()[0];
+      if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', 'Linux Agent 安装 Artifact 未登记');
+      return structuredClone(artifact);
     }
-    const zone = normalizeCommandValue(input.zone ?? 'default', 'zone');
-    const serviceName = normalizeCommandValue(input.serviceName ?? profile.serviceName, 'serviceName');
-    const configPath = input.configPath?.trim() || profile.configPath;
-    const query = new URLSearchParams({
-      zone,
-      serviceName,
-      configPath,
-      ...(input.agentId ? { agentId: input.agentId } : {}),
-    });
-    const enableUrl = `${baseUrl}${profile.pathSuffix}?${query.toString()}`;
-    return {
-      platform,
-      agentId: input.agentId,
-      zone,
-      serviceName,
-      configPath,
-      enableUrl,
-      enableCommand: profile.command(enableUrl),
-    };
-  }
-
-  async getWindowsPowerShellInstallSessionByToken(tenantId: string, bootstrapToken: string): Promise<AgentInstallSession> {
-    const session = await this.repository.findInstallSessionByTokenHash(tenantId, sha256(bootstrapToken));
-    if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
-    if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
-    if (session.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
-    return session;
-  }
-
-  async getInstallSessionByToken(bootstrapToken: string): Promise<AgentInstallSession> {
-    const session = await this.repository.findInstallSessionByTokenHashAnyTenant(sha256(bootstrapToken));
-    if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
-    if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
-    return session;
-  }
-
-  async consumeWindowsPowerShellInstallSessionByToken(tenantId: string, bootstrapToken: string, usedByIp?: string): Promise<AgentInstallSession> {
-    return this.consumeInstallSession(sha256(bootstrapToken), usedByIp, tenantId);
-  }
-
-  async consumeInstallSessionByToken(bootstrapToken: string, usedByIp?: string): Promise<AgentInstallSession> {
-    return this.consumeInstallSession(sha256(bootstrapToken), usedByIp);
-  }
-
-  async buildWindowsPowerShellInstallManifest(session: AgentInstallSession) {
-    const builder = windowsInstallManifestBuilders[session.platform];
-    if (!builder) throw new AppError('RESOURCE_NOT_FOUND', '未登记对应的 Windows Agent 安装器', { platform: session.platform });
-    return builder(session);
-  }
-
-  buildLinuxGoInstallManifest(session: AgentInstallSession) {
-    return {
-      sessionId: session.id,
-      platform: session.platform,
-      role: session.role ?? 'full_agent',
-      gatewayEnabled: session.role === 'gateway',
-      directControlListenPort: installDirectControlListenPort(session),
-      serviceName: session.serviceName,
-      displayName: session.displayName,
-      installRoot: session.installRoot,
-      configDir: session.configDir,
-      dataDir: session.dataDir,
-      logDir: session.logDir,
-      startAfterInstall: session.startAfterInstall,
-      controlPlaneUrl: session.controlPlaneUrl,
-      agentKey: session.agentKey,
-      tenantId: session.tenantId,
-      enrollmentToken: session.enrollmentToken,
-      zone: session.zone,
-      bundleUrl: `${session.controlPlaneUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
-      bundleManifest: getLinuxAgentBundleManifest(),
-    };
-  }
-
-  buildLinuxBundleTarGz(): Buffer {
-    return buildLinuxAgentBundleTarGz();
+    const artifact = PINNED_WINDOWS_ARTIFACTS[platform];
+    if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 安装 Artifact 未登记', { platform });
+    return structuredClone(artifact);
   }
 
   listAgents(tenantId: string, query: PageQuery) {
@@ -1313,13 +1236,12 @@ export class AgentsApplicationService {
       return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' } };
     }
     const existingPlan = await this.repository.findUpgradePlanForAgent(tenantId, agent.id, release.id);
-    const manual = agent.role === 'legacy_agent';
     return {
       agentId: agent.id,
       currentVersion: agent.descriptor.version,
       suggestion: {
-        status: manual ? 'manual_required' : 'available',
-        reason: manual ? 'Legacy Agent 不支持自动升级' : '发现可用升级版本',
+        status: 'available',
+        reason: '发现可用升级版本',
         targetVersion: release.version,
         releaseId: release.id,
         downloadUrl: release.downloadUrl,
@@ -1346,22 +1268,6 @@ export class AgentsApplicationService {
     return agent;
   }
 
-  async getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined> {
-    return this.repository.getInstallSession(tenantId, sessionId);
-  }
-
-  private recordAgentInstallTask(tenantId: string, sessionId: string, platform: string, requestedBy?: string): void {
-    enqueueTaskBestEffort(this.tasks, {
-      tenantId,
-      taskType: 'AGENT_INSTALL',
-      requestedBy,
-      triggerSource: 'agents.install-session',
-      idempotencyKey: `agent-install:${sessionId}`,
-      payload: { sessionId, platform },
-      resourceRefs: [{ resourceType: 'agentInstallSession', resourceId: sessionId }],
-    });
-  }
-
   private async requireTask(tenantId: string, agentId: string, taskId: string) {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task || task.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
@@ -1385,20 +1291,6 @@ export class AgentsApplicationService {
       }
     }
     return [...winners.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  }
-
-  private async consumeInstallSession(tokenHash: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession> {
-    const usedAt = new Date().toISOString();
-    const consumed = await this.repository.consumeInstallSessionByTokenHash(tokenHash, usedAt, usedByIp, tenantId);
-    if (consumed) return consumed;
-
-    const existing = tenantId
-      ? await this.repository.findInstallSessionByTokenHash(tenantId, tokenHash)
-      : await this.repository.findInstallSessionByTokenHashAnyTenant(tokenHash);
-    if (!existing) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
-    if (new Date(existing.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
-    if (existing.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
-    throw new AppError('RESOURCE_VERSION_CONFLICT', '安装会话消费冲突');
   }
 
   private async syncGatewayRegistry(tenantId: string, agent: AgentRegistration): Promise<void> {
@@ -1552,7 +1444,6 @@ export class AgentsApplicationService {
           bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
           dryRun: payload.dryRun === true,
           executionMode: task.leaseId?.startsWith('direct:') ? 'direct' as const : 'queued' as const,
-          directFallback: readDirectFallback(payload.dispatchDetail),
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -1565,6 +1456,27 @@ function countTasks(tasks: AgentTaskEnvelope[]): Record<AgentTaskEnvelope['statu
     counts[task.status] += 1;
     return counts;
   }, { queued: 0, leased: 0, acked: 0, succeeded: 0, failed: 0, rejected: 0 });
+}
+
+function resolveAgentTaskOutcome(input: SubmitAgentTaskResultInput, detail: Record<string, unknown>): AgentSecurityStatus {
+  const candidates = [
+    input.status,
+    detail.status,
+    detail.executionStatus,
+    readRecord(detail.receipt)?.status,
+  ];
+  const explicit = candidates.find((value): value is AgentSecurityStatus => value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
+  if (explicit) return explicit;
+  return input.success ? 'SUCCESS' : 'FAILED';
+}
+
+function assertAgentTaskResultConsistency(success: boolean, outcome: AgentSecurityStatus): void {
+  if (success !== (outcome === 'SUCCESS')) {
+    throw new AppError('VALIDATION_FAILED', 'Agent 任务结果的 success 与 status 不一致', {
+      success,
+      status: outcome,
+    });
+  }
 }
 
 function safeAgeSeconds(value?: string): number | undefined {
@@ -1611,271 +1523,100 @@ function isAgentMachineRoute(method: string, path: string): boolean {
   return AGENT_MACHINE_ROUTES.has(`${method.toUpperCase()} ${path}`);
 }
 
-export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): string | undefined {
-  return readStringValue(payload?.actionType) ?? readStringValue(payload?.type);
+export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {
+  const actionType = readStringValue(payload?.actionType);
+  return actionType && agentV2ContractTypes.includes(actionType as AgentV2ContractType)
+    ? actionType as AgentV2ContractType
+    : undefined;
 }
 
-function readDirectFallback(value: unknown): AgentDetailProjection['recentTaskLogs'][number]['directFallback'] | undefined {
-  const record = readRecord(value);
-  const fallback = readRecord(record.directFallback);
-  if (!fallback || fallback.attempted !== true) return undefined;
-  return {
-    attempted: true,
-    errorCode: readStringValue(fallback.errorCode),
-    errorMessage: readStringValue(fallback.errorMessage),
-  };
+function assertSupportedAgentTaskPayload(payload: Record<string, unknown>): void {
+  const actionType = readStringValue(payload.actionType);
+  const taskType = readStringValue(payload.type);
+  if (taskType === 'agent.capability.rescan' && !actionType) return;
+  if (taskType) {
+    throw new AppError('VALIDATION_FAILED', 'Agent task 动作未注册，拒绝进入执行路径', { actionType: taskType });
+  }
+  if (!actionType || !agentV2ContractTypes.includes(actionType as AgentV2ContractType)) {
+    throw new AppError('VALIDATION_FAILED', 'Agent task 动作未注册，拒绝进入执行路径', { actionType });
+  }
 }
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-const gatewayEnablePlatformProfiles: Partial<Record<CreateGatewayEnableSessionInput['platform'], {
+interface InstallMaterialProfile {
   serviceName: string;
-  configPath: string;
-  pathSuffix: string;
-  command: (url: string) => string;
-}>> = {
-  windows_powershell_service: {
-    serviceName: 'gcac-agent',
-    configPath: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json',
-    pathSuffix: '/agent-enable-gateway.ps1',
-    command: (url) => `irm '${url}' | iex`,
-  },
-  linux_go_systemd: {
-    serviceName: 'gcac-linux-agent',
-    configPath: '/etc/gcac/linux-agent/agent.config.json',
-    pathSuffix: '/agent-enable-gateway',
-    command: (url) => `curl -fsSL '${url}' | sudo bash`,
-  },
-};
-
-const currentFilePath = fileURLToPath(import.meta.url);
-const currentDirPath = path.dirname(currentFilePath);
-const windowsGoAgentRoot = resolveWindowsGoAgentRoot();
-const ignoredWindowsGoAgentPaths = new Set([
-  'README.md',
-]);
-
-async function loadWindowsGoAgentArtifacts() {
-  const artifacts = await walkWindowsGoAgentArtifacts(windowsGoAgentRoot);
-  return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+  displayName: string;
+  installRoot: string;
+  configDir: string;
+  dataDir: string;
+  logDir: string;
 }
 
-type WindowsInstallManifestBuilder = (session: AgentInstallSession) => Promise<Record<string, unknown>>;
-
-const windowsInstallManifestBuilders: Partial<Record<AgentInstallSession['platform'], WindowsInstallManifestBuilder>> = {
-  windows_powershell_service: buildWindowsModernInstallManifest,
-  windows_compatibility_service: buildWindowsCompatibilityInstallManifest,
-};
-
-async function buildWindowsModernInstallManifest(session: AgentInstallSession): Promise<Record<string, unknown>> {
-  return {
-    sessionId: session.id,
-    platform: session.platform,
-    role: session.role ?? 'full_agent',
-    gatewayEnabled: session.role === 'gateway',
-    directControlListenPort: installDirectControlListenPort(session),
-    tenantId: session.tenantId,
-    serviceName: session.serviceName,
-    displayName: session.displayName,
-    installRoot: session.installRoot,
-    configDir: session.configDir,
-    dataDir: session.dataDir,
-    logDir: session.logDir,
-    startAfterInstall: session.startAfterInstall,
-    controlPlaneUrl: session.controlPlaneUrl,
-    agentKey: session.agentKey,
-    enrollmentToken: session.enrollmentToken,
-    zone: session.zone,
-    artifacts: await loadWindowsGoAgentArtifacts(),
-  };
+function normalizeInstallMaterialRole(value: AgentInstallMaterialRequest['role']): 'full_agent' | 'gateway' {
+  if (value === undefined || value === 'full_agent') return 'full_agent';
+  if (value === 'gateway') return 'gateway';
+  throw new AppError('VALIDATION_FAILED', 'role 只能是 full_agent 或 gateway', { role: value });
 }
 
-async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSession): Promise<Record<string, unknown>> {
-  return {
-    sessionId: session.id,
-    platform: session.platform,
-    tenantId: session.tenantId,
-    serviceName: session.serviceName,
-    displayName: session.displayName,
-    installRoot: session.installRoot,
-    configDir: session.configDir,
-    dataDir: session.dataDir,
-    logDir: session.logDir,
-    startAfterInstall: session.startAfterInstall,
-    controlPlaneUrl: session.controlPlaneUrl,
-    agentKey: session.agentKey,
-    enrollmentToken: session.enrollmentToken,
-    zone: session.zone,
-    binaryRelativePath: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe',
-    targetBinaryName: 'GCAC.WindowsCompatibilityAgent.exe',
-    configRelativePath: 'config/agent.config.template.json',
-    installScriptRelativePath: 'install-service.ps1',
-    artifacts: await loadWindowsCompatibilityAgentArtifacts(),
-    config: {
-      schemaVersion: 'gcac.windows-compat-agent-config/v1',
-      tenantId: session.tenantId,
-      agentKey: session.agentKey,
-      enrollmentToken: session.enrollmentToken,
-      controlPlaneUrl: session.controlPlaneUrl,
-      heartbeatIntervalSeconds: 10,
-      taskPollIntervalSeconds: 5,
-      directControlEnabled: true,
-      directControlListenHost: '0.0.0.0',
-      directControlListenPort: 18933,
-      directControlAdvertiseHost: '',
-      requiredHotfixes: [],
-      dataDirectory: session.dataDir,
-      logDirectory: session.logDir,
-    },
-  };
-}
-
-const installDirectControlPorts: Readonly<Record<string, number>> = Object.freeze({
-  'full_agent:windows_powershell_service': 18930,
-  'full_agent:linux_go_systemd': 18931,
-  'gateway:windows_powershell_service': 18932,
-  'gateway:linux_go_systemd': 18932,
-  'gateway:windows_compatibility_service': 18932,
-  'full_agent:windows_compatibility_service': 18933,
-});
-
-function installDirectControlListenPort(session: AgentInstallSession): number {
-  const key = `${session.role}:${session.platform}`;
-  const port = installDirectControlPorts[key];
-  if (port === undefined) throw new AppError('VALIDATION_FAILED', 'Agent 安装目标缺少直连端口声明', { role: session.role, platform: session.platform });
-  return port;
-}
-
-async function loadWindowsCompatibilityAgentArtifacts(): Promise<Array<{ path: string; description: string; content: string; encoding: 'utf8' | 'base64' }>> {
-  const agentRoot = resolveWindowsCompatibilityAgentRoot();
-  const artifactPaths = [
-    { source: resolveWindowsCompatibilityBinaryPath(agentRoot), target: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe', encoding: 'base64' as const },
-    { source: `${resolveWindowsCompatibilityBinaryPath(agentRoot)}.config`, target: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe.config', encoding: 'utf8' as const },
-    { source: path.join(agentRoot, 'install-service.ps1'), target: 'install-service.ps1', encoding: 'utf8' as const },
-    { source: path.join(agentRoot, 'uninstall-service.ps1'), target: 'uninstall-service.ps1', encoding: 'utf8' as const },
-    { source: path.join(agentRoot, 'upgrade-service.ps1'), target: 'upgrade-service.ps1', encoding: 'utf8' as const },
-    { source: path.join(agentRoot, 'config', 'agent.config.template.json'), target: 'config/agent.config.template.json', encoding: 'utf8' as const },
-  ];
-  for (const artifact of artifactPaths) {
-    if (!existsSync(artifact.source)) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'Windows Compatibility Agent 安装产物不存在，请先执行 build.ps1', { path: artifact.source });
-    }
-  }
-  return Promise.all(artifactPaths.map(async (artifact) => ({
-    path: artifact.target,
-    description: `Windows Compatibility Agent 安装文件: ${artifact.target}`,
-    content: artifact.encoding === 'base64'
-      ? (await readFile(artifact.source)).toString('base64')
-      : stripUtf8Bom(await readFile(artifact.source, 'utf8')),
-    encoding: artifact.encoding,
-  })));
-}
-
-async function walkWindowsGoAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }>> {
-  const entries = await readdir(currentDir, { withFileTypes: true });
-  const artifacts: Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
-  for (const entry of entries) {
-    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
-    if (relativePath === 'tmp' || relativePath.startsWith('tmp/')) continue;
-    if (ignoredWindowsGoAgentPaths.has(relativePath)) continue;
-    if ([...ignoredWindowsGoAgentPaths].some((ignoredPath) => relativePath.startsWith(`${ignoredPath}/`))) continue;
-    const absolutePath = path.join(currentDir, entry.name);
-    if (entry.isDirectory()) {
-      artifacts.push(...await walkWindowsGoAgentArtifacts(absolutePath, relativePath));
-      continue;
-    }
-    const extension = path.extname(entry.name).toLowerCase();
-    const isBinaryArtifact = extension === '.exe' || extension === '.dll' || extension === '.pfx';
-    artifacts.push({
-      path: relativePath.replace(/\\/gu, '/'),
-      description: `Windows Go Agent 兼容入口文件: ${relativePath}`,
-      content: isBinaryArtifact ? (await readFile(absolutePath)).toString('base64') : stripUtf8Bom(await readFile(absolutePath, 'utf8')),
-      encoding: isBinaryArtifact ? 'base64' : 'utf8',
-    });
-  }
-  return artifacts;
-}
-
-function stripUtf8Bom(value: string): string {
-  return value.replace(/^\uFEFF/u, '');
-}
-
-function normalizeCommandValue(value: string, field: string): string {
+function normalizeInstallMaterialValue(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
-  if (/[\r\n\0]/u.test(normalized)) throw new AppError('VALIDATION_FAILED', `${field} 不能包含换行或空字符`, { field });
+  if (normalized.length > 200 || /[\r\n\0]/u.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', `${field} 格式不合法`, { field });
+  }
   return normalized;
 }
 
-function resolveWindowsGoAgentRoot(): string {
-  const bundleRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim();
-  if (bundleRoot) return path.resolve(bundleRoot, 'windows', releaseArchitecture(), 'full-agent');
-  const backendMarker = `${path.sep}backend${path.sep}`;
-  const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
-  if (backendMarkerIndex >= 0) {
-    const repositoryRoot = currentDirPath.slice(0, backendMarkerIndex);
-    const candidate = path.join(repositoryRoot, 'agents', 'windows-go-full-agent');
-    if (existsSync(candidate)) return candidate;
+function installMaterialProfile(platform: AgentInstallMaterialPlatform, role: 'full_agent' | 'gateway'): InstallMaterialProfile {
+  if (platform === 'windows_compatibility') {
+    return {
+      serviceName: 'GCACWindowsCompatibilityAgent',
+      displayName: 'GCAC Windows Compatibility Agent',
+      installRoot: 'C:\\Program Files\\GCAC\\WindowsCompatibilityAgent',
+      configDir: 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config',
+      dataDir: 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data',
+      logDir: 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs',
+    };
   }
-
-  const relativeAgentPath = path.join('agents', 'windows-go-full-agent');
-  const searchRoots = [currentDirPath, process.cwd()];
-  for (const searchRoot of searchRoots) {
-    let cursor = searchRoot;
-    for (let depth = 0; depth < 8; depth += 1) {
-      const candidate = path.resolve(cursor, relativeAgentPath);
-      if (existsSync(candidate)) return candidate;
-      const parent = path.dirname(cursor);
-      if (parent === cursor) break;
-      cursor = parent;
+  if (platform === 'windows_go') {
+    return role === 'gateway'
+      ? {
+        serviceName: 'gcac-gateway-agent',
+        displayName: 'GCAC Windows Gateway Agent',
+        installRoot: 'C:\\Program Files\\GCAC\\Gateway',
+        configDir: 'C:\\ProgramData\\GCAC\\Gateway\\config',
+        dataDir: 'C:\\ProgramData\\GCAC\\Gateway\\data',
+        logDir: 'C:\\ProgramData\\GCAC\\Gateway\\logs',
+      }
+      : {
+        serviceName: 'gcac-windows-go-agent',
+        displayName: 'GCAC Windows Go Full Agent',
+        installRoot: 'C:\\Program Files\\GCAC\\WindowsGoAgent',
+        configDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config',
+        dataDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\data',
+        logDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs',
+      };
+  }
+  return role === 'gateway'
+    ? {
+      serviceName: 'gcac-linux-gateway-agent',
+      displayName: 'GCAC Linux Gateway Agent',
+      installRoot: '/opt/gcac/gateway',
+      configDir: '/etc/gcac/gateway',
+      dataDir: '/var/lib/gcac/gateway',
+      logDir: '/var/log/gcac/gateway',
     }
-  }
-  return path.resolve(process.cwd(), relativeAgentPath);
-}
-
-function resolveWindowsCompatibilityAgentRoot(): string {
-  const configuredRoot = process.env.GCAC_WINDOWS_COMPAT_AGENT_ROOT?.trim();
-  if (configuredRoot) return path.resolve(configuredRoot);
-  return resolveAgentProductRoot('windows-compat-full-agent');
-}
-
-function resolveWindowsCompatibilityBinaryPath(agentRoot: string): string {
-  const configuredBinary = process.env.GCAC_WINDOWS_COMPAT_AGENT_BINARY?.trim();
-  return configuredBinary ? path.resolve(configuredBinary) : path.join(agentRoot, 'bin', 'Release', 'GCAC.WindowsCompatibilityAgent.exe');
-}
-
-function resolveAgentProductRoot(productDirectory: string): string {
-  const bundleRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim();
-  if (bundleRoot) {
-    const bundleDirectory = productDirectory === 'windows-compat-full-agent' ? 'compatibility' : 'full-agent';
-    return path.resolve(bundleRoot, 'windows', releaseArchitecture(), bundleDirectory);
-  }
-  const backendMarker = `${path.sep}backend${path.sep}`;
-  const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
-  if (backendMarkerIndex >= 0) {
-    const candidate = path.join(currentDirPath.slice(0, backendMarkerIndex), 'agents', productDirectory);
-    if (existsSync(candidate)) return candidate;
-  }
-  const relativeAgentPath = path.join('agents', productDirectory);
-  for (const searchRoot of [currentDirPath, process.cwd()]) {
-    let cursor = searchRoot;
-    for (let depth = 0; depth < 8; depth += 1) {
-      const candidate = path.resolve(cursor, relativeAgentPath);
-      if (existsSync(candidate)) return candidate;
-      const parent = path.dirname(cursor);
-      if (parent === cursor) break;
-      cursor = parent;
-    }
-  }
-  return path.resolve(process.cwd(), relativeAgentPath);
-}
-
-function releaseArchitecture(): 'amd64' | 'arm64' {
-  if (process.arch === 'x64') return 'amd64';
-  if (process.arch === 'arm64') return 'arm64';
-  throw new AppError('VALIDATION_FAILED', '当前 Node 运行架构没有 Agent Release Bundle 映射', { nodeArch: process.arch });
+    : {
+      serviceName: 'gcac-linux-agent',
+      displayName: 'GCAC Linux Go Full Agent',
+      installRoot: '/opt/gcac/linux-agent',
+      configDir: '/etc/gcac/linux-agent',
+      dataDir: '/var/lib/gcac/linux-agent',
+      logDir: '/var/log/gcac/linux-agent',
+    };
 }
 
 function resolveDirectControlHost(listenAddress?: string): string | undefined {
