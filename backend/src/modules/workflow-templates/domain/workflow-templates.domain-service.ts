@@ -816,7 +816,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       realSsh: mode === 'real_test',
       idempotencyKey: `workflow:${step.name}`,
       stage: step.stage,
-      connection: adaptSshConnection(resolveStepConnection(step.ssh.connection, step.ssh.connectionRef, context), context.values, mode === 'render_only'),
+      connection: adaptSshConnection(resolveStepConnection(step.ssh.connectionRef, context), context.values, mode === 'render_only'),
       command,
       commands: step.ssh.commands?.map((item) => renderString(item, context.values, mode === 'render_only')),
       mode: step.ssh.mode,
@@ -1236,7 +1236,7 @@ function buildSshCommandText(step: Extract<WorkflowStep, { type: 'ssh' }>): stri
   return step.ssh.command ?? step.ssh.script ?? '';
 }
 
-function adaptSshConnection(connection: Extract<WorkflowStep, { type: 'ssh' }>['ssh']['connection'], values: Record<string, unknown>, keepMissing: boolean) {
+function adaptSshConnection(connection: WorkflowSshConnection, values: Record<string, unknown>, keepMissing: boolean) {
   if (!connection) throw new AppError('VALIDATION_FAILED', '执行前必须先解析 connectionRef');
   const credential = resolveCredentialBinding(connection.credential, values, keepMissing);
   return {
@@ -1249,20 +1249,13 @@ function adaptSshConnection(connection: Extract<WorkflowStep, { type: 'ssh' }>['
   };
 }
 
-function resolveStepConnection(
-  connection: WorkflowSshConnection | undefined,
-  connectionRef: string | undefined,
-  context: RuntimeContext,
-): WorkflowSshConnection {
-  if (connection) return connection;
-  if (!connectionRef) throw new AppError('VALIDATION_FAILED', 'SSH/SFTP/SCP 步骤必须配置 connection 或 connectionRef');
+function resolveStepConnection(connectionRef: string, context: RuntimeContext): WorkflowSshConnection {
   const resolved = context.connections[connectionRef];
   if (!resolved) throw new AppError('VALIDATION_FAILED', 'connectionRef 未定义或不是 SSH 连接', { connectionRef });
   return resolved;
 }
 
-function resolveHttpConnection(connectionRef: string | undefined, context: RuntimeContext): ResolvedConnectionV1 | undefined {
-  if (!connectionRef) return undefined;
+function resolveHttpConnection(connectionRef: string, context: RuntimeContext): ResolvedConnectionV1 {
   const resolved = context.resolvedConnections[connectionRef];
   if (!resolved) throw new AppError('VALIDATION_FAILED', 'HTTP connectionRef 未定义', { connectionRef });
   if (resolved.transport !== 'http') throw new AppError('VALIDATION_FAILED', 'HTTP connectionRef 必须引用 HTTP 连接', { connectionRef, transport: resolved.transport });
@@ -1436,7 +1429,7 @@ function buildFileTransferStepPlan(step: Extract<WorkflowStep, { type: 'sftp' | 
     ? renderString(config.localPath, context.values, keepMissing)
     : `virtual://workflow/${step.name}`;
   const sshRequest: Record<string, unknown> = {
-    connection: adaptSshConnection(resolveStepConnection(config.connection, config.connectionRef, context), context.values, keepMissing),
+    connection: adaptSshConnection(resolveStepConnection(config.connectionRef, context), context.values, keepMissing),
     timeoutMs: (config.timeoutSeconds ?? 60) * 1000,
     dryRun: false,
     [step.type]: [

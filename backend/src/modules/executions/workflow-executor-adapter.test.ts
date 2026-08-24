@@ -6,6 +6,7 @@ import { WorkflowTemplatesApplicationService } from '../workflow-templates/appli
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
 import type { ExecutionStepEntity } from './schema/executions.schema.js';
+import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 function workflowFixture(): WorkflowDslV1 {
   return {
@@ -23,8 +24,9 @@ function workflowFixture(): WorkflowDslV1 {
         type: 'http',
         request: {
           method: 'PUT',
-          url: 'https://{{deviceHost}}/api/cert',
-          body: { cert: '{{cert.pem}}' },
+          connectionRef: 'management',
+          url: 'https://{{variables.deviceHost}}/api/cert',
+          body: { cert: '{{artifacts.cert.outputs.pem}}' },
         },
         extract: { remoteFingerprint: { type: 'jsonPath', path: '$.fingerprint' } },
         assert: [{ type: 'statusCode', equals: 200 }],
@@ -34,13 +36,8 @@ function workflowFixture(): WorkflowDslV1 {
         type: 'ssh',
         ssh: {
           mode: 'command',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-            expectedHostKeyFingerprint: 'aa:bb',
-          },
-          command: 'reload cert {{remoteFingerprint}}',
+          connectionRef: 'targetSsh',
+          command: 'reload cert {{steps.uploadCert.extracted.remoteFingerprint}}',
         },
         assert: [{ type: 'contains', value: 'ok' }],
       },
@@ -62,7 +59,8 @@ function sensitiveHttpChainWorkflowFixture(): WorkflowDslV1 {
         type: 'http',
         request: {
           method: 'POST',
-          url: 'https://{{deviceHost}}/login',
+          connectionRef: 'management',
+          url: 'https://{{variables.deviceHost}}/login',
         },
         extract: [{ name: 'sessionToken', type: 'jsonPath', path: '$.data.synotoken', sensitive: true }],
         assert: [{ type: 'contains', value: '"success":true' }],
@@ -72,9 +70,10 @@ function sensitiveHttpChainWorkflowFixture(): WorkflowDslV1 {
         type: 'http',
         request: {
           method: 'GET',
-          url: 'https://{{deviceHost}}/certificates',
-          query: { SynoToken: '{{sessionToken}}' },
-          headers: { 'X-SYNO-TOKEN': '{{sessionToken}}' },
+          connectionRef: 'management',
+          url: 'https://{{variables.deviceHost}}/certificates',
+          query: { SynoToken: '{{steps.login.extracted.sessionToken}}' },
+          headers: { 'X-SYNO-TOKEN': '{{steps.login.extracted.sessionToken}}' },
         },
         extract: [{ name: 'certificates', type: 'jsonPath', path: '$.data.certificates' }],
         assert: [{ type: 'contains', value: '"success":true' }],
@@ -100,14 +99,9 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
         stage: 'install',
         sftp: {
           direction: 'upload',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-            expectedHostKeyFingerprint: 'aa:bb',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/test.crt',
-          contentRef: '{{cert.pem}}',
+          contentRef: '{{artifacts.cert.outputs.pem}}',
           mode: '0644',
           timeoutSeconds: 30,
         },
@@ -119,14 +113,9 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
         stage: 'install',
         scp: {
           direction: 'upload',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-            expectedHostKeyFingerprint: 'aa:bb',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/test.key',
-          contentRef: '{{cert.privateKey}}',
+          contentRef: '{{artifacts.cert.outputs.privateKey}}',
           mode: '0600',
           timeoutSeconds: 30,
         },
@@ -152,13 +141,9 @@ function certificateAliasWorkflowFixture(): WorkflowDslV1 {
         stage: 'install',
         sftp: {
           direction: 'upload',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/test.crt',
-          contentRef: '{{certificate.pem}}',
+          contentRef: '{{artifacts.certificate.outputs.pem}}',
           mode: '0644',
           timeoutSeconds: 30,
         },
@@ -194,13 +179,9 @@ function certificateOutputsWorkflowFixture(): WorkflowDslV1 {
         stage: 'install',
         sftp: {
           direction: 'upload',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/server.crt',
-          contentRef: '{{serverCert.outputs.certFile.content}}',
+          contentRef: '{{artifacts.serverCert.outputs.certFile.content}}',
           mode: '0644',
           timeoutSeconds: 30,
         },
@@ -211,13 +192,9 @@ function certificateOutputsWorkflowFixture(): WorkflowDslV1 {
         stage: 'install',
         scp: {
           direction: 'upload',
-          connection: {
-            host: '{{deviceHost}}',
-            username: 'admin',
-            credential: '{{credential}}',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/server.key',
-          contentRef: '{{serverCert.outputs.keyFile.content}}',
+          contentRef: '{{artifacts.serverCert.outputs.keyFile.content}}',
           mode: '0600',
           timeoutSeconds: 30,
         },
@@ -261,6 +238,35 @@ async function createPublishedCertificateOutputsWorkflow(): Promise<{ workflows:
   return { workflows, versionId: published.id };
 }
 
+function resolvedDeploymentInput(): ResolvedDeploymentInputV1 {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_workflow_adapter', address: 'edge-01.example.com', serverName: 'edge-01.example.com', port: 443, protocol: 'https' },
+      deployment: { targets: [], certificateResourceName: 'certificate-edge-01' },
+    },
+    variables: { deviceHost: 'edge-01.example.com' },
+    connections: {
+      management: { transport: 'http', host: 'edge-01.example.com', port: 443, tls: { verifyPeer: true } },
+      targetSsh: { transport: 'ssh', host: 'edge-01.example.com', port: 22, username: 'admin', credentialSlot: 'credential', hostKey: { policy: 'strict', expectedFingerprint: 'aa:bb' } },
+    },
+    credentials: {
+      credential: { credentialId: 'cred_device', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device#current' } },
+    },
+    artifacts: {
+      cert: { outputs: { pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----', privateKey: '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----' } },
+      certificate: { outputs: { pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----' } },
+    },
+    provenance: {},
+    sensitivePaths: ['credentials.credential', 'artifacts.cert.outputs.privateKey'],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'workflow-adapter-resolved-input',
+  };
+}
+
 function workflowStep(versionId?: string): ExecutionStepEntity {
   return {
     id: 'step_workflow',
@@ -274,14 +280,9 @@ function workflowStep(versionId?: string): ExecutionStepEntity {
     maxAttempts: 1,
     inputSnapshot: {
       workflowRequest: versionId
-        ? {
-            workflowVersionId: versionId,
-            variableBindings: {
-              deviceHost: 'edge-01.example.com',
-              credential: { id: 'sec_device', kind: 'username_password', type: 'password', username: 'admin' },
-            },
-          }
+        ? { workflowVersionId: versionId }
         : {},
+      resolvedDeploymentInput: resolvedDeploymentInput(),
       deploymentArtifact: {
         certificatePem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----',
         privateKeyPem: '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----',
@@ -576,29 +577,14 @@ describe('WorkflowExecutorAdapter', () => {
     });
     const adapter = new WorkflowExecutorAdapter({ workflows, sshExecutor: sshExecutor as never });
     const step = workflowStep(versionId);
-    step.inputSnapshot.deploymentArtifact = {
-      workflowCertificateMaterials: {
-        serverCert: {
-          fingerprintSha256: 'aa'.repeat(32),
-          outputs: {
-            certFile: {
-              key: 'public',
-              role: 'public_certificate',
-              format: 'pem',
-              content: '-----BEGIN CERTIFICATE-----slot-cert-----END CERTIFICATE-----',
-              contentEncoding: 'utf8',
-            },
-            keyFile: {
-              key: 'private',
-              role: 'private_key',
-              format: 'pem',
-              content: '-----BEGIN PRIVATE KEY-----slot-key-----END PRIVATE KEY-----',
-              contentEncoding: 'utf8',
-            },
-          },
-        },
+    const resolvedInput = step.inputSnapshot.resolvedDeploymentInput as ResolvedDeploymentInputV1;
+    resolvedInput.artifacts.serverCert = {
+      outputs: {
+        certFile: { key: 'public', role: 'public_certificate', format: 'pem', content: '-----BEGIN CERTIFICATE-----slot-cert-----END CERTIFICATE-----', contentEncoding: 'utf8' },
+        keyFile: { key: 'private', role: 'private_key', format: 'pem', content: '-----BEGIN PRIVATE KEY-----slot-key-----END PRIVATE KEY-----', contentEncoding: 'utf8' },
       },
     };
+    resolvedInput.sensitivePaths.push('artifacts.serverCert.outputs.keyFile.content');
 
     const result = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
 

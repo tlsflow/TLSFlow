@@ -8,8 +8,8 @@ import { enrichWorkflowCertificateMaterial } from '../certificates/artifacts/wor
 import { createHash } from 'node:crypto';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
-function resolvedWorkflowInput(variables: Record<string, unknown>): ResolvedDeploymentInputV1 {
-  const credential = variables.credential;
+function resolvedWorkflowInput(variables: Record<string, unknown> = {}): ResolvedDeploymentInputV1 {
+  const credential = variables.credential ?? fixtureCredential();
   const certificate = variables.certificate;
   const resolvedVariables = { ...variables };
   delete resolvedVariables.credential;
@@ -23,8 +23,16 @@ function resolvedWorkflowInput(variables: Record<string, unknown>): ResolvedDepl
       deployment: { targets: [], certificateResourceName: 'certificate-adc-example-com' },
     },
     variables: resolvedVariables,
-    connections: {},
-    credentials: credential ? { credential: credential as ResolvedDeploymentInputV1['credentials'][string] } : {},
+    connections: {
+      management: {
+        transport: 'http',
+        host: '10.0.0.1',
+        port: 443,
+        credentialSlot: 'credential',
+        tls: { verifyPeer: false },
+      },
+    },
+    credentials: { credential: credential as ResolvedDeploymentInputV1['credentials'][string] },
     artifacts: certificate ? { certificate: { outputs: certificate as Record<string, unknown> } } : {},
     provenance: {},
     sensitivePaths: [],
@@ -69,10 +77,7 @@ test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    resolvedInput: resolvedWorkflowInput({
-      deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-      credential: fixtureCredential(),
-    }),
+    resolvedInput: resolvedWorkflowInput(),
     mockResponses: { readVersion: { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } } },
   });
   assert.equal(result.status, 'success');
@@ -89,12 +94,7 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    resolvedInput: resolvedWorkflowInput({
-      deviceHost: '10.0.0.1',
-      managementPort: 443,
-      tlsVerify: true,
-      credential: fixtureCredential(),
-    }),
+    resolvedInput: resolvedWorkflowInput(),
     mockResponses: fixture.mockResponses,
   });
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
@@ -127,10 +127,7 @@ test('Citrix ADC 发现对零个和单个站点始终输出数组', async () => 
     const result = await workflows.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      resolvedInput: resolvedWorkflowInput({
-        deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true,
-        credential: fixtureCredential(),
-      }),
+      resolvedInput: resolvedWorkflowInput(),
       mockResponses,
     });
     return new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
@@ -159,7 +156,7 @@ test('Citrix ADC 发现为包含特殊字符的厂商名称生成合法稳定键
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    resolvedInput: resolvedWorkflowInput({ deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true, credential: fixtureCredential() }),
+    resolvedInput: resolvedWorkflowInput(),
     mockResponses,
   });
   const validated = new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
@@ -347,8 +344,6 @@ test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async 
 
 function deploymentVariables(): Record<string, unknown> {
   return {
-    deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-    credential: fixtureCredential(),
     certificateKeyName: 'gcac-leaf-20260724',
     certificate: {
       leafPemBase64: Buffer.from('leaf').toString('base64'),
@@ -397,8 +392,6 @@ function recoverySnapshot(): Record<string, unknown> {
 
 function recoveryVariables(snapshot: Record<string, unknown>): Record<string, unknown> {
   return {
-    deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-    credential: fixtureCredential(),
     recoverySnapshot: snapshot,
     recoverySnapshotHash: createHash('sha256').update(stableJson(snapshot)).digest('hex'),
   };

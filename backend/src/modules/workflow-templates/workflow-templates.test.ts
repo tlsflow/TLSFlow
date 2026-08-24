@@ -30,8 +30,22 @@ function resolvedWorkflowInput(input: Partial<Pick<ResolvedDeploymentInputV1, 'v
     contractVersion: 'gcac.deployment-input/v1',
     assetContext,
     variables: input.variables ?? {},
-    connections: input.connections ?? {},
-    credentials: input.credentials ?? {},
+    connections: {
+      management: { transport: 'http', host: 'edge-01.example.com', port: 443, tls: { verifyPeer: true } },
+      targetSsh: {
+        transport: 'ssh',
+        host: 'edge-01.example.com',
+        port: 22,
+        username: 'admin',
+        credentialSlot: 'credential',
+        hostKey: { policy: 'strict', expectedFingerprint: 'aabbccddeeff0011' },
+      },
+      ...(input.connections ?? {}),
+    },
+    credentials: {
+      credential: { credentialId: 'cred_fixture', kind: 'USERNAME_PASSWORD', secretRefs: { password: 'secret://password/sec_fixture#current' } },
+      ...(input.credentials ?? {}),
+    },
     artifacts: input.artifacts ?? {},
     provenance: {},
     sensitivePaths: [
@@ -87,6 +101,7 @@ function templateFixture(): WorkflowDslV1 {
         type: 'http',
         request: {
           method: 'POST',
+          connectionRef: 'management',
           url: 'https://{{variables.deviceHost}}/api/login',
           auth: { type: 'basic', username: '{{credentials.credential.username}}', credential: '{{credentials.credential}}' },
           body: { user: '{{credentials.credential.username}}' },
@@ -101,6 +116,7 @@ function templateFixture(): WorkflowDslV1 {
         retry: { count: 1, intervalSeconds: 1 },
         request: {
           method: 'PUT',
+          connectionRef: 'management',
           url: 'https://{{variables.deviceHost}}/api/cert',
           body: { cert: '{{artifacts.cert.outputs.pem}}', key: '{{artifacts.cert.outputs.privateKey}}', token: '{{steps.login.extracted.token}}' },
         },
@@ -116,12 +132,7 @@ function templateFixture(): WorkflowDslV1 {
         when: { variable: 'variables.shouldUpload', equals: true },
         ssh: {
           mode: 'command',
-          connection: {
-            host: '{{variables.deviceHost}}',
-            username: 'admin',
-            credential: '{{credentials.credential}}',
-            expectedHostKeyFingerprint: 'aabbccddeeff0011',
-          },
+          connectionRef: 'targetSsh',
           command: 'reload cert {{steps.upload.extracted.remoteFingerprint}}',
         },
         assert: [{ type: 'contains', value: 'ok' }],
@@ -135,12 +146,7 @@ function templateFixture(): WorkflowDslV1 {
         type: 'ssh',
         ssh: {
           mode: 'script',
-          connection: {
-            host: '{{variables.deviceHost}}',
-            username: 'admin',
-            credential: '{{credentials.credential}}',
-            expectedHostKeyFingerprint: 'aabbccddeeff0011',
-          },
+          connectionRef: 'targetSsh',
           script: 'restore previous-cert',
         },
       },
@@ -201,7 +207,7 @@ describe('WorkflowTemplates', () => {
     missingReference.steps[0] = {
       ...missingReference.steps[0]!,
       type: 'http',
-      request: { method: 'GET', url: 'https://{{missingHost}}/api' },
+      request: { connectionRef: 'management', method: 'GET', url: 'https://{{missingHost}}/api' },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingReference), /变量引用不存在|missingHost/);
 
@@ -213,7 +219,7 @@ describe('WorkflowTemplates', () => {
     plainSecret.steps[0] = {
       ...plainSecret.steps[0]!,
       type: 'http',
-      request: { method: 'POST', url: 'https://edge/api', body: { password: 'password=clear-text' } },
+      request: { connectionRef: 'management', method: 'POST', url: 'https://edge/api', body: { password: 'password=clear-text' } },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(plainSecret), /Secret|明文/);
 
@@ -221,7 +227,7 @@ describe('WorkflowTemplates', () => {
     privateKey.steps[1] = {
       ...privateKey.steps[1]!,
       type: 'http',
-      request: { method: 'PUT', url: 'https://edge/api', body: '-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----' },
+      request: { connectionRef: 'management', method: 'PUT', url: 'https://edge/api', body: '-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----' },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(privateKey), /私钥/);
 
@@ -327,7 +333,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_login',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'GET', url: 'https://{{variables.deviceHost}}/ping' },
+          request: { connectionRef: 'management', method: 'GET', url: 'https://{{variables.deviceHost}}/ping' },
         },
       ],
       rollback: [
@@ -568,7 +574,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [{ name: 'accessToken', type: 'outputPath', path: '$.body.token', sensitive: true }],
           assert: [{ type: 'statusCode', equals: 200 }],
         },
@@ -578,12 +584,7 @@ describe('WorkflowTemplates', () => {
           stage: 'refresh',
           ssh: {
             mode: 'command',
-            connection: {
-              host: '{{variables.deviceHost}}',
-              username: '{{credentials.credential.username}}',
-              credential: '{{credentials.credential}}',
-              hostKeyPolicy: 'trust_on_first_use',
-            },
+            connectionRef: 'targetSsh',
             command: 'echo {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.output.body.token}}',
           },
         },
@@ -661,7 +662,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [
             {
               name: 'accessToken',
@@ -688,6 +689,7 @@ describe('WorkflowTemplates', () => {
           stage: 'install',
           request: {
             method: 'PUT',
+            connectionRef: 'management',
             url: 'https://{{variables.deviceHost}}/api/certificate',
             headers: {
               Authorization: 'Bearer {{steps.prepare_auth.extracted.accessToken}}',
@@ -746,7 +748,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [{ name: 'sessionId', type: 'jsonPath', path: '$.data.sid' }],
         },
       ],
@@ -1022,8 +1024,8 @@ describe('WorkflowTemplates', () => {
     const content = templateFixture();
     content.steps = [
       { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
-      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { method: 'GET', url: 'https://{{variables.deviceHost}}/login' } },
-      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{variables.deviceHost}}', username: 'admin', credential: '{{credentials.credential}}' }, commands: ['echo one', 'echo two'] } },
+      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { connectionRef: 'management', method: 'GET', url: 'https://{{variables.deviceHost}}/login' } },
+      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connectionRef: 'targetSsh', commands: ['echo one', 'echo two'] } },
     ];
     content.rollback = undefined;
     const { version } = await service.createTemplate({ content });
@@ -1067,12 +1069,7 @@ describe('WorkflowTemplates', () => {
         stage: 'install',
         sftp: {
           direction: 'upload',
-          connection: {
-            host: '{{variables.deviceHost}}',
-            username: 'admin',
-            credential: '{{credentials.credential}}',
-            hostKeyPolicy: 'manual_approval_required',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/test.crt',
           contentRef: '{{artifacts.cert.outputs.pem}}',
           mode: '0644',
@@ -1086,12 +1083,7 @@ describe('WorkflowTemplates', () => {
         stage: 'install',
         scp: {
           direction: 'upload',
-          connection: {
-            host: '{{variables.deviceHost}}',
-            username: 'admin',
-            credential: '{{credentials.credential}}',
-            hostKeyPolicy: 'manual_approval_required',
-          },
+          connectionRef: 'targetSsh',
           remotePath: '/etc/gcac-test/certs/test.key',
           contentRef: '{{artifacts.cert.outputs.privateKey}}',
           mode: '0600',
@@ -1226,6 +1218,7 @@ describe('WorkflowTemplates', () => {
         retry: { count: 2, intervalSeconds: 1, retryOnStatus: [500, 503], retryOnNetworkError: true },
         request: {
           method: 'POST',
+          connectionRef: 'management',
           url: 'https://{{variables.deviceHost}}/api/submit',
           query: { dryRun: true },
           headers: { Accept: 'application/json' },
@@ -1296,6 +1289,7 @@ describe('WorkflowTemplates', () => {
         stage: 'prepare',
         request: {
           method: 'POST',
+          connectionRef: 'management',
           url: 'https://{{variables.deviceHost}}/webapi/entry.cgi',
           bodyType: 'form',
           form: { account: '{{credentials.apiCredential.username}}', method: 'login' },
@@ -1365,6 +1359,7 @@ describe('WorkflowTemplates', () => {
         stage: 'refresh',
         request: {
           method: 'POST',
+          connectionRef: 'management',
           url: 'https://{{variables.deviceHost}}/api/cert-service',
           bodyType: 'form',
           form: { settings: '{{steps.build_bindings.extracted.serviceBindingsJson}}' },
@@ -1560,7 +1555,7 @@ describe('WorkflowTemplates', () => {
         steps: [{
           name: 'verify_body',
           type: 'http',
-          request: { method: 'GET', url: 'https://example.com/' },
+          request: { connectionRef: 'management', method: 'GET', url: 'https://example.com/' },
           assert: [{ type: 'contains', value: '{{variables.expectedResponseContains}}' }],
         }],
       },
@@ -1602,6 +1597,7 @@ describe('WorkflowTemplates', () => {
               type: 'http',
               request: {
                 method: 'POST',
+                connectionRef: 'management',
                 url: 'https://{{target.serverName}}/deploy/{{targetIndex}}',
                 headers: { Authorization: 'Bearer {{variables.apiToken}}' },
               },
@@ -1649,7 +1645,7 @@ describe('WorkflowTemplates', () => {
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { method: 'GET', url: 'https://{{target.serverName}}/health' },
+              request: { connectionRef: 'management', method: 'GET', url: 'https://{{target.serverName}}/health' },
             }],
           },
         }],
@@ -1697,7 +1693,7 @@ describe('WorkflowTemplates', () => {
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { method: 'GET', url: 'https://{{target.serverName}}/health' },
+              request: { connectionRef: 'management', method: 'GET', url: 'https://{{target.serverName}}/health' },
             }],
           },
         }],

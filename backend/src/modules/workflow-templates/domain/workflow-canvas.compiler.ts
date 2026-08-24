@@ -162,6 +162,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       request: {
         method: readHttpMethod(config.method),
         url: String(config.url ?? '{{verifyUrl}}'),
+        connectionRef: String(config.connectionRef ?? ''),
         ...(auth ? { auth } : {}),
         ...(isBlank(config.body) ? {} : { body: parseLooseJson(String(config.body)) }),
         timeoutSeconds: Number(config.timeoutSeconds ?? 30),
@@ -185,13 +186,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       stage: getNodeStage(node),
       ssh: {
         mode: importedMode === 'script' ? 'script' : 'command',
-        connection: {
-          host: String(config.hostRef ?? '{{deviceHost}}'),
-          username: String(config.username ?? '{{sshUsername}}'),
-          credential: readCredentialValue(config.credential) ?? '{{credential}}',
-          hostKeyPolicy: readHostKeyPolicy(config.hostKeyPolicy),
-          ...(isBlank(config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(config.expectedHostKeyFingerprint) }),
-        },
+        connectionRef: String(config.connectionRef ?? ''),
         ...sshBody,
         timeoutSeconds: Number(config.timeoutSeconds ?? 60),
       },
@@ -206,7 +201,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
         name,
         type: 'http',
         stage: getNodeStage(node),
-        request: { method: 'GET', url: String(config.inputRef ?? '{{verifyUrl}}'), timeoutSeconds: Number(config.timeoutSeconds ?? 30) },
+        request: { method: 'GET', url: String(config.inputRef ?? '{{verifyUrl}}'), connectionRef: String(config.connectionRef ?? ''), timeoutSeconds: Number(config.timeoutSeconds ?? 30) },
         assert: [{ type: 'statusCode', equals: Number(config.expected ?? 200) }],
       });
     }
@@ -286,13 +281,7 @@ function buildFileTransferDslStep(node: CanvasNode, name: string, protocol: 'sft
   const config = node.config ?? {};
   const transfer = {
     direction: normalizeTransferDirection(config.direction),
-    connection: {
-      host: String(config.connectionRef ?? '{{deviceHost}}'),
-      username: String(config.username ?? '{{sshUsername}}'),
-      credential: readCredentialValue(config.credential) ?? '{{credential}}',
-      hostKeyPolicy: readHostKeyPolicy(config.hostKeyPolicy),
-      ...(isBlank(config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(config.expectedHostKeyFingerprint) }),
-    },
+    connectionRef: String(config.connectionRef ?? ''),
     remotePath: String(config.remotePath ?? '/tmp/cert.pem'),
     ...(isBlank(config.temporaryPath) ? {} : { temporaryPath: String(config.temporaryPath) }),
     ...(isBlank(config.contentRef) ? {} : { contentRef: String(config.contentRef) }),
@@ -320,9 +309,9 @@ function validateRequiredConfig(node: CanvasNode, issues: WorkflowCanvasValidati
 }
 
 function requiredFieldsForType(type: CanvasNodeType): string[] {
-  if (type === 'http') return ['method', 'url', 'timeoutSeconds'];
-  if (type === 'ssh') return ['hostRef', 'username', 'credential', 'hostKeyPolicy', 'command', 'timeoutSeconds'];
-  if (type === 'sftp' || type === 'scp') return ['direction', 'connectionRef', 'username', 'credential', 'remotePath', 'hostKeyPolicy', 'timeoutSeconds'];
+  if (type === 'http') return ['method', 'url', 'connectionRef', 'timeoutSeconds'];
+  if (type === 'ssh') return ['connectionRef', 'command', 'timeoutSeconds'];
+  if (type === 'sftp' || type === 'scp') return ['direction', 'connectionRef', 'remotePath', 'timeoutSeconds'];
   if (type === 'verify') return ['verifyType', 'inputRef', 'expected', 'timeoutSeconds'];
   if (type === 'condition') return ['variable', 'operator'];
   if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'continueOnError', 'steps'];
@@ -459,9 +448,9 @@ function mergeImportedDslStep(node: CanvasNode, generated: WorkflowStep): Workfl
   const imported = readImportedStep(node);
   if (!imported || imported.type !== generated.type) return generated;
   if (generated.type === 'http' && imported.type === 'http') return { ...imported, ...generated, request: { ...imported.request, ...generated.request }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
-  if (generated.type === 'ssh' && imported.type === 'ssh') return { ...imported, ...generated, ssh: { ...imported.ssh, ...generated.ssh, ...(generated.ssh.connection ? { connection: { ...imported.ssh.connection, ...generated.ssh.connection } } : {}) }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
-  if (generated.type === 'sftp' && imported.type === 'sftp') return { ...imported, ...generated, sftp: { ...imported.sftp, ...generated.sftp, ...(generated.sftp.connection ? { connection: { ...imported.sftp.connection, ...generated.sftp.connection } } : {}) }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
-  if (generated.type === 'scp' && imported.type === 'scp') return { ...imported, ...generated, scp: { ...imported.scp, ...generated.scp, ...(generated.scp.connection ? { connection: { ...imported.scp.connection, ...generated.scp.connection } } : {}) }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
+  if (generated.type === 'ssh' && imported.type === 'ssh') return { ...imported, ...generated, ssh: { ...imported.ssh, ...generated.ssh }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
+  if (generated.type === 'sftp' && imported.type === 'sftp') return { ...imported, ...generated, sftp: { ...imported.sftp, ...generated.sftp }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
+  if (generated.type === 'scp' && imported.type === 'scp') return { ...imported, ...generated, scp: { ...imported.scp, ...generated.scp }, retry: generated.retry ?? imported.retry, extract: imported.extract ?? generated.extract, assert: imported.assert ?? generated.assert };
   if (generated.type === 'condition' && imported.type === 'condition') return { ...imported, ...generated, condition: { ...imported.condition, ...generated.condition } };
   if (generated.type === 'transform' && imported.type === 'transform') return { ...imported, ...generated, transform: { ...imported.transform, ...generated.transform, outputs: { ...imported.transform.outputs, ...generated.transform.outputs } } };
   return { ...imported, ...generated };

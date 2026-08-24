@@ -188,7 +188,7 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'connectionRef', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
-    if (step.request.connectionRef !== undefined && !isNonEmptyString(step.request.connectionRef)) throw validationError(`${path}.request.connectionRef 必须是非空字符串`);
+    if (!isNonEmptyString(step.request.connectionRef)) throw validationError(`${path}.request.connectionRef 必须是非空字符串`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
     if (step.request.headerRefs !== undefined && !isSecretRefOrVariableRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 或 credential 变量引用对象`);
     if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);
@@ -207,13 +207,9 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'ssh') {
     rejectUnknown(step as unknown as Record<string, unknown>, sshStepKeys, path);
     if (!isRecord(step.ssh)) throw validationError(`${path}.ssh 必须是对象`);
-    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'connectionRef', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
+    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connectionRef', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
     if (!['command', 'script', 'interactive'].includes(step.ssh.mode)) throw validationError(`${path}.ssh.mode 不支持`);
-    if (step.ssh.connectionRef) {
-      if (!isNonEmptyString(step.ssh.connectionRef)) throw validationError(`${path}.ssh.connectionRef 必须是非空字符串`);
-    } else {
-      validateSshConnection(step.ssh.connection, `${path}.ssh.connection`);
-    }
+    if (!isNonEmptyString(step.ssh.connectionRef)) throw validationError(`${path}.ssh.connectionRef 必须是非空字符串`);
     if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command) && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0)) throw validationError(`${path}.ssh.command 或 commands 必填`);
     if (step.ssh.commands !== undefined && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0 || !step.ssh.commands.every(isNonEmptyString))) throw validationError(`${path}.ssh.commands 必须是非空命令数组`);
     if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
@@ -352,13 +348,9 @@ function validateSshConnection(value: unknown, path: string): void {
 
 function validateFileTransferStep(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
-  rejectUnknown(value, new Set(['direction', 'connection', 'connectionRef', 'remotePath', 'contentRef', 'contentEncoding', 'localPath', 'temporaryPath', 'expectedHash', 'expectedSize', 'verifyHash', 'mode', 'owner', 'group', 'timeoutSeconds']), path);
+  rejectUnknown(value, new Set(['direction', 'connectionRef', 'remotePath', 'contentRef', 'contentEncoding', 'localPath', 'temporaryPath', 'expectedHash', 'expectedSize', 'verifyHash', 'mode', 'owner', 'group', 'timeoutSeconds']), path);
   if (!['upload', 'download'].includes(String(value.direction))) throw validationError(`${path}.direction 不支持`);
-  if (value.connectionRef) {
-    if (!isNonEmptyString(value.connectionRef)) throw validationError(`${path}.connectionRef 必须是非空字符串`);
-  } else {
-    validateSshConnection(value.connection, `${path}.connection`);
-  }
+  if (!isNonEmptyString(value.connectionRef)) throw validationError(`${path}.connectionRef 必须是非空字符串`);
   if (!isNonEmptyString(value.remotePath)) throw validationError(`${path}.remotePath 必填`);
   if (value.contentRef !== undefined && !isNonEmptyString(value.contentRef)) throw validationError(`${path}.contentRef 必须是非空字符串`);
   if (value.localPath !== undefined && !isNonEmptyString(value.localPath)) throw validationError(`${path}.localPath 必须是非空字符串`);

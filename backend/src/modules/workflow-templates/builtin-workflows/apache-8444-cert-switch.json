@@ -511,6 +511,7 @@
       },
       "request": {
         "method": "GET",
+        "connectionRef": "management",
         "url": "{{verifyUrl}}",
         "headers": {
           "Host": "{{hostHeader}}"

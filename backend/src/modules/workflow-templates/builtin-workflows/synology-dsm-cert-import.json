@@ -215,6 +215,7 @@
       "stage": "prepare",
       "request": {
         "method": "POST",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "bodyType": "form",
         "form": {
@@ -267,10 +268,12 @@
       "stage": "backup",
       "request": {
         "method": "GET",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.CRT",
           "method": "list",
+          "connectionRef": "management",
           "version": 1,
           "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
           "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
@@ -337,10 +340,12 @@
       "stage": "install",
       "request": {
         "method": "POST",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate",
           "method": "import",
+          "connectionRef": "management",
           "version": 1,
           "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
           "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
@@ -407,10 +412,12 @@
       "stage": "refresh",
       "request": {
         "method": "GET",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.CRT",
           "method": "list",
+          "connectionRef": "management",
           "version": 1,
           "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
           "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
@@ -481,10 +488,12 @@
       "stage": "refresh",
       "request": {
         "method": "POST",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.Service",
           "method": "set",
+          "connectionRef": "management",
           "version": 1,
           "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
           "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
@@ -532,10 +541,12 @@
       "stage": "refresh",
       "request": {
         "method": "POST",
+        "connectionRef": "management",
         "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.API.Auth",
           "method": "logout",
+          "connectionRef": "management",
           "version": 6,
           "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
           "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
@@ -560,6 +571,7 @@
       "stage": "verify",
       "request": {
         "method": "GET",
+        "connectionRef": "management",
         "url": "{{variables.verifyUrl}}",
         "headers": {
           "Host": "{{variables.hostHeader}}"

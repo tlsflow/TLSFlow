@@ -218,11 +218,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
         type: 'ssh',
         ssh: {
           mode: 'command',
-          connection: {
-            host: '{{host}}',
-            username: 'deploy',
-            credential: { credentialId: 'cred_default', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_default#current' } },
-          },
+          connectionRef: 'targetSsh',
           command: 'echo ok',
         },
       },

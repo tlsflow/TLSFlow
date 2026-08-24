@@ -10,24 +10,44 @@
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
   },
-  "variables": {
-    "deviceHost": { "type": "string", "required": true },
-    "managementPort": { "type": "number", "required": true, "default": 443 },
-    "credential": { "type": "credential", "required": true, "sensitive": true },
-    "tlsVerify": { "type": "boolean", "required": true, "default": true },
-    "certificate": {
-      "type": "certificate",
-      "required": true,
-      "sensitive": true,
-      "artifactContract": {
-        "outputs": {
-          "leafPem": { "role": "public_certificate", "required": true, "format": "PEM", "encoding": "UTF-8" },
-          "privateKeyPem": { "role": "private_key", "required": true, "format": "PEM", "encoding": "UTF-8" },
-          "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "PEM", "encoding": "UTF-8" },
-          "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "HEX", "encoding": "UTF-8" }
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "targetVirtualServers": { "type": "array", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.targets" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed" },
+      "certificateKeyName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed" }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
+        "credentialSlot": "credential",
+        "tls": {
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true }
         }
       }
     },
+    "credentials": {
+      "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" }
+    },
+    "artifacts": {
+      "certificate": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "leafPemBase64": { "role": "public_certificate", "required": true, "format": "PEM_BASE64", "encoding": "Base64" },
+            "privateKeyPemBase64": { "role": "private_key", "required": true, "format": "PEM_BASE64", "encoding": "Base64", "sensitive": true },
+            "orderedIntermediates": { "role": "certificate_chain", "required": false, "format": "PEM_BASE64_ARRAY", "encoding": "Base64" },
+            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "HEX", "encoding": "UTF-8" }
+          }
+        }
+      }
+    }
+  },
+  "variables": {
     "targetVirtualServers": { "type": "array", "required": true },
     "certificateKeyName": { "type": "string", "required": true }
   },
@@ -38,9 +58,10 @@
       "stage": "prepare",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/nsversion",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "extract": {
@@ -54,10 +75,11 @@
       "stage": "backup",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
@@ -94,9 +116,10 @@
             "type": "http",
             "request": {
               "method": "GET",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey/{{oldCertificateKey.name}}",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{oldCertificateKey.name}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200]
             },
             "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
@@ -147,11 +170,12 @@
       "stage": "install",
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/systemfile",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.leafPemBase64}}", "fileencoding": "BASE64" } },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200, 201]
       }
     },
@@ -161,11 +185,12 @@
       "stage": "install",
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/systemfile",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200, 201]
       }
     },
@@ -183,11 +208,12 @@
             "type": "http",
             "request": {
               "method": "POST",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/systemfile",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "systemfile": { "filename": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{intermediate.pemBase64}}", "fileencoding": "BASE64" } },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           },
@@ -196,11 +222,12 @@
             "type": "http",
             "request": {
               "method": "POST",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}", "cert": "/nsconfig/ssl/{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}.pem" } },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           },
@@ -210,12 +237,13 @@
             "when": { "variable": "intermediate.hasNext", "equals": true },
             "request": {
               "method": "POST",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
               "query": { "action": "link" },
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}-ca-{{intermediate.sequence}}", "linkcertkeyname": "{{variables.certificateKeyName}}-ca-{{intermediate.nextSequence}}" } },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           }
@@ -228,11 +256,12 @@
       "stage": "install",
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}", "cert": "/nsconfig/ssl/{{variables.certificateKeyName}}.pem", "key": "/nsconfig/ssl/{{variables.certificateKeyName}}.key" } },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200, 201]
       }
     },
@@ -243,12 +272,13 @@
       "when": { "variable": "artifacts.certificate.outputs.orderedIntermediates.0.sequence", "exists": true },
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
         "query": { "action": "link" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "sslcertkey": { "certkey": "{{variables.certificateKeyName}}", "linkcertkeyname": "{{variables.certificateKeyName}}-ca-1" } },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200, 201]
       }
     },
@@ -266,11 +296,12 @@
             "type": "http",
             "request": {
               "method": "POST",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{variables.certificateKeyName}}", "snicert": "{{target.sniCertificate}}" } },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           },
@@ -279,9 +310,10 @@
             "type": "http",
             "request": {
               "method": "GET",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200]
             },
             "assert": [
@@ -307,9 +339,10 @@
             "when": { "variable": "oldBinding.certkeyname", "notEquals": "{{variables.certificateKeyName}}" },
             "request": {
               "method": "DELETE",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.vservername}}?args=certkeyname:{{oldBinding.certkeyname}}",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.vservername}}?args=certkeyname:{{oldBinding.certkeyname}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           }
@@ -322,12 +355,13 @@
       "stage": "refresh",
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/nsconfig",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsconfig",
         "query": { "action": "save" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "nsconfig": {} },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
@@ -338,9 +372,10 @@
       "stage": "verify",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslcertkey/{{variables.certificateKeyName}}",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{variables.certificateKeyName}}",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [
@@ -356,9 +391,10 @@
       "stage": "prepare",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/nsversion",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "extract": { "rollbackDeviceVersion": { "type": "firstOf", "paths": ["$.body.nsversion.version", "$.body.nsversion[0].version"] } },
@@ -385,11 +421,12 @@
             "type": "http",
             "request": {
               "method": "POST",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslvserver_sslcertkey_binding": "{{rollbackOldBinding}}" },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           }
@@ -402,10 +439,11 @@
       "stage": "refresh",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
@@ -443,9 +481,10 @@
             "type": "http",
             "request": {
               "method": "DELETE",
-              "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{rollbackTarget.name}}?args=certkeyname:{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.newCertificateKeyName}}",
+              "connectionRef": "management",
+              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{rollbackTarget.name}}?args=certkeyname:{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.newCertificateKeyName}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-              "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
           }
@@ -458,10 +497,11 @@
       "stage": "verify",
       "request": {
         "method": "GET",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
@@ -491,12 +531,13 @@
       "stage": "verify",
       "request": {
         "method": "POST",
-        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/nsconfig",
+        "connectionRef": "management",
+        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsconfig",
         "query": { "action": "save" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "nsconfig": {} },
-        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]

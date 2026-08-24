@@ -136,7 +136,7 @@ export type WorkflowAssertion =
 export interface WorkflowHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
-  connectionRef?: string;
+  connectionRef: string;
   query?: Record<string, string | number | boolean>;
   headers?: Record<string, string>;
   headerRefs?: Record<string, string>;
@@ -177,8 +177,7 @@ export interface WorkflowSshDialogueItem {
 
 export interface WorkflowSshStepConfig {
   mode: 'command' | 'script' | 'interactive';
-  connection?: WorkflowSshConnection;
-  connectionRef?: string;
+  connectionRef: string;
   command?: string;
   commands?: string[];
   script?: string;
@@ -188,8 +187,7 @@ export interface WorkflowSshStepConfig {
 
 export interface WorkflowFileTransferStepConfig {
   direction: 'upload' | 'download';
-  connection?: WorkflowSshConnection;
-  connectionRef?: string;
+  connectionRef: string;
   remotePath: string;
   contentRef?: string;
   contentEncoding?: WorkflowFileTransferContentEncoding;
