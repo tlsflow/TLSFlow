@@ -1,5 +1,5 @@
-// Auto-generated from messages.ts — do not edit manually.
-// Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+// GCAC 国际化语言文件：直接编辑此文件。
+// 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesKoKR } from './devices.locale'
 import { caOperationsKoKR } from './ca-operations.locale'

@@ -1,10 +1,11 @@
 import { createI18n } from 'vue-i18n'
+import type { LocaleMessage } from '@intlify/core-base'
 import { defaultLocale, supportedLocales, type SupportedLocale } from './locales'
 
-// Statically import the default locale for immediate availability
+// 静态导入默认语言，确保应用启动后立即可用。
 import zhCN from './zh-CN'
 
-// Create i18n instance with only the default locale loaded
+// 创建只加载默认语言的 i18n 实例，其余语言按需加载。
 export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
@@ -18,10 +19,13 @@ export const i18n = createI18n({
 })
 
 /**
- * Lazy-loaders for each locale.
- * Keys match SupportedLocale values.
+ * 为每种语言定义懒加载器，键必须与 SupportedLocale 的值一致。
  */
-const localeLoaders: Record<SupportedLocale, () => Promise<{ default: any }>> = {
+type LocaleModule = {
+  default: LocaleMessage
+}
+
+const localeLoaders: Record<SupportedLocale, () => Promise<LocaleModule>> = {
   'zh-CN': () => import('./zh-CN'),
   'zh-TW': () => import('./zh-TW'),
   'en-US': () => import('./en-US'),
@@ -33,20 +37,20 @@ const localeLoaders: Record<SupportedLocale, () => Promise<{ default: any }>> = 
 }
 
 /**
- * Track which locale messages have already been loaded.
+ * 记录已经加载过语言包的语言。
  */
 const loadedLocales = new Set<SupportedLocale>([defaultLocale])
 let requestedLocale: SupportedLocale = defaultLocale
 
 /**
- * Switch to the given locale, lazy-loading its messages on first use.
- * Falls back to defaultLocale if the target locale fails to load.
+ * 切换语言，首次使用时按需加载语言包。
+ * 目标语言加载失败时回退到 defaultLocale。
  */
 export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
   requestedLocale = locale
   document.documentElement.lang = locale
 
-  // Already loaded — just switch
+  // 已经加载过时直接切换。
   if (loadedLocales.has(locale)) {
     i18n.global.locale.value = locale
     return
