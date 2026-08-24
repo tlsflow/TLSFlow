@@ -173,6 +173,7 @@ import { GlobalSearchApplicationService } from './modules/global-search/applicat
 import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules/global-search/controller/global-search.controller.js';
 import { ApplicationOnboardingController, ApplicationOnboardingService, ApplicationOnboardingSessionRepository, OnboardingCommitService, PublishedDirectWorkflowOnboardingAdapter, getApplicationOnboardingRouteContracts } from './modules/application-onboarding/index.js';
 import type { LoadedApplicationOnboardingRecipe } from './modules/application-onboarding/recipe/index.js';
+import { SystemInitializationController, getSystemInitializationRouteContracts, SystemInitializationService } from './modules/system-initialization/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -221,6 +222,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
   app.setResource('securityServices', security);
+  const systemInitialization = new SystemInitializationService(appDb, security.auth, security.rbac, security.audit);
+  app.setResource('systemInitializationService', systemInitialization);
   const localAgentAuthorization = createLocalAgentAuthorizationServicesV1(process.env, {
     grants: { validate: (input) => security.grants.validate(input) },
   });
@@ -565,6 +568,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
+  new SystemInitializationController(systemInitialization).register(app.router);
   new HealthController(new HealthApplicationService(deploymentArchitecture, createTaskAwareHealthRepository(tasksService))).register(app.router);
 
   assetsService.setAgentsService(agentsService);
@@ -1843,6 +1847,7 @@ export function getRouteContracts(
     : [];
   return [
     ...getHealthRouteContracts(),
+    ...getSystemInitializationRouteContracts(),
     ...getSecurityRouteContracts(),
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),

@@ -3,7 +3,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { RequestContext } from '../../common/tracing/request-context.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
-import type { PermissionPolicyEntity, RoleEntity, UserEntity } from '../../persistence/entities/rbac.entity.js';
+import type { PermissionPolicyEntity, RoleEntity, SupportedLocale, ThemeMode, UserEntity } from '../../persistence/entities/rbac.entity.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { SecuritySubject, TenantContext, TenantScope } from '../../shared/security-types.js';
@@ -83,7 +83,12 @@ export class AuthService {
     private readonly tenantIdentity?: TenantIdentityResolver,
     private readonly tenantContext?: TenantContextService,
   ) {
-    this.seedReady = this.seedDefaultAdmin();
+    // 生产环境首个管理员必须由初始化向导创建；旧的固定 admin 仅保留给测试和显式兼容开关。
+    this.seedReady = this.shouldSeedLegacyAdmin() ? this.seedDefaultAdmin() : Promise.resolve();
+  }
+
+  async ensureReady(): Promise<void> {
+    await this.seedReady;
   }
 
   async login(input: { username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
@@ -178,6 +183,44 @@ export class AuthService {
     const user = await this.rbac.createUser(input);
     await this.credentials.upsert(this.hashPassword(user.id, input.password));
     return user;
+  }
+
+  async createInitialAdmin(input: {
+    username: string;
+    displayName: string;
+    password: string;
+    locale: SupportedLocale;
+    theme: ThemeMode;
+  }): Promise<UserEntity> {
+    await this.seedReady;
+    const users = await this.rbac.listUsers();
+    if (users.length > 0) {
+      throw new AppError('RESOURCE_ALREADY_EXISTS', '系统已经存在用户，不能重复创建首个管理员');
+    }
+    const { adminRole } = await this.ensureBuiltinSecurity();
+    const defaultTenantId = await this.resolveTenantId(DEFAULT_TENANT_ID);
+    let user: UserEntity | undefined;
+    try {
+      user = await this.rbac.createUser({
+        id: 'user_admin',
+        username: input.username,
+        displayName: input.displayName,
+        status: 'active',
+        tenantId: defaultTenantId,
+        tenantName: DEFAULT_TENANT_NAME,
+        preferences: { theme: input.theme, locale: input.locale, version: 1 },
+      });
+      await this.credentials.upsert(this.hashPassword(user.id, input.password));
+      await this.rbac.assignRole(user.id, adminRole.id);
+      return user;
+    } catch (error) {
+      // 首期初始化必须是可重试的：凭据或角色写入失败时不能留下半个 Admin。
+      if (user) {
+        await this.credentials.delete(user.id).catch(() => undefined);
+        await this.rbac.deleteUser(user.id).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async deleteUserCredentials(userId: string): Promise<void> {
@@ -369,7 +412,25 @@ export class AuthService {
   }
 
   private async seedDefaultAdmin(): Promise<void> {
+    const { adminRole, auditorRole } = await this.ensureBuiltinSecurity();
     const defaultTenantId = await this.resolveTenantId(DEFAULT_TENANT_ID);
+    const admin = await this.rbac.createUserIfAbsent({
+      id: 'user_admin',
+      username: 'admin',
+      displayName: '\u7cfb\u7edf\u7ba1\u7406\u5458',
+      status: 'active',
+      tenantId: defaultTenantId,
+      tenantName: DEFAULT_TENANT_NAME,
+    });
+    if (!await this.rbac.userHasRole(admin.id, adminRole.id)) {
+      await this.rbac.assignRole(admin.id, adminRole.id);
+    }
+    if (!await this.credentials.get(admin.id)) {
+      await this.credentials.upsert(this.hashPassword(admin.id, initialAdminPassword()));
+    }
+  }
+
+  private async ensureBuiltinSecurity(): Promise<{ adminRole: RoleEntity; auditorRole: RoleEntity }> {
     const adminRole: RoleEntity = {
       id: 'role_admin',
       code: 'admin',
@@ -386,17 +447,6 @@ export class AuthService {
     };
     await this.rbac.createRoleIfAbsent(adminRole);
     await this.rbac.createRoleIfAbsent(auditorRole);
-    const admin = await this.rbac.createUserIfAbsent({
-      id: 'user_admin',
-      username: 'admin',
-      displayName: '\u7cfb\u7edf\u7ba1\u7406\u5458',
-      status: 'active',
-      tenantId: defaultTenantId,
-      tenantName: DEFAULT_TENANT_NAME,
-    });
-    if (!await this.rbac.userHasRole(admin.id, adminRole.id)) {
-      await this.rbac.assignRole(admin.id, adminRole.id);
-    }
     const policy: Omit<PermissionPolicyEntity, 'id'> & { id: string } = {
       id: 'policy_admin_all',
       subjectType: 'role',
@@ -407,10 +457,16 @@ export class AuthService {
       scope: { tenantId: '*' },
     };
     await this.rbac.createPolicyIfAbsent(policy);
-    if (!await this.credentials.get(admin.id)) {
-      await this.credentials.upsert(this.hashPassword(admin.id, initialAdminPassword()));
-    }
     await this.seedDefaultObjectPermissions(adminRole.id, auditorRole.id);
+    return { adminRole, auditorRole };
+  }
+
+  private shouldSeedLegacyAdmin(): boolean {
+    const configuredPassword = process.env.GCAC_INITIAL_ADMIN_PASSWORD?.trim();
+    if (!configuredPassword) return false;
+    if (process.env.GCAC_ENABLE_LEGACY_ADMIN_SEED === 'false') return false;
+    if (process.env.GCAC_ENABLE_LEGACY_ADMIN_SEED === 'true') return true;
+    return process.env.NODE_ENV !== 'production';
   }
 
   private async seedDefaultObjectPermissions(adminRoleId: string, auditorRoleId: string): Promise<void> {

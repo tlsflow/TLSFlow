@@ -367,6 +367,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/settings/deployment-tasks",
     "/api/v1/site-assets",
     "/api/v1/site-assets/delete",
+    "/api/v1/system/initialization",
     "/api/v1/system/tenant-mode",
     "/api/v1/system/tenant-mode/enable",
     "/api/v1/system/tenant-mode/preflight",
