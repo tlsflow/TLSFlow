@@ -19,23 +19,23 @@ export interface LinuxBundleManifestItem {
 }
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
-const sourceDir = resolve(rootDir, 'agents/linux-go-full-agent');
 
 export function getLinuxAgentBundleFiles(): LinuxBundleFile[] {
+  const sourceDir = resolveLinuxAgentBundleSource();
   return [
-    loadBinaryFile('gcac-linux-agent', 0o755, assertLinuxExecutable),
-    loadFile('build.sh', 0o755),
-    loadFile('service-control.sh', 0o755),
-    loadFile('config/agent.config.template.json', 0o644),
-    loadFile('linux/gcac-linux-agent.service', 0o644),
-    loadFile('linux/gcac-nginx-helper.sh', 0o755),
-    loadFile('linux/install-systemd.sh', 0o755),
-    loadFile('linux/uninstall-systemd.sh', 0o755),
-    loadFile('README.md', 0o644),
+    loadBinaryFile(sourceDir, 'gcac-linux-agent', 0o755, assertLinuxExecutable),
+    loadFile(sourceDir, 'build.sh', 0o755),
+    loadFile(sourceDir, 'service-control.sh', 0o755),
+    loadFile(sourceDir, 'config/agent.config.template.json', 0o644),
+    loadFile(sourceDir, 'linux/gcac-linux-agent.service', 0o644),
+    loadFile(sourceDir, 'linux/gcac-nginx-helper.sh', 0o755),
+    loadFile(sourceDir, 'linux/install-systemd.sh', 0o755),
+    loadFile(sourceDir, 'linux/uninstall-systemd.sh', 0o755),
+    loadFile(sourceDir, 'README.md', 0o644),
   ];
 }
 
-export function getLinuxAgentBundleManifest(version = '0.1.0') {
+export function getLinuxAgentBundleManifest(version = process.env.GCAC_RELEASE_VERSION?.trim() || '0.1.0') {
   return {
     bundleName: 'gcac-linux-agent-bundle.tar.gz',
     version,
@@ -61,7 +61,7 @@ export function buildLinuxAgentBundleTarGz(): Buffer {
   return gzipSync(Buffer.concat(parts), { level: 9 });
 }
 
-function loadFile(relativePath: string, mode: number): LinuxBundleFile {
+function loadFile(sourceDir: string, relativePath: string, mode: number): LinuxBundleFile {
   const fullPath = resolve(sourceDir, relativePath);
   try {
     return {
@@ -78,10 +78,22 @@ function loadFile(relativePath: string, mode: number): LinuxBundleFile {
   }
 }
 
-function loadBinaryFile(relativePath: string, mode: number, validator: (content: Buffer, fullPath: string) => void): LinuxBundleFile {
-  const file = loadFile(relativePath, mode);
+function loadBinaryFile(sourceDir: string, relativePath: string, mode: number, validator: (content: Buffer, fullPath: string) => void): LinuxBundleFile {
+  const file = loadFile(sourceDir, relativePath, mode);
   validator(file.content, resolve(sourceDir, relativePath));
   return file;
+}
+
+function resolveLinuxAgentBundleSource(): string {
+  const configuredRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim();
+  if (configuredRoot) return resolve(configuredRoot, 'linux', architectureName());
+  return resolve(rootDir, 'agents/linux-go-full-agent');
+}
+
+function architectureName(): 'amd64' | 'arm64' {
+  if (process.arch === 'x64') return 'amd64';
+  if (process.arch === 'arm64') return 'arm64';
+  throw new AppError('VALIDATION_FAILED', '当前 Node 运行架构没有 Agent Release Bundle 映射', { nodeArch: process.arch });
 }
 
 function assertLinuxExecutable(content: Buffer, fullPath: string): void {

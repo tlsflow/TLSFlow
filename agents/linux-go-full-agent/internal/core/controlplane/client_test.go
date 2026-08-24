@@ -12,12 +12,15 @@ func TestClientDecodesWrappedResponseAndHeaders(t *testing.T) {
 		if request.Header.Get("X-Tenant-Id") != "tenant-1" {
 			t.Fatalf("租户 Header 未传递: %s", request.Header.Get("X-Tenant-Id"))
 		}
+		if request.Header.Get("X-Agent-Token") != "agent-token-1" {
+			t.Fatalf("Agent Token 未传递")
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte("{\"data\":{\"id\":\"agent-1\"}}"))
 	}))
 	defer server.Close()
 
-	client := New(server.Client(), Config{BaseURL: server.URL, TenantID: "tenant-1"})
+	client := New(server.Client(), Config{BaseURL: server.URL, TenantID: "tenant-1", AgentToken: "agent-token-1"})
 	var target struct {
 		ID string `json:"id"`
 	}

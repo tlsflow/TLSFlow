@@ -238,6 +238,7 @@ namespace GCAC.WindowsCompatibilityAgent
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(config.controlPlaneUrl.TrimEnd('/') + path);
             request.Method = "GET";
             request.Headers["x-tenant-id"] = config.tenantId;
+            request.Headers["x-agent-token"] = config.enrollmentToken;
             using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
             using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
             {
@@ -253,6 +254,7 @@ namespace GCAC.WindowsCompatibilityAgent
             request.Method = "POST";
             request.ContentType = "application/json; charset=utf-8";
             request.Headers["x-tenant-id"] = config.tenantId;
+            request.Headers["x-agent-token"] = config.enrollmentToken;
             request.ContentLength = payload.Length;
             using (Stream stream = request.GetRequestStream()) stream.Write(payload, 0, payload.Length);
             using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())

@@ -1368,6 +1368,7 @@ export class InternalCaApplicationService {
     return {
       provider,
       expiresAt: enrollment.expiresAt,
+      enrollmentTokenId: enrollment.tokenId,
       installCommand: `irm '${scriptUrl}' | iex`,
       scriptUrl,
     };
@@ -1388,6 +1389,7 @@ export class InternalCaApplicationService {
       provider,
       update: true,
       expiresAt: enrollment.expiresAt,
+      enrollmentTokenId: enrollment.tokenId,
       installCommand: `irm '${scriptUrl}' | iex`,
       scriptUrl,
     };

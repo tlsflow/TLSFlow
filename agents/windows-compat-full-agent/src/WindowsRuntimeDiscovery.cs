@@ -19,6 +19,7 @@ namespace GCAC.WindowsCompatibilityAgent
     internal sealed class WindowsRuntimeDiscovery
     {
         private readonly string[] roots;
+        private readonly bool hasExplicitRoots;
 
         public WindowsRuntimeDiscovery(AgentConfig config)
             : this(ParseRoots(Environment.GetEnvironmentVariable("GCAC_DISCOVERY_ROOTS")))
@@ -27,6 +28,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         internal WindowsRuntimeDiscovery(string[] candidateRoots)
         {
+            hasExplicitRoots = candidateRoots != null && candidateRoots.Length > 0;
             roots = candidateRoots == null || candidateRoots.Length == 0
                 ? new string[] { @"C:\GCAC-Lab-2012R2", @"C:\GCAC-Lab" }
                 : candidateRoots;
@@ -80,6 +82,7 @@ namespace GCAC.WindowsCompatibilityAgent
             List<string> result = new List<string>();
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string root in roots) AddCandidateRoot(result, seen, root);
+            if (hasExplicitRoots) return result;
             foreach (RuntimeProcessFact process in processFacts)
             {
                 if (!Matches(process.Name, "nginx", "httpd", "apache", "java", "tomcat", "prunsrv")) continue;

@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.8"
+	agentVersion      = "0.1.9"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll   = 60
@@ -3205,6 +3205,9 @@ func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig
 	request.Header.Set("X-Request-Id", fmt.Sprintf("windows_go_agent_%d", time.Now().UnixNano()))
 	if strings.TrimSpace(config.TenantID) != "" {
 		request.Header.Set("X-Tenant-Id", strings.TrimSpace(config.TenantID))
+	}
+	if strings.TrimSpace(config.EnrollmentToken) != "" {
+		request.Header.Set("X-Agent-Token", strings.TrimSpace(config.EnrollmentToken))
 	}
 
 	response, err := client.Do(request)

@@ -2736,8 +2736,9 @@ func uniqueTomcatApps(items []tomcatAppDetail) []tomcatAppDetail {
 
 func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig, method string, endpointPath string, payload any, target any) error {
 	transport := controlplane.New(client, controlplane.Config{
-		BaseURL:  config.ControlPlane,
-		TenantID: config.TenantID,
+		BaseURL:    config.ControlPlane,
+		TenantID:   config.TenantID,
+		AgentToken: config.EnrollmentToken,
 	})
 	return transport.DoJSON(ctx, method, endpointPath, payload, target)
 }

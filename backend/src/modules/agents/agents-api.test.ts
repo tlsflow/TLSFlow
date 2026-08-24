@@ -78,6 +78,74 @@ describe('Agent direct control api', () => {
     assert.equal((await agentsService.getAgentDetail(tenantId, first.id)).agent.status, 'ONLINE');
   });
 
+  it('生产 HTTP 入口仅允许有效 Agent Token 为机器回调装配租户上下文', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_machine_auth';
+    const token = await agentsService.createEnrollmentToken(tenantId, {
+      allowedRoles: ['full_agent'],
+      allowedZones: ['default'],
+      maxUses: 1,
+      ttlSeconds: 60,
+      createdBy: 'test',
+    }, 'req_create_machine_token');
+    const machineHeaders = {
+      'x-agent-token': token.token,
+      'x-tenant-id': 'tenant_attacker',
+    };
+
+    const register = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers: machineHeaders,
+      body: {
+        agentKey: 'machine-auth-agent',
+        hostname: 'MACHINE-AUTH',
+        version: '1.0.0',
+        osType: 'WINDOWS',
+        role: 'full_agent',
+        zone: 'default',
+        enrollmentToken: token.token,
+      },
+    });
+    assert.equal(register.statusCode, 201);
+    const agent = register.body as { id: string; tenantId: string };
+    assert.equal(agent.tenantId, tenantId);
+
+    const heartbeat = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/heartbeat',
+      headers: machineHeaders,
+      body: {
+        agentId: agent.id,
+        version: '1.0.0',
+        status: 'ONLINE',
+      },
+    });
+    assert.equal(heartbeat.statusCode, 200);
+
+    const invalidToken = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/heartbeat',
+      headers: { 'x-agent-token': 'invalid-token', 'x-tenant-id': tenantId },
+      body: {
+        agentId: agent.id,
+        version: '1.0.0',
+        status: 'ONLINE',
+      },
+    });
+    assert.equal(invalidToken.statusCode, 401);
+
+    const humanRoute = await app.inject({
+      method: 'GET',
+      path: '/api/v1/agents',
+      headers: machineHeaders,
+    });
+    assert.equal(humanRoute.statusCode, 401);
+  });
+
   it('Agent 离线时健康状态必须覆盖历史健康心跳', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
@@ -124,7 +192,7 @@ describe('Agent direct control api', () => {
   it('注册和心跳应持久化 directControl 并在 detail health 中返回', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database });
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
     const headers = {
       'x-tenant-id': 'tenant_agent_direct_control',
       'x-request-id': 'req_agent_direct_control_register',
@@ -255,7 +323,7 @@ describe('Agent direct control api', () => {
   it('Agent detail 应暴露 recentTaskLogs 的执行模式与直连回退原因', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database });
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
     const headers = {
       'x-tenant-id': 'tenant_agent_recent_logs',
       'x-request-id': 'req_agent_recent_logs_register',

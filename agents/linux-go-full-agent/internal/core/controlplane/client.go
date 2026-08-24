@@ -13,8 +13,9 @@ import (
 )
 
 type Config struct {
-	BaseURL  string
-	TenantID string
+	BaseURL    string
+	TenantID   string
+	AgentToken string
 }
 
 type APIError struct {
@@ -54,6 +55,9 @@ func (client *Client) DoJSON(ctx context.Context, method string, endpointPath st
 	request.Header.Set("X-Request-Id", client.requestID())
 	if tenantID := strings.TrimSpace(client.config.TenantID); tenantID != "" {
 		request.Header.Set("X-Tenant-Id", tenantID)
+	}
+	if agentToken := strings.TrimSpace(client.config.AgentToken); agentToken != "" {
+		request.Header.Set("X-Agent-Token", agentToken)
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {

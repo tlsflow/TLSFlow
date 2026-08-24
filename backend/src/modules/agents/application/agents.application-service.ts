@@ -315,7 +315,7 @@ export class AgentsApplicationService {
    * Agent capability snapshot 是事实来源，插件映射是投影规则。
    * 只刷新插件注册表而不重放快照，会让历史 IIS 投影继续占据设备详情。
    */
-  async reprojectLatestCapabilitySnapshots(): Promise<{
+  async reprojectLatestCapabilitySnapshots(tenantId?: string): Promise<{
     attempted: number;
     projected: number;
     skipped: number;
@@ -333,6 +333,7 @@ export class AgentsApplicationService {
     };
 
     for (const agent of await this.repository.listAllRegistrations()) {
+      if (tenantId && agent.tenantId !== tenantId) continue;
       const snapshot = await this.repository.getLatestCapabilitySnapshot(agent.tenantId, agent.id);
       if (!snapshot) {
         summary.skipped += 1;
@@ -423,7 +424,7 @@ export class AgentsApplicationService {
   }
 
   async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
-    const agent = await this.requireAgent(tenantId, input.agentId);
+    await this.requireAgent(tenantId, input.agentId);
     const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
     if (existingQueuedTask) return existingQueuedTask;
     const task = await this.enqueueTask(tenantId, {
@@ -437,12 +438,20 @@ export class AgentsApplicationService {
         requestedAt: new Date().toISOString(),
       },
     }, requestId);
-    const canExecuteDirectly = agent.directControl?.enabled
-      && agent.directControl.reachable
-      && agent.directControl.supportedActions.includes('agent.capability.rescan');
-    if (!canExecuteDirectly) return task;
-    const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
-    return direct.task;
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId,
+      taskType: 'AGENT_CAPABILITY_RESCAN',
+      requestedBy: input.requestedBy,
+      triggerSource: 'agents.capability-rescan',
+      idempotencyKey: `agent-capability-rescan:${task.id}`,
+      payload: { agentTaskId: task.id, agentId: input.agentId },
+      resourceRefs: [
+        { resourceType: 'agent', resourceId: input.agentId },
+        { resourceType: 'agentTask', resourceId: task.id },
+      ],
+    });
+    // 中文说明：统一任务模式下，控制面只负责入列；即使 Agent 支持直连，也不能在这里绕过任务审计直接执行。
+    return task;
   }
 
   async refreshStandardDiscovery(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{
@@ -1272,6 +1281,10 @@ export class AgentsApplicationService {
     return agent;
   }
 
+  async getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined> {
+    return this.repository.getInstallSession(tenantId, sessionId);
+  }
+
   private recordAgentInstallTask(tenantId: string, sessionId: string, platform: string, requestedBy?: string): void {
     enqueueTaskBestEffort(this.tasks, {
       tenantId,
@@ -1732,6 +1745,8 @@ function normalizeCommandValue(value: string, field: string): string {
 }
 
 function resolveWindowsGoAgentRoot(): string {
+  const bundleRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim();
+  if (bundleRoot) return path.resolve(bundleRoot, 'windows', releaseArchitecture(), 'full-agent');
   const backendMarker = `${path.sep}backend${path.sep}`;
   const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
   if (backendMarkerIndex >= 0) {
@@ -1767,6 +1782,11 @@ function resolveWindowsCompatibilityBinaryPath(agentRoot: string): string {
 }
 
 function resolveAgentProductRoot(productDirectory: string): string {
+  const bundleRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim();
+  if (bundleRoot) {
+    const bundleDirectory = productDirectory === 'windows-compat-full-agent' ? 'compatibility' : 'full-agent';
+    return path.resolve(bundleRoot, 'windows', releaseArchitecture(), bundleDirectory);
+  }
   const backendMarker = `${path.sep}backend${path.sep}`;
   const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
   if (backendMarkerIndex >= 0) {
@@ -1785,6 +1805,12 @@ function resolveAgentProductRoot(productDirectory: string): string {
     }
   }
   return path.resolve(process.cwd(), relativeAgentPath);
+}
+
+function releaseArchitecture(): 'amd64' | 'arm64' {
+  if (process.arch === 'x64') return 'amd64';
+  if (process.arch === 'arm64') return 'arm64';
+  throw new AppError('VALIDATION_FAILED', '当前 Node 运行架构没有 Agent Release Bundle 映射', { nodeArch: process.arch });
 }
 
 function resolveDirectControlHost(listenAddress?: string): string | undefined {

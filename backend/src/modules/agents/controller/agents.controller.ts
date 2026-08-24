@@ -145,6 +145,7 @@ export class AgentsController {
         body as unknown as CreateWindowsPowerShellInstallSessionInput,
         requestId(request),
         inferBaseUrl(request),
+        actorId(request),
       ),
     };
   }
@@ -168,6 +169,7 @@ export class AgentsController {
         body as unknown as CreateLinuxGoInstallSessionInput,
         requestId(request),
         inferBaseUrl(request),
+        actorId(request),
       ),
     };
   }
@@ -191,6 +193,7 @@ export class AgentsController {
         body as unknown as CreateWindowsCompatibilityInstallSessionInput,
         requestId(request),
         inferBaseUrl(request),
+        actorId(request),
       ),
     };
   }
