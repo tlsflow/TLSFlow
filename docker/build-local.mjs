@@ -9,22 +9,24 @@ const options = parseArguments(process.argv.slice(2));
 const architecture = options.architecture ?? 'all';
 const platform = options.platform ?? defaultPlatform();
 const tag = options.tag ?? versions.releaseVersion;
+const productEdition = options.edition ?? process.env.VITE_PRODUCT_EDITION?.trim() ?? 'public';
 
 if (!['small', 'standard', 'all'].includes(architecture)) {
   throw new Error('--architecture 只允许 small、standard 或 all');
 }
+assertProductEdition(productEdition);
 assertLinuxPlatform(platform);
 
 run(process.execPath, [join(repositoryRoot, 'docker', 'build-agent-release-bundle.mjs')], repositoryRoot);
 
 const targets = architecture === 'small'
-  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small' }]
+  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }]
   : architecture === 'standard'
     ? standardTargets()
-    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small' }, ...standardTargets()];
+    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
 
 for (const target of targets) {
-  console.log(`开始本地构建 ${target.name}:${tag} (${platform})`);
+  console.log(`开始本地构建 ${target.name}:${tag} (${platform}，${productEdition} 品牌)`);
   run('docker', [
     'buildx',
     'build',
@@ -33,6 +35,7 @@ for (const target of targets) {
     platform,
     '--tag',
     `${target.name}:${tag}`,
+    ...productEditionBuildArgument(target, productEdition),
     '--file',
     join(repositoryRoot, target.dockerfile),
     repositoryRoot,
@@ -45,7 +48,7 @@ function standardTargets() {
   return [
     { name: 'gcac-db', dockerfile: 'docker/Dockerfile.db' },
     { name: 'gcac-backend', dockerfile: 'docker/Dockerfile.backend' },
-    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web' },
+    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web', usesProductEdition: true },
     { name: 'gcac-browser-runtime', dockerfile: 'docker/Dockerfile.browser-runtime' },
   ];
 }
@@ -61,9 +64,20 @@ function parseArguments(args) {
     if (key === 'architecture') options.architecture = value;
     else if (key === 'platform') options.platform = value;
     else if (key === 'tag') options.tag = value;
+    else if (key === 'edition') options.edition = value;
     else throw new Error(`不支持的参数：--${key}`);
   }
   return options;
+}
+
+function assertProductEdition(value) {
+  if (value !== 'public' && value !== 'enterprise') {
+    throw new Error('--edition 只允许 public 或 enterprise');
+  }
+}
+
+function productEditionBuildArgument(target, productEdition) {
+  return target.usesProductEdition ? ['--build-arg', `VITE_PRODUCT_EDITION=${productEdition}`] : [];
 }
 
 function defaultPlatform() {

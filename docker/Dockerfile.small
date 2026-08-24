@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_IMAGE=node:22-bookworm-slim
+ARG VITE_PRODUCT_EDITION=public
 
 FROM ${NODE_IMAGE} AS web-build
+ARG VITE_PRODUCT_EDITION
+ENV VITE_PRODUCT_EDITION=${VITE_PRODUCT_EDITION}
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 COPY version /src/version

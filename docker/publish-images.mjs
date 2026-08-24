@@ -10,6 +10,7 @@ const namespace = options.namespace ?? process.env.DOCKERHUB_NAMESPACE?.trim();
 const tag = options.tag ?? versions.releaseVersion;
 const architecture = options.architecture ?? 'all';
 const platforms = options.platforms ?? versions.deploymentArchitectures;
+const productEdition = options.edition ?? process.env.VITE_PRODUCT_EDITION?.trim() ?? 'public';
 
 if (!namespace) {
   throw new Error('必须通过 --namespace 或 DOCKERHUB_NAMESPACE 指定 Docker Hub 命名空间');
@@ -20,6 +21,7 @@ if (!/^[a-z0-9][a-z0-9._-]*$/iu.test(namespace)) {
 if (!['small', 'standard', 'all'].includes(architecture)) {
   throw new Error('--architecture 只允许 small、standard 或 all');
 }
+assertProductEdition(productEdition);
 for (const platform of platforms) {
   if (!versions.deploymentArchitectures.includes(platform)) {
     throw new Error(`平台不在发布矩阵中：${platform}`);
@@ -30,21 +32,22 @@ assertDockerLoginIsExternal();
 run(process.execPath, [join(repositoryRoot, 'docker', 'build-agent-release-bundle.mjs')], repositoryRoot);
 
 const targets = architecture === 'small'
-  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small' }]
+  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }]
   : architecture === 'standard'
     ? standardTargets()
-    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small' }, ...standardTargets()];
+    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
 
 for (const target of targets) {
   const image = `${namespace}/${target.name}`;
   const tags = [`${image}:${tag}`];
   if (options.latest === true) tags.push(`${image}:latest`);
-  console.log(`开始发布 ${tags.join(', ')} (${platforms.join(',')})`);
+  console.log(`开始发布 ${tags.join(', ')} (${platforms.join(',')}，${productEdition} 品牌)`);
   const commandArguments = [
     'buildx',
     'build',
     '--platform',
     platforms.join(','),
+    ...productEditionBuildArgument(target, productEdition),
     '--file',
     join(repositoryRoot, target.dockerfile),
     ...tags.flatMap((item) => ['--tag', item]),
@@ -62,7 +65,7 @@ function standardTargets() {
   return [
     { name: 'gcac-db', dockerfile: 'docker/Dockerfile.db' },
     { name: 'gcac-backend', dockerfile: 'docker/Dockerfile.backend' },
-    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web' },
+    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web', usesProductEdition: true },
     { name: 'gcac-browser-runtime', dockerfile: 'docker/Dockerfile.browser-runtime' },
   ];
 }
@@ -83,9 +86,20 @@ function parseArguments(args) {
     else if (key === 'tag') options.tag = value;
     else if (key === 'architecture') options.architecture = value;
     else if (key === 'platforms') options.platforms = value.split(',').map((item) => item.trim()).filter(Boolean);
+    else if (key === 'edition') options.edition = value;
     else throw new Error(`不支持的参数：--${key}`);
   }
   return options;
+}
+
+function assertProductEdition(value) {
+  if (value !== 'public' && value !== 'enterprise') {
+    throw new Error('--edition 只允许 public 或 enterprise');
+  }
+}
+
+function productEditionBuildArgument(target, productEdition) {
+  return target.usesProductEdition ? ['--build-arg', `VITE_PRODUCT_EDITION=${productEdition}`] : [];
 }
 
 function assertDockerLoginIsExternal() {

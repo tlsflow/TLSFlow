@@ -6,6 +6,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.small
+      args:
+        VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
     image: gcac-small:${GCAC_RELEASE_VERSION:-0.1.0}
     environment:
       GCAC_RELEASE_VERSION: ${GCAC_RELEASE_VERSION:-0.1.0}
@@ -152,6 +154,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
+      args:
+        VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
     image: gcac-web:${GCAC_RELEASE_VERSION:-0.1.0}
     depends_on:
       backend:

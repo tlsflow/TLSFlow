@@ -2,8 +2,11 @@
 
 ARG NODE_IMAGE=node:22-bookworm-slim
 ARG WEB_IMAGE=nginx:1.27-alpine
+ARG VITE_PRODUCT_EDITION=public
 
 FROM ${NODE_IMAGE} AS build
+ARG VITE_PRODUCT_EDITION
+ENV VITE_PRODUCT_EDITION=${VITE_PRODUCT_EDITION}
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 COPY version /src/version
