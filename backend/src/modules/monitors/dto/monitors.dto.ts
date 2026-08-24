@@ -150,6 +150,15 @@ export interface RemoteTlsObservationInput {
   checkedAt: string;
 }
 
+export interface MonitorTlsProbeRiskInput {
+  tenantId?: string;
+  serviceAssetId: string;
+  domainName?: string;
+  url: string;
+  verificationError?: string;
+  checkedAt: string;
+}
+
 export interface AutomationHealthInput {
   tenantId?: string;
   hostId?: string;
@@ -187,8 +196,20 @@ export interface ProbeServiceAssetResult {
     dnsNames?: string[];
     verified?: boolean;
     verificationError?: string;
+    chain?: CertificateChainCertificate[];
+    chainStatus?: 'valid' | 'incomplete' | 'invalid' | 'untrusted';
   };
   detail?: Record<string, unknown>;
+}
+
+export interface CertificateChainCertificate {
+  fingerprintSha256: string;
+  subject?: string;
+  issuer?: string;
+  serialNumber?: string;
+  notBefore?: string;
+  notAfter?: string;
+  isCa?: boolean;
 }
 
 export interface CertificateObservationDto {
@@ -207,6 +228,8 @@ export interface CertificateObservationDto {
   dnsNames?: string[];
   verified?: boolean;
   verificationError?: string;
+  chain?: CertificateChainCertificate[];
+  chainStatus?: 'valid' | 'incomplete' | 'invalid' | 'untrusted';
   rawResult: Record<string, unknown>;
   createdAt: string;
 }
@@ -226,6 +249,8 @@ export interface SaveCertificateObservationInput {
   dnsNames?: string[];
   verified?: boolean;
   verificationError?: string;
+  chain?: CertificateChainCertificate[];
+  chainStatus?: 'valid' | 'incomplete' | 'invalid' | 'untrusted';
   rawResult?: Record<string, unknown>;
 }
 

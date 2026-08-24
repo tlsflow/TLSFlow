@@ -470,6 +470,43 @@ export class PgMonitorsRepository implements MonitorsRepository {
   }
 
   async saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto> {
+    const latest = await this.getLatestCertificateObservation(input.tenantId, input.serviceAssetId);
+    if (latest && normalizeObservationFingerprint(latest.fingerprintSha256) === normalizeObservationFingerprint(input.fingerprintSha256)) {
+      const updated: CertificateObservationDto = {
+        ...latest,
+        source: input.source,
+        url: input.url,
+        subject: input.subject,
+        issuer: input.issuer,
+        serialNumber: input.serialNumber,
+        notBefore: input.notBefore,
+        notAfter: input.notAfter,
+        dnsNames: input.dnsNames,
+        verified: input.verified,
+        verificationError: input.verificationError,
+        rawResult: input.rawResult ?? {},
+      };
+      await this.db.query(`update pg_monitor_certificate_observations set
+        source = $2, probe_url = $3, subject = $4, issuer = $5, serial_number = $6,
+        not_before = $7, not_after = $8, dns_names = $9::jsonb, verified = $10,
+        verification_error = $11, raw_result = $12::jsonb
+        where id = $1`, [
+        updated.id,
+        updated.source,
+        updated.url,
+        updated.subject ?? null,
+        updated.issuer ?? null,
+        updated.serialNumber ?? null,
+        updated.notBefore ?? null,
+        updated.notAfter ?? null,
+        JSON.stringify(updated.dnsNames ?? []),
+        updated.verified ?? null,
+        updated.verificationError ?? null,
+        JSON.stringify(updated.rawResult),
+      ]);
+      return updated;
+    }
+
     const now = new Date().toISOString();
     const item: CertificateObservationDto = {
       id: newId('certobs'),
@@ -523,7 +560,12 @@ export class PgMonitorsRepository implements MonitorsRepository {
       `select * from pg_monitor_certificate_observations order by observed_at desc, created_at desc`,
     )).rows.map(toCertificateObservation);
     const pageSize = normalizePageSize(query.pageSize);
-    return rows
+    const uniqueRows = new Map<string, CertificateObservationDto>();
+    for (const item of rows) {
+      const key = `${item.tenantId ?? ''}|${item.serviceAssetId}|${normalizeObservationFingerprint(item.fingerprintSha256)}`;
+      if (!uniqueRows.has(key)) uniqueRows.set(key, item);
+    }
+    return [...uniqueRows.values()]
       .filter((item) => query.tenantId === undefined || item.tenantId === query.tenantId)
       .filter((item) => query.serviceAssetId === undefined || item.serviceAssetId === query.serviceAssetId)
       .slice(0, pageSize);
@@ -704,6 +746,7 @@ function toRiskEvent(row: RiskEventRow): RiskEvent {
       certificateAssetId: scope.certificateAssetId as string | undefined,
       certificateVersionId: scope.certificateVersionId as string | undefined,
       bindingId: scope.bindingId as string | undefined,
+      serviceAssetId: scope.serviceAssetId as string | undefined,
       executionRunId: scope.executionRunId as string | undefined,
       serviceInstanceId: scope.serviceInstanceId as string | undefined,
       hostId: scope.hostId as string | undefined,
@@ -823,6 +866,8 @@ function toAlertRule(row: AlertRuleRow): AlertRule {
 }
 
 function toCertificateObservation(row: CertificateObservationRow): CertificateObservationDto {
+  const rawResult = asObject(row.raw_result);
+  const rawCertificate = asObject(rawResult.certificate);
   return {
     id: row.id,
     tenantId: row.tenant_id ?? undefined,
@@ -839,9 +884,15 @@ function toCertificateObservation(row: CertificateObservationRow): CertificateOb
     dnsNames: Array.isArray(row.dns_names) ? row.dns_names.map(String).filter(Boolean) : undefined,
     verified: row.verified ?? undefined,
     verificationError: row.verification_error ?? undefined,
-    rawResult: asObject(row.raw_result),
+    chain: Array.isArray(rawCertificate.chain) ? rawCertificate.chain as CertificateObservationDto['chain'] : undefined,
+    chainStatus: typeof rawCertificate.chainStatus === 'string' ? rawCertificate.chainStatus as CertificateObservationDto['chainStatus'] : undefined,
+    rawResult,
     createdAt: row.created_at,
   };
+}
+
+function normalizeObservationFingerprint(value: string | undefined): string {
+  return (value ?? '').replace(/[^a-f0-9]/giu, '').toUpperCase();
 }
 
 function asObject(value: unknown): Record<string, unknown> {

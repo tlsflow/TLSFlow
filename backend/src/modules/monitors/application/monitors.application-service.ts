@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { X509Certificate } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
+import tls from 'node:tls';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
@@ -23,6 +25,7 @@ import type {
   MonitorTargetPageDto,
   ProbeServiceAssetInput,
   ProbeServiceAssetResult,
+  CertificateChainCertificate,
   RiskEventDto,
   UpdateMonitorTargetInput,
 } from '../dto/monitors.dto.js';
@@ -71,13 +74,20 @@ export class MonitorsApplicationService {
     }
 
     const bindings = await this.dependencies.bindings.listCertificateBindings(input.tenantId ?? tenantFallback, allRowsQuery());
+    const unknownCertificateBindingIds = new Set<string>();
     for (const binding of bindings.items) {
       const risk = this.domain.buildBindingRiskEvent(binding);
       if (!risk) continue;
+      if (risk.type === 'binding_unknown_certificate') unknownCertificateBindingIds.add(binding.id);
       risk.detectedAt = detectedAt;
       risk.scope.tenantId = binding.tenantId;
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
+    await this.resolveClearedBindingMappingRisks(
+      input.tenantId ?? tenantFallback,
+      unknownCertificateBindingIds,
+      detectedAt,
+    );
 
     const runs = await this.dependencies.executions.listRuns(input.tenantId);
     for (const run of runs) {
@@ -207,8 +217,10 @@ export class MonitorsApplicationService {
 
     const url = buildProbeUrl(asset);
     const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
-    const result = await probeFromControlPlane(asset, url, timeoutMs);
-    await this.saveCertificateObservationIfChanged(tenantId, result);
+    const probeResult = await probeFromControlPlane(asset, url, timeoutMs);
+    await this.saveCertificateObservationIfChanged(tenantId, probeResult);
+    await this.reconcileMonitorTlsRisk(tenantId, asset.address, probeResult);
+    const result = await this.applyActiveAssetRisksToProbeResult(tenantId, probeResult);
     if (input.monitorTargetId) {
       await this.repository.saveMonitorProbeResult({
         tenantId,
@@ -233,7 +245,7 @@ export class MonitorsApplicationService {
     if (!certificate || !fingerprint) return;
 
     const latest = await this.repository.getLatestCertificateObservation(tenantId, result.serviceAssetId);
-    if (isUnchangedObservation(latest, fingerprint)) return;
+    if (isUnchangedObservation(latest, fingerprint, certificate)) return;
 
     await this.repository.saveCertificateObservation({
       tenantId,
@@ -250,8 +262,100 @@ export class MonitorsApplicationService {
       dnsNames: certificate.dnsNames,
       verified: certificate.verified,
       verificationError: certificate.verificationError,
+      chain: certificate.chain,
+      chainStatus: certificate.chainStatus,
       rawResult: { certificate, httpStatus: result.httpStatus, message: result.message },
     });
+  }
+
+  private async resolveClearedBindingMappingRisks(
+    tenantId: string,
+    unknownCertificateBindingIds: ReadonlySet<string>,
+    occurredAt: string,
+  ): Promise<void> {
+    const risks = await this.repository.listRiskEvents({ tenantId });
+    for (const risk of risks) {
+      const bindingId = risk.scope.bindingId;
+      if (
+        risk.type !== 'binding_unknown_certificate'
+        || !bindingId
+        || unknownCertificateBindingIds.has(bindingId)
+        || !['OPEN', 'ACKED'].includes(risk.status)
+      ) continue;
+      await this.repository.changeRiskStatus({
+        tenantId,
+        riskEventId: risk.id,
+        action: 'resolved',
+        reason: '绑定已具备证书映射或已不在当前监控范围',
+        actorType: 'system',
+        occurredAt,
+        metadata: { trigger: 'binding_mapping_reconciled', bindingId },
+      });
+    }
+  }
+
+  private async reconcileMonitorTlsRisk(
+    tenantId: string | undefined,
+    domainName: string,
+    result: ProbeServiceAssetResult,
+  ): Promise<void> {
+    const verificationError = result.certificate?.verificationError;
+    const detailVerificationError = readString(result.detail?.tlsVerificationError);
+    if (result.certificate?.verified === false || verificationError || detailVerificationError) {
+      const event = this.domain.buildMonitorTlsProbeRiskEvent({
+        tenantId,
+        serviceAssetId: result.serviceAssetId,
+        domainName,
+        url: result.url,
+        verificationError: verificationError || detailVerificationError || 'UNKNOWN_TLS_VERIFICATION_ERROR',
+        checkedAt: result.checkedAt,
+      });
+      if (event) await this.repository.upsertRiskEvent(event);
+      return;
+    }
+
+    const risks = await this.repository.listRiskEvents({ tenantId });
+    for (const risk of risks) {
+      if (
+        risk.type !== 'tls_chain_invalid'
+        || risk.source !== 'monitor'
+        || risk.scope.serviceAssetId !== result.serviceAssetId
+        || !['OPEN', 'ACKED'].includes(risk.status)
+      ) continue;
+      await this.repository.changeRiskStatus({
+        tenantId: tenantId ?? tenantFallback,
+        riskEventId: risk.id,
+        action: 'resolved',
+        reason: '最新系统探测已通过证书链验证',
+        actorType: 'system',
+        occurredAt: result.checkedAt,
+        metadata: { trigger: 'monitor_tls_chain_recovered', serviceAssetId: result.serviceAssetId },
+      });
+    }
+  }
+
+  private async applyActiveAssetRisksToProbeResult(
+    tenantId: string,
+    result: ProbeServiceAssetResult,
+  ): Promise<ProbeServiceAssetResult> {
+    if (result.status === 'ERROR') return result;
+    const activeRisks = (await this.repository.listRiskEvents({ tenantId }))
+      .filter((risk) => risk.scope.serviceAssetId === result.serviceAssetId)
+      .filter((risk) => ['OPEN', 'ACKED'].includes(risk.status));
+    if (activeRisks.length === 0) return result;
+
+    const summaries = [...new Set(activeRisks.map((risk) => risk.summary).filter(Boolean))];
+    return {
+      ...result,
+      status: 'WARNING',
+      message: summaries.length > 0 ? `${result.message}；存在监控警告：${summaries.join('；')}` : result.message,
+      detail: {
+        ...(result.detail ?? {}),
+        activeRiskIds: activeRisks.map((risk) => risk.id),
+        activeRiskTypes: [...new Set(activeRisks.map((risk) => risk.type))],
+        warningSummaries: summaries,
+      },
+    };
   }
 
   private async assertServiceAssetExists(tenantId: string, serviceAssetId: string): Promise<void> {
@@ -338,7 +442,7 @@ async function probeFromControlPlane(asset: ProbeAsset, url: string, timeoutMs: 
 
   if (parsed.protocol !== 'https:') {
     try {
-      return await requestProbe(asset.id, parsed, timeoutMs, { rejectUnauthorized: false });
+      return await requestProbe(asset.id, parsed, timeoutMs, { rejectUnauthorized: false }, resolveTrustRoots(asset));
     } catch (cause) {
       return failedProbeResult(asset.id, url, timeoutMs, cause);
     }
@@ -348,7 +452,7 @@ async function probeFromControlPlane(asset: ProbeAsset, url: string, timeoutMs: 
     return await requestProbe(asset.id, parsed, timeoutMs, {
       rejectUnauthorized: true,
       servername: readTlsServerName(asset, parsed),
-    });
+    }, resolveTrustRoots(asset));
   } catch (cause) {
     if (!isTlsCertificateProbeError(cause)) {
       return failedProbeResult(asset.id, url, timeoutMs, cause);
@@ -359,7 +463,7 @@ async function probeFromControlPlane(asset: ProbeAsset, url: string, timeoutMs: 
       const insecureResult = await requestProbe(asset.id, parsed, timeoutMs, {
         rejectUnauthorized: false,
         servername: readTlsServerName(asset, parsed),
-      });
+      }, resolveTrustRoots(asset));
       const certificateError = insecureResult.certificate?.verificationError || verificationError || '证书不受系统信任';
       return {
         ...insecureResult,
@@ -385,6 +489,7 @@ function requestProbe(
   parsed: URL,
   timeoutMs: number,
   tls: { rejectUnauthorized: boolean; servername?: string },
+  trustRoots: readonly string[],
 ): Promise<ProbeServiceAssetResult> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
@@ -401,7 +506,7 @@ function requestProbe(
       },
     }, (response) => {
       const latencyMs = Math.max(1, Date.now() - startedAt);
-      const certificate = parsed.protocol === 'https:' ? readPeerCertificate(response.socket) : undefined;
+      const certificate = parsed.protocol === 'https:' ? readPeerCertificate(response.socket, trustRoots) : undefined;
       response.resume();
       response.on('end', () => {
         resolve({
@@ -502,11 +607,13 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause ?? '');
 }
 
-function readPeerCertificate(socket: unknown): ProbeServiceAssetResult['certificate'] | undefined {
+function readPeerCertificate(socket: unknown, trustRoots: readonly string[]): ProbeServiceAssetResult['certificate'] | undefined {
   const candidate = socket as { getPeerCertificate?: (detailed?: boolean) => Record<string, unknown>; authorized?: boolean; authorizationError?: unknown };
   const peer = candidate.getPeerCertificate?.(true);
   if (!peer || Object.keys(peer).length === 0) return undefined;
   const raw = peer.raw;
+  const servedChain = readPeerCertificateChain(peer);
+  const chainValidation = validateServedCertificateChain(servedChain, trustRoots);
   return {
     fingerprintSha256: Buffer.isBuffer(raw) ? createHash('sha256').update(raw).digest('hex').toUpperCase() : undefined,
     subject: stringifyCertificateName(peer.subject),
@@ -515,8 +622,85 @@ function readPeerCertificate(socket: unknown): ProbeServiceAssetResult['certific
     notBefore: readString(peer.valid_from),
     notAfter: readString(peer.valid_to),
     dnsNames: parseSubjectAltName(readString(peer.subjectaltname)),
-    verified: candidate.authorized === true,
-    verificationError: candidate.authorizationError ? String(candidate.authorizationError) : undefined,
+    verified: chainValidation.verified && candidate.authorized === true,
+    verificationError: chainValidation.error ?? (candidate.authorizationError ? String(candidate.authorizationError) : undefined),
+    chain: chainValidation.chain,
+    chainStatus: chainValidation.status,
+  };
+}
+
+function resolveTrustRoots(asset: ProbeAsset): string[] {
+  const configured = readString(readRecord(asset.metadata)?.tlsTrustStorePem);
+  if (!configured) return [...tls.rootCertificates];
+  return configured.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
+}
+
+type PeerCertificateRecord = Record<string, unknown> & { issuerCertificate?: PeerCertificateRecord };
+
+function readPeerCertificateChain(peer: Record<string, unknown>): PeerCertificateRecord[] {
+  const chain: PeerCertificateRecord[] = [];
+  const seen = new Set<string>();
+  let current: PeerCertificateRecord | undefined = peer as PeerCertificateRecord;
+  while (current) {
+    const raw = current.raw;
+    const fingerprint = Buffer.isBuffer(raw) ? createHash('sha256').update(raw).digest('hex').toUpperCase() : '';
+    if (!fingerprint || seen.has(fingerprint)) break;
+    seen.add(fingerprint);
+    chain.push(current);
+    current = current.issuerCertificate;
+  }
+  return chain;
+}
+
+function validateServedCertificateChain(
+  served: PeerCertificateRecord[],
+  trustRoots: readonly string[],
+): { verified: boolean; status: 'valid' | 'incomplete' | 'invalid' | 'untrusted'; error?: string; chain: NonNullable<ProbeServiceAssetResult['certificate']>['chain'] } {
+  const chain = served.map(toChainCertificate);
+  if (served.length === 0) return { verified: false, status: 'incomplete', error: '未收到服务端证书链', chain };
+
+  const trustAnchors = trustRoots.map((pem) => new X509Certificate(pem));
+  for (let index = 0; index < served.length; index += 1) {
+    const current = toX509Certificate(served[index]!);
+    if (current.subject === current.issuer) {
+      const trusted = trustAnchors.some((root) => normalizeFingerprint(root.fingerprint256) === normalizeFingerprint(current.fingerprint256));
+      return current.verify(current.publicKey)
+        ? { verified: trusted, status: trusted ? 'valid' : 'untrusted', error: trusted ? undefined : '服务端根证书不在指定信任库中', chain }
+        : { verified: false, status: 'invalid', error: `证书自签名校验失败：${current.subject}`, chain };
+    }
+
+    const next = served[index + 1];
+    if (!next) return { verified: false, status: 'incomplete', error: `服务端未发送签发者证书：${current.issuer}`, chain };
+    const issuer = toX509Certificate(next);
+    if (current.issuer !== issuer.subject) return { verified: false, status: 'invalid', error: `证书链签发者不匹配：${current.subject}`, chain };
+    if (!current.verify(issuer.publicKey)) return { verified: false, status: 'invalid', error: `证书签名校验失败：${current.subject}`, chain };
+    if (index === served.length - 2) {
+      const trusted = trustAnchors.some((root) => currentIssuerMatchesTrustAnchor(issuer, root));
+      return { verified: trusted, status: trusted ? 'valid' : 'untrusted', error: trusted ? undefined : '服务端链未连接到指定信任库中的根证书', chain };
+    }
+  }
+  return { verified: false, status: 'incomplete', error: '服务端证书链未到达指定信任锚', chain };
+}
+
+function currentIssuerMatchesTrustAnchor(certificate: X509Certificate, trustAnchor: X509Certificate): boolean {
+  return certificate.issuer === trustAnchor.subject && certificate.verify(trustAnchor.publicKey);
+}
+
+function toX509Certificate(value: PeerCertificateRecord): X509Certificate {
+  if (!Buffer.isBuffer(value.raw)) throw new Error('TLS 对端证书缺少 DER 内容');
+  return new X509Certificate(value.raw);
+}
+
+function toChainCertificate(value: PeerCertificateRecord): CertificateChainCertificate {
+  const certificate = toX509Certificate(value);
+  return {
+    fingerprintSha256: normalizeFingerprint(certificate.fingerprint256) ?? '',
+    subject: stringifyCertificateName(value.subject),
+    issuer: stringifyCertificateName(value.issuer),
+    serialNumber: readString(value.serialNumber),
+    notBefore: readString(value.valid_from),
+    notAfter: readString(value.valid_to),
+    isCa: certificate.ca,
   };
 }
 
@@ -557,6 +741,11 @@ function normalizeFingerprint(value: string | undefined): string | undefined {
 function isUnchangedObservation(
   latest: CertificateObservationDto | undefined,
   fingerprint: string,
+  certificate: NonNullable<ProbeServiceAssetResult['certificate']>,
 ): boolean {
-  return normalizeFingerprint(latest?.fingerprintSha256) === fingerprint;
+  return normalizeFingerprint(latest?.fingerprintSha256) === fingerprint
+    && latest?.verified === certificate.verified
+    && (latest?.verificationError ?? '') === (certificate.verificationError ?? '')
+    && JSON.stringify(latest?.chain ?? []) === JSON.stringify(certificate.chain ?? [])
+    && (latest?.chainStatus ?? '') === (certificate.chainStatus ?? '');
 }
