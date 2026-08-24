@@ -70,6 +70,7 @@ export class DeploymentPlansDomainService {
       tenantId: plan.tenantId,
       name: plan.name,
       planType: plan.planType,
+      selectionMode: plan.selectionMode,
       certificateVersionId: plan.certificateVersionId,
       certificateFormatId: plan.certificateFormatId,
       policy: plan.policy,

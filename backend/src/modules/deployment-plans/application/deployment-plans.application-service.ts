@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
-import { AuditService } from '../../audits/audit.service.js';
+import { AuditService, type WriteAuditInput } from '../../audits/audit.service.js';
 import { ApprovalService } from '../../approvals/approval.service.js';
 import { newId } from '../../../shared/id.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
@@ -180,6 +180,7 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       name: input.name,
       planType: input.planType ?? 'UPDATE',
+      selectionMode: resolved.selectionMode,
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
       status: 'DRAFT',
@@ -195,6 +196,7 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       name: input.name,
       planType: input.planType ?? 'UPDATE',
+      selectionMode: resolved.selectionMode,
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
       status: 'DRAFT',
@@ -231,7 +233,7 @@ export class DeploymentPlansApplicationService {
       });
     }
 
-    void this.audit.write({
+    this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -260,8 +262,8 @@ export class DeploymentPlansApplicationService {
 
   async updateDraftFromApplicationAsset(input: UpdateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    if (plan.status !== 'DRAFT') {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DRAFT 部署计划允许编辑', { planId: plan.id, status: plan.status });
+    if (plan.status === 'RUNNING') {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', 'RUNNING 部署计划正在执行，不能编辑', { planId: plan.id, status: plan.status });
     }
 
     const draft = await this.buildCreateInputFromApplicationAsset(input);
@@ -317,6 +319,7 @@ export class DeploymentPlansApplicationService {
       tenantId: draft.tenantId,
       name: draft.name,
       planType: draft.planType ?? 'UPDATE',
+      selectionMode: resolved.selectionMode,
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
       status: 'DRAFT',
@@ -331,8 +334,10 @@ export class DeploymentPlansApplicationService {
     const updated = await this.repository.updatePlan(plan.id, {
       name: draft.name,
       planType: draft.planType ?? plan.planType,
+      selectionMode: resolved.selectionMode,
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
+      status: 'DRAFT',
       approvalStatus: 'NOT_REQUIRED',
       approvalId: undefined,
       snapshotHash,
@@ -363,8 +368,8 @@ export class DeploymentPlansApplicationService {
       });
     }
 
-    await this.recordTransition('deploymentPlan', plan.id, 'DRAFT', 'DRAFT', 'plan.updated', draft.actorId, draft.tenantId);
-    void this.audit.write({
+    await this.recordTransition('deploymentPlan', plan.id, plan.status, 'DRAFT', 'plan.updated', draft.actorId, draft.tenantId);
+    this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: draft.actorId,
@@ -1005,12 +1010,21 @@ export class DeploymentPlansApplicationService {
     if (!['READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 READY 或已结束的计划允许执行/重新执行', { planId: plan.id, status: plan.status });
     }
-    await this.assertLatestDryRunPassed(plan, input.tenantId);
-
+    const originalCertificateVersionId = plan.certificateVersionId;
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
+    const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
+    plan = effective.plan;
+    if (effective.certificateVersionId !== originalCertificateVersionId) {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '自动选择最新证书时，当前最新版本已变化，必须先重新执行一次 Dry-run 影响预览', {
+        planId: plan.id,
+        previousCertificateVersionId: originalCertificateVersionId,
+        currentCertificateVersionId: effective.certificateVersionId,
+      });
+    }
+    await this.assertLatestDryRunPassed(plan, input.tenantId);
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
-    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets);
+    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1021,7 +1035,7 @@ export class DeploymentPlansApplicationService {
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
       deploymentArtifactByTargetId,
-      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId),
+      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId),
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
@@ -1032,15 +1046,17 @@ export class DeploymentPlansApplicationService {
   }
 
   async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    let plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许 dry-run', { planId: plan.id, status: plan.status });
     }
 
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
-    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets);
-    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId);
+    const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
+    plan = effective.plan;
+    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);
+    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId);
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1069,7 +1085,7 @@ export class DeploymentPlansApplicationService {
       }
     }
     const cancelled = await this.transitionPlan(plan, 'CANCELLED', input.actorId, 'plan.cancelled');
-    void this.audit.write({
+    this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -1143,7 +1159,7 @@ export class DeploymentPlansApplicationService {
       };
     }
     const updated = await this.repository.updatePlan(plan.id, patch);
-    void this.audit.write({
+    this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -1404,10 +1420,11 @@ export class DeploymentPlansApplicationService {
   private async buildDeploymentArtifactByTargetIds(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
+    effectiveCertificateVersionId = plan.certificateVersionId,
   ): Promise<Map<string, DeploymentArtifactSnapshotDto>> {
     const output = new Map<string, DeploymentArtifactSnapshotDto>();
     for (const target of targets) {
-      output.set(target.id, await this.resolveDeploymentArtifactForTarget(target, plan.certificateVersionId, plan.certificateFormatId, plan.tenantId));
+      output.set(target.id, await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId));
     }
     return output;
   }
@@ -1416,17 +1433,80 @@ export class DeploymentPlansApplicationService {
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
     deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
+    effectiveCertificateVersionId = plan.certificateVersionId,
   ): Promise<Map<string, Record<string, unknown>>> {
     const output = new Map<string, Record<string, unknown>>();
     for (const target of targets) {
       const artifact = deploymentArtifactByTargetId?.get(target.id)
-        ?? await this.resolveDeploymentArtifactForTarget(target, plan.certificateVersionId, plan.certificateFormatId, plan.tenantId);
+        ?? await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId);
       if (!artifact) continue;
 	      const payload = await this.buildAgentPayloadForTarget(target, artifact, plan.tenantId);
 	      const strategyPayload = target.strategyPayload ?? {};
 	      if (payload || Object.keys(strategyPayload).length > 0) output.set(target.id, { ...strategyPayload, ...(payload ?? {}) });
     }
     return output;
+  }
+
+  private async resolveEffectivePlanMaterial(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+    actorId: string,
+  ): Promise<{ plan: DeploymentPlanEntity; certificateVersionId: string }> {
+    if (plan.selectionMode !== 'LATEST_AUTO') {
+      return { plan, certificateVersionId: plan.certificateVersionId };
+    }
+    const certificateVersionId = await this.resolveLatestAutoCertificateVersionId(plan, targets);
+    if (certificateVersionId === plan.certificateVersionId) {
+      return { plan, certificateVersionId };
+    }
+    const updatedAt = new Date().toISOString();
+    const updated = await this.repository.updatePlan(plan.id, {
+      certificateVersionId,
+      snapshotHash: this.domain.buildSnapshotHash({
+        ...plan,
+        certificateVersionId,
+      }, targets),
+      updatedAt,
+      updatedBy: actorId,
+    });
+    return { plan: updated, certificateVersionId };
+  }
+
+  private async resolveLatestAutoCertificateVersionId(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+  ): Promise<string> {
+    const versionIds = await Promise.all(targets.map(async (target) => {
+      const tenantId = target.tenantId ?? plan.tenantId;
+      if (!tenantId) {
+        throw new AppError('VALIDATION_FAILED', 'LATEST_AUTO 部署目标缺少 tenantId，无法解析最新证书版本', {
+          deploymentPlanId: plan.id,
+          deploymentPlanTargetId: target.id,
+        });
+      }
+      const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
+      if (!binding) {
+        throw new AppError('RESOURCE_NOT_FOUND', 'LATEST_AUTO 部署目标缺少 CertificateBinding，无法解析最新证书版本', {
+          deploymentPlanId: plan.id,
+          deploymentPlanTargetId: target.id,
+          certificateBindingId: target.certificateBindingId,
+        });
+      }
+      return this.resolveCertificateVersionId({
+        tenantId,
+        selectionMode: 'LATEST_AUTO',
+        requestedCertificateFormatId: plan.certificateFormatId,
+        binding,
+      });
+    }));
+    const uniqueVersionIds = [...new Set(versionIds)];
+    if (uniqueVersionIds.length !== 1) {
+      throw new AppError('VALIDATION_FAILED', '当前部署计划模型只支持单一最新证书版本，请按域名或版本拆分计划', {
+        deploymentPlanId: plan.id,
+        certificateVersionIds: uniqueVersionIds,
+      });
+    }
+    return uniqueVersionIds[0]!;
   }
 
   private async resolveDeploymentArtifactForTarget(
@@ -1965,6 +2045,10 @@ export class DeploymentPlansApplicationService {
 
   private approvalRiskLevel(riskLevel: RiskLevel | undefined): RiskLevel {
     return riskLevel === 'critical' || riskLevel === 'high' ? riskLevel : 'high';
+  }
+
+  private writeBackgroundAudit(input: WriteAuditInput): void {
+    void this.audit.write(input).catch(() => undefined);
   }
 
   private approvalParameters(plan: DeploymentPlanEntity): Record<string, string> {

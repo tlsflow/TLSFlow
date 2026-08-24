@@ -1,11 +1,12 @@
 import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
-import type { DeploymentGatewayRouteDto, DeploymentPlanApprovalStatus, DeploymentPlanPolicyDto, DeploymentPlanTargetStatus, DeploymentPlanType } from '../dto/deployment-plans.dto.js';
+import type { DeploymentGatewayRouteDto, DeploymentPlanApprovalStatus, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode, DeploymentPlanTargetStatus, DeploymentPlanType } from '../dto/deployment-plans.dto.js';
 
 export interface DeploymentPlanEntity extends IdentifiedEntity {
   tenantId?: string;
   name: string;
   planType: DeploymentPlanType;
+  selectionMode: DeploymentPlanSelectionMode;
   certificateVersionId: string;
   certificateFormatId?: string;
   status: DeploymentPlanStatus;

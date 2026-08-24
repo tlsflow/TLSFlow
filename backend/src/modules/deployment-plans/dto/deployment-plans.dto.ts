@@ -64,6 +64,7 @@ export interface DeploymentPlanDto {
   tenantId?: string;
   name: string;
   planType: DeploymentPlanType;
+  selectionMode: DeploymentPlanSelectionMode;
   certificateVersionId: string;
   certificateFormatId?: string;
   status: DeploymentPlanStatus;
