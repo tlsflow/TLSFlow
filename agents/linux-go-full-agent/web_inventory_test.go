@@ -53,6 +53,51 @@ func TestCollectLinuxWebCertificateFilesReadsTomcatPKCS12AndPreservesConfiguredP
 	}
 }
 
+func TestCollectLinuxWebCertificateFilesResolvesTomcatCatalinaBaseKeystore(t *testing.T) {
+	certificate, privateKey := testCertificate(t)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "etc", "tomcat9", "server.xml")
+	keystorePath := filepath.Join(root, "var", "lib", "tomcat9", "conf", "localhost-rsa.p12")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keystorePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content, err := pkcs12.Modern2023.Encode(privateKey, certificate, nil, "changeit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keystorePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	previousRoots := webDiscoveryRoots
+	webDiscoveryRoots = []string{root}
+	t.Cleanup(func() { webDiscoveryRoots = previousRoots })
+	files := collectLinuxWebCertificateFiles([]map[string]any{{
+		"path":    configPath,
+		"content": `<Connector port="8445" scheme="https" keystoreFile="conf/localhost-rsa.p12" keystorePass="changeit"/>`,
+	}}, filepath.Join(root, "var", "lib", "tomcat9"))
+
+	if len(files) != 1 || files[0]["path"] != keystorePath {
+		t.Fatalf("必须按 CATALINA_BASE 发现 Tomcat keystore: %#v", files)
+	}
+}
+
+func TestCollectLinuxTomcatRuntimeRootsReadsCatalinaProperties(t *testing.T) {
+	root := t.TempDir()
+	previousRoots := webDiscoveryRoots
+	webDiscoveryRoots = []string{root}
+	t.Cleanup(func() { webDiscoveryRoots = previousRoots })
+	roots := collectLinuxJvmRuntimeRoots([]map[string]any{{
+		"commandLine": "java -Dcatalina.base='" + root + "/base' -Dcatalina.home=" + root + "/home org.apache.catalina.startup.Bootstrap",
+	}})
+	if len(roots) != 2 || roots[0] != filepath.Join(root, "base") || roots[1] != filepath.Join(root, "home") {
+		t.Fatalf("必须读取 Catalina base/home: %#v", roots)
+	}
+}
+
 func TestCollectLinuxWebInventoryDeclaresFullDiscoveryScope(t *testing.T) {
 	previousRoots := webDiscoveryRoots
 	webDiscoveryRoots = []string{t.TempDir()}

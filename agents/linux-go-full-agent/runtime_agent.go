@@ -1351,7 +1351,8 @@ func collectLinuxWebInventory() map[string]any {
 		}
 	}
 	configFiles := collectLinuxWebConfigFiles()
-	certificateFiles := collectLinuxWebCertificateFiles(configFiles)
+	jvmRuntimeRoots := collectLinuxJvmRuntimeRoots(processes)
+	certificateFiles := collectLinuxWebCertificateFiles(configFiles, jvmRuntimeRoots...)
 	return map[string]any{
 		"scope":              fullWebDiscoveryScope,
 		"processExecutables": processPaths,
@@ -1359,6 +1360,30 @@ func collectLinuxWebInventory() map[string]any {
 		"configFiles":        sanitizeLinuxWebConfigFiles(configFiles),
 		"certificateFiles":   certificateFiles,
 	}
+}
+
+// Java Web 容器的配置文件可能位于系统配置目录，但密钥库使用
+// CATALINA_BASE 下的相对路径（例如 conf/localhost-rsa.jks）。从正在运行的
+// JVM 参数读取 Catalina 根目录，避免把配置目录误当成证书根目录。
+func collectLinuxJvmRuntimeRoots(processes []map[string]any) []string {
+	roots := make([]string, 0, 4)
+	for _, process := range processes {
+		commandLine, ok := process["commandLine"].(string)
+		if !ok {
+			continue
+		}
+		for _, match := range catalinaRuntimeRootPattern.FindAllStringSubmatch(commandLine, -1) {
+			if len(match) < 2 {
+				continue
+			}
+			root := strings.Trim(strings.TrimSpace(match[1]), "\"'")
+			if !filepath.IsAbs(root) || !isAllowedWebDiscoveryPath(root) || containsString(roots, filepath.Clean(root)) {
+				continue
+			}
+			roots = append(roots, filepath.Clean(root))
+		}
+	}
+	return roots
 }
 
 // 只在本机读取受控系统目录中的配置文本；回传前会去掉 keystore 密码。
@@ -1431,7 +1456,7 @@ func containsWebConfigSyntax(content []byte) bool {
 }
 
 // 只回传配置引用的公钥证书候选；禁止私钥和过大的文件进入能力快照。
-func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]any {
+func collectLinuxWebCertificateFiles(configFiles []map[string]any, runtimeRoots ...string) []map[string]any {
 	files := make([]map[string]any, 0, 256)
 	seen := make(map[string]map[string]any)
 	for _, config := range configFiles {
@@ -1443,7 +1468,7 @@ func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]
 		passwords := webKeystorePasswords(content)
 		for _, match := range certificatePathPattern.FindAllStringSubmatch(content, -1) {
 			configuredPath := strings.TrimSpace(strings.Trim(match[1], "\"'"))
-			candidate := resolveWebCertificatePath(configuredPath, configPath)
+			candidate := resolveWebCertificatePath(configuredPath, configPath, runtimeRoots...)
 			if candidate == "" || !isAllowedWebDiscoveryPath(candidate) {
 				continue
 			}
@@ -1468,6 +1493,8 @@ func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]
 }
 
 var certificatePathPattern = regexp.MustCompile(`(?im)(?:ssl_certificate|SSLCertificateFile|certificateFile|certificate-file|certificateKeystoreFile|keystoreFile)\s*(?:=\s*|\s+)(["']?[^;\s"']+["']?)`)
+
+var catalinaRuntimeRootPattern = regexp.MustCompile(`(?:^|\s)-Dcatalina\.(?:base|home)=(["']?[^\s"']+["']?)`)
 
 var webDiscoveryRoots = []string{"/etc", "/opt", "/usr/local", "/srv", "/var/lib", "/var/www"}
 
@@ -1583,7 +1610,7 @@ func redactWebKeystorePasswords(content string) string {
 	return regexp.MustCompile(`(?i)(certificateKeystorePassword|keystorePass|keystorePassword)(\s*=\s*["'])[^"']*(["'])`).ReplaceAllString(content, `$1$2***$3`)
 }
 
-func resolveWebCertificatePath(candidate, configPath string) string {
+func resolveWebCertificatePath(candidate, configPath string, runtimeRoots ...string) string {
 	candidate = strings.TrimSpace(strings.Trim(candidate, "\"'"))
 	if candidate == "" {
 		return ""
@@ -1592,7 +1619,8 @@ func resolveWebCertificatePath(candidate, configPath string) string {
 		return filepath.Clean(candidate)
 	}
 	configDir := filepath.Dir(configPath)
-	for _, base := range []string{configDir, filepath.Dir(configDir)} {
+	bases := append([]string{configDir, filepath.Dir(configDir)}, runtimeRoots...)
+	for _, base := range bases {
 		resolved := filepath.Clean(filepath.Join(base, candidate))
 		if isAllowedWebDiscoveryPath(resolved) && fileExists(resolved) {
 			return resolved
