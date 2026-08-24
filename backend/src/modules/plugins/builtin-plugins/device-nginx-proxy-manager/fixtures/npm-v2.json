@@ -1,0 +1,81 @@
+{
+  "source": "REAL_DEVICE_REDACTED",
+  "productVersion": "3.x",
+  "containsSecrets": false,
+  "apiVersion": "gcac.device-fixture/v1",
+  "protocol": "NPM_API",
+  "device": { "managementAddress": "npm.example.test" },
+  "responses": {
+    "GET /api/nginx/proxy-hosts": {
+      "statusCode": 200,
+      "body": [
+        {
+          "id": 17,
+          "domain_names": ["app.example.test"],
+          "forward_scheme": "http",
+          "forward_host": "192.0.2.20",
+          "forward_port": 8080,
+          "access_list_id": 0,
+          "certificate_id": 4,
+          "ssl_forced": true,
+          "caching_enabled": false,
+          "block_exploits": true,
+          "allow_websocket_upgrade": true,
+          "locations": [],
+          "http2_support": false,
+          "hsts_enabled": false,
+          "hsts_subdomains": false,
+          "trust_forwarded_proto": false,
+          "advanced_config": "",
+          "enabled": true,
+          "meta": { "nginx_online": true, "nginx_err": null }
+        }
+      ]
+    },
+    "GET /api/nginx/certificates": {
+      "statusCode": 200,
+      "body": [
+        {
+          "id": 4,
+          "provider": "letsencrypt",
+          "nice_name": "app.example.test",
+          "domain_names": ["app.example.test"],
+          "expires_on": "2099-01-01 00:00:00",
+          "meta": {}
+        }
+      ]
+    },
+    "GET /api/nginx/proxy-hosts/17": {
+      "statusCode": 200,
+      "body": {
+        "id": 17,
+        "domain_names": ["app.example.test"],
+        "forward_scheme": "http",
+        "forward_host": "192.0.2.20",
+        "forward_port": 8080,
+        "access_list_id": 0,
+        "certificate_id": 4,
+        "ssl_forced": true,
+        "caching_enabled": false,
+        "block_exploits": true,
+        "allow_websocket_upgrade": true,
+        "locations": [],
+        "http2_support": false,
+        "hsts_enabled": false,
+        "hsts_subdomains": false,
+        "trust_forwarded_proto": false,
+        "advanced_config": "",
+        "enabled": true,
+        "meta": { "nginx_online": true, "nginx_err": null }
+      }
+    },
+    "POST /api/nginx/certificates": {
+      "statusCode": 201,
+      "body": { "id": 9, "provider": "other", "nice_name": "GCAC-0123456789abcdef" }
+    },
+    "PUT /api/nginx/proxy-hosts/17": {
+      "statusCode": 200,
+      "body": { "id": 17, "certificate_id": 9 }
+    }
+  }
+}

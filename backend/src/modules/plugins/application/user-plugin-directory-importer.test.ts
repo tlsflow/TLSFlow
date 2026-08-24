@@ -9,8 +9,7 @@ import { UserPluginDirectoryImporter } from './user-plugin-directory-importer.js
 
 test('用户插件目录刷新按 USER 导入并发布 Workflow', async () => {
   const root = await mkdtemp(join(tmpdir(), 'gcac-user-plugins-'));
-  const source = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../data/plugins/nginx-proxy-manager');
-  await cp(source, join(root, 'nginx-proxy-manager'), { recursive: true });
+  await copyUserFixture(root);
   const imported: Array<{ tenantId: string; source: string }> = [];
   const published: string[] = [];
   const version = { id: 'version-npm', tenantId: 'tenant-1', source: 'USER', runtime: 'WORKFLOW_DSL' } as UnifiedPluginVersionRecord;
@@ -37,9 +36,7 @@ test('用户插件目录刷新按 USER 导入并发布 Workflow', async () => {
 
 test('用户插件目录拒绝 Manifest.source 为 BUILTIN 的包', async () => {
   const root = await mkdtemp(join(tmpdir(), 'gcac-user-plugins-source-'));
-  const source = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../data/plugins/nginx-proxy-manager');
-  const destination = join(root, 'nginx-proxy-manager');
-  await cp(source, destination, { recursive: true });
+  const destination = await copyUserFixture(root);
   const manifestPath = join(destination, 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   manifest.source = 'BUILTIN';
@@ -60,8 +57,7 @@ test('用户插件目录拒绝 Manifest.source 为 BUILTIN 的包', async () => 
 
 test('用户插件升级时继承上一版本的启用状态', async () => {
   const root = await mkdtemp(join(tmpdir(), 'gcac-user-plugins-upgrade-'));
-  const source = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../data/plugins/nginx-proxy-manager');
-  await cp(source, join(root, 'nginx-proxy-manager'), { recursive: true });
+  await copyUserFixture(root);
   const previous: UnifiedPluginVersionRecord = {
     id: 'version-npm-010',
     tenantId: 'tenant-1',
@@ -98,3 +94,17 @@ test('用户插件升级时继承上一版本的启用状态', async () => {
   assert.equal(result.versions[0]?.version, '0.1.1');
   assert.equal(result.versions[0]?.status, 'ENABLED');
 });
+
+async function copyUserFixture(root: string): Promise<string> {
+  const source = resolve(dirname(fileURLToPath(import.meta.url)), '../builtin-plugins/device-nginx-proxy-manager');
+  const destination = join(root, 'nginx-proxy-manager');
+  await cp(source, destination, { recursive: true });
+  const manifestPath = join(destination, 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+  manifest.publisher = 'GCAC 用户插件';
+  manifest.source = 'USER';
+  manifest.trust = 'UNSIGNED';
+  manifest.support = 'SELF_MANAGED';
+  await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
+  return destination;
+}

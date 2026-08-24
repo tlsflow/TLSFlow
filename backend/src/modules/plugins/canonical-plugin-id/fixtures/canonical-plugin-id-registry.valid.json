@@ -18,6 +18,8 @@
     { "canonicalId": "app.service-certificate-file", "displayKey": "plugins.canonical.appServiceCertificateFile", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.file"] },
     { "canonicalId": "device.citrix.netscaler-adc", "displayKey": "plugins.canonical.deviceCitrixNetscalerAdc", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
     { "canonicalId": "device.synology-dsm", "displayKey": "plugins.canonical.deviceSynologyDsm", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
+    { "canonicalId": "device.chaitin-safeline-waf", "displayKey": "plugins.canonical.deviceChaitinSafelineWaf", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
+    { "canonicalId": "device.nginx-proxy-manager", "displayKey": "plugins.canonical.deviceNginxProxyManager", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
     { "canonicalId": "cloud.aliyun", "displayKey": "plugins.canonical.cloudAliyun", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
     { "canonicalId": "cloud.tencent", "displayKey": "plugins.canonical.cloudTencent", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
     { "canonicalId": "cloud.huawei", "displayKey": "plugins.canonical.cloudHuawei", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },

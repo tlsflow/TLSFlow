@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "resourceLabels": {
+    "frameworks": [
+      { "frameworkType": "proxy.nginx-proxy-manager", "labelKey": "plugin.nginxProxyManager.framework.proxy" }
+    ],
+    "sites": [
+      { "frameworkType": "proxy.nginx-proxy-manager", "siteType": "proxy.host", "groupKey": "proxy", "groupLabelKey": "plugin.nginxProxyManager.framework.proxy", "typeLabelKey": "plugin.nginxProxyManager.site.proxyHost" }
+    ]
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.nginxProxyManager.presentation.identity",
+      "fields": [
+        { "key": "product", "labelKey": "plugin.nginxProxyManager.field.product", "valuePath": "productFamily", "type": "text" },
+        { "key": "address", "labelKey": "plugin.nginxProxyManager.field.address", "valuePath": "managementAddress", "type": "text" },
+        { "key": "protocol", "labelKey": "plugin.nginxProxyManager.field.managementProtocol", "valuePath": "extensionSummary.discoveryMetadata.managementProtocol", "type": "text" },
+        { "key": "health", "labelKey": "plugin.nginxProxyManager.field.health", "valuePath": "health", "type": "status" }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "type": "sites",
+      "id": "sites",
+      "titleKey": "plugin.nginxProxyManager.tab.sites",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.nginxProxyManager.column.name", "valuePath": "name", "type": "text" },
+        { "key": "address", "labelKey": "plugin.nginxProxyManager.column.address", "valuePath": "endpoint.address", "type": "text" },
+        { "key": "forward", "labelKey": "plugin.nginxProxyManager.column.forward", "valuePath": "metadata.forwardTarget", "type": "text" },
+        { "key": "status", "labelKey": "plugin.nginxProxyManager.column.status", "valuePath": "status", "type": "status" }
+      ]
+    },
+    {
+      "type": "certificate_bindings",
+      "id": "certificates",
+      "titleKey": "plugin.nginxProxyManager.tab.certificates",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.nginxProxyManager.column.name", "valuePath": "name", "type": "text" },
+        { "key": "subject", "labelKey": "plugin.nginxProxyManager.column.subject", "valuePath": "subject", "type": "text" },
+        { "key": "expiresAt", "labelKey": "plugin.nginxProxyManager.column.expiresAt", "valuePath": "notAfter", "type": "timestamp" },
+        { "key": "status", "labelKey": "plugin.nginxProxyManager.column.status", "valuePath": "status", "type": "status" }
+      ]
+    },
+    {
+      "type": "device_logs",
+      "id": "logs",
+      "titleKey": "plugin.nginxProxyManager.tab.logs",
+      "columns": [
+        { "key": "event", "labelKey": "plugin.nginxProxyManager.column.event", "valuePath": "eventType", "type": "text" },
+        { "key": "result", "labelKey": "plugin.nginxProxyManager.column.result", "valuePath": "result", "type": "status" },
+        { "key": "occurredAt", "labelKey": "plugin.nginxProxyManager.column.occurredAt", "valuePath": "occurredAt", "type": "timestamp" }
+      ]
+    }
+  ],
+  "actions": [
+    { "capabilityKey": "device.discover", "labelKey": "plugin.nginxProxyManager.action.discover", "tone": "info" }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "apiVersion": "gcac.discovery-mapping/v1",
+  "productFamily": "device.nginx-proxy-manager",
+  "protocol": "NPM_API",
+  "responseFixture": "fixtures/npm-v2.json",
+  "stableKeys": {
+    "device": "device.nginx-proxy-manager:{managementAddress}",
+    "framework": "framework:proxy",
+    "site": "site:{proxyHost.id}",
+    "managedTarget": "target:{proxyHost.id}",
+    "certificate": "certificate:{certificate.id}",
+    "certificateBinding": "binding:{proxyHost.id}:{certificate.id}"
+  },
+  "mapping": {
+    "frameworkType": "proxy.nginx-proxy-manager",
+    "siteType": "proxy.host",
+    "targetType": "tls.binding",
+    "certificateRole": "proxy-host-certificate"
+  }
+}

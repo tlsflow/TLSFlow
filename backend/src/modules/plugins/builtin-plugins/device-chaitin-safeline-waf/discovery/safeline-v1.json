@@ -1,0 +1,20 @@
+{
+  "apiVersion": "gcac.discovery-mapping/v1",
+  "productFamily": "device.chaitin-safeline-waf",
+  "protocol": "SAFELINE_OPEN_API",
+  "responseFixture": "fixtures/safeline-v1.json",
+  "stableKeys": {
+    "device": "device.chaitin-safeline-waf:{managementAddress}",
+    "framework": "framework:site",
+    "site": "site:{site.id}",
+    "managedTarget": "target:{site.id}",
+    "certificate": "certificate:{certificate.id}",
+    "certificateBinding": "binding:{site.id}:{site.cert_id}"
+  },
+  "mapping": {
+    "frameworkType": "chaitin.safeline-site",
+    "siteType": "chaitin.safeline-site",
+    "targetType": "tls.binding",
+    "certificateRole": "safeline-site-certificate"
+  }
+}

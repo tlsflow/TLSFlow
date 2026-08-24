@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "BOTH",
+  "sections": [
+    {
+      "id": "device",
+      "titleKey": "plugin.nginxProxyManager.form.device",
+      "fields": [
+        { "key": "displayName", "type": "text", "labelKey": "plugin.nginxProxyManager.field.displayName", "standardField": "device.displayName", "required": true },
+        { "key": "address", "type": "text", "labelKey": "plugin.nginxProxyManager.field.address", "standardField": "connection.address", "required": true },
+        { "key": "port", "type": "integer", "labelKey": "plugin.nginxProxyManager.field.port", "standardField": "connection.port", "required": true, "defaultValue": 443 },
+        { "key": "gatewayId", "type": "select", "labelKey": "plugin.nginxProxyManager.field.gateway", "standardField": "connection.gatewayId" }
+      ]
+    },
+    {
+      "id": "authentication",
+      "titleKey": "plugin.nginxProxyManager.form.authentication",
+      "fields": [
+        { "key": "credential", "type": "credential_ref", "labelKey": "plugin.nginxProxyManager.field.credential", "standardField": "authentication.credentialId", "required": true, "acceptedCredentialKinds": ["USERNAME_PASSWORD"], "acceptedScopes": ["global", "team", "zone", "host", "plugin"], "purpose": "device-management" }
+      ]
+    },
+    {
+      "id": "tls",
+      "titleKey": "plugin.nginxProxyManager.form.tls",
+      "fields": [
+        { "key": "httpsEnabled", "type": "switch", "labelKey": "plugin.nginxProxyManager.field.httpsEnabled", "standardField": "tls.enabled", "defaultValue": true },
+        { "key": "ignoreCertificateErrors", "type": "switch", "labelKey": "plugin.nginxProxyManager.field.ignoreCertificateErrors", "standardField": "tls.ignoreCertificateErrors", "enabledWhen": { "field": "httpsEnabled", "operator": "truthy" }, "defaultValue": false },
+        { "key": "serverName", "type": "text", "labelKey": "plugin.nginxProxyManager.field.serverName", "standardField": "tls.serverName" }
+      ]
+    }
+  ]
+}

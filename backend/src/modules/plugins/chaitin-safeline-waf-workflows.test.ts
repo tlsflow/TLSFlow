@@ -4,7 +4,7 @@ import test from 'node:test';
 import jsonata from 'jsonata';
 import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schema.service.js';
 
-const packageRoot = new URL('../../../../data/plugins/device.chaitin-safeline-waf/', import.meta.url);
+const packageRoot = new URL('./builtin-plugins/device-chaitin-safeline-waf/', import.meta.url);
 
 function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(new URL(path, packageRoot), 'utf8')) as Record<string, any>;

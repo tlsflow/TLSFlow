@@ -1,0 +1,13 @@
+{
+  "system": { "code": 0, "data": { "version": "9.1.0", "cert_id": 34, "license": { "version": "COMMUNITY" } } },
+  "edition": { "code": 0, "data": { "version": "COMMUNITY", "state": "VALID" } },
+  "arch": { "code": 0, "data": "amd64" },
+  "sites": {
+    "code": 0,
+    "data": {
+      "total": 1,
+      "data": [{ "id": 55, "title": "MoviePilot", "comment": "MovePilot", "server_names": ["wechatapi.jacksonz.cn"], "ports": ["4455_ssl"], "upstreams": ["http://10.255.0.51:3000"], "cert_id": 34, "is_enabled": true, "type": 0 }]
+    }
+  },
+  "certificates": { "code": 0, "data": { "total": 1, "nodes": [{ "id": 34, "domains": ["*.jacksonz.cn"], "valid_before": "2026-09-07T10:18:38Z", "related_sites": ["55"], "trusted": true }] } }
+}

@@ -1,0 +1,287 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "chaitin-safeline-waf-discover",
+    "displayName": "SafeLine Site discovery",
+    "category": "device",
+    "version": "0.1.8",
+    "platforms": [
+      "waf"
+    ],
+    "updateMethods": [
+      "curl"
+    ],
+    "maintainer": "GCAC 用户插件"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "allowInsecureTls": {
+        "type": "boolean",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "binding"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "required_binding",
+        "descriptionKey": "deploymentInputs.allowInsecureTls.description",
+        "ui": {
+          "labelKey": "deploymentInputs.allowInsecureTls.label",
+          "group": "security",
+          "order": 10,
+          "helpKey": "deploymentInputs.allowInsecureTls.help"
+        }
+      }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": [
+          "http",
+          "https"
+        ],
+        "host": {
+          "type": "string",
+          "required": true,
+          "configurationMode": "required",
+          "source": {
+            "kind": "binding"
+          },
+          "lifecycle": "pre_execution",
+          "bindingPolicy": "required_binding"
+        },
+        "port": {
+          "type": "number",
+          "required": true,
+          "configurationMode": "advanced",
+          "source": {
+            "kind": "default"
+          },
+          "lifecycle": "pre_execution",
+          "bindingPolicy": "default_overridable",
+          "default": 9443
+        },
+        "credentialSlot": "credential",
+        "tls": {
+          "enabled": {
+            "type": "boolean",
+            "required": true,
+            "configurationMode": "advanced",
+            "source": {
+              "kind": "default"
+            },
+            "lifecycle": "pre_execution",
+            "bindingPolicy": "default_overridable",
+            "default": true
+          },
+          "verifyPeer": {
+            "type": "boolean",
+            "required": true,
+            "configurationMode": "advanced",
+            "source": {
+              "kind": "default"
+            },
+            "lifecycle": "pre_execution",
+            "bindingPolicy": "default_overridable",
+            "default": true
+          },
+          "serverName": {
+            "type": "string",
+            "required": false,
+            "configurationMode": "advanced",
+            "source": {
+              "kind": "binding"
+            },
+            "lifecycle": "pre_execution",
+            "bindingPolicy": "default_overridable",
+            "default": ""
+          }
+        }
+      }
+    },
+    "credentials": {
+      "credential": {
+        "allowedKinds": [
+          "API_KEY"
+        ],
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution"
+      }
+    },
+    "artifacts": {}
+  },
+  "steps": [
+    {
+      "name": "readSystem",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/open/system",
+        "auth": {
+          "type": "api_key",
+          "name": "X-SLCE-API-TOKEN",
+          "in": "header",
+          "credential": "{{credentials.credential}}"
+        },
+        "headers": {
+          "Accept": "application/json"
+        },
+        "tls": {
+          "verify": "{{connections.management.tls.verifyPeer}}",
+          "sni": "{{connections.management.tls.serverName}}",
+          "allowInsecure": true
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ]
+      },
+      "extract": [
+        {
+          "name": "system",
+          "type": "jsonPath",
+          "path": "$.data"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    },
+    {
+      "name": "readSites",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/open/site",
+        "auth": {
+          "type": "api_key",
+          "name": "X-SLCE-API-TOKEN",
+          "in": "header",
+          "credential": "{{credentials.credential}}"
+        },
+        "headers": {
+          "Accept": "application/json"
+        },
+        "tls": {
+          "verify": "{{connections.management.tls.verifyPeer}}",
+          "sni": "{{connections.management.tls.serverName}}",
+          "allowInsecure": true
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [
+          200
+        ]
+      },
+      "extract": [
+        {
+          "name": "content",
+          "type": "jsonPath",
+          "path": "$.data.data"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    },
+    {
+      "name": "readCertificates",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/open/cert",
+        "auth": {
+          "type": "api_key",
+          "name": "X-SLCE-API-TOKEN",
+          "in": "header",
+          "credential": "{{credentials.credential}}"
+        },
+        "headers": {
+          "Accept": "application/json"
+        },
+        "tls": {
+          "verify": "{{connections.management.tls.verifyPeer}}",
+          "sni": "{{connections.management.tls.serverName}}",
+          "allowInsecure": true
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [
+          200
+        ]
+      },
+      "extract": [
+        {
+          "name": "certificates",
+          "type": "jsonPath",
+          "path": "$.data.nodes"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    },
+    {
+      "name": "projectSites",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "deviceHost": "{{connections.management.host}}",
+          "system": "{{steps.readSystem.extracted.system}}",
+          "sites": "{{steps.readSites.extracted.content}}",
+          "certificates": "{{steps.readCertificates.extracted.certificates}}"
+        },
+        "outputs": {
+          "discovery": {
+            "expression": "($sites := $append([],sites); $certs := $append([],certificates); $frameworkKey := 'framework:site'; $certById := function($id) { $certs[id=$id][0] }; $discoveredSites := $append([], $map($sites,function($site) { {'stableKey':'site:' & $string($site.id),'frameworkStableKey':$frameworkKey,'siteType':'chaitin.safeline-site','displayName':($site.comment ? $site.comment : $site.title),'name':($site.comment ? $site.comment : $site.title),'addresses':$append([], $site.server_names),'endpoint':{'address':$site.server_names[0],'port':$site.ports[0],'protocol':($contains($join($site.ports,','),'_ssl') ? 'HTTPS' : 'HTTP')},'metadata':{'siteId':$site.id,'title':$site.title,'comment':$site.comment,'ports':$append([], $site.ports),'upstream':$join($site.upstreams,','),'certificateId':$site.cert_id},'status':($site.is_enabled ? 'healthy' : 'disabled')} })); $targets := $append([], $map($sites,function($site) { {'stableKey':'target:' & $string($site.id),'frameworkStableKey':$frameworkKey,'siteStableKey':'site:' & $string($site.id),'targetType':'tls.binding','targetKey':'site:' & $string($site.id),'bindingKey':'site:' & $string($site.id),'supportedCapabilities':['certificate.deploy','certificate.verify','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY'],'metadata':{'safeLineSiteId':$site.id,'certificateId':$site.cert_id,'serverNames':$append([], $site.server_names)}} })); $discoveredCerts := $append([], $map($certs,function($cert) { {'stableKey':'certificate:' & $string($cert.id),'sha256Fingerprint':$cert.sha256,'subject':$join($cert.domains,', '),'notAfter':$cert.valid_before,'metadata':{'safeLineCertificateId':$cert.id,'domains':$append([], $cert.domains),'relatedSites':$append([], $cert.related_sites)}} })); $bindings := $append([], $map($filter($sites,function($site) { $site.cert_id and $certById($site.cert_id) }),function($site) { {'stableKey':'binding:' & $string($site.id) & ':' & $string($site.cert_id),'managedTargetStableKey':'target:' & $string($site.id),'certificateStableKey':'certificate:' & $string($site.cert_id),'configuredCertificateStableKey':'certificate:' & $string($site.cert_id),'observedCertificateStableKey':'certificate:' & $string($site.cert_id),'bindingName':($site.comment ? $site.comment : $site.title),'metadata':{'siteId':$site.id,'certificateId':$site.cert_id}} })); {'apiVersion':'gcac.device-discovery/v2','device':{'stableKey':'device.chaitin-safeline-waf:' & deviceHost,'displayName':deviceHost,'productFamily':'device.chaitin-safeline-waf','managementAddress':deviceHost,'softwareVersion':system.version,'metadata':{'managementProtocol':'SafeLine Open API','version':system.version}},'capabilities':[{'key':'device.connection.test','available':true},{'key':'device.identity.detect','available':true},{'key':'device.discover','available':true},{'key':'certificate.deploy','available':true},{'key':'certificate.verify','available':true},{'key':'certificate.rollback','available':true}], 'frameworks':[{'stableKey':$frameworkKey,'frameworkType':'chaitin.safeline-site','displayName':'Site'}],'sites':$discoveredSites,'managedTargets':$targets,'certificates':$discoveredCerts,'certificateBindings':$bindings,'warnings':[]})"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectDiscovery",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "base": "{{steps.projectSites.extracted.discovery}}",
+          "system": "{{steps.readSystem.extracted.system}}",
+          "deviceHost": "{{connections.management.host}}"
+        },
+        "outputs": {
+          "discovery": {
+            "expression": "($base := base; $defaultId := system.cert_id; $certificateKey := 'certificate:' & $string($defaultId); $hasCertificate := $count($filter($append([], $base.certificates), function($certificate) { $certificate.stableKey = $certificateKey })) > 0; $defaultSite := {'stableKey':'site:default','frameworkStableKey':'framework:site','siteType':'chaitin.safeline-site','displayName':'Default','addresses':[$string(deviceHost)],'metadata':{'abstract':true,'safeLineCertificateId':$defaultId,'certificateId':$defaultId}}; $defaultTarget := {'stableKey':'target:default','frameworkStableKey':'framework:site','siteStableKey':'site:default','targetType':'tls.binding','targetKey':'Default','bindingKey':'site:default','supportedCapabilities':['certificate.deploy','certificate.verify','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY'],'metadata':{'abstract':true,'safeLineCertificateId':$defaultId,'certificateId':$defaultId}}; $defaultBinding := $hasCertificate ? [{'stableKey':'binding:default:' & $string($defaultId),'managedTargetStableKey':'target:default','certificateStableKey':$certificateKey,'configuredCertificateStableKey':$certificateKey,'observedCertificateStableKey':$certificateKey,'bindingName':'Default','metadata':{'abstract':true,'safeLineCertificateId':$defaultId,'certificateId':$defaultId}}] : []; $device := $merge([$base.device,{'metadata':$merge([$base.device.metadata,{'defaultCertificateId':$defaultId}])}]); {'apiVersion':'gcac.device-discovery/v2','device':$device,'capabilities':$base.capabilities,'frameworks':$base.frameworks,'sites':$append([$defaultSite],$base.sites),'managedTargets':$append([$defaultTarget],$base.managedTargets),'certificates':$base.certificates,'certificateBindings':$append($defaultBinding,$base.certificateBindings),'warnings':$hasCertificate ? $base.warnings : $append($base.warnings,[{'code':'SAFELINE_DEFAULT_CERTIFICATE_BINDING_MISSING','messageKey':'plugin.chaitinSafelineWaf.warning.defaultCertificateBindingMissing','metadata':{'certificateId':$defaultId}}])})"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    }
+  ]
+}

@@ -1,0 +1,457 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "nginx-proxy-manager-certificate-deploy",
+    "displayName": "Nginx Proxy Manager certificate deployment",
+    "category": "certificate",
+    "version": "0.1.7",
+    "platforms": ["proxy"],
+    "updateMethods": ["curl"],
+    "maintainer": "GCAC 用户插件"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "targetProxyHosts": {
+        "type": "array",
+        "required": true,
+        "configurationMode": "runtime",
+        "source": { "kind": "asset", "path": "deployment.targets" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "allowInsecureTls": {
+        "type": "boolean",
+        "required": true,
+        "configurationMode": "required",
+        "source": { "kind": "binding" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "required_binding",
+        "descriptionKey": "deploymentInputs.allowInsecureTls.description",
+        "ui": {
+          "labelKey": "deploymentInputs.allowInsecureTls.label",
+          "group": "security",
+          "order": 10,
+          "helpKey": "deploymentInputs.allowInsecureTls.help"
+        }
+      },
+      "recoverySnapshot": {
+        "type": "object",
+        "required": false,
+        "configurationMode": "advanced",
+        "source": { "kind": "binding" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "default_overridable",
+        "sensitive": true
+      },
+      "recoverySnapshotHash": {
+        "type": "string",
+        "required": false,
+        "configurationMode": "advanced",
+        "source": { "kind": "binding" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "default_overridable"
+      }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": ["http", "https"],
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
+        "credentialSlot": "credential",
+        "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "serverName": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "" }
+        }
+      }
+    },
+    "credentials": {
+      "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" }
+    },
+    "artifacts": {
+      "certificate": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "leafPem": { "role": "public_certificate", "required": true, "format": "PEM", "encoding": "UTF-8" },
+            "privateKeyPem": { "role": "private_key", "required": true, "format": "PEM", "encoding": "UTF-8", "sensitive": true },
+            "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "PEM", "encoding": "UTF-8" },
+            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "HEX", "encoding": "UTF-8" }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "authenticate",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "POST",
+        "connectionRef": "management",
+        "url": "/api/tokens",
+        "bodyType": "form",
+        "form": { "identity": "{{credentials.credential.username}}" },
+        "formCredentialRefs": { "secret": "{{credentials.credential}}" },
+        "headers": { "Accept": "application/json" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [200]
+      },
+      "extract": [{ "name": "token", "type": "jsonPath", "path": "$.token", "sensitive": true }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "readProxyHosts",
+      "type": "http",
+      "stage": "backup",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/nginx/proxy-hosts",
+        "headers": { "Accept": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [200]
+      },
+      "retry": { "count": 2, "intervalSeconds": 1, "retryOnStatus": [500, 502, 503, 504] },
+      "extract": [{ "name": "proxyHosts", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "selectTargets",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "hosts": "{{steps.readProxyHosts.extracted.proxyHosts}}",
+          "targets": "{{variables.targetProxyHosts}}"
+        },
+        "outputs": {
+          "hasTargets": { "expression": "($hosts := $append([],hosts); $ids := $map($append([],targets), function($target) { $string($target.metadata.proxyHostId ? $target.metadata.proxyHostId : $replace($string($target.targetKey), /^proxy-host:/, '')) }); $count($filter($hosts, function($host) { $string($host.id) in $ids })) > 0)" },
+          "selected": { "expression": "($hosts := $append([],hosts); $ids := $map($append([],targets), function($target) { $string($target.metadata.proxyHostId ? $target.metadata.proxyHostId : $replace($string($target.targetKey), /^proxy-host:/, '')) }); $append([], $map($filter($hosts, function($host) { $string($host.id) in $ids }), function($host) { {'proxyHostId':$host.id,'oldCertificateId':$host.certificate_id,'host':$host} })))" },
+          "snapshot": { "expression": "($hosts := $append([],hosts); $ids := $map($append([],targets), function($target) { $string($target.metadata.proxyHostId ? $target.metadata.proxyHostId : $replace($string($target.targetKey), /^proxy-host:/, '')) }); $append([], $map($filter($hosts, function($host) { $string($host.id) in $ids }), function($host) { {'proxyHostId':$host.id,'oldCertificateId':$host.certificate_id} })))" }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "requireTargets",
+      "type": "condition",
+      "stage": "backup",
+      "condition": { "variable": "steps.selectTargets.extracted.hasTargets", "equals": true },
+      "description": "没有选中的 Proxy Host 时停止证书更新"
+    },
+    {
+      "name": "deriveCertificateName",
+      "type": "transform",
+      "stage": "install",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "fingerprint": "{{artifacts.certificate.outputs.fingerprintSha256}}" },
+        "outputs": {
+          "niceName": { "expression": "'GCAC-' & $substring($replace($string(fingerprint), /[^A-Fa-f0-9]/, ''), 0, 16)" }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
+      "name": "normalizeCertificateParts",
+      "type": "transform",
+      "stage": "install",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "artifact": "{{artifacts.certificate}}" },
+        "outputs": {
+          "chainPem": { "expression": "artifact.outputs.orderedChainPem ? artifact.outputs.orderedChainPem : ''" }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "createCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "connectionRef": "management",
+        "url": "/api/nginx/certificates",
+        "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "bodyType": "json",
+        "body": { "provider": "other", "nice_name": "{{steps.deriveCertificateName.extracted.niceName}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 60,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [201]
+      },
+      "extract": [{ "name": "certificateId", "type": "jsonPath", "path": "$.id" }],
+      "assert": [{ "type": "statusCode", "equals": 201 }]
+    },
+    {
+      "name": "uploadCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "connectionRef": "management",
+        "url": "/api/nginx/certificates/{{steps.createCertificate.extracted.certificateId}}/upload",
+        "headers": { "Accept": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "bodyType": "multipart",
+        "multipart": {
+          "certificate": { "value": "{{artifacts.certificate.outputs.leafPem}}", "filename": "certificate.pem", "contentType": "application/x-pem-file" },
+          "certificate_key": { "value": "{{artifacts.certificate.outputs.privateKeyPem}}", "filename": "certificate.key", "contentType": "application/x-pem-file" },
+          "intermediate_certificate": { "value": "{{steps.normalizeCertificateParts.extracted.chainPem}}", "filename": "chain.pem", "contentType": "application/x-pem-file" }
+        },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 60,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "verifyUploadedCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/nginx/certificates/{{steps.createCertificate.extracted.certificateId}}",
+        "headers": { "Accept": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [200]
+      },
+      "extract": [{ "name": "expiresOn", "type": "jsonPath", "path": "$.expires_on" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "deploymentCheckpoint",
+      "type": "checkpoint",
+      "stage": "backup",
+      "checkpoint": {
+        "name": "nginx-proxy-manager-certificate-deployment",
+        "capture": { "snapshot": "steps.selectTargets.extracted.snapshot" },
+        "normalizedHash": true,
+        "requiredForRollback": true
+      }
+    },
+    {
+      "name": "updateProxyHosts",
+      "type": "foreach",
+      "stage": "install",
+      "foreach": {
+        "itemsPath": "steps.selectTargets.extracted.selected",
+        "itemVariable": "target",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "buildPayload",
+            "type": "transform",
+            "transform": {
+              "engine": "jsonata",
+              "input": { "host": "{{target.host}}", "certificateId": "{{steps.createCertificate.extracted.certificateId}}" },
+              "outputs": {
+                "payload": { "expression": "{'domain_names':host.domain_names,'forward_scheme':host.forward_scheme,'forward_host':host.forward_host,'forward_port':host.forward_port,'access_list_id':host.access_list_id,'caching_enabled':host.caching_enabled,'block_exploits':host.block_exploits,'allow_websocket_upgrade':host.allow_websocket_upgrade,'locations':$append([],host.locations),'certificate_id':certificateId,'ssl_forced':host.ssl_forced,'http2_support':host.http2_support,'hsts_enabled':host.hsts_enabled,'hsts_subdomains':host.hsts_subdomains,'advanced_config':host.advanced_config,'meta':host.meta}" }
+              },
+              "timeoutMs": 1000
+            }
+          },
+          {
+            "name": "updateProxyHost",
+            "type": "http",
+            "request": {
+              "method": "PUT",
+              "connectionRef": "management",
+              "url": "/api/nginx/proxy-hosts/{{target.proxyHostId}}",
+              "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+              "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+              "bodyType": "json",
+              "body": "{{steps.buildPayload.extracted.payload}}",
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+              "timeoutSeconds": 60,
+              "maxResponseBytes": 4194304,
+              "successStatusCodes": [200]
+            },
+            "extract": [{ "name": "updatedId", "type": "jsonPath", "path": "$.id" }],
+            "assert": [{ "type": "statusCode", "equals": 200 }]
+          }
+        ]
+      }
+    },
+    {
+      "name": "verifyProxyHosts",
+      "type": "foreach",
+      "stage": "verify",
+      "foreach": {
+        "itemsPath": "steps.selectTargets.extracted.selected",
+        "itemVariable": "target",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "readUpdatedProxyHost",
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "connectionRef": "management",
+              "url": "/api/nginx/proxy-hosts/{{target.proxyHostId}}",
+              "headers": { "Accept": "application/json" },
+              "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+              "timeoutSeconds": 30,
+              "maxResponseBytes": 4194304,
+              "successStatusCodes": [200]
+            },
+            "assert": [
+              { "type": "statusCode", "equals": 200 },
+              { "type": "jsonPath", "path": "$.certificate_id", "equals": "{{steps.createCertificate.extracted.certificateId}}" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "rollback": [
+    {
+      "name": "authenticate",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "POST",
+        "connectionRef": "management",
+        "url": "/api/tokens",
+        "bodyType": "form",
+        "form": { "identity": "{{credentials.credential.username}}" },
+        "formCredentialRefs": { "secret": "{{credentials.credential}}" },
+        "headers": { "Accept": "application/json" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [200]
+      },
+      "extract": [{ "name": "token", "type": "jsonPath", "path": "$.token", "sensitive": true }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "verifyRecoverySnapshot",
+      "type": "checkpoint_verify",
+      "stage": "prepare",
+      "checkpointVerify": { "valuePath": "variables.recoverySnapshot", "expectedHash": "{{variables.recoverySnapshotHash}}" }
+    },
+    {
+      "name": "restoreProxyHosts",
+      "type": "foreach",
+      "stage": "refresh",
+      "foreach": {
+        "itemsPath": "variables.recoverySnapshot.bindings",
+        "itemVariable": "binding",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "readCurrentProxyHost",
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "connectionRef": "management",
+              "url": "/api/nginx/proxy-hosts/{{binding.proxyHostId}}",
+              "headers": { "Accept": "application/json" },
+              "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+              "timeoutSeconds": 30,
+              "maxResponseBytes": 4194304,
+              "successStatusCodes": [200]
+            },
+            "extract": [{ "name": "host", "type": "outputPath", "path": "$.body" }],
+            "assert": [{ "type": "statusCode", "equals": 200 }]
+          },
+          {
+            "name": "buildRollbackPayload",
+            "type": "transform",
+            "transform": {
+              "engine": "jsonata",
+              "input": { "host": "{{steps.readCurrentProxyHost.extracted.host}}", "certificateId": "{{binding.oldCertificateId}}" },
+              "outputs": {
+                "payload": { "expression": "{'domain_names':host.domain_names,'forward_scheme':host.forward_scheme,'forward_host':host.forward_host,'forward_port':host.forward_port,'access_list_id':host.access_list_id,'caching_enabled':host.caching_enabled,'block_exploits':host.block_exploits,'allow_websocket_upgrade':host.allow_websocket_upgrade,'locations':$append([],host.locations),'certificate_id':certificateId,'ssl_forced':host.ssl_forced,'http2_support':host.http2_support,'hsts_enabled':host.hsts_enabled,'hsts_subdomains':host.hsts_subdomains,'advanced_config':host.advanced_config,'meta':host.meta}" }
+              },
+              "timeoutMs": 1000
+            }
+          },
+          {
+            "name": "restoreProxyHost",
+            "type": "http",
+            "request": {
+              "method": "PUT",
+              "connectionRef": "management",
+              "url": "/api/nginx/proxy-hosts/{{binding.proxyHostId}}",
+              "headers": { "Accept": "application/json", "Content-Type": "application/json" },
+              "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+              "bodyType": "json",
+              "body": "{{steps.buildRollbackPayload.extracted.payload}}",
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+              "timeoutSeconds": 60,
+              "maxResponseBytes": 4194304,
+              "successStatusCodes": [200]
+            },
+            "assert": [{ "type": "statusCode", "equals": 200 }]
+          },
+          {
+            "name": "verifyRestoredProxyHost",
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "connectionRef": "management",
+              "url": "/api/nginx/proxy-hosts/{{binding.proxyHostId}}",
+              "headers": { "Accept": "application/json" },
+              "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+              "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+              "timeoutSeconds": 30,
+              "maxResponseBytes": 4194304,
+              "successStatusCodes": [200]
+            },
+            "assert": [
+              { "type": "statusCode", "equals": 200 },
+              { "type": "jsonPath", "path": "$.certificate_id", "equals": "{{binding.oldCertificateId}}" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "deleteUploadedCertificate",
+      "type": "http",
+      "stage": "refresh",
+      "when": { "variable": "steps.createCertificate.extracted.certificateId", "exists": true },
+      "request": {
+        "method": "DELETE",
+        "connectionRef": "management",
+        "url": "/api/nginx/certificates/{{steps.createCertificate.extracted.certificateId}}",
+        "headers": { "Accept": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    }
+  ]
+}

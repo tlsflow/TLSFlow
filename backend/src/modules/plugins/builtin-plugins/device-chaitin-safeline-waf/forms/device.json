@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "BOTH",
+  "sections": [
+    {
+      "id": "device",
+      "titleKey": "plugin.chaitinSafelineWaf.form.device",
+      "fields": [
+        { "key": "displayName", "type": "text", "labelKey": "plugin.chaitinSafelineWaf.field.displayName", "standardField": "device.displayName", "required": true },
+        { "key": "address", "type": "text", "labelKey": "plugin.chaitinSafelineWaf.field.address", "standardField": "connection.address", "required": true },
+        { "key": "port", "type": "integer", "labelKey": "plugin.chaitinSafelineWaf.field.port", "standardField": "connection.port", "required": true, "defaultValue": 9443 },
+        { "key": "gatewayId", "type": "select", "labelKey": "plugin.chaitinSafelineWaf.field.gateway", "standardField": "connection.gatewayId" }
+      ]
+    },
+    {
+      "id": "authentication",
+      "titleKey": "plugin.chaitinSafelineWaf.form.authentication",
+      "fields": [
+        { "key": "credential", "type": "credential_ref", "labelKey": "plugin.chaitinSafelineWaf.field.credential", "standardField": "authentication.credentialId", "required": true, "acceptedCredentialKinds": ["API_KEY"], "acceptedScopes": ["global", "team", "zone", "host", "plugin"], "purpose": "device-management" }
+      ]
+    },
+    {
+      "id": "tls",
+      "titleKey": "plugin.chaitinSafelineWaf.form.tls",
+      "fields": [
+        { "key": "httpsEnabled", "type": "switch", "labelKey": "plugin.chaitinSafelineWaf.field.httpsEnabled", "standardField": "tls.enabled", "defaultValue": true },
+        { "key": "ignoreCertificateErrors", "type": "switch", "labelKey": "plugin.chaitinSafelineWaf.field.ignoreCertificateErrors", "standardField": "tls.ignoreCertificateErrors", "enabledWhen": { "field": "httpsEnabled", "operator": "truthy" }, "defaultValue": false },
+        { "key": "serverName", "type": "text", "labelKey": "plugin.chaitinSafelineWaf.field.serverName", "standardField": "tls.serverName", "defaultValue": "" }
+      ]
+    }
+  ]
+}

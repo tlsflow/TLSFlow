@@ -1,0 +1,95 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "nginx-proxy-manager-identity-detect",
+    "displayName": "Nginx Proxy Manager identity detection",
+    "category": "device",
+    "version": "0.1.7",
+    "platforms": ["proxy"],
+    "updateMethods": ["curl"],
+    "maintainer": "GCAC 用户插件"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "allowInsecureTls": {
+        "type": "boolean",
+        "required": true,
+        "configurationMode": "required",
+        "source": { "kind": "binding" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "required_binding",
+        "descriptionKey": "deploymentInputs.allowInsecureTls.description",
+        "ui": {
+          "labelKey": "deploymentInputs.allowInsecureTls.label",
+          "group": "security",
+          "order": 10,
+          "helpKey": "deploymentInputs.allowInsecureTls.help"
+        }
+      }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": ["http", "https"],
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
+        "credentialSlot": "credential",
+        "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "serverName": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "" }
+        }
+      }
+    },
+    "credentials": {
+      "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" }
+    },
+    "artifacts": {}
+  },
+  "steps": [
+    {
+      "name": "authenticate",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "POST",
+        "connectionRef": "management",
+        "url": "/api/tokens",
+        "bodyType": "form",
+        "form": { "identity": "{{credentials.credential.username}}" },
+        "formCredentialRefs": { "secret": "{{credentials.credential}}" },
+        "headers": { "Accept": "application/json" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [200]
+      },
+      "extract": [{ "name": "token", "type": "jsonPath", "path": "$.token", "sensitive": true }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "readProxyHosts",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "connectionRef": "management",
+        "url": "/api/nginx/proxy-hosts",
+        "headers": { "Accept": "application/json" },
+        "headerRefs": { "Authorization": "Bearer {{steps.authenticate.extracted.token}}" },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 4194304,
+        "successStatusCodes": [200]
+      },
+      "retry": { "count": 2, "intervalSeconds": 1, "retryOnStatus": [500, 502, 503, 504] },
+      "extract": [
+        { "name": "proxyHosts", "type": "outputPath", "path": "$.body" },
+        { "name": "productFamily", "type": "literal", "value": "device.nginx-proxy-manager" }
+      ],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    }
+  ]
+}

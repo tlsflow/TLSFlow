@@ -1,0 +1,39 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "device.nginx-proxy-manager",
+  "displayNameKey": "plugin.nginxProxyManager.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.nginxProxyManager.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.nginxProxyManager.onboarding.requiredAddress", "plugin.nginxProxyManager.onboarding.requiredCredential"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.nginx-proxy-manager",
+  "deviceSelection": "EXISTING_OR_NEW",
+  "newDeviceOnboarding": { "kind": "PLUGIN_MANAGED", "pluginId": "device.nginx-proxy-manager" },
+  "forms": { "device": "forms/device.json" },
+  "capabilities": {
+    "connectionTest": "device.connection.test",
+    "identity": "device.identity.detect",
+    "discovery": "device.discover"
+  },
+  "targetProjection": {
+    "targetType": "tls.binding",
+    "frameworkTypes": ["proxy.nginx-proxy-manager"],
+    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "deploymentDefaults": {
+    "capabilityKey": "certificate.deploy",
+    "variables": { "allowInsecureTls": false },
+    "certificateFormat": { "format": "PEM", "configName": "宿主默认 PEM Bundle" }
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
+}

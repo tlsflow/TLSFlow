@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "resourceLabels": {
+    "frameworks": [
+      { "frameworkType": "chaitin.safeline-site", "labelKey": "plugin.chaitinSafelineWaf.framework.site" }
+    ],
+    "sites": [
+      { "frameworkType": "chaitin.safeline-site", "siteType": "chaitin.safeline-site", "groupKey": "site", "groupLabelKey": "plugin.chaitinSafelineWaf.framework.site", "typeLabelKey": "plugin.chaitinSafelineWaf.site.protected" }
+    ]
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.chaitinSafelineWaf.presentation.identity",
+      "fields": [
+        { "key": "product", "labelKey": "plugin.chaitinSafelineWaf.field.product", "valuePath": "productFamily", "type": "text" },
+        { "key": "version", "labelKey": "plugin.chaitinSafelineWaf.field.version", "valuePath": "softwareVersion", "type": "text" },
+        { "key": "architecture", "labelKey": "plugin.chaitinSafelineWaf.field.architecture", "valuePath": "extensionSummary.discoveryMetadata.architecture", "type": "text" },
+        { "key": "address", "labelKey": "plugin.chaitinSafelineWaf.field.address", "valuePath": "managementAddress", "type": "text" },
+        { "key": "health", "labelKey": "plugin.chaitinSafelineWaf.field.health", "valuePath": "health", "type": "status" }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "type": "sites",
+      "id": "sites",
+      "titleKey": "plugin.chaitinSafelineWaf.tab.sites",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.chaitinSafelineWaf.column.name", "valuePath": "name", "type": "text" },
+        { "key": "address", "labelKey": "plugin.chaitinSafelineWaf.column.address", "valuePath": "endpoint.address", "type": "text" },
+        { "key": "ports", "labelKey": "plugin.chaitinSafelineWaf.column.ports", "valuePath": "metadata.ports", "type": "text" },
+        { "key": "upstream", "labelKey": "plugin.chaitinSafelineWaf.column.upstream", "valuePath": "metadata.upstream", "type": "text" },
+        { "key": "status", "labelKey": "plugin.chaitinSafelineWaf.column.status", "valuePath": "status", "type": "status" }
+      ]
+    },
+    {
+      "type": "certificate_bindings",
+      "id": "certificates",
+      "titleKey": "plugin.chaitinSafelineWaf.tab.certificates",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.chaitinSafelineWaf.column.name", "valuePath": "name", "type": "text" },
+        { "key": "subject", "labelKey": "plugin.chaitinSafelineWaf.column.subject", "valuePath": "subject", "type": "text" },
+        { "key": "expiresAt", "labelKey": "plugin.chaitinSafelineWaf.column.expiresAt", "valuePath": "notAfter", "type": "timestamp" },
+        { "key": "status", "labelKey": "plugin.chaitinSafelineWaf.column.status", "valuePath": "status", "type": "status" }
+      ]
+    }
+  ],
+  "actions": [
+    { "capabilityKey": "device.discover", "labelKey": "plugin.chaitinSafelineWaf.action.discover", "tone": "info" }
+  ]
+}

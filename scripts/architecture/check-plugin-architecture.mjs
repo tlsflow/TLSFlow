@@ -88,6 +88,8 @@ const canonicalPluginIds = new Set([
   'app.service-certificate-file',
   'device.citrix.netscaler-adc',
   'device.synology-dsm',
+  'device.chaitin-safeline-waf',
+  'device.nginx-proxy-manager',
   'cloud.aliyun',
   'cloud.tencent',
   'cloud.huawei',
