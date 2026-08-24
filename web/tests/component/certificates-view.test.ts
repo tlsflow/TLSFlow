@@ -55,6 +55,16 @@ describe('CertificatesView', () => {
     expect(wrapper.find('.certificate-page__header').exists()).toBe(false)
     expect(wrapper.findAll('.certificate-page__metric')).toHaveLength(3)
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__control-bar').exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__search-field').exists()).toBe(false)
+
+    const workspaceView = wrapper.get('.certificate-page__workspace-view')
+    const workspaceChildren = [...workspaceView.element.children]
+    const categoryTabsIndex = workspaceChildren.findIndex((element) => element.classList.contains('certificate-page__category-tabs'))
+    const assetCountIndex = workspaceChildren.findIndex((element) => element.classList.contains('certificate-page__asset-count'))
+    expect(workspaceView.findAll('.certificate-page__category-tab')).toHaveLength(4)
+    expect(categoryTabsIndex).toBeGreaterThanOrEqual(0)
+    expect(categoryTabsIndex).toBeLessThan(assetCountIndex)
 
     document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()
     await flushPromises()
