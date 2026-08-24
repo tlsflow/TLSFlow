@@ -1,21 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -128,6 +131,8 @@ type AgentExecutionReceiptV1 struct {
 	ErrorCode        string           `json:"errorCode,omitempty"`
 	UnknownReason    string           `json:"unknownReason,omitempty"`
 	Digest           string           `json:"digest"`
+	AgentKeyID       string           `json:"agentKeyId"`
+	Signature        string           `json:"signature"`
 }
 
 type agentPlanV2 = AgentPlanV1
@@ -149,7 +154,7 @@ type agentV2Request struct {
 	Token           AgentCapabilityTokenV1    `json:"token"`
 	PolicyDecision  PolicyAuthorityDecisionV1 `json:"policyDecision"`
 	Plan            agentPlanV2               `json:"plan"`
-	Receipt         AgentExecutionReceiptV1   `json:"receipt,omitempty"`
+	Receipt         *AgentExecutionReceiptV1  `json:"receipt,omitempty"`
 }
 
 func executeAgentV2(ctx context.Context, request map[string]any, agentID string) (bool, string, string, map[string]any) {
@@ -166,16 +171,20 @@ func executeAgentV2(ctx context.Context, request map[string]any, agentID string)
 	}
 	switch strings.TrimSpace(envelope.Action) {
 	case agentFactCollect:
-		return collectAgentFacts(envelope)
+		return collectAgentFacts(ctx, envelope)
 	case agentPlanValidate:
 		if err := validateAgentPlan(envelope.Plan, envelope.Token); err != nil {
 			return false, "AGENT_PLAN_INVALID", err.Error(), nil
 		}
 		return true, "", "", map[string]any{"planDigest": envelope.Plan.PlanDigest, "validated": true}
 	case agentPlanExecute:
-		return executeAgentPlan(ctx, envelope.Plan, envelope.Token)
+		return executeAuthorizedAgentPlan(ctx, envelope.Plan, envelope.Token)
 	case agentExecutionReceipt:
-		return true, "", "", map[string]any{"receiptAccepted": true, "receipt": envelope.Receipt}
+		receipt, err := loadAndValidateAgentExecutionReceipt(envelope)
+		if err != nil {
+			return false, "AGENT_RECEIPT_INVALID", err.Error(), nil
+		}
+		return true, "", "", map[string]any{"receiptAccepted": true, "receipt": receipt}
 	default:
 		return false, "AGENT_V2_ACTION_UNSUPPORTED", "Agent v2 动作不在长期合同内", map[string]any{"action": envelope.Action}
 	}
@@ -204,11 +213,12 @@ func validateAgentV2Request(request agentV2Request, agentID string) error {
 		if err := validateAgentPlan(request.Plan, request.Token); err != nil {
 			return err
 		}
-	}
-	if request.Action == agentExecutionReceipt {
-		if request.Receipt.ReceiptVersion == "" || request.Receipt.Digest == "" {
-			return errors.New("receiptVersion and digest are required")
+		if err := validateAgentPlanAuthorization(request.Plan, request.PolicyDecision); err != nil {
+			return err
 		}
+	}
+	if request.Action == agentExecutionReceipt && request.PlanDigest != request.Token.PlanDigest {
+		return errors.New("receipt planDigest does not match capability token")
 	}
 	return nil
 }
@@ -219,9 +229,6 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	}
 	if token.AgentID != request.AgentID || token.TenantID != request.TenantID || token.PluginID != request.PluginID || token.PluginVersionID != request.PluginVersion || token.Capability != request.Capability {
 		return errors.New("capability token binding mismatch")
-	}
-	if !containsString(token.Actions, request.Action) {
-		return errors.New("capability token does not grant the requested action")
 	}
 	if !sameStringSet(token.Actions, request.Actions) || !sameStringSet(token.AllowedPaths, request.Paths) || !sameStringSet(token.AllowedServices, request.Services) || !sameStringSet(token.ArtifactDigests, request.ArtifactDigests) {
 		return errors.New("capability token scope mismatch")
@@ -260,23 +267,225 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	if err := validateLocalPolicy(request.Paths, request.Services); err != nil {
 		return err
 	}
-	if err := consumePersistentAgentNonce(token.Nonce, token.TokenID, token.PlanDigest); err != nil {
-		return err
-	}
 	return nil
 }
 
-func collectAgentFacts(request agentV2Request) (bool, string, string, map[string]any) {
-	return true, "", "", map[string]any{
-		"collectedAt": time.Now().UTC().Format(time.RFC3339Nano),
-		"facts": map[string]any{
-			"hostname": hostnameValue(),
-			"os":       "linux",
-			"arch":     runtime.GOARCH,
-			"paths":    append([]string(nil), request.Paths...),
-			"services": append([]string(nil), request.Services...),
-		},
+func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, string, string, map[string]any) {
+	collectedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	facts := make([]map[string]any, 0, 16)
+	warnings := make([]string, 0)
+	facts = append(facts, collectLinuxProcesses()...)
+	facts = append(facts, collectLinuxServices(ctx, request.Services)...)
+	facts = append(facts, collectLinuxFiles(request.Paths)...)
+	ports := collectLinuxListeningPorts()
+	if len(ports) == 0 {
+		warnings = append(warnings, "未发现可读取的监听端口")
 	}
+	facts = append(facts, ports...)
+	facts = append(facts, map[string]any{
+		"kind":      "privilege",
+		"principal": linuxPrincipal(),
+		"elevated":  os.Geteuid() == 0,
+		"groups":    collectLinuxGroups(),
+	})
+	facts = append(facts, collectLinuxCertificateStores()...)
+	envelope := map[string]any{
+		"contractVersion": agentSecurityContract,
+		"factId":          request.RequestID,
+		"agentId":         request.AgentID,
+		"tenantId":        request.TenantID,
+		"collectedAt":     collectedAt,
+		"ttlSeconds":      300,
+		"source":          "linux",
+		"facts":           facts,
+		"warnings":        warnings,
+	}
+	digest, err := computeAgentFactDigest(envelope)
+	if err != nil {
+		return false, "AGENT_FACT_COLLECTION_FAILED", "通用事实摘要生成失败", nil
+	}
+	envelope["digest"] = digest
+	return true, "", "", envelope
+}
+
+func collectLinuxProcesses() []map[string]any {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return []map[string]any{}
+	}
+	processes := make([]map[string]any, 0, 128)
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid < 1 {
+			continue
+		}
+		executablePath, err := os.Readlink(filepath.Join("/proc", entry.Name(), "exe"))
+		if err != nil || !filepath.IsAbs(executablePath) {
+			continue
+		}
+		processes = append(processes, map[string]any{"kind": "process", "pid": pid, "executablePath": executablePath})
+		if len(processes) >= 1000 {
+			break
+		}
+	}
+	sort.Slice(processes, func(left, right int) bool {
+		return processes[left]["pid"].(int) < processes[right]["pid"].(int)
+	})
+	return processes
+}
+
+func collectLinuxServices(ctx context.Context, names []string) []map[string]any {
+	if len(names) == 0 {
+		names = []string{"agent-core"}
+	}
+	services := make([]map[string]any, 0, len(names))
+	program, err := resolveLinuxSystemctl()
+	for _, name := range names {
+		item := map[string]any{"kind": "service", "name": name, "status": "unknown"}
+		if err != nil || !validLinuxServiceName(name) {
+			services = append(services, item)
+			continue
+		}
+		command := exec.CommandContext(ctx, program, "is-active", name)
+		command.Dir = "/"
+		command.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+		output, commandErr := command.Output()
+		status := strings.TrimSpace(string(output))
+		if commandErr != nil || status == "" {
+			status = "unknown"
+		} else if status == "active" {
+			status = "running"
+		} else if status == "inactive" {
+			status = "stopped"
+		} else {
+			status = "unknown"
+		}
+		item["status"] = status
+		services = append(services, item)
+	}
+	return services
+}
+
+func collectLinuxFiles(paths []string) []map[string]any {
+	if len(paths) == 0 {
+		paths = []string{"/etc/hosts"}
+	}
+	files := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			continue
+		}
+		item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": 0}
+		info, err := os.Stat(path)
+		if err != nil {
+			files = append(files, item)
+			continue
+		}
+		item["exists"] = true
+		item["sizeBytes"] = info.Size()
+		item["mode"] = info.Mode().String()
+		item["modifiedAt"] = info.ModTime().UTC().Format(time.RFC3339Nano)
+		if info.Mode().IsRegular() {
+			if digest, digestErr := sha256FileDigest(path); digestErr == nil {
+				item["sha256"] = digest
+			}
+		}
+		files = append(files, item)
+	}
+	return files
+}
+
+func collectLinuxListeningPorts() []map[string]any {
+	ports := make([]map[string]any, 0, 128)
+	for _, source := range []struct {
+		path     string
+		protocol string
+		address  string
+	}{
+		{path: "/proc/net/tcp", protocol: "tcp", address: "0.0.0.0"},
+		{path: "/proc/net/tcp6", protocol: "tcp", address: "::"},
+	} {
+		file, err := os.Open(source.path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		first := true
+		for scanner.Scan() {
+			if first {
+				first = false
+				continue
+			}
+			fields := strings.Fields(scanner.Text())
+			if len(fields) < 4 || fields[3] != "0A" {
+				continue
+			}
+			portText := fields[1]
+			separator := strings.LastIndexByte(portText, ':')
+			if separator < 0 {
+				continue
+			}
+			port, err := strconv.ParseInt(portText[separator+1:], 16, 32)
+			if err != nil {
+				continue
+			}
+			ports = append(ports, map[string]any{"kind": "listening_port", "address": source.address, "port": int(port), "protocol": source.protocol})
+			if len(ports) >= 1000 {
+				break
+			}
+		}
+		_ = file.Close()
+		if len(ports) >= 1000 {
+			break
+		}
+	}
+	return ports
+}
+
+func collectLinuxGroups() []string {
+	groups, err := os.Getgroups()
+	if err != nil {
+		return []string{}
+	}
+	sort.Ints(groups)
+	result := make([]string, 0, len(groups))
+	for _, group := range groups {
+		result = append(result, strconv.Itoa(group))
+	}
+	return result
+}
+
+func collectLinuxCertificateStores() []map[string]any {
+	stores := make([]map[string]any, 0, 4)
+	for _, path := range []string{"/etc/ssl/certs", "/etc/pki/tls/certs", "/etc/ca-certificates"} {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !(strings.HasSuffix(strings.ToLower(entry.Name()), ".pem") || strings.HasSuffix(strings.ToLower(entry.Name()), ".crt")) {
+				continue
+			}
+			encoded, err := os.ReadFile(filepath.Join(path, entry.Name()))
+			block, _ := pem.Decode(encoded)
+			if err != nil || block == nil || block.Type != "CERTIFICATE" {
+				continue
+			}
+			certificate, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				continue
+			}
+			thumbprint := sha256.Sum256(block.Bytes)
+			stores = append(stores, map[string]any{"kind": "certificate_store", "store": "linux-system-trust", "subject": certificate.Subject.String(), "thumbprint": hex.EncodeToString(thumbprint[:]), "notAfter": certificate.NotAfter.UTC().Format(time.RFC3339Nano), "hasPrivateKey": false})
+			if len(stores) >= 100 {
+				return stores
+			}
+		}
+	}
+	if len(stores) == 0 {
+		return []map[string]any{{"kind": "certificate_store", "store": "linux-system-trust", "subject": "unavailable", "thumbprint": "unavailable", "hasPrivateKey": false}}
+	}
+	return stores
 }
 
 func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
@@ -286,9 +495,16 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 	if plan.PlanVersion != agentSecurityContract || plan.AgentID != token.AgentID || plan.TenantID != token.TenantID || plan.PluginID != token.PluginID || plan.PluginVersionID != token.PluginVersionID || plan.Capability != token.Capability || plan.TokenID != token.TokenID || plan.Nonce != token.Nonce || plan.PlanDigest != token.PlanDigest {
 		return errors.New("plan identity binding mismatch")
 	}
+	expectedDigest, err := computeAgentPlanDigest(plan)
+	if err != nil || expectedDigest != plan.PlanDigest {
+		return errors.New("planDigest does not match the complete plan")
+	}
 	for _, operation := range plan.Operations {
 		if err := validateAgentPlanOperation(operation); err != nil {
 			return err
+		}
+		if !containsString(token.Actions, operation.OperationType) {
+			return fmt.Errorf("Token 未授权 Agent 操作: %s", operation.OperationType)
 		}
 		if path := v2StringValue(operation.Input, "path"); path != "" && !pathScopeContains(token.AllowedPaths, path) {
 			return fmt.Errorf("operation path is outside token scope: %s", path)
@@ -298,6 +514,15 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		}
 		if artifact := v2StringValue(operation.Input, "artifactDigest"); artifact != "" && !containsString(token.ArtifactDigests, artifact) {
 			return errors.New("operation artifact is outside token scope")
+		}
+	}
+	return nil
+}
+
+func validateAgentPlanAuthorization(plan agentPlanV2, decision PolicyAuthorityDecisionV1) error {
+	for _, operation := range plan.Operations {
+		if !containsString(decision.Actions, operation.OperationType) {
+			return fmt.Errorf("Policy Decision 未授权 Agent 操作: %s", operation.OperationType)
 		}
 	}
 	return nil
@@ -328,49 +553,225 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	return nil
 }
 
-func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabilityTokenV1) (bool, string, string, map[string]any) {
+type agentReceiptSigner struct {
+	KeyID      string
+	PrivateKey ed25519.PrivateKey
+}
+
+func executeAuthorizedAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabilityTokenV1) (bool, string, string, map[string]any) {
 	if err := validateAgentPlan(plan, token); err != nil {
 		return false, "AGENT_PLAN_INVALID", err.Error(), nil
 	}
+	if !plan.WriteEffect || !hasAgentWriteOperation(plan) {
+		return false, "AGENT_PLAN_INVALID", "agent.plan.execute 只接受包含写操作的计划", nil
+	}
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		return false, "AGENT_RECEIPT_SIGNER_UNAVAILABLE", err.Error(), nil
+	}
+	resultDigest, err := computeAgentPlanResultDigest(plan)
+	if err != nil {
+		return false, "AGENT_PLAN_INVALID", "计划结果摘要生成失败", nil
+	}
+	if err := consumePersistentAgentNonce(token.Nonce, token.TokenID, resultDigest); err != nil {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), nil
+	}
+	return executeAgentPlan(ctx, plan, token, signer)
+}
+
+func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabilityTokenV1, signer agentReceiptSigner) (bool, string, string, map[string]any) {
+	startedAt := time.Now().UTC()
 	results := make([]map[string]any, 0, len(plan.Operations))
 	for _, operation := range plan.Operations {
 		started := time.Now()
-		result := map[string]any{"operationId": operation.OperationID, "operationType": operation.OperationType, "status": "SUCCEEDED"}
+		result := map[string]any{"operationId": operation.OperationID, "operationType": operation.OperationType, "stage": operation.Stage, "status": "SUCCEEDED"}
+		operationCtx, cancel := context.WithTimeout(ctx, time.Duration(operation.TimeoutSeconds)*time.Second)
 		var err error
-		switch operation.OperationType {
-		case "filesystem.atomic_replace":
-			err = executeFileReplace(operation)
-		case "filesystem.restore":
-			err = errors.New("filesystem.restore requires a signed checkpoint and is not available without one")
-		case "service.start", "service.stop", "service.reload":
-			err = executeAllowlistedService(ctx, operation)
-		case "command.execute_allowlisted":
-			err = executeAllowlistedProgram(ctx, operation)
-		case "process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "certificate.material.validate", "certificate.store.inspect":
-			err = errors.New("read-only operation requires the corresponding Agent fact collector")
+		if err = agentContextError(operationCtx); err == nil {
+			switch operation.OperationType {
+			case "filesystem.atomic_replace":
+				err = executeFileReplace(operationCtx, operation)
+			case "filesystem.restore":
+				err = errors.New("filesystem.restore requires a signed checkpoint and is not available without one")
+			case "service.start", "service.stop", "service.reload":
+				err = executeAllowlistedService(operationCtx, operation)
+			case "command.execute_allowlisted":
+				err = executeAllowlistedProgram(operationCtx, operation)
+			default:
+				err = errors.New("agent.plan.execute 只接受写操作")
+			}
 		}
+		if err == nil {
+			err = agentContextError(operationCtx)
+		}
+		cancel()
 		if err != nil {
 			result["status"] = "UNKNOWN"
 			result["error"] = err.Error()
 			result["finishedAt"] = time.Now().UTC().Format(time.RFC3339Nano)
 			result["durationMs"] = time.Since(started).Milliseconds()
 			results = append(results, result)
-			return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明，禁止自动重试或回退", map[string]any{"planId": plan.PlanID, "operations": results}
+			receipt, receiptErr := buildAndPersistAgentReceipt(plan, token, "UNKNOWN", startedAt, results, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明，禁止自动重试或回退", signer)
+			if receiptErr != nil {
+				return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明且回执无法持久化", nil
+			}
+			return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明，禁止自动重试或回退", map[string]any{"planId": plan.PlanID, "operations": results, "operationResults": results, "executionStatus": "UNKNOWN", "receipt": receipt}
 		}
 		result["finishedAt"] = time.Now().UTC().Format(time.RFC3339Nano)
 		result["durationMs"] = time.Since(started).Milliseconds()
 		results = append(results, result)
 	}
-	return true, "", "", map[string]any{"planId": plan.PlanID, "status": "SUCCEEDED", "operations": results}
+	receipt, err := buildAndPersistAgentReceipt(plan, token, "SUCCESS", startedAt, results, "", "", signer)
+	if err != nil {
+		return false, "AGENT_EXECUTION_UNKNOWN", "执行完成但回执无法持久化，状态不明", nil
+	}
+	return true, "", "", map[string]any{"planId": plan.PlanID, "status": "SUCCEEDED", "executionStatus": "SUCCESS", "operations": results, "operationResults": results, "receipt": receipt}
 }
 
-func executeFileReplace(operation agentPlanAction) error {
+func buildAndPersistAgentReceipt(plan agentPlanV2, token AgentCapabilityTokenV1, status string, startedAt time.Time, results []map[string]any, errorCode, unknownReason string, signer agentReceiptSigner) (AgentExecutionReceiptV1, error) {
+	receipt := AgentExecutionReceiptV1{
+		ReceiptVersion:   agentSecurityContract,
+		OperationID:      receiptOperationID(plan, results),
+		PlanID:           plan.PlanID,
+		PlanDigest:       plan.PlanDigest,
+		AgentID:          plan.AgentID,
+		TenantID:         plan.TenantID,
+		TokenID:          token.TokenID,
+		Status:           status,
+		StartedAt:        startedAt.Format(time.RFC3339Nano),
+		CompletedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+		OperationResults: results,
+		NonceConsumed:    true,
+		ErrorCode:        errorCode,
+		UnknownReason:    unknownReason,
+		AgentKeyID:       signer.KeyID,
+	}
+	if err := signAgentExecutionReceipt(&receipt, signer); err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	if err := persistAgentExecutionReceipt(token.Nonce, receipt); err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	return receipt, nil
+}
+
+func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
+	for index := len(results) - 1; index >= 0; index-- {
+		if operationID := v2StringValue(results[index], "operationId"); operationID != "" {
+			return operationID
+		}
+	}
+	if len(plan.Operations) > 0 {
+		return plan.Operations[0].OperationID
+	}
+	return ""
+}
+
+func hasAgentWriteOperation(plan agentPlanV2) bool {
+	for _, operation := range plan.Operations {
+		if containsString([]string{"filesystem.atomic_replace", "filesystem.restore", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentContextError(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func signAgentExecutionReceipt(receipt *AgentExecutionReceiptV1, signer agentReceiptSigner) error {
+	digest, err := computeAgentExecutionReceiptDigest(*receipt)
+	if err != nil {
+		return err
+	}
+	receipt.Digest = digest
+	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSON(agentReceiptWithoutSignature(*receipt))))
+	return nil
+}
+
+func validateAgentExecutionReceipt(receipt AgentExecutionReceiptV1, token AgentCapabilityTokenV1, request agentV2Request) error {
+	if receipt.ReceiptVersion != agentSecurityContract || receipt.PlanID == "" || receipt.OperationID == "" || receipt.AgentID != token.AgentID || receipt.AgentID != request.AgentID || receipt.TenantID != token.TenantID || receipt.TenantID != request.TenantID || receipt.TokenID != token.TokenID || receipt.PlanDigest != token.PlanDigest || !receipt.NonceConsumed {
+		return errors.New("receipt identity or nonce binding mismatch")
+	}
+	if !containsString([]string{"SUCCESS", "FAILED", "UNKNOWN", "CANCELLED"}, receipt.Status) {
+		return errors.New("receipt status is unsupported")
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, receipt.StartedAt)
+	if err != nil {
+		return errors.New("receipt startedAt is invalid")
+	}
+	completedAt, err := time.Parse(time.RFC3339Nano, receipt.CompletedAt)
+	if err != nil || completedAt.Before(startedAt) {
+		return errors.New("receipt completedAt is invalid")
+	}
+	if len(receipt.OperationResults) > maxPlanOperations {
+		return errors.New("receipt operation results exceed the allowed range")
+	}
+	if receipt.Status == "UNKNOWN" && strings.TrimSpace(receipt.UnknownReason) == "" {
+		return errors.New("UNKNOWN receipt requires a reason")
+	}
+	if receipt.Status == "SUCCESS" && receipt.ErrorCode != "" {
+		return errors.New("SUCCESS receipt cannot contain an error code")
+	}
+	expectedDigest, err := computeAgentExecutionReceiptDigest(receipt)
+	if err != nil || expectedDigest != receipt.Digest {
+		return errors.New("receipt digest does not match the complete receipt")
+	}
+	return verifySignedValue(receipt.AgentKeyID, receipt.Signature, agentReceiptWithoutSignature(receipt), "GCAC_AGENT_RECEIPT_KEYSET_JSON")
+}
+
+func loadAndValidateAgentExecutionReceipt(request agentV2Request) (AgentExecutionReceiptV1, error) {
+	nonceRecord, err := loadPersistentAgentNonce(request.Token.Nonce)
+	if err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	if nonceRecord.TokenID != request.Token.TokenID || !isAgentDigest(nonceRecord.ResultDigest) {
+		return AgentExecutionReceiptV1{}, errors.New("Nonce 消费记录与授权绑定不一致")
+	}
+	if request.Plan.PlanVersion != "" {
+		if err := validateAgentPlan(request.Plan, request.Token); err != nil {
+			return AgentExecutionReceiptV1{}, err
+		}
+		expectedResultDigest, err := computeAgentPlanResultDigest(request.Plan)
+		if err != nil || expectedResultDigest != nonceRecord.ResultDigest {
+			return AgentExecutionReceiptV1{}, errors.New("Nonce 消费记录与完整计划绑定不一致")
+		}
+	}
+	receipt, err := loadPersistentAgentReceipt(request.Token.Nonce)
+	if err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	if err := validateAgentExecutionReceipt(receipt, request.Token, request); err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	if request.Plan.PlanVersion != "" && !planContainsOperation(request.Plan, receipt.OperationID) {
+		return AgentExecutionReceiptV1{}, errors.New("receipt operationId does not belong to the plan")
+	}
+	if request.Receipt != nil && string(canonicalJSON(*request.Receipt)) != string(canonicalJSON(receipt)) {
+		return AgentExecutionReceiptV1{}, errors.New("submitted receipt does not match the persisted Agent receipt")
+	}
+	return receipt, nil
+}
+
+func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
+	if err := agentContextError(ctx); err != nil {
+		return err
+	}
 	path := v2StringValue(operation.Input, "path")
 	content, err := base64.StdEncoding.DecodeString(v2StringValue(operation.Input, "contentBase64"))
 	if err != nil || path == "" || !filepath.IsAbs(path) {
 		return errors.New("file.atomic_replace requires an absolute path and base64 content")
 	}
-	return atomicWriteFile(path, content, 0o600)
+	if err := atomicWriteFile(path, content, 0o600); err != nil {
+		return err
+	}
+	return agentContextError(ctx)
 }
 
 func executeAllowlistedService(ctx context.Context, operation agentPlanAction) error {
@@ -640,6 +1041,153 @@ func canonicalJSON(value any) []byte {
 		return nil
 	}
 	return canonical
+}
+
+func computeAgentFactDigest(fact map[string]any) (string, error) {
+	payload := make(map[string]any, len(fact))
+	for key, value := range fact {
+		if key != "digest" {
+			payload[key] = value
+		}
+	}
+	canonical := canonicalJSON(payload)
+	if len(canonical) == 0 {
+		return "", errors.New("fact cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func sha256FileDigest(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func linuxPrincipal() string {
+	for _, key := range []string{"USER", "LOGNAME"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return "unknown"
+}
+
+func computeAgentPlanDigest(plan agentPlanV2) (string, error) {
+	payload := map[string]any{
+		"planVersion":     plan.PlanVersion,
+		"planId":          plan.PlanID,
+		"agentId":         plan.AgentID,
+		"tenantId":        plan.TenantID,
+		"pluginId":        plan.PluginID,
+		"pluginVersionId": plan.PluginVersionID,
+		"capability":      plan.Capability,
+		"operations":      plan.Operations,
+		"writeEffect":     plan.WriteEffect,
+	}
+	if plan.ApprovalRef != "" {
+		payload["approvalRef"] = plan.ApprovalRef
+	}
+	canonical := canonicalJSON(payload)
+	if len(canonical) == 0 {
+		return "", errors.New("plan cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func computeAgentPlanResultDigest(plan agentPlanV2) (string, error) {
+	canonical := canonicalJSON(plan)
+	if len(canonical) == 0 {
+		return "", errors.New("plan cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func isAgentDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func planContainsOperation(plan agentPlanV2, operationID string) bool {
+	for _, operation := range plan.Operations {
+		if operation.OperationID == operationID {
+			return true
+		}
+	}
+	return false
+}
+
+func computeAgentExecutionReceiptDigest(receipt AgentExecutionReceiptV1) (string, error) {
+	receipt.Digest = ""
+	receipt.Signature = ""
+	canonical := canonicalJSON(receipt)
+	if len(canonical) == 0 {
+		return "", errors.New("receipt cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func agentReceiptWithoutSignature(receipt AgentExecutionReceiptV1) map[string]any {
+	receipt.Signature = ""
+	raw, _ := json.Marshal(receipt)
+	var result map[string]any
+	_ = json.Unmarshal(raw, &result)
+	delete(result, "signature")
+	return result
+}
+
+func loadAgentReceiptSigner() (agentReceiptSigner, error) {
+	keyID := strings.TrimSpace(os.Getenv("GCAC_AGENT_RECEIPT_KEY_ID"))
+	if keyID == "" || isDevelopmentKeyID(keyID) {
+		return agentReceiptSigner{}, errors.New("Agent 回执签名 KeyId 未配置或属于开发密钥")
+	}
+	encodedPrivateKey := strings.TrimSpace(os.Getenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64"))
+	privateKey, err := base64.StdEncoding.DecodeString(encodedPrivateKey)
+	if err != nil || len(privateKey) != ed25519.PrivateKeySize {
+		return agentReceiptSigner{}, errors.New("Agent 回执签名私钥不可用，失败关闭")
+	}
+	if err := verifyReceiptPublicKey(keyID, ed25519.PrivateKey(privateKey).Public().(ed25519.PublicKey)); err != nil {
+		return agentReceiptSigner{}, err
+	}
+	return agentReceiptSigner{KeyID: keyID, PrivateKey: ed25519.PrivateKey(privateKey)}, nil
+}
+
+func verifyReceiptPublicKey(keyID string, expected ed25519.PublicKey) error {
+	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_RECEIPT_KEYSET_JSON"))
+	if raw == "" {
+		return errors.New("Agent 回执受信 KeySet 不可用，失败关闭")
+	}
+	var keySet map[string]string
+	if err := json.Unmarshal([]byte(raw), &keySet); err != nil {
+		return errors.New("Agent 回执受信 KeySet 无效")
+	}
+	encoded, ok := keySet[keyID]
+	if !ok {
+		return errors.New("Agent 回执签名 KeyId 未被受信 KeySet 登记")
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize || !bytes.Equal(publicKey, expected) {
+		return errors.New("Agent 回执签名密钥与受信 KeySet 不匹配")
+	}
+	return nil
+}
+
+func isDevelopmentKeyID(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "default" || value == "development" || value == "dev" || value == "test" || strings.Contains(value, "development")
 }
 func revokedNonce(nonce string) bool {
 	var values []string

@@ -49,10 +49,6 @@ type AgentConfig struct {
 	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
 	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
 	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
-	DirectControlEnabled       bool   `json:"directControlEnabled"`
-	DirectControlListenHost    string `json:"directControlListenHost"`
-	DirectControlListenPort    int    `json:"directControlListenPort"`
-	DirectControlAdvertiseHost string `json:"directControlAdvertiseHost"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -108,22 +104,21 @@ type runtimeRegistration struct {
 }
 
 type registerRequest struct {
-	AgentKey        string              `json:"agentKey"`
-	MachineID       string              `json:"machineId,omitempty"`
-	Hostname        string              `json:"hostname"`
-	Version         string              `json:"version"`
-	OSType          string              `json:"osType"`
-	Arch            string              `json:"arch,omitempty"`
-	IPAddress       string              `json:"ipAddress,omitempty"`
-	OSVersion       string              `json:"osVersion,omitempty"`
-	Labels          []string            `json:"labels,omitempty"`
-	EnrollmentToken string              `json:"enrollmentToken,omitempty"`
-	Role            string              `json:"role,omitempty"`
-	Zone            string              `json:"zone,omitempty"`
-	ZoneIDs         []string            `json:"zoneIds,omitempty"`
-	Adapters        []string            `json:"adapters,omitempty"`
-	Capabilities    []string            `json:"capabilities,omitempty"`
-	DirectControl   *directControlState `json:"directControl,omitempty"`
+	AgentKey        string   `json:"agentKey"`
+	MachineID       string   `json:"machineId,omitempty"`
+	Hostname        string   `json:"hostname"`
+	Version         string   `json:"version"`
+	OSType          string   `json:"osType"`
+	Arch            string   `json:"arch,omitempty"`
+	IPAddress       string   `json:"ipAddress,omitempty"`
+	OSVersion       string   `json:"osVersion,omitempty"`
+	Labels          []string `json:"labels,omitempty"`
+	EnrollmentToken string   `json:"enrollmentToken,omitempty"`
+	Role            string   `json:"role,omitempty"`
+	Zone            string   `json:"zone,omitempty"`
+	ZoneIDs         []string `json:"zoneIds,omitempty"`
+	Adapters        []string `json:"adapters,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
@@ -136,7 +131,6 @@ type heartbeatRequest struct {
 	Adapters      []string                `json:"adapters,omitempty"`
 	Capabilities  []string                `json:"capabilities,omitempty"`
 	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
-	DirectControl *directControlState     `json:"directControl,omitempty"`
 	TaskSummary   struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
@@ -157,23 +151,12 @@ type heartbeatRuntimeHealth struct {
 	LastError            string               `json:"lastError,omitempty"`
 	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
 	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
-	DirectControl        *directControlState  `json:"directControl,omitempty"`
 }
 
 type runtimeFailureCounts struct {
 	Heartbeat int `json:"heartbeat,omitempty"`
 	TaskPoll  int `json:"taskPoll,omitempty"`
 	Recovery  int `json:"recovery,omitempty"`
-}
-
-type directControlState struct {
-	Enabled          bool     `json:"enabled"`
-	Reachable        bool     `json:"reachable"`
-	ListenAddress    string   `json:"listenAddress,omitempty"`
-	ProtocolVersion  string   `json:"protocolVersion,omitempty"`
-	SupportedActions []string `json:"supportedActions"`
-	LastReadyAt      string   `json:"lastReadyAt,omitempty"`
-	LastDirectError  string   `json:"lastDirectError,omitempty"`
 }
 
 type capabilityReportRequest struct {
@@ -265,33 +248,25 @@ type runtimeDependencies struct {
 }
 
 type runtimeStatusSnapshot struct {
-	SchemaVersion                string              `json:"schemaVersion"`
-	UpdatedAt                    string              `json:"updatedAt"`
-	State                        string              `json:"state"`
-	StartedAt                    string              `json:"startedAt,omitempty"`
-	StoppedAt                    string              `json:"stoppedAt,omitempty"`
-	AgentID                      string              `json:"agentId,omitempty"`
-	ServiceName                  string              `json:"serviceName,omitempty"`
-	LastHeartbeatAt              string              `json:"lastHeartbeatAt,omitempty"`
-	LastTaskPollAt               string              `json:"lastTaskPollAt,omitempty"`
-	LastTaskResultAt             string              `json:"lastTaskResultAt,omitempty"`
-	LastRecoveryAt               string              `json:"lastRecoveryAt,omitempty"`
-	LastSelfCheckAt              string              `json:"lastSelfCheckAt,omitempty"`
-	LastError                    string              `json:"lastError,omitempty"`
-	ConsecutiveHeartbeatFailures int                 `json:"consecutiveHeartbeatFailures"`
-	ConsecutiveTaskPollFailures  int                 `json:"consecutiveTaskPollFailures"`
-	ConsecutiveRecoveryFailures  int                 `json:"consecutiveRecoveryFailures"`
-	PendingResultCount           int                 `json:"pendingResultCount"`
-	RecoverableTaskCount         int                 `json:"recoverableTaskCount"`
-	TaskCounters                 runtimeCounters     `json:"taskCounters"`
-	DirectControl                *directControlState `json:"directControl,omitempty"`
-}
-
-type directControlServer struct {
-	state   *directControlState
-	server  *http.Server
-	actions *directControlActionStore
-	started bool
+	SchemaVersion                string          `json:"schemaVersion"`
+	UpdatedAt                    string          `json:"updatedAt"`
+	State                        string          `json:"state"`
+	StartedAt                    string          `json:"startedAt,omitempty"`
+	StoppedAt                    string          `json:"stoppedAt,omitempty"`
+	AgentID                      string          `json:"agentId,omitempty"`
+	ServiceName                  string          `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string          `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int             `json:"pendingResultCount"`
+	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters `json:"taskCounters"`
 }
 
 type NetworkInterfaceInfo struct {
@@ -449,7 +424,6 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
-		checkItem("direct.control.listen", !config.DirectControlEnabled || effectiveDirectControlListenPort(config) > 0, map[string]any{"enabled": config.DirectControlEnabled, "host": effectiveDirectControlListenHost(config), "port": effectiveDirectControlListenPort(config)}),
 	}
 
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
@@ -633,18 +607,6 @@ func runForeground(ctx context.Context, configPath string) error {
 	status.StoppedAt = ""
 	status.ServiceName = config.Service.Name
 	status.AgentID = registration.AgentID
-	status.DirectControl = newDirectControlState(config)
-
-	directServer, directErr := startDirectControlServer(config, registration, &status)
-	if directErr != nil {
-		logger.Warn("direct control listener failed: %v", directErr)
-		status.DirectControl = newDirectControlState(config)
-		status.DirectControl.LastDirectError = directErr.Error()
-	} else if directServer != nil {
-		defer directServer.shutdown(context.Background())
-		status.DirectControl = directServer.snapshot()
-	}
-
 	if err := reportCapabilities(ctx, client, config, registration, identity); err != nil {
 		logger.Warn("capability report failed: %v", err)
 		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
@@ -914,9 +876,6 @@ func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot,
 			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
 			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
 			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
-			"directControlEnabled":       config.DirectControlEnabled,
-			"directControlListenHost":    effectiveDirectControlListenHost(config),
-			"directControlListenPort":    effectiveDirectControlListenPort(config),
 		},
 		"runtime": status,
 		"health": map[string]any{
@@ -957,7 +916,6 @@ func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapsh
 		LastSelfCheckAt:      status.LastSelfCheckAt,
 		LastError:            status.LastError,
 		DegradedReasons:      filteredReasons,
-		DirectControl:        status.DirectControl,
 		FailureCounts: runtimeFailureCounts{
 			Heartbeat: status.ConsecutiveHeartbeatFailures,
 			TaskPoll:  status.ConsecutiveTaskPollFailures,
@@ -1033,110 +991,6 @@ func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
 		return config.OfflineTimeoutSeconds
 	}
 	return defaultOfflineTTL
-}
-
-func effectiveDirectControlListenHost(config *AgentConfig) string {
-	if strings.TrimSpace(config.DirectControlListenHost) != "" {
-		return strings.TrimSpace(config.DirectControlListenHost)
-	}
-	return "0.0.0.0"
-}
-
-func effectiveDirectControlListenPort(config *AgentConfig) int {
-	if config.DirectControlListenPort > 0 {
-		return config.DirectControlListenPort
-	}
-	return 18930
-}
-
-func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
-	if strings.TrimSpace(config.DirectControlAdvertiseHost) != "" {
-		return strings.TrimSpace(config.DirectControlAdvertiseHost)
-	}
-	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
-		return primaryIP
-	}
-	return effectiveDirectControlListenHost(config)
-}
-
-func newDirectControlState(config *AgentConfig) *directControlState {
-	state := &directControlState{
-		Enabled:          config.DirectControlEnabled,
-		Reachable:        false,
-		ProtocolVersion:  "v1",
-		SupportedActions: []string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt},
-	}
-	if config.DirectControlEnabled {
-		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
-	}
-	return state
-}
-
-func startDirectControlServer(config *AgentConfig, registration *runtimeRegistration, status *runtimeStatusSnapshot) (*directControlServer, error) {
-	if !config.DirectControlEnabled {
-		return nil, nil
-	}
-	host := effectiveDirectControlListenHost(config)
-	port := effectiveDirectControlListenPort(config)
-	state := newDirectControlState(config)
-	mux := http.NewServeMux()
-	actions := newDirectControlActionStore()
-	registerDirectControlActionRoutes(mux, actions, func(ctx context.Context, request map[string]any, _ string) (bool, string, string, map[string]any) {
-		return executeAgentV2(ctx, request, registration.AgentID)
-	})
-	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
-		payload := map[string]any{
-			"success":         true,
-			"checkedAt":       time.Now().Format(time.RFC3339),
-			"protocolVersion": "v1",
-			"platform":        "windows",
-			"service": map[string]any{
-				"name":        config.Service.Name,
-				"displayName": config.Service.DisplayName,
-			},
-			"directControl": state,
-			"runtime":       status,
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-	server := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", host, port),
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	listener, err := net.Listen("tcp", server.Addr)
-	if err != nil {
-		return nil, err
-	}
-	state.Reachable = true
-	state.LastReadyAt = time.Now().Format(time.RFC3339)
-	go func() {
-		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			state.Reachable = false
-			state.LastDirectError = serveErr.Error()
-		}
-	}()
-	return &directControlServer{state: state, server: server, actions: actions, started: true}, nil
-}
-
-func (s *directControlServer) snapshot() *directControlState {
-	if s == nil || s.state == nil {
-		return nil
-	}
-	copyState := *s.state
-	copyState.SupportedActions = append([]string{}, s.state.SupportedActions...)
-	return &copyState
-}
-
-func (s *directControlServer) shutdown(ctx context.Context) {
-	if s == nil || s.server == nil || !s.started {
-		return
-	}
-	if s.actions != nil {
-		s.actions.close()
-	}
-	_ = s.server.Shutdown(ctx)
 }
 
 func runWindowsService(name string, program *serviceProgram) error {
@@ -1420,10 +1274,6 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 			"agent.task.receive",
 			"agent.log.report",
 		},
-		DirectControl: newDirectControlState(config),
-	}
-	if config.DirectControlEnabled {
-		request.Capabilities = append(request.Capabilities, "agent.direct_control.health")
 	}
 	if isGatewayEnabled(config) {
 		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
@@ -1461,7 +1311,6 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 	request.TaskSummary.Failed = counters.Failed
 	if status != nil {
 		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
-		request.DirectControl = status.DirectControl
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
@@ -1835,7 +1684,7 @@ func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentC
 	case "gateway.probe":
 		return executeGatewayProbe(ctx, client, config, task, gatewayTask, gatewayPayload)
 	case "gateway.forward.agent_task":
-		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, false)
+		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload)
 	default:
 		return false, "GATEWAY_TASK_UNSUPPORTED", "不支持的 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
 	}
@@ -1979,7 +1828,7 @@ func probeHTTPReachability(ctx context.Context, gatewayPayload map[string]any) (
 	return response.StatusCode < 500, map[string]any{"url": targetURL, "statusCode": response.StatusCode}, nil
 }
 
-func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any, directControl bool) (bool, string, string, map[string]any, bool) {
+func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
 	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
 	if targetPayload == nil {
 		targetPayload = mapFromMap(gatewayTask, "payload")
@@ -2011,7 +1860,7 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "directControl": directControl}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}

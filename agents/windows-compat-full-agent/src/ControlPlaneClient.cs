@@ -23,15 +23,10 @@ namespace GCAC.WindowsCompatibilityAgent
             }
         }
 
-        public string Register(CapabilitySnapshot snapshot, DirectControlState directControl)
-        {
-            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot, directControl));
-            return response.id;
-        }
-
         public string Register(CapabilitySnapshot snapshot)
         {
-            return Register(snapshot, null);
+            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot));
+            return response.id;
         }
 
         private static bool Is64BitOperatingSystem()
@@ -42,29 +37,18 @@ namespace GCAC.WindowsCompatibilityAgent
             return string.Equals(architecture, "AMD64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "IA64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "ARM64", StringComparison.OrdinalIgnoreCase);
         }
 
-        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, DirectControlState directControl)
+        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
         {
-            Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth, directControl);
+            Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth);
             Send<object>("/api/v1/agents/heartbeat", body);
         }
 
-        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
-        {
-            Heartbeat(agentId, snapshot, runtimeHealth, null);
-        }
-
         internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
-        {
-            return BuildHeartbeatRequest(agentId, snapshot, runtimeHealth, null);
-        }
-
-        internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, DirectControlState directControl)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentId"] = agentId;
             body["version"] = ProductIdentity.Version;
             body["runtimeHealth"] = runtimeHealth;
-            if (directControl != null) body["directControl"] = directControl;
             body["taskSummary"] = new Dictionary<string, object> { { "running", 0 }, { "queued", 0 } };
             return body;
         }
@@ -83,11 +67,6 @@ namespace GCAC.WindowsCompatibilityAgent
 
         internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot)
         {
-            return BuildRegistrationRequest(snapshot, null);
-        }
-
-        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot, DirectControlState directControl)
-        {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentKey"] = config.agentKey;
             body["enrollmentToken"] = config.enrollmentToken;
@@ -99,7 +78,6 @@ namespace GCAC.WindowsCompatibilityAgent
             body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
             body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
-            if (directControl != null) body["directControl"] = directControl;
             return body;
         }
 
@@ -118,7 +96,9 @@ namespace GCAC.WindowsCompatibilityAgent
             task.leaseId = "compat:" + Guid.NewGuid().ToString("N");
             object value;
             if (task.payload != null && task.payload.TryGetValue("action", out value)) task.action = Convert.ToString(value);
+            else if (task.payload != null && task.payload.TryGetValue("actionType", out value)) task.action = Convert.ToString(value);
             if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
+            else if (task.payload != null && task.payload.TryGetValue("actionSchemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
             return task;
         }
 

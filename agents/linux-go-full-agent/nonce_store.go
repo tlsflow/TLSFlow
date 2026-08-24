@@ -57,8 +57,7 @@ func consumePersistentAgentNonce(nonce, tokenID, resultDigest string) error {
 		return errors.New("Agent v2 Nonce 本地存储未装配，失败关闭")
 	}
 
-	key := sha256.Sum256([]byte(nonce))
-	path := filepath.Join(directory, hex.EncodeToString(key[:])+".json")
+	path := nonceRecordPath(directory, "", nonce)
 	record := nonceConsumptionRecord{
 		RecordVersion: agentSecurityContract,
 		Nonce:         nonce,
@@ -93,4 +92,96 @@ func consumePersistentAgentNonce(nonce, tokenID, resultDigest string) error {
 		return fmt.Errorf("持久化 Nonce 消费记录失败: %w", writeErr)
 	}
 	return nil
+}
+
+func persistentAgentNoncePath(directory, nonce, suffix string) (string, error) {
+	if strings.TrimSpace(directory) == "" || strings.TrimSpace(nonce) == "" {
+		return "", errors.New("Nonce 记录路径缺少绑定字段")
+	}
+	key := sha256.Sum256([]byte(strings.TrimSpace(nonce)))
+	return filepath.Join(directory, hex.EncodeToString(key[:])+suffix+".json"), nil
+}
+
+func persistentNonceDirectory() (string, error) {
+	agentNonceStore.mu.RLock()
+	directory := agentNonceStore.directory
+	agentNonceStore.mu.RUnlock()
+	if directory == "" {
+		return "", errors.New("Agent v2 Nonce 本地存储未装配，失败关闭")
+	}
+	return directory, nil
+}
+
+func nonceRecordPath(directory, prefix, nonce string) string {
+	key := sha256.Sum256([]byte(nonce))
+	return filepath.Join(directory, prefix+hex.EncodeToString(key[:])+".json")
+}
+
+func loadPersistentAgentNonce(nonce string) (nonceConsumptionRecord, error) {
+	nonce = strings.TrimSpace(nonce)
+	if nonce == "" {
+		return nonceConsumptionRecord{}, errors.New("Nonce 不能为空")
+	}
+	directory, err := persistentNonceDirectory()
+	if err != nil {
+		return nonceConsumptionRecord{}, err
+	}
+	encoded, err := os.ReadFile(nonceRecordPath(directory, "", nonce))
+	if err != nil {
+		return nonceConsumptionRecord{}, errors.New("Nonce 尚未消费，回执读取失败关闭")
+	}
+	var record nonceConsumptionRecord
+	if err := json.Unmarshal(encoded, &record); err != nil || record.RecordVersion != agentSecurityContract || record.Nonce != nonce || record.TokenID == "" || record.ResultDigest == "" {
+		return nonceConsumptionRecord{}, errors.New("Nonce 消费记录无效，失败关闭")
+	}
+	return record, nil
+}
+
+func persistAgentExecutionReceipt(nonce string, receipt AgentExecutionReceiptV1) error {
+	directory, err := persistentNonceDirectory()
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return fmt.Errorf("编码 Agent 回执失败: %w", err)
+	}
+	path := nonceRecordPath(directory, "receipt-", nonce)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return errors.New("Agent 回执已存在，拒绝覆盖")
+		}
+		return fmt.Errorf("创建 Agent 回执记录失败: %w", err)
+	}
+	writeErr := error(nil)
+	if _, err = file.Write(encoded); err != nil {
+		writeErr = err
+	} else if err = file.Sync(); err != nil {
+		writeErr = err
+	}
+	if err = file.Close(); err != nil && writeErr == nil {
+		writeErr = err
+	}
+	if writeErr != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("持久化 Agent 回执失败: %w", writeErr)
+	}
+	return nil
+}
+
+func loadPersistentAgentReceipt(nonce string) (AgentExecutionReceiptV1, error) {
+	directory, err := persistentNonceDirectory()
+	if err != nil {
+		return AgentExecutionReceiptV1{}, err
+	}
+	encoded, err := os.ReadFile(nonceRecordPath(directory, "receipt-", strings.TrimSpace(nonce)))
+	if err != nil {
+		return AgentExecutionReceiptV1{}, errors.New("Agent 回执尚未持久化，失败关闭")
+	}
+	var receipt AgentExecutionReceiptV1
+	if err := json.Unmarshal(encoded, &receipt); err != nil {
+		return AgentExecutionReceiptV1{}, errors.New("Agent 回执记录无效，失败关闭")
+	}
+	return receipt, nil
 }

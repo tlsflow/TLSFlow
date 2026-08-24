@@ -13,7 +13,6 @@ namespace GCAC.WindowsCompatibilityAgent
         private readonly ControlPlaneClient client;
         private readonly CapabilityCollector capabilityCollector;
         private readonly ActionRegistry registry;
-        private readonly DirectControlServer directControl;
         private string activeAgentId;
         private DateTime? lastRecoveryAtUtc;
         private DateTime? lastTaskPollAtUtc;
@@ -34,27 +33,18 @@ namespace GCAC.WindowsCompatibilityAgent
             client = new ControlPlaneClient(config);
             capabilityCollector = new CapabilityCollector(config);
             registry = BuildRegistry();
-            directControl = new DirectControlServer(config, registry, delegate { return BuildRuntimeHealth(null); });
         }
 
         public void Run(WaitHandle stopSignal)
         {
             try
             {
-                try
-                {
-                    directControl.Start();
-                }
-                catch (Exception error)
-                {
-                    logger.Write("error", "direct_control.start_failed", error.Message);
-                }
                 CapabilitySnapshot snapshot = capabilityCollector.Collect();
                 UpdateSelfCheck(snapshot);
                 string agentId = identityStore.Load();
                 if (TextUtility.IsBlank(agentId))
                 {
-                    agentId = client.Register(snapshot, directControl.Snapshot());
+                    agentId = client.Register(snapshot);
                     identityStore.Save(agentId);
                     logger.Write("info", "registration.completed", "agentId=" + agentId);
                 }
@@ -63,6 +53,7 @@ namespace GCAC.WindowsCompatibilityAgent
                     logger.Write("info", "registration.reused", "agentId=" + agentId);
                 }
                 activeAgentId = agentId;
+                AgentV2ContractHandler.SetRuntimeIdentity(config, agentId);
                 TryReportInitialCapabilities(agentId, snapshot);
                 ReplayPending(agentId);
                 DateTime nextHeartbeat = DateTime.MinValue;
@@ -75,7 +66,7 @@ namespace GCAC.WindowsCompatibilityAgent
                         {
                             snapshot = capabilityCollector.Collect();
                             UpdateSelfCheck(snapshot);
-                            client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot), directControl.Snapshot());
+                            client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot));
                             heartbeatFailures = 0;
                             ClearLastErrorWhenRecovered();
                         }
@@ -110,10 +101,6 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 RecordFatal(error);
                 throw;
-            }
-            finally
-            {
-                directControl.Stop();
             }
         }
 

@@ -29,10 +29,13 @@ internal static class Tests
         Run("HTTPS 控制面仍识别为 TLS 传输", HttpsControlPlaneRequiresTls);
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
-        Run("注册请求包含 Direct Control 状态", RegistrationRequestIncludesDirectControl);
-        Run("心跳请求包含 Direct Control 状态", HeartbeatRequestIncludesDirectControl);
+        Run("注册与心跳不再广告旧直连能力", ControlPlaneRequestsDoNotAdvertiseDirectControl);
         Run("注册动作集合严格限定为 Agent v2 合同", RuntimeActionsMatchAgentV2Contract);
         Run("Agent v2 合同不回退旧执行器", AgentV2ContractDoesNotFallback);
+        Run("Ed25519 RFC8032 签名正例通过", Ed25519SignaturePositive);
+        Run("Ed25519 篡改签名负例拒绝", Ed25519SignatureTamperingRejected);
+        Run("客户端不得提交伪造 Receipt", ClientReceiptIsRejected);
+        Run("Agent v2 Nonce 账本跨重启拒绝重复消费", AgentV2NonceLedgerPersistsReplayRejection);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
         Run("能力报告不再包含 IIS 详情和站点", CapabilityRequestExcludesIisInspection);
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
@@ -46,7 +49,6 @@ internal static class Tests
         Run("运行时只注册四个 Agent v2 动作", RuntimeRegistersOnlyAgentV2Actions);
         Run("运行时不注册历史 Agent 动作", RuntimeDoesNotRegisterLegacyActions);
         Run("第三方产品发现不再进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.plan.execute", "product.discovery"); });
-        Run("HTTP 直连健康启动状态和 v2 执行路径一致", DirectControlHttpContract);
         Run("动作注册表不暴露旧健康直连动作", RegistryDoesNotExposeDirectControlAction);
         Run("旧文件替换原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("file.atomic_replace"); });
         Run("旧文件恢复原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("file.restore"); });
@@ -105,7 +107,7 @@ internal static class Tests
                     ? new Dictionary<string, object> { { "plan", new Dictionary<string, object> { { "mutating", true } } } }
                     : null
             });
-            Assert(!result.Success && result.ErrorCode == "AGENT_V2_POLICY_UNAVAILABLE", "缺少 Agent v2 Policy Authority 时未失败关闭");
+            Assert(!result.Success && result.ErrorCode == "AGENT_V2_AUTHORIZATION_DENIED", "缺少 Agent v2 Policy Authority 时未失败关闭");
             Assert(result.Outcome == (AgentV2Actions.IsWrite(action) ? "UNKNOWN" : "FAILED"), "Agent v2 终态未按读写风险分类");
             Assert(result.Detail != null && Convert.ToBoolean(result.Detail["fallback"]) == false, "Agent v2 缺少授权时存在 fallback");
         }
@@ -148,82 +150,13 @@ internal static class Tests
         Assert(Convert.ToString(request["osVersion"]) == "Windows Server 2008 R2 Standard", "注册请求未上传操作系统版本");
     }
 
-    private static void RegistrationRequestIncludesDirectControl()
+    private static void ControlPlaneRequestsDoNotAdvertiseDirectControl()
     {
         AgentConfig config = TestConfig();
-        DirectControlState state = DirectControlStateForTest();
-        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot(), state);
-        Assert(request.ContainsKey("directControl"), "注册请求未上传 Direct Control 状态");
-        DirectControlState directControl = (DirectControlState)request["directControl"];
-        Assert(directControl.enabled && directControl.reachable, "注册请求的 Direct Control 状态不正确");
-    }
-
-    private static void HeartbeatRequestIncludesDirectControl()
-    {
-        Dictionary<string, object> request = ControlPlaneClient.BuildHeartbeatRequest("agent-1", Snapshot(), new Dictionary<string, object> { { "status", "healthy" } }, DirectControlStateForTest());
-        Assert(request.ContainsKey("directControl"), "心跳请求未上传 Direct Control 状态");
-    }
-
-    private static void DirectControlHttpContract()
-    {
-        AgentConfig config = TestConfig();
-        config.directControlEnabled = true;
-        config.directControlListenHost = "127.0.0.1";
-        config.directControlAdvertiseHost = "127.0.0.1";
-        config.directControlListenPort = FindFreePort();
-        DirectControlServer server = new DirectControlServer(config, AgentV2Registry(), delegate
-        {
-            return new Dictionary<string, object> { { "modelVersion", "gcac.agent.health.v1" }, { "status", "healthy" } };
-        });
-        try
-        {
-            server.Start();
-            string baseUrl = "http://127.0.0.1:" + config.directControlListenPort;
-            Dictionary<string, object> health = SendJson(baseUrl + "/api/v1/control/health", "GET", null);
-            Dictionary<string, object> directControl = (Dictionary<string, object>)health["directControl"];
-            Assert(Convert.ToBoolean(directControl["enabled"]) && Convert.ToBoolean(directControl["reachable"]), "健康接口未报告可达直连状态");
-            IList actions = (IList)directControl["supportedActions"];
-            Assert(actions.Count == 4 && actions.Contains(AgentV2Actions.PlanExecute), "健康接口暴露的动作集合不正确");
-
-            Dictionary<string, object> start = SendJson(baseUrl + "/api/v1/control/actions/start", "POST", new Dictionary<string, object>
-            {
-                { "action", AgentV2Actions.PlanExecute },
-                { "requestId", "http-contract-1" },
-                { "token", new Dictionary<string, object>() },
-                { "policyDecision", new Dictionary<string, object>() },
-                { "plan", new Dictionary<string, object> { { "mutating", true } } }
-            });
-            string actionId = Convert.ToString(start["actionId"]);
-            Assert(Convert.ToString(start["status"]) == "queued", "启动接口未返回 queued");
-            Dictionary<string, object> status = null;
-            for (int attempt = 0; attempt < 50; attempt++)
-            {
-                status = SendJson(baseUrl + "/api/v1/control/actions/status?actionId=" + Uri.EscapeDataString(actionId), "GET", null);
-                if (Convert.ToString(status["status"]) == "completed") break;
-                Thread.Sleep(10);
-            }
-            Assert(status != null && Convert.ToString(status["status"]) == "completed", "状态接口未完成动作查询");
-            Assert(Convert.ToString(status["errorCode"]) == "AGENT_V2_POLICY_UNAVAILABLE", "直连请求未进入 AgentV2ContractHandler");
-            Assert(Convert.ToString(status["outcome"]) == "UNKNOWN", "写操作策略不可用时未返回 UNKNOWN");
-
-            HttpWebRequest legacy = (HttpWebRequest)WebRequest.Create(baseUrl + "/api/v1/control/actions/start");
-            legacy.Method = "POST";
-            legacy.ContentType = "application/json; charset=utf-8";
-            byte[] legacyPayload = Encoding.UTF8.GetBytes("{\"action\":\"command.execute\"}");
-            legacy.ContentLength = legacyPayload.Length;
-            using (Stream stream = legacy.GetRequestStream()) stream.Write(legacyPayload, 0, legacyPayload.Length);
-            try { legacy.GetResponse(); throw new InvalidOperationException("旧动作未被拒绝"); }
-            catch (WebException error)
-            {
-                HttpWebResponse response = (HttpWebResponse)error.Response;
-                Assert((int)response.StatusCode == 400, "旧动作拒绝状态码错误");
-                response.Close();
-            }
-        }
-        finally
-        {
-            server.Stop();
-        }
+        Dictionary<string, object> registration = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot());
+        Dictionary<string, object> heartbeat = ControlPlaneClient.BuildHeartbeatRequest("agent-1", Snapshot(), new Dictionary<string, object> { { "status", "healthy" } });
+        Assert(!registration.ContainsKey("directControl"), "注册请求仍广告旧 Direct Control 能力");
+        Assert(!heartbeat.ContainsKey("directControl"), "心跳请求仍广告旧 Direct Control 能力");
     }
 
     private static void RuntimeActionsMatchAgentV2Contract()
@@ -293,9 +226,77 @@ internal static class Tests
                 { "plan", new Dictionary<string, object> { { "mutating", true } } }
             }
         });
-        Assert(!result.Success && result.ErrorCode == "AGENT_V2_POLICY_UNAVAILABLE", "Agent v2 请求没有失败关闭");
+        Assert(!result.Success && result.ErrorCode == "AGENT_V2_AUTHORIZATION_DENIED", "Agent v2 请求没有失败关闭");
         Assert(result.Outcome == "UNKNOWN", "写操作策略不可用时未进入 UNKNOWN");
         Assert(result.Detail != null && result.Detail.ContainsKey("fallback") && !Convert.ToBoolean(result.Detail["fallback"]), "Agent v2 请求存在静默 fallback");
+    }
+
+    private static void Ed25519SignaturePositive()
+    {
+        const string publicKeyPem = "-----BEGIN PUBLIC KEY-----MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=-----END PUBLIC KEY-----";
+        const string signature = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
+        Assert(Ed25519Verifier.Verify(publicKeyPem, signature, new byte[0]), "RFC8032 Ed25519 空消息正例未通过");
+    }
+
+    private static void Ed25519SignatureTamperingRejected()
+    {
+        const string publicKeyPem = "-----BEGIN PUBLIC KEY-----MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=-----END PUBLIC KEY-----";
+        const string signature = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100c";
+        Assert(!Ed25519Verifier.Verify(publicKeyPem, signature, new byte[0]), "篡改 Ed25519 签名未被拒绝");
+    }
+
+    private static void ClientReceiptIsRejected()
+    {
+        AgentTask task = new AgentTask
+        {
+            action = AgentV2Actions.ExecutionReceipt,
+            payload = new Dictionary<string, object> { { "receipt", new Dictionary<string, object>() } }
+        };
+        try
+        {
+            AgentV2Authorizer.ValidateClientReceipt(task, null);
+            throw new InvalidOperationException("客户端伪造 Receipt 未被拒绝");
+        }
+        catch (AgentV2SecurityException error)
+        {
+            Assert(error.Code == "AGENT_RECEIPT_CLIENT_SUPPLIED", "客户端伪造 Receipt 错误码不稳定");
+        }
+    }
+
+    private static void AgentV2NonceLedgerPersistsReplayRejection()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-v2-nonce-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string nonceDirectory = Path.Combine(root, "agent-v2-nonces");
+            Directory.CreateDirectory(nonceDirectory);
+            string nonce = "nonce-persisted-1";
+            string path = Path.Combine(nonceDirectory, Sha256ForTest(nonce) + ".json");
+            File.WriteAllText(path, "{\"recordVersion\":\"gcac.agent-security/v1\",\"nonce\":\"" + nonce + "\",\"tokenId\":\"token-1\"}");
+            Assert(File.Exists(path), "Nonce 账本测试记录未写入");
+            try
+            {
+                using (FileStream stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+                throw new InvalidOperationException("已存在的 Nonce 未被原子创建拒绝");
+            }
+            catch (IOException) { }
+            Assert(File.Exists(path), "Nonce 重放拒绝后账本记录丢失");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static string Sha256ForTest(string value)
+    {
+        using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+        {
+            byte[] digest = sha.ComputeHash(Encoding.UTF8.GetBytes(value));
+            StringBuilder result = new StringBuilder(digest.Length * 2);
+            for (int index = 0; index < digest.Length; index++) result.Append(digest[index].ToString("x2"));
+            return result.ToString();
+        }
     }
 
     private static void AgentIdentityPersistsAcrossRestart()
@@ -387,7 +388,7 @@ internal static class Tests
             schemaVersion = ProductIdentity.ActionSchemaVersion,
             payload = payload
         });
-        string expectedCode = AgentV2Actions.Contains(action) ? "AGENT_V2_POLICY_UNAVAILABLE" : "ACTION_NOT_REGISTERED";
+        string expectedCode = AgentV2Actions.Contains(action) ? "AGENT_V2_AUTHORIZATION_DENIED" : "ACTION_NOT_REGISTERED";
         Assert(!result.Success && result.ErrorCode == expectedCode, "Agent Core 未按 v2 合同失败关闭");
         if (result.Detail != null && result.Detail.ContainsKey("fallback"))
             Assert(Convert.ToBoolean(result.Detail["fallback"]) == false, "退役 Agent 执行路径存在 fallback");
@@ -478,49 +479,8 @@ internal static class Tests
             agentKey = "agent-key-1",
             enrollmentToken = "enrollment-token-1",
             controlPlaneUrl = "http://127.0.0.1:5172",
-            directControlEnabled = false,
             requiredHotfixes = new string[0]
         };
-    }
-
-    private static DirectControlState DirectControlStateForTest()
-    {
-        return new DirectControlState
-        {
-            enabled = true,
-            reachable = true,
-            listenAddress = "127.0.0.1:18933",
-            protocolVersion = "v1",
-            supportedActions = AgentV2Actions.All(),
-            lastReadyAt = "2026-08-09T00:00:00.0000000Z"
-        };
-    }
-
-    private static int FindFreePort()
-    {
-        TcpListener probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
-    }
-
-    private static Dictionary<string, object> SendJson(string url, string method, Dictionary<string, object> body)
-    {
-        HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-        request.Method = method;
-        request.ContentType = "application/json; charset=utf-8";
-        if (body != null)
-        {
-            byte[] payload = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(body));
-            request.ContentLength = payload.Length;
-            using (Stream stream = request.GetRequestStream()) stream.Write(payload, 0, payload.Length);
-        }
-        using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-        using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
-        {
-            return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
-        }
     }
 
     private static string WriteConfig(string json)

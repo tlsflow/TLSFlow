@@ -46,10 +46,6 @@ type AgentConfig struct {
 	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
 	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
 	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
-	DirectControlEnabled       bool   `json:"directControlEnabled"`
-	DirectControlListenHost    string `json:"directControlListenHost"`
-	DirectControlListenPort    int    `json:"directControlListenPort"`
-	DirectControlAdvertiseHost string `json:"directControlAdvertiseHost"`
 	CapabilityRescanInterval   int    `json:"capabilityRescanIntervalSeconds"`
 	CapabilityRescanEnabled    *bool  `json:"capabilityRescanEnabled"`
 	Paths                      struct {
@@ -183,7 +179,6 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
-		checkItem("direct.control.listen", !config.DirectControlEnabled || effectiveDirectControlListenPort(config) > 0, map[string]any{"enabled": config.DirectControlEnabled, "host": effectiveDirectControlListenHost(config), "port": effectiveDirectControlListenPort(config)}),
 	}
 
 	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
@@ -605,7 +600,7 @@ func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentC
 	case "gateway.probe":
 		return executeGatewayProbe(ctx, client, config, task, gatewayTask, gatewayPayload)
 	case "gateway.forward.agent_task":
-		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, false)
+		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload)
 	default:
 		return false, "GATEWAY_TASK_UNSUPPORTED", "不支持的 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
 	}
@@ -749,7 +744,7 @@ func probeHTTPReachability(ctx context.Context, gatewayPayload map[string]any) (
 	return response.StatusCode < 500, map[string]any{"url": targetURL, "statusCode": response.StatusCode}, nil
 }
 
-func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any, directControl bool) (bool, string, string, map[string]any, bool) {
+func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
 	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
 	if targetPayload == nil {
 		targetPayload = mapFromMap(gatewayTask, "payload")
@@ -781,7 +776,7 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "directControl": directControl}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}

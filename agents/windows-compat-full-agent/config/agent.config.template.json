@@ -6,11 +6,14 @@
   "controlPlaneUrl": "https://gcac.example.com",
   "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 5,
-  "directControlEnabled": true,
-  "directControlListenHost": "0.0.0.0",
-  "directControlListenPort": 18933,
-  "directControlAdvertiseHost": "",
   "requiredHotfixes": [],
   "dataDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data",
-  "logDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs"
+  "logDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs",
+  "policyTrustRootPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\policy-authority-trust-root.json",
+  "policyKeySetPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\policy-authority-keyset.json",
+  "localPolicyTrustRootPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\local-policy-trust-root.json",
+  "localPolicyPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\local-policy.json",
+  "revokedTokenIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-tokens.json",
+  "revokedDecisionIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-decisions.json",
+  "revokedKeyIdsPath": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\security\\revoked-keys.json"
 }

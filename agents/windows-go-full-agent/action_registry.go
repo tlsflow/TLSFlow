@@ -17,7 +17,6 @@ type actionExecutionResult struct {
 type actionHandlerDescriptor struct {
 	ActionType     string
 	SchemaVersions []string
-	DirectControl  bool
 }
 
 type actionHandler interface {
@@ -137,7 +136,7 @@ func (r *actionHandlerRegistry) Execute(execution *taskExecutionContext) actionE
 			ErrorCode:    registryError.Code,
 			ErrorMessage: registryError.Message,
 			Detail: map[string]any{
-				"supportedActions": r.PublishedActionTypes(false),
+				"supportedActions": r.PublishedActionTypes(),
 				"taskId":           execution.task.ID,
 				"executionStepId":  execution.task.ExecutionStepID,
 			},
@@ -152,13 +151,9 @@ func (r *actionHandlerRegistry) Execute(execution *taskExecutionContext) actionE
 	return result
 }
 
-func (r *actionHandlerRegistry) PublishedActionTypes(directControlOnly bool) []string {
+func (r *actionHandlerRegistry) PublishedActionTypes() []string {
 	values := []string{}
-	for actionType, handler := range r.handlers {
-		descriptor := handler.Descriptor()
-		if directControlOnly && !descriptor.DirectControl {
-			continue
-		}
+	for actionType := range r.handlers {
 		values = append(values, actionType)
 	}
 	values = uniqueSortedStrings(values)

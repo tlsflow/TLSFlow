@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -51,7 +50,6 @@ type heartbeatRequest struct {
 	Adapters      []string                `json:"adapters,omitempty"`
 	Capabilities  []string                `json:"capabilities,omitempty"`
 	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
-	DirectControl *directControlState     `json:"directControl,omitempty"`
 	TaskSummary   struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
@@ -72,23 +70,12 @@ type heartbeatRuntimeHealth struct {
 	LastError            string               `json:"lastError,omitempty"`
 	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
 	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
-	DirectControl        *directControlState  `json:"directControl,omitempty"`
 }
 
 type runtimeFailureCounts struct {
 	Heartbeat int `json:"heartbeat,omitempty"`
 	TaskPoll  int `json:"taskPoll,omitempty"`
 	Recovery  int `json:"recovery,omitempty"`
-}
-
-type directControlState struct {
-	Enabled          bool     `json:"enabled"`
-	Reachable        bool     `json:"reachable"`
-	ListenAddress    string   `json:"listenAddress,omitempty"`
-	ProtocolVersion  string   `json:"protocolVersion,omitempty"`
-	SupportedActions []string `json:"supportedActions"`
-	LastReadyAt      string   `json:"lastReadyAt,omitempty"`
-	LastDirectError  string   `json:"lastDirectError,omitempty"`
 }
 
 type apiErrorResponse struct {
@@ -158,33 +145,25 @@ type rescanState struct {
 }
 
 type runtimeStatusSnapshot struct {
-	SchemaVersion                string              `json:"schemaVersion"`
-	UpdatedAt                    string              `json:"updatedAt"`
-	State                        string              `json:"state"`
-	StartedAt                    string              `json:"startedAt,omitempty"`
-	StoppedAt                    string              `json:"stoppedAt,omitempty"`
-	AgentID                      string              `json:"agentId,omitempty"`
-	ServiceName                  string              `json:"serviceName,omitempty"`
-	LastHeartbeatAt              string              `json:"lastHeartbeatAt,omitempty"`
-	LastTaskPollAt               string              `json:"lastTaskPollAt,omitempty"`
-	LastTaskResultAt             string              `json:"lastTaskResultAt,omitempty"`
-	LastRecoveryAt               string              `json:"lastRecoveryAt,omitempty"`
-	LastSelfCheckAt              string              `json:"lastSelfCheckAt,omitempty"`
-	LastError                    string              `json:"lastError,omitempty"`
-	ConsecutiveHeartbeatFailures int                 `json:"consecutiveHeartbeatFailures"`
-	ConsecutiveTaskPollFailures  int                 `json:"consecutiveTaskPollFailures"`
-	ConsecutiveRecoveryFailures  int                 `json:"consecutiveRecoveryFailures"`
-	PendingResultCount           int                 `json:"pendingResultCount"`
-	RecoverableTaskCount         int                 `json:"recoverableTaskCount"`
-	TaskCounters                 runtimeCounters     `json:"taskCounters"`
-	DirectControl                *directControlState `json:"directControl,omitempty"`
-}
-
-type directControlServer struct {
-	state   *directControlState
-	server  *http.Server
-	actions *directControlActionStore
-	started bool
+	SchemaVersion                string          `json:"schemaVersion"`
+	UpdatedAt                    string          `json:"updatedAt"`
+	State                        string          `json:"state"`
+	StartedAt                    string          `json:"startedAt,omitempty"`
+	StoppedAt                    string          `json:"stoppedAt,omitempty"`
+	AgentID                      string          `json:"agentId,omitempty"`
+	ServiceName                  string          `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string          `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int             `json:"pendingResultCount"`
+	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters `json:"taskCounters"`
 }
 
 type pendingTaskResult struct {
@@ -277,17 +256,6 @@ func handleRun(args []string) error {
 	status.StoppedAt = ""
 	status.ServiceName = config.Service.Name
 	status.AgentID = state.AgentID
-	status.DirectControl = newDirectControlState(config)
-
-	directServer, directErr := startDirectControlServer(config, client, state, counters, rescan, &status)
-	if directErr != nil {
-		status.DirectControl = newDirectControlState(config)
-		status.DirectControl.LastDirectError = directErr.Error()
-		fmt.Fprintf(os.Stderr, "[direct-control] listener failed: %v\n", directErr)
-	} else if directServer != nil {
-		defer directServer.shutdown(context.Background())
-		status.DirectControl = directServer.snapshot()
-	}
 	refreshRuntimeStatus(&status, counters, ledger)
 	saveRuntimeStatusSnapshot(statusPath, status)
 
@@ -601,9 +569,6 @@ func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot,
 			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
 			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
 			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
-			"directControlEnabled":       config.DirectControlEnabled,
-			"directControlListenHost":    effectiveDirectControlListenHost(config),
-			"directControlListenPort":    effectiveDirectControlListenPort(config),
 		},
 		"runtime": status,
 		"health": map[string]any{
@@ -644,7 +609,6 @@ func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapsh
 		LastSelfCheckAt:      status.LastSelfCheckAt,
 		LastError:            status.LastError,
 		DegradedReasons:      filteredReasons,
-		DirectControl:        status.DirectControl,
 		FailureCounts: runtimeFailureCounts{
 			Heartbeat: status.ConsecutiveHeartbeatFailures,
 			TaskPoll:  status.ConsecutiveTaskPollFailures,
@@ -736,117 +700,6 @@ func effectiveCapabilityRescanEnabled(config *AgentConfig) bool {
 	return true
 }
 
-func effectiveDirectControlListenHost(config *AgentConfig) string {
-	if strings.TrimSpace(config.DirectControlListenHost) != "" {
-		return strings.TrimSpace(config.DirectControlListenHost)
-	}
-	return "0.0.0.0"
-}
-
-func effectiveDirectControlListenPort(config *AgentConfig) int {
-	if config.DirectControlListenPort > 0 {
-		return config.DirectControlListenPort
-	}
-	return 18931
-}
-
-func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
-	if strings.TrimSpace(config.DirectControlAdvertiseHost) != "" {
-		return strings.TrimSpace(config.DirectControlAdvertiseHost)
-	}
-	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
-		return primaryIP
-	}
-	return effectiveDirectControlListenHost(config)
-}
-
-func newDirectControlState(config *AgentConfig) *directControlState {
-	state := &directControlState{
-		Enabled:          config.DirectControlEnabled,
-		Reachable:        false,
-		ProtocolVersion:  "v1",
-		SupportedActions: []string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt},
-	}
-	if config.DirectControlEnabled {
-		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
-	}
-	return state
-}
-
-func startDirectControlServer(
-	config *AgentConfig,
-	client *http.Client,
-	runtimeState *runtimeState,
-	counters *runtimeCounters,
-	rescan *rescanState,
-	status *runtimeStatusSnapshot,
-) (*directControlServer, error) {
-	if !config.DirectControlEnabled {
-		return nil, nil
-	}
-	host := effectiveDirectControlListenHost(config)
-	port := effectiveDirectControlListenPort(config)
-	directState := newDirectControlState(config)
-	mux := http.NewServeMux()
-	actions := newDirectControlActionStore()
-	registerDirectControlActionRoutes(mux, actions, func(ctx context.Context, request map[string]any, _ string) (bool, string, string, map[string]any) {
-		return executeAgentV2(ctx, request, runtimeState.AgentID)
-	})
-	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
-		payload := map[string]any{
-			"success":         true,
-			"checkedAt":       time.Now().Format(time.RFC3339),
-			"protocolVersion": "v1",
-			"platform":        "linux",
-			"service": map[string]any{
-				"name":        config.Service.Name,
-				"displayName": config.Service.DisplayName,
-			},
-			"directControl": directState,
-			"runtime":       status,
-		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-	server := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", host, port),
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	listener, err := net.Listen("tcp", server.Addr)
-	if err != nil {
-		return nil, err
-	}
-	directState.Reachable = true
-	directState.LastReadyAt = time.Now().Format(time.RFC3339)
-	go func() {
-		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			directState.Reachable = false
-			directState.LastDirectError = serveErr.Error()
-		}
-	}()
-	return &directControlServer{state: directState, server: server, actions: actions, started: true}, nil
-}
-
-func (s *directControlServer) snapshot() *directControlState {
-	if s == nil || s.state == nil {
-		return nil
-	}
-	copyState := *s.state
-	copyState.SupportedActions = append([]string{}, s.state.SupportedActions...)
-	return &copyState
-}
-
-func (s *directControlServer) shutdown(ctx context.Context) {
-	if s == nil || s.server == nil || !s.started {
-		return
-	}
-	if s.actions != nil {
-		s.actions.close()
-	}
-	_ = s.server.Shutdown(ctx)
-}
-
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -867,9 +720,6 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		EnrollmentToken:   strings.TrimSpace(config.EnrollmentToken),
 		Role:              effectiveAgentRole(config),
 		Zone:              strings.TrimSpace(config.Zone),
-	}
-	if config.DirectControlEnabled {
-		request.Labels = append(request.Labels, "direct-control")
 	}
 	if isGatewayEnabled(config) {
 		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
@@ -901,7 +751,6 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 	if status != nil {
 		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
-		request.DirectControl = status.DirectControl
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
