@@ -102,4 +102,76 @@ describe('PluginsView', () => {
     expect(wrapper.find('.plugin-logo img').exists()).toBe(false)
     expect(wrapper.find('.plugin-logo').text()).toContain('P')
   })
+
+  it('对内置和未知能力使用无告警的本地化标签', async () => {
+    const catalog = [{
+      ...pluginRecord(1),
+      capabilities: [
+        { key: 'application.discover' },
+        { key: 'plugin.custom.unknown' },
+      ],
+    }]
+    pluginMocks.listPluginCatalog.mockResolvedValue(page(catalog))
+    pluginMocks.listUnifiedPluginVersions.mockResolvedValue(page([]))
+    pluginMocks.listPluginRuntimeMetrics.mockResolvedValue(page([]))
+
+    const wrapper = mount(PluginsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcModal: { template: '<div v-if="open"><slot /><slot name="actions" /></div>', props: ['open'] },
+          GcEmptyState: { template: '<div><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>', props: ['title', 'description'] },
+          GcPluginForm: { template: '<div />' },
+          GcDevicePresentation: { template: '<div />' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const text = wrapper.find('.plugin-card').text()
+    expect(text).toContain('应用发现')
+    expect(text).toContain('未知目录值：plugin.custom.unknown')
+  })
+
+  it('渲染仓库内置插件能力时不产生 Vue I18n 缺失告警', async () => {
+    const catalog = [{
+      ...pluginRecord(2),
+      capabilities: [
+        { key: 'application.discover' },
+        { key: 'ca.account.manage' },
+        { key: 'ca.order.manage' },
+        { key: 'ca.challenge.orchestrate' },
+        { key: 'ca.challenge.dns-solver' },
+        { key: 'ca.certificate.issue' },
+        { key: 'ca.certificate.renew' },
+        { key: 'ca.certificate.revoke' },
+        { key: 'cloud.service.connection-test' },
+        { key: 'cloud.service.discover' },
+      ],
+    }]
+    pluginMocks.listPluginCatalog.mockResolvedValue(page(catalog))
+    pluginMocks.listUnifiedPluginVersions.mockResolvedValue(page([]))
+    pluginMocks.listPluginRuntimeMetrics.mockResolvedValue(page([]))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      const wrapper = mount(PluginsView, {
+        global: {
+          plugins: [i18n],
+          stubs: {
+            GcModal: { template: '<div v-if="open"><slot /><slot name="actions" /></div>', props: ['open'] },
+            GcEmptyState: { template: '<div><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>', props: ['title', 'description'] },
+            GcPluginForm: { template: '<div />' },
+            GcDevicePresentation: { template: '<div />' },
+          },
+        },
+      })
+      await flushPromises()
+
+      expect(wrapper.find('.plugin-card').exists()).toBe(true)
+      expect(warn.mock.calls.filter(([message]) => String(message).includes('[intlify]'))).toHaveLength(0)
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })
