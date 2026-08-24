@@ -3,16 +3,24 @@ import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import { createSecurityServices } from './security.controller.js';
 
+function requireInitialAdminPassword(): string {
+  const password = process.env.GCAC_INITIAL_ADMIN_PASSWORD?.trim();
+  assert.ok(password, '测试环境必须显式设置 GCAC_INITIAL_ADMIN_PASSWORD');
+  return password;
+}
+
 describe('IdentitySource 生命周期', () => {
   it('支持编辑和删除身份源', async () => {
+    const adminPassword = requireInitialAdminPassword();
     const security = createSecurityServices();
     const app = createApp({ security });
 
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: adminPassword },
     });
+    assert.equal(login.statusCode, 200);
     const token = (login.body as { token: string }).token;
 
     const created = await app.inject({
@@ -70,14 +78,16 @@ describe('IdentitySource 生命周期', () => {
   });
 
   it('存在外部影子用户引用时拒绝删除且保留身份源和组映射', async () => {
+    const adminPassword = requireInitialAdminPassword();
     const security = createSecurityServices();
     const app = createApp({ security });
 
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: adminPassword },
     });
+    assert.equal(login.statusCode, 200);
     const token = (login.body as { token: string }).token;
 
     const role = await app.inject({

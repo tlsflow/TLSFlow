@@ -5,6 +5,14 @@ import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.
 import { createSecurityServices } from './security.controller.js';
 import { MockDirectoryConnector, ExternalIdentityService } from './external-identity.service.js';
 
+function requireInitialAdminPassword(): string {
+  const password = process.env.GCAC_INITIAL_ADMIN_PASSWORD?.trim();
+  assert.ok(password, '测试环境必须显式设置 GCAC_INITIAL_ADMIN_PASSWORD');
+  return password;
+}
+
+const INITIAL_ADMIN_PASSWORD = requireInitialAdminPassword();
+
 describe('安全 API 最小闭环', () => {
   it('默认管理员和审计员初始化对象级权限', async () => {
     const security = createSecurityServices();
@@ -12,7 +20,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -60,7 +68,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -133,7 +141,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -170,7 +178,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -234,7 +242,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -322,7 +330,7 @@ describe('安全 API 最小闭环', () => {
     const adminLogin = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const adminToken = (adminLogin.body as { token: string }).token;
     const secret = await security.secrets.create({
@@ -388,7 +396,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -454,7 +462,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
     const source = await app.inject({
@@ -498,7 +506,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -562,7 +570,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     const token = (login.body as { token: string }).token;
 
@@ -619,7 +627,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
       headers: { 'x-request-id': 'req_login' },
     });
     assert.equal(login.statusCode, 200);
@@ -682,7 +690,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     assert.equal(login.statusCode, 200);
     const token = (login.body as { token: string }).token;
@@ -728,7 +736,7 @@ describe('安全 API 最小闭环', () => {
     const login = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     assert.equal(login.statusCode, 200);
     const token = (login.body as { token: string }).token;
@@ -745,7 +753,7 @@ describe('安全 API 最小闭环', () => {
       method: 'PUT',
       path: '/api/v1/auth/password',
       headers: { authorization: `Bearer ${token}` },
-      body: { currentPassword: 'admin12345', newPassword: 'short' },
+      body: { currentPassword: INITIAL_ADMIN_PASSWORD, newPassword: 'short' },
     });
     assert.equal(tooShort.statusCode, 400);
 
@@ -753,7 +761,7 @@ describe('安全 API 最小闭环', () => {
       method: 'PUT',
       path: '/api/v1/auth/password',
       headers: { authorization: `Bearer ${token}` },
-      body: { currentPassword: 'admin12345', newPassword: 'new-admin-password' },
+      body: { currentPassword: INITIAL_ADMIN_PASSWORD, newPassword: 'new-admin-password' },
     });
     assert.equal(changed.statusCode, 200);
     assert.deepEqual(changed.body, { success: true });
@@ -761,7 +769,7 @@ describe('安全 API 最小闭环', () => {
     const oldPassword = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     assert.equal(oldPassword.statusCode, 401);
 
@@ -777,7 +785,7 @@ describe('安全 API 最小闭环', () => {
       method: 'PUT',
       path: '/api/v1/auth/password',
       headers: { authorization: `Bearer ${newToken}` },
-      body: { currentPassword: 'new-admin-password', newPassword: 'admin12345' },
+      body: { currentPassword: 'new-admin-password', newPassword: INITIAL_ADMIN_PASSWORD },
     });
     assert.equal(restored.statusCode, 200);
   });
@@ -797,7 +805,7 @@ describe('安全 API 最小闭环', () => {
     const disabled = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
-      body: { username: 'admin', password: 'admin12345' },
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
     });
     assert.equal(disabled.statusCode, 403);
   });
