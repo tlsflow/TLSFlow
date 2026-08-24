@@ -1,0 +1,32 @@
+{
+  "apiVersion": "gcac.windows.fact-fixture/v1",
+  "fixtureId": "windows-2008-r2-sp1-iis75",
+  "certificationStatus": "blocked",
+  "environment": {
+    "product": "Windows Server 2008 R2 SP1",
+    "kernelVersion": "6.1.7601",
+    "architecture": "amd64",
+    "webServer": "IIS 7.5",
+    "runtime": ".NET Framework 4.8"
+  },
+  "requiredFacts": {
+    "security.tls12_enabled": true,
+    "windows.required_hotfixes_present": true,
+    "windows.cert_store_writable": true,
+    "identity.is_administrator": true,
+    "network.control_plane_reachable": true
+  },
+  "expectedCapabilities": [
+    "runtime.windows.compatibility_agent",
+    "windows.certstore.import_pfx",
+    "iis.binding.update",
+    "service.restart",
+    "rollback.restore",
+    "tls.remote_probe"
+  ],
+  "blockedEvidence": [
+    "服务安装、启动、停止与升级回滚的真实虚拟机日志",
+    "IIS 7.5 发现、部署、验证、失败、回滚、重试和恢复记录",
+    "控制面注册、心跳、任务和结果协议回放记录"
+  ]
+}

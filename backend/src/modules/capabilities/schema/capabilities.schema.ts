@@ -7,6 +7,7 @@ export const builtInCapabilityDefinitions = [
   definition('agent.task.receive', 'Agent 接收任务', 'agent', 'medium', 'boolean', false, 'Agent 能接收执行任务'),
   definition('agent.log.report', 'Agent 回传日志', 'agent', 'low', 'boolean', false, 'Agent 能回传执行日志'),
   definition('agent.capability.probe', 'Agent 能力探测', 'agent', 'low', 'boolean', false, 'Agent 能主动探测本机能力'),
+  definition('runtime.windows.compatibility_agent', 'Windows 兼容版 Agent Runtime', 'agent', 'medium', 'boolean', false, '目标由独立 Windows Compatibility Agent 正式运行时管理'),
   definition('gateway.reachable', '网关可达目标', 'gateway', 'medium', 'boolean', true, 'Gateway 能从所在 Zone 探测目标网络'),
   definition('gateway.probe.tcp', 'Gateway TCP 探测', 'gateway', 'low', 'boolean', true, 'Gateway 能探测目标 TCP 端口可达性'),
   definition('gateway.probe.http', 'Gateway HTTP 探测', 'gateway', 'low', 'boolean', true, 'Gateway 能探测目标 HTTP/HTTPS 可达性'),

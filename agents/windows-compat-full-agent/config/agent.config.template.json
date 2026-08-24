@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "gcac.windows-compat-agent-config/v1",
+  "tenantId": "tenant_id",
+  "agentKey": "agent_key",
+  "enrollmentToken": "enrollment_token",
+  "controlPlaneUrl": "https://gcac.example.com",
+  "heartbeatIntervalSeconds": 30,
+  "taskPollIntervalSeconds": 5,
+  "requiredHotfixes": [],
+  "dataDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data",
+  "logDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs"
+}

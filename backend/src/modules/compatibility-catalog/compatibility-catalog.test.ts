@@ -96,6 +96,29 @@ describe('Compatibility Profile 与目录', () => {
     assert.equal(result.resolution.selected.transport?.adapterId, 'transport.agent-local');
   });
 
+  it('兼容版 Windows IIS Profile 仅凭 Capability 解析相同产品组合', () => {
+    const root = resolve(process.cwd(), '..', 'compatibility');
+    const catalog = loadCompatibilityCatalog(root);
+    const profileItem = catalog.profiles.find((item) => item.profileId === 'windows-compatibility-iis');
+    assert.ok(profileItem);
+    const declarations = [
+      declaration('agent.full.online'),
+      declaration('runtime.windows.compatibility_agent'),
+      declaration('agent.task.receive'),
+      declaration('tls.local_verify'),
+      declaration('windows.certstore.import_pfx'),
+      declaration('iis.binding.update'),
+      declaration('service.restart'),
+      declaration('tls.remote_probe'),
+      declaration('rollback.restore'),
+    ];
+    const result = new CompatibilityCatalogResolver(new AdapterResolver(catalog.registry))
+      .resolve(profileItem, declarations, '1.0');
+    assert.equal(result.resolution.status, 'resolved');
+    assert.equal(result.resolution.selected.product?.adapterId, 'product.iis-apphost');
+    assert.equal(result.resolution.selected.certificate_store?.adapterId, 'certificate-store.windows');
+  });
+
   it('Profile 能力不满足时在进入适配器选择前阻断', () => {
     const root = resolve(process.cwd(), '..', 'compatibility');
     const catalog = loadCompatibilityCatalog(root);
@@ -111,9 +134,9 @@ describe('Compatibility Profile 与目录', () => {
     const root = resolve(process.cwd(), '..', 'compatibility');
     const catalog = loadCompatibilityCatalog(root);
     const matrix = buildCompatibilityMatrix([...catalog.profiles].reverse());
-    assert.equal(matrix[0]?.profileId, 'windows-modern-iis');
-    assert.equal(matrix[0]?.composition.product, 'product.iis-apphost');
-    assert.deepEqual(matrix[0]?.evidenceReferences, ['backend/src/modules/compatibility-catalog/compatibility-catalog.test.ts']);
+    assert.deepEqual(matrix.map((item) => item.profileId), ['windows-compatibility-iis', 'windows-modern-iis']);
+    assert.equal(matrix[1]?.composition.product, 'product.iis-apphost');
+    assert.deepEqual(matrix[1]?.evidenceReferences, ['backend/src/modules/compatibility-catalog/compatibility-catalog.test.ts']);
   });
 });
 
