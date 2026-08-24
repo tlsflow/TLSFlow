@@ -528,6 +528,7 @@ export default {
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'アプリケーションアセット',
     assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
+    devices: 'デバイス',
     agents: 'Agent',
     agentsDesc: 'オンラインステータス、ハートビートと機能セット',
     gateways: 'ゲートウェイ',
@@ -861,7 +862,7 @@ export default {
     sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
     statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', enabled: '有効', disabled: '未有効化', pendingApproval: '承認待ち', inUse: '使用中', notInUse: '未使用' },
     filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
-    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', moreTags: 'ほか {count} 件' },
+    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', trustedJsRuntime: 'Trusted JS プラグイン', moreTags: 'ほか {count} 件' },
     columns: {
       name: 'プラグイン名前',
       status: 'ステータス',
@@ -892,18 +893,22 @@ export default {
       description: '表示プラグイン詳細、権限宣言とサンドボックス隔離情報。',
       versionLabel: 'バージョン {version}'
     },
+    types: { provider: 'クラウド Provider プラグイン', standard: '標準プラグイン' },
     fields: {
       pluginId: 'プラグイン ID',
+      pluginType: 'プラグイン種別',
+      provider: 'クラウドプロバイダー',
       name: 'プラグイン名前',
       currentStatus: '現在のステータス',
       version: 'バージョン',
       source: '提供元', category: 'カテゴリ', steps: '実行ステップ', rollbackSteps: 'ロールバックステップ', updatedAt: '更新日時', filePath: 'テンプレートパス', logoUrl: 'Logo URL', platforms: '対象プラットフォーム', updateMethods: '更新方法', maintainer: 'メンテナー', homepage: 'ホームページ', usage: '使用状態', validationError: '検証エラー',
       signatureStatus: '署名ステータス',
-      riskLevel: 'リスク等级', runtime: 'ランタイム', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ', frameworks: '対象フレームワーク'
+      riskLevel: 'リスク等级', runtime: 'ランタイム', executionMode: '実行モデル', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ', frameworks: '対象フレームワーク', products: '対応製品', operations: '対応操作'
     },
     capabilityKeys: { device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り', certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証' },
-    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー' },
-    runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
+    runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL', trusted_js: 'Trusted JS' },
+    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: '管理対象', standalone: 'スタンドアロン対象', both: '管理対象 / スタンドアロン' },
     supportTypes: { official: '公式サポート', community: 'コミュニティサポート', self_managed: '自己管理' },
     aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },

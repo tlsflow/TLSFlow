@@ -25,16 +25,16 @@ export const mainMenuItems: MenuItem[] = [
     ]
   },
   {
-    titleKey: 'nav.assets',
+    titleKey: 'nav.assetCenter',
     path: '/assets',
     module: 'asset',
     permission: 'service_asset.read',
     icon: 'server',
-    descriptionKey: 'nav.assetsDesc',
+    descriptionKey: 'nav.assetCenterDesc',
     children: [
       { titleKey: 'nav.assets', path: '/assets', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
       { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'service_asset.read', descriptionKey: 'providers.page.description' },
-      { titleKey: 'devices.page.title', path: '/assets/devices', module: 'asset', permission: 'host.read', descriptionKey: 'devices.page.description' },
+      { titleKey: 'nav.devices', path: '/assets/devices', module: 'asset', permission: 'host.read', descriptionKey: 'devices.page.description' },
       { titleKey: 'nav.gateways', path: '/gateways', module: 'gateway', permission: 'gateway.read', descriptionKey: 'nav.gatewaysDesc' }
     ]
   },

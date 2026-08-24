@@ -101,6 +101,7 @@ const operationDraft = reactive({
   operationKey: 'certificate.deploy',
   domain: '',
   resourceId: '',
+  listenerId: '',
   certificateId: '',
   checkpointId: '',
   certificatePem: '',
@@ -538,11 +539,13 @@ async function removeAccount(row: ViewRow): Promise<void> {
 
 function openOperation(row: ViewRow): void {
   selectedAccount.value = row.raw
-  operationDraft.frameworkType = `${stringValue(row.raw.providerKey)}.cdn`
+  operationDraft.frameworkType = operationFrameworkOptions.value.find((item) => item.startsWith(`${stringValue(row.raw.providerKey)}.`))
+    ?? `${stringValue(row.raw.providerKey)}.cdn`
   operationDraft.operationKey = 'certificate.deploy'
   Object.assign(operationDraft, {
     domain: '',
     resourceId: '',
+    listenerId: '',
     certificateId: '',
     checkpointId: '',
     certificatePem: '',
@@ -563,7 +566,9 @@ async function runOperation(): Promise<void> {
       target: {
         frameworkType: operationDraft.frameworkType,
         resourceId: operationDraft.resourceId || operationDraft.domain,
+        listenerId: operationDraft.listenerId || undefined,
         domain: operationDraft.domain || undefined,
+        certificateId: operationDraft.certificateId || undefined,
       },
       input: {
         certificateId: operationDraft.certificateId || undefined,
@@ -977,6 +982,7 @@ function errorMessage(cause: unknown, fallback: string): string {
         </label>
         <label><span>{{ t('providers.fields.domain') }}</span><input v-model="operationDraft.domain" :placeholder="t('providers.placeholders.domain')" /></label>
         <label><span>{{ t('providers.fields.resourceId') }}</span><input v-model="operationDraft.resourceId" :placeholder="t('providers.placeholders.resourceId')" /></label>
+        <label><span>{{ t('providers.fields.listenerId') }}</span><input v-model="operationDraft.listenerId" :placeholder="t('providers.placeholders.listenerId')" /></label>
         <label><span>{{ t('providers.fields.certificateId') }}</span><input v-model="operationDraft.certificateId" :placeholder="t('providers.placeholders.certificateId')" /></label>
         <label><span>{{ t('providers.fields.checkpointId') }}</span><input v-model="operationDraft.checkpointId" :placeholder="t('providers.placeholders.checkpointId')" /></label>
         <label class="provider-form__wide"><span>{{ t('providers.fields.certificatePem') }}</span><textarea v-model="operationDraft.certificatePem" :placeholder="t('providers.placeholders.certificatePem')" /></label>

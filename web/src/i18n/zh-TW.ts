@@ -527,6 +527,7 @@ export default {
     assetCenterDesc: "統一管理應用資產、設備資產和雲服務資產",
     assets: "應用資產",
     assetsDesc: "域名/IP 維度的應用入口與憑證部署目標",
+    devices: "設備",
     agents: "Agent",
     agentsDesc: "線上狀態、心跳和能力集合",
     gateways: "閘道",
@@ -860,7 +861,7 @@ export default {
     sources: { builtin: "內建外掛", user: "使用者外掛" },
     statuses: { valid: "可用", invalid: "無效", available: "可建立", enabled: "已啟用", disabled: "未啟用", pendingApproval: "待審批", inUse: "正在使用", notInUse: "尚未使用" },
     filters: { searchLabel: "搜尋外掛", searchPlaceholder: "依名稱、標籤、分類或路徑搜尋", allSources: "全部來源", allStatuses: "全部狀態", statusLabel: "外掛狀態" },
-    card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟", moreTags: "另 {count} 項" },
+    card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟", trustedJsRuntime: "Trusted JS 外掛", moreTags: "另 {count} 項" },
     columns: {
       name: "外掛名稱",
       status: "狀態",
@@ -891,18 +892,22 @@ export default {
       description: "檢視外掛詳情、權限宣告與沙箱隔離資訊。",
       versionLabel: "版本 {version}"
     },
+    types: { provider: "雲端 Provider 外掛", standard: "標準外掛" },
     fields: {
       pluginId: "外掛 ID",
+      pluginType: "外掛類型",
+      provider: "雲端服務提供商",
       name: "外掛名稱",
       currentStatus: "目前狀態",
       version: "版本",
       source: "來源", category: "分類", steps: "執行步驟", rollbackSteps: "復原步驟", updatedAt: "更新時間", filePath: "模板路徑", logoUrl: "Logo 位址", platforms: "面向平台", updateMethods: "更新方式", maintainer: "維護者", homepage: "專案首頁", usage: "使用狀態", validationError: "驗證錯誤",
       signatureStatus: "簽名狀態",
-      riskLevel: "風險等級", runtime: "執行環境", scope: "適用範圍", support: "支援等級", capabilities: "能力", frameworks: "面向框架"
+      riskLevel: "風險等級", runtime: "執行環境", executionMode: "執行模型", scope: "適用範圍", support: "支援等級", capabilities: "能力", frameworks: "面向框架", products: "支援產品", operations: "支援操作"
     },
     capabilityKeys: { device_connection_test: "連線測試", device_identity_detect: "裝置身分識別", device_discover: "裝置發現", device_logs_read: "裝置記錄讀取", certificate_discover: "憑證發現", certificate_deploy: "憑證部署", certificate_rollback: "憑證復原", certificate_verify: "憑證驗證" },
-    frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", adc_load_balancer: "ADC 負載平衡" },
-    runtimeTypes: { agent_atomic: "Agent 原子執行", workflow_dsl: "工作流 DSL" },
+    frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", runtime_custom: "自訂執行環境", adc_load_balancer: "ADC 負載平衡", cloud_aliyun_cdn: "阿里雲 CDN", cloud_aliyun_alb: "阿里雲 ALB", cloud_aliyun_clb: "阿里雲 CLB", cloud_aliyun_oss: "阿里雲 OSS", cloud_aliyun_waf_cname: "阿里雲 WAF CNAME", cloud_aliyun_waf_cloud: "阿里雲 WAF 雲產品", cloud_aliyun_live: "阿里雲 Live", cloud_aliyun_vod: "阿里雲 VOD", cloud_tencent_cdn: "騰訊雲 CDN", cloud_tencent_clb: "騰訊雲 CLB", cloud_tencent_live: "騰訊雲直播", cloud_huawei_cdn: "華為雲 CDN", cloud_huawei_elb: "華為雲 ELB", cloud_volcengine_cdn: "火山引擎 CDN", cloud_volcengine_alb: "火山引擎 ALB", cloud_volcengine_clb: "火山引擎 CLB", cloud_volcengine_live: "火山引擎直播", cloud_volcengine_vod: "火山引擎 VOD" },
+    runtimeTypes: { agent_atomic: "Agent 原子執行", workflow_dsl: "工作流 DSL", trusted_js: "Trusted JS" },
+    providerKeys: { cloud_aliyun: "阿里雲", cloud_tencent: "騰訊雲", cloud_huawei: "華為雲", cloud_volcengine: "火山引擎" },
     scopeTypes: { managed: "受管目標", standalone: "獨立目標", both: "受管 / 獨立" },
     supportTypes: { official: "官方支援", community: "社群支援", self_managed: "自行維護" },
     aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },

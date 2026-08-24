@@ -8,7 +8,6 @@ import { deleteAgent } from '@/api/modules/assets.api'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { gcacVersion } from '@/version'
 
 const { t } = useI18n()
 const filters = ref<Record<string, string>>({})
@@ -105,9 +104,6 @@ const config = computed<BusinessPageConfig>(() => ({
 
 <template>
   <section class="devices-page">
-    <div class="devices-page__version">
-      {{ t('app.versionLabel', { version: gcacVersion }) }}
-    </div>
     <BusinessResourcePage :key="reloadKey" :config="config" />
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />
@@ -118,16 +114,5 @@ const config = computed<BusinessPageConfig>(() => ({
 .devices-page {
   display: grid;
   gap: var(--gc-space-3);
-}
-
-.devices-page__version {
-  justify-self: end;
-  padding: var(--gc-space-1) var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  border-radius: var(--gc-radius-sm);
-  background: var(--gc-color-info-soft);
-  color: var(--gc-color-info);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 600;
 }
 </style>

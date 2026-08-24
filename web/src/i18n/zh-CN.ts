@@ -527,6 +527,7 @@ export default {
     assetCenterDesc: '统一管理应用资产、设备资产和云服务资产',
     assets: '应用',
     assetsDesc: '域名/IP 维度的应用入口与证书部署目标',
+    devices: '设备',
     agents: 'Agent',
     agentsDesc: '在线状态、心跳和能力集合',
     gateways: '网关',
@@ -894,6 +895,7 @@ export default {
       defaultDescription: '该 DSL 插件尚未配置说明。',
       unversioned: '未标注版本',
       stepCount: '{count} 个执行步骤',
+      trustedJsRuntime: 'Trusted JS 插件',
       moreTags: '另 {count} 项'
     },
     columns: {
@@ -926,8 +928,11 @@ export default {
       description: '查看 DSL 插件的来源、版本、Logo、步骤数量和文件位置。',
       versionLabel: '版本 {version}'
     },
+    types: { provider: '云 Provider 插件', standard: '标准插件' },
     fields: {
       pluginId: '插件 ID',
+      pluginType: '插件类型',
+      provider: '云服务提供商',
       name: '插件名称',
       currentStatus: '当前状态',
       version: '版本',
@@ -947,14 +952,18 @@ export default {
       signatureStatus: '签名状态',
       riskLevel: '风险等级',
       runtime: '运行时',
+      executionMode: '执行模型',
       scope: '适用范围',
       support: '支持等级',
       capabilities: '能力',
-      frameworks: '面向框架'
+      frameworks: '面向框架',
+      products: '支持产品',
+      operations: '支持操作'
     },
     capabilityKeys: { device_connection_test: '连接测试', device_identity_detect: '设备身份识别', device_discover: '设备发现', device_logs_read: '设备日志读取', certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证' },
-    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', adc_load_balancer: 'ADC 负载均衡' },
-    runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', runtime_custom: '自定义运行时', adc_load_balancer: 'ADC 负载均衡', cloud_aliyun_cdn: '阿里云 CDN', cloud_aliyun_alb: '阿里云 ALB', cloud_aliyun_clb: '阿里云 CLB', cloud_aliyun_oss: '阿里云 OSS', cloud_aliyun_waf_cname: '阿里云 WAF CNAME', cloud_aliyun_waf_cloud: '阿里云 WAF 云产品', cloud_aliyun_live: '阿里云 Live', cloud_aliyun_vod: '阿里云 VOD', cloud_tencent_cdn: '腾讯云 CDN', cloud_tencent_clb: '腾讯云 CLB', cloud_tencent_live: '腾讯云直播', cloud_huawei_cdn: '华为云 CDN', cloud_huawei_elb: '华为云 ELB', cloud_volcengine_cdn: '火山引擎 CDN', cloud_volcengine_alb: '火山引擎 ALB', cloud_volcengine_clb: '火山引擎 CLB', cloud_volcengine_live: '火山引擎直播', cloud_volcengine_vod: '火山引擎 VOD' },
+    runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL', trusted_js: 'Trusted JS' },
+    providerKeys: { cloud_aliyun: '阿里云', cloud_tencent: '腾讯云', cloud_huawei: '华为云', cloud_volcengine: '火山引擎' },
     scopeTypes: { managed: '受管目标', standalone: '独立目标', both: '受管 / 独立' },
     supportTypes: { official: '官方支持', community: '社区支持', self_managed: '自行维护' },
     aria: {

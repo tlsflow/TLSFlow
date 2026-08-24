@@ -42,6 +42,9 @@ interface PluginRecord {
   runtime?: string
   scope?: string
   support?: string
+  providerKey?: string
+  supportedProducts: string[]
+  supportedOperations: string[]
   capabilities: string[]
   frameworks: string[]
 }
@@ -101,12 +104,17 @@ const filteredPlugins = computed(() => {
       plugin.metadata.name,
       plugin.metadata.description,
       plugin.metadata.category,
+      plugin.providerKey,
       plugin.relativePath,
       ...plugin.metadata.tags,
       ...plugin.capabilities,
       ...plugin.capabilities.map(pluginCapabilityLabel),
       ...plugin.frameworks,
       ...plugin.frameworks.map(pluginFrameworkLabel),
+      ...plugin.supportedOperations,
+      ...plugin.supportedOperations.map(pluginOperationLabel),
+      ...plugin.supportedProducts,
+      ...plugin.supportedProducts.map(pluginProductLabel),
     ].filter(Boolean).join(' ').toLocaleLowerCase()
     return searchable.includes(normalizedKeyword)
   })
@@ -176,6 +184,9 @@ function toCatalogPluginRecord(record: ApiRecord): PluginRecord {
     runtime: readOptionalString(record.runtime),
     scope: readOptionalString(record.scope),
     support: readOptionalString(record.support),
+    providerKey: readOptionalString(record.providerKey),
+    supportedProducts: readCatalogValueArray(record.supportedProducts),
+    supportedOperations: readCatalogValueArray(record.supportedOperations),
     capabilities: readCatalogValueArray(record.capabilities),
     frameworks: readFrameworkTypes(record),
   }
@@ -185,6 +196,7 @@ function readFrameworkTypes(record: ApiRecord): string[] {
   const compatibility = readRecord(record.compatibility)
   const configurationCompatibility = readRecord(readRecord(record.configuration).compatibility)
   return readFirstStringArray([
+    record.supportedProducts,
     record.frameworkTypes,
     record.frameworks,
     compatibility.frameworkTypes,
@@ -249,6 +261,14 @@ function pluginCapabilityLabel(capability: string): string {
   return translateCatalogValue('plugins.capabilityKeys', capability)
 }
 
+function pluginProductLabel(product: string): string {
+  return translateCatalogValue('plugins.frameworkTypes', product)
+}
+
+function pluginOperationLabel(operation: string): string {
+  return translateCatalogValue('plugins.capabilityKeys', operation)
+}
+
 function pluginFrameworkLabel(framework: string): string {
   return translateCatalogValue('plugins.frameworkTypes', framework)
 }
@@ -265,28 +285,38 @@ function pluginSupportLabel(support?: string): string {
   return translateCatalogValue('plugins.supportTypes', support)
 }
 
+function pluginExecutionSummary(plugin: PluginRecord): string {
+  return plugin.runtime === 'TRUSTED_JS'
+    ? t('plugins.card.trustedJsRuntime')
+    : t('plugins.card.stepCount', { count: plugin.stepCount })
+}
+
+function pluginProviderLabel(providerKey?: string): string {
+  return translateCatalogValue('plugins.providerKeys', providerKey)
+}
+
 function compactPluginChips(plugin: PluginRecord): PluginChip[] {
-  const visibleCapabilities = plugin.capabilities.slice(0, 2)
-  const visibleFrameworks = plugin.frameworks.slice(0, 2)
+  const visibleCapabilities = (plugin.supportedOperations.length ? plugin.supportedOperations : plugin.capabilities).slice(0, 2)
+  const visibleFrameworks = (plugin.supportedProducts.length ? plugin.supportedProducts : plugin.frameworks).slice(0, 2)
   const capabilityChips = visibleCapabilities.map((capability) => ({
     key: `capability:${capability}`,
-    label: pluginCapabilityLabel(capability),
+    label: pluginOperationLabel(capability),
     kind: 'capability' as const,
   }))
   const frameworkChips = visibleFrameworks.map((framework) => ({
     key: `framework:${framework}`,
-    label: pluginFrameworkLabel(framework),
+    label: pluginProductLabel(framework),
     kind: 'framework' as const,
   }))
   const hiddenItems: PluginChip['hiddenItems'] = [
-    ...plugin.capabilities.slice(visibleCapabilities.length).map((capability) => ({
+    ...(plugin.supportedOperations.length ? plugin.supportedOperations : plugin.capabilities).slice(visibleCapabilities.length).map((capability) => ({
       key: `capability:${capability}`,
-      label: pluginCapabilityLabel(capability),
+      label: pluginOperationLabel(capability),
       kind: 'capability' as const,
     })),
-    ...plugin.frameworks.slice(visibleFrameworks.length).map((framework) => ({
+    ...(plugin.supportedProducts.length ? plugin.supportedProducts : plugin.frameworks).slice(visibleFrameworks.length).map((framework) => ({
       key: `framework:${framework}`,
-      label: pluginFrameworkLabel(framework),
+      label: pluginProductLabel(framework),
       kind: 'framework' as const,
     })),
   ]
@@ -439,7 +469,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
     <section v-if="filteredPlugins.length" class="plugin-grid" :aria-label="t('plugins.aria.list')">
       <article v-for="plugin in filteredPlugins" :key="plugin.id" class="plugin-card">
         <header class="plugin-card__header">
-          <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': resolvedLogoUrl(plugin) }">
+          <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': resolvedLogoUrl(plugin), 'plugin-logo--tencent': plugin.providerKey === 'cloud.tencent' }">
             <img
               v-if="resolvedLogoUrl(plugin)"
               :src="resolvedLogoUrl(plugin)"
@@ -461,6 +491,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
             <h3>{{ pluginTitle(plugin) }}</h3>
             <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
           </div>
+          <p v-if="plugin.providerKey" class="plugin-card__provider">{{ pluginProviderLabel(plugin.providerKey) }}</p>
           <p>{{ pluginDescription(plugin) }}</p>
           <div v-if="plugin.metadata.tags.length" class="plugin-tags">
             <span v-for="tag in plugin.metadata.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
@@ -492,7 +523,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
         </div>
 
         <footer class="plugin-card__footer">
-          <span>{{ t('plugins.card.stepCount', { count: plugin.stepCount }) }}</span>
+          <span>{{ pluginExecutionSummary(plugin) }}</span>
           <div class="plugin-card__actions">
             <button class="gc-button" type="button" @click="openDetail(plugin)">{{ t('plugins.actions.detail') }}</button>
             <button
@@ -534,7 +565,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">
           <div class="plugin-detail__identity-main">
-            <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin) }">
+            <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin), 'plugin-logo--tencent': selectedPlugin.providerKey === 'cloud.tencent' }">
               <img
                 v-if="resolvedLogoUrl(selectedPlugin)"
                 :src="resolvedLogoUrl(selectedPlugin)"
@@ -558,17 +589,37 @@ function pluginStatusClass(plugin: PluginRecord): string {
         <dl class="plugin-detail__facts">
           <div><dt>{{ t('plugins.fields.pluginId') }}</dt><dd>{{ selectedPlugin.metadata.name }}</dd></div>
           <div><dt>{{ t('plugins.agentDeployment.type') }}</dt><dd>{{ t(`plugins.agentDeployment.types.${selectedPlugin.catalogType}`) }}</dd></div>
+          <div><dt>{{ t('plugins.fields.provider') }}</dt><dd>{{ selectedPlugin.providerKey ? pluginProviderLabel(selectedPlugin.providerKey) : t('common.notAvailable') }}</dd></div>
           <div><dt>{{ t('plugins.fields.version') }}</dt><dd>{{ pluginVersion(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.source') }}</dt><dd>{{ t(`plugins.sources.${selectedPlugin.source}`) }}</dd></div>
           <div><dt>{{ t('plugins.fields.category') }}</dt><dd>{{ selectedPlugin.metadata.category ?? '—' }}</dd></div>
-          <div><dt>{{ t('plugins.fields.steps') }}</dt><dd>{{ selectedPlugin.stepCount }}</dd></div>
-          <div><dt>{{ t('plugins.fields.rollbackSteps') }}</dt><dd>{{ selectedPlugin.rollbackCount }}</dd></div>
+          <div v-if="selectedPlugin.runtime !== 'TRUSTED_JS'"><dt>{{ t('plugins.fields.steps') }}</dt><dd>{{ selectedPlugin.stepCount }}</dd></div>
+          <div v-if="selectedPlugin.runtime !== 'TRUSTED_JS'"><dt>{{ t('plugins.fields.rollbackSteps') }}</dt><dd>{{ selectedPlugin.rollbackCount }}</dd></div>
+          <div v-else><dt>{{ t('plugins.fields.executionMode') }}</dt><dd>{{ t('plugins.card.trustedJsRuntime') }}</dd></div>
           <div><dt>{{ t('plugins.fields.usage') }}</dt><dd>{{ selectedPlugin.used ? t('plugins.statuses.inUse') : t('plugins.statuses.notInUse') }}</dd></div>
           <div><dt>{{ t('plugins.fields.currentStatus') }}</dt><dd>{{ pluginStatusLabel(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.platforms') }}</dt><dd>{{ selectedPlugin.metadata.platforms.join(', ') || t('common.notAvailable') }}</dd></div>
           <div><dt>{{ t('plugins.fields.runtime') }}</dt><dd>{{ pluginRuntimeLabel(selectedPlugin.runtime) }}</dd></div>
           <div><dt>{{ t('plugins.fields.scope') }}</dt><dd>{{ pluginScopeLabel(selectedPlugin.scope) }}</dd></div>
           <div><dt>{{ t('plugins.fields.support') }}</dt><dd>{{ pluginSupportLabel(selectedPlugin.support) }}</dd></div>
+          <div class="plugin-detail__fact-wide">
+            <dt>{{ t('plugins.fields.products') }}</dt>
+            <dd class="plugin-detail__chip-list">
+              <span v-for="product in selectedPlugin.supportedProducts" :key="product" class="plugin-chip" data-kind="framework" :title="product">
+                {{ pluginProductLabel(product) }}
+              </span>
+              <span v-if="!selectedPlugin.supportedProducts.length">{{ t('common.notAvailable') }}</span>
+            </dd>
+          </div>
+          <div class="plugin-detail__fact-wide">
+            <dt>{{ t('plugins.fields.operations') }}</dt>
+            <dd class="plugin-detail__chip-list">
+              <span v-for="operation in selectedPlugin.supportedOperations" :key="operation" class="plugin-chip" data-kind="capability" :title="operation">
+                {{ pluginOperationLabel(operation) }}
+              </span>
+              <span v-if="!selectedPlugin.supportedOperations.length">{{ t('common.notAvailable') }}</span>
+            </dd>
+          </div>
           <div class="plugin-detail__fact-wide">
             <dt>{{ t('plugins.fields.frameworks') }}</dt>
             <dd class="plugin-detail__chip-list">
@@ -672,6 +723,12 @@ function pluginStatusClass(plugin: PluginRecord): string {
   color: var(--gc-color-text-muted);
   line-height: 1.45;
   font-size: var(--gc-font-size-xs);
+}
+
+.plugin-card__provider {
+  color: var(--gc-color-text-secondary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 600;
 }
 
 .market-stats {
@@ -860,6 +917,10 @@ function pluginStatusClass(plugin: PluginRecord): string {
   height: auto;
   max-height: 100%;
   padding: var(--gc-space-2);
+}
+
+.plugin-logo--tencent img {
+  transform: translateY(calc(var(--gc-space-2) * -1));
 }
 
 .plugin-logo--fallback {
