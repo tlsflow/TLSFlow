@@ -39,6 +39,8 @@
 - 执行 shell 命令：`./gcac-linux-agent exec --shell -- "uname -a && id"`
 - 自检：`./gcac-linux-agent self-check --config=/etc/gcac/linux-agent/agent.config.json`
 - 健康检查：`./gcac-linux-agent health --config=/etc/gcac/linux-agent/agent.config.json`
+- 本地证书密钥动作：`certificate.key.create_csr`、`certificate.install_issued`、`certificate.key.retire`。当前文件密钥权限为 `0600`，并明确标记为可导出、软件受控。
+- CA 信任动作：`certificate.trust.install` 原子安装并验证 CA 证书，`certificate.trust.rollback` 恢复原信任文件或删除本次新增文件。
 - 查看服务信息：`./gcac-linux-agent service-info --config=/etc/gcac/linux-agent/agent.config.json`
 - 前台运行：`./gcac-linux-agent run --config=/etc/gcac/linux-agent/agent.config.json`
 

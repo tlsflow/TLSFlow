@@ -1,5 +1,12 @@
 # Windows Go Full Agent
 
+## 应用证书本地密钥
+
+- `certificate.key.create_csr` 使用 Microsoft Software Key Storage Provider 创建机器级 CNG 密钥，设置 `Exportable=FALSE`，只返回 CSR、公钥指纹和不透明 `localKeyRef`。
+- `certificate.install_issued` 在调用 `certreq -accept` 前验证签发证书公钥与 CSR 公钥指纹一致。
+- `certificate.key.retire` 按 CNG KeyContainer 删除退役密钥。
+- `certificate.trust.install` 将 CA 证书加入本机 Root 存储，`certificate.trust.rollback` 按拇指纹删除本次信任锚。
+
 这是 `012.1` 对应的 **Windows Go Full Agent** 最小真实闭环落地产物。
 
 当前已包含：

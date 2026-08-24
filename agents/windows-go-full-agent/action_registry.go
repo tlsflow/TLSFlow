@@ -98,6 +98,11 @@ func mustBuildWindowsActionHandlerRegistry() *actionHandlerRegistry {
 		capabilityRescanActionHandler(),
 		gatewayActionHandler(),
 		windowsAtomicPlanActionHandler(),
+		windowsCertificateCreateCSRHandler(),
+		windowsCertificateInstallIssuedHandler(),
+		windowsCertificateRetireKeyHandler(),
+		windowsCertificateTrustInstallHandler(),
+		windowsCertificateTrustRollbackHandler(),
 	)
 	if err != nil {
 		panic(err)

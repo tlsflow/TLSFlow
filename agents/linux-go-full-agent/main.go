@@ -702,6 +702,15 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 			return executeCanonicalDeploy(ctx, request.TaskID, request.Payload, currentLinuxCapabilityMap())
 		},
 	})
+	for _, handler := range []coreRegistry.HandlerFunc{
+		{ActionType: "certificate.key.create_csr", SchemaVersion: "1.0", Execute: linuxCreateCertificateCSR},
+		{ActionType: "certificate.install_issued", SchemaVersion: "1.0", Execute: linuxInstallIssuedCertificate},
+		{ActionType: "certificate.key.retire", SchemaVersion: "1.0", Execute: linuxRetireCertificateKey},
+		{ActionType: "certificate.trust.install", SchemaVersion: "1.0", Execute: linuxInstallCertificateTrust},
+		{ActionType: "certificate.trust.rollback", SchemaVersion: "1.0", Execute: linuxRollbackCertificateTrust},
+	} {
+		mustRegisterAction(registry, handler)
+	}
 	for _, alias := range []string{"linux.nginx.deploy_certificate", "linux.apache.deploy_certificate", "linux.tomcat.deploy_certificate"} {
 		aliasAction := alias
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
