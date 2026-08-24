@@ -8,6 +8,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
+import { AgentDirectClient } from './agent-direct-client.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
@@ -18,6 +19,8 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
 
 export class AgentsApplicationService {
+  private readonly directClient = new AgentDirectClient();
+
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -64,6 +67,7 @@ export class AgentsApplicationService {
         role: input.role ?? existing.role,
         zone: gateway?.zoneIds[0] ?? input.zone ?? existing.zone,
         gateway: existing.status === 'DISABLED' && gateway ? { ...gateway, status: 'disabled' } : gateway,
+        directControl: input.directControl ?? existing.directControl,
         enrollmentTokenId: enrollmentTokenId ?? existing.enrollmentTokenId,
         certificateFingerprint: input.certificateFingerprint ? normalizeFingerprint(input.certificateFingerprint) : existing.certificateFingerprint,
         certificateExpiresAt: input.certificateExpiresAt ?? existing.certificateExpiresAt,
@@ -81,6 +85,7 @@ export class AgentsApplicationService {
       role,
       zone: gateway?.zoneIds[0] ?? input.zone ?? 'default',
       gateway,
+      directControl: input.directControl,
       enrollmentTokenId,
       certificateFingerprint: input.certificateFingerprint ? normalizeFingerprint(input.certificateFingerprint) : undefined,
       certificateExpiresAt: input.certificateExpiresAt,
@@ -104,6 +109,7 @@ export class AgentsApplicationService {
       status: nextStatus,
       descriptor: { ...agent.descriptor, version: input.version },
       gateway,
+      directControl: input.directControl ?? agent.directControl,
       updatedAt: now,
       lastRequestId: requestId,
     });
@@ -115,6 +121,7 @@ export class AgentsApplicationService {
       version: input.version,
       runtimeHealth: input.runtimeHealth,
       gateway,
+      directControl: input.directControl ?? agent.directControl,
       taskSummary: input.taskSummary ?? { running: 0, queued: 0 },
       receivedAt: now,
       requestId,
@@ -299,6 +306,9 @@ export class AgentsApplicationService {
 
   async ackTask(tenantId: string, input: AckAgentTaskInput): Promise<AgentTaskEnvelope> {
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
+    if (task.status === 'queued' && input.leaseId.startsWith('direct:')) {
+      return this.repository.updateTask(task.id, { status: 'acked', leaseId: input.leaseId, ackedAt: new Date().toISOString() });
+    }
     if (task.status === 'acked' && task.leaseId === input.leaseId) return task;
     if (task.status !== 'queued' && task.status !== 'leased') {
       throw new AppError('VALIDATION_FAILED', '任务不能重复 ack', { taskId: task.id, status: task.status });
@@ -389,6 +399,59 @@ export class AgentsApplicationService {
       });
     }
     return updated;
+  }
+
+  async executeTaskDirect(tenantId: string, taskId: string, requestId: string): Promise<{
+    task: AgentTaskEnvelope;
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    detail: Record<string, unknown>;
+  }> {
+    const task = await this.repository.getTask(tenantId, taskId);
+    if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
+    const actionType = readStringValue(task.payload?.type);
+    if (!actionType) {
+      throw new AppError('VALIDATION_FAILED', 'Agent task 缺少 type，不能直连执行', { taskId });
+    }
+
+    const agent = await this.requireAgent(tenantId, task.agentId);
+    const direct = await this.directClient.executeAction(agent, {
+      actionType,
+      inputs: task.payload ?? {},
+      requestId,
+    });
+
+    await this.ackTask(tenantId, {
+      agentId: task.agentId,
+      taskId: task.id,
+      leaseId: `direct:${task.id}`,
+    });
+
+    await this.submitResult(tenantId, {
+      agentId: task.agentId,
+      taskId: task.id,
+      leaseId: `direct:${task.id}`,
+      success: direct.success,
+      errorCode: direct.errorCode,
+      errorMessage: direct.errorMessage,
+      detail: direct.detail,
+    });
+
+    const updatedTask = await this.requireTask(tenantId, task.agentId, task.id);
+    return {
+      task: updatedTask,
+      success: direct.success,
+      errorCode: direct.errorCode,
+      errorMessage: direct.errorMessage,
+      detail: {
+        mode: 'agent_direct_execute',
+        taskId: task.id,
+        directTaskId: direct.taskId,
+        directControl: direct.directControl,
+        ...(direct.detail ?? {}),
+      },
+    };
   }
 
   async submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): Promise<AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number }> {
@@ -770,6 +833,7 @@ export class AgentsApplicationService {
     const upgradeSuggestion = await this.getUpgradeSuggestion(tenantId, agent.id);
     const recentErrors = await this.repository.listAgentTaskLogs(tenantId, agent.id, ['error']);
     const runtimeLogs = await this.repository.listAgentRuntimeLogs(tenantId, agent.id);
+    const recentTaskLogs = await this.listRecentTaskRuntimeLogs(tenantId, agent.id);
     return {
       agent,
       lifecycle: this.toLifecycle(agent),
@@ -781,6 +845,7 @@ export class AgentsApplicationService {
       upgradeSuggestion,
       recentErrors: recentErrors.slice(0, 10),
       runtimeLogs: runtimeLogs.slice(0, 50),
+      recentTaskLogs,
     };
   }
 
@@ -971,6 +1036,7 @@ export class AgentsApplicationService {
       degradedReasons,
       offlineEvidence,
       failureCounts,
+      directControl: latestHeartbeat?.directControl ?? agent.directControl ?? runtimeHealth?.directControl,
       runtimeHealth,
     };
   }
@@ -983,6 +1049,34 @@ export class AgentsApplicationService {
   private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
     const tasks = await this.repository.listTasks(tenantId, agentId, ['queued', 'leased', 'acked']);
     return tasks.find((task) => task.payload?.type === 'agent.capability.rescan');
+  }
+
+  private async listRecentTaskRuntimeLogs(tenantId: string, agentId: string): Promise<AgentDetailProjection['recentTaskLogs']> {
+    const tasks = await this.repository.listTasks(tenantId, agentId);
+    const taskById = new Map(tasks.map((task) => [task.id, task] as const));
+    const allLogs = await this.repository.listAgentTaskLogs(tenantId, agentId);
+
+    return allLogs
+      .map((log) => {
+        const task = taskById.get(log.taskId);
+        if (!task) return null;
+        const payload = task.payload ?? {};
+        const bindingSelector = readRecord(payload.bindingSelector);
+        return {
+          id: log.id,
+          taskId: log.taskId,
+          executionStepId: task.executionStepId,
+          emittedAt: log.emittedAt,
+          level: log.level,
+          message: log.message,
+          taskType: readStringValue(payload.type) ?? 'unknown.task',
+          siteName: readStringValue(payload.siteName),
+          bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
+          dryRun: payload.dryRun === true,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .slice(0, 50);
   }
 }
 
@@ -1002,6 +1096,16 @@ function safeAgeSeconds(value?: string): number | undefined {
 
 function dedupeStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function sha256(value: string): string {

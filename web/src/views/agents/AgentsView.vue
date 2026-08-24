@@ -1,10 +1,11 @@
 ﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readPath, type ViewRow } from '@/composables/useBusinessPage'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
 import {
   createLinuxGoInstallSession,
   createWindowsPowerShellInstallSession,
@@ -71,11 +72,17 @@ interface AgentDetailView {
 }
 
 interface RuntimeLogView {
+  readonly id: string
+  readonly taskType: string
+  readonly siteName: string
+  readonly bindingInformation: string
+  readonly dryRun: boolean
   readonly category: string
   readonly level: string
   readonly summary: string
   readonly emittedAt: string
   readonly detail: string
+  readonly rawDetail: string
 }
 
 interface CapabilityItem {
@@ -117,11 +124,14 @@ const certificateModalOpen = ref(false)
 const selectedCertificate = ref<{ siteName: string; binding: IisBindingView } | null>(null)
 const certificateAssetPending = ref(false)
 const certificateAssetError = ref('')
+const certificateAssetDetailOpen = ref(false)
+const selectedCertificateAssetRoute = ref<{ assetId: string; versionId: string } | null>(null)
+const certificateContextUsages = ref<ApiRecord[]>([])
 const copiedText = ref<'token' | 'command' | null>(null)
 const installPending = ref(false)
 const installError = ref('')
 const now = ref(Date.now())
-const router = useRouter()
+const expandedRuntimeLogIds = ref<string[]>([])
 
 const versionOptions = [
   { value: 'latest', label: '最新稳定版' },
@@ -184,18 +194,31 @@ function normalizeText(value: unknown, fallback = EMPTY_TEXT): string {
   return String(value)
 }
 
+function normalizeHex(value: string): string {
+  return value.replaceAll(/[^0-9a-f]/gi, '').toUpperCase()
+}
+
+function normalizeCertificateName(value: string): string {
+  const normalized = value.trim().replace(/^CN\s*=\s*/i, '')
+  return normalized.toLowerCase()
+}
+
+function collectCertificateNames(certificate: BindingCertificateView): string[] {
+  const candidates = certificate.subject
+    .split(',')
+    .map((item) => normalizeCertificateName(item))
+    .filter(Boolean)
+
+  const directName = normalizeCertificateName(certificate.subject)
+  if (directName) candidates.unshift(directName)
+
+  return Array.from(new Set(candidates))
+}
+
 function normalizeDateTime(value: unknown): string {
   const text = normalizeText(value)
   if (text === EMPTY_TEXT) return text
-  const parsed = Date.parse(text)
-  if (Number.isNaN(parsed)) return text
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(parsed))
+  return formatBrowserLocalTime(text, { includeSeconds: false }) || text
 }
 
 function parseDateTime(value: unknown): number | null {
@@ -478,17 +501,63 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
 }
 
 function buildRuntimeLogs(data: ApiRecord): RuntimeLogView[] {
+  const recentTaskLogs = readPath(data, 'recentTaskLogs')
+  if (Array.isArray(recentTaskLogs) && recentTaskLogs.length > 0) {
+    return recentTaskLogs
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item, index) => {
+        const taskType = normalizeText(readObjectValue(item, ['taskType']), 'unknown.task')
+        const siteName = normalizeText(readObjectValue(item, ['siteName']), EMPTY_TEXT)
+        const bindingInformation = normalizeText(readObjectValue(item, ['bindingInformation']), EMPTY_TEXT)
+        const message = normalizeText(readObjectValue(item, ['message']), EMPTY_TEXT)
+        return {
+          id: normalizeText(readObjectValue(item, ['id']), `task-log-${index + 1}`),
+          taskType,
+          siteName,
+          bindingInformation,
+          dryRun: readObjectValue(item, ['dryRun']) === true,
+          category: taskType,
+          level: normalizeText(readObjectValue(item, ['level'])),
+          summary: message,
+          emittedAt: normalizeDateTime(readObjectValue(item, ['emittedAt'])),
+          detail: message,
+          rawDetail: JSON.stringify({
+            taskId: normalizeText(readObjectValue(item, ['taskId']), ''),
+            executionStepId: normalizeText(readObjectValue(item, ['executionStepId']), ''),
+            taskType,
+            siteName: siteName === EMPTY_TEXT ? undefined : siteName,
+            bindingInformation: bindingInformation === EMPTY_TEXT ? undefined : bindingInformation,
+            dryRun: readObjectValue(item, ['dryRun']) === true,
+            message,
+          }, null, 2),
+        }
+      })
+  }
+
   const raw = readPath(data, 'runtimeLogs')
   if (!Array.isArray(raw)) return []
   return raw
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-    .map((item) => ({
-      category: normalizeText(readObjectValue(item, ['category'])),
-      level: normalizeText(readObjectValue(item, ['level'])),
-      summary: normalizeText(readObjectValue(item, ['summary'])),
-      emittedAt: normalizeDateTime(readObjectValue(item, ['emittedAt'])),
-      detail: normalizeText(readObjectValue(item, ['detail'])),
-    }))
+    .map((item, index) => {
+      const rawDetailValue = readObjectValue(item, ['detail'])
+      const rawDetail = typeof rawDetailValue === 'string'
+        ? rawDetailValue.trim()
+        : (rawDetailValue && typeof rawDetailValue === 'object' ? JSON.stringify(rawDetailValue, null, 2) : '')
+
+      return {
+        id: `runtime-log-${index + 1}`,
+        taskType: EMPTY_TEXT,
+        siteName: EMPTY_TEXT,
+        bindingInformation: EMPTY_TEXT,
+        dryRun: false,
+        category: normalizeText(readObjectValue(item, ['category'])),
+        level: normalizeText(readObjectValue(item, ['level'])),
+        summary: normalizeText(readObjectValue(item, ['summary'])),
+        emittedAt: normalizeDateTime(readObjectValue(item, ['emittedAt'])),
+        detail: rawDetail || EMPTY_TEXT,
+        rawDetail,
+      }
+    })
 }
 
 function buildRuntimeLogSections(data: ApiRecord): DetailSection[] {
@@ -508,7 +577,7 @@ function buildRuntimeLogSections(data: ApiRecord): DetailSection[] {
       variant: 'runtime-logs',
       fields: logs.length > 0
         ? logs.map((log, index) => ({
-            label: `${log.level.toUpperCase()} / ${log.category}`,
+            label: `${log.level.toUpperCase()} / ${log.taskType !== EMPTY_TEXT ? log.taskType : log.category}`,
             value: log.summary,
             meta: { ...log, index },
           }))
@@ -557,7 +626,7 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
             { label: 'Agent Key', value: agentKey },
             { label: '角色', value: role },
             { label: '区域', value: zone },
-            { label: '最近心跳', value: lastHeartbeat },
+            { label: '最近心跳', value: normalizeDateTime(lastHeartbeat) },
           ],
         },
         {
@@ -615,6 +684,16 @@ function stopCountdown() {
   countdownTimer = null
 }
 
+function isRuntimeLogExpanded(logId: string): boolean {
+  return expandedRuntimeLogIds.value.includes(logId)
+}
+
+function toggleRuntimeLog(logId: string) {
+  expandedRuntimeLogIds.value = isRuntimeLogExpanded(logId)
+    ? expandedRuntimeLogIds.value.filter((item) => item !== logId)
+    : [...expandedRuntimeLogIds.value, logId]
+}
+
 watch(
   () => installModalOpen.value && installSession.value !== null,
   (active) => {
@@ -653,8 +732,46 @@ function closeCertificateModal() {
   certificateAssetError.value = ''
 }
 
+function buildCertificateContextUsage(siteName: string, binding: IisBindingView): ApiRecord {
+  const endpointLabel = `${binding.protocol.toUpperCase()}:${binding.port}`
+  const hostHeader = binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : ''
+  const domainName = hostHeader || binding.certificate?.subject || siteName
+  return {
+    id: `agent-iis:${siteName}:${binding.protocol}:${binding.port}:${hostHeader || 'no-host-header'}`,
+    resourceId: `agent-iis:${siteName}`,
+    resourceName: `${siteName} / ${endpointLabel}`,
+    targetName: siteName,
+    domainName,
+    bindingType: 'WINDOWS_CERT_STORE',
+    resourceType: 'Agent IIS 站点',
+    status: 'ACTIVE',
+    metadata: {
+      source: 'agent_context',
+      siteName,
+      protocol: binding.protocol,
+      port: binding.port,
+      hostHeader: hostHeader || '无 Host Header',
+      certificateSubject: binding.certificate?.subject ?? EMPTY_TEXT,
+    },
+  }
+}
+
+function openCertificateAssetModal(route: { assetId: string; versionId: string }, siteName: string, binding: IisBindingView) {
+  selectedCertificateAssetRoute.value = route
+  certificateContextUsages.value = [buildCertificateContextUsage(siteName, binding)]
+  certificateAssetDetailOpen.value = true
+}
+
+function closeCertificateAssetModal() {
+  certificateAssetDetailOpen.value = false
+  selectedCertificateAssetRoute.value = null
+  certificateContextUsages.value = []
+}
+
 async function resolveCertificateAssetRoute(certificate: BindingCertificateView): Promise<{ assetId: string; versionId: string } | null> {
-  const keyword = certificate.thumbprint !== EMPTY_TEXT ? certificate.thumbprint : certificate.subject
+  const normalizedThumbprint = normalizeHex(certificate.thumbprint)
+  const certificateNames = collectCertificateNames(certificate)
+  const keyword = certificateNames[0] || normalizedThumbprint || certificate.subject
   const result = await listCertificateVersions({
     page: 1,
     pageSize: 20,
@@ -666,13 +783,19 @@ async function resolveCertificateAssetRoute(certificate: BindingCertificateView)
     const assetId = normalizeText(readPath(item, 'certificateAssetId'), '')
     if (!versionId || versionId === EMPTY_TEXT || !assetId || assetId === EMPTY_TEXT) return false
 
-    const thumbprint = normalizeText(readPath(item, 'fingerprintSha256'), '').toUpperCase()
-    const commonName = normalizeText(readPath(item, 'commonName'), '')
-    const subjectCommonName = normalizeText(readPath(item, 'subject.commonName'), '')
+    const fingerprintSha256 = normalizeHex(normalizeText(readPath(item, 'fingerprintSha256'), ''))
+    const versionNames = [
+      normalizeCertificateName(normalizeText(readPath(item, 'commonName'), '')),
+      normalizeCertificateName(normalizeText(readPath(item, 'subject.commonName'), '')),
+      ...((readPath(item, 'sans') as unknown[] | undefined) ?? [])
+        .map((name) => normalizeCertificateName(String(name ?? '')))
+        .filter(Boolean),
+    ].filter(Boolean)
 
-    return thumbprint === certificate.thumbprint.toUpperCase()
-      || commonName === certificate.subject
-      || subjectCommonName === certificate.subject
+    const matchedBySha256 = normalizedThumbprint.length === 64 && fingerprintSha256 === normalizedThumbprint
+    const matchedByName = certificateNames.some((name) => versionNames.includes(name))
+
+    return matchedBySha256 || matchedByName
   }) as ApiRecord | undefined
 
   if (!matched) return null
@@ -686,18 +809,10 @@ async function resolveCertificateAssetRoute(certificate: BindingCertificateView)
   return { assetId, versionId }
 }
 
-async function navigateToCertificateAsset(route: { assetId: string; versionId: string }) {
-  closeCertificateModal()
-  await router.push({
-    name: 'certificate.detail',
-    params: { id: route.assetId },
-    query: { versionId: route.versionId },
-  })
-}
-
 async function openCertificateAssetDetail() {
-  const certificate = selectedCertificate.value?.binding.certificate
-  if (!certificate || certificateAssetPending.value) return
+  const currentSelection = selectedCertificate.value
+  const certificate = currentSelection?.binding.certificate
+  if (!currentSelection || !certificate || certificateAssetPending.value) return
 
   certificateAssetPending.value = true
   certificateAssetError.value = ''
@@ -708,7 +823,7 @@ async function openCertificateAssetDetail() {
       certificateAssetError.value = '本项目中未找到对应证书资产。'
       return
     }
-    await navigateToCertificateAsset(route)
+    openCertificateAssetModal(route, currentSelection.siteName, currentSelection.binding)
   } catch (cause) {
     certificateAssetError.value = cause instanceof Error ? cause.message : '查询证书资产失败。'
   } finally {
@@ -726,7 +841,7 @@ async function openBindingCertificate(siteName: string, binding: IisBindingView)
   try {
     const route = await resolveCertificateAssetRoute(binding.certificate)
     if (route) {
-      await navigateToCertificateAsset(route)
+      openCertificateAssetModal(route, siteName, binding)
       return
     }
 
@@ -840,6 +955,7 @@ async function openDetailModal(row: ViewRow) {
   detailActionPending.value = false
   detailActionMessage.value = ''
   detailError.value = ''
+  expandedRuntimeLogIds.value = []
   activeDetailTab.value = 'overview'
   detailData.value = buildAgentDetail(row.raw, row)
 
@@ -1054,40 +1170,51 @@ const config: BusinessPageConfig = {
                   </article>
                 </template>
                 <template v-else-if="section.variant === 'runtime-logs'">
-                  <article
-                    v-for="field in section.fields"
-                    :key="`${section.title}-${field.label}`"
-                    class="agent-detail-modal__site-card"
-                  >
-                    <template v-if="field.meta && typeof field.meta === 'object'">
-                      <header class="agent-detail-modal__site-head">
-                        <div>
-                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
-                        </div>
-                        <div class="agent-detail-modal__site-meta">
-                          <span>{{ (field.meta as RuntimeLogView).emittedAt }}</span>
-                          <strong>{{ (field.meta as RuntimeLogView).category }}</strong>
-                        </div>
-                      </header>
-                      <div class="agent-detail-modal__site-bindings">
-                        <div class="agent-detail-modal__binding-chip" data-clickable="false">
-                          <div class="agent-detail-modal__binding-topline">
-                            <strong>{{ (field.meta as RuntimeLogView).level.toUpperCase() }}</strong>
+                  <div class="agent-detail-modal__log-list" role="list" aria-label="运行日志列表">
+                    <article
+                      v-for="field in section.fields"
+                      :key="`${section.title}-${field.label}`"
+                      class="agent-detail-modal__log-item"
+                      role="listitem"
+                    >
+                      <template v-if="field.meta && typeof field.meta === 'object'">
+                        <button
+                          class="agent-detail-modal__log-toggle"
+                          type="button"
+                          :aria-expanded="isRuntimeLogExpanded((field.meta as RuntimeLogView).id) ? 'true' : 'false'"
+                          @click="toggleRuntimeLog((field.meta as RuntimeLogView).id)"
+                        >
+                          <header class="agent-detail-modal__log-head">
+                            <div class="agent-detail-modal__log-main">
+                              <strong>{{ field.label }}</strong>
+                              <p>{{ field.value }}</p>
+                              <p class="agent-detail-modal__log-subline">
+                                <span>任务类型：{{ (field.meta as RuntimeLogView).taskType !== EMPTY_TEXT ? (field.meta as RuntimeLogView).taskType : (field.meta as RuntimeLogView).category }}</span>
+                                <span>站点名称：{{ (field.meta as RuntimeLogView).siteName !== EMPTY_TEXT ? (field.meta as RuntimeLogView).siteName : '未提供' }}</span>
+                              </p>
+                            </div>
+                            <div class="agent-detail-modal__log-meta">
+                              <span>{{ (field.meta as RuntimeLogView).emittedAt }}</span>
+                              <b>{{ (field.meta as RuntimeLogView).dryRun ? 'DRY_RUN' : 'TASK' }}</b>
+                              <small>{{ isRuntimeLogExpanded((field.meta as RuntimeLogView).id) ? '收起' : '展开' }}</small>
+                            </div>
+                          </header>
+                        </button>
+                        <pre
+                          v-if="(field.meta as RuntimeLogView).rawDetail && isRuntimeLogExpanded((field.meta as RuntimeLogView).id)"
+                          class="agent-detail-modal__log-detail"
+                        ><code>{{ (field.meta as RuntimeLogView).rawDetail }}</code></pre>
+                      </template>
+                      <template v-else>
+                        <header class="agent-detail-modal__log-head">
+                          <div class="agent-detail-modal__log-main">
+                            <strong>{{ field.label }}</strong>
+                            <p>{{ field.value }}</p>
                           </div>
-                          <small>{{ (field.meta as RuntimeLogView).detail }}</small>
-                        </div>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <header class="agent-detail-modal__site-head">
-                        <div>
-                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
-                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
-                        </div>
-                      </header>
-                    </template>
-                  </article>
+                        </header>
+                      </template>
+                    </article>
+                  </div>
                 </template>
                 <template v-else>
                   <div
@@ -1199,6 +1326,23 @@ const config: BusinessPageConfig = {
           {{ certificateAssetPending ? '查询中...' : '查看本项目证书详情' }}
         </button>
         <button class="gc-button" type="button" @click="closeCertificateModal">关闭</button>
+      </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="certificateAssetDetailOpen"
+      title="本项目证书详情"
+      description="在当前 Agent 详情上下文中展示项目内证书资产详情和关联使用关系。"
+      size="xxl"
+    >
+      <CertificateDetailPanel
+        v-if="selectedCertificateAssetRoute"
+        :asset-id="selectedCertificateAssetRoute.assetId"
+        :version-id="selectedCertificateAssetRoute.versionId"
+        :context-usages="certificateContextUsages"
+      />
+      <template #actions>
+        <button class="gc-button" type="button" @click="closeCertificateAssetModal">关闭</button>
       </template>
     </GcModal>
 
@@ -1591,6 +1735,121 @@ const config: BusinessPageConfig = {
   gap: 10px;
 }
 
+.agent-detail-modal__log-list {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.agent-detail-modal__log-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #dce7f5;
+  background: linear-gradient(180deg, #f8fbff, #ffffff);
+}
+
+.agent-detail-modal__log-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-detail-modal__log-toggle:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.agent-detail-modal__log-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.agent-detail-modal__log-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-detail-modal__log-main strong,
+.agent-detail-modal__log-main p {
+  margin: 0;
+}
+
+.agent-detail-modal__log-main strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__log-main p {
+  color: #52627a;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__log-subline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-detail-modal__log-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  min-width: 140px;
+  text-align: right;
+}
+
+.agent-detail-modal__log-meta span {
+  color: #52627a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-detail-modal__log-meta b {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.agent-detail-modal__log-meta small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agent-detail-modal__log-detail {
+  margin: 0;
+  overflow: auto;
+  border-radius: 12px;
+  padding: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__log-detail code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
 .agent-detail-modal__binding-chip {
   display: grid;
   gap: 4px;
@@ -1970,6 +2229,16 @@ const config: BusinessPageConfig = {
 
   .agent-detail-modal__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-detail-modal__log-head {
+    flex-direction: column;
+  }
+
+  .agent-detail-modal__log-meta {
+    justify-items: start;
+    min-width: 0;
+    text-align: left;
   }
 }
 

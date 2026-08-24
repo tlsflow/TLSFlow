@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentDirectControlState, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 
 export interface CreateEnrollmentTokenInput {
@@ -33,6 +33,7 @@ export interface RegisterAgentInput {
   successRate?: number;
   certificateFingerprint?: string;
   certificateExpiresAt?: string;
+  directControl?: AgentDirectControlState;
 }
 
 export interface AgentHeartbeatInput {
@@ -47,6 +48,7 @@ export interface AgentHeartbeatInput {
   currentLoad?: number;
   maxConcurrentTasks?: number;
   successRate?: number;
+  directControl?: AgentDirectControlState;
 }
 
 export interface AgentCapabilitySnapshotInput {
@@ -319,6 +321,7 @@ export interface AgentDetailProjection {
   upgradeSuggestion: AgentUpgradeSuggestionProjection;
   recentErrors: AgentTaskLogEntry[];
   runtimeLogs: AgentRuntimeLogEntry[];
+  recentTaskLogs: AgentTaskRuntimeLogProjection[];
 }
 
 export interface AgentHealthProjection {
@@ -341,7 +344,21 @@ export interface AgentHealthProjection {
     taskPoll: number;
     recovery: number;
   };
+  directControl?: AgentDirectControlState;
   runtimeHealth?: AgentRuntimeHealth;
+}
+
+export interface AgentTaskRuntimeLogProjection {
+  id: string;
+  taskId: string;
+  executionStepId: string;
+  emittedAt: string;
+  level: AgentTaskLogEntry['level'];
+  message: string;
+  taskType: string;
+  siteName?: string;
+  bindingInformation?: string;
+  dryRun: boolean;
 }
 
 export interface AgentCapabilityProjection {

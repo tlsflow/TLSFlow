@@ -14,9 +14,10 @@ const apiMocks = vi.hoisted(() => ({
   enableAgent: vi.fn(),
   deleteAgent: vi.fn(),
   listCertificateVersions: vi.fn(),
+  getCertificateAssetDetail: vi.fn(),
+  getCertificateVersionDetail: vi.fn(),
+  getCertificateVersionUsage: vi.fn(),
 }))
-
-const routerPush = vi.fn()
 
 vi.mock('@/api/modules/assets.api', () => ({
   listAgents: apiMocks.listAgents,
@@ -31,17 +32,10 @@ vi.mock('@/api/modules/assets.api', () => ({
 
 vi.mock('@/api/modules/certificates.api', () => ({
   listCertificateVersions: apiMocks.listCertificateVersions,
+  getCertificateAssetDetail: apiMocks.getCertificateAssetDetail,
+  getCertificateVersionDetail: apiMocks.getCertificateVersionDetail,
+  getCertificateVersionUsage: apiMocks.getCertificateVersionUsage,
 }))
-
-vi.mock('vue-router', async () => {
-  const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
-  return {
-    ...actual,
-    useRouter: () => ({
-      push: routerPush,
-    }),
-  }
-})
 
 const mountOptions = {
   global: {
@@ -153,6 +147,32 @@ describe('AgentsView', () => {
             detail: { error: 'control plane unavailable' },
           },
         ],
+        recentTaskLogs: [
+          {
+            id: 'tasklog-1',
+            taskId: 'agtask-dryrun-1',
+            executionStepId: 'step-dryrun-1',
+            emittedAt: '2026-06-21T00:20:00.000Z',
+            level: 'info',
+            message: 'IIS dry-run preflight succeeded',
+            taskType: 'windows.iis.deploy_certificate',
+            siteName: 'Default Web Site',
+            bindingInformation: '*:443:portal.example.com',
+            dryRun: true,
+          },
+          {
+            id: 'tasklog-2',
+            taskId: 'agtask-install-1',
+            executionStepId: 'step-install-1',
+            emittedAt: '2026-06-21T00:18:00.000Z',
+            level: 'info',
+            message: 'IIS certificate binding updated',
+            taskType: 'windows.iis.deploy_certificate',
+            siteName: 'Default Web Site',
+            bindingInformation: '*:443:portal.example.com',
+            dryRun: false,
+          },
+        ],
         capabilitySnapshot: {
           compatibilityLevel: 'L1',
           reportedAt: '2026-06-21T00:25:00.000Z',
@@ -249,9 +269,10 @@ describe('AgentsView', () => {
           {
             id: 'ver-1',
             certificateAssetId: 'cert-1',
-            fingerprintSha256: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
-            commonName: 'CN=portal.example.com',
-            subject: { commonName: 'CN=portal.example.com' },
+            fingerprintSha256: '11'.repeat(32),
+            commonName: 'portal.example.com',
+            subject: { commonName: 'portal.example.com' },
+            sans: ['portal.example.com'],
           },
         ],
         page: 1,
@@ -261,9 +282,40 @@ describe('AgentsView', () => {
       requestId: 'req_certificate_versions',
       timestamp: '2026-06-21T00:00:00.000Z',
     })
-    routerPush.mockReset()
-    routerPush.mockResolvedValue(undefined)
-
+    apiMocks.getCertificateAssetDetail.mockResolvedValue({
+      data: {
+        id: 'cert-1',
+        name: 'portal.example.com',
+        primaryDomain: 'portal.example.com',
+        currentVersionId: 'ver-1',
+      },
+      requestId: 'req_certificate_asset_detail',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
+    apiMocks.getCertificateVersionDetail.mockResolvedValue({
+      data: {
+        id: 'ver-1',
+        certificateAssetId: 'cert-1',
+        commonName: 'portal.example.com',
+        sans: ['portal.example.com'],
+        notBefore: '2026-01-01T00:00:00.000Z',
+        notAfter: '2027-01-01T00:00:00.000Z',
+        fingerprintSha256: '11'.repeat(32),
+        chainStatus: 'complete',
+        subject: { commonName: 'portal.example.com' },
+        issuer: { commonName: 'GCAC Test CA' },
+        chainCertificates: [],
+      },
+      requestId: 'req_certificate_version_detail',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
+    apiMocks.getCertificateVersionUsage.mockResolvedValue({
+      data: {
+        usages: [],
+      },
+      requestId: 'req_certificate_usage',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
     vi.stubGlobal('navigator', {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -390,13 +442,11 @@ describe('AgentsView', () => {
     expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
       page: 1,
       pageSize: 20,
-      keyword: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+      keyword: 'portal.example.com',
     })
-    expect(routerPush).toHaveBeenCalledWith({
-      name: 'certificate.detail',
-      params: { id: 'cert-1' },
-      query: { versionId: 'ver-1' },
-    })
+    expect(wrapper.text()).toContain('本项目证书详情')
+    expect(wrapper.text()).toContain('逻辑域名')
+    expect(wrapper.text()).toContain('portal.example.com')
   })
 
   it('详情页支持发起手动重扫任务', async () => {
@@ -679,9 +729,8 @@ describe('AgentsView', () => {
     expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
       page: 1,
       pageSize: 20,
-      keyword: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+      keyword: 'portal.example.com',
     })
-    expect(routerPush).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('证书详情')
     expect(wrapper.text()).toContain('证书名称')
     expect(wrapper.text()).toContain('颁发者')
@@ -689,5 +738,188 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('到期时间')
     expect(wrapper.text()).toContain('CN=GCAC Test CA')
     expect(wrapper.text()).toContain('本项目中未找到对应证书资产')
+  })
+
+  it('IIS 证书主题包含 CN 前缀时，仍能匹配到项目中的证书资产', async () => {
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-1',
+          agentKey: 'agent-prod-1',
+          status: 'ONLINE',
+          role: 'full_agent',
+          zone: 'default',
+          descriptor: {
+            hostname: 'prod-1',
+            version: '1.2.3',
+            osType: 'WINDOWS',
+            arch: 'amd64',
+            ipAddress: '10.0.0.10',
+            osVersion: '10.0.20348',
+          },
+        },
+        latestHeartbeat: {
+          receivedAt: '2026-06-21T00:30:00.000Z',
+        },
+        health: {
+          status: 'healthy',
+          offline: false,
+          offlineTimeoutSeconds: 180,
+          lastHeartbeatAt: '2026-06-21T00:30:00.000Z',
+          heartbeatAgeSeconds: 12,
+        },
+        lifecycle: {
+          canPullTasks: true,
+        },
+        runtimeLogs: [],
+        capabilitySnapshot: {
+          compatibilityLevel: 'L1',
+          reportedAt: '2026-06-21T00:25:00.000Z',
+          capabilities: [
+            {
+              capabilityKey: 'windows.iis.detail',
+              value: {
+                Installed: true,
+                VersionString: 'Version 10.0',
+              },
+            },
+            {
+              capabilityKey: 'windows.iis.sites',
+              value: [
+                {
+                  Name: 'TEST',
+                  PhysicalPath: 'C:\\inetpub\\wwwroot',
+                  Bindings: [
+                    {
+                      Protocol: 'https',
+                      Port: 4433,
+                      Certificate: {
+                        Subject: 'CN=*.jacksonz.cn',
+                        Issuer: "CN=E2, O=Let's Encrypt, C=US",
+                        NotBefore: '2026-06-09T10:18:39.000Z',
+                        NotAfter: '2026-09-07T10:18:38.000Z',
+                        Thumbprint: '95D9A57D301B626A02B7BEF5E5218D6EAE3A55CA',
+                        StoreName: 'My',
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      requestId: 'req_agent_detail_iis_cn_prefix',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
+
+    apiMocks.listCertificateVersions.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: 'ver-jacksonz-1',
+            certificateAssetId: 'cert-jacksonz-1',
+            fingerprintSha256: '22'.repeat(32),
+            commonName: '*.jacksonz.cn',
+            subject: { commonName: '*.jacksonz.cn' },
+            sans: ['*.jacksonz.cn', 'jacksonz.cn'],
+          },
+        ],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      },
+      requestId: 'req_certificate_versions_jacksonz',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const iisTab = wrapper.findAll('button').find((button) => button.text() === 'IIS')
+    expect(iisTab).toBeTruthy()
+    await iisTab!.trigger('click')
+    await flushPromises()
+
+    const bindingCard = wrapper.findAll('.agent-detail-modal__binding-chip').find((item) => item.text().includes('HTTPS:4433'))
+    expect(bindingCard).toBeTruthy()
+    await bindingCard!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: '*.jacksonz.cn',
+    })
+    expect(wrapper.text()).toContain('本项目证书详情')
+    expect(wrapper.text()).not.toContain('本项目中未找到对应证书资产')
+  })
+
+  it('关闭本项目证书详情模态框后，仍停留在 Agent 站点详情上下文', async () => {
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const iisTab = wrapper.findAll('button').find((button) => button.text() === 'IIS')
+    expect(iisTab).toBeTruthy()
+    await iisTab!.trigger('click')
+    await flushPromises()
+
+    const bindingCard = wrapper.findAll('.agent-detail-modal__binding-chip').find((item) => item.text().includes('HTTPS:443'))
+    expect(bindingCard).toBeTruthy()
+    await bindingCard!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('本项目证书详情')
+    expect(wrapper.text()).toContain('Agent详情')
+
+    const closeButtons = wrapper.findAll('button').filter((button) => button.text() === '关闭')
+    expect(closeButtons.length).toBeGreaterThan(0)
+    await closeButtons[closeButtons.length - 1]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('本项目证书详情')
+    expect(wrapper.text()).toContain('Agent详情')
+    expect(wrapper.text()).toContain('IIS 概况')
+    expect(wrapper.text()).toContain('Default Web Site')
+  })
+
+  it('从 Agent 上下文打开证书详情时，关联资产标签页会反向显示当前 IIS 站点', async () => {
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const iisTab = wrapper.findAll('button').find((button) => button.text() === 'IIS')
+    expect(iisTab).toBeTruthy()
+    await iisTab!.trigger('click')
+    await flushPromises()
+
+    const bindingCard = wrapper.findAll('.agent-detail-modal__binding-chip').find((item) => item.text().includes('HTTPS:443'))
+    expect(bindingCard).toBeTruthy()
+    await bindingCard!.trigger('click')
+    await flushPromises()
+
+    const usageTab = wrapper.findAll('button').find((button) => button.text() === '关联资产')
+    expect(usageTab).toBeTruthy()
+    await usageTab!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('CN=portal.example.com')
+    expect(wrapper.text()).toContain('WINDOWS_CERT_STORE')
+    expect(wrapper.text()).toContain('Agent上下文')
+    expect(wrapper.text()).toContain('ACTIVE')
   })
 })
