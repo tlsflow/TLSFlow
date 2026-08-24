@@ -42,7 +42,11 @@ export async function discoverNetscaler(client: NetscalerNitroClient): Promise<N
     ? normalizeNetscalerCertificates(await readRows(client, 'sslcertkey', warnings), sourceVersion)
     : [];
   const bindings = capabilityProfile.discovery.sslBindings
-    ? normalizeNetscalerBindings(await readRows(client, 'sslvserver_sslcertkey_binding', warnings, { bulkbindings: 'yes' }), sourceVersion)
+    ? normalizeNetscalerBindings(
+      await readRows(client, 'sslvserver_sslcertkey_binding', warnings, { bulkbindings: 'yes' }),
+      sourceVersion,
+      virtualServers,
+    )
     : [];
 
   return {
@@ -50,7 +54,7 @@ export async function discoverNetscaler(client: NetscalerNitroClient): Promise<N
     capabilityProfile,
     device: {
       productName: text(versionRow.productname) ?? 'NetScaler ADC',
-      softwareVersion: rawVersion,
+      softwareVersion: version.major > 0 ? `${version.major}.${version.minor}` : 'unknown',
       softwareBuild: version.build,
       runtimeMode: text(versionRow.mode),
       haMode: text(versionRow.hamode),

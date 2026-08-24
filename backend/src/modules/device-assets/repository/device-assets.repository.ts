@@ -30,25 +30,42 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
       [tenantId, input.managementAddress, input.managementPort],
     );
     if (existing.rows[0]) throw new AppError('RESOURCE_ALREADY_EXISTS', '相同管理地址的设备资产已存在', { deviceAssetId: existing.rows[0].id });
-    const id = newId('dev');
+    const requestedId = newId('dev');
     const now = new Date().toISOString();
     const addressType = inferAddressType(input.managementAddress);
+    let deviceAssetId = requestedId;
     try {
       await this.db.transaction(async (tx) => {
-        const hostId = await resolveDeviceHost(tx, tenantId, id, input, addressType, now);
+        const allocation = await resolveDeviceHost(tx, tenantId, requestedId, input, addressType, now);
+        deviceAssetId = allocation.deviceAssetId;
+        if (allocation.reused) {
+          await tx.query(
+            `update pg_service_assets set address=$1, address_type=$2, port=$3, display_name=$4,
+              status='UNKNOWN', deleted_at=null, metadata=$5::jsonb, updated_at=$6, version=version+1
+             where id=$7 and tenant_id=$8`,
+            [input.managementAddress, addressType, input.managementPort, input.displayName, JSON.stringify({ deviceFamily: input.deviceFamily }), now, deviceAssetId, tenantId],
+          );
+          await tx.query(
+            `update pg_device_assets set management_port=$1, credential_id=$2, auth_mode=$3, tls_verify=$4,
+              ca_secret_id=$5, gateway_id=$6, last_error_code=null, updated_at=$7, version=version+1
+             where service_asset_id=$8 and tenant_id=$9`,
+            [input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now, deviceAssetId, tenantId],
+          );
+          return;
+        }
         await tx.query(
           `insert into pg_service_assets (
             id, tenant_id, address, address_type, port, protocol, display_name, discovery_source,
             host_id, status, tags, metadata, asset_kind, created_at, updated_at, version
           ) values ($1, $2, $3, $4, $5, 'HTTPS', $6, 'MANUAL', $7, 'UNKNOWN', '[]'::jsonb, $8::jsonb, 'DEVICE', $9, $9, 1)`,
-          [id, tenantId, input.managementAddress, addressType, input.managementPort, input.displayName, hostId, JSON.stringify({ deviceFamily: input.deviceFamily }), now],
+          [deviceAssetId, tenantId, input.managementAddress, addressType, input.managementPort, input.displayName, allocation.hostId, JSON.stringify({ deviceFamily: input.deviceFamily }), now],
         );
         await tx.query(
           `insert into pg_device_assets (
             service_asset_id, tenant_id, host_id, device_family, management_port, credential_id, auth_mode,
             tls_verify, ca_secret_id, gateway_id, support_tier, capability_profile, created_at, updated_at, version
           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'READ_ONLY', '{}'::jsonb, $11, $11, 1)`,
-          [id, tenantId, hostId, input.deviceFamily, input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now],
+          [deviceAssetId, tenantId, allocation.hostId, input.deviceFamily, input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now],
         );
       });
     } catch (cause) {
@@ -57,7 +74,7 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
       }
       throw cause;
     }
-    return this.require(tenantId, id);
+    return this.require(tenantId, deviceAssetId);
   }
 
   async update(tenantId: string, deviceAssetId: string, input: UpdateDeviceAssetDto): Promise<DeviceAssetDto> {
@@ -138,7 +155,14 @@ interface ExistingHostRow extends Record<string, unknown> {
   agent_id: string | null;
   asset_fingerprint: string | null;
   management_mode: string;
+  device_asset_id: string | null;
   active_device_asset_id: string | null;
+}
+
+interface DeviceHostAllocation {
+  hostId: string;
+  deviceAssetId: string;
+  reused: boolean;
 }
 
 async function resolveDeviceHost(
@@ -148,10 +172,13 @@ async function resolveDeviceHost(
   input: Required<Pick<CreateDeviceAssetDto, 'managementPort' | 'authMode' | 'tlsVerify'>> & CreateDeviceAssetDto,
   addressType: 'IPV4' | 'IPV6' | 'DNS',
   now: string,
-): Promise<string> {
+): Promise<DeviceHostAllocation> {
   const fingerprint = deviceFingerprint(input);
   const existingHost = (await db.query<ExistingHostRow>(
     `select host.id, host.agent_id, host.asset_fingerprint, host.management_mode,
+       (select device.service_asset_id from pg_device_assets device
+        where device.tenant_id=host.tenant_id and device.host_id=host.id and device.device_family=$4
+        limit 1) as device_asset_id,
        (select device.service_asset_id
         from pg_device_assets device
         join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
@@ -161,13 +188,13 @@ async function resolveDeviceHost(
      where host.tenant_id=$1 and host.deleted_at is null
        and (($2='DNS' and lower(host.hostname)=lower($3)) or ($2<>'DNS' and host.primary_ip=$3))
      limit 1`,
-    [tenantId, addressType, input.managementAddress],
+    [tenantId, addressType, input.managementAddress, input.deviceFamily],
   )).rows[0];
 
   if (!existingHost) {
     const hostId = newId('hst');
     await insertDeviceHost(db, hostId, tenantId, deviceAssetId, input, addressType, fingerprint, now);
-    return hostId;
+    return { hostId, deviceAssetId, reused: false };
   }
   if (existingHost.agent_id || existingHost.management_mode !== 'AGENTLESS'
     || existingHost.asset_fingerprint !== fingerprint || existingHost.active_device_asset_id) {
@@ -196,7 +223,11 @@ async function resolveDeviceHost(
       existingHost.id,
     ],
   );
-  return existingHost.id;
+  return {
+    hostId: existingHost.id,
+    deviceAssetId: existingHost.device_asset_id ?? deviceAssetId,
+    reused: Boolean(existingHost.device_asset_id),
+  };
 }
 
 async function insertDeviceHost(

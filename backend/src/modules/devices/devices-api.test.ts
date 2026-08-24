@@ -268,6 +268,71 @@ test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边
   assert.equal(detail?.publicSummary.managementMode, 'AGENTLESS');
 });
 
+test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_adc_detail_resources';
+  const device = await new PgDeviceAssetsRepository(database).create(tenantId, {
+    displayName: 'ADC Resources', managementAddress: '10.33.4.50', managementPort: 443,
+    deviceFamily: 'NETSCALER_ADC', credentialId: 'secret_resources', authMode: 'AUTO', tlsVerify: false,
+  });
+  await database.query(
+    `insert into pg_device_virtual_servers (
+      id, tenant_id, device_asset_id, virtual_server_type, virtual_server_name, target_key,
+      address, port, protocol, runtime_state, sni_names, status
+    ) values ('vs_detail', $1, $2, 'LB', 'lb-detail', 'LB:lb-detail', '10.33.4.60', 443, 'SSL', 'UP', '[]'::jsonb, 'ACTIVE')`,
+    [tenantId, device.id],
+  );
+  await database.query(
+    `insert into pg_device_certificate_resources (
+      id, tenant_id, device_asset_id, certkey_name, subject, issuer, not_before, not_after, source_version
+    ) values ('cert_detail', $1, $2, 'cert-detail', 'CN=detail.example', 'CN=issuer',
+      '2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', '13.1')`,
+    [tenantId, device.id],
+  );
+  await database.query(
+    `insert into pg_device_certificate_bindings (
+      id, tenant_id, device_asset_id, virtual_server_id, certificate_resource_id, binding_key
+    ) values ('binding_detail', $1, $2, 'vs_detail', 'cert_detail', 'LB:lb-detail:cert-detail')`,
+    [tenantId, device.id],
+  );
+  await database.query(
+    `insert into pg_documents (namespace, document_id, payload)
+     values ('security.audit_logs', 'audit_detail', $1::jsonb)`,
+    [JSON.stringify({
+      eventType: 'device_asset.connection_tested',
+      action: 'device_asset.test_connection',
+      resourceType: 'device_asset',
+      resourceId: device.id,
+      result: 'success',
+      riskLevel: 'high',
+      actorId: 'user_admin',
+      createdAt: '2026-07-23T03:00:00.000Z',
+    })],
+  );
+
+  const detail = await new PgDevicesRepository(database).get(tenantId, device.hostId);
+  const extension = detail?.extensionSummary as {
+    virtualServers: unknown[];
+    certificateResources: unknown[];
+    certificateBindings: Array<{
+      virtualServerType: string;
+      certificateIssuer: string;
+      certificateNotBefore: string;
+      certificateNotAfter: string;
+    }>;
+    deviceLogs: Array<{ eventType: string }>;
+  };
+  assert.equal(extension.virtualServers.length, 1);
+  assert.equal(extension.certificateResources.length, 1);
+  assert.equal(extension.certificateBindings.length, 1);
+  assert.equal(extension.certificateBindings[0]?.virtualServerType, 'LB');
+  assert.equal(extension.certificateBindings[0]?.certificateIssuer, 'CN=issuer');
+  assert.match(extension.certificateBindings[0]?.certificateNotBefore ?? '', /^2026-01-01/);
+  assert.match(extension.certificateBindings[0]?.certificateNotAfter ?? '', /^2027-01-01/);
+  assert.equal(extension.deviceLogs[0]?.eventType, 'device_asset.connection_tested');
+});
+
 test('Spec033 平台 Registry 返回六个平台并拒绝未支持厂商', () => {
   const registry = new DevicePlatformRegistry();
   const platforms = registry.list();
@@ -339,6 +404,24 @@ test('Spec033 Citrix 连接测试失败仍返回已创建设备', async () => {
   assert.equal((result as { onboardingKind: string }).onboardingKind, 'API_CONNECTION');
   assert.equal((result as { device: { id: string } }).device.id, 'device_adc_failure');
   assert.equal((result as { connection: { errorCode: string } }).connection.errorCode, 'CONNECTION_TEST_FAILED');
+});
+
+test('Spec033 Citrix 添加透传连接器错误码', async () => {
+  const secrets = {
+    create: async () => ({ secretRef: 'secret://password/sec_adc_error#v1' }),
+  } as unknown as SecretService;
+  const connectorError = Object.assign(new Error('响应格式不兼容'), { code: 'NETSCALER_RESPONSE_INVALID' });
+  const deviceAssets = {
+    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc_error', hostId: 'host_adc_error', tenantId: 'tenant_adc_error', ...input }),
+    testConnection: async () => { throw connectorError; },
+  } as unknown as DeviceAssetsApplicationService;
+  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
+
+  const result = await service.onboard('tenant_adc_error', {
+    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.52', username: 'nsroot', password: 'secret', tlsVerify: true,
+  }, 'user_adc', 'request_adc_error');
+
+  assert.equal((result as { connection: { errorCode: string } }).connection.errorCode, 'NETSCALER_RESPONSE_INVALID');
 });
 
 test('Spec033 设备资产软删除后不再出现在统一设备列表', async () => {

@@ -72,7 +72,7 @@ export class DevicesApplicationService {
           productMatched: false,
           capabilities: {},
           warnings: [],
-          errorCode: cause instanceof AppError ? cause.errorCode : 'CONNECTION_TEST_FAILED',
+          errorCode: connectionErrorCode(cause),
         },
       };
     }
@@ -92,6 +92,12 @@ export class DevicesApplicationService {
     });
     return secret.secretRef;
   }
+}
+
+function connectionErrorCode(cause: unknown): string {
+  if (cause instanceof AppError) return cause.errorCode;
+  if (cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string') return cause.code;
+  return 'CONNECTION_TEST_FAILED';
 }
 
 function required(value: string | undefined, field: string): string {

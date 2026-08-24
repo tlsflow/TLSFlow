@@ -1,13 +1,21 @@
-import type { NetscalerCertificateBinding, NetscalerCertKeyUsage, NetscalerVirtualServerType } from './netscaler.types.js';
+import type { NetscalerCertificateBinding, NetscalerCertKeyUsage, NetscalerVirtualServer, NetscalerVirtualServerType } from './netscaler.types.js';
 
-export function normalizeNetscalerBindings(value: unknown, sourceVersion: string): NetscalerCertificateBinding[] {
+export function normalizeNetscalerBindings(
+  value: unknown,
+  sourceVersion: string,
+  virtualServers: readonly NetscalerVirtualServer[] = [],
+): NetscalerCertificateBinding[] {
+  const virtualServerTypes = buildVirtualServerTypeIndex(virtualServers);
   return asArray(value).flatMap((item) => {
     const row = asRecord(item);
     const virtualServerName = text(row.vservername) ?? text(row.name);
     const certKeyName = text(row.certkeyname) ?? text(row.certkey);
     if (!virtualServerName || !certKeyName) return [];
+    const virtualServerType = normalizeType(text(row.vservertype) ?? text(row.type))
+      ?? inferVirtualServerType(virtualServerTypes, virtualServerName);
+    if (!virtualServerType) return [];
     return [{
-      virtualServerType: normalizeType(text(row.vservertype) ?? text(row.type)),
+      virtualServerType,
       virtualServerName,
       certKeyName,
       sniCertificate: boolean(row.snicert),
@@ -34,10 +42,31 @@ function compareBinding(left: NetscalerCertificateBinding, right: NetscalerCerti
   return left.certKeyName.localeCompare(right.certKeyName) || left.virtualServerType.localeCompare(right.virtualServerType) || left.virtualServerName.localeCompare(right.virtualServerName);
 }
 
-function normalizeType(value: string | undefined): NetscalerVirtualServerType {
-  const upper = value?.toUpperCase();
-  if (upper === 'CS' || upper === 'VPN' || upper === 'GSLB') return upper;
-  return 'LB';
+function buildVirtualServerTypeIndex(virtualServers: readonly NetscalerVirtualServer[]): Map<string, Set<NetscalerVirtualServerType>> {
+  const output = new Map<string, Set<NetscalerVirtualServerType>>();
+  for (const virtualServer of virtualServers) {
+    const types = output.get(virtualServer.name) ?? new Set<NetscalerVirtualServerType>();
+    types.add(virtualServer.type);
+    output.set(virtualServer.name, types);
+  }
+  return output;
+}
+
+function inferVirtualServerType(
+  virtualServerTypes: Map<string, Set<NetscalerVirtualServerType>>,
+  virtualServerName: string,
+): NetscalerVirtualServerType | undefined {
+  const types = virtualServerTypes.get(virtualServerName);
+  return types?.size === 1 ? [...types][0] : undefined;
+}
+
+function normalizeType(value: string | undefined): NetscalerVirtualServerType | undefined {
+  const upper = value?.trim().toUpperCase();
+  if (upper === 'LB' || upper === 'LOADBALANCING') return 'LB';
+  if (upper === 'CS' || upper === 'CONTENTSWITCHING') return 'CS';
+  if (upper === 'VPN' || upper === 'SSLVPN') return 'VPN';
+  if (upper === 'GSLB') return 'GSLB';
+  return undefined;
 }
 
 function safeSummary(row: Record<string, unknown>): Record<string, unknown> { return Object.fromEntries(Object.entries(row).filter(([key]) => !/(password|cookie|secret)/i.test(key))); }

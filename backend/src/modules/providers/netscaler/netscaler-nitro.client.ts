@@ -74,7 +74,9 @@ export class NetscalerNitroClient {
       path: '/nitro/v1/config/login',
       body: { login: { username: credentials.username, password: credentials.password } },
     }, {}, authRedactionValues(credentials));
-    assertNitroSuccess(response, authRedactionValues(credentials));
+    if (response.statusCode < 200 || response.statusCode >= 300 || response.bodyJson !== undefined) {
+      assertNitroSuccess(response, authRedactionValues(credentials));
+    }
     const token = extractNitroSessionToken(response.headers);
     if (!token) throw new NetscalerNitroError('NETSCALER_AUTH_FAILED', 'NITRO 登录成功但未返回 Session Token');
     this.sessionToken = token;

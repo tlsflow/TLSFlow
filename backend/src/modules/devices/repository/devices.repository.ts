@@ -46,6 +46,7 @@ export class PgDevicesRepository implements DevicesRepository {
     const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and host.id = $2`, [tenantId, deviceId])).rows[0];
     if (!row) return undefined;
     const summary = this.projectionRegistry.project(toProjectionSource(row));
+    const resources = row.device_asset_id ? await this.getNetworkDeviceResources(tenantId, row.device_asset_id) : undefined;
     return {
       ...summary,
       statusReason: row.last_error_code ?? undefined,
@@ -69,7 +70,96 @@ export class PgDevicesRepository implements DevicesRepository {
             supportTier: row.support_tier,
             softwareBuild: row.software_build,
             capabilityProfile: asRecord(row.capability_profile),
+            virtualServers: resources?.virtualServers ?? [],
+            certificateResources: resources?.certificateResources ?? [],
+            certificateBindings: resources?.certificateBindings ?? [],
+            deviceLogs: resources?.deviceLogs ?? [],
           },
+    };
+  }
+
+  private async getNetworkDeviceResources(tenantId: string, deviceAssetId: string) {
+    const [virtualServers, certificateResources, certificateBindings, deviceLogs] = await Promise.all([
+      this.db.query<DeviceVirtualServerRow>(
+        `select id, virtual_server_type, virtual_server_name, address, port, protocol, runtime_state, sni_names
+         from pg_device_virtual_servers
+         where tenant_id=$1 and device_asset_id=$2 and deleted_at is null and status<>'DELETED'
+         order by virtual_server_type, virtual_server_name`,
+        [tenantId, deviceAssetId],
+      ),
+      this.db.query<DeviceCertificateResourceRow>(
+        `select id, certkey_name, subject, issuer, not_before, not_after, remote_status
+         from pg_device_certificate_resources
+         where tenant_id=$1 and device_asset_id=$2 and deleted_at is null
+         order by certkey_name`,
+        [tenantId, deviceAssetId],
+      ),
+      this.db.query<DeviceCertificateBindingRow>(
+        `select binding.id, virtual_server.virtual_server_type, virtual_server.virtual_server_name,
+                certificate.certkey_name, certificate.subject, certificate.issuer,
+                certificate.not_before, certificate.not_after, certificate.remote_status,
+                binding.sni_certificate
+         from pg_device_certificate_bindings binding
+         join pg_device_virtual_servers virtual_server on virtual_server.id=binding.virtual_server_id
+         join pg_device_certificate_resources certificate on certificate.id=binding.certificate_resource_id
+         where binding.tenant_id=$1 and binding.device_asset_id=$2 and binding.deleted_at is null
+         order by virtual_server.virtual_server_name, certificate.certkey_name`,
+        [tenantId, deviceAssetId],
+      ),
+      this.db.query<DeviceLogRow>(
+        `select document_id, payload
+         from pg_documents
+         where namespace='security.audit_logs'
+           and payload->>'resourceType'='device_asset'
+           and payload->>'resourceId'=$1
+         order by payload->>'createdAt' desc, updated_at desc
+         limit 100`,
+        [deviceAssetId],
+      ),
+    ]);
+    return {
+      virtualServers: virtualServers.rows.map((item) => ({
+        id: item.id,
+        type: item.virtual_server_type,
+        name: item.virtual_server_name,
+        address: item.address,
+        port: item.port,
+        protocol: item.protocol,
+        runtimeState: item.runtime_state,
+        sniNames: item.sni_names,
+      })),
+      certificateResources: certificateResources.rows.map((item) => ({
+        id: item.id,
+        certkeyName: item.certkey_name,
+        subject: item.subject,
+        issuer: item.issuer,
+        notBefore: optionalTimestamp(item.not_before),
+        notAfter: optionalTimestamp(item.not_after),
+        remoteStatus: item.remote_status,
+      })),
+      certificateBindings: certificateBindings.rows.map((item) => ({
+        id: item.id,
+        virtualServerType: item.virtual_server_type,
+        virtualServerName: item.virtual_server_name,
+        certkeyName: item.certkey_name,
+        certificateSubject: item.subject,
+        certificateIssuer: item.issuer,
+        certificateNotBefore: optionalTimestamp(item.not_before),
+        certificateNotAfter: optionalTimestamp(item.not_after),
+        certificateStatus: item.remote_status,
+        sniCertificate: item.sni_certificate,
+      })),
+      deviceLogs: deviceLogs.rows.map((item) => ({
+        id: item.document_id,
+        eventType: item.payload.eventType,
+        action: item.payload.action,
+        result: item.payload.result,
+        riskLevel: item.payload.riskLevel,
+        actorId: item.payload.actorId,
+        requestId: item.payload.requestId,
+        detail: item.payload.detail,
+        createdAt: item.payload.createdAt,
+      })),
     };
   }
 }
@@ -170,6 +260,54 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   application_asset_count: number;
 }
 
+interface DeviceVirtualServerRow extends Record<string, unknown> {
+  id: string;
+  virtual_server_type: string;
+  virtual_server_name: string;
+  address: string | null;
+  port: number | null;
+  protocol: string | null;
+  runtime_state: string | null;
+  sni_names: unknown;
+}
+
+interface DeviceCertificateResourceRow extends Record<string, unknown> {
+  id: string;
+  certkey_name: string;
+  subject: string | null;
+  issuer: string | null;
+  not_before: string | null;
+  not_after: string | null;
+  remote_status: string | null;
+}
+
+interface DeviceCertificateBindingRow extends Record<string, unknown> {
+  id: string;
+  virtual_server_type: string;
+  virtual_server_name: string;
+  certkey_name: string;
+  subject: string | null;
+  issuer: string | null;
+  not_before: string | null;
+  not_after: string | null;
+  remote_status: string | null;
+  sni_certificate: boolean;
+}
+
+interface DeviceLogRow extends Record<string, unknown> {
+  document_id: string;
+  payload: {
+    eventType?: string;
+    action?: string;
+    result?: string;
+    riskLevel?: string;
+    actorId?: string;
+    requestId?: string;
+    detail?: unknown;
+    createdAt?: string;
+  };
+}
+
 function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSource {
   const source: ManagedDeviceProjectionSource = {
     id: row.id,
@@ -217,4 +355,9 @@ function sortItems(items: ManagedDeviceSummaryDto[], query: ManagedDeviceListQue
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function optionalTimestamp(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return value instanceof Date ? value.toISOString() : String(value);
 }

@@ -1,6 +1,6 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { SecretService } from '../../secrets/secret.service.js';
-import { NetscalerNitroClient, NetscalerProvider, type NetscalerCredentials } from '../../providers/netscaler/index.js';
+import { NetscalerNitroClient, NetscalerNitroError, NetscalerProvider, type NetscalerCredentials } from '../../providers/netscaler/index.js';
 import type { DeviceAssetDto } from '../dto/device-assets.dto.js';
 import { DeviceAssetsDiscoveryProjector } from './device-assets.discovery-projector.js';
 import type { DeviceConnectionTester, DeviceConnectionTestResult } from './device-assets.application-service.js';
@@ -39,7 +39,18 @@ export class NetscalerDeviceConnectionTester implements DeviceConnectionTester {
         warnings: discovery.warnings,
       };
     } catch (cause) {
-      await this.projector.projectFailure(device.tenantId, device.id, connectionErrorCode(cause));
+      const errorCode = connectionErrorCode(cause);
+      await this.projector.projectFailure(device.tenantId, device.id, errorCode);
+      if (cause instanceof NetscalerNitroError) {
+        return {
+          reachable: errorCode !== 'NETSCALER_UNREACHABLE' && errorCode !== 'NETSCALER_TLS_UNTRUSTED',
+          authenticated: false,
+          productMatched: false,
+          capabilities: {},
+          warnings: [],
+          errorCode,
+        };
+      }
       throw cause;
     } finally {
       await client.close();

@@ -19,6 +19,8 @@ test('发现设备、应用、证书、绑定并生成确定性共享使用图',
   const client = fakeClient(responses);
   const result = await discoverNetscaler(client);
   assert.equal(result.version.normalized, '14.1');
+  assert.equal(result.device.softwareVersion, '14.1');
+  assert.equal(result.device.rawSummary.version, 'NetScaler NS14.1: Build 21.57.nc');
   assert.equal(result.virtualServers.length, 2);
   assert.equal(result.certificates[0].certKeyName, 'shared-cert');
   assert.deepEqual(result.certKeyUsage['shared-cert'].map((item) => item.virtualServerName), ['lb-a', 'lb-b']);
@@ -39,6 +41,28 @@ test('兼容版本跳过不支持资源，单资源失败只产生 warning', asy
   assert.equal(calls.some((path) => path.endsWith('/vpnvserver')), false);
   assert.equal(calls.some((path) => path.endsWith('/gslbvserver')), false);
   assert.deepEqual(result.warnings, ['csvserver:Error']);
+});
+
+test('绑定缺少类型时按 Virtual Server 清单识别 VPN，而不是错误默认成 LB', async () => {
+  const responses: Record<string, Record<string, unknown>> = {
+    nsversion: { nsversion: [{ version: 'NetScaler NS13.1: Build 55.29.nc' }] },
+    lbvserver: { lbvserver: [{ name: 'lb-app', ipv46: '10.0.0.1', port: 443 }] },
+    csvserver: { csvserver: [] },
+    vpnvserver: { vpnvserver: [{ name: '_XD_10.0.0.2_443', ipv46: '10.0.0.2', port: 443 }] },
+    gslbvserver: { gslbvserver: [] },
+    sslcertkey: { sslcertkey: [{ certkey: 'shared-cert' }] },
+    sslvserver_sslcertkey_binding: { sslvserver_sslcertkey_binding: [
+      { vservername: 'lb-app', certkeyname: 'shared-cert' },
+      { vservername: '_XD_10.0.0.2_443', certkeyname: 'shared-cert' },
+    ] },
+  };
+
+  const result = await discoverNetscaler(fakeClient(responses));
+
+  assert.deepEqual(result.bindings.map((item) => [item.virtualServerName, item.virtualServerType]), [
+    ['lb-app', 'LB'],
+    ['_XD_10.0.0.2_443', 'VPN'],
+  ]);
 });
 
 test('共享使用图不依赖输入顺序', () => {

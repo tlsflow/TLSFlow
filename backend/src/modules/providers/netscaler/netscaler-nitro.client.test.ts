@@ -43,6 +43,19 @@ test('Session 认证登录后只使用 Cookie，并在关闭时注销', async ()
   assert.equal(httpClient.requests[2].headers['Content-Type'], 'application/vnd.com.citrix.netscaler.logout+json');
 });
 
+test('Session 登录接受 201、空响应体和 Set-Cookie Token', async () => {
+  const httpClient = new RecordingHttpClient([
+    { statusCode: 201, headers: { 'set-cookie': 'SESSID=deleted; Path=/, NITRO_AUTH_TOKEN=%23%23encoded-token; Path=/nitro/v1' }, bodyText: '', body: undefined },
+    nitroResponse({ errorcode: 0, nsversion: [{ version: 'NS13.1: Build 55.29.nc' }] }),
+  ]);
+  const client = createClient('SESSION', httpClient);
+
+  const result = await client.request({ path: '/nitro/v1/config/nsversion' });
+
+  assert.deepEqual(result.nsversion, [{ version: 'NS13.1: Build 55.29.nc' }]);
+  assert.equal(httpClient.requests[1].headers.Cookie, 'NITRO_AUTH_TOKEN=%23%23encoded-token');
+});
+
 test('逐请求认证只注入 X-NITRO Header，不创建 Session', async () => {
   const httpClient = new RecordingHttpClient([nitroResponse({ errorcode: 0, sslcertkey: [] })]);
   const client = createClient('PER_REQUEST', httpClient);
