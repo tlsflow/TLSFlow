@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
@@ -10,10 +10,12 @@ import {
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import {
+  GcDataTable,
   GcEmptyState,
   GcModal,
   GcPermissionButton,
 } from '@/design-system/components'
+import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
 import CertificateImportForm from './CertificateImportForm.vue'
 import {
@@ -25,15 +27,22 @@ import {
 } from './certificate-import.shared'
 import { readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 
-interface CertificateVersionRow {
+interface CertificateVersionRow extends Record<string, string> {
   readonly id: string
   readonly assetId: string
   readonly certificateName: string
-  readonly validity: string
+  readonly associatedAsset: string
+  readonly notBefore: string
+  readonly notAfter: string
   readonly issuer: string
   readonly subject: string
   readonly status: string
+  readonly lifecycle: string
 }
+
+type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
+type VersionSortOrder = 'asc' | 'desc'
+const EXPIRING_SOON_DAYS = 10
 
 const route = useRoute()
 const router = useRouter()
@@ -50,7 +59,12 @@ const assetsError = ref<CertificatePageError | null>(null)
 const versionsError = ref<CertificatePageError | null>(null)
 const assets = ref<ApiRecord[]>([])
 const versions = ref<ApiRecord[]>([])
+const assetLifecycleMap = ref<Record<string, string>>({})
 const selectedAssetId = ref('')
+const versionFilterKeyword = ref('')
+const versionFilterStatus = ref('')
+const versionSortField = ref<VersionSortField>('notAfter')
+const versionSortOrder = ref<VersionSortOrder>('asc')
 
 const importDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
@@ -66,22 +80,57 @@ const draft = reactive(createCertificateImportDraft())
 const selectedAsset = computed(() => assets.value.find((item) => readId(item) === selectedAssetId.value) ?? null)
 const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : '未选择域名'))
 const assetCount = computed(() => assets.value.length)
-const versionRows = computed<CertificateVersionRow[]>(() =>
+const rawVersionRows = computed<CertificateVersionRow[]>(() =>
   versions.value.map((record, index) => {
     const id = readString(record, ['id', 'certificateVersionId'], `certver-${index + 1}`)
-    const notBefore = readString(record, ['notBefore'], '未知')
-    const notAfter = readString(record, ['notAfter'], '未知')
+    const notBefore = formatDateOnly(readString(record, ['notBefore'], '未知'))
+    const notAfter = formatDateOnly(readString(record, ['notAfter'], '未知'))
+    const status = readString(record, ['status', 'state'], 'MANAGED')
     return {
       id,
       assetId: readString(record, ['certificateAssetId'], selectedAssetId.value || 'unknown-asset'),
       certificateName: readString(record, ['commonName', 'subject.commonName', 'name'], id),
-      validity: `${notBefore} 至 ${notAfter}`,
+      associatedAsset: selectedDomainName.value,
+      notBefore,
+      notAfter,
       issuer: readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], '未知颁发者'),
       subject: readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], '未知使用者'),
-      status: readString(record, ['status', 'state'], 'MANAGED'),
+      status,
+      lifecycle: resolveLifecycleStatus(notAfter, status),
     }
   }),
 )
+const versionColumns: DataTableColumn<CertificateVersionRow>[] = [
+  { key: 'certificateName', title: '证书名称', width: '12%' },
+  { key: 'notBefore', title: '开始日期', width: '10%' },
+  { key: 'notAfter', title: '结束日期', width: '10%' },
+  { key: 'issuer', title: '颁发者', width: '16%' },
+  { key: 'subject', title: '使用者', width: '12%' },
+  { key: 'associatedAsset', title: '关联资产', width: '12%' },
+  { key: 'status', title: '状态', width: '8%' },
+  { key: 'id', title: '证书版本 ID', width: '12%' },
+  { key: 'actions', title: '操作', width: '8%' },
+]
+const versionRows = computed<CertificateVersionRow[]>(() => {
+  const keyword = versionFilterKeyword.value.trim().toLowerCase()
+  const status = versionFilterStatus.value.trim()
+  const rows = rawVersionRows.value.filter((row) => {
+    if (status && row.status !== status && row.lifecycle !== status) return false
+    if (!keyword) return true
+    const haystack = [
+      row.certificateName,
+      row.notBefore,
+      row.notAfter,
+      row.issuer,
+      row.subject,
+      row.associatedAsset,
+      row.id,
+    ].join('\n').toLowerCase()
+    return haystack.includes(keyword)
+  })
+  return [...rows].sort(compareVersionRows)
+})
+const versionCount = computed(() => versionRows.value.length)
 
 const hasCertificateMaterial = computed(() => isMaterialReady(draft))
 
@@ -128,6 +177,12 @@ function readAssetSubtitle(record: ApiRecord) {
   return readString(record, ['sourceType', 'currentVersion.notAfter', 'updatedAt'], '暂无补充信息')
 }
 
+function formatDateOnly(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toISOString().slice(0, 10)
+}
+
 async function loadAssets() {
   assetsLoading.value = true
   assetsError.value = null
@@ -143,6 +198,7 @@ async function loadAssets() {
       },
     })
     assets.value = [...(result.data?.items ?? [])]
+    await loadAssetLifecycleStatuses(assets.value)
     const nextSelectedId = assets.value.some((item) => readId(item) === selectedAssetId.value)
       ? selectedAssetId.value
       : readId(assets.value[0] as ApiRecord)
@@ -150,10 +206,34 @@ async function loadAssets() {
   } catch (cause) {
     assetsError.value = toErrorState(cause)
     assets.value = []
+    assetLifecycleMap.value = {}
     selectedAssetId.value = ''
   } finally {
     assetsLoading.value = false
   }
+}
+
+async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
+  const entries = await Promise.all(records.map(async (record) => {
+    const assetId = readId(record)
+    if (!assetId) return ['', '未知'] as const
+    try {
+      const result = await listCertificateVersions({
+        page: 1,
+        pageSize: 1,
+        sort: 'notAfter:desc',
+        filters: {
+          certificateAssetId: assetId,
+        },
+      })
+      const latest = (result.data?.items?.[0] ?? null) as ApiRecord | null
+      const notAfter = readString(latest, ['notAfter'], '')
+      return [assetId, resolveLifecycleStatus(formatDateOnly(notAfter), readString(latest, ['status', 'state'], 'MANAGED'))] as const
+    } catch {
+      return [assetId, readAssetLifecycleStatus(record)] as const
+    }
+  }))
+  assetLifecycleMap.value = Object.fromEntries(entries.filter(([assetId]) => assetId))
 }
 
 async function loadVersions(assetId: string) {
@@ -263,15 +343,68 @@ async function validateImportDraft() {
 
 function readAssetLifecycleStatus(record: ApiRecord | null) {
   if (!record) return '未知'
+  const assetId = readId(record)
+  if (assetId && assetLifecycleMap.value[assetId]) return assetLifecycleMap.value[assetId]
   const expiry = readString(record, ['currentVersion.notAfter', 'expiresAt', 'notAfter'], '')
   if (!expiry) return '未知'
-  return new Date(expiry).getTime() >= Date.now() ? '有效' : '过期'
+  return resolveLifecycleStatus(formatDateOnly(expiry))
 }
 
-function readVersionLifecycleStatus(status: string, validity: string) {
-  const expiry = validity.split(' 至 ')[1] ?? ''
-  if (!expiry) return status === 'EXPIRED' ? '过期' : '有效'
-  return new Date(expiry).getTime() >= Date.now() ? '有效' : '过期'
+function resolveLifecycleStatus(notAfter: string, status = '') {
+  const normalizedStatus = status.toUpperCase()
+  if (normalizedStatus === 'EXPIRED') return '过期'
+  const expiresAt = Date.parse(notAfter)
+  if (Number.isNaN(expiresAt)) return '未知'
+  const diffMs = expiresAt - Date.now()
+  if (diffMs < 0) return '过期'
+  if (diffMs <= EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000) return '即将过期'
+  return '有效'
+}
+
+function normalizeSortValue(row: CertificateVersionRow, field: VersionSortField) {
+  switch (field) {
+    case 'notBefore':
+      return normalizeDateValue(row.notBefore)
+    case 'notAfter':
+      return normalizeDateValue(row.notAfter)
+    case 'status':
+      return `${row.lifecycle}|${row.status}`.toLowerCase()
+    default:
+      return String(row[field] ?? '').toLowerCase()
+  }
+}
+
+function normalizeDateValue(value: string) {
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? -1 : timestamp
+}
+
+function compareVersionRows(left: CertificateVersionRow, right: CertificateVersionRow) {
+  const field = versionSortField.value
+  const leftValue = normalizeSortValue(left, field)
+  const rightValue = normalizeSortValue(right, field)
+  if (leftValue === rightValue) return left.id.localeCompare(right.id)
+  const result = leftValue > rightValue ? 1 : -1
+  return versionSortOrder.value === 'asc' ? result : -result
+}
+
+function toggleVersionSort(field: VersionSortField) {
+  if (versionSortField.value === field) {
+    versionSortOrder.value = versionSortOrder.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  versionSortField.value = field
+  versionSortOrder.value = field === 'notAfter' ? 'asc' : 'desc'
+}
+
+function sortIndicator(field: VersionSortField) {
+  if (versionSortField.value !== field) return ''
+  return versionSortOrder.value === 'asc' ? '↑' : '↓'
+}
+
+function clearVersionFilters() {
+  versionFilterKeyword.value = ''
+  versionFilterStatus.value = ''
 }
 
 function openDetailDialog(row: CertificateVersionRow) {
@@ -319,7 +452,6 @@ function openDetailDialog(row: CertificateVersionRow) {
         <header class="certificate-page__panel-header">
           <div>
             <h2>域名列表</h2>
-            <p>左侧显示逻辑证书域名列表，名称统一展示为域名。</p>
           </div>
           <span>总数 {{ assetCount }}</span>
         </header>
@@ -331,11 +463,7 @@ function openDetailDialog(row: CertificateVersionRow) {
 
         <div v-else-if="assetsLoading" class="certificate-page__state">加载中...</div>
 
-        <GcEmptyState
-          v-else-if="assets.length === 0"
-          class="certificate-page__empty-state"
-          title="暂无域名列表"
-        />
+        <GcEmptyState v-else-if="assets.length === 0" class="certificate-page__empty-state" title="暂无域名列表" />
 
         <div v-else class="certificate-page__asset-list">
           <button
@@ -361,7 +489,7 @@ function openDetailDialog(row: CertificateVersionRow) {
         <header class="certificate-page__panel-header">
           <div>
             <h2>{{ selectedAsset ? `${selectedDomainName} 的 SSL 证书列表` : 'SSL 证书列表' }}</h2>
-            <p>右侧显示当前域名下的 SSL 证书列表，包含证书名称、有效期、颁发者和使用者信息。</p>
+            <p>右侧显示当前域名下的 SSL 证书列表，包含证书名称、开始日期、结束日期、颁发者和使用者信息。</p>
           </div>
         </header>
 
@@ -387,42 +515,79 @@ function openDetailDialog(row: CertificateVersionRow) {
             description="可以通过筛选栏右侧的导入证书按钮补充该域名的证书版本。"
           />
 
-          <div v-else class="certificate-page__version-list">
-            <article v-for="row in versionRows" :key="row.id" class="certificate-page__version-card">
-              <header>
-                <div>
-                  <h3>{{ row.certificateName }}</h3>
-                  <p>{{ row.validity }}</p>
+          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" empty-text="暂无 SSL 证书">
+            <template #toolbar>
+              <div class="certificate-page__table-toolbar">
+                <div class="certificate-page__table-heading">
+                  <strong>证书版本列表</strong>
+                  <span>当前 {{ versionCount }} 条</span>
                 </div>
-                <div class="certificate-page__version-badges">
-                  <span class="certificate-page__lifecycle">{{ readVersionLifecycleStatus(row.status, row.validity) }}</span>
+                <div class="certificate-page__table-controls">
+                  <label class="certificate-page__table-filter">
+                    <span>关键字</span>
+                    <input v-model="versionFilterKeyword" placeholder="名称 / 颁发者 / 使用者 / 版本 ID" />
+                  </label>
+                  <label class="certificate-page__table-filter">
+                    <span>状态</span>
+                    <select v-model="versionFilterStatus">
+                      <option value="">全部</option>
+                      <option value="有效">有效</option>
+                      <option value="即将过期">即将过期</option>
+                      <option value="过期">过期</option>
+                      <option value="MANAGED">MANAGED</option>
+                      <option value="EXPIRED">EXPIRED</option>
+                      <option value="REVOKED">REVOKED</option>
+                    </select>
+                  </label>
+                  <button class="gc-button" type="button" @click="clearVersionFilters">清空</button>
                 </div>
-              </header>
-
-              <dl>
-                <div>
-                  <dt>颁发者</dt>
-                  <dd>{{ row.issuer }}</dd>
-                </div>
-                <div>
-                  <dt>使用者</dt>
-                  <dd>{{ row.subject }}</dd>
-                </div>
-                <div>
-                  <dt>关联资产</dt>
-                  <dd>{{ selectedDomainName }}</dd>
-                </div>
-                <div>
-                  <dt>证书版本 ID</dt>
-                  <dd>{{ row.id }}</dd>
-                </div>
-              </dl>
-
-              <footer>
-                <button class="gc-button" type="button" @click="openDetailDialog(row)">详情</button>
-              </footer>
-            </article>
-          </div>
+              </div>
+            </template>
+            <template #header-certificateName>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('certificateName')">
+                证书名称 {{ sortIndicator('certificateName') }}
+              </button>
+            </template>
+            <template #header-notBefore>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notBefore')">
+                开始日期 {{ sortIndicator('notBefore') }}
+              </button>
+            </template>
+            <template #header-notAfter>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notAfter')">
+                结束日期 {{ sortIndicator('notAfter') }}
+              </button>
+            </template>
+            <template #header-issuer>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('issuer')">
+                颁发者 {{ sortIndicator('issuer') }}
+              </button>
+            </template>
+            <template #header-subject>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('subject')">
+                使用者 {{ sortIndicator('subject') }}
+              </button>
+            </template>
+            <template #header-status>
+              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('status')">
+                状态 {{ sortIndicator('status') }}
+              </button>
+            </template>
+            <template #cell-certificateName="{ row }">
+              <div class="certificate-page__cell-main">
+                <strong>{{ row.certificateName }}</strong>
+              </div>
+            </template>
+            <template #cell-status="{ row }">
+              <span class="certificate-page__lifecycle">{{ row.lifecycle }}</span>
+            </template>
+            <template #cell-id="{ row }">
+              <code class="certificate-page__version-id">{{ row.id }}</code>
+            </template>
+            <template #cell-actions="{ row }">
+              <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">详情</button>
+            </template>
+          </GcDataTable>
         </div>
       </section>
     </section>
@@ -551,7 +716,7 @@ function openDetailDialog(row: CertificateVersionRow) {
 
 .certificate-page__workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
   flex: 1;
@@ -596,17 +761,12 @@ function openDetailDialog(row: CertificateVersionRow) {
   line-height: 1.5;
 }
 
-.certificate-page__asset-list,
-.certificate-page__version-list {
+.certificate-page__asset-list {
   display: grid;
   gap: 6px;
   align-content: start;
   min-height: 0;
   overflow: auto;
-  padding-right: 6px;
-}
-
-.certificate-page__asset-list {
   padding-right: 10px;
 }
 
@@ -678,79 +838,6 @@ function openDetailDialog(row: CertificateVersionRow) {
   white-space: nowrap;
 }
 
-.certificate-page__version-card {
-  display: grid;
-  gap: 8px;
-  border: 1px solid rgb(15 23 42 / 6%);
-  border-radius: 14px;
-  padding: 12px;
-  background: rgb(255 255 255 / 42%);
-}
-
-.certificate-page__version-card header {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.certificate-page__version-card h3,
-.certificate-page__version-card p {
-  margin: 0;
-}
-
-.certificate-page__version-card h3 {
-  color: var(--gc-color-text);
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-
-.certificate-page__version-card p {
-  color: var(--gc-color-text-muted);
-  margin-top: 3px;
-  font-size: 11px;
-}
-
-.certificate-page__version-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.certificate-page__version-card dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.certificate-page__version-card dl div {
-  display: grid;
-  gap: 3px;
-}
-
-.certificate-page__version-card dt {
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.certificate-page__version-card dd {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.certificate-page__version-card footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 8px;
-  border-top: 1px solid rgb(15 23 42 / 6%);
-}
-
 .certificate-page__state {
   padding: 24px 12px;
   color: var(--gc-color-text-muted);
@@ -804,6 +891,138 @@ function openDetailDialog(row: CertificateVersionRow) {
   width: fit-content;
 }
 
+.certificate-page__version-table {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.certificate-page__version-table :deep(table) {
+  table-layout: fixed;
+}
+
+.certificate-page__table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.certificate-page__table-heading {
+  display: grid;
+  gap: 4px;
+  color: var(--gc-color-text-muted);
+}
+
+.certificate-page__table-heading strong {
+  color: var(--gc-color-text);
+}
+
+.certificate-page__table-controls {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.certificate-page__table-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.certificate-page__table-filter input,
+.certificate-page__table-filter select {
+  border: 1px solid var(--gc-color-border);
+  border-radius: 12px;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--gc-color-text);
+  background: #fff;
+}
+
+.certificate-page__header-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.certificate-page__header-sort:hover {
+  color: var(--gc-color-text);
+}
+
+.certificate-page__cell-main,
+.certificate-page__cell-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.certificate-page__version-table :deep(th),
+.certificate-page__version-table :deep(td) {
+  white-space: nowrap;
+}
+
+.certificate-page__version-table :deep(td) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.certificate-page__version-table :deep(th:last-child),
+.certificate-page__version-table :deep(td:last-child) {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: -8px 0 12px rgb(255 255 255 / 92%);
+}
+
+.certificate-page__version-table :deep(th:last-child) {
+  z-index: 2;
+  background: var(--gc-color-surface-muted);
+  box-shadow: -8px 0 12px rgb(245 247 250 / 96%);
+}
+
+.certificate-page__version-table :deep(td:last-child) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.certificate-page__cell-stack span {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.certificate-page__cell-main strong,
+.certificate-page__cell-stack strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.certificate-page__version-id {
+  font-size: 12px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.certificate-page__version-table :deep(td:last-child .gc-button) {
+  min-width: 56px;
+}
+
 @media (max-width: 1200px) {
   .certificate-page {
     height: auto;
@@ -843,20 +1062,13 @@ function openDetailDialog(row: CertificateVersionRow) {
   .certificate-page__assets,
   .certificate-page__versions,
   .certificate-page__versions-body,
-  .certificate-page__asset-list,
-  .certificate-page__version-list {
+  .certificate-page__asset-list {
     min-height: auto;
     overflow: visible;
   }
 }
 
 @media (max-width: 900px) {
-  .certificate-page__filters,
-  .certificate-page__summary,
-  .certificate-page__version-card dl {
-    grid-template-columns: 1fr;
-  }
-
   .certificate-page__filter-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
@@ -882,12 +1094,8 @@ function openDetailDialog(row: CertificateVersionRow) {
   }
 
   .certificate-page__panel-header,
-  .certificate-page__version-card header {
+  .certificate-page__table-toolbar {
     flex-direction: column;
-  }
-
-  .certificate-page__version-badges {
-    justify-content: flex-start;
   }
 
   .certificate-page__asset-side {
@@ -898,6 +1106,14 @@ function openDetailDialog(row: CertificateVersionRow) {
 @media (max-width: 640px) {
   .certificate-page__filters {
     grid-template-columns: 1fr;
+  }
+
+  .certificate-page__table-controls {
+    width: 100%;
+  }
+
+  .certificate-page__table-filter {
+    min-width: 100%;
   }
 }
 </style>
