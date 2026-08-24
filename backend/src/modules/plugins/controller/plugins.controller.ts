@@ -13,6 +13,13 @@ import { PluginPromotionService } from '../promotion/plugin-promotion.service.js
 import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
 import { BuiltinPluginCompatibilityUpgradeService } from '../application/builtin-plugin-compatibility-upgrade.service.js';
 
+export interface BuiltinPluginCatalogRefresher {
+  refresh(): Promise<{
+    refreshedAt: string;
+    versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
+  }>;
+}
+
 const tags = ['Plugins'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
@@ -25,10 +32,12 @@ export class PluginsController {
     private readonly promotions?: PluginPromotionService,
     private readonly managedTargetPlugins?: ManagedTargetPluginQueryService,
     private readonly versionSwitcher?: BuiltinPluginCompatibilityUpgradeService,
+    private readonly builtinCatalogRefresher?: BuiltinPluginCatalogRefresher,
   ) {}
 
   register(router: Router): void {
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
+    router.post('/api/v1/plugin-catalog/refresh-builtins', '刷新内置插件注册表', tags, () => this.refreshBuiltinCatalog());
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
     router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
     router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
@@ -61,6 +70,11 @@ export class PluginsController {
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
     const items = await this.unifiedPlugins.listCatalog(tenantId(request), locale);
     return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private refreshBuiltinCatalog() {
+    if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
+    return this.builtinCatalogRefresher.refresh();
   }
 
   private async listUnifiedPluginVersions(request: HttpRequest) {
@@ -278,6 +292,7 @@ function tenantId(request: HttpRequest): string {
 export function getPluginsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageResponseSchema },
+    { method: 'POST', path: '/api/v1/plugin-catalog/refresh-builtins', operationId: 'refreshBuiltinPluginCatalog', summary: '刷新内置插件注册表', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageResponseSchema },
     { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: { type: 'object', additionalProperties: true } } },
     { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: objectSchema() },

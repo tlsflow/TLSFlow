@@ -100,6 +100,26 @@ test('统一插件目录同一插件只返回最高语义版本', async () => {
   assert.equal(catalog[0]?.version, '1.10.0');
 });
 
+test('统一插件目录对租户展示系统注册表中的最新内置版本', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const base = workflowPluginInput();
+  await service.importVersion('tenant-1', {
+    ...base,
+    manifest: { ...(base.manifest as Record<string, unknown>), source: 'BUILTIN', permissions: [], version: '1.1.23' },
+  }, 'BUILTIN');
+  await service.importVersion('SYSTEM', {
+    ...base,
+    packageContent: 'system-package-1.1.25',
+    manifest: { ...(base.manifest as Record<string, unknown>), source: 'BUILTIN', permissions: [], version: '1.1.25' },
+  }, 'BUILTIN');
+
+  const catalog = await service.listCatalog('tenant-1');
+
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0]?.version, '1.1.25');
+});
+
 test('统一插件升级差异和退休状态可追踪', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const first = await service.importVersion('tenant-1', {
@@ -170,5 +190,9 @@ function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): Uni
       (record) => record.tenantId === tenantId && record.pluginId === pluginId && record.version === version,
     ),
     listVersions: async (tenantId) => [...records.values()].filter((record) => record.tenantId === tenantId),
+    listVersionsBySource: async (source) => [...records.values()].filter((record) => record.source === source),
+    listAccessibleVersions: async (tenantId) => [...records.values()].filter(
+      (record) => record.tenantId === tenantId || record.source === 'BUILTIN',
+    ),
   };
 }

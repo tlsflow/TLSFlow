@@ -65,6 +65,7 @@ import { BuiltinPluginCompatibilityUpgradeService } from './modules/plugins/appl
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
+import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService } from './modules/plugins/application/managed-target-plugin-query.service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
@@ -383,12 +384,42 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
   new CompatibilityCatalogController().register(app.router);
+  const builtinPluginCompatibilityUpgrader = new BuiltinPluginCompatibilityUpgradeService(appDb);
+  let builtinPluginRefreshPromise: Promise<{
+    refreshedAt: string;
+    versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
+  }> | undefined;
+  const builtinCatalogRefresher = {
+    refresh: () => {
+      builtinPluginRefreshPromise ??= (async () => {
+        const versions = await initializeBuiltinPlugins(
+          unifiedPluginsService,
+          pluginWorkflowPublisher,
+          appDb,
+          { compatibilityUpgrader: builtinPluginCompatibilityUpgrader },
+        );
+        return {
+          refreshedAt: new Date().toISOString(),
+          versions: versions.map((version) => ({
+            id: version.id,
+            pluginId: version.pluginId,
+            version: version.version,
+            status: version.status,
+          })),
+        };
+      })().finally(() => {
+        builtinPluginRefreshPromise = undefined;
+      });
+      return builtinPluginRefreshPromise;
+    },
+  };
   new PluginsController(
     unifiedPluginsService,
     pluginBindingsService,
     new PluginPromotionService(appDb),
     new ManagedTargetPluginQueryService(appDb),
-    new BuiltinPluginCompatibilityUpgradeService(appDb),
+    builtinPluginCompatibilityUpgrader,
+    builtinCatalogRefresher,
   ).register(app.router);
   new WorkflowTemplatesController(
     workflowTemplatesService,
@@ -443,14 +474,14 @@ export async function initializeBuiltinPlugins(
     compatibilityUpgrader?: Pick<BuiltinPluginCompatibilityUpgradeService, 'upgradePatchLine'>;
     logger?: Pick<typeof structuredLogger, 'warn'>;
   } = {},
-): Promise<void> {
+): Promise<UnifiedPluginVersionRecord[]> {
   const logger = options.logger ?? structuredLogger;
   let installed: Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>;
   try {
     installed = await (options.loader ?? new BuiltinUnifiedPluginLoader()).installAll(unifiedPlugins);
   } catch (error) {
     warnBuiltinPluginFailure(logger, 'load', undefined, undefined, error);
-    return;
+    return [];
   }
 
   for (const plugin of installed) {
@@ -461,7 +492,7 @@ export async function initializeBuiltinPlugins(
     }
   }
 
-  if (!database) return;
+  if (!database) return installed;
   const upgrades = options.compatibilityUpgrader ?? new BuiltinPluginCompatibilityUpgradeService(database);
   for (const plugin of installed) {
     try {
@@ -470,6 +501,7 @@ export async function initializeBuiltinPlugins(
       warnBuiltinPluginFailure(logger, 'upgradeCompatibility', plugin, plugin.id, error);
     }
   }
+  return installed;
 }
 
 export async function createAppAsync(

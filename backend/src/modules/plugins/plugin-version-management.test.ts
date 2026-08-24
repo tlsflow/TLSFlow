@@ -63,6 +63,39 @@ test('插件版本管理查询路由返回版本分组和详情', async () => {
   assert.equal((detail.body as { id: string }).id, 'builtin-version-1');
 });
 
+test('刷新内置插件注册表路由调用运行期扫描服务', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository([]));
+  let refreshCount = 0;
+  const app = new App();
+  new PluginsController(
+    service,
+    undefined as never,
+    undefined,
+    undefined,
+    undefined,
+    {
+      refresh: async () => {
+        refreshCount += 1;
+        return {
+          refreshedAt: '2026-08-02T00:00:00.000Z',
+          versions: [{ id: 'builtin-version-25', pluginId: 'fixture.plugin', version: '1.1.25', status: 'ENABLED' }],
+        };
+      },
+    },
+  ).register(app.router);
+
+  const response = await app.inject({
+    method: 'POST',
+    path: '/api/v1/plugin-catalog/refresh-builtins',
+    headers: { 'x-tenant-id': 'tenant-1' },
+    body: {},
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(refreshCount, 1);
+  assert.equal((response.body as { versions: Array<{ version: string }> }).versions[0]?.version, '1.1.25');
+});
+
 test('版本管理查询统计五类运行引用', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, resolve(process.cwd(), 'backend/src/database/migrations'), {

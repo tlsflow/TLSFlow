@@ -229,7 +229,7 @@ export class UnifiedPluginsApplicationService {
   }
 
   async listCatalog(tenantId: string, locale = 'zh-CN'): Promise<UnifiedPluginCatalogItem[]> {
-    const versions = (await this.repository.listVersions(tenantId))
+    const versions = (await this.listAccessibleVersions(tenantId))
       .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED');
     const latestVersions = new Map<string, UnifiedPluginVersionRecord>();
     for (const record of versions) {
