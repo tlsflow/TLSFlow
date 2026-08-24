@@ -224,7 +224,8 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /SERVICE_NAME='gcac-linux-agent'/);
     assert.match(bootstrapBody, /directControlEnabled: true/);
     assert.match(bootstrapBody, /directControlListenHost: "0\.0\.0\.0"/);
-    assert.match(bootstrapBody, /directControlListenPort: 18931/);
+    assert.match(bootstrapBody, /directControlListenPort: manifest\.directControlListenPort/);
+    assert.match(bootstrapBody, /"directControlListenPort": 18931/);
     assert.match(bootstrapBody, /directControlAdvertiseHost: ""/);
     assert.match(bootstrapBody, /capabilityRescanIntervalSeconds: 300/);
     assert.match(bootstrapBody, /capabilityRescanEnabled: true/);
@@ -264,9 +265,13 @@ describe('Agent 安装会话安全约束', () => {
       body: { zone: 'zone_gateway', role: 'gateway' },
     });
     assert.equal(linuxCreated.statusCode, 201);
-    const linuxBody = linuxCreated.body as { role: string; bootstrapUrl: string; serviceName: string };
+    const linuxBody = linuxCreated.body as { role: string; bootstrapUrl: string; serviceName: string; installRoot: string; configDir: string; dataDir: string; logDir: string };
     assert.equal(linuxBody.role, 'gateway');
     assert.equal(linuxBody.serviceName, 'gcac-linux-gateway-agent');
+    assert.equal(linuxBody.installRoot, '/opt/gcac/gateway');
+    assert.equal(linuxBody.configDir, '/etc/gcac/gateway');
+    assert.equal(linuxBody.dataDir, '/var/lib/gcac/gateway');
+    assert.equal(linuxBody.logDir, '/var/log/gcac/gateway');
 
     const linuxToken = new URL(linuxBody.bootstrapUrl).searchParams.get('token');
     assert.ok(linuxToken);
@@ -279,7 +284,13 @@ describe('Agent 安装会话安全约束', () => {
     const linuxScript = String(linuxBootstrap.body);
     assert.match(linuxScript, /role: manifest\.role/);
     assert.match(linuxScript, /gatewayEnabled: manifest\.gatewayEnabled === true/);
+    assert.match(linuxScript, /directControlListenPort: manifest\.directControlListenPort/);
+    assert.match(linuxScript, /"directControlListenPort": 18932/);
     assert.match(linuxScript, /SERVICE_NAME='gcac-linux-gateway-agent'/);
+    assert.match(linuxScript, /INSTALL_ROOT='\/opt\/gcac\/gateway'/);
+    assert.match(linuxScript, /CONFIG_DIR='\/etc\/gcac\/gateway'/);
+    assert.match(linuxScript, /DATA_DIR='\/var\/lib\/gcac\/gateway'/);
+    assert.match(linuxScript, /LOG_DIR='\/var\/log\/gcac\/gateway'/);
 
     const windowsCreated = await app.inject({
       method: 'POST',
@@ -288,9 +299,13 @@ describe('Agent 安装会话安全约束', () => {
       body: { zone: 'zone_gateway', role: 'gateway', startAfterInstall: true },
     });
     assert.equal(windowsCreated.statusCode, 201);
-    const windowsBody = windowsCreated.body as { role: string; bootstrapUrl: string; serviceName: string };
+    const windowsBody = windowsCreated.body as { role: string; bootstrapUrl: string; serviceName: string; installRoot: string; configDir: string; dataDir: string; logDir: string };
     assert.equal(windowsBody.role, 'gateway');
     assert.match(windowsBody.serviceName, /^gcac-gateway-agent-/);
+    assert.equal(windowsBody.installRoot, 'C:\\Program Files\\GCAC\\Gateway');
+    assert.equal(windowsBody.configDir, 'C:\\ProgramData\\GCAC\\Gateway\\config');
+    assert.equal(windowsBody.dataDir, 'C:\\ProgramData\\GCAC\\Gateway\\data');
+    assert.equal(windowsBody.logDir, 'C:\\ProgramData\\GCAC\\Gateway\\logs');
 
     const windowsToken = new URL(windowsBody.bootstrapUrl).searchParams.get('token');
     assert.ok(windowsToken);
@@ -303,6 +318,8 @@ describe('Agent 安装会话安全约束', () => {
     const windowsScript = String(windowsBootstrap.body);
     assert.match(windowsScript, /NotePropertyName role/);
     assert.match(windowsScript, /NotePropertyName gatewayEnabled/);
+    assert.match(windowsScript, /"directControlListenPort": 18932/);
+    assert.match(windowsScript, /NotePropertyName directControlListenPort -NotePropertyValue \(\[int\]\$manifest\.directControlListenPort\)/);
   });
 
   it('现有 Agent 启用 Gateway 会话应返回直接可运行命令', async () => {

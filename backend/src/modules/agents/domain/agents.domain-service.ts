@@ -53,12 +53,12 @@ export class AgentsDomainService {
     const id = newId('aginst');
     const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? `gcac-gateway-agent-${id.slice(-6)}` : `gcac-windows-go-agent-${id.slice(-6)}`));
     const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Windows Gateway Agent' : 'GCAC Windows Go Full Agent');
-    const installRoot = normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsGoAgent', 'installRoot');
-    const configDir = normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\config', 'configDir');
-    const dataDir = normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\data', 'dataDir');
-    const logDir = normalizeWindowsPath(input.logDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs', 'logDir');
+    const installRoot = normalizeWindowsPath(input.installRoot ?? (role === 'gateway' ? 'C:\\Program Files\\GCAC\\Gateway' : 'C:\\Program Files\\GCAC\\WindowsGoAgent'), 'installRoot');
+    const configDir = normalizeWindowsPath(input.configDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\config' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\config'), 'configDir');
+    const dataDir = normalizeWindowsPath(input.dataDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\data' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\data'), 'dataDir');
+    const logDir = normalizeWindowsPath(input.logDir ?? (role === 'gateway' ? 'C:\\ProgramData\\GCAC\\Gateway\\logs' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs'), 'logDir');
     const zone = input.zone?.trim() || 'default';
-    const agentKey = `wingo.${id.toLowerCase()}`;
+    const agentKey = `${role === 'gateway' ? 'wingateway' : 'wingo'}.${id.toLowerCase()}`;
     return {
       id,
       tenantId,
@@ -147,12 +147,12 @@ export class AgentsDomainService {
     const id = newId('aginst');
     const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? 'gcac-linux-gateway-agent' : 'gcac-linux-agent'));
     const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Linux Gateway Agent' : 'GCAC Linux Go Full Agent');
-    const installRoot = normalizeUnixPath(input.installRoot ?? '/opt/gcac/linux-agent', 'installRoot');
-    const configDir = normalizeUnixPath(input.configDir ?? '/etc/gcac/linux-agent', 'configDir');
-    const dataDir = normalizeUnixPath(input.dataDir ?? '/var/lib/gcac/linux-agent', 'dataDir');
-    const logDir = normalizeUnixPath(input.logDir ?? '/var/log/gcac/linux-agent', 'logDir');
+    const installRoot = normalizeUnixPath(input.installRoot ?? (role === 'gateway' ? '/opt/gcac/gateway' : '/opt/gcac/linux-agent'), 'installRoot');
+    const configDir = normalizeUnixPath(input.configDir ?? (role === 'gateway' ? '/etc/gcac/gateway' : '/etc/gcac/linux-agent'), 'configDir');
+    const dataDir = normalizeUnixPath(input.dataDir ?? (role === 'gateway' ? '/var/lib/gcac/gateway' : '/var/lib/gcac/linux-agent'), 'dataDir');
+    const logDir = normalizeUnixPath(input.logDir ?? (role === 'gateway' ? '/var/log/gcac/gateway' : '/var/log/gcac/linux-agent'), 'logDir');
     const zone = input.zone?.trim() || 'default';
-    const agentKey = normalizeKey(input.agentKey ?? `linuxgo.${id.toLowerCase()}`, 'agentKey');
+    const agentKey = normalizeKey(input.agentKey ?? `${role === 'gateway' ? 'linuxgateway' : 'linuxgo'}.${id.toLowerCase()}`, 'agentKey');
     return {
       id,
       tenantId,

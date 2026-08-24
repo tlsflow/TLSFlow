@@ -761,7 +761,7 @@ function renderWindowsModernBootstrapScript(manifest: WindowsBootstrapManifest):
     '$config.paths.windows.logDir = [string]$manifest.logDir',
     "if ($null -eq $config.PSObject.Properties['directControlEnabled']) { $config | Add-Member -NotePropertyName directControlEnabled -NotePropertyValue $true } else { $config.directControlEnabled = [bool]$config.directControlEnabled }",
     "if ($null -eq $config.PSObject.Properties['directControlListenHost']) { $config | Add-Member -NotePropertyName directControlListenHost -NotePropertyValue '0.0.0.0' } elseif ([string]::IsNullOrWhiteSpace([string]$config.directControlListenHost)) { $config.directControlListenHost = '0.0.0.0' }",
-    "if ($null -eq $config.PSObject.Properties['directControlListenPort']) { $config | Add-Member -NotePropertyName directControlListenPort -NotePropertyValue 18930 } elseif ([int]$config.directControlListenPort -le 0) { $config.directControlListenPort = 18930 }",
+    "if ($null -eq $config.PSObject.Properties['directControlListenPort']) { $config | Add-Member -NotePropertyName directControlListenPort -NotePropertyValue ([int]$manifest.directControlListenPort) } else { $config.directControlListenPort = [int]$manifest.directControlListenPort }",
     "if ($null -eq $config.PSObject.Properties['directControlAdvertiseHost']) { $config | Add-Member -NotePropertyName directControlAdvertiseHost -NotePropertyValue '' } elseif ([string]::IsNullOrWhiteSpace([string]$config.directControlAdvertiseHost)) { $config.directControlAdvertiseHost = '' }",
     "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
     "if ($null -eq $config.PSObject.Properties['enrollmentToken']) { $config | Add-Member -NotePropertyName enrollmentToken -NotePropertyValue ([string]$manifest.enrollmentToken) } else { $config.enrollmentToken = [string]$manifest.enrollmentToken }",
@@ -1000,6 +1000,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     dataDir?: string;
     logDir?: string;
     startAfterInstall?: boolean;
+    directControlListenPort?: number;
   };
   return [
     '#!/usr/bin/env bash',
@@ -1036,7 +1037,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  offlineTimeoutSeconds: 180,',
     '  directControlEnabled: true,',
     '  directControlListenHost: "0.0.0.0",',
-    '  directControlListenPort: 18931,',
+    '  directControlListenPort: manifest.directControlListenPort,',
     '  directControlAdvertiseHost: "",',
     '  capabilityRescanIntervalSeconds: 300,',
     '  capabilityRescanEnabled: true,',

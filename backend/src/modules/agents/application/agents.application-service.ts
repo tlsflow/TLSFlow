@@ -856,6 +856,7 @@ export class AgentsApplicationService {
       platform: session.platform,
       role: session.role ?? 'full_agent',
       gatewayEnabled: session.role === 'gateway',
+      directControlListenPort: installDirectControlListenPort(session),
       serviceName: session.serviceName,
       displayName: session.displayName,
       installRoot: session.installRoot,
@@ -1263,6 +1264,7 @@ async function buildWindowsModernInstallManifest(session: AgentInstallSession): 
     platform: session.platform,
     role: session.role ?? 'full_agent',
     gatewayEnabled: session.role === 'gateway',
+    directControlListenPort: installDirectControlListenPort(session),
     tenantId: session.tenantId,
     serviceName: session.serviceName,
     displayName: session.displayName,
@@ -1313,6 +1315,11 @@ async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSes
       logDirectory: session.logDir,
     },
   };
+}
+
+function installDirectControlListenPort(session: AgentInstallSession): number {
+  if (session.role === 'gateway') return 18932;
+  return session.platform === 'linux_go_systemd' ? 18931 : 18930;
 }
 
 async function loadWindowsCompatibilityAgentArtifacts(): Promise<Array<{ path: string; description: string; content: string; encoding: 'utf8' | 'base64' }>> {
