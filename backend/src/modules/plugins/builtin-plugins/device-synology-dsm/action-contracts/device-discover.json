@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "device.discover.v1",
+  "capability": "device.discover",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["deviceAddress", "credential"], "properties": { "deviceAddress": { "type": "string", "minLength": 1 }, "credential": { "type": "object", "required": ["username", "secretRef"], "additionalProperties": true } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "required": ["normalizedObjects"], "properties": { "normalizedObjects": { "type": "array" } }, "additionalProperties": true },
+  "writeEffect": false,
+  "hostPermissions": ["secret.resolve", "network.http"]
+}

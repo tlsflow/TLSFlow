@@ -6,8 +6,8 @@
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
       "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
       "previousBinding": { "type": "object", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.rollback.previousBinding" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed", "sensitive": false }
     },
     "connections": {},

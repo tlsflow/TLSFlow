@@ -9,6 +9,14 @@ export function createPluginRunnerExecutor(): PluginRunnerExecutor {
       pluginId: 'test.echo',
       pluginVersion: '1.0.0',
       capabilities: ['test.echo'],
+      actions: [{
+        actionId: 'test.echo.v1',
+        capability: 'test.echo',
+        actionContractVersion: 'v1',
+        inputSchemaSha256: hash,
+        outputSchemaSha256: hash,
+        resourceHash: hash,
+      }],
       permissions: ['artifact.read'],
       packageHash: hash,
       resourceHash: hash,
@@ -24,8 +32,7 @@ export function createPluginRunnerExecutor(): PluginRunnerExecutor {
       return {
         success: true,
         status: 'SUCCESS',
-        summary: { value: context.input.value, ...(hostResult ? { hostResult } : {}) },
-        normalizedObjects: [],
+        output: { value: context.input.value, ...(hostResult ? { hostResult } : {}) },
         warnings: [],
       };
     },

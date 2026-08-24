@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PluginRunnerClient, type PluginRunnerLaunchSpec } from './plugin-runner-client.js';
+import { PluginRunnerClient, type PluginRunnerExecutionInput, type PluginRunnerLaunchSpec } from './plugin-runner-client.js';
 
 const runnerServer = resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js');
 const executorModule = resolve(process.cwd(), 'dist/modules/plugins/runner/fixtures/runner-executor.js');
@@ -14,34 +14,17 @@ test('runner-server 只装配固定执行器并在真实子进程执行绑定能
   });
   try {
     await client.start();
-    const result = await client.execute({
-      tenantId: 'tenant-1',
-      executionId: 'execution-1',
-      executionStepId: 'step-1',
-      workflowVersionId: 'workflow-version-1',
-      planDigest: 'b'.repeat(64),
-      capability: 'test.echo',
-      input: { value: 'hello' },
-      grantRefs: [],
-      idempotencyKey: 'idem-1',
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(),
-      writeEffect: false,
-    });
+    const result = await client.execute(actionInput());
     assert.equal(result.status, 'SUCCESS');
-    assert.deepEqual(result.summary, { value: 'hello' });
-    await assert.rejects(client.execute({
-      tenantId: 'tenant-1',
+    assert.deepEqual(result.output, { value: 'hello' });
+    await assert.rejects(client.execute(actionInput({
       executionId: 'execution-2',
       executionStepId: 'step-2',
-      workflowVersionId: 'workflow-version-1',
-      planDigest: 'b'.repeat(64),
       capability: 'test.other',
+      actionId: 'test.other.v1',
       input: {},
-      grantRefs: [],
       idempotencyKey: 'idem-2',
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(),
-      writeEffect: false,
-    }), /Capability|固定 PluginVersion/);
+    })), /Capability|固定 PluginVersion/);
   } finally {
     if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
     else await client.stop(true);
@@ -60,21 +43,22 @@ test('runner-server 真实子进程可在执行期间往返 Host API，并及时
   });
   try {
     await client.start();
-    const hostResult = await client.execute({
-      tenantId: 'tenant-1', executionId: 'execution-host', executionStepId: 'step-host', capability: 'test.echo',
-      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
-      input: { value: 'hello', hostCall: true }, grantRefs: ['grant-1'], idempotencyKey: 'idem-host',
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: false,
-    });
-    assert.deepEqual(hostResult.summary, { value: 'hello', hostResult: { ok: true, data: { id: 'artifact://artifact-1' } } });
+    const hostResult = await client.execute(actionInput({
+      executionId: 'execution-host',
+      executionStepId: 'step-host',
+      input: { value: 'hello', hostCall: true },
+      grantRefs: ['grant-1'],
+      idempotencyKey: 'idem-host',
+    }));
+    assert.deepEqual(hostResult.output, { value: 'hello', hostResult: { ok: true, data: { id: 'artifact://artifact-1' } } });
     assert.deepEqual(hostCalls, ['artifact.grant.read']);
 
-    const execution = client.execute({
-      tenantId: 'tenant-1', executionId: 'execution-cancel', executionStepId: 'step-cancel', capability: 'test.echo',
-      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
-      input: { delayMs: 10_000 }, grantRefs: [], idempotencyKey: 'idem-cancel',
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: false,
-    });
+    const execution = client.execute(actionInput({
+      executionId: 'execution-cancel',
+      executionStepId: 'step-cancel',
+      input: { delayMs: 10_000 },
+      idempotencyKey: 'idem-cancel',
+    }));
     await waitFor(() => client.activeRequestId !== undefined);
     const targetRequestId = client.activeRequestId!;
     const cancelResult = await client.cancel({
@@ -84,12 +68,13 @@ test('runner-server 真实子进程可在执行期间往返 Host API，并及时
     assert.equal(cancelResult.accepted, true);
     assert.equal((await execution).status, 'CANCELLED');
 
-    const writeExecution = client.execute({
-      tenantId: 'tenant-1', executionId: 'execution-write-cancel', executionStepId: 'step-write-cancel', capability: 'test.echo',
-      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
-      input: { delayMs: 10_000 }, grantRefs: [], idempotencyKey: 'idem-write-cancel',
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: true,
-    });
+    const writeExecution = client.execute(actionInput({
+      executionId: 'execution-write-cancel',
+      executionStepId: 'step-write-cancel',
+      input: { delayMs: 10_000 },
+      idempotencyKey: 'idem-write-cancel',
+      writeEffect: true,
+    }));
     await waitFor(() => client.activeRequestId !== undefined);
     await client.cancel({
       tenantId: 'tenant-1', executionId: 'execution-write-cancel', executionStepId: 'step-write-cancel', targetRequestId: client.activeRequestId!,
@@ -123,6 +108,32 @@ function spec(): PluginRunnerLaunchSpec {
     helloTimeoutMs: 300,
     executeTimeoutMs: 300,
     shutdownGraceMs: 300,
+  };
+}
+
+function actionInput(overrides: Partial<PluginRunnerExecutionInput> = {}): PluginRunnerExecutionInput {
+  return {
+    tenantId: 'tenant-1',
+    executionId: 'execution-1',
+    executionStepId: 'step-1',
+    workflowVersionId: 'workflow-version-1',
+    pluginVersionId: 'test-version-v1',
+    pluginId: 'test.echo',
+    capability: 'test.echo',
+    actionId: 'test.echo.v1',
+    actionContractVersion: 'v1',
+    inputSchemaSha256: hash,
+    outputSchemaSha256: hash,
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    planDigest: 'b'.repeat(64),
+    writeEffect: false,
+    input: { value: 'hello' },
+    grantRefs: [],
+    idempotencyKey: 'idem-1',
+    deadlineAt: new Date(Date.now() + 10_000).toISOString(),
+    ...overrides,
   };
 }
 

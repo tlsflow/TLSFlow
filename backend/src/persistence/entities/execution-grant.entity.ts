@@ -11,6 +11,10 @@ export interface ExecutionGrantEntity {
   pluginVersionId?: string;
   pluginId?: string;
   capability?: string;
+  actionId?: string;
+  actionContractVersion?: string;
+  inputSchemaSha256?: string;
+  outputSchemaSha256?: string;
   planDigest?: string;
   approvalId?: string;
   executorType: string;

@@ -15,6 +15,10 @@ export interface CreateExecutionGrantInput {
   pluginVersionId?: string;
   pluginId?: string;
   capability?: string;
+  actionId?: string;
+  actionContractVersion?: string;
+  inputSchemaSha256?: string;
+  outputSchemaSha256?: string;
   planDigest?: string;
   approvalId?: string;
   executorType: string;
@@ -35,6 +39,10 @@ export interface ValidateGrantInput {
   pluginVersionId?: string;
   pluginId?: string;
   capability?: string;
+  actionId?: string;
+  actionContractVersion?: string;
+  inputSchemaSha256?: string;
+  outputSchemaSha256?: string;
   planDigest?: string;
   approvalId?: string;
   executorType: string;
@@ -57,8 +65,8 @@ export class ExecutionGrantService {
     if (!input.tenantId.trim()) {
       throw securityErrors.executorGrantDenied({ reason: 'grant tenant required' });
     }
-    if (input.executorType === 'PLUGIN_RUNNER' && (!input.workflowVersionId || !input.pluginVersionId || !input.pluginId || !input.capability || !input.planDigest)) {
-      throw securityErrors.executorGrantDenied({ reason: 'plugin runner grant binding required' });
+    if (input.executorType === 'plugin.action' && (!input.workflowVersionId || !input.pluginVersionId || !input.pluginId || !input.capability || !input.actionId || !input.actionContractVersion || !input.inputSchemaSha256 || !input.outputSchemaSha256 || !input.planDigest)) {
+      throw securityErrors.executorGrantDenied({ reason: 'plugin action grant binding required' });
     }
     const now = new Date().toISOString();
     return this.grants.create({
@@ -72,6 +80,10 @@ export class ExecutionGrantService {
       pluginVersionId: input.pluginVersionId,
       pluginId: input.pluginId,
       capability: input.capability,
+      actionId: input.actionId,
+      actionContractVersion: input.actionContractVersion,
+      inputSchemaSha256: input.inputSchemaSha256,
+      outputSchemaSha256: input.outputSchemaSha256,
       planDigest: input.planDigest,
       approvalId: input.approvalId,
       executorType: input.executorType,
@@ -120,6 +132,18 @@ export class ExecutionGrantService {
     }
     if (input.capability !== undefined && grant.capability !== input.capability) {
       throw securityErrors.executorGrantDenied({ reason: 'grant capability mismatch' });
+    }
+    if (input.actionId !== undefined && grant.actionId !== input.actionId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant action mismatch' });
+    }
+    if (input.actionContractVersion !== undefined && grant.actionContractVersion !== input.actionContractVersion) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant action contract version mismatch' });
+    }
+    if (input.inputSchemaSha256 !== undefined && grant.inputSchemaSha256 !== input.inputSchemaSha256) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant input schema mismatch' });
+    }
+    if (input.outputSchemaSha256 !== undefined && grant.outputSchemaSha256 !== input.outputSchemaSha256) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant output schema mismatch' });
     }
     if (input.planDigest !== undefined && grant.planDigest !== input.planDigest) {
       throw securityErrors.executorGrantDenied({ reason: 'grant plan digest mismatch' });

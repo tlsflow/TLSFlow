@@ -462,6 +462,7 @@ const supportedExecutionResourceKeys = new Set([
   'runtimeEntrypoint',
   'agentPlans',
   'workflows',
+  'actionContracts',
   'forms',
   'presentations',
   'locales',

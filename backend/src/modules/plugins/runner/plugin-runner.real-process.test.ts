@@ -2,20 +2,18 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PluginRunnerClient, type PluginRunnerLaunchSpec } from './plugin-runner-client.js';
+import { PluginRunnerClient, type PluginRunnerExecutionInput, type PluginRunnerLaunchSpec } from './plugin-runner-client.js';
 import { PluginRunnerSupervisor } from './plugin-runner-supervisor.js';
 
 const runnerServer = resolve(process.cwd(), 'dist/modules/plugins/runner/fixtures/runner-server.js');
 
-test('真实子进程完成 hello、ping、execute 和 progress 去重', async () => {
-  const progress: number[] = [];
-  const client = new PluginRunnerClient(spec('progress'), (message) => progress.push(message.sequence));
+test('真实子进程完成 hello、ping 和单个 Action execute', async () => {
+  const client = new PluginRunnerClient(spec('echo'));
   try {
     await client.start();
     await client.ping();
     const result = await client.execute(executionInput(false));
     assert.equal(result.success, true);
-    assert.deepEqual(progress, [1, 2]);
   } finally {
     await close(client);
   }
@@ -27,7 +25,7 @@ test('真实子进程执行 Host API，权限缺失时失败关闭', async () =>
     await allowed.start();
     const result = await allowed.execute(executionInput(false, ['grant-1']));
     assert.equal(result.success, true);
-    assert.equal((result.summary.data as { id: string }).id, 'artifact-1');
+    assert.equal((result.output.data as { id: string }).id, 'artifact-1');
   } finally {
     await close(allowed);
   }
@@ -59,7 +57,7 @@ test('Host API capability 绑定错误时失败关闭，租户边界在执行前
   const client = new PluginRunnerClient({ ...spec('host-call-bad-capability'), hostPermissions: ['artifact.read'], hostApiHandler: async () => ({ ok: true }) });
   try {
     await client.start();
-    await assert.rejects(client.execute(executionInput(false, ['grant-1'])), /capability|协议|失败关闭/);
+    await assert.rejects(client.execute(executionInput(false, ['grant-1'])), /capability|绑定|协议|失败关闭/);
     assert.equal(client.state, 'CRASHED');
   } finally {
     await close(client);
@@ -140,8 +138,8 @@ test('Runner 启动、握手、stdout/stderr 和崩溃故障真实失败', async
   const failedWrite = new PluginRunnerClient(spec('write-failed'));
   await failedWrite.start();
   const failedWriteResult = await failedWrite.execute(executionInput(true));
-  assert.equal(failedWriteResult.status, 'UNKNOWN');
-  assert.equal(failedWriteResult.error?.code, 'PLUGIN_OPERATION_UNKNOWN_STATE');
+  assert.equal(failedWriteResult.status, 'FAILED');
+  assert.equal(failedWriteResult.error?.code, 'PLUGIN_CAPABILITY_EXECUTION_FAILED');
   const crash = new PluginRunnerClient(spec('crash'));
   await crash.start();
   const crashResult = await crash.execute(executionInput(true));
@@ -201,7 +199,7 @@ test('Supervisor 固定 PluginVersion、串行执行、drain 和版本切换', a
   const concurrentStart = supervisor.start(firstSpec);
   const first = await firstStart;
   assert.equal(await concurrentStart, first);
-  await assert.rejects(supervisor.start(spec('progress', { pluginVersionId: 'test-version-v1' })), /固定|启动规格/);
+  await assert.rejects(supervisor.start(spec('echo', { pluginVersionId: 'test-version-v1', pluginId: 'test.other' })), /固定|启动规格/);
   const next = await supervisor.switchVersion('test-version-v1', 'tenant-1', spec('echo', { pluginVersionId: 'test-version-v2', pluginVersion: '2.0.0' }));
   assert.equal(next.state, 'READY');
   assert.equal(first.state, 'STOPPED');
@@ -220,6 +218,21 @@ test('Runner 拒绝执行控制环境变量，且不接受已过期截止时间'
   try {
     await client.start();
     await assert.rejects(client.execute({ ...executionInput(false), deadlineAt: new Date(Date.now() - 1).toISOString() }), /截止时间|超时/);
+  } finally {
+    await close(client);
+  }
+});
+
+test('Runner 拒绝完整 Workflow、rollback、checkpoint 和变量全集', async () => {
+  const client = new PluginRunnerClient(spec('echo'));
+  try {
+    await client.start();
+    for (const key of ['workflow', 'steps', 'rollback', 'checkpoint', 'variables']) {
+      await assert.rejects(
+        client.execute({ ...executionInput(false), input: { value: 'hello', [key]: key === 'steps' ? [] : {} } }),
+        /Action 输入|编排字段|Workflow 编排/,
+      );
+    }
   } finally {
     await close(client);
   }
@@ -261,8 +274,30 @@ function spec(mode: string, overrides: Partial<PluginRunnerLaunchSpec> = {}): Pl
   };
 }
 
-function executionInput(writeEffect: boolean, grantRefs: string[] = []) {
-  return { tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64), capability: 'test.echo', input: { value: 'hello' }, grantRefs, idempotencyKey: 'idem-1', deadlineAt: new Date(Date.now() + 60_000).toISOString(), writeEffect };
+function executionInput(writeEffect: boolean, grantRefs: string[] = []): PluginRunnerExecutionInput {
+  const hash = `sha256:${'a'.repeat(64)}`;
+  return {
+    tenantId: 'tenant-1',
+    executionId: 'execution-1',
+    executionStepId: 'step-1',
+    workflowVersionId: 'workflow-version-1',
+    pluginVersionId: 'test-version-v1',
+    pluginId: 'test.echo',
+    capability: 'test.echo',
+    actionId: 'test.echo.v1',
+    actionContractVersion: 'v1',
+    inputSchemaSha256: hash,
+    outputSchemaSha256: hash,
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    planDigest: 'b'.repeat(64),
+    writeEffect,
+    input: { value: 'hello' },
+    grantRefs,
+    idempotencyKey: 'idem-1',
+    deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+  };
 }
 
 async function close(client: PluginRunnerClient): Promise<void> {

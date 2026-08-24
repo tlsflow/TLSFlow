@@ -3,12 +3,8 @@ import { createHash, createPrivateKey, createPublicKey, sign as signData } from 
 import type { OutboundHttpClient, OutboundHttpRequest, OutboundHttpResponse } from '../../../common/http/outbound-http-client.js';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
 import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
-import { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
-import { PluginResourceLockService } from '../../executions/application/plugin-resource-lock.service.js';
-import { WorkflowRecoveryLedgerService } from '../../executions/application/workflow-recovery-ledger.service.js';
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
 import type { SecurityServices } from '../../security/security.controller.js';
-import type { AgentTaskLogEntry } from '../../agents/schema/agents.schema.js';
 import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateHostApiResult, type HostApiMethodDefinition } from './protocol/host-api.registry.js';
 import { PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestBinding, type HostApiRequestOutcome } from './host-api.request-gate.js';
@@ -17,9 +13,6 @@ import type { PluginRunnerHostApiHandler, PluginRunnerHostCallContext } from './
 export interface PluginRunnerHostApiDependencies {
   security: Pick<SecurityServices, 'audit' | 'grants' | 'secrets'>;
   artifacts: Pick<CertificateArtifactStore, 'get'>;
-  resourceLocks: Pick<PluginResourceLockService, 'acquire' | 'release'>;
-  workflowRecovery: Pick<WorkflowRecoveryLedgerService, 'begin' | 'recordCheckpoint' | 'get' | 'getCheckpoint'>;
-  executionDetails: Pick<ExecutionDetailStreamService, 'publishLog'>;
   executions: Pick<ExecutionsRepository, 'getRunOrThrow' | 'getStepOrThrow'>;
   /** 生产必须注入数据库支持的原子消费账本；缺失时所有 Host API 请求失败关闭。 */
   requestGate?: PluginRunnerHostApiRequestGate;
@@ -125,6 +118,13 @@ function toRequestBinding(context: PluginRunnerHostCallContext, input: Record<st
     pluginId: context.pluginId,
     pluginVersion: context.pluginVersion,
     capability: context.capability,
+    actionId: context.actionId,
+    actionContractVersion: context.actionContractVersion,
+    inputSchemaSha256: context.inputSchemaSha256,
+    outputSchemaSha256: context.outputSchemaSha256,
+    packageHash: context.packageHash,
+    manifestHash: context.manifestHash,
+    resourceHash: context.resourceHash,
     grantRefs: context.grantRefs,
     workflowVersionId: context.workflowVersionId,
     planDigest: context.planDigest,
@@ -226,11 +226,15 @@ async function validateBoundGrants(
     runId: context.executionId,
     stepId: context.executionStepId,
     workflowVersionId: context.workflowVersionId,
-    pluginVersionId: context.pluginVersionId,
-    pluginId: context.pluginId,
-    capability: context.capability,
-    planDigest: context.planDigest,
-    executorType: 'PLUGIN_RUNNER',
+      pluginVersionId: context.pluginVersionId,
+      pluginId: context.pluginId,
+      capability: context.capability,
+      actionId: context.actionId,
+      actionContractVersion: context.actionContractVersion,
+      inputSchemaSha256: context.inputSchemaSha256,
+      outputSchemaSha256: context.outputSchemaSha256,
+      planDigest: context.planDigest,
+      executorType: 'plugin.action',
   })));
   if (!grants.some((grant) => definition.requiredGrants.every((requiredGrant) => grant.allowedActions.includes(requiredGrant)))) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API Grant 未覆盖注册权限', { method: context.method });
@@ -256,18 +260,8 @@ async function dispatchHostApiCall(
       return await readCloudService(dependencies, context, input);
     case 'http.request':
       return await requestHttp(dependencies, context, definition, input, grants);
-    case 'execution.progress':
-      return publishProgress(dependencies, context, input);
-    case 'execution.checkpoint.save':
-      return await saveCheckpoint(dependencies, context, input);
-    case 'execution.checkpoint.load':
-      return await loadCheckpoint(dependencies, context, input);
     case 'execution.isCancelled':
       return await readCancellation(dependencies, context);
-    case 'resourceLock.acquire':
-      return await acquireResourceLock(dependencies, context, input);
-    case 'resourceLock.release':
-      return await releaseResourceLock(dependencies, context, input);
     case 'audit.append':
       return await appendPluginAudit(dependencies, context, input);
     default:
@@ -443,8 +437,12 @@ async function readArtifact(
     pluginVersionId: context.pluginVersionId,
     pluginId: context.pluginId,
     capability: context.capability,
+    actionId: context.actionId,
+    actionContractVersion: context.actionContractVersion,
+    inputSchemaSha256: context.inputSchemaSha256,
+    outputSchemaSha256: context.outputSchemaSha256,
     planDigest: context.planDigest,
-    executorType: 'PLUGIN_RUNNER',
+    executorType: 'plugin.action',
     artifactRef,
     action: 'artifact.read',
   });
@@ -479,7 +477,7 @@ async function resolveSecret(
     purpose,
     runId: context.executionId,
     stepId: context.executionStepId,
-    executorType: 'PLUGIN_RUNNER',
+    executorType: 'plugin.action',
     workflowVersionId: context.workflowVersionId,
     pluginVersionId: context.pluginVersionId,
     pluginId: context.pluginId,
@@ -527,7 +525,7 @@ async function signCrypto(
     purpose: 'crypto.sign',
     runId: context.executionId,
     stepId: context.executionStepId,
-    executorType: 'PLUGIN_RUNNER',
+    executorType: 'plugin.action',
     workflowVersionId: context.workflowVersionId,
     pluginVersionId: context.pluginVersionId,
     pluginId: context.pluginId,
@@ -582,60 +580,6 @@ function derToJose(signature: Buffer, size: number): string {
   return Buffer.concat([normalize(r), normalize(s)]).toString('base64url');
 }
 
-function publishProgress(
-  dependencies: PluginRunnerHostApiDependencies,
-  context: PluginRunnerHostCallContext,
-  input: Record<string, unknown>,
-): Record<string, unknown> {
-  assertExecutionInputBinding(context, input);
-  const sequence = numberValue(input.sequence, 'sequence');
-  const entry: AgentTaskLogEntry = {
-    id: `plugin-runner-progress:${context.executionId}:${context.executionStepId}:${sequence}`,
-    tenantId: context.tenantId,
-    agentId: `plugin-runner:${context.pluginVersionId}`,
-    taskId: context.executionStepId,
-    sequence,
-    level: 'info',
-    message: stringValue(input.summary, 'summary'),
-    redacted: true,
-    emittedAt: new Date().toISOString(),
-    requestId: `plugin-runner:${context.executionId}:${context.executionStepId}`,
-  };
-  dependencies.executionDetails.publishLog(context.executionId, context.tenantId, entry);
-  return { ok: true, data: { accepted: true, sequence, stage: stringValue(input.stage, 'stage') } };
-}
-
-async function saveCheckpoint(
-  dependencies: PluginRunnerHostApiDependencies,
-  context: PluginRunnerHostCallContext,
-  input: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  assertExecutionInputBinding(context, input);
-  const ledger = await beginRecoveryLedger(dependencies, context);
-  const digest = stringValue(input.digest, 'digest');
-  const checkpoint = await dependencies.workflowRecovery.recordCheckpoint({
-    tenantId: context.tenantId,
-    ledgerId: ledger.id,
-    checkpointName: `plugin-runner:${digest}`,
-    workflowStepName: context.executionStepId,
-    capture: recordValue(input.payload, 'payload'),
-    captureHash: digest,
-    requiredForRollback: false,
-  });
-  return { ok: true, data: { checkpointRef: checkpoint.id, digest: checkpoint.captureHash } };
-}
-
-async function loadCheckpoint(
-  dependencies: PluginRunnerHostApiDependencies,
-  context: PluginRunnerHostCallContext,
-  input: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const ledger = await beginRecoveryLedger(dependencies, context);
-  const checkpoint = await dependencies.workflowRecovery.getCheckpoint(context.tenantId, stringValue(input.checkpointRef, 'checkpointRef'));
-  if (checkpoint.ledgerId !== ledger.id) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'checkpoint 不属于当前 Runner 执行绑定');
-  return { ok: true, data: { checkpointRef: checkpoint.id, payload: checkpoint.capture, digest: checkpoint.captureHash } };
-}
-
 async function readCancellation(dependencies: PluginRunnerHostApiDependencies, context: PluginRunnerHostCallContext): Promise<Record<string, unknown>> {
   const [run, step] = await Promise.all([
     dependencies.executions.getRunOrThrow(context.executionId, context.tenantId),
@@ -643,30 +587,6 @@ async function readCancellation(dependencies: PluginRunnerHostApiDependencies, c
   ]);
   if (step.executionRunId !== context.executionId) throw new AppError('PLUGIN_HOST_CALL_DENIED', '执行步骤不属于当前运行');
   return { ok: true, data: { cancelled: run.status === 'CANCELLED' } };
-}
-
-async function acquireResourceLock(dependencies: PluginRunnerHostApiDependencies, context: PluginRunnerHostCallContext, input: Record<string, unknown>): Promise<Record<string, unknown>> {
-  assertLockOwnerBinding(context, input);
-  const record = await dependencies.resourceLocks.acquire({
-    tenantId: context.tenantId,
-    resourceKey: normalizePluginLockKey(context.tenantId, stringValue(input.resourceKey, 'resourceKey')),
-    mode: 'WRITE',
-    ownerRunId: context.executionId,
-    ownerStepId: context.executionStepId,
-    ttlSeconds: numberValue(input.ttlSeconds, 'ttlSeconds'),
-  });
-  return { ok: true, data: { lockId: record.id } };
-}
-
-async function releaseResourceLock(dependencies: PluginRunnerHostApiDependencies, context: PluginRunnerHostCallContext, input: Record<string, unknown>): Promise<Record<string, unknown>> {
-  assertLockOwnerBinding(context, input);
-  await dependencies.resourceLocks.release({
-    tenantId: context.tenantId,
-    lockId: stringValue(input.lockId, 'lockId'),
-    ownerRunId: context.executionId,
-    ownerStepId: context.executionStepId,
-  });
-  return { ok: true };
 }
 
 async function appendPluginAudit(dependencies: PluginRunnerHostApiDependencies, context: PluginRunnerHostCallContext, input: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -686,28 +606,23 @@ async function appendPluginAudit(dependencies: PluginRunnerHostApiDependencies, 
   return { ok: true };
 }
 
-async function beginRecoveryLedger(dependencies: PluginRunnerHostApiDependencies, context: PluginRunnerHostCallContext) {
-  return await dependencies.workflowRecovery.begin({
-    tenantId: context.tenantId,
-    executionRunId: context.executionId,
-    executionStepId: context.executionStepId,
-    pluginVersionId: context.pluginVersionId,
-    workflowVersionId: context.workflowVersionId,
-    capabilityKey: context.capability,
-    target: {},
-    plan: { planDigest: context.planDigest },
-    runtimeInput: {},
-  });
-}
-
 function assertContextBinding(context: PluginRunnerHostCallContext): void {
-  if (!context.requestId || !context.idempotencyKey || !context.deadlineAt || !context.tenantId || !context.executionId || !context.executionStepId || !context.workflowVersionId || !context.pluginVersionId || !context.pluginId || !context.capability) {
+  if (!context.requestId || !context.idempotencyKey || !context.deadlineAt || !context.tenantId || !context.executionId || !context.executionStepId || !context.workflowVersionId || !context.pluginVersionId || !context.pluginId || !context.capability || !context.actionId || !context.actionContractVersion) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 缺少固定执行绑定');
   }
   if (!Number.isInteger(context.timeoutMs) || context.timeoutMs < 1) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 缺少有效超时预算');
   const deadline = Date.parse(context.deadlineAt);
   if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 截止时间无效或已过期');
   if (!/^[a-f0-9]{64}$/.test(context.planDigest)) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API planDigest 无效');
+  for (const [name, value] of [
+    ['inputSchemaSha256', context.inputSchemaSha256],
+    ['outputSchemaSha256', context.outputSchemaSha256],
+    ['packageHash', context.packageHash],
+    ['manifestHash', context.manifestHash],
+    ['resourceHash', context.resourceHash],
+  ] as const) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('PLUGIN_HOST_CALL_DENIED', `Runner Host API ${name} 无效`);
+  }
 }
 
 function assertInputGrantBinding(context: PluginRunnerHostCallContext, input: Record<string, unknown>): void {
@@ -726,12 +641,6 @@ function assertSelectedGrant(context: PluginRunnerHostCallContext, grants: Array
 function assertExecutionInputBinding(context: PluginRunnerHostCallContext, input: Record<string, unknown>): void {
   if (stringValue(input.executionId, 'executionId') !== context.executionId || stringValue(input.executionStepId, 'executionStepId') !== context.executionStepId) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 输入执行绑定不匹配');
-  }
-}
-
-function assertLockOwnerBinding(context: PluginRunnerHostCallContext, input: Record<string, unknown>): void {
-  if (stringValue(input.ownerRunId, 'ownerRunId') !== context.executionId || stringValue(input.ownerStepId, 'ownerStepId') !== context.executionStepId) {
-    throw new AppError('PLUGIN_HOST_CALL_DENIED', '资源锁所有者必须等于当前执行步骤');
   }
 }
 
@@ -760,6 +669,10 @@ async function writeHostCallAudit(
       pluginVersionId: context.pluginVersionId,
       workflowVersionId: context.workflowVersionId,
       capability: context.capability,
+      actionId: context.actionId,
+      actionContractVersion: context.actionContractVersion,
+      inputSchemaSha256: context.inputSchemaSha256,
+      outputSchemaSha256: context.outputSchemaSha256,
       planDigest: context.planDigest,
       grantRefs: context.grantRefs,
       input: auditedInput,
@@ -767,11 +680,6 @@ async function writeHostCallAudit(
     },
     failClosed: true,
   });
-}
-
-function normalizePluginLockKey(tenantId: string, resourceKey: string): string {
-  const normalized = resourceKey.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 160);
-  return `tenant:${tenantId}:standalone:${normalized || 'plugin_resource'}`;
 }
 
 function stringValue(value: unknown, name: string): string {

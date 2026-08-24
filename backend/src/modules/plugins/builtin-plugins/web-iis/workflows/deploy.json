@@ -6,8 +6,8 @@
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
       "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }
     },
     "connections": {},
     "credentials": {},
@@ -15,7 +15,7 @@
       "certificate": {
         "kind": "certificate",
         "required": true,
-        "configurationMode": "runtime",
+        "configurationMode": "required",
         "lifecycle": "pre_execution",
         "artifactContract": { "outputs": { "pfx": { "role": "certificate_private_key", "required": true, "sensitive": true }, "fingerprintSha256": { "role": "fingerprint_sha256", "required": true } } }
       }

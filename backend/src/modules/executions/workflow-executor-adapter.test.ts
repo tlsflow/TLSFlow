@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { createHash } from 'node:crypto';
 import { CurlExecutor } from '../executors/curl/curl.executor.js';
 import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.js';
 import { ExecutionGrantService } from './execution-grant.service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
+import type { JsonSchema } from '../../common/validation/json-schema.js';
+import { canonicalize } from '../../shared/canonical-json.js';
 import { createDefaultExecutorRegistry, createDefaultExecutorRegistryWithDependencies, WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import type { PluginActionBindingV1, PluginActionExecutionResult } from './application/plugin-runner-executor.adapter.js';
 import type { ExecutionStepEntity } from './schema/executions.schema.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { DeploymentInputContractV1 } from '../deployment-inputs/dto/deployment-input-contract.dto.js';
@@ -260,6 +264,43 @@ function certificateOutputsWorkflowFixture(): WorkflowDslV1 {
   };
 }
 
+function pluginActionWorkflowFixture(inputSchemaSha256: string, outputSchemaSha256: string): WorkflowDslV1 {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'workflow-plugin-action-chain-test', version: '1.0.0' },
+    inputContract: workflowInputContract(),
+    steps: [
+      {
+        name: 'signRequest',
+        type: 'plugin.action',
+        stage: 'install',
+        pluginId: 'cloud.example',
+        capability: 'certificate.sign',
+        actionId: 'certificate.sign.v1',
+        actionContractVersion: 'v1',
+        input: { payload: 'hello' },
+        inputSchemaSha256,
+        outputSchemaSha256,
+        timeoutSeconds: 30,
+        writeEffect: false,
+        idempotencyKeyRef: '{{variables.deviceHost}}',
+        extract: { signature: { type: 'jsonPath', path: '$.signature' } },
+      },
+      {
+        name: 'buildSignedRequest',
+        type: 'transform',
+        stage: 'verify',
+        transform: {
+          engine: 'jsonata',
+          input: { signature: '{{steps.signRequest.extracted.signature}}' },
+          outputs: { request: { expression: "{'signature': signature}" } },
+        },
+      },
+    ],
+  };
+}
+
 async function createPublishedWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
   const workflows = new WorkflowTemplatesApplicationService();
   const created = await workflows.createTemplate({ content: workflowFixture(), changeSummary: 'test' });
@@ -383,6 +424,85 @@ function readRecord(value: unknown): Record<string, unknown> {
 }
 
 describe('WorkflowExecutorAdapter', () => {
+  it('DSL 执行到 plugin.action 后将结构化输出交回后续 DSL transform', async () => {
+    const inputSchema: JsonSchema = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['payload'],
+      properties: { payload: { type: 'string' } },
+    };
+    const outputSchema: JsonSchema = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['signature'],
+      properties: { signature: { type: 'string' } },
+    };
+    const schemaHash = (schema: JsonSchema) => `sha256:${createHash('sha256').update(canonicalize(schema), 'utf8').digest('hex')}`;
+    const inputSchemaSha256 = schemaHash(inputSchema);
+    const outputSchemaSha256 = schemaHash(outputSchema);
+    const workflows = new WorkflowTemplatesApplicationService();
+    const created = await workflows.createTemplate({ content: pluginActionWorkflowFixture(inputSchemaSha256, outputSchemaSha256), changeSummary: 'plugin-action-chain-test' });
+    const version = await workflows.publishVersion(created.version.id);
+    const binding: PluginActionBindingV1 = {
+      apiVersion: 'gcac.plugin-action-binding/v1',
+      tenantId: 'tenant_1',
+      workflowVersionId: version.id,
+      workflowStepName: 'signRequest',
+      pluginVersionId: 'plugin-version-cloud-example',
+      pluginId: 'cloud.example',
+      pluginVersion: '1.0.0',
+      capability: 'certificate.sign',
+      actionId: 'certificate.sign.v1',
+      actionContractVersion: 'v1',
+      inputSchema,
+      outputSchema,
+      inputSchemaSha256,
+      outputSchemaSha256,
+      packageHash: `sha256:${'a'.repeat(64)}`,
+      manifestHash: `sha256:${'b'.repeat(64)}`,
+      resourceHash: `sha256:${'c'.repeat(64)}`,
+      planDigest: 'd'.repeat(64),
+      writeEffect: false,
+      hostPermissions: [],
+    };
+    let actionInput: Record<string, unknown> | undefined;
+    const actionResult: PluginActionExecutionResult = {
+      success: true,
+      status: 'SUCCESS',
+      output: { signature: 'signed-by-runner' },
+      detail: {},
+    };
+    const pluginActionExecutor = {
+      executeAction: async (input: { binding: PluginActionBindingV1; input: Record<string, unknown> }) => {
+        actionInput = structuredClone(input.input);
+        assert.equal(input.binding.workflowStepName, 'signRequest');
+        return actionResult;
+      },
+    };
+    const grants = {
+      create: async () => ({ id: 'grant-plugin-action' }),
+      revoke: async () => undefined,
+    };
+    const adapter = new WorkflowExecutorAdapter({
+      workflows,
+      executionGrants: grants as never,
+      pluginActionExecutor: pluginActionExecutor as never,
+    });
+    const step = workflowStep(version.id);
+    step.inputSnapshot.workflowRequest = {
+      workflowVersionId: version.id,
+      pluginActionBindings: { signRequest: binding },
+    };
+
+    const result = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
+
+    assert.equal(result.success, true);
+    assert.deepEqual(actionInput, { payload: 'hello' });
+    const workflowRun = result.detail?.workflowRun as { stepResults: Array<{ name: string; extracted?: Record<string, unknown> }> };
+    assert.equal(workflowRun.stepResults.find((item) => item.name === 'signRequest')?.extracted?.signature, 'signed-by-runner');
+    assert.deepEqual(workflowRun.stepResults.find((item) => item.name === 'buildSignedRequest')?.extracted?.request, { signature: 'signed-by-runner' });
+  });
+
   it('dry-run 执行工作流结构与安全校验，但不执行 SSH 或真实网络', async () => {
     const { workflows, versionId } = await createPublishedWorkflow();
     const curlExecutor = new StubExecutor('CURL', () => ({ success: true }));

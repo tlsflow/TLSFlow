@@ -1,0 +1,18 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "device.connection.test.v1",
+  "capability": "device.connection.test",
+  "actionContractVersion": "v1",
+  "inputSchema": {
+    "type": "object",
+    "required": ["deviceAddress", "credential"],
+    "properties": {
+      "deviceAddress": { "type": "string", "minLength": 1 },
+      "credential": { "type": "object", "required": ["username", "secretRef"], "properties": { "username": { "type": "string", "minLength": 1 }, "secretRef": { "type": "string", "pattern": "^secret://" } }, "additionalProperties": true }
+    },
+    "additionalProperties": true
+  },
+  "outputSchema": { "type": "object", "required": ["protocol", "managementAddress", "productVersion", "sessionEstablished"], "additionalProperties": true },
+  "writeEffect": false,
+  "hostPermissions": ["secret.resolve", "network.http"]
+}

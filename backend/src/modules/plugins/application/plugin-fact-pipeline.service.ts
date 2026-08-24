@@ -177,71 +177,14 @@ export class PluginFactPipelineService {
   ) {}
 
   async execute(input: PluginFactPipelineExecutionInput): Promise<PluginFactPipelineResult> {
-    const fact = validateFactInput(input);
-    validatePipelineInput(input);
-    if (!discoveryCapabilities.has(input.capability)) {
-      throw new AppError('CAPABILITY_MISSING', 'Fact Pipeline 只接受已登记的发现 Capability', { capability: input.capability });
-    }
-    const result = await this.runner.execute({
-      tenantId: input.tenantId,
-      executionId: input.executionId,
-      executionStepId: input.executionStepId,
-      workflowVersionId: input.workflowVersionId,
-      planDigest: input.planDigest,
+    void this.runner;
+    void this.projector;
+    void this.objectSchema;
+    throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', 'Fact Pipeline 不得绕过 DSL 直接调用 Plugin Runner；请将发现逻辑迁移到普通 DSL 的 plugin.action 步骤', {
       pluginId: input.pluginId,
-      pluginVersionId: input.pluginVersionId,
-      pluginVersion: requireIdentifier(input.pluginVersion, 'pluginVersion'),
       capability: input.capability,
-      input: { ...(input.input ?? {}), factEnvelope: fact },
-      grantRefs: [...input.grantRefs],
-      idempotencyKey: input.idempotencyKey,
-      deadlineAt: input.deadlineAt,
-      writeEffect: false,
-      hostPermissions: [...input.hostPermissions],
-      packageHash: input.packageHash,
-      manifestHash: input.manifestHash,
-      resourceHash: input.resourceHash,
+      workflowVersionId: input.workflowVersionId,
     });
-    assertRunnerResultBinding(result, input);
-    if (result.status !== 'SUCCESS' || !result.success) {
-      return {
-        status: result.status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
-        fact,
-        normalizedObjects: [],
-        projectionSummaries: [],
-        runnerSummary: structuredClone(result.summary),
-        warnings: structuredClone(result.warnings),
-        ...(result.error ? { error: structuredClone(result.error) } : {}),
-      };
-    }
-    const normalizedObjects = this.objectSchema.validateMany(result.normalizedObjects, {
-      tenantId: input.tenantId,
-      pluginId: input.pluginId,
-      pluginVersionId: input.pluginVersionId,
-      fact,
-    });
-    // 先固定并校验 Atomic Plan，再写入标准发现投影，避免非法计划留下成功对象。
-    const atomicPlan = buildAtomicPlan(input, result.summary, fact);
-    const projectionSummaries: StandardDiscoveryProjectionSummary[] = [];
-    for (const object of normalizedObjects) {
-      if (object.apiVersion !== 'gcac.device-discovery/v2' || !this.projector) continue;
-      projectionSummaries.push(await this.projector.project({
-        tenantId: input.tenantId,
-        hostId: input.hostId,
-        pluginVersionId: input.pluginVersionId,
-        discoveryProviderKey: `plugin:${input.pluginVersionId}`,
-        discoverySource: 'AGENT',
-      }, object));
-    }
-    return {
-      status: 'SUCCESS',
-      fact,
-      normalizedObjects,
-      atomicPlan,
-      projectionSummaries,
-      runnerSummary: structuredClone(result.summary),
-      warnings: structuredClone(result.warnings),
-    };
   }
 }
 

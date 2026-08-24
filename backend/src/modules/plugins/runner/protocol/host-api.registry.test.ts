@@ -14,11 +14,11 @@ import {
 } from './host-api.registry.js';
 
 const expectedMethods = [
-  'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'http.request', 'execution.progress', 'execution.checkpoint.save', 'execution.checkpoint.load',
-  'execution.isCancelled', 'resourceLock.acquire', 'resourceLock.release', 'audit.append',
+  'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'http.request',
+  'execution.isCancelled', 'audit.append',
 ].sort();
 
-test('Host API Registry 覆盖 IPC v1 要求的全部通用方法且没有厂商方法', () => {
+test('Host API Registry 覆盖 IPC v2 要求的全部通用方法且没有厂商方法', () => {
   assert.deepEqual(Object.keys(hostApiRegistry).sort(), expectedMethods);
   for (const definition of listHostApiMethods()) {
     assert.ok(definition.requestSchema);

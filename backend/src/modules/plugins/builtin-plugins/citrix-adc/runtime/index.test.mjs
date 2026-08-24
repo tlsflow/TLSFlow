@@ -1,192 +1,172 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import test from 'node:test';
 import { createPluginRunnerExecutor } from './index.js';
-import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
 
-const hash = `sha256:${'a'.repeat(64)}`;
-const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-const pluginVersion = manifest.version;
-const capabilities = manifest.capabilities.map((item) => item.key);
-const permissions = manifest.permissions;
-const env = {
-  GCAC_PLUGIN_VERSION_ID: `device-citrix-${pluginVersion.replaceAll('.', '-')}-dev`,
-  GCAC_PLUGIN_PACKAGE_HASH: hash,
-  GCAC_PLUGIN_MANIFEST_HASH: hash,
-  GCAC_PLUGIN_RESOURCE_HASH: hash,
-};
+const packageDirectory = resolve(process.cwd(), 'src/modules/plugins/builtin-plugins/citrix-adc');
+const manifest = JSON.parse(readFileSync(resolve(packageDirectory, 'manifest.json'), 'utf8'));
+const workflow = JSON.parse(readFileSync(resolve(packageDirectory, 'workflows/certificate-deploy.json'), 'utf8'));
 
-test('Citrix 工厂只导出标准入口并从适配器环境读取四项固定身份', () => {
+test('Citrix Runner 只暴露设备识别代码，证书生命周期失败关闭', async () => {
   const previous = { ...process.env };
-  Object.assign(process.env, env);
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: `device-citrix-${manifest.version.replaceAll('.', '-')}-dev`,
+    GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'a'.repeat(64)}`,
+  });
   try {
     const executor = createPluginRunnerExecutor();
-    assert.deepEqual(executor.descriptor, {
-      pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
-      pluginId: 'device.citrix.netscaler-adc',
-      pluginVersion,
-      capabilities,
-      permissions,
-      packageHash: hash,
-      manifestHash: hash,
-      resourceHash: hash,
-    });
+    assert.equal(executor.descriptor.actions.some((action) => action.capability.startsWith('certificate.')), false);
+    const context = baseContext(executor, 'certificate.deploy', certificateInput());
+    await assert.rejects(() => executor.execute(context, hostApi), (error) => error?.code === 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
+    await assert.rejects(() => executor.execute({ ...context, capability: 'certificate.rollback' }, hostApi), (error) => error?.code === 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
   } finally {
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
   }
 });
 
-test('Citrix 缺少任一适配器摘要时工厂失败关闭', () => {
+test('Citrix 识别 Runner 可执行 NITRO Fixture 连接测试和发现', async () => {
   const previous = { ...process.env };
-  Object.assign(process.env, env);
-  delete process.env.GCAC_PLUGIN_RESOURCE_HASH;
-  try { assert.throws(() => createPluginRunnerExecutor(), /GCAC_PLUGIN_RESOURCE_HASH/); }
-  finally { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); }
-});
-
-test('Citrix 真实 Runner 子进程执行 NITRO discovery Fixture 并脱敏 Secret', async () => {
-  const executorPath = resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/citrix-adc/runtime/index.js');
-  const runnerServer = resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js');
-  const client = new PluginRunnerClient({
-    pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
-    pluginId: 'device.citrix.netscaler-adc',
-    pluginVersion,
-    tenantId: 'tenant-device',
-    executablePath: process.execPath,
-    args: [runnerServer, '--executor-module', executorPath],
-    workingDirectory: process.cwd(),
-    environment: env,
-    runnerVersion: '1.0.0',
-    sdkVersion: '1.0.0',
-    capabilities,
-    hostPermissions: permissions,
-    packageHash: hash,
-    manifestHash: hash,
-    resourceHash: hash,
-    startupTimeoutMs: 1000,
-    helloTimeoutMs: 500,
-    executeTimeoutMs: 1000,
-    hostApiHandler: async ({ method }) => {
-      assert.equal(method, 'secret.grant.resolve');
-      return { ok: true, data: { secretRef: 'secret://device/password', fingerprint: 'fp', value: '[REDACTED]' } };
-    },
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: `device-citrix-${manifest.version.replaceAll('.', '-')}-dev`,
+    GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'a'.repeat(64)}`,
   });
   try {
-    const result = await client.execute({
-      tenantId: 'tenant-device', executionId: 'run-citrix', executionStepId: 'step-discover', workflowVersionId: 'workflow-citrix-1', planDigest: 'b'.repeat(64),
-      capability: 'device.discover', grantRefs: ['secret-grant'], idempotencyKey: 'idem-citrix', writeEffect: false,
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(), input: {
-        deviceAddress: '192.0.2.20', displayName: 'ADC Fixture',
-        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
-        protocolFixture: { apiVersion: 'gcac.device-fixture/v1', protocol: 'NITRO', responses: nitroResponses() },
-      },
-    });
-    assert.equal(result.status, 'SUCCESS');
-    assert.equal(result.normalizedObjects[0].apiVersion, 'gcac.device-discovery/v2');
-    assert.equal(result.normalizedObjects[0].certificates.length, 1);
-    assert.doesNotMatch(JSON.stringify(result), /fixture-password|secret-value/);
-  } finally {
-    if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
-    else await client.stop(true);
-  }
-});
-
-test('Citrix 真实 Runner 子进程在 NITRO 业务故障时失败关闭', async () => {
-  const failureCase = loadFailureFixture().cases['discovery-business-error'];
-  const client = new PluginRunnerClient({
-    pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
-    pluginId: 'device.citrix.netscaler-adc',
-    pluginVersion,
-    tenantId: 'tenant-device',
-    executablePath: process.execPath,
-    args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/citrix-adc/runtime/index.js')],
-    workingDirectory: process.cwd(),
-    environment: env,
-    runnerVersion: '1.0.0',
-    sdkVersion: '1.0.0',
-    capabilities,
-    hostPermissions: permissions,
-    packageHash: hash,
-    manifestHash: hash,
-    resourceHash: hash,
-    startupTimeoutMs: 1000,
-    helloTimeoutMs: 500,
-    executeTimeoutMs: 1000,
-    hostApiHandler: async ({ method }) => {
-      assert.equal(method, 'secret.grant.resolve');
-      return { ok: true, data: { secretRef: 'secret://device/password', fingerprint: 'fp', value: '[REDACTED]' } };
-    },
-  });
-  try {
-    const result = await client.execute({
-      tenantId: 'tenant-device', executionId: 'run-citrix-failure', executionStepId: 'step-discover', workflowVersionId: 'workflow-citrix-1', planDigest: 'b'.repeat(64),
-      capability: failureCase.capability, grantRefs: ['secret-grant'], idempotencyKey: 'idem-citrix-failure', writeEffect: failureCase.writeEffect,
-      deadlineAt: new Date(Date.now() + 10_000).toISOString(), input: {
-        deviceAddress: '192.0.2.20', displayName: 'ADC Failure Fixture',
-        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
-        protocolFixture: failureCase.protocolFixture,
-      },
-    });
-    assert.equal(result.status, failureCase.expected.runnerStatus, JSON.stringify(result));
-    assert.equal(result.error.code, failureCase.expected.runnerErrorCode, JSON.stringify(result));
-    assert.match(result.error.message, /NITRO/);
-  } finally {
-    if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
-    else await client.stop(true);
-  }
-});
-
-test('Citrix 写入传输中断 Fixture 在插件边界收敛为 UNKNOWN', async () => {
-  const failureCase = loadFailureFixture().cases['certificate-deploy-transport-unknown'];
-  await withEnvironmentAsync(env, async () => {
     const executor = createPluginRunnerExecutor();
-    const result = await executor.execute({
-      pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
-      pluginId: 'device.citrix.netscaler-adc',
-      pluginVersion,
-      tenantId: 'tenant-device', executionId: 'run-citrix-write-failure', executionStepId: 'step-deploy', capability: failureCase.capability,
-      grantRefs: ['secret-grant', 'artifact-grant'], idempotencyKey: 'idem-citrix-write-failure', deadlineAt: new Date(Date.now() + 10_000).toISOString(),
-      writeEffect: failureCase.writeEffect, signal: new AbortController().signal,
-      input: {
-        deviceAddress: '192.0.2.20', target: 'lb-one', certificateKeyName: 'leaf-new',
-        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
-        artifact: { artifactRef: 'artifact://certificate/new', grantId: 'artifact-grant' },
-        protocolFixture: failureCase.protocolFixture,
-      },
-    }, {
-      call: async (method) => {
-        if (method === 'secret.grant.resolve') return { ok: true, data: { value: '[REDACTED]' } };
-        if (method === 'artifact.grant.read') return { ok: true, data: { sha256: `sha256:${'d'.repeat(64)}` } };
-        throw new Error(`unexpected host method ${method}`);
-      },
-    });
-    assert.equal(result.status, failureCase.expected.directStatus, JSON.stringify(result));
-    assert.equal(result.error.code, failureCase.expected.directErrorCode, JSON.stringify(result));
-  });
+    const connection = await executor.execute(baseContext(executor, 'device.connection.test', {
+      deviceAddress: '192.0.2.10',
+      credential: { username: 'nsroot', secretRef: 'secret://citrix/password', grantId: 'grant-device' },
+      protocolFixture: fixture({
+        'GET /nitro/v1/config/nsversion': { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NS13.1' } } },
+      }),
+    }), hostApi);
+    assert.equal(connection.status, 'SUCCESS');
+    assert.equal(connection.output.summary.productVersion, 'NS13.1');
+
+    const discovery = await executor.execute(baseContext(executor, 'device.discover', {
+      deviceAddress: '192.0.2.10',
+      credential: { username: 'nsroot', secretRef: 'secret://citrix/password', grantId: 'grant-device' },
+      protocolFixture: fixture({
+        'GET /nitro/v1/config/nsversion': { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NS13.1' } } },
+        'GET /nitro/v1/config/lbvserver': { statusCode: 200, body: { errorcode: 0, lbvserver: [{ name: 'lb-vserver', ipv46: '192.0.2.20', port: 443 }] } },
+        'GET /nitro/v1/config/vpnvserver': { statusCode: 200, body: { errorcode: 0, vpnvserver: [] } },
+        'GET /nitro/v1/config/csvserver': { statusCode: 200, body: { errorcode: 0, csvserver: [] } },
+        'GET /nitro/v1/config/gslbvserver': { statusCode: 200, body: { errorcode: 0, gslbvserver: [] } },
+        'GET /nitro/v1/config/sslvserver_sslcertkey_binding': { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [] } },
+        'GET /nitro/v1/config/sslcertkey': { statusCode: 200, body: { errorcode: 0, sslcertkey: [] } },
+      }),
+    }), hostApi);
+    assert.equal(discovery.status, 'SUCCESS');
+    assert.equal(discovery.output.normalizedObjects[0].device.productFamily, manifest.pluginId);
+    assert.equal(discovery.output.normalizedObjects[0].managedTargets.length, 1);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
 });
 
-function loadFailureFixture() {
-  return JSON.parse(readFileSync(resolve(process.cwd(), '../compatibility/fixtures/device-plugins/citrix-adc-error-cases.json'), 'utf8'));
-}
-
-async function withEnvironmentAsync(values, callback) {
+test('Citrix Runner 拒绝篡改的 Action Binding 和写操作标记', async () => {
   const previous = { ...process.env };
-  Object.assign(process.env, values);
-  try { return await callback(); }
-  finally { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); }
-}
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: `device-citrix-${manifest.version.replaceAll('.', '-')}-dev`,
+    GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'a'.repeat(64)}`,
+  });
+  try {
+    const executor = createPluginRunnerExecutor();
+    const context = baseContext(executor, 'device.connection.test', {
+      deviceAddress: '192.0.2.10',
+      credential: { username: 'nsroot', secretRef: 'secret://citrix/password', grantId: 'grant-device' },
+      protocolFixture: fixture({}),
+    });
+    await assert.rejects(
+      () => executor.execute({ ...context, pluginVersionId: 'device-citrix-tampered' }, hostApi),
+      (error) => error?.code === 'PLUGIN_CONTRACT_INVALID',
+    );
+    await assert.rejects(
+      () => executor.execute({ ...context, outputSchemaSha256: `sha256:${'b'.repeat(64)}` }, hostApi),
+      (error) => error?.code === 'PLUGIN_RUNNER_VERSION_MISMATCH',
+    );
+    await assert.rejects(
+      () => executor.execute({ ...context, writeEffect: true }, hostApi),
+      (error) => error?.code === 'PLUGIN_CONTRACT_INVALID',
+    );
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+});
 
-function nitroResponses() {
-  const ok = (body) => ({ statusCode: 200, body });
+test('Citrix 证书部署保留 26 个 DSL 步骤和 16 个 rollback 步骤', () => {
+  assert.equal(manifest.runtime, 'WORKFLOW_DSL');
+  assert.equal(workflow.kind, 'CurlSshWorkflow');
+  assert.equal(workflow.steps.length, 26);
+  assert.equal(workflow.rollback.length, 16);
+  assert.equal(workflow.steps.some((step) => step.type === 'plugin.action'), false);
+  assert.equal(workflow.rollback.some((step) => step.type === 'plugin.action'), false);
+  assert.ok(workflow.steps.some((step) => step.name === 'deploymentCheckpoint' && step.type === 'checkpoint'));
+  assert.ok(workflow.steps.some((step) => step.name === 'verifyCertificateControlPlane' && step.type === 'http'));
+  assert.ok(workflow.rollback.some((step) => step.name === 'requireFinalBindingsEquivalent' && step.type === 'condition'));
+});
+
+test('Citrix 部署和回滚只使用标准 NITRO HTTPS DSL 请求', () => {
+  const allSteps = [...workflow.steps, ...workflow.rollback];
+  const httpSteps = allSteps.filter((step) => step.type === 'http');
+  assert.ok(httpSteps.length > 0);
+  for (const step of httpSteps) {
+    assert.equal(step.request.connectionRef, 'management');
+    assert.match(step.request.url, /\/nitro\/v1\//);
+    assert.equal(step.request.tls?.verify, '{{connections.management.tls.verifyPeer}}');
+  }
+  assert.equal(manifest.resources.workflows['certificate.deploy'], 'workflows/certificate-deploy.json');
+  assert.equal(manifest.resources.workflows['certificate.rollback'], 'workflows/certificate-deploy.json');
+});
+
+function baseContext(executor, capability, input) {
+  const action = executor.descriptor.actions.find((item) => item.capability === capability);
   return {
-    'GET /nitro/v1/config/nsversion': ok({ errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build fixture' } }),
-    'GET /nitro/v1/config/lbvserver': ok({ errorcode: 0, lbvserver: [{ name: 'lb-one', servicetype: 'SSL', ipv46: '192.0.2.41', port: 443 }] }),
-    'GET /nitro/v1/config/vpnvserver': ok({ errorcode: 0, vpnvserver: [] }),
-    'GET /nitro/v1/config/csvserver': ok({ errorcode: 0, csvserver: [] }),
-    'GET /nitro/v1/config/gslbvserver': ok({ errorcode: 0, gslbvserver: [] }),
-    'GET /nitro/v1/config/sslvserver_sslcertkey_binding': ok({ errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: 'lb-one', certkeyname: 'leaf-one', snicert: false }] }),
-    'GET /nitro/v1/config/sslcertkey': ok({ errorcode: 0, sslcertkey: [{ certkey: 'leaf-one', cert: '/nsconfig/ssl/leaf-one.pem', subject: 'CN=example.invalid', issuer: 'CN=Fixture Issuer', clientcertnotbefore: '2026-01-01T00:00:00Z', clientcertnotafter: '2027-01-01T00:00:00Z' }] }),
+    pluginVersionId: process.env.GCAC_PLUGIN_VERSION_ID,
+    pluginId: manifest.pluginId,
+    pluginVersion: manifest.version,
+    capability,
+    actionId: action?.actionId ?? `${capability}.v1`,
+    actionContractVersion: action?.actionContractVersion ?? 'v1',
+    inputSchemaSha256: action?.inputSchemaSha256 ?? `sha256:${'0'.repeat(64)}`,
+    outputSchemaSha256: action?.outputSchemaSha256 ?? `sha256:${'0'.repeat(64)}`,
+    packageHash: process.env.GCAC_PLUGIN_PACKAGE_HASH,
+    manifestHash: process.env.GCAC_PLUGIN_MANIFEST_HASH,
+    resourceHash: process.env.GCAC_PLUGIN_RESOURCE_HASH,
+    planDigest: 'b'.repeat(64),
+    idempotencyKey: 'idem-citrix',
+    writeEffect: false,
+    grantRefs: ['grant-device'],
+    deadlineAt: new Date(Date.now() + 10_000).toISOString(),
+    signal: new AbortController().signal,
+    input,
   };
 }
+
+function certificateInput() {
+  return {
+    deviceAddress: '192.0.2.10',
+    credential: { username: 'nsroot', secretRef: 'secret://citrix/password', grantId: 'grant-device' },
+    protocolFixture: fixture({}),
+  };
+}
+
+function fixture(responses) {
+  return { apiVersion: 'gcac.device-fixture/v1', protocol: 'NITRO', device: { managementAddress: '192.0.2.10' }, responses };
+}
+
+const hostApi = {
+  call: async (method) => {
+    assert.equal(method, 'secret.grant.resolve');
+    return { ok: true, data: { value: '[REDACTED]' } };
+  },
+};

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { assertJsonSchema, type JsonSchema } from '../../../common/validation/json-schema.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
-import { newId } from '../../../shared/id.js';
 import {
   PluginRunnerSupervisor,
   type PluginRunnerClient,
@@ -9,32 +9,78 @@ import {
   type PluginRunnerHostApiHandler,
   type PluginRunnerLaunchSpec,
 } from '../../plugins/runner/index.js';
+import type { PluginRunnerExecuteResult } from '../../plugins/runner/protocol/protocol.types.js';
 import { resolvePluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
 import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
-import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
-import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 
-export const pluginRunnerExecutorType = 'PLUGIN_RUNNER' as const;
-export const pluginRunnerBindingApiVersion = 'gcac.plugin-runner-binding/v1' as const;
+export const pluginActionBindingApiVersion = 'gcac.plugin-action-binding/v1' as const;
+export const pluginRunnerExecutorType = 'plugin.action' as const;
+const dslCertificateCapabilities = new Set(['certificate.deploy', 'certificate.rollback']);
 
-export interface PluginRunnerExecutionDependencies {
-  /** 生产只能注入 Supervisor；测试可以注入同样形状的 Fixture。 */
-  supervisor?: Pick<PluginRunnerSupervisor, 'start'>;
-  runner?: ProductionPluginRunnerConfig;
-  /** 生产必须从当前内置 Registry 解析 Runner 入口；测试 Fixture 可不注入。 */
-  builtinRegistry?: Pick<BuiltinPluginRegistry, 'refresh' | 'get'>;
-  hostApiHandler?: PluginRunnerHostApiHandler;
-  /** 生产主链必须注入，用于在 Runner 启动前验证完整 Grant 绑定。 */
-  executionGrants?: Pick<ExecutionGrantService, 'validate'>;
-  deadlineMs?: number;
+/**
+ * 这是 DeploymentPlan/Execution 冻结的步骤级绑定，不是另一份 Workflow。
+ * Schema 本体和摘要一同冻结，因此 Runner 返回值能在回到 DSL 之前被宿主验证。
+ */
+export interface PluginActionBindingV1 {
+  apiVersion: typeof pluginActionBindingApiVersion;
+  tenantId: string;
+  workflowVersionId: string;
+  workflowStepName: string;
+  pluginVersionId: string;
+  pluginId: string;
+  pluginVersion: string;
+  capability: string;
+  actionId: string;
+  actionContractVersion: string;
+  inputSchema: JsonSchema;
+  outputSchema: JsonSchema;
+  inputSchemaSha256: string;
+  outputSchemaSha256: string;
+  packageHash: string;
+  manifestHash: string;
+  resourceHash: string;
+  planDigest: string;
+  writeEffect: boolean;
+  hostPermissions: string[];
 }
 
+export interface PluginActionExecutionInput {
+  binding: PluginActionBindingV1;
+  executionId: string;
+  executionStepId: string;
+  input: Record<string, unknown>;
+  grantRefs: string[];
+  idempotencyKey: string;
+  deadlineAt: string;
+}
+
+export interface PluginActionExecutionResult {
+  success: boolean;
+  status: 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED';
+  output: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string;
+  detail: Record<string, unknown>;
+}
+
+export interface PluginRunnerExecutionDependencies {
+  supervisor?: Pick<PluginRunnerSupervisor, 'start'>;
+  runner?: ProductionPluginRunnerConfig;
+  builtinRegistry?: Pick<BuiltinPluginRegistry, 'refresh' | 'get'>;
+  hostApiHandler?: PluginRunnerHostApiHandler;
+  executionGrants?: Pick<ExecutionGrantService, 'validate'>;
+}
+
+/**
+ * 保留设备/云旧入口的类型，以便调用方在迁移期间得到明确拒绝，而不是重新创建
+ * 一条隐蔽的包级 Runner 执行链。
+ */
 export interface PluginWorkflowCapabilityExecutionInput {
   tenantId: string;
-  targetId?: string;
   planId?: string;
+  targetId?: string;
   actorId?: string;
   workflowVersionId: string;
   pluginVersionId: string;
@@ -58,147 +104,23 @@ export interface PluginWorkflowCapabilityExecutor {
   execute(input: PluginWorkflowCapabilityExecutionInput): Promise<PluginWorkflowCapabilityExecutionResult>;
 }
 
-/**
- * 非部署计划入口（例如设备接入时的连接测试/发现）仍必须经过同一套
- * Plugin Runner 绑定和 Grant 校验，不能退回 WorkflowTemplatesApplicationService。
- */
+/** 包级入口已经废弃；只有 DSL plugin.action 能调用下面的 Action 执行器。 */
 export class PluginWorkflowCapabilityExecutorAdapter implements PluginWorkflowCapabilityExecutor {
-  constructor(
-    private readonly executor: Pick<Executor, 'executeStep'>,
-    private readonly grants: Pick<ExecutionGrantService, 'create'>,
-  ) {}
-
   async execute(input: PluginWorkflowCapabilityExecutionInput): Promise<PluginWorkflowCapabilityExecutionResult> {
-    validateCapabilityInput(input);
-    const executionId = newId('plugin-run');
-    const executionStepId = newId('plugin-step');
-    const planDigest = createHash('sha256').update(canonicalize({
-      workflowVersionId: input.workflowVersionId,
-      pluginVersionId: input.pluginVersionId,
-      pluginId: input.pluginId,
-      pluginVersion: input.pluginVersion,
-      packageHash: input.packageHash,
-      manifestHash: input.manifestHash,
-      resourceHash: input.resourceHash,
-      capability: input.capability,
-      writeEffect: input.writeEffect,
-      hostPermissions: input.hostPermissions,
-      input: input.input,
-    }), 'utf8').digest('hex');
-    const grant = await this.grants.create({
-      tenantId: input.tenantId,
-      planId: input.planId,
-      runId: executionId,
-      stepId: executionStepId,
-      targetId: input.targetId,
-      workflowVersionId: input.workflowVersionId,
-      pluginVersionId: input.pluginVersionId,
-      pluginId: input.pluginId,
-      capability: input.capability,
-      planDigest,
-      executorType: 'PLUGIN_RUNNER',
-      allowedSecretRefs: collectReferences(input.input, 'secret://'),
-      allowedArtifactRefs: collectReferences(input.input, 'artifact://'),
-      allowedActions: pluginRunnerGrantActions(input.hostPermissions),
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-    });
-    const boundInput = bindGeneratedGrant(input.input, grant.id);
-    const binding = {
-      apiVersion: pluginRunnerBindingApiVersion,
-      tenantId: input.tenantId,
-      executionRunId: executionId,
-      executionStepId,
-      workflowVersionId: input.workflowVersionId,
-      pluginVersionId: input.pluginVersionId,
-      pluginId: input.pluginId,
-      pluginVersion: input.pluginVersion,
-      packageHash: input.packageHash,
-      manifestHash: input.manifestHash,
-      resourceHash: input.resourceHash,
-      capability: input.capability,
-      grantRefs: [grant.id],
-      planDigest,
-      writeEffect: input.writeEffect,
-      hostPermissions: [...input.hostPermissions],
-      input: boundInput,
-    } satisfies PluginRunnerExecutionBindingV1;
-    const now = new Date().toISOString();
-    const step: ExecutionStepEntity = {
-      id: executionStepId,
-      tenantId: input.tenantId,
-      executionRunId: executionId,
-      deploymentPlanTargetId: input.targetId,
-      stepNo: 1,
-      stepType: 'CUSTOM',
-      name: `PLUGIN_RUNNER ${input.capability}`,
-      dependsOn: [],
-      idempotent: input.writeEffect !== true,
-      attemptCount: 0,
-      maxAttempts: 1,
-      inputSnapshot: { executorType: 'PLUGIN_RUNNER', pluginRunnerBinding: binding },
-      status: 'RUNNING',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: input.actorId,
-      version: 1,
+    return {
+      success: false,
+      errorCode: 'PLUGIN_RUNNER_SCOPE_FORBIDDEN',
+      errorMessage: '包级 Plugin Runner 请求已禁止；请在普通 DSL 中声明 plugin.action 步骤',
+      detail: { pluginId: input.pluginId, capability: input.capability, workflowVersionId: input.workflowVersionId },
+      executionId: 'not-created',
+      executionStepId: 'not-created',
     };
-    const result = await this.executor.executeStep({ step, runType: 'apply', dryRun: false });
-    return { ...result, executionId, executionStepId };
   }
-}
-
-/** 中文说明：Capability 任务直到执行前才知道 Grant ID，内部占位符在此处一次性绑定。 */
-function bindGeneratedGrant(input: Record<string, unknown>, grantId: string): Record<string, unknown> {
-  const output = structuredClone(input);
-  const credential = output.credential;
-  if (credential && typeof credential === 'object' && !Array.isArray(credential)) {
-    const record = credential as Record<string, unknown>;
-    if (record.grantId === '__AUTO_GRANT__') record.grantId = grantId;
-  }
-  const security = output.security;
-  if (security && typeof security === 'object' && !Array.isArray(security)) {
-    const record = security as Record<string, unknown>;
-    if (record.grantRef === '__AUTO_GRANT__') record.grantRef = grantId;
-  }
-  return output;
 }
 
 /**
- * 由控制面在创建执行步骤时写入的一次性 Runner 绑定。
- *
- * 插件 Runner 不再从 Workflow、Agent 或 Trusted JS 快照推断身份。所有绑定字段
- * 都必须在此对象中一次性固定，并与执行步骤的租户、运行和步骤身份完全一致。
- */
-export interface PluginRunnerExecutionBindingV1 {
-  apiVersion: typeof pluginRunnerBindingApiVersion;
-  tenantId: string;
-  executionRunId: string;
-  executionStepId: string;
-  workflowVersionId: string;
-  pluginVersionId: string;
-  pluginId: string;
-  pluginVersion: string;
-  packageHash: string;
-  manifestHash: string;
-  resourceHash: string;
-  capability: string;
-  grantRefs: string[];
-  planDigest: string;
-  writeEffect: boolean;
-  hostPermissions: string[];
-  input: Record<string, unknown>;
-}
-
-interface RunnerBinding extends PluginRunnerExecutionBindingV1 {
-  auditBinding: Record<string, unknown>;
-}
-
-/**
- * executions 到 Plugin Runner 的唯一插件执行适配器。
- *
- * 它不加载插件资源，也不调用插件对象；宿主只把已经固定的执行绑定封装成 IPC 请求。
- * Runner 启动/握手失败发生在任何插件代码执行之前，应明确失败；只有已提交 IPC
- * 执行后断连、超时或崩溃才可能形成外部写入结果不明。
+ * Runner 适配器只执行一项已冻结的 Action。它不读取 workflow、rollback、
+ * checkpoint 或变量全集，也不拥有 DSL 的流程控制权。
  */
 export class PluginRunnerExecutorAdapter implements Executor {
   readonly type = pluginRunnerExecutorType;
@@ -206,89 +128,162 @@ export class PluginRunnerExecutorAdapter implements Executor {
   constructor(private readonly dependencies: PluginRunnerExecutionDependencies = {}) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    let binding: RunnerBinding;
     try {
-      binding = resolvePluginRunnerBinding(input);
+      const binding = resolvePluginActionBinding(input.step.inputSnapshot.pluginActionBinding);
+      const actionInput = requiredRecord(input.step.inputSnapshot.pluginActionInput, 'pluginActionInput');
+      const grantRefs = requiredIdentifiers(input.step.inputSnapshot.pluginActionGrantRefs, 'pluginActionGrantRefs', true);
+      const result = await this.executeAction({
+        binding,
+        executionId: input.step.executionRunId,
+        executionStepId: input.step.id,
+        input: actionInput,
+        grantRefs,
+        idempotencyKey: requiredIdentifier(input.step.inputSnapshot.pluginActionIdempotencyKey, 'pluginActionIdempotencyKey'),
+        deadlineAt: requiredDate(input.step.inputSnapshot.pluginActionDeadlineAt, 'pluginActionDeadlineAt'),
+      });
+      return {
+        success: result.success,
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+        detail: result.detail,
+      };
     } catch (error) {
-      return validationFailure(error);
+      return actionFailure(error, {});
+    }
+  }
+
+  async executeAction(input: PluginActionExecutionInput): Promise<PluginActionExecutionResult> {
+    if (dslCertificateCapabilities.has(input.binding.capability)) {
+      return actionFailure(new AppError(
+        'PLUGIN_RUNNER_SCOPE_FORBIDDEN',
+        '证书部署和回滚必须由普通 DSL Workflow 执行，禁止进入 Plugin Runner',
+      ), emptyDetail(input.binding));
+    }
+    let binding: PluginActionBindingV1;
+    try {
+      binding = validateActionExecutionInput(input);
+      assertJsonSchema(input.input, binding.inputSchema, 'plugin.action 输入');
+    } catch (error) {
+      return actionFailure(error, emptyDetail(input.binding));
     }
 
     const runner = this.dependencies.runner;
     const supervisor = this.dependencies.supervisor;
     if (!runner || !supervisor) {
-      return {
-        success: false,
-        errorCode: 'PLUGIN_RUNNER_START_FAILED',
-        errorMessage: '生产 Plugin Runner 未完成 executions 装配，已失败关闭',
-        detail: { executionStatus: 'FAILED', runnerRequired: true, auditBinding: binding.auditBinding },
-      };
+      return actionFailure(new AppError('PLUGIN_RUNNER_START_FAILED', 'Plugin Action Runner 未完成生产装配，已失败关闭'), auditDetail(binding, input));
     }
 
     let packageEntry: BuiltinPluginRegistryEntry | undefined;
     try {
       packageEntry = await resolveBuiltinPackage(this.dependencies.builtinRegistry, binding);
-    } catch (error) {
-      return validationFailure(error);
-    }
-    let spec: PluginRunnerLaunchSpec;
-    try {
-      spec = buildLaunchSpec(runner, binding, this.dependencies.hostApiHandler, packageEntry);
-    } catch (error) {
-      return validationFailure(error);
-    }
-    if (this.dependencies.executionGrants) {
-      try {
-        await Promise.all(binding.grantRefs.map((grantId) => this.dependencies.executionGrants!.validate({
-          grantId,
-          tenantId: binding.tenantId,
-          runId: binding.executionRunId,
-          stepId: binding.executionStepId,
-          workflowVersionId: binding.workflowVersionId,
-          pluginVersionId: binding.pluginVersionId,
-          pluginId: binding.pluginId,
-          capability: binding.capability,
-          planDigest: binding.planDigest,
-          executorType: pluginRunnerExecutorType,
-        })));
-      } catch (error) {
-        return {
-          success: false,
-          errorCode: 'PLUGIN_HOST_CALL_DENIED',
-          errorMessage: 'Plugin Runner 执行 Grant 未通过完整绑定校验',
-          detail: { executionStatus: 'FAILED', auditBinding: binding.auditBinding, cause: error instanceof AppError ? error.errorCode : 'GRANT_VALIDATION_FAILED' },
-        };
+      if (!this.dependencies.executionGrants) {
+        throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Plugin Action 缺少 ExecutionGrantService，已失败关闭');
       }
+      await Promise.all(input.grantRefs.map((grantId) => this.dependencies.executionGrants!.validate({
+        grantId,
+        tenantId: binding.tenantId,
+        runId: input.executionId,
+        stepId: input.executionStepId,
+        workflowVersionId: binding.workflowVersionId,
+        pluginVersionId: binding.pluginVersionId,
+        pluginId: binding.pluginId,
+        capability: binding.capability,
+        actionId: binding.actionId,
+        actionContractVersion: binding.actionContractVersion,
+        inputSchemaSha256: binding.inputSchemaSha256,
+        outputSchemaSha256: binding.outputSchemaSha256,
+        planDigest: binding.planDigest,
+        executorType: pluginRunnerExecutorType,
+      })));
+    } catch (error) {
+      return actionFailure(error, auditDetail(binding, input));
     }
-    const request: PluginRunnerExecutionInput = {
-      tenantId: binding.tenantId,
-      executionId: binding.executionRunId,
-      executionStepId: binding.executionStepId,
-      workflowVersionId: binding.workflowVersionId,
-      planDigest: binding.planDigest,
-      capability: binding.capability,
-      input: structuredClone(binding.input),
-      grantRefs: [...binding.grantRefs],
-      idempotencyKey: `${binding.executionRunId}:${binding.executionStepId}:${input.step.attemptCount}`,
-      deadlineAt: deadlineAt(this.dependencies.deadlineMs),
-      writeEffect: binding.writeEffect,
-    };
 
     let client: PluginRunnerClient;
     try {
-      client = await supervisor.start(spec);
+      client = await supervisor.start(buildLaunchSpec(runner, binding, this.dependencies.hostApiHandler, packageEntry));
     } catch (error) {
-      return startFailure(error, binding);
+      return actionFailure(error, auditDetail(binding, input));
     }
+
+    const request: PluginRunnerExecutionInput = {
+      tenantId: binding.tenantId,
+      executionId: input.executionId,
+      executionStepId: input.executionStepId,
+      pluginVersionId: binding.pluginVersionId,
+      workflowVersionId: binding.workflowVersionId,
+      pluginId: binding.pluginId,
+      capability: binding.capability,
+      actionId: binding.actionId,
+      actionContractVersion: binding.actionContractVersion,
+      inputSchemaSha256: binding.inputSchemaSha256,
+      outputSchemaSha256: binding.outputSchemaSha256,
+      packageHash: binding.packageHash,
+      manifestHash: binding.manifestHash,
+      resourceHash: binding.resourceHash,
+      planDigest: binding.planDigest,
+      writeEffect: binding.writeEffect,
+      input: structuredClone(input.input),
+      grantRefs: [...input.grantRefs],
+      idempotencyKey: input.idempotencyKey,
+      deadlineAt: input.deadlineAt,
+    };
     try {
       const result = await client.execute(request);
-      return toStepResult(result, binding);
+      if (result.success && result.status === 'SUCCESS') {
+        try {
+          assertJsonSchema(result.output, binding.outputSchema, 'plugin.action 输出');
+        } catch (error) {
+          return actionFailure(new AppError('PLUGIN_CONTRACT_INVALID', 'plugin.action 输出不符合冻结 Schema', {
+            cause: error instanceof AppError ? error.errorCode : 'SCHEMA_VALIDATION_FAILED',
+          }), auditDetail(binding, input, result.output));
+        }
+        return {
+          success: true,
+          status: 'SUCCESS',
+          output: structuredClone(result.output),
+          detail: auditDetail(binding, input, result.output, result.externalReceipt, result.warnings),
+        };
+      }
+      const invalidState = invalidRunnerResultState(result, binding.writeEffect);
+      if (invalidState) return actionFailure(invalidState, auditDetail(binding, input, undefined, result.externalReceipt, result.warnings, result.error));
+      const unknown = binding.writeEffect && result.error?.mayBeUnknown === true;
+      return {
+        success: false,
+        status: unknown ? 'UNKNOWN' : result.status,
+        output: {},
+        errorCode: unknown ? 'PLUGIN_OPERATION_UNKNOWN_STATE' : result.error?.code ?? 'PLUGIN_ACTION_FAILED',
+        errorMessage: unknown ? 'Plugin Action 外部写入结果未知，必须由 DSL 恢复流程处理' : result.error?.message ?? 'Plugin Action 执行失败',
+        detail: auditDetail(binding, input, undefined, result.externalReceipt, result.warnings, result.error),
+      };
     } catch (error) {
-      return unknownFailure(error, binding);
+      const unknown = binding.writeEffect && isUncertainExternalWrite(error);
+      return {
+        success: false,
+        status: unknown ? 'UNKNOWN' : 'FAILED',
+        output: {},
+        errorCode: unknown ? 'PLUGIN_OPERATION_UNKNOWN_STATE' : errorCode(error, 'PLUGIN_ACTION_FAILED'),
+        errorMessage: unknown ? 'Plugin Action 外部写入结果未知，必须由 DSL 恢复流程处理' : errorMessage(error),
+        detail: auditDetail(binding, input, undefined, undefined, undefined, error),
+      };
     }
   }
 }
 
-/** 创建默认受控 Runner adapter；生产严格读取配置，开发使用固定本地 Runner，测试保持失败关闭。 */
+function invalidRunnerResultState(
+  result: PluginRunnerExecuteResult,
+  writeEffect: boolean,
+): AppError | undefined {
+  const uncertain = result.status === 'UNKNOWN' || result.error?.mayBeUnknown === true;
+  if (uncertain && (!writeEffect || result.error?.mayBeUnknown !== true)) {
+    return new AppError('PLUGIN_CONTRACT_INVALID', 'Plugin Runner 只能为真实写入不确定性返回 UNKNOWN');
+  }
+  if (result.success !== (result.status === 'SUCCESS')) {
+    return new AppError('PLUGIN_CONTRACT_INVALID', 'Plugin Runner success 与 status 不一致');
+  }
+  return undefined;
+}
+
 export function createDefaultPluginRunnerExecutionDependencies(
   environment: NodeJS.ProcessEnv = process.env,
 ): PluginRunnerExecutionDependencies {
@@ -304,81 +299,76 @@ export function createPluginRunnerExecutors(
   return [new PluginRunnerExecutorAdapter(dependencies)];
 }
 
-export function resolvePluginRunnerBinding(input: StepExecutionInput): RunnerBinding {
-  const binding = requiredRecord(input.step.inputSnapshot.pluginRunnerBinding, 'pluginRunnerBinding');
-  assertKnownBindingKeys(binding);
-
-  const resolved: PluginRunnerExecutionBindingV1 = {
-    apiVersion: requiredLiteral(binding.apiVersion, 'apiVersion', pluginRunnerBindingApiVersion),
-    tenantId: requiredIdentifier(binding.tenantId, 'tenantId'),
-    executionRunId: requiredIdentifier(binding.executionRunId, 'executionRunId'),
-    executionStepId: requiredIdentifier(binding.executionStepId, 'executionStepId'),
-    workflowVersionId: requiredIdentifier(binding.workflowVersionId, 'workflowVersionId'),
-    pluginVersionId: requiredIdentifier(binding.pluginVersionId, 'pluginVersionId'),
-    pluginId: requiredIdentifier(binding.pluginId, 'pluginId'),
-    pluginVersion: requiredIdentifier(binding.pluginVersion, 'pluginVersion'),
-    packageHash: requiredHash(binding.packageHash, 'packageHash'),
-    manifestHash: requiredHash(binding.manifestHash, 'manifestHash'),
-    resourceHash: requiredHash(binding.resourceHash, 'resourceHash'),
-    capability: requiredIdentifier(binding.capability, 'capability'),
-    grantRefs: requiredIdentifierArray(binding.grantRefs, 'grantRefs', true),
-    planDigest: requiredPlanDigest(binding.planDigest),
-    writeEffect: requiredBoolean(binding.writeEffect, 'writeEffect'),
-    hostPermissions: requiredIdentifierArray(binding.hostPermissions, 'hostPermissions', false),
-    input: requiredRecord(binding.input, 'input'),
+export function resolvePluginActionBinding(value: unknown): PluginActionBindingV1 {
+  const record = requiredRecord(value, 'pluginActionBinding');
+  const known = new Set([
+    'apiVersion', 'tenantId', 'workflowVersionId', 'workflowStepName', 'pluginVersionId', 'pluginId', 'pluginVersion',
+    'capability', 'actionId', 'actionContractVersion', 'inputSchema', 'outputSchema', 'inputSchemaSha256',
+    'outputSchemaSha256', 'packageHash', 'manifestHash', 'resourceHash', 'planDigest', 'writeEffect', 'hostPermissions',
+  ]);
+  const unknown = Object.keys(record).filter((key) => !known.has(key));
+  if (unknown.length > 0) throw new AppError('VALIDATION_FAILED', 'pluginActionBinding 包含未登记字段', { unknown });
+  const binding: PluginActionBindingV1 = {
+    apiVersion: requiredLiteral(record.apiVersion, 'apiVersion', pluginActionBindingApiVersion),
+    tenantId: requiredIdentifier(record.tenantId, 'tenantId'),
+    workflowVersionId: requiredIdentifier(record.workflowVersionId, 'workflowVersionId'),
+    workflowStepName: requiredIdentifier(record.workflowStepName, 'workflowStepName'),
+    pluginVersionId: requiredIdentifier(record.pluginVersionId, 'pluginVersionId'),
+    pluginId: requiredIdentifier(record.pluginId, 'pluginId'),
+    pluginVersion: requiredIdentifier(record.pluginVersion, 'pluginVersion'),
+    capability: requiredIdentifier(record.capability, 'capability'),
+    actionId: requiredIdentifier(record.actionId, 'actionId'),
+    actionContractVersion: requiredIdentifier(record.actionContractVersion, 'actionContractVersion'),
+    inputSchema: requiredSchema(record.inputSchema, 'inputSchema'),
+    outputSchema: requiredSchema(record.outputSchema, 'outputSchema'),
+    inputSchemaSha256: requiredHash(record.inputSchemaSha256, 'inputSchemaSha256'),
+    outputSchemaSha256: requiredHash(record.outputSchemaSha256, 'outputSchemaSha256'),
+    packageHash: requiredHash(record.packageHash, 'packageHash'),
+    manifestHash: requiredHash(record.manifestHash, 'manifestHash'),
+    resourceHash: requiredHash(record.resourceHash, 'resourceHash'),
+    planDigest: requiredDigest(record.planDigest),
+    writeEffect: requiredBoolean(record.writeEffect, 'writeEffect'),
+    hostPermissions: requiredIdentifiers(record.hostPermissions, 'hostPermissions', false),
   };
+  if (schemaHash(binding.inputSchema) !== binding.inputSchemaSha256 || schemaHash(binding.outputSchema) !== binding.outputSchemaSha256) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'pluginActionBinding 的 Schema 摘要与冻结 Schema 不一致');
+  }
+  return binding;
+}
 
-  if (input.step.tenantId !== undefined && resolved.tenantId !== input.step.tenantId) {
-    throw new AppError('TENANT_SCOPE_DENIED', 'Runner 绑定租户与执行步骤不一致');
-  }
-  if (resolved.executionRunId !== input.step.executionRunId) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 绑定 executionRunId 与执行步骤不一致');
-  }
-  if (resolved.executionStepId !== input.step.id) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 绑定 executionStepId 与执行步骤不一致');
-  }
-
-  return {
-    ...resolved,
-    grantRefs: [...resolved.grantRefs],
-    hostPermissions: [...resolved.hostPermissions],
-    input: structuredClone(resolved.input),
-    auditBinding: {
-      tenantId: resolved.tenantId,
-      executionRunId: resolved.executionRunId,
-      executionStepId: resolved.executionStepId,
-      deploymentPlanTargetId: input.step.deploymentPlanTargetId,
-      workflowVersionId: resolved.workflowVersionId,
-      pluginVersionId: resolved.pluginVersionId,
-      pluginId: resolved.pluginId,
-      pluginVersion: resolved.pluginVersion,
-      packageHash: resolved.packageHash,
-      manifestHash: resolved.manifestHash,
-      resourceHash: resolved.resourceHash,
-      capability: resolved.capability,
-      grantRefs: [...resolved.grantRefs],
-      planDigest: resolved.planDigest,
-      writeEffect: resolved.writeEffect,
-    },
-  };
+function validateActionExecutionInput(input: PluginActionExecutionInput): PluginActionBindingV1 {
+  const binding = resolvePluginActionBinding(input.binding);
+  if (!input || binding.tenantId === '') throw new AppError('VALIDATION_FAILED', 'plugin.action 执行输入无效');
+  requiredIdentifier(input.executionId, 'executionId');
+  requiredIdentifier(input.executionStepId, 'executionStepId');
+  requiredRecord(input.input, 'input');
+  requiredIdentifiers(input.grantRefs, 'grantRefs', true);
+  requiredIdentifier(input.idempotencyKey, 'idempotencyKey');
+  requiredDate(input.deadlineAt, 'deadlineAt');
+  return binding;
 }
 
 function buildLaunchSpec(
   runner: ProductionPluginRunnerConfig,
-  binding: RunnerBinding,
+  binding: PluginActionBindingV1,
   hostApiHandler: PluginRunnerHostApiHandler | undefined,
   packageEntry: BuiltinPluginRegistryEntry | undefined,
 ): PluginRunnerLaunchSpec {
-  const runtimeEntrypointPath = packageEntry?.runtimeEntrypointPath;
-  const resourceHash = packageEntry?.resourceHash ?? binding.resourceHash;
-  const capabilities = resolveLaunchCapabilities(packageEntry, binding);
+  if (!packageEntry) throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Plugin Action 缺少固定内置插件包快照');
+  const permissions = [...binding.hostPermissions];
+  if (permissions.some((permission) => !packageEntry.manifest.permissions.includes(permission))) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'plugin.action 请求了未在固定 PluginVersion 声明的 Host API 权限', {
+      pluginId: binding.pluginId,
+      actionId: binding.actionId,
+    });
+  }
   return {
     pluginVersionId: binding.pluginVersionId,
     pluginId: binding.pluginId,
     pluginVersion: binding.pluginVersion,
     tenantId: binding.tenantId,
     executablePath: runner.executablePath,
-    args: runtimeEntrypointPath ? replaceExecutorModule(runner.args, runtimeEntrypointPath) : runner.args,
+    args: replaceExecutorModule(runner.args, packageEntry.runtimeEntrypointPath),
     workingDirectory: runner.workingDirectory,
     environment: {
       GCAC_PLUGIN_VERSION_ID: binding.pluginVersionId,
@@ -386,82 +376,39 @@ function buildLaunchSpec(
       GCAC_PLUGIN_VERSION: binding.pluginVersion,
       GCAC_PLUGIN_PACKAGE_HASH: binding.packageHash,
       GCAC_PLUGIN_MANIFEST_HASH: binding.manifestHash,
-      GCAC_PLUGIN_RESOURCE_HASH: resourceHash,
+      GCAC_PLUGIN_RESOURCE_HASH: binding.resourceHash,
     },
     runnerVersion: runner.runnerVersion,
     sdkVersion: runner.sdkVersion,
-    capabilities,
-    hostPermissions: [...binding.hostPermissions],
+    capabilities: packageEntry.capabilities.map((capability) => capability.key),
+    hostPermissions: permissions,
     packageHash: binding.packageHash,
-    resourceHash,
+    resourceHash: binding.resourceHash,
     manifestHash: binding.manifestHash,
     ...(hostApiHandler ? { hostApiHandler } : {}),
   };
 }
 
-/**
- * Runner 的 hello 会校验 Manifest 全量能力，而不是本次绑定的单一能力。
- * 只给一项能力会让多能力插件（例如 Citrix ADC）在握手前被拒绝。
- * 没有 Registry 的测试夹具继续按绑定能力启动，生产路径必须使用完整内置包快照。
- */
-function resolveLaunchCapabilities(
-  packageEntry: BuiltinPluginRegistryEntry | undefined,
-  binding: RunnerBinding,
-): string[] {
-  const declared = packageEntry?.capabilities
-    ?.map((capability) => capability.key)
-    .filter((capability) => capability.trim().length > 0);
-  if (!declared?.length) return [binding.capability];
-  // hello 使用顺序敏感的数组比较，必须保持 Manifest 原始声明顺序。
-  const capabilities = [...declared];
-  if (new Set(capabilities).size !== capabilities.length) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '固定内置插件包包含重复 Capability 声明', {
+async function resolveBuiltinPackage(
+  registry: Pick<BuiltinPluginRegistry, 'refresh' | 'get'> | undefined,
+  binding: PluginActionBindingV1,
+): Promise<BuiltinPluginRegistryEntry> {
+  if (!registry) throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Plugin Action 缺少内置插件 Registry');
+  await registry.refresh();
+  const entry = registry.get(binding.pluginId, binding.pluginVersion);
+  if (entry.packageSha256 !== binding.packageHash || entry.manifestSha256 !== binding.manifestHash || entry.resourceHash !== binding.resourceHash) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'plugin.action 固定摘要与 PluginVersion 快照不一致', {
       pluginId: binding.pluginId,
-      pluginVersion: binding.pluginVersion,
+      actionId: binding.actionId,
     });
   }
-  if (!capabilities.includes(binding.capability)) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 执行绑定能力不在固定内置插件包中', {
+  if (!entry.capabilities.some((capability) => capability.key === binding.capability)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'plugin.action Capability 不在固定 PluginVersion 中', {
       pluginId: binding.pluginId,
-      pluginVersion: binding.pluginVersion,
       capability: binding.capability,
     });
   }
-  return capabilities;
-}
-
-async function resolveBuiltinPackage(
-  registry: Pick<BuiltinPluginRegistry, 'refresh' | 'get'> | undefined,
-  binding: RunnerBinding,
-): Promise<BuiltinPluginRegistryEntry | undefined> {
-  if (!registry) return undefined;
-  await registry.refresh();
-  const entry = registry.get(binding.pluginId, binding.pluginVersion);
-  if (entry.packageSha256 !== binding.packageHash
-    || entry.manifestSha256 !== binding.manifestHash
-    || (entry.resourceHash !== binding.resourceHash && !isLegacyResourceAggregateHash(binding.resourceHash, entry.resourceSha256))) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '执行绑定摘要与固定内置插件包不一致', {
-      pluginId: binding.pluginId,
-      pluginVersion: binding.pluginVersion,
-      expectedPackageSha256: binding.packageHash,
-      actualPackageSha256: entry.packageSha256,
-      expectedManifestSha256: binding.manifestHash,
-      actualManifestSha256: entry.manifestSha256,
-      expectedResourceHash: binding.resourceHash,
-      actualResourceHash: entry.resourceHash,
-    });
-  }
   return entry;
-}
-
-/**
- * 仅兼容曾由错误数组序列化生成的历史绑定。它仍必须与当前内置包的每个
- * 资源摘要精确对应，且包与 Manifest 摘要已经在调用方完成严格校验。
- */
-function isLegacyResourceAggregateHash(resourceHash: string, resourceHashes: Record<string, string>): boolean {
-  const entries = Object.entries(resourceHashes).sort(([left], [right]) => left.localeCompare(right));
-  const legacyHash = `sha256:${createHash('sha256').update(JSON.stringify(entries), 'utf8').digest('hex')}`;
-  return resourceHash === legacyHash;
 }
 
 function replaceExecutorModule(args: readonly string[], runtimeEntrypointPath: string): string[] {
@@ -478,223 +425,119 @@ function replaceExecutorModule(args: readonly string[], runtimeEntrypointPath: s
   return [...result, '--executor-module', runtimeEntrypointPath];
 }
 
-function toStepResult(
-  result: Awaited<ReturnType<PluginRunnerClient['execute']>>,
-  binding: RunnerBinding,
-): StepExecutionResult {
-  const summary = result.summary;
-  const operationResults = readRecordArray(summary.operationResults);
-  const dryRunProjection = operationResults.length > 0
-    ? normalizeAgentV2DryRunDetail({ operationResults })
-    : undefined;
-  const detail = {
-    executionMode: 'plugin_runner',
-    executionStatus: result.status,
+function actionFailure(error: unknown, detail: Record<string, unknown>): PluginActionExecutionResult {
+  return {
+    success: false,
+    status: 'FAILED',
+    output: {},
+    errorCode: errorCode(error, 'PLUGIN_ACTION_FAILED'),
+    errorMessage: errorMessage(error),
+    detail: { ...detail, executionStatus: 'FAILED' },
+  };
+}
+
+function auditDetail(
+  binding: PluginActionBindingV1,
+  input: PluginActionExecutionInput,
+  output?: Record<string, unknown>,
+  externalReceipt?: Record<string, unknown>,
+  warnings?: readonly unknown[],
+  error?: unknown,
+): Record<string, unknown> {
+  return {
+    executionMode: 'plugin_action',
+    workflowVersionId: binding.workflowVersionId,
+    workflowStepName: binding.workflowStepName,
     pluginVersionId: binding.pluginVersionId,
     pluginId: binding.pluginId,
     pluginVersion: binding.pluginVersion,
+    capability: binding.capability,
+    actionId: binding.actionId,
+    actionContractVersion: binding.actionContractVersion,
+    inputSchemaSha256: binding.inputSchemaSha256,
+    outputSchemaSha256: binding.outputSchemaSha256,
     packageHash: binding.packageHash,
     manifestHash: binding.manifestHash,
     resourceHash: binding.resourceHash,
-    capability: binding.capability,
-    grantRefs: [...binding.grantRefs],
     planDigest: binding.planDigest,
-    auditBinding: binding.auditBinding,
-    summary,
-    ...(operationResults.length > 0 ? {
-      operationResults,
-      dryRunChecks: dryRunProjection!.dryRunChecks,
-      dryRunSummary: dryRunProjection!.dryRunSummary,
-    } : {}),
-    normalizedObjects: result.normalizedObjects,
-    warnings: result.warnings,
-    ...(result.error ? { error: result.error } : {}),
-  } satisfies Record<string, unknown>;
-  if (result.status === 'SUCCESS' && result.success) return { success: true, detail };
-  if (result.status === 'UNKNOWN' || result.status === 'CANCELLED' || result.error?.mayBeUnknown === true) {
-    return {
-      success: false,
-      errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-      errorMessage: 'Plugin Runner 返回结果不明，必须进入恢复流程',
-      detail: { ...detail, executionStatus: 'UNKNOWN', mayBeUnknown: true },
-    };
-  }
-  return {
-    success: false,
-    errorCode: result.error?.code ?? 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
-    errorMessage: result.error?.message ?? 'Plugin Runner 执行失败',
-    detail,
+    writeEffect: binding.writeEffect,
+    grantRefs: [...input.grantRefs],
+    ...(output ? { output: structuredClone(output) } : {}),
+    ...(externalReceipt ? { externalReceipt: structuredClone(externalReceipt) } : {}),
+    ...(warnings?.length ? { warnings: structuredClone(warnings) } : {}),
+    ...(error ? { error: { code: errorCode(error, 'PLUGIN_ACTION_FAILED') } } : {}),
   };
 }
 
-function unknownFailure(error: unknown, binding: RunnerBinding): StepExecutionResult {
-  return {
-    success: false,
-    errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-    errorMessage: 'Plugin Runner 崩溃、超时、迟到或取消导致执行结果不明，必须进入恢复流程',
-    detail: {
-      executionMode: 'plugin_runner',
-      executionStatus: 'UNKNOWN',
-      mayBeUnknown: true,
-      pluginVersionId: binding.pluginVersionId,
-      pluginId: binding.pluginId,
-      pluginVersion: binding.pluginVersion,
-      packageHash: binding.packageHash,
-      manifestHash: binding.manifestHash,
-      resourceHash: binding.resourceHash,
-      capability: binding.capability,
-      planDigest: binding.planDigest,
-      auditBinding: binding.auditBinding,
-      cause: error instanceof AppError ? error.errorCode : 'PLUGIN_RUNNER_FAILED',
-    },
-  };
+function emptyDetail(binding: PluginActionBindingV1 | undefined): Record<string, unknown> {
+  return binding ? { actionId: binding.actionId, pluginId: binding.pluginId } : {};
 }
 
-function startFailure(error: unknown, binding: RunnerBinding): StepExecutionResult {
-  const appError = error instanceof AppError ? error : undefined;
-  return {
-    success: false,
-    errorCode: appError?.errorCode ?? 'PLUGIN_RUNNER_START_FAILED',
-    errorMessage: appError?.message ?? (error instanceof Error ? error.message : String(error)),
-    detail: {
-      executionMode: 'plugin_runner',
-      executionStatus: 'FAILED',
-      startupFailure: true,
-      mayBeUnknown: false,
-      auditBinding: binding.auditBinding,
-      cause: appError?.errorCode ?? 'PLUGIN_RUNNER_START_FAILED',
-    },
-  };
+function isUncertainExternalWrite(error: unknown): boolean {
+  if (!(error instanceof AppError)) return false;
+  const details = error.details;
+  return Boolean(details && typeof details === 'object' && !Array.isArray(details)
+    && (details as Record<string, unknown>).mayBeUnknown === true);
 }
 
-function validationFailure(error: unknown): StepExecutionResult {
-  const appError = error instanceof AppError ? error : undefined;
-  return {
-    success: false,
-    errorCode: appError?.errorCode ?? 'VALIDATION_FAILED',
-    errorMessage: appError?.message ?? (error instanceof Error ? error.message : String(error)),
-    detail: appError?.details && typeof appError.details === 'object' ? appError.details as Record<string, unknown> : undefined,
-  };
+function errorCode(error: unknown, fallback: string): string {
+  return error instanceof AppError ? error.errorCode : fallback;
 }
 
-function deadlineAt(configuredDeadlineMs = 120_000): string {
-  const configured = Number.isInteger(configuredDeadlineMs) && configuredDeadlineMs > 0 ? configuredDeadlineMs : 120_000;
-  return new Date(Date.now() + configured).toISOString();
-}
-
-function validateCapabilityInput(input: PluginWorkflowCapabilityExecutionInput): void {
-  for (const [name, value] of Object.entries(input)) {
-    if (name === 'input' || name === 'hostPermissions' || name === 'writeEffect') continue;
-    if (typeof value !== 'string' || value.trim() === '') throw new AppError('VALIDATION_FAILED', `Plugin Runner 能力执行缺少 ${name}`);
-  }
-  for (const [name, value] of Object.entries({ packageHash: input.packageHash, manifestHash: input.manifestHash, resourceHash: input.resourceHash })) {
-    if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `${name} 不是固定 SHA-256 摘要`);
-  }
-  if (!/^[A-Za-z0-9._:-]{1,256}$/.test(input.pluginVersionId)) {
-    throw new AppError('VALIDATION_FAILED', 'Plugin Runner PluginVersion 标识无效');
-  }
-  if (!input.input || typeof input.input !== 'object' || Array.isArray(input.input)) {
-    throw new AppError('VALIDATION_FAILED', 'Plugin Runner 能力输入必须是对象');
-  }
-  if (!Array.isArray(input.hostPermissions) || new Set(input.hostPermissions).size !== input.hostPermissions.length) {
-    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Plugin Runner Host 权限列表无效');
-  }
-}
-
-function collectReferences(value: unknown, scheme: 'secret://' | 'artifact://'): string[] {
-  const output = new Set<string>();
-  const visit = (item: unknown): void => {
-    if (typeof item === 'string') {
-      for (const match of item.matchAll(new RegExp(`${scheme}[A-Za-z0-9._:/#-]{1,512}`, 'g'))) output.add(match[0]);
-      return;
-    }
-    if (Array.isArray(item)) {
-      item.forEach(visit);
-      return;
-    }
-    if (item && typeof item === 'object') Object.values(item as Record<string, unknown>).forEach(visit);
-  };
-  visit(value);
-  return [...output].sort();
-}
-
-function pluginRunnerGrantActions(hostPermissions: readonly string[]): string[] {
-  const mapping: Record<string, string> = {
-    'secret.resolve': 'secret.resolve',
-    'artifact.read': 'artifact.read',
-    'network.http': 'network.http',
-    'execution.progress.write': 'execution.progress',
-    'execution.checkpoint.write': 'execution.checkpoint',
-    'execution.checkpoint.read': 'execution.checkpoint',
-    'execution.cancel.read': 'execution.cancel',
-    'resource.lock': 'resource.lock',
-    'audit.append': 'audit.append',
-    'cloud.service.get': 'cloud.service.get',
-    'crypto.sign': 'crypto.sign',
-  };
-  return [...new Set(hostPermissions.map((permission) => mapping[permission]).filter((permission): permission is string => Boolean(permission)))];
-}
-
-function assertKnownBindingKeys(binding: Record<string, unknown>): void {
-  const allowed = new Set([
-    'apiVersion', 'tenantId', 'executionRunId', 'executionStepId', 'workflowVersionId',
-    'pluginVersionId', 'pluginId', 'pluginVersion', 'packageHash', 'manifestHash',
-    'resourceHash', 'capability', 'grantRefs', 'planDigest', 'writeEffect',
-    'hostPermissions', 'input',
-  ]);
-  const unknown = Object.keys(binding).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) throw new AppError('VALIDATION_FAILED', 'Runner 执行绑定包含未知字段', { unknown });
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function requiredRecord(value: unknown, name: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AppError('VALIDATION_FAILED', `Runner 执行缺少对象 ${name}`);
-  }
-  return value as Record<string, unknown>;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError('VALIDATION_FAILED', `${name} 必须是对象`);
+  return structuredClone(value as Record<string, unknown>);
 }
 
-function requiredLiteral(value: unknown, name: string, expected: string): typeof pluginRunnerBindingApiVersion {
-  if (value !== expected) throw new AppError('VALIDATION_FAILED', `Runner ${name} 必须为 ${expected}`);
-  return pluginRunnerBindingApiVersion;
+function requiredSchema(value: unknown, name: string): JsonSchema {
+  const schema = requiredRecord(value, name) as JsonSchema;
+  if (Object.keys(schema).length === 0) throw new AppError('VALIDATION_FAILED', `${name} 不能为空`);
+  return schema;
+}
+
+function requiredLiteral(value: unknown, name: string, expected: string): typeof pluginActionBindingApiVersion {
+  if (value !== expected) throw new AppError('VALIDATION_FAILED', `${name} 必须为 ${expected}`);
+  return pluginActionBindingApiVersion;
 }
 
 function requiredIdentifier(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) {
-    throw new AppError('VALIDATION_FAILED', `Runner ${name} 必须是固定标识符`);
-  }
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw new AppError('VALIDATION_FAILED', `${name} 必须是固定标识符`);
   return value;
+}
+
+function requiredIdentifiers(value: unknown, name: string, nonEmpty: boolean): string[] {
+  if (!Array.isArray(value) || (nonEmpty && value.length === 0) || value.length > 100) throw new AppError('VALIDATION_FAILED', `${name} 必须是有界标识符数组`);
+  const items = value.map((item) => requiredIdentifier(item, name));
+  if (new Set(items).size !== items.length) throw new AppError('VALIDATION_FAILED', `${name} 不允许重复`);
+  return items;
 }
 
 function requiredHash(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value)) {
-    throw new AppError('VALIDATION_FAILED', `Runner ${name} 必须是 sha256 摘要`);
-  }
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('VALIDATION_FAILED', `${name} 必须是 sha256 摘要`);
   return value;
 }
 
-function requiredPlanDigest(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
-    throw new AppError('VALIDATION_FAILED', 'Runner planDigest 格式无效');
-  }
+function requiredDigest(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new AppError('VALIDATION_FAILED', 'planDigest 必须是 sha256 十六进制摘要');
   return value;
 }
 
 function requiredBoolean(value: unknown, name: string): boolean {
-  if (typeof value !== 'boolean') throw new AppError('VALIDATION_FAILED', `Runner ${name} 必须是布尔值`);
+  if (typeof value !== 'boolean') throw new AppError('VALIDATION_FAILED', `${name} 必须是布尔值`);
   return value;
 }
 
-function requiredIdentifierArray(value: unknown, name: string, requireValue: boolean): string[] {
-  if (!Array.isArray(value) || (requireValue && value.length === 0) || value.length > 100) {
-    throw new AppError('VALIDATION_FAILED', `Runner ${name} 必须是有界标识符数组`);
+function requiredDate(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)) || Date.parse(value) <= Date.now()) {
+    throw new AppError('PLUGIN_RUNNER_TIMEOUT', `${name} 无效或已过期`);
   }
-  const values = value.map((item) => requiredIdentifier(item, name));
-  if (new Set(values).size !== values.length) throw new AppError('VALIDATION_FAILED', `Runner ${name} 不允许重复`);
-  return values;
+  return value;
 }
 
-function readRecordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-    : [];
+function schemaHash(schema: JsonSchema): string {
+  return `sha256:${createHash('sha256').update(canonicalize(schema), 'utf8').digest('hex')}`;
 }

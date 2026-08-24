@@ -215,6 +215,28 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   }), (error: any) => error.errorCode === 'VALIDATION_FAILED'
     && error.details?.issues?.some((issue: any) => issue.code === 'DEPLOYMENT_INPUT_REQUIRED'));
 
+  // 选择新插件版本时必须创建新的 Binding，旧 Binding 仍保留为历史执行边界。
+  const switched = await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: {
+      managedTargetId: target.id,
+      pluginOverride: {
+        pluginVersionId: older.id,
+        pluginBindingId: saved.effectiveCapability!.binding.pluginBindingId,
+        expectedBindingVersion: savedBinding.version,
+        inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https', allowInsecureTls: true }, connections: {}, credentials: {}, artifacts: {} },
+      },
+    },
+  });
+  assert.ok(switched.effectiveCapability);
+  assert.notEqual(switched.effectiveCapability!.binding.pluginBindingId, saved.effectiveCapability!.binding.pluginBindingId);
+  assert.equal(switched.effectiveCapability!.plugin.version, '0.9.0');
+  const originalBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db))
+    .getTenantBinding(tenantId, saved.effectiveCapability!.binding.pluginBindingId);
+  assert.equal(originalBinding.pluginVersionId, imported.id);
+  assert.equal(originalBinding.version, savedBinding.version);
+
   const overridden = await service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,

@@ -90,7 +90,6 @@ import { createGatewayPersistenceRepositories, GatewaysApplicationService, Gatew
 import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
-import { PluginWorkflowVersionStore } from './modules/plugins/application/plugin-workflow-version-store.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PluginFactPipelineService } from './modules/plugins/application/plugin-fact-pipeline.service.js';
@@ -151,10 +150,8 @@ import {
 import {
   CloudAccountAssetsApplicationService,
   CloudAccountAssetBindingProvisioner,
-  CloudCapabilityTaskService,
   CloudResourceProjectionService,
   ProvidersController,
-  ProviderCatalogApplicationService,
   getCloudAccountRouteContracts,
 } from './modules/providers/index.js';
 import { resolvePluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
@@ -162,7 +159,6 @@ import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
 import {
   PluginRunnerExecutorAdapter,
-  PluginWorkflowCapabilityExecutorAdapter,
   type PluginRunnerExecutionDependencies,
 } from './modules/executions/application/plugin-runner-executor.adapter.js';
 import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
@@ -361,8 +357,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
-  const providerCatalogService = new ProviderCatalogApplicationService();
-  const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
+  const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb);
   const pluginRunnerSupervisor = pluginRunnerConfig
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
@@ -373,9 +368,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ? createPluginRunnerHostApiHandler({
       security,
       artifacts: pluginArtifactStore,
-      resourceLocks: pluginResourceLockService,
-      workflowRecovery: workflowRecoveryService,
-      executionDetails: executionDetailStream,
       executions: executionPersistence.executions,
       requestGate: new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(appDb)),
       cloudServices: cloudAccountAssetsService,
@@ -391,16 +383,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
         builtinRegistry: builtinPluginRegistry,
       }
       : undefined);
-  const pluginWorkflowCapabilityExecutor = pluginRunnerDependencies?.runner && pluginRunnerDependencies.supervisor
-    ? new PluginWorkflowCapabilityExecutorAdapter(
-      new PluginRunnerExecutorAdapter({ ...pluginRunnerDependencies, executionGrants: security.grants }),
-      security.grants,
-    )
-    : undefined;
   new ProvidersController(
     cloudAccountAssetsService,
     security,
-    tasksService,
   ).register(app.router);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
@@ -464,16 +449,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(
     workflowTemplatesService,
     new PluginWorkflowBindingsRepository(appDb),
-    new PluginWorkflowVersionStore(appDb),
     (pluginId, version) => builtinPluginRegistry.getDeclaredWorkflowDeclarations(pluginId, version),
-  );
-  const cloudCapabilityTaskService = new CloudCapabilityTaskService(
-    cloudAccountAssetsService,
-    pluginBindingsService,
-    unifiedPluginsService,
-    pluginWorkflowPublisher,
-    pluginWorkflowCapabilityExecutor,
-    cloudResourceProjectionService,
   );
   const directWorkflowOnboarding = new PublishedDirectWorkflowOnboardingAdapter(
     assetsService.getRepository(),
@@ -492,7 +468,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     standardDeviceDiscoveryProjector,
     undefined,
-    pluginWorkflowCapabilityExecutor,
   );
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization
@@ -521,7 +496,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     app.setResource('browserCredentialSessionService', browserCredentialSessionService);
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
-  app.setResource('cloudCapabilityTaskService', cloudCapabilityTaskService);
   app.setResource('cloudResourceProjectionService', cloudResourceProjectionService);
   app.setResource('certificateServices', certificateServices);
   const globalSearchService = new GlobalSearchApplicationService({
@@ -1172,7 +1146,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     reports: reportExportService,
     agents: agentsService,
     pluginCatalog: builtinCatalogRefresher,
-    cloudCapability: cloudCapabilityTaskService,
   }, tasksService.registry.list().map((definition) => definition.executorKey));
   const taskWorkerSupervisor = new TaskWorkerSupervisor(
     tasksService,

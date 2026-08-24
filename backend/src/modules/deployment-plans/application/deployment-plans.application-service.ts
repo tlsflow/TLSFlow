@@ -79,6 +79,8 @@ import { computeAgentPlanDigest, validateAgentPlan, type AgentPlanV1 } from '../
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { TenantHierarchyService } from '../../security/domain/tenant.domain-service.js';
 import { DEFAULT_DEPLOYMENT_TASK_SETTINGS, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
+import { buildPluginActionBindings } from '../../executions/application/plugin-action-binding.service.js';
+import type { WorkflowStep } from '../../workflow-templates/dto/workflow-templates.dto.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -992,6 +994,11 @@ export class DeploymentPlansApplicationService {
     const workflowVersion = workflow && this.workflows
       ? await this.workflows.getVersion(workflow.workflowVersionId)
       : undefined;
+    if (workflowVersion?.executionMode === 'PLUGIN_RUNNER') {
+      throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', '包级 PLUGIN_RUNNER Workflow 已禁止；请发布普通 DSL WorkflowVersion', {
+        workflowVersionId: workflowVersion.id,
+      });
+    }
     const executionSource = this.executionSourceResolver.resolvePlugin({
       capability,
       workflowVersionId: workflow?.workflowVersionId,
@@ -1008,7 +1015,6 @@ export class DeploymentPlansApplicationService {
       workflow: workflow ? {
         workflowId: workflow.workflowTemplateId,
         workflowVersionId: workflow.workflowVersionId,
-        ...(workflowVersion?.executionMode === 'PLUGIN_RUNNER' ? { executionMode: 'PLUGIN_RUNNER' as const } : {}),
       } : undefined,
     });
     const resolved = this.deploymentStrategyResolver.resolve({
@@ -1498,6 +1504,7 @@ export class DeploymentPlansApplicationService {
     // 中文说明：Dry-run 只提供只读诊断，不得成为正式证书部署的执行门槛。
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
+    await this.freezePluginActionBindingsForExecution(plan, targets, agentPayloadByTargetId);
     const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
       plan,
       targets,
@@ -2186,6 +2193,50 @@ export class DeploymentPlansApplicationService {
       });
     }
     return output;
+  }
+
+  private async freezePluginActionBindingsForExecution(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+    payloadByTargetId: Map<string, Record<string, unknown>>,
+  ): Promise<void> {
+    for (const target of targets) {
+      if (target.executorType !== 'WORKFLOW') continue;
+      const payload = payloadByTargetId.get(target.id);
+      const workflowRequest = readRecord(payload?.workflowRequest);
+      const executionSource = readRecord(payload?.executionSource);
+      const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId)
+        ?? readOptionalString(executionSource?.workflowVersionId);
+      if (!workflowVersionId || !this.workflows) continue;
+      const workflow = await this.workflows.getVersion(workflowVersionId);
+      const hasPluginAction = containsPluginAction(workflow.content.steps)
+        || containsPluginAction(workflow.content.rollback ?? []);
+      if (!hasPluginAction) continue;
+      const pluginVersionId = readOptionalString(executionSource?.pluginVersionId)
+        ?? readOptionalString(workflowRequest?.pluginVersionId);
+      if (!pluginVersionId || !this.unifiedPlugins || !workflowRequest || !payload) {
+        throw new AppError('PLUGIN_ACTION_BINDING_MISSING', 'plugin.action 缺少固定 WorkflowVersion 或 PluginVersion，拒绝在执行时猜测绑定', {
+          deploymentPlanId: plan.id,
+          deploymentPlanTargetId: target.id,
+          workflowVersionId,
+          pluginVersionId,
+        });
+      }
+      const bindings = buildPluginActionBindings({
+        tenantId: target.tenantId ?? plan.tenantId ?? '',
+        workflowVersionId,
+        content: workflow.content,
+        plugin: await this.unifiedPlugins.getVersion(pluginVersionId),
+        planDigest: plan.snapshotHash,
+      });
+      payloadByTargetId.set(target.id, {
+        ...payload,
+        workflowRequest: {
+          ...workflowRequest,
+          pluginActionBindings: bindings,
+        },
+      });
+    }
   }
 
   private async buildCertificateTrustPlanByTargetIds(
@@ -3633,20 +3684,9 @@ export class DeploymentPlansApplicationService {
         });
       }
     }
-    if (target.executorType !== 'PLUGIN_RUNNER') return;
-    const draft = readRecord(target.strategyPayload?.pluginRunnerBindingDraft);
-    if (!draft) throw new AppError('VALIDATION_FAILED', 'Plugin Runner 目标缺少固定执行绑定摘要。', { deploymentPlanTargetId: target.id });
-    const expectedResourceHash = pluginResourceAggregateHash(plugin.resourceSha256);
-    if (readOptionalString(draft.pluginVersionId) !== plugin.id
-      || readOptionalString(draft.pluginId) !== plugin.pluginId
-      || readOptionalString(draft.pluginVersion) !== plugin.version
-      || readOptionalString(draft.packageHash) !== plugin.packageSha256
-      || readOptionalString(draft.manifestHash) !== plugin.manifestSha256
-      || readOptionalString(draft.resourceHash) !== expectedResourceHash
-      || readOptionalString(draft.capability) !== readOptionalString(source.capabilityKey)) {
-      throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Plugin Runner 执行绑定摘要与固定插件包不一致。', {
+    if (target.executorType === 'PLUGIN_RUNNER') {
+      throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '包级 PLUGIN_RUNNER 目标已禁止，不能从部署计划恢复执行。', {
         deploymentPlanTargetId: target.id,
-        pluginVersionId: plugin.id,
       });
     }
   }
@@ -4296,6 +4336,12 @@ function assertDeploymentExecutorTypes(
   for (const [targetIndex, target] of targets.entries()) {
     const executorType = target.executorType;
     if (executorType === undefined) continue;
+    if (executorType === 'PLUGIN_RUNNER') {
+      throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '包级 PLUGIN_RUNNER 部署目标已禁止；必须使用普通 WORKFLOW 和步骤级 plugin.action', {
+        operation,
+        targetIndex,
+      });
+    }
     if (typeof executorType !== 'string' || !ExecutionTargetKinds.includes(executorType as ExecutionTargetKind)) {
       throw new AppError('VALIDATION_FAILED', '部署目标执行器未接入受支持的 Agent v2 或 Plugin Runner 路径，拒绝继续', {
         code: 'DEPLOYMENT_EXECUTOR_NOT_REGISTERED',
@@ -4306,4 +4352,9 @@ function assertDeploymentExecutorTypes(
       });
     }
   }
+}
+
+function containsPluginAction(steps: readonly WorkflowStep[]): boolean {
+  return steps.some((step) => step.type === 'plugin.action'
+    || step.type === 'foreach' && containsPluginAction(step.foreach.steps));
 }

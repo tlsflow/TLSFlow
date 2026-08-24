@@ -12,7 +12,7 @@ import { hostApiRegistry } from './host-api.registry.js';
 const fixtureRoot = resolve(process.cwd(), 'src/modules/plugins/runner/protocol/fixtures');
 const schemaRoot = resolve(process.cwd(), 'src/modules/plugins/runner/protocol/schemas');
 
-test('IPC v1 每种消息都有 TypeScript Schema、JSON Schema 和正例', () => {
+test('IPC v2 每种消息都有 TypeScript Schema、JSON Schema 和正例', () => {
   const jsonSchema = readJson(resolve(schemaRoot, 'ipc-v1.schema.json'));
   const valid = readJson(resolve(fixtureRoot, 'ipc-v1.valid.json')) as { messages: unknown[] };
   assert.deepEqual(Object.keys(ipcV1MessageSchemas).sort(), [...pluginRunnerMessageTypes].sort());
@@ -24,7 +24,7 @@ test('IPC v1 每种消息都有 TypeScript Schema、JSON Schema 和正例', () =
   }
 });
 
-test('IPC v1 每种消息至少有一个负例 Fixture，未知字段和协议版本失败关闭', () => {
+test('IPC v2 每种消息至少有一个负例 Fixture，未知字段和协议版本失败关闭', () => {
   const jsonSchema = readJson(resolve(schemaRoot, 'ipc-v1.schema.json'));
   const invalid = readJson(resolve(fixtureRoot, 'ipc-v1.invalid.json')) as { messages: Array<{ name: string; message: unknown }> };
   const types = new Set(invalid.messages.map((item) => (item.message as Record<string, unknown>).messageType));
@@ -63,15 +63,17 @@ test('request/response 关联和重试规则保持单一合同', () => {
   assert.deepEqual(requestResponsePairs, {
     hello: 'hello_result', execute: 'execute_result', host_call: 'host_result', cancel: 'cancel_result', ping: 'pong', shutdown: 'shutdown_result',
   });
-  assert.equal(hostApiRegistry['resourceLock.acquire']?.retryable, false);
   assert.equal(hostApiRegistry['artifact.grant.read']?.retryable, false);
-  assert.equal(hostApiRegistry['execution.checkpoint.save']?.idempotencyKey, 'digest');
+  assert.equal(hostApiRegistry['crypto.sign']?.retryable, false);
 });
 
 test('IPC host_call 合同允许已注册的 crypto.sign 调用', () => {
   const message = {
-    protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_call', requestId: 'host-crypto-sign-1', sentAt: '2026-08-12T00:00:00.000Z',
-    pluginVersionId: 'test-version-v1', tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', capability: 'ca.account.manage',
+    protocolVersion: 'gcac.plugin-runner/v2', messageType: 'host_call', requestId: 'host-crypto-sign-1', sentAt: '2026-08-12T00:00:00.000Z',
+    pluginVersionId: 'test-version-v1', tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', workflowVersionId: 'workflow-1',
+    pluginId: 'cloud.example', capability: 'ca.account.manage', actionId: 'certificate.sign.v1', actionContractVersion: 'v1',
+    inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'b'.repeat(64)}`, packageHash: `sha256:${'c'.repeat(64)}`,
+    manifestHash: `sha256:${'d'.repeat(64)}`, resourceHash: `sha256:${'e'.repeat(64)}`, planDigest: 'f'.repeat(64), writeEffect: false,
     method: 'crypto.sign', input: { grantId: 'grant-1', secretRef: 'secret://ca/acme/account', data: 'header.payload', hashAlgorithm: 'SHA-256', signatureAlgorithm: 'RS256' },
     grantRefs: ['grant-1'], idempotencyKey: 'crypto-sign-1', deadlineAt: '2026-08-12T00:00:05.000Z', timeoutMs: 5_000,
   };

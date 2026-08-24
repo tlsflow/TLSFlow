@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "ca.certificate.issue.v1",
+  "capability": "ca.certificate.issue",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["operation"], "properties": { "operation": { "const": "ca.certificate.issue" } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "additionalProperties": true },
+  "writeEffect": true,
+  "hostPermissions": ["secret.resolve", "audit.append"]
+}

@@ -2,7 +2,7 @@ import { TextDecoder } from 'node:util';
 import { AppError } from '../../../../common/errors/app-error.js';
 import { validateJsonSchema, type JsonSchemaValidationError } from '../../../../common/validation/json-schema.js';
 import { validateHostApiRequest } from './host-api.registry.js';
-import { ipcV1MessageSchemas } from './ipc-v1.schema.js';
+import { ipcV2MessageSchemas } from './ipc-v1.schema.js';
 import { pluginRunnerLimits, pluginRunnerMessageTypes } from './protocol.constants.js';
 import type { PluginRunnerMessage, PluginRunnerMessageType } from './protocol.types.js';
 
@@ -75,7 +75,7 @@ export function validateIpcMessage(input: unknown): PluginRunnerMessage {
   if (typeof messageType !== 'string' || !pluginRunnerMessageTypes.includes(messageType as PluginRunnerMessageType)) {
     throw protocolViolation('未知 messageType', { messageType });
   }
-  const result = validateJsonSchema(input, ipcV1MessageSchemas[messageType as PluginRunnerMessageType], {
+  const result = validateJsonSchema(input, ipcV2MessageSchemas[messageType as PluginRunnerMessageType], {
     maxDepth: pluginRunnerLimits.maxDepth,
     maxArrayItems: pluginRunnerLimits.maxArrayItems,
     maxObjectProperties: pluginRunnerLimits.maxObjectProperties,
@@ -108,6 +108,28 @@ function validateSemanticRules(input: Record<string, unknown>, messageType: Plug
       throw contractInvalid(messageType, [{ path: '$.grantRefs', keyword: 'uniqueItems', message: 'Grant 引用不得重复' }]);
     }
   }
+  if (messageType === 'execute') {
+    assertAtomicActionInput(input.input);
+  }
+}
+
+function assertAtomicActionInput(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const forbidden = new Set(['workflow', 'steps', 'rollback', 'checkpoint', 'checkpoints', 'workflowRequest', 'pluginRunnerBinding', 'pluginRuntimeCapability', 'variables']);
+  const visit = (current: unknown, path: string, depth: number): void => {
+    if (depth > 32 || !current || typeof current !== 'object') return;
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1));
+      return;
+    }
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      if (forbidden.has(key)) {
+        throw contractInvalid('execute', [{ path: `${path}.${key}`, keyword: 'forbidden', message: 'plugin.action 输入不得携带 Workflow 编排或宿主状态字段' }]);
+      }
+      visit(child, `${path}.${key}`, depth + 1);
+    }
+  };
+  visit(value, '$.input', 0);
 }
 
 function assertLineLength(line: string): void {
@@ -121,5 +143,5 @@ function protocolViolation(message: string, details?: Record<string, unknown>): 
 }
 
 function contractInvalid(messageType: string, errors: JsonSchemaValidationError[]): AppError {
-  return new AppError('PLUGIN_CONTRACT_INVALID', `消息 ${messageType} 不符合 IPC v1 合同`, { errors: errors.slice(0, 20) });
+  return new AppError('PLUGIN_CONTRACT_INVALID', `消息 ${messageType} 不符合 IPC v2 Action 合同`, { errors: errors.slice(0, 20) });
 }

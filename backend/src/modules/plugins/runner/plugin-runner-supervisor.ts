@@ -1,10 +1,9 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { PluginRunnerClient, type PluginRunnerExecutionInput, type PluginRunnerLaunchSpec } from './plugin-runner-client.js';
-import type { PluginRunnerExecuteResult, PluginRunnerProgress } from './protocol/protocol.types.js';
+import type { PluginRunnerExecuteResult } from './protocol/protocol.types.js';
 
 export interface PluginRunnerSupervisorOptions {
   maxRestarts?: number;
-  onProgress?: (message: PluginRunnerProgress) => void;
 }
 
 interface RunnerRecord {
@@ -30,10 +29,7 @@ export class PluginRunnerSupervisor {
     if (!Number.isInteger(this.maxRestarts) || this.maxRestarts < 0 || this.maxRestarts > 100) {
       throw new AppError('VALIDATION_FAILED', 'Runner 最大重启次数必须是 0 到 100 之间的整数');
     }
-    this.onProgress = options.onProgress;
   }
-
-  private readonly onProgress?: (message: PluginRunnerProgress) => void;
 
   async start(spec: PluginRunnerLaunchSpec): Promise<PluginRunnerClient> {
     const key = runnerKey(spec.pluginVersionId, spec.tenantId);
@@ -48,7 +44,7 @@ export class PluginRunnerSupervisor {
       // 只在新的 start 调用中重建固定 Runner；绝不重放导致崩溃的原执行。
       if (existing.client.state === 'CRASHED') return this.restart(spec.pluginVersionId, spec.tenantId);
     }
-    const client = new PluginRunnerClient(spec, this.onProgress);
+    const client = new PluginRunnerClient(spec);
     const record: RunnerRecord = existing ?? { key, spec: immutableCopy(spec), client, restartCount: 0 };
     record.spec = immutableCopy(spec);
     record.client = client;
@@ -70,7 +66,7 @@ export class PluginRunnerSupervisor {
       if (record.restartCount >= this.maxRestarts) throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 重启次数达到熔断上限', { pluginVersionId, maxRestarts: this.maxRestarts });
       record.restartCount += 1;
       await record.client.stop(true);
-      const client = new PluginRunnerClient(record.spec, this.onProgress);
+      const client = new PluginRunnerClient(record.spec);
       record.client = client;
       await client.start();
       return client;

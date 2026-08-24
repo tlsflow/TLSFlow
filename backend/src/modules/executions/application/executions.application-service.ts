@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { AuditService } from '../../audits/audit.service.js';
@@ -22,7 +21,6 @@ import { StepGraphBuilder } from './step-graph-builder.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
-import { canonicalize } from '../../../shared/canonical-json.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
@@ -1559,119 +1557,10 @@ export class ExecutionsApplicationService {
    */
   private async bindPluginRunnerExecution(step: ExecutionStepEntity, run: ExecutionRunEntity): Promise<ExecutionStepEntity> {
     if (readString(step.inputSnapshot.executorType) !== 'PLUGIN_RUNNER') return step;
-    const draft = readRecord(step.inputSnapshot.pluginRunnerBindingDraft)
-      ?? readRecord(step.inputSnapshot.pluginRunnerBinding);
-    if (!draft) {
-      throw new AppError('VALIDATION_FAILED', 'Plugin Runner 执行步骤缺少固定绑定草稿', {
-        code: 'PLUGIN_RUNNER_BINDING_MISSING',
-        executionStepId: step.id,
-      });
-    }
-    const tenantId = run.tenantId ?? step.tenantId;
-    const workflowVersionId = readString(draft.workflowVersionId);
-    const pluginVersionId = readString(draft.pluginVersionId);
-    const pluginId = readString(draft.pluginId);
-    const pluginVersion = readString(draft.pluginVersion);
-    const packageHash = readString(draft.packageHash);
-    const manifestHash = readString(draft.manifestHash);
-    const resourceHash = readString(draft.resourceHash);
-    const capability = readString(draft.capability);
-    const hostPermissions = readStringArray(draft.hostPermissions);
-    const writeEffect = draft.writeEffect;
-    if (!tenantId || !workflowVersionId || !pluginVersionId || !pluginId || !pluginVersion
-      || !packageHash || !manifestHash || !resourceHash || !capability
-      || typeof writeEffect !== 'boolean') {
-      throw new AppError('VALIDATION_FAILED', 'Plugin Runner 执行绑定草稿字段不完整', {
-        code: 'PLUGIN_RUNNER_BINDING_INVALID',
-        executionStepId: step.id,
-      });
-    }
-    if (!hostPermissions.every((permission) => /^[A-Za-z0-9._:-]{1,256}$/.test(permission))) {
-      throw new AppError('VALIDATION_FAILED', 'Plugin Runner Host 权限列表无效', { executionStepId: step.id });
-    }
-
-    const previous = readRecord(step.inputSnapshot.pluginRunnerBinding);
-    const previousBindingMatchesExecution = readString(previous?.tenantId) === tenantId
-      && readString(previous?.executionRunId) === run.id
-      && readString(previous?.executionStepId) === step.id
-      && readString(previous?.workflowVersionId) === workflowVersionId
-      && readString(previous?.pluginVersionId) === pluginVersionId;
-    const previousGrantRefs = previousBindingMatchesExecution ? readStringArray(previous?.grantRefs) : [];
-    const inputWithoutGrant = buildPluginRunnerInput(step.inputSnapshot);
-    const planDigest = (previousBindingMatchesExecution ? readString(previous?.planDigest) : undefined) ?? pluginRunnerPlanDigest({
-      workflowVersionId,
-      pluginVersionId,
-      pluginId,
-      pluginVersion,
-      packageHash,
-      manifestHash,
-      resourceHash,
-      capability,
-      writeEffect: writeEffect === true,
-      hostPermissions,
-      input: inputWithoutGrant,
-    });
-    let grantRefs = previousGrantRefs;
-    if (grantRefs.length === 0) {
-      if (!this.executionGrants) {
-        throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Plugin Runner Execution Grant 服务未装配，拒绝创建执行步骤', {
-          code: 'PLUGIN_RUNNER_GRANT_UNAVAILABLE',
-          executionStepId: step.id,
-        });
-      }
-      const grant = await this.executionGrants.create({
-        tenantId,
-        planId: run.deploymentPlanId,
-        runId: run.id,
-        stepId: step.id,
-        targetId: step.deploymentPlanTargetId,
-        workflowVersionId,
-        pluginVersionId,
-        pluginId,
-        capability,
-        planDigest,
-        approvalId: readString(readRecord(step.inputSnapshot.executionAuthorization)?.approvalId),
-        executorType: 'PLUGIN_RUNNER',
-        allowedSecretRefs: collectPluginRunnerReferences(inputWithoutGrant, 'secret://'),
-        allowedArtifactRefs: collectPluginRunnerReferences(inputWithoutGrant, 'artifact://'),
-        allowedActions: pluginRunnerGrantActions(hostPermissions),
-        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-      });
-      grantRefs = [grant.id];
-    }
-    const runnerInput = buildPluginRunnerInput(step.inputSnapshot, grantRefs[0]);
-    const binding = {
-      apiVersion: 'gcac.plugin-runner-binding/v1' as const,
-      tenantId,
-      executionRunId: run.id,
+    throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '包级 PLUGIN_RUNNER 执行步骤已禁止；Runner 只能由 WORKFLOW 内的 plugin.action 子步骤调用', {
       executionStepId: step.id,
-      workflowVersionId,
-      pluginVersionId,
-      pluginId,
-      pluginVersion,
-      packageHash,
-      manifestHash,
-      resourceHash,
-      capability,
-      grantRefs: [...grantRefs],
-      planDigest,
-      writeEffect: writeEffect === true,
-      hostPermissions: [...hostPermissions],
-      input: runnerInput,
-    };
-    const persistedSnapshot = {
-      ...step.inputSnapshot,
-      pluginRunnerBinding: sanitizeDeploymentInputPersistencePayload(binding),
-    };
-    const persisted = await this.repository.updateStep(step.id, {
-      inputSnapshot: persistedSnapshot,
-      updatedAt: new Date().toISOString(),
-      updatedBy: step.updatedBy ?? step.createdBy,
+      executionRunId: run.id,
     });
-    return {
-      ...persisted,
-      inputSnapshot: { ...persisted.inputSnapshot, pluginRunnerBinding: binding },
-    };
   }
 
   private readRunFailurePolicy(run: ExecutionRunEntity): FailurePolicy {
@@ -1722,7 +1611,7 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
       : 'CONTROL_PLANE_TLS';
   }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
-  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || baseExecutorType === 'PLUGIN_RUNNER';
+  const monolithicUpdate = baseExecutorType === 'WORKFLOW';
   if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
 }
@@ -1859,17 +1748,8 @@ function resolveExecutionStatus(
     value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
   if (explicit === 'UNKNOWN' || explicit === 'CANCELLED') return 'UNKNOWN';
   if (explicit) return explicit;
-  const actionType = readString(step.inputSnapshot.actionType)?.toLowerCase();
-  const plan = readRecord(step.inputSnapshot.plan);
-  const pluginRunnerBinding = readRecord(step.inputSnapshot.pluginRunnerBinding)
-    ?? readRecord(step.inputSnapshot.pluginRunnerBindingDraft);
-  const writeEffect = step.inputSnapshot.writeEffect === true
-    || plan?.writeEffect === true
-    || pluginRunnerBinding?.writeEffect === true
-    || actionType === 'agent.plan.execute';
-  const uncertaintyCode = `${result.errorCode ?? ''} ${result.errorMessage ?? ''}`.toLowerCase();
   if (detail.mayBeUnknown === true || error?.mayBeUnknown === true || result.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE'
-    || (writeEffect && /(timeout|timed out|crash|cancel|late|unknown|connection lost|disconnected)/i.test(uncertaintyCode))) {
+  ) {
     return 'UNKNOWN';
   }
   return result.success ? 'SUCCESS' : 'FAILED';
@@ -1886,11 +1766,8 @@ function normalizeAgentSecurityStatus(value: unknown): AgentSecurityStatus {
 function isPotentiallyUnknownWriteStep(step: ExecutionStepEntity): boolean {
   const actionType = readString(step.inputSnapshot.actionType)?.toLowerCase();
   const plan = readRecord(step.inputSnapshot.plan);
-  const pluginRunnerBinding = readRecord(step.inputSnapshot.pluginRunnerBinding)
-    ?? readRecord(step.inputSnapshot.pluginRunnerBindingDraft);
   return step.inputSnapshot.writeEffect === true
     || plan?.writeEffect === true
-    || pluginRunnerBinding?.writeEffect === true
     || actionType === 'agent.plan.execute';
 }
 
@@ -2044,120 +1921,4 @@ function isAgentPlanAction(value: string | undefined): boolean {
     || value === 'agent.plan.validate'
     || value === 'agent.plan.execute'
     || value === 'agent.execution.receipt';
-}
-
-function buildPluginRunnerInput(snapshot: Record<string, unknown>, grantId?: string): Record<string, unknown> {
-  const resolved = readRecord(snapshot.resolvedDeploymentInput) ?? {};
-  const variables = readRecord(resolved.variables) ?? {};
-  const connections = readRecord(resolved.connections) ?? {};
-  const credentials = normalizeRunnerCredentials(readRecord(resolved.credentials), grantId);
-  const artifacts = normalizeRunnerArtifacts(readRecord(resolved.artifacts));
-  const firstConnection = Object.values(connections).map(readRecord).find((item): item is Record<string, unknown> => Boolean(item));
-  const firstCredential = Object.values(credentials).map(readRecord).find((item): item is Record<string, unknown> => Boolean(item));
-  const firstArtifact = Object.values(artifacts).map(readRecord).find((item): item is Record<string, unknown> => Boolean(item));
-  const target = firstTargetName(variables, resolved);
-  const input: Record<string, unknown> = {
-    variables: structuredClone(variables),
-    connections: structuredClone(connections),
-    credentials,
-    artifacts,
-    workflowRequest: structuredClone(readRecord(snapshot.workflowRequest) ?? {}),
-  };
-  if (firstConnection?.host) input.deviceAddress = firstConnection.host;
-  if (target) input.target = target;
-  if (typeof variables.certificateKeyName === 'string') input.certificateKeyName = variables.certificateKeyName;
-  if (firstCredential) input.credential = structuredClone(firstCredential);
-  if (firstArtifact) input.artifact = structuredClone(firstArtifact);
-  return input;
-}
-
-function normalizeRunnerCredentials(value: Record<string, unknown> | undefined, grantId?: string): Record<string, unknown> {
-  if (!value) return {};
-  return Object.fromEntries(Object.entries(value).map(([slot, raw]) => {
-    const credential = readRecord(raw) ?? {};
-    const normalized: Record<string, unknown> = {
-      ...(typeof credential.credentialId === 'string' ? { credentialId: credential.credentialId } : {}),
-      ...(typeof credential.kind === 'string' ? { kind: credential.kind } : {}),
-      ...(typeof credential.username === 'string' ? { username: credential.username } : {}),
-      ...(readRecord(credential.secretRefs) ? { secretRefs: structuredClone(credential.secretRefs) } : {}),
-      ...(grantId ? { grantId } : {}),
-    };
-    return [slot, normalized];
-  }));
-}
-
-function normalizeRunnerArtifacts(value: Record<string, unknown> | undefined): Record<string, unknown> {
-  if (!value) return {};
-  return Object.fromEntries(Object.entries(value).map(([slot, raw]) => {
-    const artifact = readRecord(raw) ?? {};
-    const outputs = readRecord(artifact.outputs) ?? {};
-    const refs = Object.fromEntries(Object.entries(outputs).flatMap(([name, output]) => {
-      const record = readRecord(output);
-      const ref = readString(record?.artifactRef) ?? readString(record?.ref) ?? (typeof output === 'string' && output.startsWith('artifact://') ? output : undefined);
-      return ref ? [[name, { artifactRef: ref }]] : [];
-    }));
-    const artifactRef = readString(artifact.artifactRef)
-      ?? Object.values(refs).map((item) => readString(readRecord(item)?.artifactRef)).find((ref): ref is string => Boolean(ref));
-    return [slot, {
-      ...(typeof artifact.artifactId === 'string' ? { artifactId: artifact.artifactId } : {}),
-      ...(artifactRef ? { artifactRef } : {}),
-      ...(readString(artifact.artifactSha256) ? { artifactSha256: readString(artifact.artifactSha256) } : {}),
-      ...(Object.keys(refs).length > 0 ? { outputs: refs } : {}),
-    }];
-  }));
-}
-
-function firstTargetName(variables: Record<string, unknown>, resolved: Record<string, unknown>): string | undefined {
-  const targets = variables.targetVirtualServers;
-  if (Array.isArray(targets)) {
-    const first = readRecord(targets[0]);
-    const name = readString(first?.name) ?? readString(first?.target);
-    if (name) return name;
-    if (typeof targets[0] === 'string') return targets[0];
-  }
-  return readString(readRecord(resolved.assetContext)?.target, 'key')
-    ?? readString(readRecord(resolved.assetContext)?.target, 'id');
-}
-
-function pluginRunnerPlanDigest(input: Record<string, unknown>): string {
-  return createHash('sha256').update(canonicalize(input), 'utf8').digest('hex');
-}
-
-function collectPluginRunnerReferences(value: unknown, scheme: 'secret://' | 'artifact://'): string[] {
-  const output = new Set<string>();
-  const visit = (item: unknown): void => {
-    if (typeof item === 'string') {
-      for (const match of item.matchAll(new RegExp(`${escapeRegExp(scheme)}[A-Za-z0-9._:/#-]{1,512}`, 'g'))) output.add(match[0]);
-      return;
-    }
-    if (Array.isArray(item)) {
-      item.forEach(visit);
-      return;
-    }
-    const record = readRecord(item);
-    if (record) Object.values(record).forEach(visit);
-  };
-  visit(value);
-  return [...output].sort();
-}
-
-function pluginRunnerGrantActions(hostPermissions: readonly string[]): string[] {
-  const mapping: Record<string, string> = {
-    'secret.resolve': 'secret.resolve',
-    'artifact.read': 'artifact.read',
-    'network.http': 'network.http',
-    'execution.progress.write': 'execution.progress',
-    'execution.checkpoint.write': 'execution.checkpoint',
-    'execution.checkpoint.read': 'execution.checkpoint',
-    'execution.cancel.read': 'execution.cancel',
-    'resource.lock': 'resource.lock',
-    'audit.append': 'audit.append',
-    'cloud.service.get': 'cloud.service.get',
-    'crypto.sign': 'crypto.sign',
-  };
-  return [...new Set(hostPermissions.map((permission) => mapping[permission]).filter((permission): permission is string => Boolean(permission)))];
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -716,8 +716,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   await plugins.enableVersion(imported.id);
   await createUsernamePasswordCredential(database, tenantId, 'cred_adc', 'sec_adc');
   const discovery = JSON.parse(await readFile(resolve('../compatibility/fixtures/device-plugins/mock-adc.discovery.json'), 'utf8')) as Record<string, unknown>;
-  const legacyExecutedCapabilities: string[] = [];
-  const runnerCapabilities: string[] = [];
+  const executedCapabilities: string[] = [];
   const pluginWorkflows = {
     require: async (pluginVersionId: string, capabilityKey: string) => ({
       pluginVersionId,
@@ -730,12 +729,9 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     }),
   } as PluginWorkflowPublisherService;
   const workflows = {
-    getVersion: async (versionId: string) => ({
-      ...workflowVersionFixture(versionId, workflowResources?.[versionId], resources),
-      executionMode: 'PLUGIN_RUNNER' as const,
-    }),
+    getVersion: async (versionId: string) => workflowVersionFixture(versionId, workflowResources?.[versionId], resources),
     execute: async ({ templateVersionId }: { templateVersionId: string }): Promise<WorkflowRunResult> => {
-      legacyExecutedCapabilities.push(templateVersionId);
+      executedCapabilities.push(templateVersionId);
       return {
         id: `run_${templateVersionId}`,
         mode: 'real_test',
@@ -754,23 +750,10 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
           logs: [],
         }] : [],
         rollbackResults: [],
-        logs: [],
-      };
-    },
+      logs: [],
+    };
+  },
   } as unknown as WorkflowTemplatesApplicationService;
-  const pluginRunner = {
-    execute: async (input: { capability: string; input: Record<string, unknown> }) => {
-      runnerCapabilities.push(input.capability);
-      assert.equal(input.input.deviceAddress, '10.33.5.49');
-      assert.ok(input.input.credential);
-      return {
-        success: true,
-        executionId: `plugin-run-${input.capability}`,
-        executionStepId: `plugin-step-${input.capability}`,
-        detail: { normalizedObjects: input.capability === 'device.discover' ? [discovery] : [] },
-      };
-    },
-  };
   const bindingService = new PluginBindingsApplicationService(new PluginBindingsRepository(database));
   const service = new DevicesApplicationService(
     new PgDevicesRepository(database),
@@ -785,7 +768,6 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     undefined,
     new StandardDeviceDiscoveryProjector(database),
     undefined,
-    pluginRunner,
   );
   const result = await service.onboard(tenantId, {
     platformKey: 'plugin', pluginVersionId: imported.id, formValues: {
@@ -804,8 +786,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     host: '10.33.5.49', port: 443, tls: { verifyPeer: true },
   });
   assert.equal(result.assignments.length, 5);
-  assert.deepEqual(runnerCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
-  assert.deepEqual(legacyExecutedCapabilities, []);
+  assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery);
   assert.equal(result.discovery.projection?.certificateBindings, 1);
   assert.ok(!JSON.stringify(result).includes('"password":"'));
@@ -853,12 +834,12 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
       artifacts: {},
     },
   });
-  runnerCapabilities.length = 0;
+  executedCapabilities.length = 0;
   await assert.rejects(
     () => service.executeCapability(tenantId, result.device.hostId, 'device.discover'),
     (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED',
   );
-  assert.deepEqual(runnerCapabilities, []);
+  assert.deepEqual(executedCapabilities, []);
   const rejectedBinding = await bindingService.getTenantBinding(tenantId, result.binding.id);
   assert.deepEqual(rejectedBinding.inputBindings.variables, {
     address: '10.33.5.49', managementPort: 443, tlsVerify: true,

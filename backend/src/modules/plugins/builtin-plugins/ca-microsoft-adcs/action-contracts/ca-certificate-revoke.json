@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "ca.certificate.revoke.v1",
+  "capability": "ca.certificate.revoke",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["operation"], "properties": { "operation": { "const": "ca.certificate.revoke" } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "additionalProperties": true },
+  "writeEffect": true,
+  "hostPermissions": ["secret.resolve", "audit.append"]
+}

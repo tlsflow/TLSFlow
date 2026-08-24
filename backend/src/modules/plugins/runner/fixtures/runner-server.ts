@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { JsonLinesDecoder, encodeJsonLine } from '../protocol/protocol.codec.js';
-import type { PluginRunnerMessage, PluginRunnerHostResult } from '../protocol/protocol.types.js';
+import type { PluginActionMessageBinding, PluginRunnerMessage, PluginRunnerHostResult } from '../protocol/protocol.types.js';
 
 const argumentsMap = new Map<string, string>();
 for (let index = 2; index < process.argv.length - 1; index += 1) if (process.argv[index]?.startsWith('--')) argumentsMap.set(process.argv[index]!.slice(2), process.argv[index + 1]!);
@@ -10,6 +10,7 @@ const pluginVersion = argumentsMap.get('plugin-version') ?? '1.0.0';
 const mode = argumentsMap.get('mode') ?? 'echo';
 const decoder = new JsonLinesDecoder();
 let activeRequestId: string | undefined;
+let activeMessage: Extract<PluginRunnerMessage, { messageType: 'execute' }> | undefined;
 let activeTimer: NodeJS.Timeout | undefined;
 let hostCallRequestId: string | undefined;
 let childProcess: ReturnType<typeof spawn> | undefined;
@@ -37,35 +38,38 @@ process.stdin.on('end', () => {
 async function handleMessage(message: PluginRunnerMessage): Promise<void> {
   if (message.messageType === 'hello') {
     if (mode === 'hello-timeout') return;
-    write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'hello_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: mode !== 'hello-rejected', pluginId: mode === 'hello-mismatch' ? 'test.wrong' : pluginId, pluginVersion: mode === 'hello-mismatch' ? '9.9.9' : pluginVersion, runnerVersion: mode === 'runner-version-mismatch' ? '9.9.9' : '1.0.0', sdkVersion: '1.0.0', capabilities: ['test.echo'], permissions: [...message.permissions], packageHash: mode === 'hash-mismatch' ? hash('a') : message.packageHash ?? hash('a'), resourceHash: mode === 'hash-mismatch' ? hash('b') : message.resourceHash ?? hash('a'), manifestHash: mode === 'hash-mismatch' ? hash('c') : message.manifestHash ?? hash('a'), ...(mode === 'hello-rejected' ? { error: errorPayload('PLUGIN_RUNNER_HANDSHAKE_FAILED', '测试拒绝握手') } : {}) });
+    write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'hello_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: mode !== 'hello-rejected', pluginId: mode === 'hello-mismatch' ? 'test.wrong' : pluginId, pluginVersion: mode === 'hello-mismatch' ? '9.9.9' : pluginVersion, runnerVersion: mode === 'runner-version-mismatch' ? '9.9.9' : '1.0.0', sdkVersion: '1.0.0', capabilities: ['test.echo'], permissions: [...message.permissions], packageHash: mode === 'hash-mismatch' ? hash('a') : message.packageHash ?? hash('a'), resourceHash: mode === 'hash-mismatch' ? hash('b') : message.resourceHash ?? hash('a'), manifestHash: mode === 'hash-mismatch' ? hash('c') : message.manifestHash ?? hash('a'), ...(mode === 'hello-rejected' ? { error: errorPayload('PLUGIN_RUNNER_HANDSHAKE_FAILED', '测试拒绝握手') } : {}) });
     return;
   }
   if (message.messageType === 'ping') {
-    write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'pong', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, nonce: message.nonce });
+    write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'pong', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, nonce: message.nonce });
     return;
   }
   if (message.messageType === 'shutdown') {
     if (mode === 'shutdown-timeout') return;
     if (activeRequestId) {
       drainingRequested = true;
-      write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'shutdown_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: true, status: 'DRAINING' });
+      write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'shutdown_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: true, status: 'DRAINING' });
       return;
     }
-    write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'shutdown_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: true, status: 'SHUTDOWN' });
+    write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'shutdown_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, accepted: true, status: 'SHUTDOWN' });
     if (mode === 'shutdown-late-exit') { setTimeout(() => process.exit(0), 5000); return; }
     setTimeout(() => process.exit(0), 10);
     return;
   }
   if (message.messageType === 'cancel') {
     if (activeRequestId !== message.targetRequestId) {
-      write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'cancel_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, targetRequestId: message.targetRequestId, accepted: false, status: 'ALREADY_COMPLETED' });
+      write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'cancel_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, targetRequestId: message.targetRequestId, accepted: false, status: 'ALREADY_COMPLETED' });
       return;
     }
     if (activeTimer) clearTimeout(activeTimer);
     activeTimer = undefined;
-    write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'cancel_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, targetRequestId: message.targetRequestId, accepted: true, status: 'ACCEPTED' });
-    write(executeResult(message.targetRequestId, message, false, 'CANCELLED', { cancelled: true }, errorPayload('PLUGIN_RUNNER_TIMEOUT', '测试取消', false, false)));
+    write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'cancel_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, targetRequestId: message.targetRequestId, accepted: true, status: 'ACCEPTED' });
+    if (activeMessage) {
+      write(executeResult(message.targetRequestId, activeMessage, false, 'CANCELLED', { cancelled: true }, errorPayload('PLUGIN_RUNNER_TIMEOUT', '测试取消', false, false)));
+    }
     activeRequestId = undefined;
+    activeMessage = undefined;
     return;
   }
   if (message.messageType === 'host_result') {
@@ -77,6 +81,7 @@ async function handleMessage(message: PluginRunnerMessage): Promise<void> {
   }
   if (message.messageType !== 'execute') return;
   activeRequestId = message.requestId;
+  activeMessage = message;
   if (mode === 'crash') { process.exit(17); return; }
   if (mode === 'invalid-output') { process.stdout.write('runner log on stdout\n'); return; }
   if (mode === 'stdout-overflow') { process.stdout.write(`${'x'.repeat(70 * 1024)}\n`); return; }
@@ -96,11 +101,6 @@ async function handleMessage(message: PluginRunnerMessage): Promise<void> {
   }
   if (mode === 'host-call-crash') { sendHostCall(message); process.exit(19); return; }
   if (mode === 'host-call' || mode === 'host-call-late' || mode === 'host-call-bad-capability') { sendHostCall(message); return; }
-  if (mode === 'progress') {
-    write(progress(message, 1));
-    write(progress(message, 1));
-    write(progress(message, 2));
-  }
   if (mode === 'cancel') {
     activeTimer = setTimeout(() => {
       finishExecute(message, true);
@@ -116,21 +116,35 @@ async function handleMessage(message: PluginRunnerMessage): Promise<void> {
 
 function sendHostCall(message: Extract<PluginRunnerMessage, { messageType: 'execute' }>): void {
   hostCallRequestId = `host-${message.requestId}`;
-  write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_call', requestId: hostCallRequestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, capability: mode === 'host-call-bad-capability' ? 'test.other' : message.capability, method: 'artifact.grant.read', input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' }, grantRefs: ['grant-1'], idempotencyKey: `${message.idempotencyKey}:artifact.grant.read:grant-1`, deadlineAt: new Date(Date.now() + (mode === 'host-call-late' ? 50 : 5000)).toISOString(), timeoutMs: mode === 'host-call-late' ? 50 : 5000 });
+  write({ protocolVersion: 'gcac.plugin-runner/v2', messageType: 'host_call', requestId: hostCallRequestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, ...actionBinding(message, mode === 'host-call-bad-capability' ? 'test.other' : undefined), method: 'artifact.grant.read', input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' }, grantRefs: ['grant-1'], idempotencyKey: `${message.idempotencyKey}:artifact.grant.read:grant-1`, deadlineAt: new Date(Date.now() + (mode === 'host-call-late' ? 50 : 5000)).toISOString(), timeoutMs: mode === 'host-call-late' ? 50 : 5000 });
 }
 
 function finishExecute(message: Extract<PluginRunnerMessage, { messageType: 'execute' }>, success: boolean): void {
   write(executeResult(message.requestId, message, success, success ? 'SUCCESS' : 'FAILED', { value: message.input }, undefined));
   activeRequestId = undefined;
+  activeMessage = undefined;
   if (drainingRequested) setTimeout(() => process.exit(0), 10);
 }
 
-function executeResult(requestId: string, context: { tenantId: string; executionId: string; executionStepId: string }, success: boolean, status: 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED', summary: Record<string, unknown>, error: PluginRunnerHostResult['error'] | undefined): PluginRunnerMessage {
-  return { protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute_result', requestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: context.tenantId, executionId: context.executionId, executionStepId: context.executionStepId, success, status, summary, normalizedObjects: [], warnings: [], ...(error ? { error } : {}) };
+function executeResult(requestId: string, context: { tenantId: string; executionId: string; executionStepId: string } & PluginActionMessageBinding, success: boolean, status: 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED', output: Record<string, unknown>, error: PluginRunnerHostResult['error'] | undefined): PluginRunnerMessage {
+  return { protocolVersion: 'gcac.plugin-runner/v2', messageType: 'execute_result', requestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: context.tenantId, executionId: context.executionId, executionStepId: context.executionStepId, ...actionBinding(context), success, status, output, warnings: [], ...(error ? { error } : {}) };
 }
 
-function progress(context: Extract<PluginRunnerMessage, { messageType: 'execute' }>, sequence: number): PluginRunnerMessage {
-  return { protocolVersion: 'gcac.plugin-runner/v1', messageType: 'progress', requestId: `progress-${context.requestId}-${sequence}-${Math.random()}`, sentAt: new Date().toISOString(), pluginVersionId, tenantId: context.tenantId, executionId: context.executionId, executionStepId: context.executionStepId, sequence, stage: 'execute', percent: sequence * 25, summary: `progress-${sequence}` };
+function actionBinding(context: PluginActionMessageBinding, capability = context.capability): PluginActionMessageBinding {
+  return {
+    workflowVersionId: context.workflowVersionId,
+    pluginId: context.pluginId,
+    capability,
+    actionId: context.actionId,
+    actionContractVersion: context.actionContractVersion,
+    inputSchemaSha256: context.inputSchemaSha256,
+    outputSchemaSha256: context.outputSchemaSha256,
+    packageHash: context.packageHash,
+    manifestHash: context.manifestHash,
+    resourceHash: context.resourceHash,
+    planDigest: context.planDigest,
+    writeEffect: context.writeEffect,
+  };
 }
 
 function errorPayload(code: string, message: string, retryable = false, mayBeUnknown = false) {

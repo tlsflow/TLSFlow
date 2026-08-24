@@ -380,7 +380,13 @@ export class ManagedTargetPluginQueryService {
     if (input.pluginBindingId) {
       const current = await bindings.getTenantBinding(tenantId, input.pluginBindingId);
       if (current.pluginVersionId !== input.pluginVersionId) {
-        throw new AppError('VALIDATION_FAILED', 'PluginBinding 不能切换到其他插件版本', { pluginBindingId: current.id });
+        // 插件版本是不可变执行边界。切换版本必须创建新的 Binding，旧 Binding 保留供历史执行和审计使用。
+        return bindings.createBinding(tenantId, {
+          pluginVersionId: input.pluginVersionId,
+          mode: 'MANAGED',
+          inputBindings: input.inputBindings ?? emptyInputBindingsV1(),
+          managedContext,
+        });
       }
       if (input.expectedBindingVersion === undefined) {
         throw new AppError('VALIDATION_FAILED', '更新 PluginBinding 必须提供 expectedBindingVersion');

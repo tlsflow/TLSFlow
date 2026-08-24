@@ -24,35 +24,21 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async
   assert.deepEqual(Object.keys(result.payload.workflowRequest as Record<string, unknown>).filter((key) => key.endsWith('Bindings')), []);
 });
 
-test('PluginWorkflow 固定路由到独立 Plugin Runner，并生成完整绑定草稿', async () => {
-  const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
-    capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
-    context: context('CONTROL_PLANE'),
-    applicationAsset: applicationAsset(),
-    resolvedInput: resolvedInput(),
-    workflow: {
-      workflowId: 'workflow-plugin-1',
-      workflowVersionId: 'workflow-plugin-version-1',
-      executionMode: 'PLUGIN_RUNNER',
-    },
-  });
-
-  assert.equal(result.executorType, 'PLUGIN_RUNNER');
-  assert.deepEqual(result.requiredCapabilities, ['plugin.runner.execute']);
-  const binding = result.payload.pluginRunnerBindingDraft as Record<string, unknown>;
-  assert.deepEqual(binding, {
-    apiVersion: 'gcac.plugin-runner-binding/v1',
-    workflowVersionId: 'workflow-plugin-version-1',
-    pluginVersionId: 'plugin-version-1',
-    pluginId: 'fixture',
-    pluginVersion: '1.0.0',
-    packageHash: `sha256:${'a'.repeat(64)}`,
-    manifestHash: `sha256:${'b'.repeat(64)}`,
-    resourceHash: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
-    capability: 'certificate.deploy',
-    writeEffect: true,
-    hostPermissions: [],
-  });
+test('包级 PluginWorkflow 请求失败关闭，不生成 Runner 绑定草稿', async () => {
+  await assert.rejects(
+    createDefaultPluginRuntimeAdapterRegistry().compile({
+      capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
+      context: context('CONTROL_PLANE'),
+      applicationAsset: applicationAsset(),
+      resolvedInput: resolvedInput(),
+      workflow: {
+        workflowId: 'workflow-plugin-1',
+        workflowVersionId: 'workflow-plugin-version-1',
+        executionMode: 'PLUGIN_RUNNER',
+      },
+    }),
+    (error: unknown) => (error as { errorCode?: string }).errorCode === 'VALIDATION_FAILED',
+  );
 });
 
 test('PluginRuntimeAdapterRegistry 使用应用资产 verifyUrl 作为最终 TLS VERIFY 入口', async () => {

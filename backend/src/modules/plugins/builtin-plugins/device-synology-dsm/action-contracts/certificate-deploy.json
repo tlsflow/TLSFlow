@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "certificate.deploy.v1",
+  "capability": "certificate.deploy",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["target", "credential", "artifact"], "properties": { "target": { "type": "string", "minLength": 1 }, "credential": { "type": "object", "required": ["username", "secretRef"], "additionalProperties": true }, "artifact": { "type": "object", "required": ["artifactRef"], "additionalProperties": true } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "required": ["operation", "verified"], "properties": { "operation": { "const": "certificate.deploy" }, "verified": { "type": "boolean" } }, "additionalProperties": true },
+  "writeEffect": true,
+  "hostPermissions": ["secret.resolve", "artifact.read", "network.http"]
+}

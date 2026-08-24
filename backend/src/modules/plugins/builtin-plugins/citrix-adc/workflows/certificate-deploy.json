@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-deploy",
     "displayName": "Citrix ADC certificate deployment",
     "category": "certificate",
-    "version": "2.0.4",
+    "version": "2.0.13",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -40,7 +40,7 @@
         "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
         "credentialSlot": "credential",
         "tls": {
-          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true }
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": false }
         }
       }
     },
@@ -457,7 +457,6 @@
       "name": "linkLeafCertKey",
       "type": "http",
       "stage": "install",
-      "when": { "variable": "steps.inspectLeafChainState.extracted.shouldLinkLeafCertKey", "equals": true },
       "request": {
         "method": "POST",
         "connectionRef": "management",

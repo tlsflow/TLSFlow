@@ -8,7 +8,7 @@ import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateH
 import { pluginRunnerLimits } from './protocol/protocol.constants.js';
 import { encodeJsonLine, JsonLinesDecoder } from './protocol/protocol.codec.js';
 import type {
-  PluginCheckpointRef,
+  PluginActionMessageBinding,
   PluginRunnerCancelResult,
   PluginRunnerError,
   PluginRunnerExecute,
@@ -19,7 +19,6 @@ import type {
   PluginRunnerMessage,
   PluginRunnerMessageType,
   PluginRunnerOutboundMessage,
-  PluginRunnerProgress,
   PluginRunnerShutdownResult,
 } from './protocol/protocol.types.js';
 import { redactRunnerLog } from './runner-log.js';
@@ -52,7 +51,7 @@ export interface PluginRunnerLaunchSpec {
   hostApiHandler?: PluginRunnerHostApiHandler;
 }
 
-export interface PluginRunnerHostCallContext {
+export interface PluginRunnerHostCallContext extends PluginActionMessageBinding {
   requestId: string;
   method: string;
   input: Record<string, unknown>;
@@ -64,31 +63,22 @@ export interface PluginRunnerHostCallContext {
   pluginVersionId: string;
   pluginId: string;
   pluginVersion: string;
-  capability: string;
   idempotencyKey: string;
   deadlineAt: string;
-  workflowVersionId: string;
-  planDigest: string;
   hostPermissions: readonly string[];
 }
 
 export type PluginRunnerHostApiHandler = (context: PluginRunnerHostCallContext) => Promise<Record<string, unknown>>;
 
-export interface PluginRunnerExecutionInput {
+export interface PluginRunnerExecutionInput extends PluginActionMessageBinding {
   tenantId: string;
   executionId: string;
   executionStepId: string;
-  /** 仅供宿主内部执行绑定使用；缺失时拒绝执行。 */
-  workflowVersionId?: string;
-  /** 仅供宿主内部执行绑定使用；缺失时拒绝执行。 */
-  planDigest?: string;
-  capability: string;
+  pluginVersionId: string;
   input: Record<string, unknown>;
   grantRefs: string[];
   idempotencyKey: string;
   deadlineAt: string;
-  writeEffect: boolean;
-  checkpoint?: PluginCheckpointRef;
 }
 
 export interface PluginRunnerCancelInput {
@@ -110,15 +100,11 @@ interface PendingRequest<T extends PluginRunnerInboundMessage> {
   nonce?: string;
 }
 
-interface ActiveExecution {
+interface ActiveExecution extends PluginActionMessageBinding {
   requestId: string;
   executionId: string;
   executionStepId: string;
-  workflowVersionId: string;
-  planDigest: string;
-  writeEffect: boolean;
   deadlineAt: string;
-  capability: string;
   grantRefs: readonly string[];
 }
 
@@ -134,7 +120,6 @@ export class PluginRunnerClient {
   private readonly expiredRequestIds = new Set<string>();
   private readonly inboundRequestIds = new Set<string>();
   private readonly completedInboundRequestIds = new Set<string>();
-  private readonly lastProgressSequence = new Map<string, number>();
   private readonly stderrChunks: string[] = [];
   private stderrRaw = '';
   private stderrBytes = 0;
@@ -152,7 +137,7 @@ export class PluginRunnerClient {
   private resourceMonitor?: NodeJS.Timeout;
   private retiredValue = false;
 
-  constructor(spec: PluginRunnerLaunchSpec, private readonly onProgress?: (message: PluginRunnerProgress) => void) {
+  constructor(spec: PluginRunnerLaunchSpec) {
     this.spec = immutableLaunchSpec(spec);
     for (const [name, value] of [['pluginVersionId', spec.pluginVersionId], ['pluginId', spec.pluginId], ['pluginVersion', spec.pluginVersion], ['tenantId', spec.tenantId], ['runnerVersion', spec.runnerVersion], ['sdkVersion', spec.sdkVersion]] as const) {
       if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw new AppError('PLUGIN_RUNNER_START_FAILED', `Runner ${name} 不是固定标识符`);
@@ -189,8 +174,10 @@ export class PluginRunnerClient {
     await this.start();
     this.assertReady();
     if (input.tenantId !== this.spec.tenantId) throw new AppError('TENANT_SCOPE_DENIED', 'Runner 不允许跨租户执行');
-    const workflowVersionId = requiredExecutionBinding(input.workflowVersionId, 'workflowVersionId');
-    const planDigest = requiredPlanDigest(input.planDigest);
+    if (input.pluginVersionId !== this.spec.pluginVersionId) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 执行请求的 PluginVersion 与固定进程不一致');
+    if (input.pluginId !== this.spec.pluginId) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 执行请求的 Plugin ID 与固定进程不一致');
+    validateActionBinding(input);
+    assertAtomicActionInput(input.input);
     assertDeadline(input.deadlineAt);
     if (this.activeExecution) throw new AppError('PLUGIN_RUNNER_BUSY', 'Runner 默认只允许一个执行中的请求');
     if (this.spec.capabilities && !this.spec.capabilities.includes(input.capability)) {
@@ -199,29 +186,41 @@ export class PluginRunnerClient {
     const grantRefs = validateGrantRefs(input.grantRefs);
     const requestId = newId('plugin-execute');
     const message: PluginRunnerExecute = {
-      protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute', requestId, sentAt: new Date().toISOString(),
+      protocolVersion: 'gcac.plugin-runner/v2', messageType: 'execute', requestId, sentAt: new Date().toISOString(),
       pluginVersionId: this.spec.pluginVersionId, tenantId: input.tenantId, executionId: input.executionId, executionStepId: input.executionStepId,
-      capability: input.capability, input: input.input, grantRefs, idempotencyKey: input.idempotencyKey,
-      deadlineAt: input.deadlineAt, writeEffect: input.writeEffect, ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
+      workflowVersionId: input.workflowVersionId, pluginId: input.pluginId, capability: input.capability,
+      actionId: input.actionId, actionContractVersion: input.actionContractVersion,
+      inputSchemaSha256: input.inputSchemaSha256, outputSchemaSha256: input.outputSchemaSha256,
+      packageHash: input.packageHash, manifestHash: input.manifestHash, resourceHash: input.resourceHash,
+      planDigest: input.planDigest, writeEffect: input.writeEffect,
+      input: structuredClone(input.input), grantRefs, idempotencyKey: input.idempotencyKey, deadlineAt: input.deadlineAt,
     };
     this.activeExecution = {
       requestId,
       executionId: input.executionId,
       executionStepId: input.executionStepId,
-      workflowVersionId,
-      planDigest,
+      workflowVersionId: input.workflowVersionId,
+      pluginId: input.pluginId,
+      capability: input.capability,
+      actionId: input.actionId,
+      actionContractVersion: input.actionContractVersion,
+      inputSchemaSha256: input.inputSchemaSha256,
+      outputSchemaSha256: input.outputSchemaSha256,
+      packageHash: input.packageHash,
+      manifestHash: input.manifestHash,
+      resourceHash: input.resourceHash,
+      planDigest: input.planDigest,
       writeEffect: input.writeEffect,
       deadlineAt: input.deadlineAt,
-      capability: input.capability,
       grantRefs,
     };
     try {
       const timeoutMs = Math.min(this.spec.executeTimeoutMs ?? pluginRunnerLimits.executeTimeoutMs, Math.max(1, Date.parse(input.deadlineAt) - Date.now()));
       const result = await this.request<PluginRunnerExecuteResult>(message, 'execute_result', timeoutMs);
-      return input.writeEffect ? normalizeWriteResult(result) : result;
+      return result;
     } catch (error) {
       rememberBounded(this.expiredExecutionKeys, executionKey(input.executionId, input.executionStepId), pluginRunnerLimits.maxExpiredRequestIds);
-      if (input.writeEffect) return unknownResult(message, error);
+      if (input.writeEffect && isExternalWriteUnknown(error)) return unknownResult(message, error);
       throw error;
     } finally {
       if (this.activeExecution?.requestId === requestId) this.activeExecution = undefined;
@@ -236,7 +235,7 @@ export class PluginRunnerClient {
       throw new AppError('PLUGIN_RUNNER_BUSY', '取消目标不是当前 Runner 的活动执行');
     }
     const message = {
-      protocolVersion: 'gcac.plugin-runner/v1' as const, messageType: 'cancel' as const, requestId: newId('plugin-cancel'), sentAt: new Date().toISOString(),
+      protocolVersion: 'gcac.plugin-runner/v2' as const, messageType: 'cancel' as const, requestId: newId('plugin-cancel'), sentAt: new Date().toISOString(),
       pluginVersionId: this.spec.pluginVersionId, tenantId: input.tenantId, executionId: input.executionId, executionStepId: input.executionStepId,
       targetRequestId: input.targetRequestId, reason: input.reason,
     };
@@ -247,7 +246,7 @@ export class PluginRunnerClient {
   async ping(): Promise<void> {
     await this.start();
     this.assertReadyOrDraining();
-    const message = { protocolVersion: 'gcac.plugin-runner/v1' as const, messageType: 'ping' as const, requestId: newId('plugin-ping'), sentAt: new Date().toISOString(), pluginVersionId: this.spec.pluginVersionId, nonce: newId('nonce') };
+    const message = { protocolVersion: 'gcac.plugin-runner/v2' as const, messageType: 'ping' as const, requestId: newId('plugin-ping'), sentAt: new Date().toISOString(), pluginVersionId: this.spec.pluginVersionId, nonce: newId('nonce') };
     await this.request(message, 'pong', pluginRunnerLimits.helloTimeoutMs);
   }
 
@@ -293,7 +292,7 @@ export class PluginRunnerClient {
     const graceMs = this.spec.shutdownGraceMs ?? pluginRunnerLimits.shutdownGraceMs;
     const shutdownDeadline = Date.now() + graceMs;
     const message = {
-      protocolVersion: 'gcac.plugin-runner/v1' as const,
+      protocolVersion: 'gcac.plugin-runner/v2' as const,
       messageType: 'shutdown' as const,
       requestId: newId('plugin-shutdown'),
       sentAt: new Date().toISOString(),
@@ -339,7 +338,6 @@ export class PluginRunnerClient {
     this.completedInboundRequestIds.clear();
     this.expiredRequestIds.clear();
     this.expiredExecutionKeys.clear();
-    this.lastProgressSequence.clear();
     const generation = ++this.connectionGeneration;
     this.exitPromise = new Promise<void>((resolveExit) => { this.resolveExit = resolveExit; });
     let child: ChildProcessWithoutNullStreams;
@@ -375,7 +373,7 @@ export class PluginRunnerClient {
       throw failure;
     }
     const hello = {
-      protocolVersion: 'gcac.plugin-runner/v1' as const, messageType: 'hello' as const, requestId: newId('plugin-hello'), sentAt: new Date().toISOString(),
+      protocolVersion: 'gcac.plugin-runner/v2' as const, messageType: 'hello' as const, requestId: newId('plugin-hello'), sentAt: new Date().toISOString(),
       pluginVersionId: this.spec.pluginVersionId, pluginId: this.spec.pluginId, pluginVersion: this.spec.pluginVersion, tenantId: this.spec.tenantId,
       runner: { pid: child.pid ?? 0, sdkVersion: this.spec.sdkVersion, runnerVersion: this.spec.runnerVersion }, capabilities: [...(this.spec.capabilities ?? [])],
       permissions: [...(this.spec.hostPermissions ?? [])],
@@ -432,13 +430,8 @@ export class PluginRunnerClient {
     if (message.tenantId && message.tenantId !== this.spec.tenantId) {
       this.failProtocol(new AppError('TENANT_SCOPE_DENIED', 'Runner 消息携带了错误租户')); return;
     }
-    if (message.messageType === 'progress') {
-      if (this.assertExecutionContext(message)) this.handleProgress(message);
-      return;
-    }
     if (message.messageType === 'host_call') {
-      if (this.assertExecutionContext(message) && message.capability === this.activeExecution?.capability) void this.handleHostCall(message);
-      else if (this.activeExecution) this.failProtocol(new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', 'Host API capability 与当前执行不匹配'));
+      if (this.assertExecutionContext(message)) void this.handleHostCall(message);
       return;
     }
     const pending = this.pending.get(message.requestId);
@@ -456,6 +449,10 @@ export class PluginRunnerClient {
       this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Runner response 执行上下文与 request 不匹配', { requestId: message.requestId }));
       return;
     }
+    if (message.messageType === 'execute_result' && !sameActionBinding(message, this.activeExecution)) {
+      this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Runner execute_result 的 Action 绑定与执行请求不匹配', { requestId: message.requestId }));
+      return;
+    }
     if (message.messageType === 'pong' && message.nonce !== pending.nonce) {
       this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Runner pong nonce 与 ping 不匹配', { requestId: message.requestId }));
       return;
@@ -470,17 +467,6 @@ export class PluginRunnerClient {
     this.pending.delete(message.requestId);
     clearTimeout(pending.timer);
     pending.resolve(message as PluginRunnerInboundMessage);
-  }
-
-  private handleProgress(message: PluginRunnerProgress): void {
-    const key = `${message.executionId}:${message.executionStepId}`;
-    const previous = this.lastProgressSequence.get(key);
-    if (previous !== undefined && message.sequence < previous) {
-      this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'progress sequence 乱序')); return;
-    }
-    if (previous !== undefined && message.sequence === previous) return;
-    this.lastProgressSequence.set(key, message.sequence);
-    this.onProgress?.(message);
   }
 
   private async handleHostCall(message: PluginRunnerHostCall): Promise<void> {
@@ -542,6 +528,14 @@ export class PluginRunnerClient {
           pluginId: this.spec.pluginId,
           pluginVersion: this.spec.pluginVersion,
           capability: message.capability,
+          actionId: message.actionId,
+          actionContractVersion: message.actionContractVersion,
+          inputSchemaSha256: message.inputSchemaSha256,
+          outputSchemaSha256: message.outputSchemaSha256,
+          packageHash: message.packageHash,
+          manifestHash: message.manifestHash,
+          resourceHash: message.resourceHash,
+          writeEffect: message.writeEffect,
           idempotencyKey: message.idempotencyKey,
           deadlineAt: message.deadlineAt,
           workflowVersionId: activeExecution.workflowVersionId,
@@ -566,7 +560,16 @@ export class PluginRunnerClient {
   }
 
   private hostResult(message: PluginRunnerHostCall, ok: boolean, output?: Record<string, unknown>, error?: PluginRunnerError): PluginRunnerHostResult {
-    return { protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, capability: message.capability, ok, ...(output ? { output } : {}), ...(error ? { error } : {}) };
+    return {
+      protocolVersion: 'gcac.plugin-runner/v2', messageType: 'host_result', requestId: message.requestId, sentAt: new Date().toISOString(),
+      pluginVersionId: message.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId,
+      workflowVersionId: message.workflowVersionId, pluginId: message.pluginId, capability: message.capability,
+      actionId: message.actionId, actionContractVersion: message.actionContractVersion,
+      inputSchemaSha256: message.inputSchemaSha256, outputSchemaSha256: message.outputSchemaSha256,
+      packageHash: message.packageHash, manifestHash: message.manifestHash, resourceHash: message.resourceHash,
+      planDigest: message.planDigest, writeEffect: message.writeEffect,
+      ok, ...(output ? { output } : {}), ...(error ? { error } : {}),
+    };
   }
 
   private errorPayload(code: string, message: string, retryable: boolean, mayBeUnknown: boolean): PluginRunnerError {
@@ -585,11 +588,15 @@ export class PluginRunnerClient {
     }
   }
 
-  private assertExecutionContext(message: PluginRunnerHostCall | PluginRunnerProgress): boolean {
+  private assertExecutionContext(message: PluginRunnerHostCall): boolean {
     const active = this.activeExecution;
     if (!active && this.expiredExecutionKeys.has(executionKey(message.executionId, message.executionStepId))) return false;
     if (!active || active.executionId !== message.executionId || active.executionStepId !== message.executionStepId) {
       this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Runner 消息不属于当前活动执行'));
+      return false;
+    }
+    if (!sameActionBinding(message, active)) {
+      this.failProtocol(new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Runner 消息的 Action 绑定与当前执行不匹配'));
       return false;
     }
     return true;
@@ -839,14 +846,14 @@ function assertDeadline(deadlineAt: string): void {
   if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new AppError('PLUGIN_RUNNER_TIMEOUT', '插件执行截止时间已到期');
 }
 
-function requiredExecutionBinding(value: string | undefined, name: string): string {
+function requiredExecutionBinding(value: string, name: string): string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) {
     throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `Runner 执行缺少固定 ${name}`);
   }
   return value;
 }
 
-function requiredPlanDigest(value: string | undefined): string {
+function requiredPlanDigest(value: string): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
     throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 执行缺少固定 planDigest');
   }
@@ -866,27 +873,10 @@ function assertGrantRefsSubset(requested: readonly string[], allowed: readonly s
   if (requested.some((ref) => !allowedSet.has(ref))) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 使用了未绑定的 Grant 引用');
 }
 
-function normalizeWriteResult(result: PluginRunnerExecuteResult): PluginRunnerExecuteResult {
-  if (result.success && result.status === 'SUCCESS') return result;
-  return {
-    ...result,
-    success: false,
-    status: 'UNKNOWN',
-    normalizedObjects: [],
-    error: {
-      code: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-      message: '写操作结果需要通过恢复流程确认',
-      retryable: false,
-      mayBeUnknown: true,
-      secretRedacted: true,
-    },
-  };
-}
-
 function unknownResult(message: PluginRunnerExecute, error: unknown): PluginRunnerExecuteResult {
   const cause = error instanceof AppError ? error.errorCode : 'PLUGIN_RUNNER_CRASHED';
   return {
-    protocolVersion: 'gcac.plugin-runner/v1',
+    protocolVersion: 'gcac.plugin-runner/v2',
     messageType: 'execute_result',
     requestId: message.requestId,
     sentAt: new Date().toISOString(),
@@ -894,10 +884,21 @@ function unknownResult(message: PluginRunnerExecute, error: unknown): PluginRunn
     tenantId: message.tenantId,
     executionId: message.executionId,
     executionStepId: message.executionStepId,
+    workflowVersionId: message.workflowVersionId,
+    pluginId: message.pluginId,
+    capability: message.capability,
+    actionId: message.actionId,
+    actionContractVersion: message.actionContractVersion,
+    inputSchemaSha256: message.inputSchemaSha256,
+    outputSchemaSha256: message.outputSchemaSha256,
+    packageHash: message.packageHash,
+    manifestHash: message.manifestHash,
+    resourceHash: message.resourceHash,
+    planDigest: message.planDigest,
+    writeEffect: message.writeEffect,
     success: false,
     status: 'UNKNOWN',
-    summary: {},
-    normalizedObjects: [],
+    output: {},
     warnings: [],
     error: {
       code: 'PLUGIN_OPERATION_UNKNOWN_STATE',
@@ -908,4 +909,66 @@ function unknownResult(message: PluginRunnerExecute, error: unknown): PluginRunn
       secretRedacted: true,
     },
   };
+}
+
+function validateActionBinding(binding: PluginActionMessageBinding): void {
+  requiredExecutionBinding(binding.workflowVersionId, 'workflowVersionId');
+  requiredExecutionBinding(binding.pluginId, 'pluginId');
+  requiredExecutionBinding(binding.capability, 'capability');
+  requiredExecutionBinding(binding.actionId, 'actionId');
+  requiredExecutionBinding(binding.actionContractVersion, 'actionContractVersion');
+  for (const [name, value] of [
+    ['inputSchemaSha256', binding.inputSchemaSha256],
+    ['outputSchemaSha256', binding.outputSchemaSha256],
+    ['packageHash', binding.packageHash],
+    ['manifestHash', binding.manifestHash],
+    ['resourceHash', binding.resourceHash],
+  ] as const) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `Runner 执行缺少固定 ${name}`);
+  }
+  requiredPlanDigest(binding.planDigest);
+}
+
+function sameActionBinding(left: PluginActionMessageBinding, right: PluginActionMessageBinding | undefined): boolean {
+  if (!right) return false;
+  return left.workflowVersionId === right.workflowVersionId
+    && left.pluginId === right.pluginId
+    && left.capability === right.capability
+    && left.actionId === right.actionId
+    && left.actionContractVersion === right.actionContractVersion
+    && left.inputSchemaSha256 === right.inputSchemaSha256
+    && left.outputSchemaSha256 === right.outputSchemaSha256
+    && left.packageHash === right.packageHash
+    && left.manifestHash === right.manifestHash
+    && left.resourceHash === right.resourceHash
+    && left.planDigest === right.planDigest
+    && left.writeEffect === right.writeEffect;
+}
+
+function isExternalWriteUnknown(error: unknown): boolean {
+  if (!(error instanceof AppError)) return false;
+  const details = error.details;
+  if (details && typeof details === 'object' && !Array.isArray(details)
+    && (details as Record<string, unknown>).mayBeUnknown === true) {
+    return true;
+  }
+  return error.errorCode === 'PLUGIN_RUNNER_TIMEOUT'
+    || error.errorCode === 'PLUGIN_RUNNER_CRASHED'
+    || error.errorCode === 'PLUGIN_RUNNER_PROTOCOL_VIOLATION';
+}
+
+function assertAtomicActionInput(value: Record<string, unknown>): void {
+  const forbidden = new Set(['workflow', 'steps', 'rollback', 'checkpoint', 'checkpoints', 'workflowRequest', 'pluginRunnerBinding', 'pluginRuntimeCapability', 'variables']);
+  const visit = (current: unknown, depth: number): void => {
+    if (depth > 32 || !current || typeof current !== 'object') return;
+    if (Array.isArray(current)) {
+      current.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      if (forbidden.has(key)) throw new AppError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', 'plugin.action 输入不得携带 Workflow 编排或宿主状态字段', { key });
+      visit(child, depth + 1);
+    }
+  };
+  visit(value, 0);
 }

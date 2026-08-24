@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PgliteDatabase } from '../../database/pglite-database.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { PluginWorkflowPublisherService } from './application/plugin-workflow-publisher.service.js';
-import { PluginWorkflowVersionStore } from './application/plugin-workflow-version-store.js';
 import type { PluginWorkflowBindingRecord } from './dto/plugin-workflow-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from './repository/plugin-workflow-bindings.repository.js';
@@ -15,19 +13,24 @@ test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建
   const versions = new Map<string, UnifiedPluginVersionRecord>();
   const pluginService = new UnifiedPluginsApplicationService(pluginRepository(versions));
   const installed = await new BuiltinUnifiedPluginLoader().installAll(pluginService);
+  for (const pluginId of ['cloud.aliyun', 'cloud.tencent', 'cloud.huawei', 'cloud.volcengine']) {
+    assert.ok(installed.some((item) => item.pluginId === pluginId), `${pluginId} 必须能通过内置插件导入和发布前校验`);
+  }
   const plugin = installed.find((item) => item.pluginId === 'device.citrix.netscaler-adc');
   assert.ok(plugin);
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
-  const pluginWorkflows = new PluginWorkflowVersionStore(new PgliteDatabase());
-  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings), pluginWorkflows);
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
 
   const first = await publisher.publishPlugin(plugin!);
   const second = await publisher.publishPlugin(plugin!);
 
   assert.equal(first.length, 5);
   assert.equal(second.length, 5);
-  assert.equal(first[0]?.workflowContentSha256, (await pluginWorkflows.getVersion(first[0]!.workflowVersionId)).contentHash);
+  const firstVersion = await workflows.getVersion(first[0]!.workflowVersionId);
+  assert.equal(first[0]?.workflowContentSha256, firstVersion.contentHash);
+  assert.equal(firstVersion.executionMode, undefined);
+  assert.equal(firstVersion.content.kind, 'CurlSshWorkflow');
   assert.equal(new Set(first.map((item) => item.workflowTemplateId)).size, 4);
   assert.deepEqual(second.map((item) => item.workflowTemplateId), first.map((item) => item.workflowTemplateId));
   assert.notEqual((await publisher.require(plugin.id, 'device.connection.test')).workflowVersionId, (await publisher.require(plugin.id, 'device.identity.detect')).workflowVersionId);
@@ -52,12 +55,12 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
   assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
-test('插件 Workflow 内容变化时只要求 Manifest 版本变化，不要求 metadata.version 递进', async () => {
+test('插件 Workflow 内容变化且版本与 PluginVersion 同步时可发布', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
   const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
   const firstPlugin = pluginRecord('workflow-metadata-stable', '1.0.0', '1.0.0');
-  const secondPlugin = pluginRecord('workflow-metadata-stable-next', '1.1.0', '1.0.0');
+  const secondPlugin = pluginRecord('workflow-metadata-stable-next', '1.1.0', '1.1.0');
   const resourcePath = 'workflows/deploy.json';
   firstPlugin.manifest.resources.runtimeEntrypoint = 'runtime/index.js';
   secondPlugin.manifest.resources.runtimeEntrypoint = 'runtime/index.js';
@@ -65,11 +68,22 @@ test('插件 Workflow 内容变化时只要求 Manifest 版本变化，不要求
   changed.metadata.name = 'fixture-deploy-v2';
   secondPlugin.resources[resourcePath] = JSON.stringify(changed);
 
-  const [first] = await publisher.publishPlugin(firstPlugin);
-  const [second] = await publisher.publishPlugin(secondPlugin);
+  await publisher.publishPlugin(firstPlugin);
+  const [published] = await publisher.publishPlugin(secondPlugin);
+  assert.ok(published);
+});
 
-  assert.equal(second?.workflowTemplateId, first?.workflowTemplateId);
-  assert.notEqual(second?.workflowVersionId, first?.workflowVersionId);
+test('插件内部 WorkflowVersion 与 PluginVersion 不一致时拒绝发布', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const plugin = pluginRecord('workflow-plugin-version-mismatch', '1.1.0', '1.0.0');
+
+  await assert.rejects(
+    () => publisher.publishPlugin(plugin),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED'
+      && error.details?.code === 'PLUGIN_WORKFLOW_VERSION_MISMATCH',
+  );
 });
 
 test('插件 Workflow metadata.version 仍必须是合法 SemVer', async () => {
@@ -85,19 +99,18 @@ test('插件 Workflow metadata.version 仍必须是合法 SemVer', async () => {
   );
 });
 
-test('插件版本变化但工作流内容未变化时复用已有版本', async () => {
+test('插件版本变化但 Workflow 版本未同步时拒绝发布', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
   const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
   const firstPlugin = pluginRecord('uplgv_first', '1.0.0', '1.0.0');
   const secondPlugin = pluginRecord('uplgv_second', '1.1.0', '1.0.0');
 
-  const [first] = await publisher.publishPlugin(firstPlugin);
-  const [second] = await publisher.publishPlugin(secondPlugin);
-
-  assert.equal(first?.workflowTemplateId, second?.workflowTemplateId);
-  assert.equal(first?.workflowVersionId, second?.workflowVersionId);
-  assert.equal((await workflows.listVersions(first!.workflowTemplateId)).length, 1);
+  await publisher.publishPlugin(firstPlugin);
+  await assert.rejects(
+    () => publisher.publishPlugin(secondPlugin),
+    (error: any) => error.details?.code === 'PLUGIN_WORKFLOW_VERSION_MISMATCH',
+  );
 });
 
 test('插件发布遇到已存在的 Workflow 内容时复用现有版本', async () => {

@@ -22,7 +22,7 @@ export const pluginRunnerLimits = {
 } as const;
 
 export const pluginRunnerMessageTypes: readonly PluginRunnerMessageType[] = [
-  'hello', 'hello_result', 'execute', 'execute_result', 'host_call', 'host_result', 'progress',
+  'hello', 'hello_result', 'execute', 'execute_result', 'host_call', 'host_result',
   'cancel', 'cancel_result', 'ping', 'pong', 'shutdown', 'shutdown_result',
 ];
 

@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "certificate.rollback.v1",
+  "capability": "certificate.rollback",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["target", "credential", "previousCertificate"], "properties": { "target": { "type": "string", "minLength": 1 }, "credential": { "type": "object", "required": ["username", "secretRef"], "additionalProperties": true }, "previousCertificate": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "required": ["operation", "verified"], "properties": { "operation": { "const": "certificate.rollback" }, "verified": { "type": "boolean" } }, "additionalProperties": true },
+  "writeEffect": true,
+  "hostPermissions": ["secret.resolve", "network.http"]
+}

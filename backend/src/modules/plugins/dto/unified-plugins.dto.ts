@@ -77,6 +77,7 @@ export interface UnifiedPluginManifestV1 {
     runtimeEntrypoint?: string;
     agentPlans?: Record<string, string>;
     workflows?: Record<string, string>;
+    actionContracts?: Record<string, string>;
     forms?: Record<string, string>;
     presentations?: Record<string, string>;
     locales?: Record<string, string>;

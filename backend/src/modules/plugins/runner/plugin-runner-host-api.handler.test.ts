@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
@@ -10,9 +9,9 @@ import { getHostApiMethod } from './protocol/host-api.registry.js';
 import type { PluginRunnerError } from './protocol/protocol.types.js';
 
 const planDigest = 'b'.repeat(64);
-const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'network.http', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'];
+const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'crypto.sign', 'network.http', 'execution.cancel', 'audit.append'];
 
-test('Host API 的十一项已登记方法均走绑定 Grant、持久化端口和审计', async () => {
+test('允许的 Host API 只通过 Action Grant、持久化端口和审计调用', async () => {
   const fixture = createFixture();
   const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
 
@@ -23,44 +22,25 @@ test('Host API 的十一项已登记方法均走绑定 Grant、持久化端口�
   assert.equal(JSON.stringify(secret).includes('plain-text-must-not-leak'), false);
   assert.equal((secret.data as Record<string, unknown>).value, '[REDACTED]');
 
-  const progress = await handler({ ...context('execution.progress', ['execution.progress']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 3, stage: 'prepare', summary: '已准备' } });
-  assert.deepEqual(progress, { ok: true, data: { accepted: true, sequence: 3, stage: 'prepare' } });
-  await assert.rejects(
-    handler({ ...context('execution.progress', ['execution.progress']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 3, stage: 'other', summary: '同序号不同内容' } }),
-    /幂等键|摘要/,
-  );
-
-  const payload = { snapshot: 'v1' };
-  const digest = sha256(payload);
-  const checkpoint = await handler({ ...context('execution.checkpoint.save', ['execution.checkpoint']), input: { executionId: 'run-1', executionStepId: 'step-1', payload, digest } });
-  assert.equal((checkpoint.data as Record<string, unknown>).checkpointRef, 'checkpoint-1');
-  const loaded = await handler({ ...context('execution.checkpoint.load', ['execution.checkpoint']), input: { checkpointRef: 'checkpoint-1' } });
-  assert.deepEqual((loaded.data as Record<string, unknown>).payload, payload);
 
   const cancelled = await handler({ ...context('execution.isCancelled', ['execution.cancel']), input: { executionId: 'run-1', executionStepId: 'step-1' } });
   assert.deepEqual(cancelled, { ok: true, data: { cancelled: false } });
 
-  const acquired = await handler({ ...context('resourceLock.acquire', ['resource.lock']), input: { resourceKey: 'certificate:1', ownerRunId: 'run-1', ownerStepId: 'step-1', ttlSeconds: 30 } });
-  assert.equal((acquired.data as Record<string, unknown>).lockId, 'lock-1');
-  await handler({ ...context('resourceLock.release', ['resource.lock']), input: { lockId: 'lock-1', ownerRunId: 'run-1', ownerStepId: 'step-1' } });
   await handler({ ...context('audit.append', ['audit.append']), input: { eventType: 'plugin.fixture', action: 'fixture.run', resourceType: 'fixture', resourceId: 'fixture-1', result: 'success', detail: { secret: 'should-be-redacted-by-audit-service' } } });
 
-  assert.equal(fixture.validations.every((input) => input.executorType === 'PLUGIN_RUNNER'), true);
+  assert.equal(fixture.validations.every((input) => input.executorType === 'plugin.action'), true);
   assert.equal(fixture.validations.every((input) => input.tenantId === 'tenant-1' && input.runId === 'run-1' && input.stepId === 'step-1'), true);
-  assert.equal(fixture.validations.every((input) => input.workflowVersionId === 'workflow-1' && input.pluginVersionId === 'plugin-version-1' && input.pluginId === 'test.echo' && input.capability === 'test.echo' && input.planDigest === planDigest), true);
-  assert.equal(fixture.progress.length, 1);
-  assert.equal(fixture.locks.acquires.length, 1);
-  assert.equal(fixture.locks.releases.length, 1);
+  assert.equal(fixture.validations.every((input) => input.workflowVersionId === 'workflow-1' && input.pluginVersionId === 'plugin-version-1' && input.pluginId === 'test.echo' && input.capability === 'test.echo' && input.actionId === 'test.echo.v1' && input.actionContractVersion === 'v1' && input.planDigest === planDigest), true);
   assert.equal(fixture.audits.some((event) => event.eventType === 'plugin.host_api.call'), true);
 });
 
-test('Host API 对错步骤、未绑定 Grant、权限不足、checkpoint 越权和未知方法失败关闭', async () => {
+test('Host API 对错步骤、未绑定 Grant、权限不足和编排方法失败关闭', async () => {
   const fixture = createFixture();
   const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
 
   await assert.rejects(
-    handler({ ...context('execution.progress', ['execution.progress']), input: { executionId: 'run-1', executionStepId: 'other-step', sequence: 1, stage: 'prepare', summary: '错误步骤' } }),
-    /绑定不匹配/,
+    handler({ ...context('execution.isCancelled', ['execution.cancel']), executionId: 'other-run', input: { executionId: 'other-run', executionStepId: 'step-1' } }),
+    /绑定不匹配|属于当前运行/,
   );
   await assert.rejects(
     handler({ ...context('secret.grant.resolve', ['secret.resolve'], ['other-grant']), input: { grantId: 'grant-1', secretRef: 'secret://api_token/secret-1#current', purpose: 'secret.resolve' } }),
@@ -71,12 +51,9 @@ test('Host API 对错步骤、未绑定 Grant、权限不足、checkpoint 越权
     /权限不足/,
   );
 
-  fixture.checkpoint.ledgerId = 'other-ledger';
-  await assert.rejects(handler({ ...context('execution.checkpoint.load', ['execution.checkpoint']), input: { checkpointRef: 'checkpoint-1' } }), /不属于当前/);
-  await assert.rejects(
-    handler({ ...context('plugin.invoke', [], []), method: 'plugin.invoke', input: {} }),
-    /未注册/,
-  );
+  for (const method of ['execution.checkpoint.load', 'workflow.rollback.execute', 'workflow.lock.acquire', 'resourceLock.acquire', 'plugin.invoke']) {
+    await assert.rejects(handler({ ...context(method, [], []), input: {} }), /未注册/);
+  }
   assert.equal(fixture.audits.some((event) => event.result === 'denied'), true);
 });
 
@@ -206,12 +183,11 @@ test('Host API 已完成请求只重放结果，不重复消费宿主能力', as
 test('Host API 幂等键或绑定 Grant 摘要冲突时失败关闭，不提交第二次', async () => {
   const fixture = createFixture();
   const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
-  const first = { ...context('execution.progress', ['execution.progress'], ['grant-1']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 9, stage: 'prepare', summary: '第一次' } };
-  const conflict = { ...context('execution.progress', ['execution.progress'], ['grant-2']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 9, stage: 'prepare', summary: '第一次' } };
+  const first = { ...context('artifact.grant.read', ['artifact.read'], ['grant-1']), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } };
+  const conflict = { ...context('artifact.grant.read', ['artifact.read'], ['grant-2']), input: { grantId: 'grant-2', artifactRef: 'artifact://artifact-1' } };
 
   await handler(first);
   await assert.rejects(handler(conflict), /幂等键|摘要/);
-  assert.equal(fixture.progress.length, 1);
   assert.equal(fixture.requestStore.completeCalls, 1);
 });
 
@@ -283,27 +259,16 @@ test('Host API UNKNOWN 状态不可重放，也不再次获得宿主消费权', 
   await assert.rejects(handler(request), /超时|UNKNOWN/);
   const claimCallsAfterUnknown = fixture.requestStore.claimCalls;
   await assert.rejects(handler(request), /UNKNOWN|已过期/);
-  assert.equal(fixture.progress.length, 0);
   assert.equal(fixture.requestStore.claimCalls, claimCallsAfterUnknown + 1);
 });
 
-test('Host API 消费权内的确定性拒绝会落终态，不遗留 IN_FLIGHT', async () => {
+test('Host API 禁止 checkpoint、rollback 和工作流锁，且不获取消费权', async () => {
   const fixture = createFixture();
-  fixture.checkpoint.ledgerId = 'other-ledger';
-  let reads = 0;
-  fixture.dependencies.workflowRecovery.getCheckpoint = async () => {
-    reads += 1;
-    return {
-      id: 'checkpoint-1', tenantId: 'tenant-1', ledgerId: 'other-ledger', checkpointName: 'checkpoint-1',
-      workflowStepName: 'step-1', capture: { snapshot: 'v1' }, captureHash: sha256({ snapshot: 'v1' }),
-      requiredForRollback: false, createdAt: '2026-08-10T00:00:00.000Z',
-    };
-  };
   const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
-  const request = { ...context('execution.checkpoint.load', ['execution.checkpoint']), input: { checkpointRef: 'checkpoint-1' } };
-  await assert.rejects(handler(request), /不属于当前/);
-  await assert.rejects(handler(request), /已记录失败结果|禁止重新执行/);
-  assert.equal(reads, 1);
+  for (const method of ['execution.checkpoint.save', 'execution.checkpoint.load', 'workflow.rollback.execute', 'workflow.lock.acquire']) {
+    await assert.rejects(handler({ ...context(method, [], []), input: {} }), /未注册/);
+  }
+  assert.equal(fixture.requestStore.claimCalls, 0);
 });
 
 test('Host API 拒绝已过期截止时间，不创建消费记录', async () => {
@@ -321,30 +286,27 @@ test('Host API 拒绝已过期截止时间，不创建消费记录', async () =>
   assert.equal(reads, 0);
 });
 
-test('Plugin Runner Grant 缺少完整身份绑定或字段不一致时拒绝创建和校验', async () => {
+test('plugin.action Grant 缺少完整身份绑定或字段不一致时拒绝创建和校验', async () => {
   const { ExecutionGrantService } = await import('../../executions/execution-grant.service.js');
   const service = new ExecutionGrantService();
   await assert.rejects(service.create({
-    tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'PLUGIN_RUNNER',
+    tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'plugin.action',
     allowedSecretRefs: [], allowedActions: ['artifact.read'], expiresAt: new Date(Date.now() + 60_000).toISOString(),
   }), (error: unknown) => (error as { errorCode?: string }).errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
 
   const grant = await service.create({
-    tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'PLUGIN_RUNNER',
-    workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', planDigest,
+    tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'plugin.action',
+    workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', actionId: 'test.echo.v1', actionContractVersion: 'v1', inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'c'.repeat(64)}`, planDigest,
     allowedSecretRefs: [], allowedActions: ['artifact.read'], expiresAt: new Date(Date.now() + 60_000).toISOString(),
   });
-  await service.validate({ grantId: grant.id, tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'PLUGIN_RUNNER', workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', planDigest });
-  await assert.rejects(service.validate({ grantId: grant.id, tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'PLUGIN_RUNNER', workflowVersionId: 'workflow-1', pluginVersionId: 'other-version', pluginId: 'test.echo', capability: 'test.echo', planDigest }), (error: unknown) => (error as { errorCode?: string }).errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
-  await assert.rejects(service.validate({ grantId: grant.id, tenantId: 'other-tenant', runId: 'run-1', stepId: 'step-1', executorType: 'PLUGIN_RUNNER', workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', planDigest }), (error: unknown) => (error as { errorCode?: string }).errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
+  await service.validate({ grantId: grant.id, tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'plugin.action', workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', actionId: 'test.echo.v1', actionContractVersion: 'v1', inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'c'.repeat(64)}`, planDigest });
+  await assert.rejects(service.validate({ grantId: grant.id, tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'plugin.action', workflowVersionId: 'workflow-1', pluginVersionId: 'other-version', pluginId: 'test.echo', capability: 'test.echo', actionId: 'test.echo.v1', actionContractVersion: 'v1', inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'c'.repeat(64)}`, planDigest }), (error: unknown) => (error as { errorCode?: string }).errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
+  await assert.rejects(service.validate({ grantId: grant.id, tenantId: 'other-tenant', runId: 'run-1', stepId: 'step-1', executorType: 'plugin.action', workflowVersionId: 'workflow-1', pluginVersionId: 'plugin-version-1', pluginId: 'test.echo', capability: 'test.echo', actionId: 'test.echo.v1', actionContractVersion: 'v1', inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'c'.repeat(64)}`, planDigest }), (error: unknown) => (error as { errorCode?: string }).errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
 });
 
 function createFixture() {
   const validations: Array<Record<string, unknown>> = [];
   const audits: WriteAuditInput[] = [];
-  const progress: unknown[] = [];
-  const locks = { acquires: [] as Array<Record<string, unknown>>, releases: [] as Array<Record<string, unknown>> };
-  const checkpoint = { ledgerId: 'ledger-1' };
   const requestStore = new TestHostApiRequestStore();
   const dependencies: PluginRunnerHostApiDependencies = {
     requestGate: new PluginRunnerHostApiRequestGate(requestStore),
@@ -370,28 +332,12 @@ function createFixture() {
         ? { tenantId: 'tenant-1', artifactRef, content: Buffer.from('artifact-data'), contentType: 'application/octet-stream', sha256: 'c'.repeat(64), createdBy: 'fixture', createdAt: '2026-08-10T00:00:00.000Z' }
         : undefined,
     },
-    resourceLocks: {
-      acquire: async (input: Record<string, unknown>) => {
-        locks.acquires.push(input);
-        return { id: 'lock-1' } as never;
-      },
-      release: async (input: Record<string, unknown>) => {
-        locks.releases.push(input);
-      },
-    },
-    workflowRecovery: {
-      begin: async () => ({ id: 'ledger-1' }),
-      recordCheckpoint: async () => ({ id: 'checkpoint-1', captureHash: sha256({ snapshot: 'v1' }) }),
-      get: async () => ({ ledger: { id: 'ledger-1' }, checkpoints: [] }),
-      getCheckpoint: async () => ({ id: 'checkpoint-1', ledgerId: checkpoint.ledgerId, capture: { snapshot: 'v1' }, captureHash: sha256({ snapshot: 'v1' }) }),
-    } as unknown as PluginRunnerHostApiDependencies['workflowRecovery'],
-    executionDetails: { publishLog: (...input: unknown[]) => { progress.push(input); } } as PluginRunnerHostApiDependencies['executionDetails'],
     executions: {
       getRunOrThrow: async () => ({ status: 'RUNNING' }),
       getStepOrThrow: async () => ({ executionRunId: 'run-1' }),
     } as unknown as PluginRunnerHostApiDependencies['executions'],
   };
-  return { dependencies, validations, audits, progress, locks, checkpoint, requestStore };
+  return { dependencies, validations, audits, requestStore };
 }
 
 function context(method: string, hostPermissions: string[], grantRefs = ['grant-1']): PluginRunnerHostCallContext {
@@ -411,7 +357,15 @@ function context(method: string, hostPermissions: string[], grantRefs = ['grant-
     pluginId: 'test.echo',
     pluginVersion: '1.0.0',
     capability: 'test.echo',
+    actionId: 'test.echo.v1',
+    actionContractVersion: 'v1',
+    inputSchemaSha256: `sha256:${'a'.repeat(64)}`,
+    outputSchemaSha256: `sha256:${'c'.repeat(64)}`,
+    packageHash: `sha256:${'d'.repeat(64)}`,
+    manifestHash: `sha256:${'e'.repeat(64)}`,
+    resourceHash: `sha256:${'f'.repeat(64)}`,
     planDigest,
+    writeEffect: false,
     hostPermissions,
   };
 }
@@ -492,8 +446,4 @@ function unknownOutcome(message: string): HostApiRequestOutcome {
       secretRedacted: true,
     },
   };
-}
-
-function sha256(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }

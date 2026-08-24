@@ -108,9 +108,6 @@ const cryptoSignRequest = objectSchema({
   hashAlgorithm: { enum: ['SHA-256', 'SHA-384', 'SHA-512'] },
   signatureAlgorithm: { enum: ['RS256', 'ES256'] },
 }, ['grantId', 'secretRef', 'data', 'hashAlgorithm', 'signatureAlgorithm']);
-const progressRequest = objectSchema({ executionId: id, executionStepId: id, sequence: { type: 'integer', minimum: 0 }, stage: nonEmpty, summary: nonEmpty }, ['executionId', 'executionStepId', 'sequence', 'stage', 'summary']);
-const checkpointSaveRequest = objectSchema({ executionId: id, executionStepId: id, payload: record, digest: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, ['executionId', 'executionStepId', 'payload', 'digest']);
-const checkpointLoadRequest = objectSchema({ checkpointRef: id }, ['checkpointRef']);
 const cloudServiceGetRequest = objectSchema({ cloudServiceRef: id }, ['cloudServiceRef']);
 const httpRequest = objectSchema({
   url: { type: 'string', format: 'uri', pattern: '^https://[^\\s#]+$', maxLength: 2048 },
@@ -127,12 +124,7 @@ export const hostApiRegistry: Readonly<Record<string, HostApiMethodDefinition>> 
   'crypto.sign': method('crypto.sign', cryptoSignRequest, { permission: 'crypto.sign', requiredGrants: ['crypto.sign'], riskLevel: 'CRITICAL', readOnly: false, retryable: false, idempotencyKey: 'data', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'hashAlgorithm', 'signatureAlgorithm'], secretRedaction: 'ALWAYS' }),
   // 通用 HTTPS 出口承载 Cloud 插件的签名写请求，超时或连接中断必须按外部状态未知处理。
   'http.request': method('http.request', httpRequest, { resultSchema: resultWithData(httpResponseData), permission: 'network.http', requiredGrants: ['network.http'], riskLevel: 'HIGH', readOnly: false, retryable: false, idempotencyKey: 'url', timeoutMs: 30_000, maxOutputBytes: 2 * 1024 * 1024, auditFields: ['method', 'url'], secretRedaction: 'ALWAYS' }),
-  'execution.progress': method('execution.progress', progressRequest, { permission: 'execution.progress.write', requiredGrants: ['execution.progress'], riskLevel: 'LOW', readOnly: false, retryable: false, idempotencyKey: 'sequence', timeoutMs: 5_000, maxOutputBytes: 32 * 1024, auditFields: ['executionId', 'executionStepId', 'sequence'], secretRedaction: 'ALWAYS' }),
-  'execution.checkpoint.save': method('execution.checkpoint.save', checkpointSaveRequest, { permission: 'execution.checkpoint.write', requiredGrants: ['execution.checkpoint'], riskLevel: 'MEDIUM', readOnly: false, retryable: false, idempotencyKey: 'digest', timeoutMs: 10_000, maxOutputBytes: 32 * 1024, auditFields: ['executionId', 'executionStepId', 'digest'], secretRedaction: 'ALWAYS' }),
-  'execution.checkpoint.load': method('execution.checkpoint.load', checkpointLoadRequest, { permission: 'execution.checkpoint.read', requiredGrants: ['execution.checkpoint'], riskLevel: 'MEDIUM', readOnly: true, retryable: false, idempotencyKey: null, timeoutMs: 10_000, maxOutputBytes: 512 * 1024, auditFields: ['checkpointRef'], secretRedaction: 'ALWAYS' }),
   'execution.isCancelled': method('execution.isCancelled', objectSchema({ executionId: id, executionStepId: id }, ['executionId', 'executionStepId']), { permission: 'execution.cancel.read', requiredGrants: ['execution.cancel'], riskLevel: 'LOW', readOnly: true, retryable: true, idempotencyKey: null, timeoutMs: 2_000, maxOutputBytes: 8 * 1024, auditFields: ['executionId', 'executionStepId'], secretRedaction: 'METADATA_ONLY' }),
-  'resourceLock.acquire': method('resourceLock.acquire', objectSchema({ resourceKey: nonEmpty, ownerRunId: id, ownerStepId: id, ttlSeconds: { type: 'integer', minimum: 1, maximum: 3600 } }, ['resourceKey', 'ownerRunId', 'ownerStepId', 'ttlSeconds']), { permission: 'resource.lock', requiredGrants: ['resource.lock'], riskLevel: 'HIGH', readOnly: false, retryable: false, idempotencyKey: 'ownerStepId', timeoutMs: 10_000, maxOutputBytes: 32 * 1024, auditFields: ['resourceKey', 'ownerRunId', 'ownerStepId'], secretRedaction: 'ALWAYS' }),
-  'resourceLock.release': method('resourceLock.release', objectSchema({ lockId: id, ownerRunId: id, ownerStepId: id }, ['lockId', 'ownerRunId', 'ownerStepId']), { permission: 'resource.lock', requiredGrants: ['resource.lock'], riskLevel: 'HIGH', readOnly: false, retryable: false, idempotencyKey: 'lockId', timeoutMs: 10_000, maxOutputBytes: 32 * 1024, auditFields: ['lockId', 'ownerRunId', 'ownerStepId'], secretRedaction: 'ALWAYS' }),
   'audit.append': method('audit.append', objectSchema({ eventType: nonEmpty, action: nonEmpty, resourceType: nonEmpty, resourceId: id, result: { enum: ['success', 'failure', 'denied'] }, detail: record }, ['eventType', 'action', 'resourceType', 'resourceId', 'result']), { permission: 'audit.append', requiredGrants: ['audit.append'], riskLevel: 'LOW', readOnly: false, retryable: false, idempotencyKey: 'eventType', timeoutMs: 5_000, maxOutputBytes: 16 * 1024, auditFields: ['eventType', 'action', 'resourceType', 'resourceId', 'result'], secretRedaction: 'ALWAYS' }),
 };
 
@@ -146,6 +138,10 @@ export const forbiddenHostApiMethods = [
   'process.spawn',
   'process.execute',
   'agent.execute',
+  'execution.checkpoint.save',
+  'execution.checkpoint.load',
+  'resourceLock.acquire',
+  'resourceLock.release',
 ] as const;
 
 export function getHostApiMethod(methodName: string): HostApiMethodDefinition {

@@ -9,8 +9,8 @@ import {
 
 export const builtinPluginExecutionPolicy = {
   source: 'BUILTIN',
-  executionMode: 'PLUGIN_RUNNER',
-  ipcProtocol: 'gcac.plugin-runner/v1',
+  executionMode: 'DSL_STEP_ACTION',
+  ipcProtocol: 'gcac.plugin-runner/v2',
   runtimeEntrypoint: 'runtime/index.js',
 } as const;
 

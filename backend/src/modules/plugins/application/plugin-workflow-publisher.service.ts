@@ -9,13 +9,7 @@ import type { PluginWorkflowBindingRecord } from '../dto/plugin-workflow-binding
 import { PluginWorkflowBindingsRepository, type PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
 import {
   isPluginWorkflowResource,
-  pluginWorkflowSchemaRegistry,
-  type PluginWorkflowResourceV1,
 } from '../schema/plugin-workflow.schema.js';
-import {
-  PluginWorkflowVersionStore,
-  type PluginWorkflowVersionStorePort,
-} from './plugin-workflow-version-store.js';
 import {
   resolveManifestWorkflowDeclarations,
   type PluginWorkflowDeclaration,
@@ -26,7 +20,6 @@ export class PluginWorkflowPublisherService {
   constructor(
     private readonly workflows: WorkflowTemplatesApplicationService,
     private readonly repository: PluginWorkflowBindingsRepositoryPort = new PluginWorkflowBindingsRepository(),
-    private readonly pluginWorkflows: PluginWorkflowVersionStorePort = new PluginWorkflowVersionStore(),
     private readonly declarationResolver?: PluginWorkflowDeclarationResolver,
   ) {}
 
@@ -45,7 +38,7 @@ export class PluginWorkflowPublisherService {
       const contentSha256 = computeWorkflowContentHash(parsed.content);
       if (existing) {
         this.assertSameResource(record.id, capabilityKey, workflowKey, resourcePath, contentSha256, existing);
-        await this.assertPublishedBinding(existing, parsed.kind);
+        await this.assertPublishedBinding(existing);
         output.push(existing);
         continue;
       }
@@ -54,7 +47,7 @@ export class PluginWorkflowPublisherService {
         : await this.repository.findByResource(record.id, resourcePath);
       if (shared) {
         this.assertSameResource(record.id, capabilityKey, workflowKey, resourcePath, contentSha256, shared);
-        await this.assertPublishedBinding(shared, parsed.kind);
+        await this.assertPublishedBinding(shared);
         output.push(await this.repository.save({ ...shared, capabilityKey, workflowKey, ownerType: ownerTypeOf(record), ownerId: ownerIdOf(record) }));
         continue;
       }
@@ -66,10 +59,8 @@ export class PluginWorkflowPublisherService {
         workflowKey,
       );
       const published = previous?.workflowContentSha256 === contentSha256
-        ? await this.reusePublishedBinding(previous, parsed.kind, record.id, capabilityKey)
-        : parsed.kind === 'plugin'
-          ? await this.publishPluginWorkflowVersion(record, parsed.content, previous)
-          : await this.publishWorkflowVersion(record, parsed.content, previous);
+        ? await this.reusePublishedBinding(previous, record.id, capabilityKey)
+        : await this.publishWorkflowVersion(record, parsed.content, previous);
       output.push(await this.repository.save({
         pluginVersionId: record.id,
         capabilityKey,
@@ -158,11 +149,10 @@ export class PluginWorkflowPublisherService {
 
   private async reusePublishedBinding(
     binding: PluginWorkflowBindingRecord,
-    kind: ParsedWorkflowResource['kind'],
     pluginVersionId: string,
     capabilityKey: string,
   ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
-    await this.assertPublishedBinding(binding, kind, pluginVersionId, capabilityKey);
+    await this.assertPublishedBinding(binding, pluginVersionId, capabilityKey);
     return {
       templateId: binding.workflowTemplateId,
       versionId: binding.workflowVersionId,
@@ -172,18 +162,14 @@ export class PluginWorkflowPublisherService {
 
   private async assertPublishedBinding(
     binding: PluginWorkflowBindingRecord,
-    kind: ParsedWorkflowResource['kind'],
     pluginVersionId?: string,
     capabilityKey?: string,
   ): Promise<void> {
     try {
-      const version = kind === 'plugin'
-        ? await this.pluginWorkflows.getVersion(binding.workflowVersionId)
-        : await this.workflows.getVersion(binding.workflowVersionId);
+      const version = await this.workflows.getVersion(binding.workflowVersionId);
       if (version.templateId !== binding.workflowTemplateId
         || version.status !== 'published'
-        || version.contentHash !== binding.workflowContentSha256
-        || (kind === 'plugin' && version.executionMode !== 'PLUGIN_RUNNER')) {
+        || version.contentHash !== binding.workflowContentSha256) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', '已发布 Workflow 绑定目标不完整或摘要不一致', {
           pluginVersionId,
           capabilityKey,
@@ -226,22 +212,22 @@ export class PluginWorkflowPublisherService {
       });
     }
     if (isPluginWorkflowResource(raw)) {
-      const capability = record.manifest.capabilities.find((item) => item.key === capabilityKey);
-      if (!capability) throw new AppError('VALIDATION_FAILED', 'PluginWorkflow 引用了未声明能力', { pluginVersionId: record.id, capabilityKey });
-      return { kind: 'plugin', content: pluginWorkflowSchemaRegistry.validate(raw, { pluginId: record.pluginId, capability }) };
+      throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', '包级 PluginWorkflow 已禁止；插件必须发布普通 DSL WorkflowVersion，Runner 只能由 plugin.action 步骤调用', {
+        pluginVersionId: record.id,
+        capabilityKey,
+      });
     }
-    if (record.manifest.resources.runtimeEntrypoint === 'runtime/index.js') {
-      const capability = record.manifest.capabilities.find((item) => item.key === capabilityKey);
-      if (!capability) throw new AppError('VALIDATION_FAILED', 'Runner Workflow 引用了未声明能力', { pluginVersionId: record.id, capabilityKey });
-      return {
-        kind: 'plugin',
-        content: pluginWorkflowSchemaRegistry.validateRunnerResource(raw, {
-          pluginId: record.pluginId,
-          capability,
-        }),
-      };
+    const content = workflowTemplatesSchemaRegistry.validate(raw as WorkflowDslV1);
+    if (content.metadata.version !== record.version) {
+      throw new AppError('VALIDATION_FAILED', '插件内部 WorkflowVersion.metadata.version 必须与 PluginVersion.version 一致', {
+        code: 'PLUGIN_WORKFLOW_VERSION_MISMATCH',
+        pluginVersionId: record.id,
+        pluginVersion: record.version,
+        workflowVersion: content.metadata.version,
+        capabilityKey,
+      });
     }
-    return { kind: 'dsl', content: workflowTemplatesSchemaRegistry.validate(raw as WorkflowDslV1) };
+    return { kind: 'dsl', content };
   }
 
   private assertCredentialAcquireContract(record: UnifiedPluginVersionRecord): void {
@@ -292,38 +278,6 @@ export class PluginWorkflowPublisherService {
     }
   }
 
-  private async publishPluginWorkflowVersion(
-    record: UnifiedPluginVersionRecord,
-    content: PluginWorkflowResourceV1,
-    previous: PluginWorkflowBindingRecord | undefined,
-  ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
-    const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布 PluginWorkflow`;
-    if (!previous) {
-      const created = await this.pluginWorkflows.createTemplate(content, {
-        ownerType: ownerTypeOf(record),
-        ...(ownerIdOf(record) ? { ownerId: ownerIdOf(record) } : {}),
-        tenantId: record.tenantId,
-      }, changeSummary);
-      const published = await this.pluginWorkflows.publishVersion(created.version.id);
-      return { templateId: created.template.id, versionId: published.id, contentHash: published.contentHash };
-    }
-    try {
-      const draft = await this.pluginWorkflows.createDraftVersion({
-        templateId: previous.workflowTemplateId,
-        content,
-        changeSummary,
-      });
-      const published = await this.pluginWorkflows.publishVersion(draft.id);
-      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
-    } catch (error) {
-      if (!isDuplicateWorkflowContentError(error)) throw error;
-      const existing = await this.pluginWorkflows.findReusableVersion(previous.workflowTemplateId, computeWorkflowContentHash(content));
-      if (!existing) throw error;
-      const published = existing.status === 'published' ? existing : await this.pluginWorkflows.publishVersion(existing.id);
-      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
-    }
-  }
-
   private async findReusableWorkflowVersion(templateId: string, contentHash: string): Promise<WorkflowTemplateVersion | undefined> {
     const versions = await this.workflows.listVersions(templateId);
     return [...versions]
@@ -348,5 +302,4 @@ function isDuplicateWorkflowContentError(error: unknown): boolean {
 }
 
 type ParsedWorkflowResource =
-  | { kind: 'dsl'; content: WorkflowDslV1 }
-  | { kind: 'plugin'; content: PluginWorkflowResourceV1 };
+  { kind: 'dsl'; content: WorkflowDslV1 };

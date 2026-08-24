@@ -6,7 +6,6 @@ export * from './schema/unified-plugins.schema.js';
 export * from './schema/plugin-workflow.schema.js';
 export * from './repository/unified-plugins.repository.js';
 export * from './application/unified-plugins.application-service.js';
-export * from './application/plugin-workflow-version-store.js';
 export * from './application/plugin-workflow-declaration-resolver.js';
 export * from './application/plugin-fact-pipeline.service.js';
 export * from './application/plugin-fact-runner.adapter.js';

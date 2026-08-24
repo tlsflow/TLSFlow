@@ -17,8 +17,8 @@ export interface BuiltinPluginRegistryEntry {
   packageDirectory: string;
   runtimeEntrypoint: 'runtime/index.js';
   runtimeEntrypointPath: string;
-  executionMode: 'PLUGIN_RUNNER';
-  ipcProtocol: 'gcac.plugin-runner/v1';
+  executionMode: 'DSL_STEP_ACTION';
+  ipcProtocol: 'gcac.plugin-runner/v2';
   manifest: UnifiedPluginManifestV1;
   capabilities: UnifiedPluginCapabilityDescriptor[];
   workflows: PluginWorkflowDeclaration[];

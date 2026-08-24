@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.synology-dsm",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "displayNameKey": "plugin.synologyDsm.name",
   "descriptionKey": "plugin.synologyDsm.description",
   "logoUrl": "/plugin-logos/synology.svg",
@@ -24,11 +24,6 @@
     "artifact.read",
     "network.http",
     "device.write",
-    "execution.progress.write",
-    "execution.checkpoint.write",
-    "execution.checkpoint.read",
-    "execution.cancel.read",
-    "resource.lock",
     "audit.append"
   ],
   "compatibility": {
@@ -41,6 +36,12 @@
   },
   "resources": {
     "runtimeEntrypoint": "runtime/index.js",
+    "actionContracts": {
+      "device.connection.test.v1": "action-contracts/device-connection-test.json",
+      "device.discover.v1": "action-contracts/device-discover.json",
+      "certificate.deploy.v1": "action-contracts/certificate-deploy.json",
+      "certificate.rollback.v1": "action-contracts/certificate-rollback.json"
+    },
     "workflows": {
       "device.connection.test": "workflows/connection-test.json",
       "device.discover": "workflows/discover.json",

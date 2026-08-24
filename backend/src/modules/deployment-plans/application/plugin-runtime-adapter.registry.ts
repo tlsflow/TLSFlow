@@ -74,17 +74,20 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
 
   async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
     if (!input.workflow) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Workflow DSL Runtime 缺少已发布工作流快照');
-    const pluginRunner = input.workflow.executionMode === 'PLUGIN_RUNNER';
+    if (input.workflow.executionMode === 'PLUGIN_RUNNER') {
+      throw new AppError('VALIDATION_FAILED', '包级 PLUGIN_RUNNER Workflow 请求已禁止，Runner 只能由 plugin.action 步骤调用', {
+        workflowVersionId: input.workflow.workflowVersionId,
+        executionMode: input.workflow.executionMode,
+      });
+    }
     const gatewayId = input.capability.executionLocation === 'GATEWAY' ? input.context.deviceAsset?.gatewayId : undefined;
     if (input.capability.executionLocation === 'GATEWAY' && !gatewayId) {
       throw new AppError('CAPABILITY_MISSING', 'Workflow DSL Runtime 缺少 Gateway 连接', { managedTargetId: input.context.managedTarget.id });
     }
     return {
-      executorType: pluginRunner ? 'PLUGIN_RUNNER' : 'WORKFLOW',
+      executorType: 'WORKFLOW',
       executionTargetId: input.context.managedTarget.id,
-      requiredCapabilities: pluginRunner
-        ? (gatewayId ? ['plugin.runner.execute', 'gateway.dispatch'] : ['plugin.runner.execute'])
-        : (gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run']),
+      requiredCapabilities: gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
       gatewayRoute: gatewayId ? { gatewayId, adapter: 'curl', delegatedTargetId: input.context.managedTarget.id } : undefined,
       payload: {
         pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
@@ -104,21 +107,6 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
           managedTargetId: input.context.managedTarget.id,
           siteAssetId: input.context.siteAsset?.id,
         },
-        ...(pluginRunner ? {
-          pluginRunnerBindingDraft: {
-            apiVersion: 'gcac.plugin-runner-binding/v1',
-            workflowVersionId: input.workflow.workflowVersionId,
-            pluginVersionId: input.capability.pluginVersionId,
-            pluginId: input.capability.plugin.manifest.pluginId,
-            pluginVersion: input.capability.plugin.manifest.version,
-            packageHash: input.capability.plugin.packageSha256,
-            manifestHash: input.capability.plugin.manifestSha256,
-            resourceHash: immutableCapabilitySnapshot(input.capability).resourceHash,
-            capability: input.capability.assignment.capabilityKey,
-            writeEffect: input.capability.plugin.manifest.capabilities.find((item) => item.key === input.capability.assignment.capabilityKey)?.riskLevel === 'HIGH',
-            hostPermissions: [...input.capability.plugin.manifest.permissions],
-          },
-        } : {}),
       },
     };
   }

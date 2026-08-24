@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "certificate.rollback.v1",
+  "capability": "certificate.rollback",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["agentAuthorization"], "properties": { "agentAuthorization": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "required": ["verified"], "properties": { "verified": { "type": "boolean" } }, "additionalProperties": true },
+  "writeEffect": true,
+  "hostPermissions": ["agent.plan.validate", "agent.plan.execute", "agent.execution.receipt"]
+}

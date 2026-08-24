@@ -1,4 +1,8 @@
-export const pluginRunnerProtocolVersion = 'gcac.plugin-runner/v1' as const;
+/**
+ * Runner IPC 只承载一个已经冻结的 plugin.action。
+ * Workflow、rollback、checkpoint 和全局变量属于 DSL Runtime，绝不能进入此协议。
+ */
+export const pluginRunnerProtocolVersion = 'gcac.plugin-runner/v2' as const;
 
 export type PluginRunnerMessageType =
   | 'hello'
@@ -7,7 +11,6 @@ export type PluginRunnerMessageType =
   | 'execute_result'
   | 'host_call'
   | 'host_result'
-  | 'progress'
   | 'cancel'
   | 'cancel_result'
   | 'ping'
@@ -46,12 +49,6 @@ export interface PluginRunnerWarning {
   secretRedacted: true;
 }
 
-export interface PluginCheckpointRef {
-  ref: string;
-  digest: string;
-  version: string;
-}
-
 export interface PluginRunnerMessageBase {
   protocolVersion: typeof pluginRunnerProtocolVersion;
   messageType: PluginRunnerMessageType;
@@ -61,6 +58,22 @@ export interface PluginRunnerMessageBase {
   tenantId?: string;
   executionId?: string;
   executionStepId?: string;
+}
+
+/** 当前 Action 的不可变身份，所有执行相关消息都携带它。 */
+export interface PluginActionMessageBinding {
+  workflowVersionId: string;
+  pluginId: string;
+  capability: string;
+  actionId: string;
+  actionContractVersion: string;
+  inputSchemaSha256: string;
+  outputSchemaSha256: string;
+  packageHash: string;
+  manifestHash: string;
+  resourceHash: string;
+  planDigest: string;
+  writeEffect: boolean;
 }
 
 export interface PluginRunnerHello extends PluginRunnerMessageBase {
@@ -96,22 +109,19 @@ export interface PluginRunnerHelloResult extends PluginRunnerMessageBase {
   error?: PluginRunnerError;
 }
 
-export interface PluginRunnerExecute extends PluginRunnerMessageBase {
+export interface PluginRunnerExecute extends PluginRunnerMessageBase, PluginActionMessageBinding {
   messageType: 'execute';
   pluginVersionId: string;
   tenantId: string;
   executionId: string;
   executionStepId: string;
-  capability: string;
-  input: Record<string, unknown>;
   grantRefs: string[];
   idempotencyKey: string;
+  input: Record<string, unknown>;
   deadlineAt: string;
-  writeEffect: boolean;
-  checkpoint?: PluginCheckpointRef;
 }
 
-export interface PluginRunnerExecuteResult extends PluginRunnerMessageBase {
+export interface PluginRunnerExecuteResult extends PluginRunnerMessageBase, PluginActionMessageBinding {
   messageType: 'execute_result';
   pluginVersionId: string;
   tenantId: string;
@@ -119,20 +129,20 @@ export interface PluginRunnerExecuteResult extends PluginRunnerMessageBase {
   executionStepId: string;
   success: boolean;
   status: PluginExecutionStatus;
-  summary: Record<string, unknown>;
-  normalizedObjects: Record<string, unknown>[];
-  checkpoint?: PluginCheckpointRef;
+  /** 只表示当前 Action 的结构化返回值。 */
+  output: Record<string, unknown>;
+  /** 外部系统回执仅供宿主审计和 UNKNOWN 恢复使用。 */
+  externalReceipt?: Record<string, unknown>;
   warnings: PluginRunnerWarning[];
   error?: PluginRunnerError;
 }
 
-export interface PluginRunnerHostCall extends PluginRunnerMessageBase {
+export interface PluginRunnerHostCall extends PluginRunnerMessageBase, PluginActionMessageBinding {
   messageType: 'host_call';
   pluginVersionId: string;
   tenantId: string;
   executionId: string;
   executionStepId: string;
-  capability: string;
   method: string;
   input: Record<string, unknown>;
   grantRefs: string[];
@@ -141,29 +151,15 @@ export interface PluginRunnerHostCall extends PluginRunnerMessageBase {
   timeoutMs: number;
 }
 
-export interface PluginRunnerHostResult extends PluginRunnerMessageBase {
+export interface PluginRunnerHostResult extends PluginRunnerMessageBase, PluginActionMessageBinding {
   messageType: 'host_result';
   pluginVersionId: string;
   tenantId: string;
   executionId: string;
   executionStepId: string;
-  capability: string;
   ok: boolean;
   output?: Record<string, unknown>;
   error?: PluginRunnerError;
-}
-
-export interface PluginRunnerProgress extends PluginRunnerMessageBase {
-  messageType: 'progress';
-  pluginVersionId: string;
-  tenantId: string;
-  executionId: string;
-  executionStepId: string;
-  sequence: number;
-  stage: string;
-  percent?: number;
-  summary: string;
-  checkpoint?: PluginCheckpointRef;
 }
 
 export interface PluginRunnerCancel extends PluginRunnerMessageBase {
@@ -217,7 +213,6 @@ export type PluginRunnerInboundMessage =
   | PluginRunnerHelloResult
   | PluginRunnerExecuteResult
   | PluginRunnerHostCall
-  | PluginRunnerProgress
   | PluginRunnerCancelResult
   | PluginRunnerPong
   | PluginRunnerShutdownResult;
@@ -234,7 +229,7 @@ export type PluginRunnerMessage = PluginRunnerInboundMessage | PluginRunnerOutbo
 
 export function isPluginRunnerMessageType(value: unknown): value is PluginRunnerMessageType {
   return typeof value === 'string' && [
-    'hello', 'hello_result', 'execute', 'execute_result', 'host_call', 'host_result', 'progress',
+    'hello', 'hello_result', 'execute', 'execute_result', 'host_call', 'host_result',
     'cancel', 'cancel_result', 'ping', 'pong', 'shutdown', 'shutdown_result',
   ].includes(value);
 }

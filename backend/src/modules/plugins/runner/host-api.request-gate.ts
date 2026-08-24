@@ -22,6 +22,7 @@ export interface HostApiRequestAdmission {
   executionStepId: string;
   pluginVersionId: string;
   capability: string;
+  actionId: string;
   expiresAt: string;
 }
 
@@ -198,6 +199,13 @@ export interface HostApiRequestBinding {
   pluginId: string;
   pluginVersion: string;
   capability: string;
+  actionId: string;
+  actionContractVersion: string;
+  inputSchemaSha256: string;
+  outputSchemaSha256: string;
+  packageHash: string;
+  manifestHash: string;
+  resourceHash: string;
   grantRefs: readonly string[];
   workflowVersionId: string;
   planDigest: string;
@@ -223,6 +231,7 @@ export class PluginRunnerHostApiRequestGate {
       executionId: binding.executionId,
       executionStepId: binding.executionStepId,
       pluginVersionId: binding.pluginVersionId,
+      actionId: binding.actionId,
       method: definition.method,
       idempotencyValue: String(idempotencyValue),
     };
@@ -231,6 +240,13 @@ export class PluginRunnerHostApiRequestGate {
       pluginId: binding.pluginId,
       pluginVersion: binding.pluginVersion,
       capability: binding.capability,
+      actionId: binding.actionId,
+      actionContractVersion: binding.actionContractVersion,
+      inputSchemaSha256: binding.inputSchemaSha256,
+      outputSchemaSha256: binding.outputSchemaSha256,
+      packageHash: binding.packageHash,
+      manifestHash: binding.manifestHash,
+      resourceHash: binding.resourceHash,
       grantRefs: [...binding.grantRefs].sort(),
       workflowVersionId: binding.workflowVersionId,
       planDigest: binding.planDigest,
@@ -247,6 +263,7 @@ export class PluginRunnerHostApiRequestGate {
       executionStepId: binding.executionStepId,
       pluginVersionId: binding.pluginVersionId,
       capability: binding.capability,
+      actionId: binding.actionId,
       expiresAt: binding.deadlineAt,
     };
   }
@@ -300,6 +317,13 @@ function assertBinding(binding: HostApiRequestBinding): void {
     ['pluginId', binding.pluginId],
     ['pluginVersion', binding.pluginVersion],
     ['capability', binding.capability],
+    ['actionId', binding.actionId],
+    ['actionContractVersion', binding.actionContractVersion],
+    ['inputSchemaSha256', binding.inputSchemaSha256],
+    ['outputSchemaSha256', binding.outputSchemaSha256],
+    ['packageHash', binding.packageHash],
+    ['manifestHash', binding.manifestHash],
+    ['resourceHash', binding.resourceHash],
     ['workflowVersionId', binding.workflowVersionId],
     ['planDigest', binding.planDigest],
   ] as const) {
@@ -322,13 +346,22 @@ function assertBinding(binding: HostApiRequestBinding): void {
   if (!/^sha256:[a-f0-9]{64}$/.test(binding.planDigest) && !/^[a-f0-9]{64}$/.test(binding.planDigest)) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求 planDigest 无效');
   }
+  for (const [name, value] of [
+    ['inputSchemaSha256', binding.inputSchemaSha256],
+    ['outputSchemaSha256', binding.outputSchemaSha256],
+    ['packageHash', binding.packageHash],
+    ['manifestHash', binding.manifestHash],
+    ['resourceHash', binding.resourceHash],
+  ] as const) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('PLUGIN_HOST_CALL_DENIED', `Host API 请求 ${name} 无效`);
+  }
 }
 
 function assertAdmission(admission: HostApiRequestAdmission): void {
   if (!admission || typeof admission !== 'object' || !/^[a-f0-9]{64}$/.test(admission.key)
     || !/^[a-f0-9]{64}$/.test(admission.requestFingerprint) || !admission.requestId || !admission.method
     || !admission.tenantId || !admission.executionId || !admission.executionStepId || !admission.pluginVersionId
-    || !admission.capability || !Number.isFinite(Date.parse(admission.expiresAt))) {
+    || !admission.capability || !admission.actionId || !Number.isFinite(Date.parse(admission.expiresAt))) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求 Admission 缺少固定门禁字段');
   }
 }

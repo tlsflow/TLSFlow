@@ -25,7 +25,9 @@ import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/
 import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 import {
   createDefaultPluginRunnerExecutionDependencies,
-  createPluginRunnerExecutors,
+  PluginRunnerExecutorAdapter,
+  pluginRunnerExecutorType,
+  resolvePluginActionBinding,
   type PluginRunnerExecutionDependencies,
 } from './plugin-runner-executor.adapter.js';
 
@@ -174,8 +176,8 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
     ...(dependencies.pluginRunner ?? createDefaultPluginRunnerExecutionDependencies()),
     ...(dependencies.executionGrants ? { executionGrants: dependencies.executionGrants } : {}),
   };
-  // Runner 只接受已固定的 PLUGIN_RUNNER 绑定，不复用 Agent、Workflow 或 Trusted JS 类型。
-  const pluginRunnerExecutors = createPluginRunnerExecutors(pluginRunner);
+  // Runner 只能由 Workflow DSL 的 plugin.action 子步骤调用，不能注册为部署目标执行器。
+  const pluginActionExecutor = new PluginRunnerExecutorAdapter(pluginRunner);
   // Agent v2 只有在控制面同时提供 Agent 服务和统一 Plan 编译器时才注册；依赖缺失时保持未注册并失败关闭。
   const agentExecutor = dependencies.agents && dependencies.agentPlanCompiler
     ? [new AgentExecutorAdapter(dependencies.agents, undefined, dependencies.agentPlanCompiler)]
@@ -191,8 +193,8 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
       recovery: dependencies.workflowRecovery,
       resourceLocks: dependencies.pluginResourceLocks,
       executionGrants: dependencies.executionGrants,
+      pluginActionExecutor,
     }),
-    ...pluginRunnerExecutors,
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter, agentPlanCompiler: dependencies.agentPlanCompiler }),
     new ControlPlaneTlsExecutor(),
   ];
@@ -391,14 +393,16 @@ export class WorkflowExecutorAdapter implements Executor {
   private readonly recovery: WorkflowRecoveryLedgerService;
   private readonly resourceLocks: PluginResourceLockService;
   private readonly executionGrants?: ExecutionGrantService;
+  private readonly pluginActionExecutor: PluginRunnerExecutorAdapter;
 
-  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService; resourceLocks?: PluginResourceLockService; executionGrants?: ExecutionGrantService } = {}) {
+  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService; resourceLocks?: PluginResourceLockService; executionGrants?: ExecutionGrantService; pluginActionExecutor?: PluginRunnerExecutorAdapter } = {}) {
     this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
     this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
     this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
     this.recovery = options.recovery ?? new WorkflowRecoveryLedgerService();
     this.resourceLocks = options.resourceLocks ?? new PluginResourceLockService();
     this.executionGrants = options.executionGrants;
+    this.pluginActionExecutor = options.pluginActionExecutor ?? new PluginRunnerExecutorAdapter();
     this.stepExecutors = new WorkflowStepExecutorRegistry([
       {
         executorId: '017.CURL_HTTP',
@@ -407,6 +411,10 @@ export class WorkflowExecutorAdapter implements Executor {
       {
         executorId: '015.SSH',
         execute: async (context) => this.executeSshWorkflowStep(context),
+      },
+      {
+        executorId: 'plugin.action',
+        execute: async (context) => this.executePluginActionWorkflowStep(context),
       },
       ...['workflow.condition', 'workflow.transform', 'workflow.wait', 'workflow.manual'].map((executorId) => ({
         executorId,
@@ -457,7 +465,7 @@ export class WorkflowExecutorAdapter implements Executor {
         return {
           success: false,
           errorCode: 'PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN',
-          errorMessage: 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Workflow 执行器已拒绝',
+          errorMessage: '包级 PluginWorkflow 已禁止，普通 DSL WorkflowVersion 才能进入 Workflow 执行器',
           detail: { workflowVersionId, executionMode: 'PLUGIN_RUNNER' },
         };
       }
@@ -723,6 +731,113 @@ export class WorkflowExecutorAdapter implements Executor {
       dryRun: context.input.dryRun,
     });
     return sshWorkflowOutput(result);
+  }
+
+  private async executePluginActionWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    const plan = context.plan ?? {};
+    const request = readRecord(context.input.step.inputSnapshot.workflowRequest);
+    const bindings = readRecord(request?.pluginActionBindings);
+    const rawBinding = bindings?.[context.workflowStepName];
+    if (!rawBinding) {
+      return {
+        success: false,
+        errorCode: 'PLUGIN_ACTION_BINDING_MISSING',
+        errorMessage: 'plugin.action 步骤缺少冻结的 PluginActionBinding，拒绝在运行时猜测 PluginVersion',
+      };
+    }
+
+    let binding;
+    try {
+      binding = resolvePluginActionBinding(rawBinding);
+      const tenantId = requireExecutionTenantId(context.input.step, 'plugin.action');
+      if (binding.tenantId !== tenantId || binding.workflowStepName !== context.workflowStepName) {
+        throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'plugin.action Binding 与当前 DSL 步骤或租户不一致');
+      }
+      if (binding.pluginId !== stringFromSnapshot(plan.pluginId)
+        || binding.capability !== stringFromSnapshot(plan.capability)
+        || binding.actionId !== stringFromSnapshot(plan.actionId)
+        || binding.actionContractVersion !== stringFromSnapshot(plan.actionContractVersion)
+        || binding.inputSchemaSha256 !== stringFromSnapshot(plan.inputSchemaSha256)
+        || binding.outputSchemaSha256 !== stringFromSnapshot(plan.outputSchemaSha256)
+        || binding.writeEffect !== (plan.writeEffect === true)) {
+        throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'plugin.action 渲染计划与冻结 Action Binding 不一致');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        errorCode: error instanceof AppError ? error.errorCode : 'PLUGIN_ACTION_BINDING_INVALID',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    if (!this.executionGrants) {
+      return {
+        success: false,
+        errorCode: 'PLUGIN_HOST_CALL_DENIED',
+        errorMessage: 'plugin.action 缺少 ExecutionGrantService，已失败关闭',
+      };
+    }
+    const actionInput = readRecord(plan.input);
+    const idempotencyKey = stringFromSnapshot(plan.idempotencyKey);
+    const timeoutSeconds = Number(plan.timeoutSeconds);
+    if (!actionInput || !idempotencyKey || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 120) {
+      return {
+        success: false,
+        errorCode: 'PLUGIN_ACTION_PLAN_INVALID',
+        errorMessage: 'plugin.action 渲染计划缺少输入、幂等键或有效超时',
+      };
+    }
+    const tenantId = requireExecutionTenantId(context.input.step, 'plugin.action');
+    const childStepId = workflowChildStepId(context.input.step, 'plugin.action', context.workflowStepName, context.attempt);
+    const authorization = readExecutionAuthorization(context.input.step.inputSnapshot.executionAuthorization);
+    let grant;
+    try {
+      grant = await this.executionGrants.create({
+        tenantId,
+        planId: authorization?.planId ?? stringFromSnapshot(context.input.step.inputSnapshot.deploymentPlanId),
+        runId: context.input.step.executionRunId,
+        stepId: childStepId,
+        targetId: authorization?.targetId ?? context.input.step.deploymentPlanTargetId,
+        workflowVersionId: binding.workflowVersionId,
+        pluginVersionId: binding.pluginVersionId,
+        pluginId: binding.pluginId,
+        capability: binding.capability,
+        actionId: binding.actionId,
+        actionContractVersion: binding.actionContractVersion,
+        inputSchemaSha256: binding.inputSchemaSha256,
+        outputSchemaSha256: binding.outputSchemaSha256,
+        planDigest: binding.planDigest,
+        executorType: pluginRunnerExecutorType,
+        allowedSecretRefs: collectReferencesByScheme(actionInput, 'secret://'),
+        allowedArtifactRefs: collectReferencesByScheme(actionInput, 'artifact://'),
+        allowedActions: ['plugin.action.execute', binding.actionId, ...binding.hostPermissions],
+        expiresAt: new Date(Date.now() + Math.min(timeoutSeconds, 120) * 1000 + 30_000).toISOString(),
+      });
+      const result = await this.pluginActionExecutor.executeAction({
+        binding,
+        executionId: context.input.step.executionRunId,
+        executionStepId: childStepId,
+        input: actionInput,
+        grantRefs: [grant.id],
+        idempotencyKey,
+        deadlineAt: new Date(Date.now() + timeoutSeconds * 1000).toISOString(),
+      });
+      if (result.success) {
+        return {
+          success: true,
+          body: result.output,
+          logs: [`plugin.action:${binding.pluginId}:${binding.actionId}:success`],
+        };
+      }
+      return {
+        success: false,
+        errorCode: result.errorCode ?? 'PLUGIN_ACTION_FAILED',
+        errorMessage: result.errorMessage ?? 'plugin.action 执行失败',
+        body: result.detail,
+      };
+    } finally {
+      if (grant) await this.executionGrants.revoke(grant.id);
+    }
   }
 
 }

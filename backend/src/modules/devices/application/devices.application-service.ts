@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
-import { canonicalize } from '../../../shared/canonical-json.js';
 import type { ManagedDeviceDetailDto, ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 import { DevicePlatformRegistry } from '../domain/device-platform.registry.js';
@@ -19,11 +17,7 @@ import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js'
 import type { DevicePresentationSchemaV1 } from '../../plugins/presentations/plugin-presentation.dto.js';
 import type { PluginPackageFormResource, PluginPackagePresentationResource } from '../../plugins/application/plugin-package-resource-schema.service.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
-import type { PluginWorkflowBindingRecord } from '../../plugins/dto/plugin-workflow-bindings.dto.js';
-import type { CapabilityAssignmentV1 } from '../../plugins/dto/plugin-bindings.dto.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
-import type { PluginWorkflowCapabilityExecutor } from '../../executions/application/plugin-runner-executor.adapter.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { PgDevicesRepository, type DeviceDetailInclude, type DevicesRepository } from '../repository/devices.repository.js';
@@ -51,7 +45,6 @@ export class DevicesApplicationService {
     private readonly runtimeGuard: PluginRuntimeGuardService = pluginRuntimeGuard,
     private readonly discoveryProjector?: StandardDeviceDiscoveryProjector,
     private readonly deploymentInputResolver = new ProductionDeploymentInputResolverService(),
-    private readonly pluginRunner?: PluginWorkflowCapabilityExecutor,
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -162,20 +155,8 @@ export class DevicesApplicationService {
       this.workflows.getVersion(workflow.workflowVersionId),
     ]);
     if (!deviceAsset) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId: device.extension.deviceAssetId });
-    const pluginVersion = workflowVersion.executionMode === 'PLUGIN_RUNNER'
-      ? this.unifiedPlugins
-        ? await this.unifiedPlugins.getVersionForTenant(tenantId, assignment.pluginVersionId)
-        : undefined
-      : undefined;
-    if (workflowVersion.executionMode === 'PLUGIN_RUNNER' && !pluginVersion) {
-      throw new AppError('CAPABILITY_MISSING', 'PluginWorkflow 输入契约缺少统一插件版本上下文', {
-        pluginVersionId: assignment.pluginVersionId,
-        workflowVersionId: workflow.workflowVersionId,
-      });
-    }
-    const contract = pluginVersion
-      ? new DeploymentInputContractLoader().fromPlugin(pluginVersion, capabilityKey)
-      : new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
+    assertNormalDslWorkflowVersion(workflowVersion);
+    const contract = new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
     const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db)).resolveBindings(
       tenantId,
       binding.inputBindings.credentials,
@@ -195,22 +176,11 @@ export class DevicesApplicationService {
     const result = await this.runtimeGuard.execute({
       tenantId, pluginVersionId: assignment.pluginVersionId, capabilityKey,
       gatewayId: undefined,
-    }, async () => workflowVersion.executionMode === 'PLUGIN_RUNNER'
-      ? this.executePluginWorkflowCapability({
-        tenantId,
-        deviceId: device.id,
-        deviceAsset,
-        actorId,
-        assignment,
-        workflow,
-        plugin: pluginVersion!,
-        resolvedInput,
-      })
-      : this.workflows!.execute({
-        templateVersionId: workflow.workflowVersionId,
-        mode: 'real_test',
-        resolvedInput,
-      }));
+    }, async () => this.workflows!.execute({
+      templateVersionId: workflow.workflowVersionId,
+      mode: 'real_test',
+      resolvedInput,
+    }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);
       structuredLogger.error('设备插件能力执行失败', {
@@ -283,87 +253,6 @@ export class DevicesApplicationService {
       });
       throw error;
     }
-  }
-
-  private async executePluginWorkflowCapability(input: {
-    tenantId: string;
-    deviceId: string;
-    deviceAsset: DeviceAssetDto;
-    actorId: string;
-    assignment: CapabilityAssignmentV1;
-    workflow: PluginWorkflowBindingRecord;
-    plugin: UnifiedPluginVersionRecord;
-    resolvedInput: import('../../deployment-inputs/dto/resolved-deployment-input.dto.js').ResolvedDeploymentInputV1;
-  }): Promise<WorkflowRunResult> {
-    if (!this.pluginRunner) {
-      throw new AppError('PLUGIN_RUNNER_START_FAILED', 'PluginWorkflow 已固定为独立 Plugin Runner，但 Runner 服务未装配', {
-        pluginVersionId: input.assignment.pluginVersionId,
-        workflowVersionId: input.workflow.workflowVersionId,
-        capabilityKey: input.assignment.capabilityKey,
-      });
-    }
-    const credential = firstRecord(input.resolvedInput.credentials);
-    const artifact = firstRecord(input.resolvedInput.artifacts);
-    const runnerInput: Record<string, unknown> = {
-      deviceAddress: input.deviceAsset.managementAddress,
-      displayName: input.deviceAsset.displayName,
-      variables: structuredClone(input.resolvedInput.variables),
-      connections: structuredClone(input.resolvedInput.connections),
-      credentials: structuredClone(input.resolvedInput.credentials),
-      artifacts: structuredClone(input.resolvedInput.artifacts),
-      workflowRequest: {
-        workflowVersionId: input.workflow.workflowVersionId,
-        pluginVersionId: input.assignment.pluginVersionId,
-        capability: input.assignment.capabilityKey,
-      },
-      ...(credential ? { credential: structuredClone(credential) } : {}),
-      ...(artifact ? { artifact: structuredClone(artifact) } : {}),
-    };
-    const execution = await this.pluginRunner.execute({
-      tenantId: input.tenantId,
-      targetId: input.deviceId,
-      actorId: input.actorId,
-      workflowVersionId: input.workflow.workflowVersionId,
-      pluginVersionId: input.assignment.pluginVersionId,
-      pluginId: input.plugin.pluginId,
-      pluginVersion: input.plugin.version,
-      packageHash: input.plugin.packageSha256,
-      manifestHash: input.plugin.manifestSha256,
-      resourceHash: `sha256:${createHash('sha256').update(canonicalize(input.plugin.resourceSha256), 'utf8').digest('hex')}`,
-      capability: input.assignment.capabilityKey,
-      writeEffect: input.plugin.manifest.capabilities.find((item) => item.key === input.assignment.capabilityKey)?.riskLevel === 'HIGH',
-      hostPermissions: [...input.plugin.manifest.permissions],
-      input: runnerInput,
-    });
-    const detail = execution.detail ?? {};
-    const normalizedObjects = Array.isArray(detail.normalizedObjects) ? detail.normalizedObjects : [];
-    const discovery = normalizedObjects.find((item) => isRecord(item) && item.apiVersion === 'gcac.device-discovery/v2');
-    const now = new Date().toISOString();
-    const stepResult = {
-      name: `plugin:${input.assignment.capabilityKey}`,
-      type: 'transform' as const,
-      status: execution.success ? 'success' as const : 'failed' as const,
-      startedAt: now,
-      finishedAt: now,
-      ...(execution.errorCode ? { errorCode: execution.errorCode } : {}),
-      ...(execution.errorMessage ? { errorMessage: execution.errorMessage } : {}),
-      attempts: 1,
-      plan: { executionMode: 'PLUGIN_RUNNER', capability: input.assignment.capabilityKey },
-      extracted: discovery ? { discovery } : {},
-      assertions: [{ type: 'plugin-runner', passed: execution.success, message: execution.success ? 'Plugin Runner 执行成功' : execution.errorMessage ?? 'Plugin Runner 执行失败' }],
-      logs: execution.success ? ['plugin-runner:success'] : [`plugin-runner:${execution.errorCode ?? 'failed'}`],
-    };
-    return {
-      id: execution.executionId,
-      mode: 'real_test',
-      executionBranch: 'deploy',
-      plannedOnly: false,
-      status: execution.success ? 'success' : 'failed',
-      renderedSteps: [],
-      stepResults: [stepResult],
-      rollbackResults: [],
-      logs: stepResult.logs,
-    };
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {
@@ -648,12 +537,18 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function firstRecord(value: Record<string, unknown>): Record<string, unknown> | undefined {
-  return Object.values(value).find((item): item is Record<string, unknown> => isRecord(item));
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertNormalDslWorkflowVersion(version: { id: string; executionMode?: string; content: { kind?: unknown } }): void {
+  if (version.executionMode === 'PLUGIN_RUNNER' || version.content.kind === 'PluginWorkflow') {
+    throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', '包级 PluginWorkflow 已禁止；设备能力必须通过普通 DSL WorkflowVersion 执行', {
+      workflowVersionId: version.id,
+      executionMode: version.executionMode,
+      kind: version.content.kind,
+    });
+  }
 }
 
 function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDetailProjection): ManagedDeviceDetailDto {
