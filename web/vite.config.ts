@@ -17,7 +17,8 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3003',
-        changeOrigin: true
+        changeOrigin: true,
+        ws: true
       },
       '/agent-install': {
         target: 'http://127.0.0.1:3003',
