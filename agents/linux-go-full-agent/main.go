@@ -33,6 +33,8 @@ import (
 	"unicode"
 
 	"gcac/linux-go-full-agent/internal/buildinfo"
+	"gcac/linux-go-full-agent/internal/compatibility"
+	"gcac/linux-go-full-agent/internal/core/actioncontract"
 	"gcac/linux-go-full-agent/internal/core/controlplane"
 	"gcac/linux-go-full-agent/internal/core/recovery"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
@@ -2251,7 +2253,7 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 		AgentID:            state.AgentID,
 		CompatibilityLevel: "L1",
 		Capabilities:       capabilities,
-		Adapters:           gatewayAdaptersIfNeeded(config),
+		Adapters:           registeredLinuxAdapterIDs(config),
 	}
 	if isGatewayEnabled(config) {
 		for _, capability := range gatewayCapabilityKeys() {
@@ -2365,7 +2367,7 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	taskType, _ := payload["type"].(string)
+	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
 	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
 		return success, code, message, detail
 	}
@@ -2379,7 +2381,11 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		counters: counters,
 		rescan:   rescan,
 	})
-	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, Payload: payload})
+	schemaVersion := coreRegistry.DefaultSchemaVersion
+	if taskType == compatibility.CanonicalDeployAction {
+		schemaVersion = compatibility.ActionSchemaVersion
+	}
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: schemaVersion, Payload: payload})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
@@ -2508,11 +2514,16 @@ var (
 )
 
 func executeLinuxTaskPayload(taskID string, payload map[string]any) (bool, string, string, map[string]any) {
-	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
+	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
+	schemaVersion := coreRegistry.DefaultSchemaVersion
+	if taskType == compatibility.CanonicalDeployAction {
+		schemaVersion = compatibility.ActionSchemaVersion
+	}
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
-		TaskID:     taskID,
-		ActionType: taskType,
-		Payload:    payload,
+		TaskID:        taskID,
+		ActionType:    taskType,
+		SchemaVersion: schemaVersion,
+		Payload:       payload,
 	})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
@@ -2538,19 +2549,47 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		},
 	})
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
-		ActionType: "linux.nginx.deploy_certificate",
+		ActionType:    compatibility.CanonicalDeployAction,
+		SchemaVersion: compatibility.ActionSchemaVersion,
 		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
-			input, err := parseLinuxNginxDeployInput(request.Payload)
+			action, err := actioncontract.Parse(request.Payload)
 			if err != nil {
-				return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: map[string]any{
-					"taskId":   request.TaskID,
-					"executor": "linux-nginx-provider",
-				}}
+				return actionContractFailure(request.TaskID, err)
+			}
+			capabilities := currentLinuxCapabilityMap()
+			if action.LegacyActionType != "" {
+				capabilities[compatibility.CapabilityServiceReload] = true
+				capabilities[compatibility.CapabilityServiceRestart] = true
+			}
+			resolution, err := compatibility.ResolveProduct(action.ProductAdapterID, action.LegacyActionType, action.ArtifactFormat, capabilities)
+			if err != nil {
+				return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": request.TaskID}}
+			}
+			if resolution.ProductAdapterID != compatibility.ProductNginx {
+				return coreRegistry.Result{ErrorCode: "PRODUCT_HANDLER_NOT_REGISTERED", ErrorMessage: "product handler not registered", Detail: adapterResolutionDetail(request.TaskID, resolution)}
+			}
+			input, err := parseLinuxNginxDeployInput(action.Input)
+			if err != nil {
+				return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: adapterResolutionDetail(request.TaskID, resolution)}
 			}
 			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
+			if detail == nil {
+				detail = map[string]any{}
+			}
+			for key, value := range adapterResolutionDetail(request.TaskID, resolution) {
+				detail[key] = value
+			}
 			return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
 		},
 	})
+	for _, alias := range []string{"linux.nginx.deploy_certificate", "linux.apache.deploy_certificate", "linux.tomcat.deploy_certificate"} {
+		if err := registry.RegisterAliasDescriptor(
+			coreRegistry.Descriptor{ActionType: alias, SchemaVersion: coreRegistry.DefaultSchemaVersion},
+			coreRegistry.Descriptor{ActionType: compatibility.CanonicalDeployAction, SchemaVersion: compatibility.ActionSchemaVersion},
+		); err != nil {
+			panic(err)
+		}
+	}
 	if runtime != nil {
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
 			ActionType: "agent.capability.rescan",
@@ -2570,6 +2609,29 @@ func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Ha
 	if err := registry.Register(handler); err != nil {
 		panic(err)
 	}
+}
+
+func actionContractFailure(taskID string, err error) coreRegistry.Result {
+	code := strings.TrimSpace(err.Error())
+	if !strings.Contains(code, "_") {
+		code = "ACTION_REQUEST_INVALID"
+	}
+	return coreRegistry.Result{ErrorCode: code, ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
+}
+
+func adapterResolutionDetail(taskID string, resolution compatibility.Resolution) map[string]any {
+	return map[string]any{
+		"taskId": taskID,
+		"adapters": map[string]any{
+			"product": resolution.ProductAdapterID, "certificateStore": resolution.StoreAdapterID,
+			"artifactCodec": resolution.ArtifactCodecID, "serviceController": resolution.ServiceID,
+			"verifier": resolution.VerifierID, "rollback": resolution.RollbackID,
+		},
+	}
+}
+
+func currentLinuxCapabilityMap() map[string]bool {
+	return linuxFacts.CapabilityMap(collectLinuxPlatformFacts())
 }
 
 func cloneMap(source map[string]any) map[string]any {
@@ -4898,6 +4960,19 @@ func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
 	return gatewayRouteChannels()
 }
 
+func registeredLinuxAdapterIDs(config *AgentConfig) []string {
+	items := append([]string(nil), compatibility.PublicAdapterIDs()...)
+	items = append(items, gatewayAdaptersIfNeeded(config)...)
+	sort.Strings(items)
+	result := items[:0]
+	for _, item := range items {
+		if len(result) == 0 || result[len(result)-1] != item {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
 	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
 	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" && taskType != "gateway.forward.direct_control" {
@@ -5557,7 +5632,17 @@ func runtimeLogSummaryForTrigger(trigger string, success bool) string {
 }
 
 func collectCapabilityReports() []reportedCapability {
-	capabilities := make([]reportedCapability, 0, 3)
+	snapshot := collectLinuxPlatformFacts()
+	publicCapabilities := linuxFacts.Capabilities(snapshot)
+	capabilities := make([]reportedCapability, 0, len(publicCapabilities)+3)
+	for _, capability := range publicCapabilities {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: capability.Key,
+			Value:         capability.Value,
+			Confidence:    capability.Confidence,
+			Evidence:      capability.Evidence,
+		})
+	}
 	if detail := detectNginxDetail(); detail != nil && detail.Installed {
 		capabilities = append(capabilities, reportedCapability{
 			CapabilityKey: "linux.nginx.detail",

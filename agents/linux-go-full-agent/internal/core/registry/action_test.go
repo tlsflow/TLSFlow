@@ -60,6 +60,29 @@ func TestRegistryResolvesAliasAndMiddleware(t *testing.T) {
 	}
 }
 
+func TestRegistrySupportsCrossVersionAlias(t *testing.T) {
+	registry := New()
+	if err := registry.Register(HandlerFunc{
+		ActionType:    "certificate.deploy",
+		SchemaVersion: "1.0",
+		Execute: func(context.Context, Request) Result {
+			return Result{Success: true}
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterAliasDescriptor(
+		Descriptor{ActionType: "linux.nginx.deploy_certificate", SchemaVersion: "v1"},
+		Descriptor{ActionType: "certificate.deploy", SchemaVersion: "1.0"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	result := registry.Execute(context.Background(), Request{ActionType: "linux.nginx.deploy_certificate"})
+	if !result.Success {
+		t.Fatalf("跨版本别名未路由到规范动作: %#v", result)
+	}
+}
+
 func TestRegistryDescriptorsAreDeterministic(t *testing.T) {
 	registry := New()
 	for _, actionType := range []string{"z.action", "a.action", "m.action"} {
