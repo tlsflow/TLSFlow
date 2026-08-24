@@ -7,6 +7,8 @@ export interface PluginCertificateDeploymentResultV1 {
   status: 'VERIFIED' | 'FAILED' | 'ROLLED_BACK';
   observedFingerprintSha256?: string;
   certificateVersionId?: string;
+  /** 正式部署成功时记录本次计划的目标版本；回滚不应覆盖原目标。 */
+  desiredCertificateVersionId?: string;
   rollbackCertificateVersionId?: string;
   verifiedAt: string;
   evidence?: Record<string, unknown>;
@@ -86,11 +88,16 @@ export class PluginCertificateResultService {
     }
     const updated = await this.db.query<{ id: string }>(
       `update plugin_discovered_certificate_bindings
-       set current_certificate_version_id=$1, observed_fingerprint_sha256=$2,
-           drift_state=case when desired_certificate_version_id=$1 then 'SYNCED' else 'DRIFTED' end,
+       set current_certificate_version_id=$1,
+           desired_certificate_version_id=case
+             when $7='VERIFIED' then coalesce($6, desired_certificate_version_id)
+             else desired_certificate_version_id
+           end,
+           observed_fingerprint_sha256=$2,
+           drift_state=case when coalesce($6, desired_certificate_version_id)=$1 then 'SYNCED' else 'DRIFTED' end,
            last_verified_at=$3, last_deployed_at=$3, updated_at=$3
-       where tenant_id=$4 and device_asset_id=$5 and stable_key=$6 returning id`,
-      [versionId, fingerprint, result.verifiedAt, tenantId, deviceAssetId, result.bindingStableKey],
+       where tenant_id=$4 and device_asset_id=$5 and stable_key=$8 returning id`,
+      [versionId, fingerprint, result.verifiedAt, tenantId, deviceAssetId, result.desiredCertificateVersionId, result.status, result.bindingStableKey],
     );
     if (updated.rows.length === 0) throw new AppError('RESOURCE_NOT_FOUND', '插件证书绑定不存在', { bindingStableKey: result.bindingStableKey });
   }

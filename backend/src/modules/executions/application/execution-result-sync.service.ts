@@ -343,9 +343,12 @@ export class ExecutionResultSyncService {
     const assetBinding = await this.resolveApplicationAssetTarget(input.tenantId, binding);
     const siteAsset = binding.siteAssetId ? await this.assets.getRepository().getSiteAsset(input.tenantId, binding.siteAssetId) : undefined;
     const managedTarget = binding.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, binding.managedTargetId) : undefined;
+    const targetCertificateVersionId = resultState.useTargetCertificate
+      ? await this.resolveTargetCertificateVersionId(input.tenantId, step, binding)
+      : undefined;
 
-    await this.captureSnapshots(input, binding, assetBinding, siteAsset, managedTarget, detail, resultState);
-    await this.writeBindingState(input, step, binding, detail, resultState);
+    await this.captureSnapshots(input, binding, assetBinding, siteAsset, managedTarget, detail, resultState, targetCertificateVersionId);
+    await this.writeBindingState(input, binding, detail, resultState, targetCertificateVersionId);
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
     await this.tryWritePluginCertificateResult(input, binding, resultState);
     return resultState;
@@ -388,6 +391,7 @@ export class ExecutionResultSyncService {
       status,
       observedFingerprintSha256,
       certificateVersionId: status === 'VERIFIED' ? updated.certificateVersionId : undefined,
+      desiredCertificateVersionId: status === 'VERIFIED' ? updated.targetCertificateVersionId ?? updated.certificateVersionId : undefined,
       rollbackCertificateVersionId: status === 'ROLLED_BACK' ? updated.certificateVersionId : undefined,
       verifiedAt: new Date().toISOString(),
       evidence: {
@@ -621,6 +625,7 @@ export class ExecutionResultSyncService {
     managedTarget: ManagedTargetDto | undefined,
     detail: Record<string, unknown>,
     resultState: ResultState,
+    targetCertificateVersionId?: string,
   ): Promise<void> {
     const base: Omit<CreateManagedTargetSnapshotDto, 'snapshotType'> = {
       applicationAssetId: assetBinding?.applicationAssetId,
@@ -651,7 +656,7 @@ export class ExecutionResultSyncService {
       ...base,
       storeThumbprint: readString(detail, 'newThumbprint') ?? readString(detail, 'verify.remoteThumbprint') ?? binding.storeThumbprint,
       fingerprintSha256: readString(detail, 'verify.remoteCertificateSha256') ?? binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256,
-      certificateVersionId: resultState.useTargetCertificate ? (binding.targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
+      certificateVersionId: resultState.useTargetCertificate ? (targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
       snapshotType: resultState.snapshotType,
       metadata: {
         ...(base.metadata ?? {}),
@@ -662,18 +667,18 @@ export class ExecutionResultSyncService {
 
   private async writeBindingState(
     input: { tenantId: string },
-    step: ExecutionStepEntity,
     binding: CertificateBindingDto,
     detail: Record<string, unknown>,
     resultState: ResultState,
+    targetCertificateVersionId?: string,
   ): Promise<void> {
     const targetThumbprint = readString(detail, 'verify.remoteThumbprint') ?? readString(detail, 'newThumbprint') ?? binding.storeThumbprint;
     const observedFingerprint = readString(detail, 'verify.remoteCertificateSha256') ?? binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256;
-    const targetCertificateVersionId = binding.targetCertificateVersionId
-      ?? readString(step.inputSnapshot, 'deploymentArtifact.certificateVersionId')
-      ?? readString(step.inputSnapshot, 'workflowRequest.certificateVersionId');
     await this.bindings.updateCertificateBinding(input.tenantId, binding.id, {
       certificateVersionId: resultState.useTargetCertificate ? (targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
+      targetCertificateVersionId: resultState.useTargetCertificate
+        ? (targetCertificateVersionId ?? binding.targetCertificateVersionId ?? binding.certificateVersionId)
+        : binding.targetCertificateVersionId,
       observedFingerprintSha256: observedFingerprint,
       storeThumbprint: targetThumbprint ?? binding.storeThumbprint,
       lastVerifiedAt: new Date().toISOString(),
@@ -685,6 +690,41 @@ export class ExecutionResultSyncService {
         manualInterventionRequired: resultState.manualRequired,
       },
     });
+  }
+
+  private async resolveTargetCertificateVersionId(
+    tenantId: string,
+    step: ExecutionStepEntity,
+    binding: CertificateBindingDto,
+  ): Promise<string | undefined> {
+    const current = readCertificateVersionId(step.inputSnapshot, [
+      'deploymentArtifact.certificateVersionId',
+      'executionRuntimeSnapshot.deploymentArtifact.certificateVersionId',
+      'workflowRequest.certificateVersionId',
+    ]);
+    if (current) return current;
+
+    const steps = (await this.executions.listSteps(tenantId, step.executionRunId))
+      .filter((candidate) => {
+        if (step.deploymentPlanTargetId) return candidate.deploymentPlanTargetId === step.deploymentPlanTargetId;
+        return readString(candidate.inputSnapshot, 'certificateBindingId') === binding.id;
+      })
+      .sort((left, right) => right.stepNo - left.stepNo);
+
+    // 先只回溯部署产物快照，避免把其他步骤的旧 workflowRequest 当成新证书。
+    const artifactPaths = [
+      'deploymentArtifact.certificateVersionId',
+      'executionRuntimeSnapshot.deploymentArtifact.certificateVersionId',
+    ];
+    for (const candidate of steps) {
+      const versionId = readCertificateVersionId(candidate.inputSnapshot, artifactPaths);
+      if (versionId) return versionId;
+    }
+    for (const candidate of steps) {
+      const versionId = readCertificateVersionId(candidate.inputSnapshot, ['workflowRequest.certificateVersionId']);
+      if (versionId) return versionId;
+    }
+    return binding.targetCertificateVersionId;
   }
 
   private async writeAssetState(
@@ -947,6 +987,14 @@ function readPath(value: Record<string, unknown>, path: string): unknown {
 function readString(value: Record<string, unknown>, path: string): string | undefined {
   const candidate = readPath(value, path);
   return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined;
+}
+
+function readCertificateVersionId(value: Record<string, unknown>, paths: readonly string[]): string | undefined {
+  for (const path of paths) {
+    const versionId = readString(value, path);
+    if (versionId) return versionId;
+  }
+  return undefined;
 }
 
 function readNumber(value: Record<string, unknown>, path: string): number | undefined {

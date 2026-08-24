@@ -32,14 +32,16 @@ export function enrichWorkflowCertificateMaterial(material: Record<string, unkno
   const privateKeyPem = readPemFile(files, 'private', 'private_key')
     ?? readString(material.privateKeyPem)
     ?? readString(material.privateKey);
-  const orderedChainPem = readPemFile(files, 'chain', 'certificate_chain')
+  const rawOrderedChainPem = readPemFile(files, 'chain', 'certificate_chain')
     ?? readString(material.orderedChainPem)
     ?? readIntermediateChain(declaredCertificatePem)
     ?? readIntermediateChainFromFullchain(files)
     ?? '';
   const certificatePem = declaredCertificatePem
-    ?? joinCertificateChain(leafPem, orderedChainPem);
-  const chainCertificates = splitCertificates(orderedChainPem);
+    ?? joinCertificateChain(leafPem, rawOrderedChainPem);
+  // 证书链按叶到根保持原顺序，但相同证书的重复块不能再次提交给设备。
+  const chainCertificates = deduplicateCertificates(splitCertificates(rawOrderedChainPem));
+  const orderedChainPem = chainCertificates.join('');
   const orderedIntermediates = chainCertificates.map((pem, index) => ({
     index,
     sequence: index + 1,
@@ -120,6 +122,17 @@ function readPemFile(files: WorkflowCertificateFile[], key: string, role: string
 function splitCertificates(value: string): string[] {
   return value.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g)
     ?.map((item) => `${item.trim()}\n`) ?? [];
+}
+
+function deduplicateCertificates(certificates: string[]): string[] {
+  const seenFingerprints = new Set<string>();
+  return certificates.filter((pem) => {
+    const fingerprint = certificateFingerprint(pem);
+    if (!fingerprint) return true;
+    if (seenFingerprints.has(fingerprint)) return false;
+    seenFingerprints.add(fingerprint);
+    return true;
+  });
 }
 
 function certificateFingerprint(pem?: string): string | undefined {

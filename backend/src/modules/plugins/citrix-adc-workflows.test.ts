@@ -470,10 +470,7 @@ test('Citrix ADC 长业务资源名会派生为短 Citrix certkey 并用于多�
   ]);
   assert.equal(inspectLeafChainState.type, 'transform');
   assert.equal(inspectLeafChainState.transform.outputs.shouldLinkLeafCertKey.expression.includes('linkcertkeyname'), true);
-  assert.deepEqual(linkLeafCertKey.when, {
-    variable: 'steps.inspectLeafChainState.extracted.shouldLinkLeafCertKey',
-    equals: true,
-  });
+  assert.equal(linkLeafCertKey.when, undefined);
   assert.equal(linkLeafCertKey.assert, undefined);
   assert.deepEqual(linkLeafCertKey.request.successStatusCodes, [200, 201, 209, 409]);
   assert.match(verifyIntermediateLink.request.url, /sslcertchain_sslcertkey_binding/);
@@ -554,7 +551,7 @@ test('Citrix ADC 叶子 certkey 创建冲突时复用 ADC 返回的实际名称'
   assert.equal(result.stepResults.find((item) => item.name === 'createLeafCertKey')?.status, 'success');
   assert.equal(result.stepResults.find((item) => item.name === 'resolveLeafCertKeyName')?.extracted.effectiveLeafCertKeyName, ACTUAL_EXISTING_CERTKEY_NAME);
   assert.equal(result.stepResults.find((item) => item.name === 'inspectLeafChainState')?.extracted.leafAlreadyLinkedToTargetIntermediate, true);
-  assert.equal(result.stepResults.find((item) => item.name === 'linkLeafCertKey')?.status, 'skipped');
+  assert.equal(result.stepResults.find((item) => item.name === 'linkLeafCertKey')?.status, 'success');
   assert.match(JSON.stringify(result.stepResults.find((item) => item.name === 'readLeafCertKey')?.plan), new RegExp(ACTUAL_EXISTING_CERTKEY_NAME));
 });
 
@@ -812,7 +809,7 @@ test('Citrix ADC 中间证书同内容已存在时复用设备返回的 certkey 
   const resolved = result.stepResults.find((item) => item.name === 'resolveIntermediateCertKeyNames');
   assert.equal((resolved?.extracted.effectiveIntermediates as Array<{ certkeyName: string }>)[0]?.certkeyName, 'ca1');
   const leafLink = result.stepResults.find((item) => item.name === 'linkLeafCertKey');
-  assert.equal(leafLink?.status, 'skipped');
+  assert.equal(leafLink?.status, 'success');
 });
 
 test('Citrix ADC 删除旧绑定时只编码 certkey 参数值', async () => {

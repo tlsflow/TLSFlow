@@ -616,6 +616,191 @@ test('BACKUP 成功不会提前污染绑定与资产状态', async () => {
   assert.equal(assetsWrites.snapshots.length, 0);
 });
 
+test('正式部署优先使用本次执行快照证书版本，不被旧绑定目标版本覆盖', async () => {
+  const repository = new ExecutionsRepository();
+  const assetsWrites = createAssetWriteRecorder({
+    certificateVersionId: 'cert_old',
+    targetCertificateVersionId: 'cert_old_target',
+  });
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+  );
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_snapshot_certificate_version_priority',
+    tenantId,
+    deploymentPlanId: 'dplan_snapshot_certificate_version_priority',
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'snapshot-certificate-version-priority',
+    requestHash: 'hash-snapshot-certificate-version-priority',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_snapshot_certificate_version_priority',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_snapshot_certificate_version_priority',
+    stepNo: 1,
+    stepType: 'VERIFY',
+    name: 'VERIFY snapshot certificate version',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+      certificateBindingId: String(assetsWrites.binding.id),
+      deploymentArtifact: { certificateVersionId: 'cert_from_execution_snapshot' },
+      certificateVerification: {
+        capabilityKey: 'certificate.verify',
+        schemaVersion: '1.0',
+        connectHost: '127.0.0.1',
+        serverName: 'example.com',
+        port: 443,
+        expectedDomains: ['example.com'],
+        expectedFingerprintSha256: expectedFingerprint,
+      },
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      executionMode: 'queued',
+      verify: {
+        remoteCertificateSha256: expectedFingerprint,
+        remoteThumbprint: '9'.repeat(40),
+      },
+    },
+  });
+
+  assert.equal(assetsWrites.bindingUpdates[0]?.certificateVersionId, 'cert_from_execution_snapshot');
+  assert.equal(assetsWrites.bindingUpdates[0]?.targetCertificateVersionId, 'cert_from_execution_snapshot');
+  const postDeploySnapshot = assetsWrites.snapshots.at(-1);
+  assert.equal(postDeploySnapshot?.snapshotType, 'POST_DEPLOY');
+  assert.equal(postDeploySnapshot?.certificateVersionId, 'cert_from_execution_snapshot');
+});
+
+test('VERIFY 缺少证书材料时回溯同一目标的部署步骤快照', async () => {
+  const repository = new ExecutionsRepository();
+  const assetsWrites = createAssetWriteRecorder({
+    certificateVersionId: 'cert_old',
+    targetCertificateVersionId: 'cert_old_target',
+  });
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+  );
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_snapshot_certificate_version_backtrack',
+    tenantId,
+    deploymentPlanId: 'dplan_snapshot_certificate_version_backtrack',
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'snapshot-certificate-version-backtrack',
+    requestHash: 'hash-snapshot-certificate-version-backtrack',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  await repository.createStep({
+    id: 'stp_snapshot_certificate_version_reload',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_snapshot_certificate_version_backtrack',
+    stepNo: 4,
+    stepType: 'RELOAD',
+    name: 'RELOAD snapshot certificate version',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      certificateBindingId: String(assetsWrites.binding.id),
+      deploymentArtifact: { certificateVersionId: 'cert_from_reload_snapshot' },
+    },
+    status: 'SUCCESS',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_snapshot_certificate_version_verify',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_snapshot_certificate_version_backtrack',
+    stepNo: 5,
+    stepType: 'VERIFY',
+    name: 'VERIFY without certificate material',
+    dependsOn: [4],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+      certificateBindingId: String(assetsWrites.binding.id),
+      certificateVerification: {
+        capabilityKey: 'certificate.verify',
+        schemaVersion: '1.0',
+        connectHost: '127.0.0.1',
+        serverName: 'example.com',
+        port: 443,
+        expectedDomains: ['example.com'],
+        expectedFingerprintSha256: expectedFingerprint,
+      },
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      executionMode: 'queued',
+      verify: {
+        remoteCertificateSha256: expectedFingerprint,
+        remoteThumbprint: '8'.repeat(40),
+      },
+    },
+  });
+
+  assert.equal(assetsWrites.bindingUpdates[0]?.certificateVersionId, 'cert_from_reload_snapshot');
+  assert.equal(assetsWrites.bindingUpdates[0]?.targetCertificateVersionId, 'cert_from_reload_snapshot');
+  assert.equal(assetsWrites.snapshots.at(-1)?.certificateVersionId, 'cert_from_reload_snapshot');
+});
+
 test('部署计划成功后按 target 应用资产触发控制面证书探测并回写资产状态', async () => {
   const repository = new ExecutionsRepository();
   const deploymentPlans = new DeploymentPlansRepository();

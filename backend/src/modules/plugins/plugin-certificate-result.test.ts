@@ -36,6 +36,25 @@ test('只有最终验证成功或回滚成功才更新当前证书', async () =>
   assert.deepEqual(binding, { current_certificate_version_id: 'cert-v2', drift_state: 'SYNCED' });
 });
 
+test('正式部署成功时补齐缺失的插件目标版本', async () => {
+  const db = await fixtureDatabase();
+  const service = new PluginCertificateResultService(db);
+  await service.reconcileDiscovery('tenant-1', 'device-1');
+  await service.applyDeploymentResult('tenant-1', 'device-1', {
+    apiVersion: 'gcac.certificate-deploy-result/v1', bindingStableKey: 'binding:main', status: 'VERIFIED',
+    certificateVersionId: 'cert-v2', desiredCertificateVersionId: 'cert-v2',
+    observedFingerprintSha256: 'BB'.repeat(32), verifiedAt: '2026-07-24T08:02:00Z',
+  });
+  const binding = (await db.query<{ current_certificate_version_id: string; desired_certificate_version_id: string; drift_state: string }>(
+    "select current_certificate_version_id, desired_certificate_version_id, drift_state from plugin_discovered_certificate_bindings where stable_key='binding:main'",
+  )).rows[0];
+  assert.deepEqual(binding, {
+    current_certificate_version_id: 'cert-v2',
+    desired_certificate_version_id: 'cert-v2',
+    drift_state: 'SYNCED',
+  });
+});
+
 test('正式执行结果同步后自动回写插件发现证书绑定', async () => {
   const db = await fixtureDatabase();
   const pluginResults = new PluginCertificateResultService(db);
