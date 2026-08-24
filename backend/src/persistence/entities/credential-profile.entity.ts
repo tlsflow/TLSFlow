@@ -7,11 +7,12 @@ export const CREDENTIAL_KINDS = [
   'API_KEY',
   'CLIENT_CERTIFICATE',
   'DNS_PROVIDER',
+  'BROWSER_SESSION',
 ] as const;
 
 export type CredentialKind = typeof CREDENTIAL_KINDS[number];
 export type CredentialStatus = 'active' | 'disabled' | 'error';
-export type CredentialDeliveryLocation = 'header' | 'query' | 'cookie';
+export type CredentialDeliveryLocation = 'header' | 'query' | 'cookie' | 'local_storage' | 'session_storage';
 
 export interface CredentialDelivery {
   location?: CredentialDeliveryLocation;

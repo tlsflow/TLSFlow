@@ -162,7 +162,7 @@ export class CredentialsApplicationService {
     secretValues: Record<string, CredentialSecretValueInput>,
     context: RequestContext,
   ): Promise<Record<string, string>> {
-    const rules = getCredentialSlotRules(current.kind);
+    const rules = getCredentialSlotRules(current.kind, current.metadata);
     const secretSlots = { ...current.secretSlots };
     for (const [slot, secretValue] of Object.entries(secretValues)) {
       const rule = rules[slot];
@@ -192,7 +192,7 @@ export class CredentialsApplicationService {
     input: CreateCredentialProfileRequestDto,
     context: RequestContext,
   ): Promise<Record<string, string>> {
-    const rules = getCredentialSlotRules(input.kind);
+    const rules = getCredentialSlotRules(input.kind, input.metadata);
     const secretSlots: Record<string, string> = {};
     for (const slot of Object.keys(input.secretValues)) if (!rules[slot]) throw new AppError('VALIDATION_FAILED', '凭据包含未声明的 Secret Slot', { kind: input.kind, slot });
     for (const [slot, rule] of Object.entries(rules)) {

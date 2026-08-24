@@ -432,7 +432,10 @@ export class WorkflowTemplatesDomainService {
         ? {}
         : step.type === 'transform'
           ? readTransformOutputs(step, structuredOutput, context)
-          : runExtractors(step, structuredOutput, context);
+          : {
+              ...runExtractors(step, structuredOutput, context),
+              ...readBrowserExtractionOutputs(step, structuredOutput, context),
+            };
       const localValues = withCurrentStepValues(context.values, step.name, extracted);
       const finalPlan = extracted && Object.keys(extracted).length > 0
         ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
@@ -943,6 +946,17 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       testMode: mode,
     };
   }
+  if (step.type === 'browser') {
+    return {
+      executor: 'workflow.browser',
+      action: step.browser.action,
+      url: step.browser.url ? renderString(step.browser.url, context.values, mode === 'render_only') : undefined,
+      extractions: step.browser.extractions,
+      verification: step.browser.verification,
+      mode,
+      dryRun: mode !== 'real_test',
+    };
+  }
   if (step.type === 'condition') {
     const deferred = mode === 'render_only' && hasDeferredConditionReference(step.condition, context.values);
     const passed = deferred ? undefined : evaluateCondition(step.condition, context.values, mode);
@@ -1327,6 +1341,24 @@ function evaluateCondition(condition: WorkflowStep['when'], values: Record<strin
   if (condition.equals !== undefined) return Object.is(value, renderUnknown(condition.equals, values, mode === 'render_only'));
   if (condition.notEquals !== undefined) return !Object.is(value, renderUnknown(condition.notEquals, values, mode === 'render_only'));
   return true;
+}
+
+function readBrowserExtractionOutputs(step: WorkflowStep, output: WorkflowMockStepOutput, context: RuntimeContext): Record<string, unknown> {
+  if (step.type !== 'browser') return {};
+  const parameters = isRecord(output.body) ? output.body.parameters : undefined;
+  if (!isRecord(parameters)) return {};
+  const extracted: Record<string, unknown> = {};
+  for (const extraction of step.browser.extractions ?? []) {
+    const value = parameters[extraction.name];
+    if ((value === undefined || value === null) && !extraction.optional) {
+      throw new AppError('CREDENTIAL_OUTPUT_INVALID', '浏览器步骤缺少必填提取字段', { step: step.name, field: extraction.name });
+    }
+    if (value !== undefined && value !== null) {
+      extracted[extraction.name] = value;
+      if (extraction.sensitive !== false) collectValuePaths(`steps.${step.name}.extracted.${extraction.name}`, value, context.secretPaths);
+    }
+  }
+  return extracted;
 }
 
 function hasDeferredConditionReference(condition: NonNullable<WorkflowStep['when']>, values: Record<string, unknown>): boolean {

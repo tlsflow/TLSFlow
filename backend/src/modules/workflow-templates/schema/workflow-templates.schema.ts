@@ -13,6 +13,7 @@ const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
+const browserStepKeys = new Set([...stepBaseKeys, 'browser']);
 const sftpStepKeys = new Set([...stepBaseKeys, 'sftp']);
 const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
@@ -22,7 +23,7 @@ const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
 const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'browser', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'variables', 'connections', 'credentials', 'artifacts', 'steps', 'system']);
 
@@ -153,6 +154,33 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
     if (step.ssh.mode === 'interactive' && (!Array.isArray(step.ssh.dialogue) || step.ssh.dialogue.length === 0)) throw validationError(`${path}.ssh.dialogue 必填`);
     if (step.ssh.timeoutSeconds !== undefined && !isPositiveInteger(step.ssh.timeoutSeconds)) throw validationError(`${path}.ssh.timeoutSeconds 必须是正整数`);
+    return;
+  }
+  if (step.type === 'browser') {
+    rejectUnknown(step as unknown as Record<string, unknown>, browserStepKeys, path);
+    if (!isRecord(step.browser)) throw validationError(`${path}.browser 必须是对象`);
+    rejectUnknown(step.browser as unknown as Record<string, unknown>, new Set(['action', 'url', 'extractions', 'verification']), `${path}.browser`);
+    if (!['navigate', 'extract', 'verify'].includes(String(step.browser.action))) throw validationError(`${path}.browser.action 不支持`);
+    if (step.browser.url !== undefined && !isNonEmptyString(step.browser.url)) throw validationError(`${path}.browser.url 必须是非空字符串`);
+    if (step.browser.extractions !== undefined) {
+      if (!Array.isArray(step.browser.extractions) || step.browser.extractions.length === 0) throw validationError(`${path}.browser.extractions 必须是非空数组`);
+      for (const [index, extraction] of step.browser.extractions.entries()) {
+        if (!isRecord(extraction)) throw validationError(`${path}.browser.extractions.${index} 必须是对象`);
+        rejectUnknown(extraction, new Set(['name', 'source', 'key', 'optional', 'sensitive']), `${path}.browser.extractions.${index}`);
+        if (!isNonEmptyString(extraction.name) || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(extraction.name)) throw validationError(`${path}.browser.extractions.${index}.name 不合法`);
+        if (!['cookie', 'header', 'local_storage', 'session_storage', 'url', 'text'].includes(String(extraction.source))) throw validationError(`${path}.browser.extractions.${index}.source 不支持`);
+        if (['cookie', 'header', 'local_storage', 'session_storage'].includes(String(extraction.source)) && !isNonEmptyString(extraction.key)) throw validationError(`${path}.browser.extractions.${index}.key 必填`);
+        if (extraction.optional !== undefined && typeof extraction.optional !== 'boolean') throw validationError(`${path}.browser.extractions.${index}.optional 必须是布尔值`);
+        if (extraction.sensitive !== undefined && typeof extraction.sensitive !== 'boolean') throw validationError(`${path}.browser.extractions.${index}.sensitive 必须是布尔值`);
+      }
+    }
+    if (step.browser.verification !== undefined) {
+      if (!isRecord(step.browser.verification)) throw validationError(`${path}.browser.verification 必须是对象`);
+      rejectUnknown(step.browser.verification, new Set(['url', 'statusCode', 'textContains']), `${path}.browser.verification`);
+      if (step.browser.verification.url !== undefined && !isNonEmptyString(step.browser.verification.url)) throw validationError(`${path}.browser.verification.url 必须是非空字符串`);
+      if (step.browser.verification.statusCode !== undefined && (!Number.isInteger(step.browser.verification.statusCode) || step.browser.verification.statusCode < 100 || step.browser.verification.statusCode > 599)) throw validationError(`${path}.browser.verification.statusCode 必须是 HTTP 状态码`);
+      if (step.browser.verification.textContains !== undefined && !isNonEmptyString(step.browser.verification.textContains)) throw validationError(`${path}.browser.verification.textContains 必须是非空字符串`);
+    }
     return;
   }
   if (step.type === 'sftp') {

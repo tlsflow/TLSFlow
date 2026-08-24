@@ -3,13 +3,13 @@ import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/reso
 
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'browser' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
-export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE';
+export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'BROWSER_SESSION';
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
@@ -169,6 +169,25 @@ export interface WorkflowSshStepConfig {
   timeoutSeconds?: number;
 }
 
+export interface WorkflowBrowserExtraction {
+  name: string;
+  source: 'cookie' | 'header' | 'local_storage' | 'session_storage' | 'url' | 'text';
+  key?: string;
+  optional?: boolean;
+  sensitive?: boolean;
+}
+
+export interface WorkflowBrowserStepConfig {
+  action: 'navigate' | 'extract' | 'verify';
+  url?: string;
+  extractions?: WorkflowBrowserExtraction[];
+  verification?: {
+    url?: string;
+    statusCode?: number;
+    textContains?: string;
+  };
+}
+
 export interface WorkflowFileTransferStepConfig {
   direction: 'upload' | 'download';
   connectionRef: string;
@@ -204,6 +223,11 @@ export interface WorkflowHttpStep extends WorkflowStepBase {
 export interface WorkflowSshStep extends WorkflowStepBase {
   type: 'ssh';
   ssh: WorkflowSshStepConfig;
+}
+
+export interface WorkflowBrowserStep extends WorkflowStepBase {
+  type: 'browser';
+  browser: WorkflowBrowserStepConfig;
 }
 
 export interface WorkflowSftpStep extends WorkflowStepBase {
@@ -283,7 +307,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowCheckpointVerifyStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowBrowserStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowCheckpointVerifyStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';

@@ -373,7 +373,8 @@ describe('WorkflowTemplates', () => {
   });
 
   it('正式工作流列表同时返回用户和插件内置来源，插件草稿目标仍只允许用户工作流', async () => {
-    const app = new App();
+    const app = new App({ allowLegacyHeaderContext: true });
+    const headers = { 'x-tenant-id': 'tenant_workflow_test', 'x-actor-id': 'user_workflow_test' };
     const currentBindings: PluginWorkflowBindingRecord[] = [];
     const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository(currentBindings));
     new WorkflowTemplatesController(service).register(app.router);
@@ -388,7 +389,7 @@ describe('WorkflowTemplates', () => {
     assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflows', body: {} })).statusCode, 404);
 
     const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
-    const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
+    const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers });
     const compatibilityIds = (compatibilityList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
     const workflowIds = (workflowList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
 
@@ -464,7 +465,7 @@ describe('WorkflowTemplates', () => {
       workflowContentSha256: connectionPluginWorkflow.version.contentHash,
       createdAt: connectionPluginWorkflow.template.createdAt,
     });
-    const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
+    const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows', headers });
     const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string; capabilities?: string[]; currentVersionLabel?: string }> }).items;
     const mergedPluginRows = workflowItemsWithPlugin.filter((item) => item.origin === 'plugin_internal' && item.id !== legacyId && item.id !== currentId && item.id !== derivedId);
     assert.equal(mergedPluginRows.length, 2);
@@ -612,6 +613,59 @@ describe('WorkflowTemplates', () => {
     assert.equal(run.status, 'success');
     assert.equal(run.plannedOnly, true);
     assert.equal((run.stepResults[1]!.plan as { deferred?: boolean }).deferred, true);
+  });
+
+  it('browser 步骤按 extractions 自动生成步骤输出', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'browser_credential_flow', displayName: '浏览器凭据输出' },
+      inputContract: workflowInputContract(),
+      steps: [
+        {
+          name: 'extract_browser_credential',
+          type: 'browser',
+          stage: 'prepare',
+          browser: {
+            action: 'extract',
+            extractions: [
+              { name: 'accessToken', source: 'local_storage', key: 'access_token', sensitive: true },
+              { name: 'sessionId', source: 'cookie', key: 'sid', sensitive: true },
+            ],
+          },
+        },
+        {
+          name: 'verify_credential',
+          type: 'condition',
+          stage: 'verify',
+          condition: {
+            variable: 'steps.extract_browser_credential.extracted.sessionId',
+            equals: '{{steps.extract_browser_credential.extracted.sessionId}}',
+          },
+        },
+      ],
+    };
+    const { version } = await service.createTemplate({ content });
+    const run = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'real_test',
+      resolvedInput: resolvedWorkflowInput({ variables: { deviceHost: 'edge-01.example.com' } }),
+    }, async ({ renderedPlan }) => {
+      if ((renderedPlan as { executor?: string }).executor !== 'workflow.browser') {
+        return { success: true, body: { passed: true } };
+      }
+      return {
+        success: true,
+        statusCode: 200,
+        body: { parameters: { accessToken: 'browser-token', sessionId: 'browser-session' }, verified: true },
+      };
+    });
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]!.extracted.accessToken, '[REDACTED]');
+    assert.equal(run.stepResults[0]!.extracted.sessionId, '[REDACTED]');
+    assert.equal(run.stepResults[1]!.status, 'success');
   });
 
   it('上游输出可以提取成运行时变量并供下游节点引用，同时对外脱敏', async () => {

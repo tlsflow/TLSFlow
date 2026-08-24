@@ -6,6 +6,7 @@ export const SECRET_TYPES = [
   'ssh_key',
   'password',
   'api_token',
+  'session_id',
   'pfx_password',
   'private_key',
   'certificate_private_key',

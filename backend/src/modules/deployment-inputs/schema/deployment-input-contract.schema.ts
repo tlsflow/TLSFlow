@@ -22,7 +22,7 @@ const variableTypes = new Set<DeploymentVariableType>(['string', 'number', 'bool
 const configurationModes = new Set<DeploymentConfigurationMode>(['required', 'advanced', 'runtime']);
 const lifecycles = new Set<DeploymentInputLifecycle>(['pre_execution', 'runtime_injected', 'step_output']);
 const bindingPolicies = new Set<DeploymentBindingPolicy>(['fixed', 'default_overridable', 'required_binding']);
-const credentialKinds = new Set<DeploymentCredentialKind>(['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE']);
+const credentialKinds = new Set<DeploymentCredentialKind>(['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'BROWSER_SESSION']);
 const sourceKinds = new Set<DeploymentVariableSourceV1['kind']>(['asset', 'binding', 'default', 'derived', 'system', 'step_output']);
 
 const rootKeys = new Set(['apiVersion', 'variables', 'connections', 'credentials', 'artifacts']);

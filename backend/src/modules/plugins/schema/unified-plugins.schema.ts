@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type {
+  CredentialAcquireContract,
   UnifiedPluginCapabilityDescriptor,
   UnifiedPluginManifestV1,
   UnifiedPluginRuntime,
@@ -20,7 +21,7 @@ const maximumResourceCount = 500;
 const maximumResourceBytes = 20 * 1024 * 1024;
 const manifestKeys = new Set([
   'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'logoUrl', 'defaultLocale', 'publisher', 'runtime',
-  'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'permissions', 'compatibility', 'resources',
+  'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'credentialAcquire', 'permissions', 'compatibility', 'resources',
 ]);
 
 export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginManifestV1 {
@@ -43,6 +44,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   if (runtime === 'WORKFLOW_DSL' && Object.keys(readStringMap(resources.workflows)).length === 0) {
     fail('resources.workflows', 'WORKFLOW_DSL 插件必须声明 Workflow DSL');
   }
+  const credentialAcquire = validateCredentialAcquire(manifest.credentialAcquire, capabilities);
   return {
     apiVersion: 'gcac.plugin-manifest/v1',
     kind: 'GcacPlugin',
@@ -60,6 +62,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     support,
     minGcacVersion: optionalString(manifest.minGcacVersion, 'minGcacVersion'),
     capabilities,
+    ...(credentialAcquire ? { credentialAcquire } : {}),
     permissions: requireStringArray(manifest.permissions ?? [], 'permissions'),
     compatibility: readCompatibility(manifest.compatibility),
     resources: {
@@ -72,6 +75,48 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       agentDiscoveryMappings: readStringMap(resources.agentDiscoveryMappings),
       actionAliases: readStringMap(resources.actionAliases),
     },
+  };
+}
+
+function validateCredentialAcquire(input: unknown, capabilities: UnifiedPluginCapabilityDescriptor[]): CredentialAcquireContract | undefined {
+  const declared = capabilities.some((item) => item.key === 'credential.acquire');
+  if (!declared && input !== undefined) fail('credentialAcquire', '未声明 credential.acquire 时不能提供获取合同');
+  if (!declared) return undefined;
+  const value = requireRecord(input, 'credentialAcquire');
+  assertKnownKeys(value, new Set(['inputContractVersion', 'loginUrl', 'allowedOrigins', 'output']), 'credentialAcquire');
+  const inputContractVersion = requireString(value.inputContractVersion, 'credentialAcquire.inputContractVersion');
+  const loginUrl = requireString(value.loginUrl, 'credentialAcquire.loginUrl');
+  if (!/^https?:\/\//i.test(loginUrl)) fail('credentialAcquire.loginUrl', '必须是 HTTP(S) URL');
+  const allowedOrigins = requireStringArray(value.allowedOrigins, 'credentialAcquire.allowedOrigins');
+  if (allowedOrigins.length === 0 || allowedOrigins.some((origin) => !/^https?:\/\//i.test(origin))) {
+    fail('credentialAcquire.allowedOrigins', '必须是非空 HTTP(S) Origin 数组');
+  }
+  const output = requireRecord(value.output, 'credentialAcquire.output');
+  assertKnownKeys(output, new Set(['version', 'parameters']), 'credentialAcquire.output');
+  const outputVersion = requireString(output.version, 'credentialAcquire.output.version');
+  const parameters = requireRecord(output.parameters, 'credentialAcquire.output.parameters');
+  const normalizedParameters: CredentialAcquireContract['output']['parameters'] = {};
+  for (const [name, raw] of Object.entries(parameters)) {
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(name)) fail(`credentialAcquire.output.parameters.${name}`, '参数名不合法');
+    const parameter = requireRecord(raw, `credentialAcquire.output.parameters.${name}`);
+    assertKnownKeys(parameter, new Set(['secretType', 'required', 'delivery']), `credentialAcquire.output.parameters.${name}`);
+    const secretType = requireEnum(parameter.secretType, ['password', 'api_token', 'session_id', 'ssh_key', 'private_key', 'certificate_private_key'] as const, `${name}.secretType`);
+    if (typeof parameter.required !== 'boolean') fail(`${name}.required`, '必须是布尔值');
+    const delivery = requireRecord(parameter.delivery, `${name}.delivery`);
+    assertKnownKeys(delivery, new Set(['location', 'name']), `${name}.delivery`);
+    const location = requireEnum(delivery.location, ['header', 'query', 'cookie', 'local_storage', 'session_storage'] as const, `${name}.delivery.location`);
+    normalizedParameters[name] = {
+      secretType,
+      required: parameter.required,
+      delivery: { location, name: requireString(delivery.name, `${name}.delivery.name`) },
+    };
+  }
+  if (Object.keys(normalizedParameters).length === 0) fail('credentialAcquire.output.parameters', '至少声明一个输出参数');
+  return {
+    inputContractVersion,
+    loginUrl,
+    allowedOrigins,
+    output: { version: outputVersion, parameters: normalizedParameters },
   };
 }
 

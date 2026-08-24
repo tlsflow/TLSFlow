@@ -4,7 +4,7 @@ export type DeploymentVariableType = 'string' | 'number' | 'boolean' | 'enum' | 
 export type DeploymentConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type DeploymentInputLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
 export type DeploymentBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
-export type DeploymentCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE';
+export type DeploymentCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'BROWSER_SESSION';
 export type DeploymentConnectionTransport = 'http' | 'ssh';
 export type DeploymentArtifactKind = 'certificate' | 'file';
 

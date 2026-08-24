@@ -104,7 +104,11 @@ import { AutomationsApplicationService, AutomationConfiguredActionExecutor, Auto
 import { createDefaultLicensingService, getLicensingRouteContracts, LicensingController } from './modules/licensing/index.js';
 import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
 import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
-import { CertbotDnsIssuer } from './modules/internal-ca/providers/certbot-dns-issuer.js';
+import { LegoDnsIssuer } from './modules/internal-ca/providers/lego-dns-issuer.js';
+import { BrowserRuntimeClient } from './modules/browser-runtime/browser-runtime.client.js';
+import { BrowserCredentialSessionRepository } from './modules/browser-runtime/browser-credential-session.repository.js';
+import { BrowserCredentialSessionService } from './modules/browser-runtime/browser-credential-session.service.js';
+import { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -182,7 +186,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       'http-01': new Http01ChallengeAdapter(http01Responder),
     },
   });
-  const certbotDnsIssuer = new CertbotDnsIssuer({
+  const legoDnsIssuer = new LegoDnsIssuer({
     credentials: credentialsService,
     secrets: security.secrets,
   });
@@ -207,6 +211,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     acmeRepository,
     certificateServices.certificates.getRepository(),
     bindingsService.getRepository(),
+    internalCaService,
   );
   const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
@@ -252,6 +257,16 @@ export function createApp(dependencies: AppDependencies = {}): App {
     },
     new PluginWorkflowBindingsRepository(appDb),
   );
+  const browserRuntimeClient = new BrowserRuntimeClient();
+  const browserCredentialSessionService = new BrowserCredentialSessionService(
+    new BrowserCredentialSessionRepository(appDb),
+    browserRuntimeClient,
+    credentialsService,
+    unifiedPluginsService,
+    new PluginWorkflowBindingsRepository(appDb),
+    workflowTemplatesService,
+    assetsService,
+  );
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const devicesService = new DevicesApplicationService(
@@ -272,6 +287,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('workflowTemplatesService', workflowTemplatesService);
+  app.setResource('browserRuntimeClient', browserRuntimeClient);
+  app.setResource('browserCredentialSessionService', browserCredentialSessionService);
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
   app.setResource('internalCaService', internalCaService);
@@ -379,6 +396,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   })).register(app.router);
   new LicensingController(licensingService).register(app.router);
   new CredentialsController(credentialsService, security).register(app.router);
+  new BrowserCredentialSessionController(browserCredentialSessionService, security).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
   app.setResource('deploymentPlansController', deploymentPlans);
   app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());
@@ -408,7 +426,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deployments: deploymentPlans.getApplicationService(),
     executions: executionsService,
     promotion: acmePromotionService,
-    certbot: certbotDnsIssuer,
+    lego: legoDnsIssuer,
+    hasDeploymentTarget: async (tenantId, applicationAssetId) => Boolean(
+      await assetsService.getRepository().getApplicationAssetTargetByApplicationAssetId(tenantId, applicationAssetId),
+    ),
     leaseOwner: `acme-renewal-worker-${process.pid}`,
   });
   const acmeServices = {
@@ -422,6 +443,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       (tenantId, actorId) => internalCaService.ensureBuiltinAcmeProvider(tenantId, actorId),
       acmeAccountService,
       security.secrets,
+      internalCaService,
     ),
     orders: acmeOrderService,
     policies: acmeRenewalPolicyService,
@@ -702,6 +724,46 @@ export function getRouteContracts(): RouteContract[] {
     ...getNotificationRouteContracts(),
     ...getReportRouteContracts(),
     ...getLicensingRouteContracts(),
+    {
+      method: 'POST',
+      path: '/api/v1/credentials/browser-sessions',
+      operationId: 'createBrowserCredentialSession',
+      summary: '创建浏览器临时凭据会话',
+      tags: ['BrowserCredentials'],
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/credentials/browser-sessions/:id',
+      operationId: 'getBrowserCredentialSession',
+      summary: '查询浏览器临时凭据会话',
+      tags: ['BrowserCredentials'],
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/credentials/browser-sessions/:id/connect',
+      operationId: 'connectBrowserCredentialSession',
+      summary: '连接浏览器临时 VNC',
+      tags: ['BrowserCredentials'],
+      responseSchema: { type: 'string' },
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/credentials/browser-sessions/:id/acquire',
+      operationId: 'acquireBrowserCredentialSession',
+      summary: '手动获取浏览器凭据',
+      tags: ['BrowserCredentials'],
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/credentials/browser-sessions/:id/cancel',
+      operationId: 'cancelBrowserCredentialSession',
+      summary: '取消浏览器临时凭据会话',
+      tags: ['BrowserCredentials'],
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
     {
       method: 'GET',
       path: '/api/v1/openapi.json',

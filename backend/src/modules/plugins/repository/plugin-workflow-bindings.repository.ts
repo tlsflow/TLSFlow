@@ -6,7 +6,7 @@ export interface PluginWorkflowBindingsRepositoryPort {
   save(record: PluginWorkflowBindingRecord): Promise<PluginWorkflowBindingRecord>;
   find(pluginVersionId: string, capabilityKey: string): Promise<PluginWorkflowBindingRecord | undefined>;
   findByResource(pluginVersionId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined>;
-  findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined>;
+  findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string, capabilityKey?: string): Promise<PluginWorkflowBindingRecord | undefined>;
   listCurrent(tenantId: string): Promise<PluginWorkflowBindingRecord[]>;
   list(pluginVersionId: string): Promise<PluginWorkflowBindingRecord[]>;
   listAll(): Promise<PluginWorkflowBindingRecord[]>;
@@ -44,7 +44,7 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
     return row ? toRecord(row) : undefined;
   }
 
-  async findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined> {
+  async findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string, capabilityKey?: string): Promise<PluginWorkflowBindingRecord | undefined> {
     const row = (await this.db.query<WorkflowBindingRow>(`
       select binding.*
         from unified_plugin_workflow_bindings binding
@@ -52,9 +52,10 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
        where plugin.tenant_id = $1
          and plugin.plugin_id = $2
          and binding.workflow_resource_path = $3
+         and ($4::text is null or binding.capability_key = $4)
        order by plugin.created_at desc, binding.created_at desc
        limit 1
-    `, [tenantId, pluginId, workflowResourcePath])).rows[0];
+    `, [tenantId, pluginId, workflowResourcePath, capabilityKey ?? null])).rows[0];
     return row ? toRecord(row) : undefined;
   }
 

@@ -1,0 +1,12 @@
+FROM mcr.microsoft.com/playwright:v1.54.0-jammy
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify fluxbox \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 10001 chromium
+COPY start-chromium.sh /usr/local/bin/start-chromium.sh
+RUN chmod +x /usr/local/bin/start-chromium.sh
+USER chromium
+EXPOSE 6080 9222
+ENTRYPOINT ["/usr/local/bin/start-chromium.sh"]

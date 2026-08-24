@@ -17,6 +17,7 @@ export class PluginWorkflowPublisherService {
   async publishPlugin(record: UnifiedPluginVersionRecord): Promise<PluginWorkflowBindingRecord[]> {
     if (record.runtime !== 'WORKFLOW_DSL') return [];
     this.assertSharedBranchResource(record);
+    this.assertCredentialAcquireContract(record);
     const output: PluginWorkflowBindingRecord[] = [];
     for (const [capabilityKey, resourcePath] of Object.entries(record.manifest.resources.workflows ?? {})) {
       const existing = await this.repository.find(record.id, capabilityKey);
@@ -26,7 +27,9 @@ export class PluginWorkflowPublisherService {
         output.push(existing);
         continue;
       }
-      const shared = await this.repository.findByResource(record.id, resourcePath);
+      const shared = capabilityKey === 'credential.acquire'
+        ? undefined
+        : await this.repository.findByResource(record.id, resourcePath);
       if (shared) {
         await this.repairLegacyBuiltinTemplate(record, shared.workflowTemplateId);
         output.push(await this.repository.save({ ...shared, capabilityKey, ownerType: ownerTypeOf(record), ownerId: ownerIdOf(record) }));
@@ -36,7 +39,12 @@ export class PluginWorkflowPublisherService {
       if (!contentText) throw new AppError('VALIDATION_FAILED', '插件 Workflow 资源不存在', { pluginVersionId: record.id, capabilityKey, resourcePath });
       const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(contentText) as WorkflowDslV1);
       const contentSha256 = computeWorkflowContentHash(content);
-      const previous = await this.repository.findLatestByPluginResource(record.tenantId, record.pluginId, resourcePath);
+      const previous = await this.repository.findLatestByPluginResource(
+        record.tenantId,
+        record.pluginId,
+        resourcePath,
+        capabilityKey === 'credential.acquire' ? capabilityKey : undefined,
+      );
       if (previous) await this.repairLegacyBuiltinTemplate(record, previous.workflowTemplateId);
       const published = previous?.workflowContentSha256 === contentSha256
         ? { templateId: previous.workflowTemplateId, versionId: previous.workflowVersionId, contentHash: previous.workflowContentSha256 }
@@ -96,6 +104,22 @@ export class PluginWorkflowPublisherService {
         deployPath,
         rollbackPath,
       });
+    }
+  }
+
+  private assertCredentialAcquireContract(record: UnifiedPluginVersionRecord): void {
+    const declared = record.manifest.capabilities.some((capability) => capability.key === 'credential.acquire');
+    if (!declared) return;
+    if (!record.manifest.credentialAcquire) {
+      throw new AppError('VALIDATION_FAILED', 'credential.acquire 缺少 CredentialAcquireContract', { pluginVersionId: record.id });
+    }
+    const resourcePath = record.manifest.resources.workflows?.['credential.acquire'];
+    if (!resourcePath) {
+      throw new AppError('VALIDATION_FAILED', 'credential.acquire 缺少独立 Workflow DSL 资源', { pluginVersionId: record.id });
+    }
+    if (record.manifest.resources.workflows?.['certificate.deploy'] === resourcePath
+      || record.manifest.resources.workflows?.['certificate.rollback'] === resourcePath) {
+      throw new AppError('VALIDATION_FAILED', 'credential.acquire 不得复用部署或回滚 Workflow DSL 资源', { pluginVersionId: record.id });
     }
   }
 

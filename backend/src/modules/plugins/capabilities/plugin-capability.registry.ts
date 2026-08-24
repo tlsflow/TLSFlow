@@ -25,6 +25,18 @@ const contracts: PluginCapabilityContract[] = [
   contract('certificate.discover', 'certificate.discover.v1', 'LOW', 'READ_ONLY', 'certificate.read', 'gcac.certificate-discovery-input/v1', 'gcac.device-discovery/v2', 'DEVICE'),
   contract('certificate.deploy', 'certificate.deploy.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'certificate.deploy', 'gcac.certificate-deploy-input/v1', 'gcac.certificate-deploy-result/v1', 'TARGET'),
   contract('certificate.rollback', 'certificate.rollback.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'certificate.deploy', 'gcac.certificate-rollback-input/v1', 'gcac.certificate-deploy-result/v1', 'TARGET'),
+  {
+    key: 'credential.acquire',
+    contractVersion: 'v1',
+    actionContractId: 'credential.acquire.v1',
+    riskLevel: 'HIGH',
+    idempotency: 'READ_ONLY',
+    permission: 'credential.create',
+    inputSchemaId: 'gcac.credential-acquire-input/v1',
+    outputSchemaId: 'gcac.credential-output/v1',
+    resourceLock: 'NONE',
+    executionLocations: ['CONTROL_PLANE'],
+  },
 ];
 
 export class PluginCapabilityRegistry {

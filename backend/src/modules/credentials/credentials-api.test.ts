@@ -12,7 +12,7 @@ import { createPersistedSecurityServices } from '../security/security-services.p
 async function createTestApp() {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
-  const app = new App();
+  const app = new App({ allowLegacyHeaderContext: true });
   const security = createPersistedSecurityServices(database).services;
   new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(database), undefined, database, security.secrets)).register(app.router);
   return { app, database };
@@ -61,7 +61,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const listed = await app.inject({
     method: 'GET',
     path: '/api/v1/credentials?search=ADC',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
   });
   assert.equal(listed.statusCode, 200);
   assert.equal((listed.body as { total: number }).total, 1);
@@ -69,7 +69,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const renamed = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
     body: { id: credential.id, name: 'ADC 主凭据', expectedVersion: 2 },
   });
   assert.equal(renamed.statusCode, 200);
@@ -78,7 +78,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const disabled = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials/status',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
     body: { id: credential.id, status: 'disabled', expectedVersion: 3 },
   });
   assert.equal(disabled.statusCode, 200);
@@ -87,7 +87,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const deleted = await app.inject({
     method: 'DELETE',
     path: '/api/v1/credentials/delete',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
     body: { id: credential.id },
   });
   assert.equal(deleted.statusCode, 200);
@@ -146,14 +146,14 @@ test('全局凭据 API 强制租户隔离和乐观锁', async () => {
   const foreign = await app.inject({
     method: 'GET',
     path: `/api/v1/credentials/detail?id=${credentialId}`,
-    headers: { 'x-tenant-id': 'tenant-b' },
+    headers: { 'x-tenant-id': 'tenant-b', 'x-actor-id': 'user-b' },
   });
   assert.equal(foreign.statusCode, 404);
 
   const conflict = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
     body: { id: credentialId, name: '冲突更新', expectedVersion: 9 },
   });
   assert.equal(conflict.statusCode, 409);
@@ -215,7 +215,7 @@ test('全局凭据 API 拒绝非法运行时状态', async () => {
   const result = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials/status',
-    headers: { 'x-tenant-id': 'tenant-a' },
+    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
     body: { id: credentialId, status: 'deleted', expectedVersion: 1 },
   });
   assert.equal(result.statusCode, 400);
@@ -266,7 +266,7 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   const usage = await app.inject({
     method: 'GET',
     path: `/api/v1/credentials/usage?id=${credentialId}`,
-    headers: { 'x-tenant-id': 'tenant-usage' },
+    headers: { 'x-tenant-id': 'tenant-usage', 'x-actor-id': 'user-a' },
   });
   assert.equal(usage.statusCode, 200);
   assert.equal((usage.body as { total: number }).total, 1);
@@ -274,7 +274,7 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   const deleted = await app.inject({
     method: 'DELETE',
     path: '/api/v1/credentials/delete',
-    headers: { 'x-tenant-id': 'tenant-usage' },
+    headers: { 'x-tenant-id': 'tenant-usage', 'x-actor-id': 'user-a' },
     body: { id: credentialId },
   });
   assert.equal(deleted.statusCode, 409);

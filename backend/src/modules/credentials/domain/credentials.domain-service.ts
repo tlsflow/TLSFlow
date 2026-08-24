@@ -37,10 +37,28 @@ const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
   DNS_PROVIDER: {
     config: { required: true, allowedTypes: ['password'] },
   },
+  BROWSER_SESSION: {},
 };
 
-export function getCredentialSlotRules(kind: CredentialKind): Record<string, CredentialSlotRule> {
+export function getCredentialSlotRules(kind: CredentialKind, metadata?: Record<string, unknown>): Record<string, CredentialSlotRule> {
   if (!CREDENTIAL_KINDS.includes(kind)) throw validation('凭据类型无效', { kind });
+  if (kind === 'BROWSER_SESSION') {
+    const outputContract = metadata?.outputContract;
+    const parameters = outputContract && typeof outputContract === 'object' && !Array.isArray(outputContract)
+      ? (outputContract as Record<string, unknown>).parameters
+      : undefined;
+    if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+      throw validation('BROWSER_SESSION 缺少输出合同');
+    }
+    return Object.fromEntries(Object.entries(parameters).map(([name, value]) => {
+      const parameter = value as Record<string, unknown>;
+      const secretType = parameter.secretType;
+      if (!['password', 'api_token', 'session_id', 'ssh_key', 'private_key', 'certificate_private_key'].includes(String(secretType))) {
+        throw validation('BROWSER_SESSION 输出合同 Secret 类型无效', { slot: name, secretType });
+      }
+      return [name, { required: parameter.required !== false, allowedTypes: [secretType as SecretType] }];
+    }));
+  }
   return SLOT_RULES[kind];
 }
 
@@ -53,7 +71,7 @@ export class CredentialsDomainService {
     input: CreateCredentialProfileDto,
     identity: { id: string; now: string },
   ): CredentialProfileEntity {
-    const normalized = normalizeFields(input);
+    const normalized = normalizeFields(input, input.metadata);
     return {
       id: identity.id,
       tenantId: requiredText(tenantId, 'tenantId'),
@@ -93,7 +111,7 @@ export class CredentialsDomainService {
       username: input.username ?? current.username,
       delivery: input.delivery ?? current.delivery,
       secretSlots: input.secretSlots ?? current.secretSlots,
-    });
+    }, current.metadata);
     const status = input.status ?? current.status;
     if (!CREDENTIAL_STATUSES.has(status)) throw validation('凭据状态无效', { status });
     return {
@@ -107,7 +125,7 @@ export class CredentialsDomainService {
   }
 }
 
-function normalizeFields(input: CreateCredentialProfileDto): Pick<
+function normalizeFields(input: CreateCredentialProfileDto, metadata?: Record<string, unknown>): Pick<
   CredentialProfileEntity,
   'name' | 'kind' | 'scopeType' | 'scopeId' | 'username' | 'delivery' | 'secretSlots'
 > {
@@ -120,12 +138,12 @@ function normalizeFields(input: CreateCredentialProfileDto): Pick<
   const username = optionalText(input.username);
   if (requiresUsername(input.kind) && !username) throw validation('该凭据类型必须提供用户名', { kind: input.kind });
   const delivery = normalizeDelivery(input.kind, input.delivery);
-  const secretSlots = normalizeSecretSlots(input.kind, input.secretSlots);
+  const secretSlots = normalizeSecretSlots(input.kind, input.secretSlots, metadata);
   return { name, kind: input.kind, scopeType: input.scopeType, scopeId, username, delivery, secretSlots };
 }
 
-function normalizeSecretSlots(kind: CredentialKind, input: Record<string, string>): Record<string, string> {
-  const rules = SLOT_RULES[kind];
+function normalizeSecretSlots(kind: CredentialKind, input: Record<string, string>, metadata?: Record<string, unknown>): Record<string, string> {
+  const rules = getCredentialSlotRules(kind, metadata);
   const output: Record<string, string> = {};
   for (const key of Object.keys(input)) {
     if (!rules[key]) throw validation('凭据包含未声明的 Secret Slot', { kind, slot: key });
@@ -156,6 +174,10 @@ function normalizeSecretSlots(kind: CredentialKind, input: Record<string, string
 }
 
 function normalizeDelivery(kind: CredentialKind, input: CredentialDelivery | undefined): CredentialDelivery | undefined {
+  if (kind === 'BROWSER_SESSION') {
+    if (input?.location || input?.name) throw validation('BROWSER_SESSION 的投递位置必须按输出合同逐槽位声明');
+    return undefined;
+  }
   if (kind !== 'API_KEY') {
     if (input?.location || input?.name) throw validation('只有 API_KEY 凭据允许配置投递位置', { kind });
     return undefined;

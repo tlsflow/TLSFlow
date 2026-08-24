@@ -13,6 +13,27 @@ export interface UnifiedPluginCapabilityDescriptor {
   executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
 }
 
+export interface CredentialOutputParameterContract {
+  secretType: 'password' | 'api_token' | 'session_id' | 'ssh_key' | 'private_key' | 'certificate_private_key';
+  required: boolean;
+  delivery: {
+    location: 'header' | 'query' | 'cookie' | 'local_storage' | 'session_storage';
+    name: string;
+  };
+}
+
+export interface CredentialOutputContract {
+  version: string;
+  parameters: Record<string, CredentialOutputParameterContract>;
+}
+
+export interface CredentialAcquireContract {
+  inputContractVersion: string;
+  loginUrl: string;
+  allowedOrigins: string[];
+  output: CredentialOutputContract;
+}
+
 export interface UnifiedPluginManifestV1 {
   apiVersion: 'gcac.plugin-manifest/v1';
   kind: 'GcacPlugin';
@@ -30,6 +51,7 @@ export interface UnifiedPluginManifestV1 {
   support: UnifiedPluginSupport;
   minGcacVersion?: string;
   capabilities: UnifiedPluginCapabilityDescriptor[];
+  credentialAcquire?: CredentialAcquireContract;
   permissions: string[];
   compatibility?: {
     productFamilies?: string[];
