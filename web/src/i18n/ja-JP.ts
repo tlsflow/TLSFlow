@@ -3044,6 +3044,10 @@ export default {
           displayName: '変換',
           description: 'JSONata で上流出力を新しいワークフローコンテキスト変数に変換します。'
         },
+        foreach: {
+          displayName: 'コレクション反復',
+          description: '動的コレクションを順番に反復し、各要素に同じ子ステップを実行します。'
+        },
         wait: {
           displayName: '待機',
           description: '指定した秒数待機してから実行を続行します。'
@@ -3075,6 +3079,11 @@ export default {
         timeoutMs: 'タイムアウト ms',
         timeoutSeconds: '超時秒数',
         transformInput: '変換入力',
+        itemsPath: 'コレクションパス',
+        itemVariable: '要素変数',
+        indexVariable: 'インデックス変数',
+        maxItems: '最大項目数',
+        foreachSteps: '子ステップ JSON',
         outputFormat: '出力形式',
         usernameVariable: 'ユーザー名変数',
         variable: '変数',

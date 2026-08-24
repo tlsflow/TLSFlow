@@ -370,6 +370,10 @@ export class WorkflowTemplatesDomainService {
       };
     }
 
+    if (step.type === 'foreach') {
+      return await this.runForeachStep(step, context, input, rollback, runId, dispatcher);
+    }
+
     const attempts = (step.retry?.count ?? 0) + 1;
     let last: WorkflowStepRunResult | undefined;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -431,6 +435,107 @@ export class WorkflowTemplatesDomainService {
       }
     }
     throw new AppError('SYSTEM_INTERNAL_ERROR', 'retry execution failed unexpectedly');
+  }
+
+  private async runForeachStep(
+    step: Extract<WorkflowStep, { type: 'foreach' }>,
+    context: RuntimeContext,
+    input: WorkflowRuntimeInput,
+    rollback: boolean,
+    runId: string,
+    dispatcher?: WorkflowExecutorDispatcher,
+  ): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
+    const items = readPath(context.values, step.foreach.itemsPath);
+    if (!Array.isArray(items)) {
+      throw new AppError('VALIDATION_FAILED', 'foreach.itemsPath 必须指向数组', {
+        step: step.name,
+        itemsPath: step.foreach.itemsPath,
+      });
+    }
+
+    const maxItems = step.foreach.maxItems ?? 100;
+    if (items.length > maxItems) {
+      throw new AppError('VALIDATION_FAILED', 'foreach 集合超过允许上限', {
+        step: step.name,
+        count: items.length,
+        maxItems,
+      });
+    }
+
+    const previousItem = context.values[step.foreach.itemVariable];
+    const hadPreviousItem = Object.prototype.hasOwnProperty.call(context.values, step.foreach.itemVariable);
+    const previousIndex = step.foreach.indexVariable ? context.values[step.foreach.indexVariable] : undefined;
+    const hadPreviousIndex = step.foreach.indexVariable
+      ? Object.prototype.hasOwnProperty.call(context.values, step.foreach.indexVariable)
+      : false;
+    const iterations: Array<{ index: number; status: WorkflowStepRunResult['status']; steps: WorkflowStepRunResult[] }> = [];
+    const logs: string[] = [];
+    let failedResult: WorkflowStepRunResult | undefined;
+
+    try {
+      for (const [index, item] of items.entries()) {
+        context.values[step.foreach.itemVariable] = item;
+        if (step.foreach.indexVariable) context.values[step.foreach.indexVariable] = index;
+
+        const childResults: WorkflowStepRunResult[] = [];
+        for (const childStep of step.foreach.steps) {
+          const child = await this.runStep(childStep, context, input, rollback, runId, dispatcher);
+          childResults.push(child.result);
+          logs.push(...child.result.logs.map((line) => `foreach:${step.name}:index:${index}:${line}`));
+          if (child.result.status === 'failed') {
+            failedResult = child.result;
+            break;
+          }
+        }
+
+        iterations.push({
+          index,
+          status: failedResult ? 'failed' : childResults.every((result) => result.status === 'skipped') ? 'skipped' : 'success',
+          steps: childResults,
+        });
+        if (failedResult) break;
+      }
+    } finally {
+      restoreContextValue(context.values, step.foreach.itemVariable, previousItem, hadPreviousItem);
+      if (step.foreach.indexVariable) {
+        restoreContextValue(context.values, step.foreach.indexVariable, previousIndex, hadPreviousIndex);
+      }
+    }
+
+    const success = !failedResult;
+    const plan = adaptStep(step, context, input.mode);
+    const output = { count: items.length, completed: iterations.length, iterations };
+    const result: WorkflowStepRunResult = {
+      name: step.name,
+      type: step.type,
+      stage: step.stage,
+      status: success ? 'success' : 'failed',
+      ...(failedResult?.errorCode ? { errorCode: failedResult.errorCode } : {}),
+      ...(failedResult?.errorMessage ? { errorMessage: failedResult.errorMessage } : {}),
+      attempts: 1,
+      plan: maskUnknown(plan, context.secretPaths, context.values),
+      extracted: {},
+      assertions: [],
+      logs: [
+        `foreach:${step.name}:count:${items.length}:completed:${iterations.length}:status:${success ? 'success' : 'failed'}`,
+        ...logs,
+      ].map((line) => maskText(line, context.secretPaths, context.values)),
+    };
+    const snapshot = stepSnapshot(step, result, output, {});
+    context.values.previous = snapshot;
+    context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: snapshot };
+
+    return {
+      rendered: {
+        name: step.name,
+        type: step.type,
+        stage: step.stage,
+        request: maskUnknown(plan, context.secretPaths, context.values),
+        preview: maskUnknown(plan, context.secretPaths, context.values),
+      },
+      result,
+      output: maskUnknown(output, context.secretPaths, context.values),
+    };
   }
 
   private async getTemplateOrThrow(templateId: string): Promise<WorkflowTemplate> {
@@ -723,6 +828,19 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       timeoutMs: step.transform.timeoutMs ?? defaultTransformTimeoutMs,
       maxInputBytes: step.transform.maxInputBytes ?? defaultTransformMaxInputBytes,
       maxOutputBytes: step.transform.maxOutputBytes ?? defaultTransformMaxOutputBytes,
+      plannedOnly: mode === 'render_only',
+    };
+  }
+  if (step.type === 'foreach') {
+    const items = readPath(context.values, step.foreach.itemsPath);
+    return {
+      executor: 'workflow.foreach',
+      itemsPath: step.foreach.itemsPath,
+      itemVariable: step.foreach.itemVariable,
+      indexVariable: step.foreach.indexVariable,
+      maxItems: step.foreach.maxItems ?? 100,
+      itemCount: Array.isArray(items) ? items.length : undefined,
+      steps: step.foreach.steps.map((child) => ({ name: child.name, type: child.type, stage: child.stage })),
       plannedOnly: mode === 'render_only',
     };
   }
@@ -1166,7 +1284,7 @@ function readJsonPath(body: unknown, path: string): unknown {
   return readPath(body, path.slice(2));
 }
 
-function stepSnapshot(step: WorkflowStep, result: WorkflowStepRunResult, output: WorkflowMockStepOutput, extracted: Record<string, unknown>): Record<string, unknown> {
+function stepSnapshot(step: WorkflowStep, result: WorkflowStepRunResult, output: unknown, extracted: Record<string, unknown>): Record<string, unknown> {
   return {
     name: step.name,
     type: step.type,
@@ -1239,6 +1357,14 @@ function stableStringify(value: unknown): string {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function restoreContextValue(values: Record<string, unknown>, key: string, previousValue: unknown, existed: boolean): void {
+  if (existed) {
+    values[key] = previousValue;
+    return;
+  }
+  delete values[key];
 }
 
 function assertPluginVersionIncrement(previous: WorkflowDslV1, next: WorkflowDslV1, contentChanged: boolean): void {

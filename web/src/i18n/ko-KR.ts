@@ -3018,6 +3018,10 @@ export default {
           displayName: '변환',
           description: 'JSONata로 상위 출력을 새 워크플로 컨텍스트 변수로 변환합니다.'
         },
+        foreach: {
+          displayName: '컬렉션 반복',
+          description: '동적 컬렉션을 순서대로 반복하고 각 항목에 동일한 하위 단계를 실행합니다.'
+        },
         wait: {
           displayName: '대기',
           description: '몇 초 동안 기다린 후 계속 실행하세요.'
@@ -3049,6 +3053,11 @@ export default {
         timeoutMs: '제한 시간(ms)',
         timeoutSeconds: '타임아웃 카운트',
         transformInput: '변환 입력',
+        itemsPath: '컬렉션 경로',
+        itemVariable: '항목 변수',
+        indexVariable: '인덱스 변수',
+        maxItems: '최대 항목 수',
+        foreachSteps: '하위 단계 JSON',
         outputFormat: '출력 형식',
         usernameVariable: '사용자 이름 변수',
         variable: '변수',

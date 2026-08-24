@@ -1478,4 +1478,120 @@ describe('WorkflowTemplates', () => {
     assert.equal(run.status, 'success');
     assert.equal(run.stepResults[0]!.assertions[0]!.passed, true);
   });
+
+  it('foreach 顺序执行动态集合并恢复循环变量作用域', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'foreach-sequential' },
+        variables: {
+          apiToken: { type: 'string', required: true, sensitive: true },
+        },
+        steps: [{
+          name: 'deploy_targets',
+          type: 'foreach',
+          foreach: {
+            itemsPath: 'asset.targets',
+            itemVariable: 'target',
+            indexVariable: 'targetIndex',
+            maxItems: 10,
+            steps: [{
+              name: 'deploy_target',
+              type: 'http',
+              request: {
+                method: 'POST',
+                url: 'https://{{target.host}}/deploy/{{targetIndex}}',
+                headers: { Authorization: 'Bearer {{apiToken}}' },
+              },
+            }],
+          },
+        }],
+      },
+    });
+    const urls: string[] = [];
+    const run = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: { apiToken: 'foreach-secret-token' },
+      assetVariables: { targets: [{ host: 'adc-a.example.com' }, { host: 'adc-b.example.com' }] },
+    }, async ({ renderedPlan }) => {
+      const plan = renderedPlan as { curlRequest: { template: { url: string } } };
+      urls.push(plan.curlRequest.template.url);
+      return { success: true, statusCode: 200, body: { ok: true }, logs: ['token=foreach-secret-token'] };
+    });
+
+    assert.equal(run.status, 'success');
+    assert.deepEqual(urls, ['https://adc-a.example.com/deploy/0', 'https://adc-b.example.com/deploy/1']);
+    assert.equal(run.stepResults[0]!.type, 'foreach');
+    assert.match(run.stepResults[0]!.logs[0]!, /count:2:completed:2:status:success/);
+    assert.doesNotMatch(JSON.stringify(run), /foreach-secret-token/);
+  });
+
+  it('foreach 超限时拒绝执行，子步骤失败时立即停止', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'foreach-fail-fast' },
+        variables: {},
+        steps: [{
+          name: 'probe_targets',
+          type: 'foreach',
+          foreach: {
+            itemsPath: 'asset.targets',
+            itemVariable: 'target',
+            maxItems: 2,
+            steps: [{
+              name: 'probe_target',
+              type: 'http',
+              request: { method: 'GET', url: 'https://{{target.host}}/health' },
+            }],
+          },
+        }],
+      },
+    });
+
+    await assert.rejects(() => service.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }, { host: 'c' }] },
+    }), /超过允许上限/);
+
+    let attempts = 0;
+    const failed = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'mock',
+      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }] },
+    }, async () => {
+      attempts += 1;
+      return attempts === 1
+        ? { success: false, statusCode: 500, errorCode: 'REMOTE_FAILED', errorMessage: 'remote failed' }
+        : { success: true, statusCode: 200 };
+    });
+
+    assert.equal(failed.status, 'failed');
+    assert.equal(attempts, 1);
+    assert.equal(failed.stepResults[0]!.errorCode, 'REMOTE_FAILED');
+  });
+
+  it('foreach schema 拒绝超过三层的嵌套', () => {
+    const leaf = { name: 'leaf', type: 'wait', seconds: 1 } as const;
+    const nested = (name: string, child: WorkflowDslV1['steps'][number]): WorkflowDslV1['steps'][number] => ({
+      name,
+      type: 'foreach',
+      foreach: { itemsPath: 'asset.items', itemVariable: `${name}Item`, steps: [child] },
+    });
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'foreach-depth' },
+      variables: {},
+      steps: [nested('level1', nested('level2', nested('level3', nested('level4', leaf))))],
+    };
+
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /不能超过 3 层/);
+  });
 });

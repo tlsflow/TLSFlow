@@ -3140,6 +3140,10 @@ export default {
           displayName: '数据转换',
           description: '使用 JSONata 把上游输出转换为新的工作流上下文变量。'
         },
+        foreach: {
+          displayName: '集合遍历',
+          description: '按顺序遍历动态集合，并对每个元素执行同一组子步骤。'
+        },
         wait: {
           displayName: '等待',
           description: '等待固定秒数后继续执行。'
@@ -3171,6 +3175,11 @@ export default {
         timeoutMs: '超时毫秒',
         timeoutSeconds: '超时秒数',
         transformInput: '转换输入',
+        itemsPath: '集合路径',
+        itemVariable: '元素变量',
+        indexVariable: '索引变量',
+        maxItems: '最大项数',
+        foreachSteps: '子步骤 JSON',
         outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',

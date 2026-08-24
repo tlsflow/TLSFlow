@@ -19,10 +19,11 @@ const sftpStepKeys = new Set([...stepBaseKeys, 'sftp']);
 const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const transformStepKeys = new Set([...stepBaseKeys, 'transform']);
+const foreachStepKeys = new Set([...stepBaseKeys, 'foreach']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
@@ -158,8 +159,9 @@ function validateArtifactContract(definition: WorkflowVariableDefinition, name: 
   }
 }
 
-function validateSteps(value: unknown, path: string): void {
+function validateSteps(value: unknown, path: string, depth = 0): void {
   if (!Array.isArray(value) || value.length === 0) throw validationError(`${path} 必须是非空数组`);
+  if (depth > 3) throw validationError('foreach 嵌套不能超过 3 层', { path });
   const names = new Set<string>();
   for (const [index, item] of value.entries()) {
     if (!isRecord(item)) throw validationError(`${path}.${index} 必须是对象`);
@@ -167,12 +169,12 @@ function validateSteps(value: unknown, path: string): void {
     if (names.has(item.name)) throw validationError('步骤名重复', { name: item.name, path });
     names.add(item.name);
     if (!stepTypes.has(String(item.type))) throw validationError('步骤类型不支持', { name: item.name, type: item.type });
-    validateStepByType(item as unknown as WorkflowStep, `${path}.${index}`);
+    validateStepByType(item as unknown as WorkflowStep, `${path}.${index}`, depth);
     validateCommonStep(item, `${path}.${index}`);
   }
 }
 
-function validateStepByType(step: WorkflowStep, path: string): void {
+function validateStepByType(step: WorkflowStep, path: string, depth: number): void {
   if (step.type === 'http') {
     rejectUnknown(step as unknown as Record<string, unknown>, httpStepKeys, path);
     if (!isRecord(step.request)) throw validationError(`${path}.request 必须是对象`);
@@ -230,6 +232,17 @@ function validateStepByType(step: WorkflowStep, path: string): void {
   if (step.type === 'transform') {
     rejectUnknown(step as unknown as Record<string, unknown>, transformStepKeys, path);
     validateTransform(step.transform, `${path}.transform`);
+    return;
+  }
+  if (step.type === 'foreach') {
+    rejectUnknown(step as unknown as Record<string, unknown>, foreachStepKeys, path);
+    if (!isRecord(step.foreach)) throw validationError(`${path}.foreach 必须是对象`);
+    rejectUnknown(step.foreach as unknown as Record<string, unknown>, new Set(['itemsPath', 'itemVariable', 'indexVariable', 'maxItems', 'steps']), `${path}.foreach`);
+    if (!isNonEmptyString(step.foreach.itemsPath)) throw validationError(`${path}.foreach.itemsPath 必填`);
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(step.foreach.itemVariable)) throw validationError(`${path}.foreach.itemVariable 不合法`);
+    if (step.foreach.indexVariable !== undefined && !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(step.foreach.indexVariable)) throw validationError(`${path}.foreach.indexVariable 不合法`);
+    if (step.foreach.maxItems !== undefined && (!isPositiveInteger(step.foreach.maxItems) || step.foreach.maxItems > 1000)) throw validationError(`${path}.foreach.maxItems 必须在 1 到 1000 之间`);
+    validateSteps(step.foreach.steps, `${path}.foreach.steps`, depth + 1);
     return;
   }
   if (step.type === 'wait') {
@@ -420,12 +433,24 @@ function validateHttpTls(value: unknown, path: string): void {
 function validateVariableReferences(content: WorkflowDslV1): void {
   const declared = new Set([...Object.keys(content.variables), ...reservedRoots]);
   const produced = new Set<string>();
-  for (const step of [...content.steps, ...(content.rollback ?? [])]) {
+  validateStepVariableReferences([...content.steps, ...(content.rollback ?? [])], declared, produced);
+}
+
+function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<string>, produced: Set<string>): void {
+  for (const step of steps) {
     const stepExtracts = normalizeExtractors(step.extract).map((extractor) => extractor.name);
     const known = new Set([...declared, ...produced, ...stepExtracts]);
-    for (const reference of collectReferences(step)) {
+    const references = step.type === 'foreach'
+      ? [step.foreach.itemsPath, ...collectReferences({ ...step, foreach: { ...step.foreach, steps: [] } })]
+      : collectReferences(step);
+    for (const reference of references) {
       const root = reference.split('.')[0]!;
       if (!known.has(root)) throw validationError('变量引用不存在', { reference, step: step.name });
+    }
+    if (step.type === 'foreach') {
+      const childDeclared = new Set([...known, step.foreach.itemVariable]);
+      if (step.foreach.indexVariable) childDeclared.add(step.foreach.indexVariable);
+      validateStepVariableReferences(step.foreach.steps, childDeclared, new Set(produced));
     }
     for (const outputName of [...stepExtracts, ...transformOutputNames(step)]) produced.add(outputName);
     produced.add(`steps.${step.name}`);

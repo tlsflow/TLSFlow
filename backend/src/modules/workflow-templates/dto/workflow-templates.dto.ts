@@ -1,6 +1,6 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'foreach' | 'wait' | 'manual';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
@@ -259,6 +259,17 @@ export interface WorkflowTransformStep extends WorkflowStepBase {
   transform: WorkflowTransformStepConfig;
 }
 
+export interface WorkflowForeachStep extends WorkflowStepBase {
+  type: 'foreach';
+  foreach: {
+    itemsPath: string;
+    itemVariable: string;
+    indexVariable?: string;
+    maxItems?: number;
+    steps: WorkflowStep[];
+  };
+}
+
 export interface WorkflowWaitStep extends WorkflowStepBase {
   type: 'wait';
   seconds: number;
@@ -269,7 +280,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';

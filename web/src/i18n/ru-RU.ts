@@ -3018,6 +3018,10 @@ export default {
           displayName: 'Преобразование',
           description: 'Использует JSONata, чтобы преобразовать выходные данные в новые переменные контекста workflow.'
         },
+        foreach: {
+          displayName: 'Обход коллекции',
+          description: 'Последовательно обходит динамическую коллекцию и выполняет одинаковые дочерние шаги для каждого элемента.'
+        },
         wait: {
           displayName: 'Ожидание',
           description: 'Ожидает фиксированное число секунд и продолжает выполнение.'
@@ -3049,6 +3053,11 @@ export default {
         timeoutMs: 'Таймаут, мс',
         timeoutSeconds: 'Таймаут, секунд',
         transformInput: 'Вход преобразования',
+        itemsPath: 'Путь к коллекции',
+        itemVariable: 'Переменная элемента',
+        indexVariable: 'Переменная индекса',
+        maxItems: 'Максимум элементов',
+        foreachSteps: 'JSON дочерних шагов',
         outputFormat: 'Формат вывода',
         usernameVariable: 'Переменная имени пользователя',
         variable: 'Переменная',

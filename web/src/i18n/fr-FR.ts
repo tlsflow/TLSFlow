@@ -3088,6 +3088,10 @@ export default {
           displayName: 'Transform',
           description: 'Use JSONata to convert upstream output into new workflow context variables.'
         },
+        foreach: {
+          displayName: 'Parcourir la collection',
+          description: 'Parcourt une collection dynamique dans l’ordre et exécute les mêmes sous-étapes pour chaque élément.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -3119,6 +3123,11 @@ export default {
         timeoutMs: 'Timeout ms',
         timeoutSeconds: 'Timeout seconds',
         transformInput: 'Transform input',
+        itemsPath: 'Chemin de la collection',
+        itemVariable: 'Variable de l’élément',
+        indexVariable: 'Variable d’index',
+        maxItems: 'Nombre maximal d’éléments',
+        foreachSteps: 'JSON des sous-étapes',
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',

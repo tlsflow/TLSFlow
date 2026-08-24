@@ -3043,6 +3043,10 @@ export default {
           displayName: "資料轉換",
           description: "使用 JSONata 將上游輸出轉換為新的工作流程上下文變數。"
         },
+        foreach: {
+          displayName: "集合走訪",
+          description: "依序走訪動態集合，並對每個元素執行同一組子步驟。"
+        },
         wait: {
           displayName: "等待",
           description: "等待固定秒數後繼續執行。"
@@ -3074,6 +3078,11 @@ export default {
         timeoutMs: "逾時毫秒",
         timeoutSeconds: "逾時秒數",
         transformInput: "轉換輸入",
+        itemsPath: "集合路徑",
+        itemVariable: "元素變數",
+        indexVariable: "索引變數",
+        maxItems: "最大項目數",
+        foreachSteps: "子步驟 JSON",
         outputFormat: "輸出格式",
         usernameVariable: "使用者名稱變數",
         variable: "變數",
