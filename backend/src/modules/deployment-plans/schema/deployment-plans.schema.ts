@@ -32,6 +32,7 @@ export interface DeploymentPlanTargetEntity extends IdentifiedEntity {
   requiredCapabilities: string[];
   matchResult?: Record<string, unknown>;
   gatewayRoute?: DeploymentGatewayRouteDto;
+  strategyPayload?: Record<string, unknown>;
   status: DeploymentPlanTargetStatus;
   createdAt: string;
   updatedAt: string;

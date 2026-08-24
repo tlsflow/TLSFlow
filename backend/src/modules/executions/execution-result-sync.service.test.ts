@@ -63,6 +63,64 @@ test('正式 VERIFY 只有远端 TLS 证书 SHA256 匹配目标证书时才成�
   assert.equal(updatedRun.status, 'SUCCESS');
 });
 
+test('NGINX 正式 VERIFY 必须同时匹配 Agent 安装后落盘证书指纹与控制面远端证书指纹', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('nginx_installed_and_remote_match', {
+    providerType: 'NGINX',
+    installResult: { installedCertificateSha256: expectedFingerprint },
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      verify: {
+        remoteCertificateSha256: expectedFingerprint,
+        remoteThumbprint: '3'.repeat(40),
+      },
+      newThumbprint: '3'.repeat(40),
+    },
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  assert.equal(updatedStep.status, 'SUCCESS');
+  assert.equal(updatedRun.status, 'SUCCESS');
+});
+
+test('NGINX 正式 VERIFY 拒绝 Agent 安装后落盘证书指纹缺失或不匹配', async () => {
+  const missing = await createVerifyScenario('nginx_installed_missing', { providerType: 'NGINX' });
+  await missing.service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: missing.run.id,
+    executionStepId: missing.step.id,
+    success: true,
+    actorId,
+    detail: { verify: { remoteCertificateSha256: expectedFingerprint, remoteThumbprint: '4'.repeat(40) }, newThumbprint: '4'.repeat(40) },
+  });
+  const missingStep = await missing.repository.getStepOrThrow(missing.step.id, tenantId);
+  assert.equal(missingStep.status, 'FAILED');
+  assert.equal(missingStep.lastErrorCode, 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISSING');
+
+  const mismatch = await createVerifyScenario('nginx_installed_mismatch', {
+    providerType: 'NGINX',
+    installResult: { installedCertificateSha256: mismatchedFingerprint },
+  });
+  await mismatch.service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: mismatch.run.id,
+    executionStepId: mismatch.step.id,
+    success: true,
+    actorId,
+    detail: { verify: { remoteCertificateSha256: expectedFingerprint, remoteThumbprint: '5'.repeat(40) }, newThumbprint: '5'.repeat(40) },
+  });
+  const mismatchStep = await mismatch.repository.getStepOrThrow(mismatch.step.id, tenantId);
+  assert.equal(mismatchStep.status, 'FAILED');
+  assert.equal(mismatchStep.lastErrorCode, 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISMATCH');
+});
+
 test('正式 VERIFY 在 Agent 仅回传本机 binding 状态时由后端自行完成真实 TLS 验证', async () => {
   const certificate = new X509Certificate(CERT_PEM);
   const expected = createHash('sha256').update(certificate.raw).digest('hex');
@@ -168,12 +226,318 @@ test('正式 VERIFY 遇到旧 Agent 的远程 TLS 失败时以后端真实 TLS �
   }
 });
 
+test('dry-run Agent 回传失败后会跳过后续 PENDING 步骤并结束 run', async () => {
+  const repository = new ExecutionsRepository();
+  const service = new ExecutionResultSyncService(
+    repository,
+    {} as unknown as AssetsApplicationService,
+    {} as unknown as BindingsApplicationService,
+  );
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_dry_run_skip_pending',
+    tenantId,
+    deploymentPlanId: 'dplan_dry_run_skip_pending',
+    runNo: 1,
+    type: 'dry_run',
+    idempotencyKey: 'dry-run-skip-pending',
+    requestHash: 'hash-dry-run-skip-pending',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const discover = await repository.createStep({
+    id: 'stp_dry_run_skip_pending_discover',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_dry_run_skip_pending',
+    stepNo: 1,
+    stepType: 'DISCOVER',
+    name: 'DISCOVER target',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: { dryRun: true },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const verify = await repository.createStep({
+    id: 'stp_dry_run_skip_pending_verify',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_dry_run_skip_pending',
+    stepNo: 2,
+    stepType: 'VERIFY',
+    name: 'VERIFY target',
+    dependsOn: [1],
+    idempotent: true,
+    attemptCount: 0,
+    maxAttempts: 1,
+    inputSnapshot: { dryRun: true },
+    status: 'PENDING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: discover.id,
+    success: false,
+    errorCode: 'NGINX_DRY_RUN_FAILED',
+    errorMessage: 'Linux NGINX dry-run 预检未通过',
+    actorId,
+    detail: {
+      executionMode: 'direct',
+      mode: 'nginx_dry_run_preflight',
+      dryRunChecks: [{ key: 'test_command_execution', status: 'failed' }],
+    },
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  const updatedDiscover = await repository.getStepOrThrow(discover.id, tenantId);
+  const updatedVerify = await repository.getStepOrThrow(verify.id, tenantId);
+  assert.equal(updatedDiscover.status, 'FAILED');
+  assert.equal(updatedVerify.status, 'SKIPPED');
+  assert.equal(updatedRun.status, 'FAILED');
+  assert.equal(updatedRun.errorCode, 'NGINX_DRY_RUN_FAILED');
+});
+
+test('异步 Agent apply 失败且 failurePolicy=rollback 时会触发自动回滚', async () => {
+  const repository = new ExecutionsRepository();
+  const service = new ExecutionResultSyncService(
+    repository,
+    {} as unknown as AssetsApplicationService,
+    {} as unknown as BindingsApplicationService,
+  );
+  const rollbackCalls: Array<{ runId: string; tenantId: string; actorId: string }> = [];
+  service.setRollbackRunner(async (input) => {
+    rollbackCalls.push(input);
+  });
+
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_apply_async_rollback',
+    tenantId,
+    deploymentPlanId: 'dplan_apply_async_rollback',
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'apply-async-rollback',
+    requestHash: 'hash-apply-async-rollback',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: { failurePolicy: 'rollback' },
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_apply_async_rollback_install',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_apply_async_rollback',
+    stepNo: 1,
+    stepType: 'INSTALL',
+    name: 'INSTALL async rollback target',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    errorCode: 'NGINX_INSTALL_FAILED',
+    errorMessage: '安装失败',
+    actorId,
+    detail: {
+      executionMode: 'queued',
+      mode: 'nginx_install_failed',
+    },
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  assert.equal(updatedRun.status, 'FAILED');
+  assert.deepEqual(rollbackCalls, [{ runId: run.id, tenantId, actorId }]);
+});
+
+test('BACKUP 成功不会提前污染绑定与资产状态', async () => {
+  const repository = new ExecutionsRepository();
+  const assetsWrites = createAssetWriteRecorder();
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+  );
+
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_backup_intermediate_success',
+    tenantId,
+    deploymentPlanId: 'dplan_backup_intermediate_success',
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'backup-intermediate-success',
+    requestHash: 'hash-backup-intermediate-success',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_backup_intermediate_success',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_backup_intermediate_success',
+    stepNo: 1,
+    stepType: 'BACKUP',
+    name: 'BACKUP target',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+      certificateBindingId: String(assetsWrites.binding.id),
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      executionMode: 'queued',
+      mode: 'nginx_backup_completed',
+    },
+  });
+
+  assert.equal(assetsWrites.bindingUpdates.length, 0);
+  assert.equal(assetsWrites.snapshots.length, 0);
+});
+
+test('rollback VERIFY 成功后应写回回滚状态而不是目标证书状态', async () => {
+  const repository = new ExecutionsRepository();
+  const assetsWrites = createAssetWriteRecorder({
+    certificateVersionId: 'cert_old',
+    targetCertificateVersionId: 'cert_new',
+    targetFingerprintSha256: expectedFingerprint,
+    observedFingerprintSha256: mismatchedFingerprint,
+    storeThumbprint: '0'.repeat(40),
+  });
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+  );
+
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_rollback_verify_success',
+    tenantId,
+    deploymentPlanId: 'dplan_rollback_verify_success',
+    runNo: 1,
+    type: 'rollback',
+    idempotencyKey: 'rollback-verify-success',
+    requestHash: 'hash-rollback-verify-success',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_rollback_verify_success',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_rollback_verify_success',
+    stepNo: 1,
+    stepType: 'VERIFY',
+    name: 'VERIFY rollback target',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+      certificateBindingId: String(assetsWrites.binding.id),
+      expectedCertificateFingerprintSha256: expectedFingerprint,
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      executionMode: 'queued',
+      verify: {
+        remoteCertificateSha256: expectedFingerprint,
+        remoteThumbprint: '9'.repeat(40),
+      },
+      newThumbprint: '9'.repeat(40),
+    },
+  });
+
+  assert.equal(assetsWrites.bindingUpdates.length, 1);
+  assert.equal(assetsWrites.bindingUpdates[0]?.certificateVersionId, 'cert_old');
+  assert.equal(assetsWrites.bindingUpdates[0]?.status, 'DRIFTED');
+  const bindingMetadata = assetsWrites.bindingUpdates[0]?.metadata as Record<string, unknown> | undefined;
+  assert.equal(bindingMetadata?.deploymentResultState, 'DEPLOY_FAILED_ROLLED_BACK');
+  const latestSnapshot = assetsWrites.snapshots[assetsWrites.snapshots.length - 1];
+  assert.equal(latestSnapshot?.snapshotType, 'POST_ROLLBACK');
+  assert.equal(latestSnapshot?.status, 'ROLLED_BACK');
+});
+
 async function createVerifyScenario(
   suffix: string,
   options: {
     expectedCertificateFingerprintSha256?: string;
     verifyUrl?: string;
     expectedDomains?: string[];
+    providerType?: string;
+    installResult?: Record<string, unknown>;
   } = {},
 ): Promise<{
   repository: ExecutionsRepository;
@@ -219,6 +583,7 @@ async function createVerifyScenario(
     inputSnapshot: {
       expectedCertificateFingerprintSha256: options.expectedCertificateFingerprintSha256 ?? expectedFingerprint,
       expectedDomains: options.expectedDomains,
+      providerType: options.providerType,
       verifyUrl: options.verifyUrl,
       dryRun: false,
     },
@@ -228,7 +593,81 @@ async function createVerifyScenario(
     createdBy: actorId,
     version: 1,
   });
+  if (options.installResult) {
+    await repository.createStep({
+      id: `stp_cert_verify_${suffix}_install`,
+      tenantId,
+      executionRunId: run.id,
+      deploymentPlanTargetId: `dpt_cert_verify_${suffix}`,
+      stepNo: 0,
+      stepType: 'INSTALL',
+      name: 'INSTALL certificate',
+      dependsOn: [],
+      idempotent: true,
+      attemptCount: 1,
+      maxAttempts: 1,
+      inputSnapshot: {
+        resultDetail: options.installResult,
+      },
+      status: 'SUCCESS',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actorId,
+      version: 1,
+    });
+  }
   return { repository, service, run, step };
+}
+
+function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
+  const binding = {
+    id: 'binding_asset_sync',
+    tenantId,
+    protocol: 'HTTPS',
+    port: 443,
+    certificateVersionId: 'cert_current',
+    targetCertificateVersionId: 'cert_target',
+    targetFingerprintSha256: expectedFingerprint,
+    observedFingerprintSha256: mismatchedFingerprint,
+    storeThumbprint: '1'.repeat(40),
+    metadata: {},
+    ...bindingPatch,
+  } as Record<string, unknown>;
+  const bindingUpdates: Array<Record<string, unknown>> = [];
+  const snapshots: Array<Record<string, unknown>> = [];
+
+  const assets = {
+    getRepository() {
+      return {
+        listApplicationAssetTargets: async () => ({ items: [] }),
+        getSiteAsset: async () => undefined,
+        getManagedTarget: async () => undefined,
+        findServiceAssetByIdentity: async () => undefined,
+        updateApplicationAssetTarget: async () => undefined,
+      };
+    },
+    createManagedTargetSnapshot: async (_tenantId: string, payload: Record<string, unknown>) => {
+      snapshots.push(payload);
+      return payload;
+    },
+    updateSiteAsset: async () => undefined,
+    updateManagedTarget: async () => undefined,
+  };
+
+  const bindings = {
+    getRepository() {
+      return {
+        getCertificateBinding: async () => binding,
+      };
+    },
+    updateCertificateBinding: async (_tenantId: string, _bindingId: string, patch: Record<string, unknown>) => {
+      bindingUpdates.push(patch);
+      Object.assign(binding, patch);
+      return binding;
+    },
+  };
+
+  return { assets, bindings, binding, bindingUpdates, snapshots };
 }
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----

@@ -30,9 +30,10 @@ import type {
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
-  UpdateServiceEndpointDto,
-  UpdateServiceInstanceDto,
-} from '../dto/assets.dto.js';
+	  UpdateServiceEndpointDto,
+	  UpdateServiceInstanceDto,
+  DeploymentStrategyDto,
+	} from '../dto/assets.dto.js';
 
 const tags = ['Assets'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -53,6 +54,8 @@ export class AssetsController {
     router.get('/api/v1/service-assets/detail', '查询 ServiceAsset 详情', tags, (request) => this.getServiceAssetDetail(request));
     router.post('/api/v1/service-assets', '创建 ServiceAsset', tags, (request) => this.createServiceAsset(request));
     router.patch('/api/v1/service-assets', '更新 ServiceAsset', tags, (request) => this.updateServiceAsset(request));
+    router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
+    router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/site-assets', '查询 SiteAsset 列表', tags, (request) => this.listSiteAssets(request));
     router.post('/api/v1/site-assets', '创建 SiteAsset', tags, (request) => this.createSiteAsset(request));
@@ -297,7 +300,7 @@ export class AssetsController {
     });
   }
 
-  private updateServiceAsset(request: HttpRequest) {
+	  private updateServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       address: { type: 'string' },
@@ -326,6 +329,22 @@ export class AssetsController {
     return this.service.getRepository().getServiceAsset(tenantId(request), id).then((before) =>
       this.service.updateServiceAsset(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'service_asset.updated', 'service_asset.manage', 'service_asset', id, before, updated);
+        return updated;
+      }),
+    );
+	  }
+
+  private updateServiceAssetDeploymentStrategy(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      id: { type: 'string' },
+      deploymentStrategy: { type: 'object', required: true },
+    });
+    const subject = this.subjectFromRequest(request);
+    const serviceAssetId = readServiceAssetId(request, body.id);
+    this.assertCan(subject, 'service_asset.manage', 'service_asset', request, serviceAssetId);
+    return this.service.getRepository().getServiceAsset(tenantId(request), serviceAssetId).then((before) =>
+      this.service.updateServiceAssetDeploymentStrategy(tenantId(request), serviceAssetId, body.deploymentStrategy as DeploymentStrategyDto, subject?.id).then((updated) => {
+        this.audit(request, subject, 'service_asset.deployment_strategy.updated', 'service_asset.manage', 'service_asset', serviceAssetId, before, updated);
         return updated;
       }),
     );
@@ -714,6 +733,15 @@ function tenantId(request: HttpRequest): string {
   return request.context.tenantId ?? tenantFallback;
 }
 
+function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {
+  const pathId = request.path.match(/^\/api\/v1\/service-assets\/([^/]+)\/deployment-strategy$/)?.[1];
+  const id = bodyId ?? request.query.id ?? request.query.serviceAssetId ?? pathId;
+  if (Array.isArray(id) || typeof id !== 'string' || id.trim() === '') {
+    throw new AppError('VALIDATION_FAILED', 'serviceAssetId 不能为空', { field: 'serviceAssetId' });
+  }
+  return id.trim();
+}
+
 export function getAssetsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/hosts', operationId: 'listHosts', summary: '查询 Host 列表', tags, responseSchema: pageSchema() },
@@ -728,6 +756,8 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/service-assets/detail', operationId: 'getServiceAssetDetail', summary: '查询 ServiceAsset 详情', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets', operationId: 'createServiceAsset', summary: '创建 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets', operationId: 'updateServiceAsset', summary: '更新 ServiceAsset', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/site-assets', operationId: 'listSiteAssets', summary: '查询 SiteAsset 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/site-assets', operationId: 'createSiteAsset', summary: '创建 SiteAsset', tags, responseSchema: objectSchema() },

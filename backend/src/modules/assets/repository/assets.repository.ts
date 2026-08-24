@@ -3,6 +3,7 @@ import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
+import { readStoredDeploymentStrategy, writeDeploymentStrategyMetadata } from '../application/deployment-strategy.service.js';
 import type {
   CreateHostDto,
   CreateManagedTargetDto,
@@ -292,7 +293,12 @@ export class PgAssetsRepository implements AssetsRepository {
     const duplicate = await this.findServiceAssetByIdentity(tenantId, input);
     if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ServiceAsset 已存在', { serviceAssetId: duplicate.id, address: input.address, port: input.port, protocol: input.protocol });
     const now = nowIso();
-    const metadata = withServiceAssetVerifyUrl(input.metadata ?? {}, input.verifyUrl);
+    const metadata = withServiceAssetVerifyUrl(
+      input.deploymentStrategy
+        ? writeDeploymentStrategyMetadata(input.metadata ?? {}, input.deploymentStrategy)
+        : input.metadata ?? {},
+      input.verifyUrl,
+    );
     const asset: ServiceAssetDto = {
       id: newId('sat'),
       tenantId,
@@ -340,7 +346,12 @@ export class PgAssetsRepository implements AssetsRepository {
     const merged = { ...current, ...assetPatch };
     const duplicate = await this.findServiceAssetByIdentity(tenantId, merged);
     if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ServiceAsset 已存在', { serviceAssetId: duplicate.id, address: merged.address, port: merged.port, protocol: merged.protocol });
-    const metadata = withServiceAssetVerifyUrl(assetPatch.metadata ?? current.metadata, assetPatch.verifyUrl);
+    const metadata = withServiceAssetVerifyUrl(
+      input.deploymentStrategy
+        ? writeDeploymentStrategyMetadata(assetPatch.metadata ?? current.metadata, input.deploymentStrategy)
+        : assetPatch.metadata ?? current.metadata,
+      assetPatch.verifyUrl,
+    );
     const updated = touch({ ...merged, metadata, verifyUrl: readServiceAssetVerifyUrl(metadata) });
     await this.db.query(`update pg_service_assets set address=$2, address_type=$3, port=$4, protocol=$5, platform=$6, agent_id=$7, sni_name=$8, display_name=$9, service_instance_id=$10, service_endpoint_id=$11, host_id=$12, environment=$13, discovery_source=$14, last_discovered_at=$15::timestamptz, status=$16, tags=$17::jsonb, metadata=$18::jsonb, updated_at=$19::timestamptz, version=$20 where id=$1`, [
       updated.id, updated.address, updated.addressType, updated.port, updated.protocol, updated.platform ?? null, updated.agentId ?? null, updated.sniName ?? null, updated.displayName ?? null, updated.serviceInstanceId ?? null, updated.serviceEndpointId ?? null, updated.hostId ?? null, updated.environment ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.tags), JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
@@ -1237,6 +1248,7 @@ function toServiceAsset(row: ServiceAssetRow): ServiceAssetDto {
     status: row.status,
     tags: asArray(row.tags),
     metadata,
+    deploymentStrategy: readStoredDeploymentStrategy(metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,

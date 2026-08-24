@@ -4,13 +4,18 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { ExecutionsApplicationService } from '../application/executions.application-service.js';
+import type { ExecutionDetailStreamService } from '../application/execution-detail-stream.service.js';
 
 export class ExecutionsController {
-  constructor(private readonly service: ExecutionsApplicationService) {}
+  constructor(
+    private readonly service: ExecutionsApplicationService,
+    private readonly detailStream?: ExecutionDetailStreamService,
+  ) {}
 
   register(router: Router): void {
     router.get('/api/v1/execution-runs', '查询执行运行', ['Executions'], (request) => this.listRuns(request));
     router.get('/api/v1/execution-steps', '查询执行步骤', ['Executions'], (request) => this.listSteps(request));
+    router.get('/api/v1/execution-runs/stream', '实时订阅执行详情', ['Executions'], (request) => this.streamDetail(request));
     router.post('/api/v1/execution-runs/retry', '重试执行运行', ['Executions'], (request) => this.retry(request));
     router.post('/api/v1/execution-runs/rollback', '回滚执行运行', ['Executions'], (request) => this.rollback(request));
   }
@@ -55,6 +60,55 @@ export class ExecutionsController {
     }, this.securityContext(request));
   }
 
+  private async streamDetail(request: HttpRequest) {
+    const runId = this.readOptionalQueryString(request, 'runId');
+    if (!runId) throw new AppError('VALIDATION_FAILED', '缺少 runId');
+
+    const run = await this.service.getRun(runId, request.context.tenantId);
+    const steps = await this.service.listSteps({ tenantId: request.context.tenantId, executionRunId: runId });
+
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      },
+      stream: async (response: import('node:http').ServerResponse) => {
+        const writeEvent = (event: string, data: unknown) => {
+          response.write(`event: ${event}\n`);
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        writeEvent('snapshot', {
+          run,
+          steps,
+          emittedAt: new Date().toISOString(),
+        });
+
+        if (!this.detailStream) {
+          response.end();
+          return;
+        }
+
+        const unsubscribe = this.detailStream.subscribe(runId, (event) => {
+          writeEvent(event.type, event);
+        });
+        const heartbeat = setInterval(() => {
+          response.write(`: heartbeat ${Date.now()}\n\n`);
+        }, 15_000);
+
+        const cleanup = () => {
+          clearInterval(heartbeat);
+          unsubscribe();
+        };
+
+        response.on('close', cleanup);
+        response.on('error', cleanup);
+      },
+    };
+  }
+
   private actorId(request: HttpRequest): string {
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     return request.context.actorId;
@@ -79,6 +133,7 @@ export function getExecutionRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/execution-runs', operationId: 'listExecutionRuns', summary: '查询执行运行', tags: ['Executions'], responseSchema: schema },
     { method: 'GET', path: '/api/v1/execution-steps', operationId: 'listExecutionSteps', summary: '查询执行步骤', tags: ['Executions'], responseSchema: schema },
+    { method: 'GET', path: '/api/v1/execution-runs/stream', operationId: 'streamExecutionRunDetail', summary: '实时订阅执行详情', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/retry', operationId: 'retryExecutionRun', summary: '重试执行运行', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/rollback', operationId: 'rollbackExecutionRun', summary: '回滚执行运行', tags: ['Executions'], responseSchema: schema },
   ];

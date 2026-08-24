@@ -50,6 +50,7 @@ export interface DeploymentPlanTargetDto {
   requiredCapabilities: string[];
   matchResult?: Record<string, unknown>;
   gatewayRoute?: DeploymentGatewayRouteDto;
+  strategyPayload?: Record<string, unknown>;
   status: DeploymentPlanTargetStatus;
   createdAt: string;
   updatedAt: string;
@@ -112,8 +113,9 @@ export interface CreateDeploymentPlanInput {
     action?: string;
     destructive?: boolean;
     delegatedTargetId?: string;
-    fallbackSuggestions?: FallbackSuggestion[];
-  }>;
+	    fallbackSuggestions?: FallbackSuggestion[];
+	    strategyPayload?: Record<string, unknown>;
+	  }>;
   planType?: DeploymentPlanType;
   policy?: DeploymentPlanPolicyDto;
   createdReason?: DeploymentPlanDto['createdReason'];
@@ -132,6 +134,10 @@ export interface CreateDeploymentPlanFromApplicationAssetInput {
   idempotencyKey: string;
   actorId: string;
   tenantId?: string;
+}
+
+export interface UpdateDeploymentPlanFromApplicationAssetInput extends CreateDeploymentPlanFromApplicationAssetInput {
+  planId: string;
 }
 
 export interface SubmitDeploymentPlanInput {

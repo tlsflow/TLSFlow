@@ -50,6 +50,57 @@ describe('证书模块共享数据库回归', () => {
     assert.equal((listed.body as any).items[0].primaryDomain, 'leaf.example.test');
   });
 
+  it('同一证书域名重复导入不同证书时应归并为同一资产的多个版本', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const firstChain = createPemChainFixture('same-domain.example.test');
+    const secondChain = createPemChainFixture('same-domain.example.test');
+    const security = createSecurityServices();
+    for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
+      security.rbac.createPolicy({
+        subjectType: 'user',
+        subjectId: 'user_same_domain',
+        effect: 'allow',
+        actions: [action],
+        resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+        scope: { tenantId: 'tenant_1' },
+      });
+    }
+
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const headers = { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_same_domain' };
+
+    const firstImport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers,
+      body: { certificatePem: firstChain.pem, privateKeyPem: firstChain.privateKeyPem },
+    });
+    assert.equal(firstImport.statusCode, 201, JSON.stringify(firstImport.body));
+
+    const secondImport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers,
+      body: { certificatePem: secondChain.pem, privateKeyPem: secondChain.privateKeyPem },
+    });
+    assert.equal(secondImport.statusCode, 201, JSON.stringify(secondImport.body));
+    assert.equal((secondImport.body as any).asset.id, (firstImport.body as any).asset.id);
+    assert.equal((secondImport.body as any).version.versionNo, 2);
+
+    const listedAssets = await app.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers });
+    assert.equal(listedAssets.statusCode, 200);
+    assert.equal((listedAssets.body as any).total, 1);
+
+    const listedVersions = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions?filter[certificateAssetId]=${(firstImport.body as any).asset.id}`,
+      headers,
+    });
+    assert.equal(listedVersions.statusCode, 200);
+    assert.equal((listedVersions.body as any).total, 2);
+  });
+
   it('宸插垹闄ょ殑璇佷功鐗堟湰涓嶅簲缁х画鍗犵敤 fingerprint锛屽簲鍏佽閲嶆柊瀵煎叆', async () => {
     const db = new PgliteDatabase();
     await runMigrations(db);
@@ -109,7 +160,7 @@ describe('证书模块共享数据库回归', () => {
   });
 });
 
-function createPemChainFixture(): { pem: string; privateKeyPem: string } {
+function createPemChainFixture(commonName = 'leaf.example.test'): { pem: string; privateKeyPem: string } {
   const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-chain-regression-'));
   try {
     runOpenSsl(dir, 'genrsa', '-out', 'root.key', '2048');
@@ -121,8 +172,8 @@ function createPemChainFixture(): { pem: string; privateKeyPem: string } {
     runOpenSsl(dir, 'x509', '-req', '-in', 'intermediate.csr', '-CA', 'root.pem', '-CAkey', 'root.key', '-CAcreateserial', '-out', 'intermediate.pem', '-days', '1000', '-sha256', '-extfile', 'intermediate.ext');
 
     runOpenSsl(dir, 'genrsa', '-out', 'leaf.key', '2048');
-    runOpenSsl(dir, 'req', '-new', '-key', 'leaf.key', '-subj', '/CN=leaf.example.test/O=GCAC', '-out', 'leaf.csr');
-    writeFileSync(join(dir, 'leaf.ext'), 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:leaf.example.test,DNS:api.example.test\n');
+    runOpenSsl(dir, 'req', '-new', '-key', 'leaf.key', '-subj', `/CN=${commonName}/O=GCAC`, '-out', 'leaf.csr');
+    writeFileSync(join(dir, 'leaf.ext'), `basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:${commonName},DNS:api.${commonName}\n`);
     runOpenSsl(dir, 'x509', '-req', '-in', 'leaf.csr', '-CA', 'intermediate.pem', '-CAkey', 'intermediate.key', '-CAcreateserial', '-out', 'leaf.pem', '-days', '365', '-sha256', '-extfile', 'leaf.ext');
 
     return {

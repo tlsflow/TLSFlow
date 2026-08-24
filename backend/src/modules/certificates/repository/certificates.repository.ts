@@ -15,6 +15,7 @@ export interface CertificatesRepository {
   createAsset(entity: CertificateAssetEntity): Promise<CertificateAssetEntity>;
   updateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity>;
   getAsset(id: string): Promise<CertificateAssetEntity | undefined>;
+  findAssetByPrimaryDomain(primaryDomain: string): Promise<CertificateAssetEntity | undefined>;
   deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity>;
   listVersionsByAsset(certificateAssetId: string): Promise<CertificateVersionEntity[]>;
   updateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity>;
@@ -97,6 +98,18 @@ export class PgCertificatesRepository implements CertificatesRepository {
     const result = await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets where id = $1`,
       [id],
+    );
+    return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
+  }
+
+  async findAssetByPrimaryDomain(primaryDomain: string): Promise<CertificateAssetEntity | undefined> {
+    const result = await this.db.query<CertificateAssetRow>(
+      `select * from pg_certificate_assets
+        where lower(primary_domain) = lower($1)
+          and status <> 'deleted'
+        order by created_at asc
+        limit 1`,
+      [primaryDomain],
     );
     return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
   }

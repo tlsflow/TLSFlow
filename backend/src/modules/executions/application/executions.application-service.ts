@@ -14,7 +14,9 @@ import { ExecutionsDomainService } from '../domain/executions.domain-service.js'
 import { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
 import { ExecutorRegistry } from './executors.js';
+import type { ExecutionResultSyncService } from './execution-result-sync.service.js';
 import { FailurePolicyEngine } from './failure-policy-engine.js';
+import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import { RunRecoveryWorker } from './run-recovery-worker.js';
 import { Scheduler } from './scheduler.js';
 import { StepRunner } from './step-runner.js';
@@ -30,6 +32,8 @@ export interface ExecutionsApplicationDependencies {
   audit?: AuditService;
   domain?: ExecutionsDomainService;
   executorRegistry?: ExecutorRegistry;
+  resultSync?: ExecutionResultSyncService;
+  detailStream?: ExecutionDetailStreamService;
 }
 
 export class ExecutionsApplicationService {
@@ -43,6 +47,8 @@ export class ExecutionsApplicationService {
   private readonly failurePolicy: FailurePolicyEngine;
   private readonly recoveryWorker: RunRecoveryWorker;
   private readonly executorRegistry: ExecutorRegistry;
+  private readonly resultSync?: ExecutionResultSyncService;
+  private readonly detailStream?: ExecutionDetailStreamService;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -54,6 +60,8 @@ export class ExecutionsApplicationService {
     this.failurePolicy = new FailurePolicyEngine();
     this.recoveryWorker = new RunRecoveryWorker(this.repository);
     this.executorRegistry = dependencies.executorRegistry ?? new ExecutorRegistry();
+    this.resultSync = dependencies.resultSync;
+    this.detailStream = dependencies.detailStream;
     this.queue = dependencies.queue ?? new PgJobRunner((job) => new StepRunner(this, this.executorRegistry).run(job), dependencies.queueDb);
   }
 
@@ -159,6 +167,35 @@ export class ExecutionsApplicationService {
       const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
       return [targetId, target?.gatewayRoute] as const;
     })));
+    const sourcePayloadByTargetId = new Map<string, Record<string, unknown>>();
+    const sourceArtifactByTargetId = new Map<string, DeploymentArtifactSnapshotDto>();
+    for (const step of sourceSteps) {
+      const targetId = step.deploymentPlanTargetId;
+      if (!targetId) continue;
+      if (!sourcePayloadByTargetId.has(targetId)) {
+        const basePayload = readRecord(step.inputSnapshot) ?? {};
+        const rollbackContext = buildRollbackContextFromSourceSteps(sourceRun.id, sourceSteps, targetId);
+        const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
+        const baseArtifact = readRecord(basePayload.artifact);
+        sourcePayloadByTargetId.set(targetId, {
+          ...basePayload,
+          ...(rollbackCertificateSha256
+            ? {
+                expectedCertificateFingerprintSha256: rollbackCertificateSha256,
+                artifact: {
+                  ...(baseArtifact ?? {}),
+                  targetFingerprintSha256: rollbackCertificateSha256,
+                },
+              }
+            : {}),
+          sourceRunId: sourceRun.id,
+          rollbackContext,
+        });
+      }
+      if (!sourceArtifactByTargetId.has(targetId) && isDeploymentArtifactSnapshot(step.inputSnapshot.deploymentArtifact)) {
+        sourceArtifactByTargetId.set(targetId, step.inputSnapshot.deploymentArtifact);
+      }
+    }
     const created = await this.createRunAndEnqueue({
       deploymentPlanId: sourceRun.deploymentPlanId,
       deploymentPlanTargetIds: targetIds,
@@ -168,8 +205,18 @@ export class ExecutionsApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId,
       gatewayRouteByTargetId,
+      deploymentArtifactByTargetId: sourceArtifactByTargetId,
+      agentPayloadByTargetId: sourcePayloadByTargetId,
     }, context);
     return { sourceRun: this.toRunDto(transitioned), rollbackRun: created.run, steps: created.steps, jobId: created.jobId };
+  }
+
+  async triggerAutomaticRollback(runId: string, actorId: string, tenantId?: string): Promise<void> {
+    const run = await this.repository.getRunOrThrow(runId, tenantId);
+    if (run.type !== 'apply') return;
+    if (this.readRunFailurePolicy(run) !== 'rollback') return;
+    if (!['FAILED', 'TIMEOUT'].includes(run.status)) return;
+    await this.requestAutomaticRollback(run, actorId, tenantId);
   }
 
   async cancelRun(runId: string, actorId: string, tenantId?: string): Promise<any> {
@@ -258,12 +305,16 @@ export class ExecutionsApplicationService {
 
   async updateStepForTest(stepId: string, patch: Partial<ExecutionStepEntity>, tenantId?: string): Promise<any> {
     await this.repository.getStepOrThrow(stepId, tenantId);
-    return this.toStepDto(await this.repository.updateStep(stepId, patch));
+    const updated = await this.repository.updateStep(stepId, patch);
+    this.detailStream?.publishStep(updated);
+    return this.toStepDto(updated);
   }
 
   async updateRunForTest(runId: string, patch: Partial<ExecutionRunEntity>, tenantId?: string): Promise<any> {
     await this.repository.getRunOrThrow(runId, tenantId);
-    return this.toRunDto(await this.repository.updateRun(runId, patch));
+    const updated = await this.repository.updateRun(runId, patch);
+    this.detailStream?.publishRun(updated);
+    return this.toRunDto(updated);
   }
 
   async recoverRunsForTest(actorId: string, tenantId?: string, registry: ExecutorRegistry = new ExecutorRegistry()): Promise<any> {
@@ -405,26 +456,33 @@ export class ExecutionsApplicationService {
     deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
     agentPayloadByTargetId?: Map<string, Record<string, unknown>>,
   ): Promise<ExecutionStepEntity[]> {
-    const stepTypes = run.type === 'rollback' ? ['ROLLBACK', 'VERIFY'] as const : run.type === 'dry_run' ? ['DISCOVER', 'VERIFY'] as const : ['BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const;
+    const defaultStepTypes = run.type === 'rollback' ? ['ROLLBACK', 'VERIFY'] as const : run.type === 'dry_run' ? ['DISCOVER', 'VERIFY'] as const : ['BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const;
     const created: ExecutionStepEntity[] = [];
     let stepNo = 1;
     for (const targetId of targetIds) {
       let previousStepNo: number | undefined;
+      const targetExecutorType = executorTypeByTargetId.get(targetId);
+      const stepTypes = targetExecutorType === 'WORKFLOW' ? ['CUSTOM'] as const : defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
-        const executorType = executorTypeByTargetId.get(targetId);
-        if (!executorType) {
-          throw new AppError('VALIDATION_FAILED', '部署目标缺少执行器类型，拒绝使用 MockExecutor 兜底', { targetId });
-        }
-        if (executorType === 'MOCK' && !allowMockExecutor) {
-          throw new AppError('VALIDATION_FAILED', 'MockExecutor 只能在测试或显式允许时使用', { targetId });
-        }
-          const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
-          const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
-          const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
-          const planTarget = await this.deploymentPlansRepository.getTarget(targetId, run.tenantId);
-          const step = await this.repository.createStep({
-            id: newId('stp'),
+	        const baseExecutorType = targetExecutorType;
+	        if (!baseExecutorType) {
+	          throw new AppError('VALIDATION_FAILED', '部署目标缺少执行器类型，拒绝使用 MockExecutor 兜底', { targetId });
+	        }
+	        if (baseExecutorType === 'MOCK' && !allowMockExecutor) {
+	          throw new AppError('VALIDATION_FAILED', 'MockExecutor 只能在测试或显式允许时使用', { targetId });
+	        }
+	        const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
+	        const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
+	        const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
+	        const executorType = resolveStepExecutorType(baseExecutorType, stepType, agentPayload);
+	        const operation = mapStepTypeToOperation(stepType);
+        const sourceRunId = run.type === 'rollback'
+          ? readString(agentPayload.sourceRunId) ?? readString(agentPayload.rollbackContext, 'sourceRunId')
+          : undefined;
+        const planTarget = await this.deploymentPlansRepository.getTarget(targetId, run.tenantId);
+        const step = await this.repository.createStep({
+          id: newId('stp'),
             tenantId: run.tenantId,
             executionRunId: run.id,
             deploymentPlanTargetId: targetId,
@@ -439,9 +497,13 @@ export class ExecutionsApplicationService {
               ...agentPayload,
               deploymentPlanId: run.deploymentPlanId,
               deploymentPlanTargetId: targetId,
+              executionRunId: run.id,
               certificateBindingId: planTarget?.certificateBindingId,
               executorType,
               dryRun: run.type === 'dry_run',
+              stepType,
+              operation,
+              sourceRunId,
               mockResult: mockResultByTargetId?.get(targetId),
               gatewayRoute,
             gatewayId: gatewayRoute?.gatewayId,
@@ -458,6 +520,7 @@ export class ExecutionsApplicationService {
           version: 1,
         });
         this.recordTransition('executionStep', step.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
+        this.detailStream?.publishStep(step);
         created.push(step);
         previousStepNo = stepNo;
         stepNo += 1;
@@ -566,6 +629,7 @@ export class ExecutionsApplicationService {
       finishedAt: ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(nextStatus) ? now : step.finishedAt,
     });
     this.recordTransition('executionStep', step.id, step.status, nextStatus, event, actorId, step.tenantId);
+    this.detailStream?.publishStep(updated);
     return updated;
   }
 
@@ -582,6 +646,7 @@ export class ExecutionsApplicationService {
       finishedAt: ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'].includes(nextStatus) ? now : run.finishedAt,
     });
     this.recordTransition('executionRun', run.id, run.status, nextStatus, event, actorId, run.tenantId);
+    this.detailStream?.publishRun(updated);
     return updated;
   }
 
@@ -639,10 +704,38 @@ export class ExecutionsApplicationService {
         updatedAt: new Date().toISOString(),
         updatedBy: actorId,
       });
+      this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
       return { success: true, asyncPending: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
+    if (this.resultSync && executorType === 'CONTROL_PLANE_TLS') {
+      await this.resultSync.applyAgentTaskResult({
+        tenantId: tenantId ?? runningStep.tenantId ?? '',
+        executionRunId: runningStep.executionRunId,
+        executionStepId: runningStep.id,
+        success: result.success,
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+        detail: {
+          executionMode: 'control_plane',
+          ...(result.detail ?? {}),
+        },
+        actorId,
+      });
+      const syncedStep = await this.repository.getStepOrThrow(runningStep.id, tenantId);
+      return {
+        success: syncedStep.status !== 'FAILED' && syncedStep.status !== 'TIMEOUT',
+        errorCode: syncedStep.lastErrorCode,
+        errorMessage: syncedStep.lastErrorMessage,
+        deploymentPlanTargetId: syncedStep.deploymentPlanTargetId,
+      };
+    }
     if (result.success) {
-      await this.transitionStepEntity(runningStep, 'SUCCESS', actorId, 'step.success');
+      await this.transitionStepEntity(runningStep, 'SUCCESS', actorId, 'step.success', result.detail ? {
+        inputSnapshot: {
+          ...runningStep.inputSnapshot,
+          resultDetail: result.detail,
+        },
+      } : {});
       return { success: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
 
@@ -658,6 +751,7 @@ export class ExecutionsApplicationService {
         lastErrorMessage: result.errorMessage,
       });
       this.recordTransition('executionStep', runningStep.id, 'RUNNING', 'PENDING', 'step.retrying', actorId, runningStep.tenantId);
+      this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
       return { success: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
 
@@ -672,6 +766,7 @@ export class ExecutionsApplicationService {
 
   private async finishFailedRun(run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, policy: FailurePolicy, errorCode: string, errorMessage: string, timeout = false): Promise<{ success: boolean; errorCode?: string; errorMessage?: string }> {
     const nextStatus = timeout || errorCode.toLowerCase().includes('timeout') ? 'TIMEOUT' : 'FAILED';
+    await this.skipPendingStepsForRun(run.id, actorId, tenantId, 'runner.failed.skip_pending', errorCode, errorMessage);
     const failedRun = await this.transitionRunEntity(run, nextStatus, actorId, 'runner.failed', { errorCode, errorMessage });
     await this.syncDeploymentPlanAfterRun(failedRun, actorId, tenantId);
     if (policy === 'rollback' && run.type === 'apply') {
@@ -709,6 +804,17 @@ export class ExecutionsApplicationService {
     }
   }
 
+  private async skipPendingStepsForRun(runId: string, actorId: string, tenantId: string | undefined, event: string, errorCode: string, errorMessage: string): Promise<void> {
+    for (const step of await this.repository.listSteps(tenantId, runId)) {
+      if (step.status !== 'PENDING') continue;
+      await this.transitionStepEntity(step, 'SKIPPED', actorId, event, {
+        lastFailureCategory: 'unsafe',
+        lastErrorCode: 'SKIPPED_AFTER_RUN_FAILURE',
+        lastErrorMessage: `执行运行已失败，跳过未执行步骤；源错误 ${errorCode}: ${errorMessage}`,
+      });
+    }
+  }
+
   private toRunDto(run: ExecutionRunEntity): ExecutionRunDto {
     return { ...run };
   }
@@ -730,8 +836,65 @@ function readRetryBackoff(summary: Record<string, unknown>): number | undefined 
   return typeof backoff === 'number' ? backoff : undefined;
 }
 
+function mapStepTypeToOperation(stepType: 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'RELOAD' | 'VERIFY' | 'ROLLBACK' | 'CUSTOM'): string {
+  switch (stepType) {
+    case 'DISCOVER':
+      return 'dryRun';
+    case 'BACKUP':
+      return 'backup';
+    case 'INSTALL':
+      return 'install';
+    case 'RELOAD':
+      return 'reload';
+    case 'VERIFY':
+      return 'verify';
+    case 'ROLLBACK':
+      return 'rollback';
+    case 'CUSTOM':
+      return 'workflow';
+    default:
+      return 'install';
+  }
+}
+
+function resolveStepExecutorType(baseExecutorType: string, stepType: string, payload: Record<string, unknown>): string {
+  const providerType = typeof payload.providerType === 'string' ? payload.providerType.toUpperCase() : undefined;
+  if (providerType === 'NGINX' && stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
+  return baseExecutorType;
+}
+
+function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: ExecutionStepEntity[], targetId: string): Record<string, unknown> {
+  const steps = sourceSteps.filter((step) => step.deploymentPlanTargetId === targetId);
+  const firstPayload = readRecord(steps[0]?.inputSnapshot) ?? {};
+  const firstDetail = readRecord(firstPayload.resultDetail);
+  const installStep = steps.find((step) => step.stepType === 'INSTALL');
+  const backupStep = steps.find((step) => step.stepType === 'BACKUP');
+  const installDetail = readRecord(installStep?.inputSnapshot?.resultDetail);
+  const backupDetail = readRecord(backupStep?.inputSnapshot?.resultDetail);
+  return {
+    sourceRunId,
+    sourceStepId: installStep?.id ?? backupStep?.id,
+    backupManifestPath: readString(installDetail?.backupManifestPath)
+      ?? readString(backupDetail?.backupManifestPath)
+      ?? readString(firstDetail?.backupManifestPath),
+    backupManifest: readRecord(installDetail?.backupManifest)
+      ?? readRecord(backupDetail?.backupManifest)
+      ?? readRecord(firstDetail?.backupManifest),
+    rollbackCertificateSha256: readString(readRecord(readRecord(installDetail?.backupManifest)?.certBackup), 'certificateFingerprintSha256')
+      ?? readString(readRecord(readRecord(backupDetail?.backupManifest)?.certBackup), 'certificateFingerprintSha256')
+      ?? readString(readRecord(readRecord(firstDetail?.backupManifest)?.certBackup), 'certificateFingerprintSha256'),
+    installedCertificateSha256: readString(installDetail?.installedCertificateSha256)
+      ?? readString(firstDetail?.installedCertificateSha256),
+  };
+}
+
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readString(value: unknown, key?: string): string | undefined {
+  const target = key ? readRecord(value)?.[key] : value;
+  return typeof target === 'string' && target.trim() ? target.trim() : undefined;
 }
 
 function isDeploymentArtifactSnapshot(value: unknown): value is DeploymentArtifactSnapshotDto {
@@ -740,7 +903,5 @@ function isDeploymentArtifactSnapshot(value: unknown): value is DeploymentArtifa
     && typeof record.certificateVersionId === 'string'
     && typeof record.certificateFormatId === 'string'
     && typeof record.format === 'string'
-    && typeof record.pfxBase64 === 'string'
-    && typeof record.pfxPassword === 'string'
     && typeof record.containsPrivateKey === 'boolean');
 }

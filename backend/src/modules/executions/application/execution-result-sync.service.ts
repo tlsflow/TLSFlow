@@ -1,6 +1,3 @@
-import { createHash, X509Certificate } from 'node:crypto';
-import { connect as tlsConnect } from 'node:tls';
-import { URL } from 'node:url';
 import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import type { ApplicationAssetTargetSummaryDto, CreateManagedTargetSnapshotDto, ManagedTargetDto, ServiceAssetDto, SiteAssetDto } from '../../assets/dto/assets.dto.js';
 import type { BindingsApplicationService } from '../../bindings/application/bindings.application-service.js';
@@ -10,21 +7,30 @@ import type { StateTransitionEventEntity } from '../../deployment-plans/schema/d
 import { newId } from '../../../shared/id.js';
 import type { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
+import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
+import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
+type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 
 export class ExecutionResultSyncService {
   private continuationRunner?: ContinuationRunner;
+  private rollbackRunner?: RollbackRunner;
 
   constructor(
     private readonly executions: ExecutionsRepository,
     private readonly assets: AssetsApplicationService,
     private readonly bindings: BindingsApplicationService,
     private readonly deploymentPlans?: DeploymentPlansRepository,
+    private readonly detailStream?: ExecutionDetailStreamService,
   ) {}
 
   setContinuationRunner(runner: ContinuationRunner): void {
     this.continuationRunner = runner;
+  }
+
+  setRollbackRunner(runner: RollbackRunner): void {
+    this.rollbackRunner = runner;
   }
 
   async applyAgentTaskResult(input: {
@@ -46,6 +52,10 @@ export class ExecutionResultSyncService {
       ...((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
       ...(input.detail ?? {}),
     };
+    const installDetail = await this.resolveTargetInstallDetail(input.tenantId, step);
+    if (installDetail) {
+      mergedDetail.installResult = installDetail;
+    }
     const isDryRun = run.type === 'dry_run' || step.inputSnapshot.dryRun === true;
     if (isDryRun) {
       const mergedDryRunChecks = mergeDryRunChecks(
@@ -150,18 +160,28 @@ export class ExecutionResultSyncService {
         resultDetail: mergedDetail,
       },
     });
+    this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, input.tenantId));
     await this.recordTransitionIfChanged('executionStep', step.id, step.status, nextStepStatus, effectiveSuccess ? 'agent.step.success' : 'agent.step.failed', input.actorId, step.tenantId);
 
     let resultState: ResultState | undefined;
     if (!isDryRun) {
-      resultState = await this.syncDeploymentAssets({ ...input, success: effectiveSuccess, errorCode: effectiveErrorCode }, step, mergedDetail);
+      resultState = await this.syncDeploymentAssets({ ...input, success: effectiveSuccess, errorCode: effectiveErrorCode, runType: run.type }, step, mergedDetail);
     }
 
-    const latestSteps = await this.executions.listSteps(input.tenantId, run.id);
-    const hasFailed = latestSteps.some((item) => item.status === 'FAILED' || item.status === 'TIMEOUT');
-    const allFinished = latestSteps.every((item) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(item.status));
+    let latestSteps = await this.executions.listSteps(input.tenantId, run.id);
+    let hasFailed = latestSteps.some((item) => item.status === 'FAILED' || item.status === 'TIMEOUT');
+    let allFinished = latestSteps.every((item) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(item.status));
+    const executionMode = readString(mergedDetail, 'executionMode')?.toLowerCase();
+    if (hasFailed && !allFinished) {
+      await this.skipPendingStepsAfterRunFailure(run, latestSteps, input.actorId, input.tenantId, effectiveErrorCode ?? 'STEP_FAILED', effectiveErrorMessage ?? 'Agent 执行失败');
+      latestSteps = await this.executions.listSteps(input.tenantId, run.id);
+      hasFailed = latestSteps.some((item) => item.status === 'FAILED' || item.status === 'TIMEOUT');
+      allFinished = latestSteps.every((item) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(item.status));
+    }
     if (!allFinished) {
-      await this.continueRunAfterAgentResult(run, input.actorId, input.tenantId);
+      if (executionMode !== 'direct') {
+        await this.continueRunAfterAgentResult(run, input.actorId, input.tenantId);
+      }
       return;
     }
 
@@ -178,9 +198,40 @@ export class ExecutionResultSyncService {
         ...(resultState ? { resultState: resultState.kind } : {}),
       },
     });
+    this.detailStream?.publishRun(await this.executions.getRunOrThrow(run.id, input.tenantId));
     await this.recordTransitionIfChanged('executionRun', run.id, run.status, nextRunStatus, hasFailed ? 'agent.run.failed' : 'agent.run.success', input.actorId, run.tenantId);
     if (!isDryRun) {
       await this.syncDeploymentPlanAfterRun(finishedRun, latestSteps, input.actorId, input.tenantId);
+      if (hasFailed && executionMode !== 'direct') {
+        await this.requestAutomaticRollbackIfNeeded(finishedRun, input.actorId, input.tenantId);
+      }
+    }
+  }
+
+  private async resolveTargetInstallDetail(tenantId: string, step: ExecutionStepEntity): Promise<Record<string, unknown> | undefined> {
+    if (step.stepType !== 'VERIFY' || !step.deploymentPlanTargetId) return undefined;
+    const steps = await this.executions.listSteps(tenantId, step.executionRunId);
+    const installStep = steps
+      .filter((item) => item.deploymentPlanTargetId === step.deploymentPlanTargetId && item.stepType === 'INSTALL')
+      .sort((left, right) => right.stepNo - left.stepNo)[0];
+    return readRecord(installStep?.inputSnapshot.resultDetail);
+  }
+
+  private async skipPendingStepsAfterRunFailure(run: ExecutionRunEntity, steps: ExecutionStepEntity[], actorId: string, tenantId: string, errorCode: string, errorMessage: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const step of steps) {
+      if (step.status !== 'PENDING') continue;
+      await this.executions.updateStep(step.id, {
+        status: 'SKIPPED',
+        finishedAt: now,
+        updatedAt: now,
+        updatedBy: actorId,
+        lastFailureCategory: 'unsafe',
+        lastErrorCode: 'SKIPPED_AFTER_RUN_FAILURE',
+        lastErrorMessage: `执行运行 ${run.id} 已失败，跳过未执行步骤；源错误 ${errorCode}: ${errorMessage}`,
+      });
+      this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, tenantId));
+      await this.recordTransitionIfChanged('executionStep', step.id, step.status, 'SKIPPED', 'agent.run_failed.skip_pending', actorId, step.tenantId);
     }
   }
 
@@ -223,7 +274,7 @@ export class ExecutionResultSyncService {
       for (const domain of expectedDomains) {
         const normalizedDomain = domain.trim();
         if (!normalizedDomain) continue;
-        if (!report.matchesDomainNames.includes(normalizedDomain.toLowerCase())) {
+        if (!certificateMatchesDomain(report, normalizedDomain)) {
           return {
             success: false,
             errorCode: 'TLS_VERIFY_DOMAIN_MISMATCH',
@@ -331,18 +382,37 @@ export class ExecutionResultSyncService {
     await this.continuationRunner({ runId: run.id, tenantId, actorId });
   }
 
+  private async requestAutomaticRollbackIfNeeded(run: ExecutionRunEntity, actorId: string, tenantId: string): Promise<void> {
+    if (!this.rollbackRunner) return;
+    if (run.type !== 'apply') return;
+    if (!['FAILED', 'TIMEOUT'].includes(run.status)) return;
+    if (readRunFailurePolicy(run.summary) !== 'rollback') return;
+    try {
+      await this.rollbackRunner({ runId: run.id, tenantId, actorId });
+    } catch (error) {
+      console.warn('[execution-result-sync.auto-rollback]', JSON.stringify({
+        runId: run.id,
+        tenantId,
+        actorId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+
   private async syncDeploymentAssets(
-    input: { tenantId: string; executionRunId: string; executionStepId: string; success: boolean; errorCode?: string; detail?: Record<string, unknown> },
+    input: { tenantId: string; executionRunId: string; executionStepId: string; success: boolean; errorCode?: string; detail?: Record<string, unknown>; runType: ExecutionRunEntity['type'] },
     step: ExecutionStepEntity,
     detail: Record<string, unknown>,
   ): Promise<ResultState | undefined> {
+    if (!shouldSyncDeploymentState(input.runType, step.stepType, input.success)) return undefined;
+
     const bindingId = typeof step.inputSnapshot.certificateBindingId === 'string' ? step.inputSnapshot.certificateBindingId : undefined;
     if (!bindingId) return undefined;
 
     const binding = await this.bindings.getRepository().getCertificateBinding(input.tenantId, bindingId);
     if (!binding) return undefined;
 
-    const resultState = deriveResultState(input.success, detail, input.errorCode);
+    const resultState = deriveResultState(input.runType, step.stepType, input.success, detail, input.errorCode);
     const assetBinding = await this.resolveApplicationAssetTarget(input.tenantId, binding);
     const siteAsset = binding.siteAssetId ? await this.assets.getRepository().getSiteAsset(input.tenantId, binding.siteAssetId) : undefined;
     const managedTarget = binding.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, binding.managedTargetId) : undefined;
@@ -596,16 +666,29 @@ type ResultState = {
   manualRequired: boolean;
 };
 
-type TlsVerifyTarget = {
-  host: string;
-  port: number;
-  serverName: string;
-  target: string;
-};
-
-function deriveResultState(success: boolean, detail: Record<string, unknown>, errorCode?: string): ResultState {
-  const rolledBack = readBoolean(detail, 'rolledBack');
+function deriveResultState(
+  runType: ExecutionRunEntity['type'],
+  stepType: ExecutionStepEntity['stepType'],
+  success: boolean,
+  detail: Record<string, unknown>,
+  errorCode?: string,
+): ResultState {
+  const rollbackSucceeded = runType === 'rollback' && stepType === 'VERIFY' && success;
+  const rolledBack = rollbackSucceeded || readBoolean(detail, 'rolledBack');
   const manualRequired = readBoolean(detail, 'manualRequired') || readBoolean(detail, 'manualInterventionRequired') || errorCode === 'ROLLBACK_FAILED';
+  if (rollbackSucceeded) {
+    return {
+      kind: 'DEPLOY_FAILED_ROLLED_BACK',
+      snapshotType: 'POST_ROLLBACK',
+      snapshotStatus: 'ROLLED_BACK',
+      bindingStatus: 'DRIFTED',
+      managedTargetStatus: 'ACTIVE',
+      applicationAssetTargetStatus: 'ERROR',
+      siteRuntimeStatus: 'ROLLED_BACK',
+      useTargetCertificate: false,
+      manualRequired: false,
+    };
+  }
   if (success) {
     return {
       kind: 'DEPLOY_SUCCESS',
@@ -645,6 +728,22 @@ function deriveResultState(success: boolean, detail: Record<string, unknown>, er
   };
 }
 
+function shouldSyncDeploymentState(
+  runType: ExecutionRunEntity['type'],
+  stepType: ExecutionStepEntity['stepType'],
+  success: boolean,
+): boolean {
+  if (stepType === 'VERIFY') return true;
+  if (runType === 'rollback' && stepType === 'ROLLBACK' && !success) return true;
+  if ((stepType === 'INSTALL' || stepType === 'RELOAD') && !success) return true;
+  return false;
+}
+
+function readRunFailurePolicy(summary: Record<string, unknown>): 'stop' | 'continue' | 'rollback' {
+  const value = String(summary.failurePolicy ?? 'stop');
+  return value === 'continue' || value === 'rollback' ? value : 'stop';
+}
+
 function validateFormalCertificateVerification(
   step: ExecutionStepEntity,
   detail: Record<string, unknown>,
@@ -655,34 +754,57 @@ function validateFormalCertificateVerification(
 
   const expected = normalizeSha256(readString(step.inputSnapshot, 'expectedCertificateFingerprintSha256')
     ?? readString(step.inputSnapshot, 'deploymentArtifact.expectedFingerprintSha256'));
-  const actual = normalizeSha256(readString(detail, 'verify.remoteCertificateSha256')
+  const installed = normalizeSha256(readString(detail, 'installResult.installedCertificateSha256')
+    ?? readString(detail, 'installResult.installedFile.certFile.certificateSha256')
+    ?? readString(detail, 'installResult.installedFile.certFile.certificateSHA256')
+    ?? readString(detail, 'installedCertificateSha256')
+    ?? readString(detail, 'installedFile.certFile.certificateSha256')
+    ?? readString(detail, 'installedFile.certFile.certificateSHA256'));
+  const remote = normalizeSha256(readString(detail, 'verify.remoteCertificateSha256')
     ?? readString(detail, 'verify.remoteFingerprintSha256')
     ?? readString(detail, 'remoteCertificateSha256'));
   const remoteThumbprint = normalizeThumbprint(readString(detail, 'verify.remoteThumbprint'));
   const deployedThumbprint = normalizeThumbprint(readString(detail, 'newThumbprint'));
+  const providerType = readString(step.inputSnapshot, 'providerType')?.toUpperCase();
 
   if (!expected) {
     return {
       success: false,
       errorCode: 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING',
       errorMessage: '正式执行 VERIFY 缺少目标证书 SHA256 指纹，拒绝判定部署成功',
-      detail: { expected, actual, remoteThumbprint, deployedThumbprint },
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
     };
   }
-  if (!actual) {
+  if (providerType === 'NGINX' && !installed) {
+    return {
+      success: false,
+      errorCode: 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISSING',
+      errorMessage: '正式执行 VERIFY 缺少 Agent 安装后目标 certPath 证书 SHA256 指纹，拒绝判定部署成功',
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
+    };
+  }
+  if (installed && installed !== expected) {
+    return {
+      success: false,
+      errorCode: 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISMATCH',
+      errorMessage: '正式执行 VERIFY 发现 Agent 安装后的目标 certPath 证书与目标证书不一致',
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
+    };
+  }
+  if (!remote) {
     return {
       success: false,
       errorCode: 'CERT_VERIFY_REMOTE_FINGERPRINT_MISSING',
       errorMessage: '正式执行 VERIFY 缺少远端 TLS 证书 SHA256 指纹，拒绝判定部署成功',
-      detail: { expected, actual, remoteThumbprint, deployedThumbprint },
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
     };
   }
-  if (actual !== expected) {
+  if (remote !== expected) {
     return {
       success: false,
       errorCode: 'CERT_VERIFY_FINGERPRINT_MISMATCH',
       errorMessage: '正式执行 VERIFY 发现远端 TLS 证书与目标证书不一致',
-      detail: { expected, actual, remoteThumbprint, deployedThumbprint },
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
     };
   }
   if (remoteThumbprint && deployedThumbprint && remoteThumbprint !== deployedThumbprint) {
@@ -690,7 +812,7 @@ function validateFormalCertificateVerification(
       success: false,
       errorCode: 'CERT_VERIFY_THUMBPRINT_MISMATCH',
       errorMessage: '正式执行 VERIFY 发现远端 TLS 证书 thumbprint 与本次导入证书不一致',
-      detail: { expected, actual, remoteThumbprint, deployedThumbprint },
+      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
     };
   }
   return { success: true };
@@ -870,87 +992,4 @@ function firstPositiveNumber(...values: Array<number | undefined>): number | und
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   }
   return undefined;
-}
-
-function buildTlsVerifyTargetFromUrl(verifyUrl: string): TlsVerifyTarget {
-  const parsed = new URL(verifyUrl);
-  const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
-  if (!parsed.hostname || !port) {
-    throw new Error(`verifyUrl 无法解析为有效 TLS 目标: ${verifyUrl}`);
-  }
-  return {
-    host: parsed.hostname,
-    port,
-    serverName: parsed.hostname,
-    target: verifyUrl,
-  };
-}
-
-async function probeTlsCertificate(target: TlsVerifyTarget): Promise<Record<string, unknown> & { remoteCertificateSha256: string; remoteThumbprint: string; matchesDomainNames: string[] }> {
-  return new Promise((resolve, reject) => {
-    const socket = tlsConnect({
-      host: target.host,
-      port: target.port,
-      servername: target.serverName,
-      rejectUnauthorized: false,
-      minVersion: 'TLSv1.2',
-      timeout: 15_000,
-    });
-
-    const cleanup = () => {
-      socket.removeAllListeners();
-      socket.destroy();
-    };
-
-    socket.once('timeout', () => {
-      cleanup();
-      reject(new Error(`TLS 连接超时: ${target.host}:${target.port}`));
-    });
-
-    socket.once('error', (error) => {
-      cleanup();
-      reject(new Error(`TLS 连接失败: ${error.message}`));
-    });
-
-    socket.once('secureConnect', () => {
-      try {
-        const peer = socket.getPeerX509Certificate();
-        if (!peer) {
-          cleanup();
-          reject(new Error('TLS 握手成功但未返回远端证书'));
-          return;
-        }
-        const raw = peer.raw;
-        const thumbprint = createHash('sha1').update(raw).digest('hex').toUpperCase();
-        const certificateSha256 = createHash('sha256').update(raw).digest('hex').toLowerCase();
-        const x509 = new X509Certificate(raw);
-        const san = x509.subjectAltName ?? '';
-        const dnsNames = san
-          .split(',')
-          .map((item) => item.trim())
-          .filter((item) => item.startsWith('DNS:'))
-          .map((item) => item.slice(4).trim())
-          .filter(Boolean);
-        const subject = peer.subject ? Object.entries(peer.subject).map(([key, value]) => `${key}=${String(value)}`).join(', ') : '';
-        const issuer = peer.issuer ? Object.entries(peer.issuer).map(([key, value]) => `${key}=${String(value)}`).join(', ') : '';
-        cleanup();
-        resolve({
-          target: target.target,
-          address: `${target.host}:${target.port}`,
-          serverName: target.serverName,
-          remoteThumbprint: thumbprint,
-          remoteCertificateSha256: certificateSha256,
-          subject,
-          issuer,
-          notAfter: peer.validTo ? new Date(peer.validTo).toISOString() : undefined,
-          dnsNames,
-          matchesDomainNames: [...new Set([target.serverName.toLowerCase(), ...dnsNames.map((item) => item.toLowerCase())])],
-          verifiedAt: new Date().toISOString(),
-        });
-      } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-  });
 }

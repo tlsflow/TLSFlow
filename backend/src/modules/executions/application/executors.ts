@@ -8,6 +8,7 @@ import { LegacyTaskTranslator } from '../../legacy-agents/legacy-task-translator
 import type { LegacyAgentProfile, UnifiedLegacyStep } from '../../legacy-agents/legacy-agent.types.js';
 import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor } from '../../executors/index.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
+import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -105,12 +106,14 @@ export function createDefaultExecutorRegistryWithDependencies(dependencies: Defa
 
 function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}): Executor[] {
   return [
-    new SSHExecutor(),
-    new CurlExecutor(),
-    new WindowsRemoteExecutorAdapter('WINRM'),
+	    new SSHExecutor(),
+	    new CurlExecutor(),
+	    new WorkflowExecutorAdapter(),
+	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents),
     new GatewayExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
+    new ControlPlaneTlsExecutor(),
     new LegacyAgentExecutorAdapter(),
   ];
 }
@@ -195,6 +198,31 @@ export class AgentExecutorAdapter implements Executor {
       }
     }
     return { success: true, asyncPending: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
+  }
+}
+
+export class WorkflowExecutorAdapter implements Executor {
+  readonly type = 'WORKFLOW';
+
+  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
+    const request = readRecord(input.step.inputSnapshot.workflowRequest);
+    if (!request) {
+      return { success: false, errorCode: 'WORKFLOW_REQUEST_REQUIRED', errorMessage: 'WORKFLOW 执行器缺少 workflowRequest，拒绝伪成功' };
+    }
+    const detail = {
+      mode: input.dryRun ? 'workflow_plan' : 'workflow_runner_pending',
+      workflowRequest: maskWorkflowRequest(request),
+      stepType: input.step.stepType,
+    };
+    if (input.dryRun) {
+      return { success: true, detail };
+    }
+    return {
+      success: false,
+      errorCode: 'WORKFLOW_RUNNER_NOT_IMPLEMENTED',
+      errorMessage: '工作流运行壳已进入执行记录，但真实 WorkflowRunService 尚未接入',
+      detail,
+    };
   }
 }
 
@@ -303,6 +331,70 @@ export class LegacyAgentExecutorAdapter implements Executor {
   }
 }
 
+export class ControlPlaneTlsExecutor implements Executor {
+  readonly type = 'CONTROL_PLANE_TLS';
+
+  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
+    if (input.dryRun) {
+      return {
+        success: true,
+        detail: {
+          mode: 'control_plane_tls_verify_skipped',
+          reason: 'dry-run 阶段只检查验证目标是否可构造，不发起真实 TLS 连接',
+        },
+      };
+    }
+    const target = buildControlPlaneTlsTarget(input.step.inputSnapshot);
+    if (!target) {
+      return {
+        success: false,
+        errorCode: 'TLS_VERIFY_TARGET_UNRESOLVED',
+        errorMessage: '控制面 VERIFY 缺少可访问的验证目标，无法发起真实 TLS 验证',
+        detail: { mode: 'control_plane_tls_verify_failed' },
+      };
+    }
+    try {
+      const report = await probeTlsCertificate(target);
+      const expectedDomains = readStringArray(input.step.inputSnapshot.expectedDomains);
+      for (const domain of expectedDomains) {
+        const normalized = domain.trim().toLowerCase();
+        if (!normalized) continue;
+        if (!certificateMatchesDomain(report, normalized)) {
+          return {
+            success: false,
+            errorCode: 'TLS_VERIFY_DOMAIN_MISMATCH',
+            errorMessage: `控制面 VERIFY 发现远端 TLS 证书域名不匹配: ${domain}`,
+            detail: {
+              mode: 'control_plane_tls_verify_failed',
+              verify: report,
+              expectedDomains,
+            },
+          };
+        }
+      }
+      return {
+        success: true,
+        detail: {
+          mode: 'control_plane_tls_verify',
+          executor: this.type,
+          verify: report,
+          newThumbprint: report.remoteThumbprint,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errorCode: 'TLS_VERIFY_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: {
+          mode: 'control_plane_tls_verify_failed',
+          target,
+        },
+      };
+    }
+  }
+}
+
 function gatewayActionForStep(step: ExecutionStepEntity): string {
   if (step.stepType === 'VERIFY' || step.stepType === 'DISCOVER') return 'read';
   if (step.stepType === 'INSTALL' || step.stepType === 'ROLLBACK') return 'write';
@@ -317,8 +409,47 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function readNumberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function buildControlPlaneTlsTarget(snapshot: Record<string, unknown>): TlsVerifyTarget | undefined {
+  const verifyUrl = stringFromSnapshot(snapshot.verifyUrl);
+  if (verifyUrl) return buildTlsVerifyTargetFromUrl(verifyUrl);
+
+  const policy = readRecord(snapshot.executionPolicy);
+  const selector = readRecord(snapshot.bindingSelector);
+  const host = stringFromSnapshot(policy?.verifyHost)
+    ?? stringFromSnapshot(selector?.hostHeader)
+    ?? stringFromSnapshot(selector?.serverName);
+  const port = readNumberValue(policy?.verifyPort) ?? readNumberValue(selector?.port) ?? readNumberValue(selector?.listenPort) ?? 443;
+  if (!host || !port) return undefined;
+  return {
+    host,
+    port,
+    serverName: stringFromSnapshot(policy?.hostHeader) ?? host,
+    target: `https://${host}:${port}`,
+  };
+}
+
+function maskWorkflowRequest(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(maskWorkflowRequest);
+  const record = readRecord(value);
+  if (!record) return value;
+  return Object.fromEntries(Object.entries(record).map(([key, child]) => [
+    key,
+    /(password|token|privateKey|secret|credential|pfx|jks)/i.test(key) ? '[REDACTED]' : maskWorkflowRequest(child),
+  ]));
+}
+
 function shouldPreferDirectExecute(snapshot: Record<string, unknown>): boolean {
-  return stringFromSnapshot(snapshot.type) === 'windows.iis.deploy_certificate';
+  const taskType = stringFromSnapshot(snapshot.type);
+  return taskType === 'windows.iis.deploy_certificate'
+    || taskType === 'linux.nginx.deploy_certificate';
 }
 
 function shouldFallbackDirectError(error: AppError | undefined): boolean {

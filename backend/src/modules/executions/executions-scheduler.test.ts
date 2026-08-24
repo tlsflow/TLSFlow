@@ -5,7 +5,7 @@ import { DeploymentPlansRepository } from '../deployment-plans/repository/deploy
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
-import { ExecutorRegistry, GatewayExecutorAdapter } from './application/executors.js';
+import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayExecutorAdapter } from './application/executors.js';
 
 function createService() {
   return new ExecutionsApplicationService({
@@ -23,6 +23,7 @@ async function createRun(service: ExecutionsApplicationService, input: {
   executorType?: string;
   allowMockExecutor?: boolean;
   mockResults?: Map<string, 'success' | 'fail'>;
+  agentPayloads?: Map<string, Record<string, unknown>>;
 }) {
   const targetIds = input.targetIds ?? ['target_a', 'target_b'];
   return service.createApplyRun({
@@ -39,6 +40,7 @@ async function createRun(service: ExecutionsApplicationService, input: {
     failurePolicy: input.failurePolicy,
     retry: input.retry,
     allowMockExecutor: input.allowMockExecutor,
+    agentPayloadByTargetId: input.agentPayloads,
   });
 }
 
@@ -106,6 +108,61 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(queue.tasks.length, 1);
     assert.equal(queue.tasks[0].payload.type, 'gateway.task.run');
     assert.equal((queue.tasks[0].payload.gatewayTask as { delegatedTargetId: string }).delegatedTargetId, 'host_gateway_enqueue');
+  });
+
+  it('WORKFLOW 执行目标只生成一个 CUSTOM 步骤，dry-run 可预览，apply 失败关闭', async () => {
+    const service = createService();
+    const targetId = 'target_workflow_shell';
+    const created = await service.createApplyRun({
+      deploymentPlanId: 'plan_workflow_shell',
+      deploymentPlanTargetIds: [targetId],
+      type: 'dry_run',
+      idempotencyKey: 'idem_workflow_shell_dry_run',
+      actorId: 'tester',
+      tenantId: 'tenant_1',
+      executorTypeByTargetId: new Map([[targetId, 'WORKFLOW']]),
+      agentPayloadByTargetId: new Map([[targetId, {
+        workflowRequest: {
+          workflowId: 'wf_1',
+          workflowVersionId: 'wfv_1',
+          runner: 'CONTROL_PLANE',
+          credentialRefs: { ssh: 'secret://ssh/workflow' },
+        },
+      }]]),
+    });
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].stepType, 'CUSTOM');
+    assert.equal(steps[0].inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(steps[0].inputSnapshot.operation, 'workflow');
+
+    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
+    assert.equal(dryRunResult.success, true);
+    const dryRunStep = await service.getStep(steps[0].id, 'tenant_1');
+    assert.equal(dryRunStep.status, 'SUCCESS');
+    assert.equal(dryRunStep.inputSnapshot.resultDetail.mode, 'workflow_plan');
+    assert.equal(dryRunStep.inputSnapshot.resultDetail.workflowRequest.credentialRefs, '[REDACTED]');
+
+    const apply = await service.createApplyRun({
+      deploymentPlanId: 'plan_workflow_shell',
+      deploymentPlanTargetIds: [targetId],
+      type: 'apply',
+      idempotencyKey: 'idem_workflow_shell_apply',
+      actorId: 'tester',
+      tenantId: 'tenant_1',
+      executorTypeByTargetId: new Map([[targetId, 'WORKFLOW']]),
+      agentPayloadByTargetId: new Map([[targetId, {
+        workflowRequest: {
+          workflowId: 'wf_1',
+          workflowVersionId: 'wfv_1',
+          runner: 'CONTROL_PLANE',
+        },
+      }]]),
+    });
+    const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
+    assert.equal(applyResult.success, false);
+    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))[0];
+    assert.equal(applyStep.lastErrorCode, 'WORKFLOW_RUNNER_NOT_IMPLEMENTED');
   });
 
   it('按 dependsOn 形成 DAG 调度，不满足依赖的步骤不会先跑', async () => {
@@ -253,6 +310,24 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const allowed = await createRun(service, { idempotencyKey: 'idem_mock_allowed', targetIds: ['target_m'], executorType: 'MOCK', allowMockExecutor: true });
     const result = await service.runDispatchedExecution(allowed.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests());
     assert.equal(result.success, true);
+  });
+
+  it('NGINX VERIFY 使用控制面 TLS 执行器，不再下发给 Agent', async () => {
+    const service = createService();
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_nginx_control_plane_verify',
+      targetIds: ['target_nginx'],
+      executorType: 'AGENT',
+      agentPayloads: new Map([['target_nginx', {
+        type: 'linux.nginx.deploy_certificate',
+        providerType: 'NGINX',
+        verifyUrl: 'https://nginx.example.com:443',
+      }]]),
+    });
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    const verify = steps.find((step) => step.stepType === 'VERIFY');
+    assert.equal(verify?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.equal(verify?.inputSnapshot.verifyUrl, 'https://nginx.example.com:443');
   });
 
   it('failurePolicy=continue 跳过失败目标剩余步骤，但继续其它目标；batchSize 和 retry 写入实际调度', async () => {

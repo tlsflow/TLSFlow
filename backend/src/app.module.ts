@@ -7,6 +7,7 @@ import { getHealthRouteContracts, HealthController } from './modules/health/cont
 import { DeploymentPlansApplicationService } from './modules/deployment-plans/application/deployment-plans.application-service.js';
 import { DeploymentPlansController, getDeploymentPlanRouteContracts } from './modules/deployment-plans/controller/deployment-plans.controller.js';
 import { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
+import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
@@ -80,11 +81,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ...(dependencies.deploymentPersistence ?? {}),
     db: appDb,
   });
+  const executionDetailStream = new ExecutionDetailStreamService();
   const executionResultSync = new ExecutionResultSyncService(
     executionPersistence.executions,
     assetsService,
     bindingsService,
     executionPersistence.deploymentPlans,
+    executionDetailStream,
   );
   const agentsService = new AgentsApplicationService(
     new PgAgentsRepository(appDb),
@@ -93,8 +96,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificateServices.certificates,
     security.secrets,
     executionResultSync,
+    executionDetailStream,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
+  const workflowTemplatesService = new WorkflowTemplatesApplicationService(
+    new WorkflowTemplatesDomainService(
+      new PgDocumentRepository(appDb, 'workflow.templates'),
+      new PgDocumentRepository(appDb, 'workflow.template_versions'),
+    ),
+  );
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);
 
@@ -104,6 +114,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
+  assetsService.setWorkflowTemplatesService(workflowTemplatesService);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -121,12 +132,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
       queueDb: appDb,
       audit: security.audit,
       executorRegistry,
+      resultSync: executionResultSync,
+      detailStream: executionDetailStream,
     }),
     approval: security.approvals,
     audit: security.audit,
     gateways: gatewaysService,
     assets: assetsService.getRepository(),
     bindings: bindingsService.getRepository(),
+    agents: agentsService.getRepository(),
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
   }));
@@ -135,21 +149,18 @@ export function createApp(dependencies: AppDependencies = {}): App {
   executionResultSync.setContinuationRunner(({ runId, actorId, tenantId }) =>
     executionsService.runDispatchedExecution(runId, actorId, tenantId, executorRegistry),
   );
+  executionResultSync.setRollbackRunner(({ runId, actorId, tenantId }) =>
+    executionsService.triggerAutomaticRollback(runId, actorId, tenantId),
+  );
   app.setResource('executionsService', executionsService);
-  new ExecutionsController(executionsService).register(app.router);
+  app.setResource('executionDetailStream', executionDetailStream);
+  new ExecutionsController(executionsService, executionDetailStream).register(app.router);
 
   const providersService = new ProvidersApplicationService({
     assetsService,
     repository: new PgProvidersRepository(appDb),
   });
   const pluginsService = new PluginsApplicationService(new PgPluginsRepository(appDb));
-  const workflowTemplatesService = new WorkflowTemplatesApplicationService(
-    new WorkflowTemplatesDomainService(
-      new PgDocumentRepository(appDb, 'workflow.templates'),
-      new PgDocumentRepository(appDb, 'workflow.template_versions'),
-    ),
-  );
-
   new AssetsController(security, assetsService).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);

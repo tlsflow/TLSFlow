@@ -21,12 +21,39 @@ export type ManagedTargetType = 'SITE_BINDING' | 'FILE_DEPLOY' | 'KEYSTORE_ENTRY
 export type ManagedTargetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'DELETED';
 export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR' | 'DELETED';
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
+export type DeploymentStrategyType = 'AGENT' | 'WORKFLOW';
+export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
   enabled?: boolean;
   refId?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface AgentDeploymentStrategyDto {
+  agentId: string;
+  siteAssetId: string;
+  managedTargetId: string;
+  deploymentMode?: string;
+}
+
+export interface WorkflowDeploymentStrategyDto {
+  workflowId: string;
+  workflowVersionId: string;
+  runner: WorkflowRunnerType;
+  gatewayId?: string;
+  credentialRefs?: Record<string, string>;
+  variableBindings?: Record<string, unknown>;
+  rollbackWorkflowVersionId?: string;
+}
+
+export interface DeploymentStrategyDto {
+  type: DeploymentStrategyType;
+  agent?: AgentDeploymentStrategyDto;
+  workflow?: WorkflowDeploymentStrategyDto;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 export type AssetConflictResourceType = 'host' | 'service' | 'service_asset' | 'binding';
 export type AssetConflictStatus = 'open' | 'resolved' | 'ignored';
@@ -153,6 +180,7 @@ export interface ServiceAssetDto {
   status: ServiceAssetStatus;
   tags: string[];
   metadata: Record<string, unknown>;
+  deploymentStrategy?: DeploymentStrategyDto;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -184,6 +212,7 @@ export interface CreateServiceAssetDto {
   status?: ServiceAssetStatus;
   tags?: string[];
   metadata?: Record<string, unknown>;
+  deploymentStrategy?: DeploymentStrategyDto;
   targetBinding?: CreateApplicationAssetTargetDto;
 }
 

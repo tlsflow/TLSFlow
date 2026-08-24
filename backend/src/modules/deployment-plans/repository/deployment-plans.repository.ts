@@ -8,6 +8,10 @@ function sameTenant(left?: string, right?: string): boolean {
   return (left ?? '') === (right ?? '');
 }
 
+function sameTenantOrLegacyMissing(left?: string, right?: string): boolean {
+  return left === undefined ? true : sameTenant(left, right);
+}
+
 export class DeploymentPlansRepository {
   readonly moduleName = 'deployment-plans' as const;
 
@@ -75,11 +79,11 @@ export class DeploymentPlansRepository {
 
   async getTarget(id: string, tenantId?: string): Promise<DeploymentPlanTargetEntity | undefined> {
     const target = await this.targets.get(id);
-    return target && sameTenant(target.tenantId, tenantId) ? target : undefined;
+    return target && sameTenantOrLegacyMissing(target.tenantId, tenantId) ? target : undefined;
   }
 
   async listTargetsByPlan(planId: string, tenantId?: string): Promise<DeploymentPlanTargetEntity[]> {
-    return this.targets.list((target) => target.deploymentPlanId === planId && sameTenant(target.tenantId, tenantId));
+    return this.targets.list((target) => target.deploymentPlanId === planId && sameTenantOrLegacyMissing(target.tenantId, tenantId));
   }
 
   async createTransition(event: StateTransitionEventEntity): Promise<StateTransitionEventEntity> {

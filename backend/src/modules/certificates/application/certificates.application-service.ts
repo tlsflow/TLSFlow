@@ -78,11 +78,22 @@ export class CertificatesApplicationService {
 
   async createAsset(input: CreateCertificateAssetInput): Promise<CertificateAssetDto> {
     const now = new Date().toISOString();
+    const primaryDomain = normalizeCertificateDomain(input.primaryDomain);
+    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain);
+    if (existing) {
+      const updated = await this.repository.updateAsset(existing.id, {
+        name: existing.name || input.name || primaryDomain,
+        sans: uniqueStrings([...existing.sans, ...(input.sans ?? []).map(normalizeCertificateDomain)]),
+        tags: uniqueStrings([...existing.tags, ...(input.tags ?? [])]),
+        updatedAt: now,
+      });
+      return toCertificateAssetDto(updated);
+    }
     const asset = await this.repository.createAsset({
       id: newId('certasset'),
-      name: input.name,
-      primaryDomain: input.primaryDomain,
-      sans: uniqueStrings(input.sans ?? []),
+      name: input.name ?? primaryDomain,
+      primaryDomain,
+      sans: uniqueStrings((input.sans ?? []).map(normalizeCertificateDomain)),
       sourceType: input.sourceType ?? 'manual',
       status: 'active',
       tags: uniqueStrings(input.tags ?? []),
@@ -288,7 +299,7 @@ export class CertificatesApplicationService {
 
     const updatedAsset = await this.repository.updateAsset(asset.id, {
       currentVersionId: version.id,
-      sans: uniqueStrings([...asset.sans, ...parsed.sans]),
+      sans: uniqueStrings([...asset.sans, ...parsed.sans.map(normalizeCertificateDomain)]),
       updatedAt: now,
     });
 
@@ -503,8 +514,10 @@ export class CertificatesApplicationService {
     certificateFormatId: string;
     format: string;
     containsPrivateKey: boolean;
-    pfxBase64: string;
-    pfxPassword: string;
+    certificatePem?: string;
+    privateKeyPem?: string;
+    pfxBase64?: string;
+    pfxPassword?: string;
     warnings: string[];
   }> {
     const format = await this.repository.getFormat(input.certificateFormatId);
@@ -525,7 +538,8 @@ export class CertificatesApplicationService {
       expiresAt: input.expiresAt,
     };
     const warnings = this.validateFormatExportRequest(request, version);
-    const privateKey = format.containsPrivateKey
+    const pemNeedsSeparatePrivateKey = format.format === 'pem' && readBooleanParameter(format.parameters, 'generatePrivateKeyFile');
+    const privateKey = (format.containsPrivateKey || pemNeedsSeparatePrivateKey)
       ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.deployment.private_key', input.createdBy, context)
       : undefined;
     const password = format.passwordSecretRef
@@ -553,25 +567,15 @@ export class CertificatesApplicationService {
       warnings: generated.warnings,
       parameterKeys: Object.keys(format.parameters ?? {}),
     }));
-    if (generated.format !== 'pfx') {
-      throw new AppError('VALIDATION_FAILED', 'Windows IIS 当前只支持 PFX 格式配置', {
-        certificateFormatId: format.id,
-        format: generated.format,
-      });
-    }
-    if (!password?.plainText) {
-      throw new AppError('VALIDATION_FAILED', 'PFX 部署材料缺少导出密码', {
-        certificateFormatId: format.id,
-        certificateVersionId: input.certificateVersionId,
-      });
-    }
     return {
       certificateVersionId: input.certificateVersionId,
       certificateFormatId: format.id,
       format: generated.format,
       containsPrivateKey: format.containsPrivateKey,
-      pfxBase64: generated.content.toString('base64'),
-      pfxPassword: password.plainText,
+      certificatePem: generated.format === 'pem' ? generated.content.toString('utf8') : undefined,
+      privateKeyPem: generated.format === 'pem' && (format.containsPrivateKey || pemNeedsSeparatePrivateKey) ? privateKey?.plainText : undefined,
+      pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
+      pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
       warnings: [...warnings, ...generated.warnings],
     };
   }
@@ -734,9 +738,18 @@ export class CertificatesApplicationService {
   }
 
   private async createAssetFromParsed(input: ImportCertificateVersionInput, commonName: string | undefined, sans: string[]): Promise<CertificateAssetEntity> {
-    const primaryDomain = commonName ?? sans[0];
+    const primaryDomain = normalizeCertificateDomain(commonName ?? sans[0]);
     if (!primaryDomain) {
       throw new AppError('CERT_PARSE_FAILED', '证书缺少 commonName 和 SAN，无法创建逻辑资产');
+    }
+    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain);
+    if (existing) {
+      const updated = await this.repository.updateAsset(existing.id, {
+        sans: uniqueStrings([...existing.sans, ...sans.map(normalizeCertificateDomain)]),
+        tags: uniqueStrings([...existing.tags, ...(input.tags ?? [])]),
+        updatedAt: new Date().toISOString(),
+      });
+      return updated;
     }
     const created = await this.createAsset({
       name: input.name ?? primaryDomain,
@@ -771,6 +784,17 @@ export function hashCertificateMaterial(value: string | Buffer): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function normalizeCertificateDomain(value: string | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function readBooleanParameter(parameters: Record<string, unknown> | undefined, key: string): boolean {
+  const value = parameters?.[key];
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true';
+  return false;
 }
 
 function parseDistinguishedName(value: string): CertificateDistinguishedName {

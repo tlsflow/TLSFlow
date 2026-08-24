@@ -19,6 +19,7 @@ export interface InjectResponse {
   statusCode: number;
   headers: Record<string, string>;
   body: unknown;
+  stream?: (response: ServerResponse) => Promise<void> | void;
 }
 
 export type AuthTokenResolver = (authorization: string | undefined) => { actorId: string; tenantId?: string } | undefined;
@@ -61,7 +62,7 @@ export class App {
       try {
         const result = await route.handler(request);
         await this.flushPersistence();
-        if (isResponseBody(result)) return this.respond(result.statusCode ?? 200, await resolveBody(result.body), request.context, result.headers);
+        if (isResponseBody(result)) return this.respond(result.statusCode ?? 200, await resolveBody(result.body), request.context, result.headers, result.stream);
         return this.respond(200, await resolveBody(result), request.context);
       } catch (error) {
         const handled = toErrorResponse(error, request.context.requestId);
@@ -97,6 +98,12 @@ export class App {
         body,
         context,
       });
+      if (response.stream) {
+        res.statusCode = response.statusCode;
+        for (const [key, value] of Object.entries(response.headers)) res.setHeader(key, value);
+        await response.stream(res);
+        return;
+      }
       writeNodeResponse(res, response);
     });
   }
@@ -116,7 +123,13 @@ export class App {
     };
   }
 
-  private respond(statusCode: number, body: unknown, context: RequestContext, headers: Record<string, string> = {}): InjectResponse {
+  private respond(
+    statusCode: number,
+    body: unknown,
+    context: RequestContext,
+    headers: Record<string, string> = {},
+    stream?: (response: ServerResponse) => Promise<void> | void,
+  ): InjectResponse {
     const contentType = headers['content-type'] ?? headers['Content-Type'] ?? 'application/json; charset=utf-8';
     return {
       statusCode,
@@ -127,6 +140,7 @@ export class App {
         ...headers,
       },
       body,
+      stream,
     };
   }
 
@@ -137,8 +151,14 @@ export class App {
   }
 }
 
-function isResponseBody(value: unknown): value is { statusCode?: number; headers?: Record<string, string>; body?: unknown } {
-  return Boolean(value && typeof value === 'object' && ('statusCode' in value || 'body' in value || 'headers' in value));
+function isResponseBody(
+  value: unknown,
+): value is { statusCode?: number; headers?: Record<string, string>; body?: unknown; stream?: (response: ServerResponse) => Promise<void> | void } {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && ('statusCode' in value || 'body' in value || 'headers' in value || 'stream' in value),
+  );
 }
 
 async function resolveBody<T>(value: T | Promise<T>): Promise<T> {

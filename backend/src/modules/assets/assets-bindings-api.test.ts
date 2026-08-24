@@ -5,6 +5,7 @@ import { createApp } from '../../app.module.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
 MIIDVDCCAjygAwIBAgIUG5ildtPXNPyfiDQ1eus6hH5dRFowDQYJKoZIhvcNAQEL
@@ -103,6 +104,144 @@ async function importCertificateVersion(app: Awaited<ReturnType<typeof createMig
   });
   assert.equal(response.statusCode, 201);
   return (response.body as { version: { id: string } }).version.id;
+}
+
+async function createApplicationAssetTargetChain(app: Awaited<ReturnType<typeof createMigratedApp>>, headers: Record<string, string>) {
+  const agentId = 'agent-strategy-01';
+  const domain = 'strategy-app.example.com';
+  const registered = await app.inject({
+    method: 'POST',
+    path: '/api/v1/agents/register',
+    headers,
+    body: { agentKey: agentId, hostname: 'strategy-host.example.com', version: '1.0.0', osType: 'windows' },
+  });
+  assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
+  const registeredAgentId = (registered.body as { id: string }).id;
+  const host = await app.inject({
+    method: 'POST',
+    path: '/api/v1/hosts',
+    headers,
+    body: { hostname: 'strategy-host.example.com', osType: 'WINDOWS', agentId: registeredAgentId, compatibilityLevel: 'L1', managementMode: 'AGENT' },
+  });
+  assert.equal(host.statusCode, 201, JSON.stringify(host.body));
+  const hostBody = host.body as { id: string };
+  const service = await app.inject({
+    method: 'POST',
+    path: '/api/v1/service-instances',
+    headers,
+    body: { hostId: hostBody.id, providerType: 'IIS', serviceName: 'iis', displayName: 'iis', configPath: 'IIS:\\\\Sites' },
+  });
+  assert.equal(service.statusCode, 201, JSON.stringify(service.body));
+  const serviceBody = service.body as { id: string };
+  const serviceAsset = await app.inject({
+    method: 'POST',
+    path: '/api/v1/service-assets',
+    headers,
+    body: {
+      serviceInstanceId: serviceBody.id,
+      hostId: hostBody.id,
+      agentId: registeredAgentId,
+      address: domain,
+      addressType: 'DNS',
+      protocol: 'HTTPS',
+      port: 443,
+      platform: 'WINDOWS',
+      displayName: domain,
+    },
+  });
+  assert.equal(serviceAsset.statusCode, 201, JSON.stringify(serviceAsset.body));
+  const serviceAssetBody = serviceAsset.body as { id: string };
+  const siteAsset = await app.inject({
+    method: 'POST',
+    path: '/api/v1/site-assets',
+    headers,
+    body: {
+      serviceInstanceId: serviceBody.id,
+      serviceAssetId: serviceAssetBody.id,
+      hostId: hostBody.id,
+      agentId: registeredAgentId,
+      providerType: 'IIS',
+      siteType: 'WEB_SITE',
+      siteName: 'Strategy Site',
+      siteKey: `${agentId}:iis:strategy-site:*:443:${domain}`,
+      bindingInformation: `*:443:${domain}`,
+      hostHeader: domain,
+      listenIp: '*',
+      port: 443,
+      protocol: 'HTTPS',
+    },
+  });
+  assert.equal(siteAsset.statusCode, 201, JSON.stringify(siteAsset.body));
+  const siteAssetBody = siteAsset.body as { id: string };
+  const managedTarget = await app.inject({
+    method: 'POST',
+    path: '/api/v1/managed-targets',
+    headers,
+    body: {
+      agentId: registeredAgentId,
+      hostId: hostBody.id,
+      serviceInstanceId: serviceBody.id,
+      serviceAssetId: serviceAssetBody.id,
+      siteAssetId: siteAssetBody.id,
+      providerType: 'IIS',
+      frameworkType: 'IIS',
+      targetType: 'SITE_BINDING',
+      targetKey: `${agentId}:iis:strategy-site:*:443:${domain}`,
+      bindingKey: `*:443:${domain}`,
+      capabilityProfile: { canDeployPfx: true },
+      deploymentMode: 'AGENT_PUSH',
+    },
+  });
+  assert.equal(managedTarget.statusCode, 201, JSON.stringify(managedTarget.body));
+  const managedTargetBody = managedTarget.body as { id: string; bindingKey?: string };
+  const targetBinding = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/service-assets',
+    headers,
+    body: {
+      id: serviceAssetBody.id,
+      targetBinding: {
+        agentId: registeredAgentId,
+        siteAssetId: siteAssetBody.id,
+        managedTargetId: managedTargetBody.id,
+        providerType: 'IIS',
+        frameworkType: 'IIS',
+        targetType: 'SITE_BINDING',
+        targetKey: managedTargetBody.id,
+        bindingKey: managedTargetBody.bindingKey,
+        status: 'ACTIVE',
+      },
+    },
+  });
+  assert.equal(targetBinding.statusCode, 200, JSON.stringify(targetBinding.body));
+  return { agentId: registeredAgentId, domain, serviceAssetId: serviceAssetBody.id, siteAssetId: siteAssetBody.id, managedTargetId: managedTargetBody.id };
+}
+
+function workflowTemplateFixture(name: string): WorkflowDslV1 {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name, category: 'certificate_deployment' },
+    variables: {
+      host: { type: 'string', required: true },
+      sshCredential: { type: 'secret', required: false },
+    },
+    steps: [
+      {
+        name: 'verify',
+        type: 'ssh',
+        ssh: {
+          mode: 'command',
+          connection: {
+            host: '{{host}}',
+            username: 'deploy',
+            credentialSecretRef: 'secret://ssh/default',
+          },
+          command: 'echo ok',
+        },
+      },
+    ],
+  };
 }
 
 describe('资产与证书绑定 API', () => {
@@ -927,6 +1066,55 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(updated.reloadCommand, 'systemctl reload nginx');
   });
 
+  it('DiscoveryIngest apply 会保留 NGINX 权限检查与命令准备 metadata', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_nginx_permission_ingest', 'x-actor-id': 'user_admin' };
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'perm.example.com', osType: 'LINUX' } })).body as { id: string };
+    const service = (await app.inject({ method: 'POST', path: '/api/v1/service-instances', headers, body: { hostId: host.id, providerType: 'NGINX', serviceName: 'nginx', displayName: 'nginx' } })).body as { id: string };
+
+    const ingest = await app.inject({
+      method: 'POST',
+      path: '/api/v1/discovery-snapshots/ingest',
+      headers,
+      body: {
+        normalizedHash: 'nginx-permission-001',
+        source: 'AGENT',
+        apply: true,
+        normalizedPayload: {
+          bindings: [{
+            serviceRef: service.id,
+            domainName: 'perm.example.com',
+            port: 443,
+            protocol: 'HTTPS',
+            bindingType: 'FILE_PATH',
+            certPath: '/var/lib/gcac/nginx-certs/perm/fullchain.pem',
+            keyPath: '/var/lib/gcac/nginx-certs/perm/privkey.pem',
+            verifyMethod: 'TLS_CONNECT',
+            metadata: {
+              testCommand: '/usr/sbin/nginx -t',
+              reloadCommand: '/usr/bin/systemctl reload nginx',
+              permission: {
+                privilegeMode: 'sudo-n',
+                helperRequired: false,
+                certPath: { parentDirWritable: true },
+                keyPath: { parentDirWritable: true },
+              },
+            },
+          }],
+        },
+      },
+    });
+    assert.equal(ingest.statusCode, 201, JSON.stringify(ingest.body));
+
+    const page = await app.inject({ method: 'GET', path: '/api/v1/certificate-bindings?filter[domainName]=perm.example.com', headers });
+    assert.equal(page.statusCode, 200);
+    const binding = (page.body as { items: Array<{ metadata?: { testCommand?: string; reloadCommand?: string; permission?: { privilegeMode?: string; certPath?: { parentDirWritable?: boolean } } } }> }).items[0]!;
+    assert.equal(binding.metadata?.testCommand, '/usr/sbin/nginx -t');
+    assert.equal(binding.metadata?.reloadCommand, '/usr/bin/systemctl reload nginx');
+    assert.equal(binding.metadata?.permission?.privilegeMode, 'sudo-n');
+    assert.equal(binding.metadata?.permission?.certPath?.parentDirWritable, true);
+  });
+
   it('drift-results 持久化 local/remote 结果并更新 driftStatus，unreachable 不覆盖 local 字段', async () => {
     const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_spec007_drift_persist', 'x-actor-id': 'user_admin' };
@@ -1402,4 +1590,246 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.ok(detailBody.targetBindingDetail?.certificateBindings.length);
     assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.managedTargetId, managedTarget.id);
     assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.siteAssetId, siteAsset.id);
+  });
+
+  it('ServiceAsset 策略会从旧 Agent 绑定推导，并拒绝未发布工作流和明文 Secret', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec0151_strategy', 'x-actor-id': 'user_admin' };
+    const chain = await createApplicationAssetTargetChain(app, headers);
+
+    const detail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/service-assets/detail?id=${chain.serviceAssetId}`,
+      headers,
+    });
+    assert.equal(detail.statusCode, 200, JSON.stringify(detail.body));
+    const detailBody = detail.body as { deploymentStrategy?: { type: string; agent?: { agentId: string; siteAssetId: string; managedTargetId: string } } };
+    assert.equal(detailBody.deploymentStrategy?.type, 'AGENT');
+    assert.equal(detailBody.deploymentStrategy?.agent?.agentId, chain.agentId);
+    assert.equal(detailBody.deploymentStrategy?.agent?.siteAssetId, chain.siteAssetId);
+    assert.equal(detailBody.deploymentStrategy?.agent?.managedTargetId, chain.managedTargetId);
+
+    const draft = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      headers,
+      body: { content: workflowTemplateFixture('未发布策略工作流') },
+    });
+    assert.equal(draft.statusCode, 201, JSON.stringify(draft.body));
+    const draftBody = draft.body as { template: { id: string }; version: { id: string } };
+
+    const rejectedDraft = await app.inject({
+      method: 'PATCH',
+      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
+      headers,
+      body: {
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: draftBody.template.id,
+            workflowVersionId: draftBody.version.id,
+            runner: 'CONTROL_PLANE',
+          },
+        },
+      },
+    });
+    assert.equal(rejectedDraft.statusCode, 400);
+    assert.equal((rejectedDraft.body as { details?: { code?: string } }).details?.code, 'WORKFLOW_VERSION_NOT_PUBLISHED');
+
+    const published = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions/publish',
+      headers,
+      body: { versionId: draftBody.version.id },
+    });
+    assert.equal(published.statusCode, 200, JSON.stringify(published.body));
+
+    const rejectedSecret = await app.inject({
+      method: 'PATCH',
+      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
+      headers,
+      body: {
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: draftBody.template.id,
+            workflowVersionId: draftBody.version.id,
+            runner: 'CONTROL_PLANE',
+            credentialRefs: { ssh: 'plain-password' },
+          },
+        },
+      },
+    });
+    assert.equal(rejectedSecret.statusCode, 400);
+    assert.equal((rejectedSecret.body as { details?: { code?: string } }).details?.code, 'DEPLOYMENT_STRATEGY_INVALID');
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
+      headers,
+      body: {
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: draftBody.template.id,
+            workflowVersionId: draftBody.version.id,
+            runner: 'CONTROL_PLANE',
+            credentialRefs: { ssh: 'secret://ssh/app-target' },
+            variableBindings: { host: chain.domain },
+          },
+        },
+      },
+    });
+    assert.equal(updated.statusCode, 200, JSON.stringify(updated.body));
+    const updatedBody = updated.body as { deploymentStrategy?: { type: string; workflow?: { workflowVersionId: string; credentialRefs?: Record<string, string> } }; metadata?: { deploymentStrategy?: { type: string } } };
+    assert.equal(updatedBody.deploymentStrategy?.type, 'WORKFLOW');
+    assert.equal(updatedBody.deploymentStrategy?.workflow?.workflowVersionId, draftBody.version.id);
+    assert.equal(updatedBody.deploymentStrategy?.workflow?.credentialRefs?.ssh, 'secret://ssh/app-target');
+    assert.equal(updatedBody.metadata?.deploymentStrategy?.type, 'WORKFLOW');
+  });
+
+  it('NGINX ApplicationAssetTarget 自动补绑定时会继承 FILE_PATH 证书路径', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec012_nginx_application_asset_target', 'x-actor-id': 'user_admin' };
+
+    const host = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers,
+      body: { hostname: 'nginx-app-target.example.com', primaryIp: '10.8.9.20', osType: 'LINUX', agentId: 'agent-nginx-02' },
+    })).body as { id: string };
+
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers,
+      body: { hostId: host.id, providerType: 'NGINX', serviceName: 'nginx', displayName: 'nginx', configPath: '/etc/nginx/nginx.conf' },
+    })).body as { id: string };
+
+    const siteAsset = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/site-assets',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        hostId: host.id,
+        agentId: 'agent-nginx-02',
+        providerType: 'NGINX',
+        siteType: 'WEB_SITE',
+        siteName: 'nginx-app-target.example.com',
+        siteKey: 'agent-nginx-02:nginx:nginx-app-target.example.com:*:443:nginx-app-target.example.com',
+        bindingInformation: '*:443:nginx-app-target.example.com',
+        hostHeader: 'nginx-app-target.example.com',
+        listenIp: '*',
+        port: 443,
+        protocol: 'HTTPS',
+        configPath: '/etc/nginx/sites-enabled/nginx-app-target.conf',
+        metadata: {
+          sourceFile: '/etc/nginx/sites-enabled/nginx-app-target.conf',
+          serverNames: ['nginx-app-target.example.com'],
+          testCommand: 'nginx -t',
+          reloadCommand: 'systemctl reload nginx',
+        },
+      },
+    })).body as { id: string };
+
+    const managedTarget = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/managed-targets',
+      headers,
+      body: {
+        agentId: 'agent-nginx-02',
+        hostId: host.id,
+        serviceInstanceId: service.id,
+        siteAssetId: siteAsset.id,
+        providerType: 'NGINX',
+        frameworkType: 'NGINX',
+        targetType: 'SITE_BINDING',
+        targetKey: 'agent-nginx-02:nginx:nginx-app-target.example.com:*:443:nginx-app-target.example.com',
+        bindingKey: 'nginx:*:443:nginx-app-target.example.com',
+        capabilityProfile: { providerType: 'NGINX' },
+        deploymentMode: 'AGENT_PUSH',
+      },
+    })).body as { id: string; bindingKey?: string };
+
+    const siblingBinding = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        siteAssetId: siteAsset.id,
+        managedTargetId: managedTarget.id,
+        domainName: 'nginx-app-target.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingKey: managedTarget.bindingKey,
+        bindingType: 'FILE_PATH',
+        certPath: '/etc/nginx/certs/nginx-app-target.pem',
+        keyPath: '/etc/nginx/certs/nginx-app-target.key',
+        reloadCommand: 'systemctl reload nginx',
+        verifyMethod: 'TLS_CONNECT',
+        metadata: {
+          sourceFile: '/etc/nginx/sites-enabled/nginx-app-target.conf',
+          serverNames: ['nginx-app-target.example.com'],
+          testCommand: 'nginx -t',
+        },
+      },
+    });
+    assert.equal(siblingBinding.statusCode, 201);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        address: 'manual-nginx-app-target.example.com',
+        addressType: 'DNS',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        hostId: host.id,
+        agentId: 'agent-nginx-02',
+        serviceInstanceId: service.id,
+        displayName: 'Manual NGINX App Target',
+        targetBinding: {
+          agentId: 'agent-nginx-02',
+          siteAssetId: siteAsset.id,
+          managedTargetId: managedTarget.id,
+          providerType: 'NGINX',
+          frameworkType: 'NGINX',
+          targetType: 'SITE_BINDING',
+          targetKey: managedTarget.id,
+          bindingKey: managedTarget.bindingKey,
+          status: 'ACTIVE',
+          metadata: { source: 'manual' },
+        },
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdAsset = created.body as { id: string };
+
+    const detail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/service-assets/detail?serviceAssetId=${createdAsset.id}`,
+      headers,
+    });
+    assert.equal(detail.statusCode, 200);
+    const detailBody = detail.body as {
+      targetBindingDetail?: {
+        certificateBindings: Array<{
+          serviceAssetId?: string;
+          bindingType?: string;
+          certPath?: string;
+          keyPath?: string;
+          verifyMethod?: string;
+        }>;
+      };
+    };
+    const assetBinding = (detailBody.targetBindingDetail?.certificateBindings ?? []).find((item) => item.serviceAssetId === createdAsset.id);
+    assert.ok(assetBinding);
+    assert.equal(assetBinding?.bindingType, 'FILE_PATH');
+    assert.equal(assetBinding?.certPath, '/etc/nginx/certs/nginx-app-target.pem');
+    assert.equal(assetBinding?.keyPath, '/etc/nginx/certs/nginx-app-target.key');
+    assert.equal(assetBinding?.verifyMethod, 'TLS_CONNECT');
   });

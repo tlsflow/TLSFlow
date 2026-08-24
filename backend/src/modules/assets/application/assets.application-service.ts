@@ -34,10 +34,14 @@ import type {
   UpdateHostDto,
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
+  ServiceAssetDto,
+  DeploymentStrategyDto,
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { AgentDirectClient } from '../../agents/application/agent-direct-client.js';
+import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
+import { normalizeDeploymentStrategy, resolveDeploymentStrategy } from './deployment-strategy.service.js';
 
 export class AssetsApplicationService {
   constructor(
@@ -46,6 +50,7 @@ export class AssetsApplicationService {
     private bindingsRepository?: BindingsRepository,
     private agentsService?: AgentsApplicationService,
     private readonly directClient = new AgentDirectClient(),
+    private workflowTemplates?: WorkflowTemplatesApplicationService,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -54,6 +59,10 @@ export class AssetsApplicationService {
 
   setAgentsService(agentsService: AgentsApplicationService): void {
     this.agentsService = agentsService;
+  }
+
+  setWorkflowTemplatesService(workflowTemplates: WorkflowTemplatesApplicationService): void {
+    this.workflowTemplates = workflowTemplates;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -90,26 +99,43 @@ export class AssetsApplicationService {
 
   async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     const normalized = this.domain.normalizeServiceAsset(input);
+    if (normalized.deploymentStrategy) {
+      const strategy = normalizeDeploymentStrategy(normalized.deploymentStrategy, {
+        asset: { id: '', agentId: normalized.agentId, metadata: normalized.metadata },
+        targetBinding: normalized.targetBinding,
+      });
+      await this.validateDeploymentStrategyReferences(tenantId, strategy);
+      normalized.deploymentStrategy = strategy;
+    }
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform, normalized.agentId);
     const created = await this.repository.createServiceAsset(tenantId, normalized);
     if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
     await this.ensureApplicationAssetTargetBinding(tenantId, created.id);
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
-    if (hydrated) return hydrated;
-    return created;
+    if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
+    return this.hydrateServiceAssetStrategy(tenantId, created);
   }
 
   async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     const normalized = this.domain.normalizeServiceAssetPatch(input);
     const current = await this.repository.getServiceAsset(tenantId, serviceAssetId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    if (normalized.deploymentStrategy) {
+      const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
+      const strategy = normalizeDeploymentStrategy(normalized.deploymentStrategy, {
+        asset: current,
+        targetBinding,
+      });
+      await this.validateDeploymentStrategyReferences(tenantId, strategy);
+      normalized.deploymentStrategy = strategy;
+    }
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform ?? current.platform, normalized.agentId ?? current.agentId);
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
     await this.ensureApplicationAssetTargetBinding(tenantId, updated.id);
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
-    if (hydrated) return hydrated;
-    return updated;
+    if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
+    return this.hydrateServiceAssetStrategy(tenantId, updated);
   }
 
   async deleteServiceAsset(tenantId: string, serviceAssetId: string) {
@@ -117,11 +143,26 @@ export class AssetsApplicationService {
   }
 
   async listServiceAssets(tenantId: string, query: PageQuery) {
-    return this.repository.listServiceAssets(tenantId, query);
+    const result = await this.repository.listServiceAssets(tenantId, query);
+    return { ...result, items: await Promise.all(result.items.map((item) => this.hydrateServiceAssetStrategy(tenantId, item))) };
   }
 
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
-    return this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
+    const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
+    return detail ? this.hydrateServiceAssetStrategy(tenantId, detail) : detail;
+  }
+
+  async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {
+    const asset = await this.repository.getServiceAsset(tenantId, serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
+    const normalized = normalizeDeploymentStrategy(strategy, { asset, targetBinding, actorId });
+    await this.validateDeploymentStrategyReferences(tenantId, normalized);
+    const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, {
+      metadata: { ...asset.metadata, deploymentStrategy: normalized },
+      deploymentStrategy: normalized,
+    });
+    return this.hydrateServiceAssetStrategy(tenantId, updated);
   }
 
   async createSiteAsset(tenantId: string, input: CreateSiteAssetDto) {
@@ -731,9 +772,28 @@ export class AssetsApplicationService {
       const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
       return itemDomain !== '' && itemDomain === normalizedAddress;
     });
-    if (existing) return;
+    const providerType = (siteAsset.providerType ?? managedTarget.providerType ?? 'IIS') as 'IIS' | 'NGINX';
+    const siblingBinding = this.findApplicationAssetSiblingBinding(detail?.certificateBindings ?? [], bindingTarget, applicationAsset.address);
+    if (existing) {
+      if (providerType === 'NGINX') {
+        await this.patchApplicationAssetLinuxBindingIfNeeded(tenantId, existing, managedTarget, siteAsset, siblingBinding);
+      }
+      return;
+    }
 
-    await this.requireBindingsRepository().createCertificateBinding(tenantId, {
+    const createInput = providerType === 'NGINX'
+      ? this.buildApplicationAssetLinuxBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset, siblingBinding)
+      : this.buildApplicationAssetWindowsBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset);
+    await this.requireBindingsRepository().createCertificateBinding(tenantId, createInput);
+  }
+
+  private buildApplicationAssetWindowsBindingInput(
+    applicationAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>,
+    bindingTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>>,
+    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
+    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
+  ): CreateCertificateBindingDto {
+    return {
       serviceAssetId: applicationAsset.id,
       siteAssetId: siteAsset.id,
       managedTargetId: managedTarget.id,
@@ -756,7 +816,134 @@ export class AssetsApplicationService {
         bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
         appPool: typeof siteAsset.metadata?.appPool === 'string' ? siteAsset.metadata.appPool : undefined,
       },
+    };
+  }
+
+  private buildApplicationAssetLinuxBindingInput(
+    applicationAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>,
+    bindingTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>>,
+    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
+    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
+    siblingBinding?: { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> },
+  ): CreateCertificateBindingDto {
+    const capabilityProfile = toRecord(managedTarget.capabilityProfile);
+    const sourceFile = normalizeOptionalString(siteAsset.configPath)
+      ?? readString(siteAsset.metadata, 'sourceFile')
+      ?? readString(siblingBinding?.metadata, 'sourceFile');
+    const serverNames = [...new Set([
+      ...readStringArray(siteAsset.metadata, 'serverNames'),
+      ...readStringArray(siblingBinding?.metadata, 'serverNames'),
+      normalizeOptionalString(applicationAsset.address),
+      normalizeOptionalString(siteAsset.hostHeader),
+    ].filter(Boolean))];
+
+    return {
+      serviceAssetId: applicationAsset.id,
+      siteAssetId: siteAsset.id,
+      managedTargetId: managedTarget.id,
+      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
+      domainName: applicationAsset.address,
+      domain: applicationAsset.address,
+      port: applicationAsset.port ?? siteAsset.port,
+      protocol: (applicationAsset.protocol ?? siteAsset.protocol ?? 'HTTPS') as CreateCertificateBindingDto['protocol'],
+      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAsset.address,
+      bindingType: 'FILE_PATH',
+      certPath: normalizeOptionalString(siblingBinding?.certPath)
+        ?? readString(capabilityProfile, 'certPath')
+        ?? readString(siteAsset.metadata, 'certPath'),
+      keyPath: normalizeOptionalString(siblingBinding?.keyPath)
+        ?? readString(capabilityProfile, 'keyPath')
+        ?? readString(siteAsset.metadata, 'keyPath'),
+      reloadCommand: normalizeOptionalString(siblingBinding?.reloadCommand)
+        ?? readString(capabilityProfile, 'reloadCommand')
+        ?? readString(siteAsset.metadata, 'reloadCommand'),
+      verifyMethod: 'TLS_CONNECT',
+      status: 'MANAGED',
+      metadata: {
+        source: 'application_asset_target',
+        targetKey: bindingTarget.targetKey,
+        siteName: siteAsset.siteName,
+        hostHeader: siteAsset.hostHeader ?? '',
+        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
+        sourceFile,
+        serverNames,
+        testCommand: readString(siblingBinding?.metadata, 'testCommand')
+          ?? readString(capabilityProfile, 'testCommand')
+          ?? readString(siteAsset.metadata, 'testCommand'),
+        permission: readRecord(siblingBinding?.metadata, 'permission')
+          ?? readRecord(siteAsset.metadata, 'permission')
+          ?? {},
+      },
+    };
+  }
+
+  private findApplicationAssetSiblingBinding(
+    bindings: Array<{
+      id?: string;
+      serviceInstanceId?: string;
+      serviceAssetId?: string;
+      siteAssetId?: string;
+      managedTargetId?: string;
+      bindingKey?: string;
+      domainName?: string;
+      domain?: string;
+      certPath?: string;
+      keyPath?: string;
+      reloadCommand?: string;
+      metadata?: Record<string, unknown>;
+    }>,
+    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
+    applicationAddress: string,
+  ): { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> } | undefined {
+    const normalizedAddress = applicationAddress.trim().toLowerCase();
+    const normalizedBindingKey = String(bindingTarget.bindingKey ?? '').trim().toLowerCase();
+    const itemsWithPaths = bindings.filter((item) => Boolean(normalizeOptionalString(item.certPath) && normalizeOptionalString(item.keyPath)));
+    return itemsWithPaths.find((item) =>
+      item.managedTargetId === bindingTarget.managedTargetId
+      && item.siteAssetId === bindingTarget.siteAssetId
+      && (
+        (normalizedBindingKey && String(item.bindingKey ?? '').trim().toLowerCase() === normalizedBindingKey)
+        || String(item.domainName ?? item.domain ?? '').trim().toLowerCase() === normalizedAddress
+      ),
+    ) ?? itemsWithPaths.find((item) => {
+      const itemBindingKey = String(item.bindingKey ?? '').trim().toLowerCase();
+      const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
+      if (normalizedBindingKey && itemBindingKey === normalizedBindingKey) return true;
+      return itemDomain !== '' && itemDomain === normalizedAddress;
     });
+  }
+
+  private async patchApplicationAssetLinuxBindingIfNeeded(
+    tenantId: string,
+    binding: { id: string; certPath?: string; keyPath?: string; reloadCommand?: string; bindingType?: string; verifyMethod?: string },
+    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
+    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
+    siblingBinding?: { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> },
+  ): Promise<void> {
+    const capabilityProfile = toRecord(managedTarget.capabilityProfile);
+    const certPath = normalizeOptionalString(binding.certPath)
+      ?? normalizeOptionalString(siblingBinding?.certPath)
+      ?? readString(capabilityProfile, 'certPath')
+      ?? readString(siteAsset.metadata, 'certPath');
+    const keyPath = normalizeOptionalString(binding.keyPath)
+      ?? normalizeOptionalString(siblingBinding?.keyPath)
+      ?? readString(capabilityProfile, 'keyPath')
+      ?? readString(siteAsset.metadata, 'keyPath');
+    if (!certPath || !keyPath) return;
+
+    const patch: UpdateCertificateBindingDto = {};
+    if (!normalizeOptionalString(binding.certPath)) patch.certPath = certPath;
+    if (!normalizeOptionalString(binding.keyPath)) patch.keyPath = keyPath;
+    if (binding.bindingType !== 'FILE_PATH') patch.bindingType = 'FILE_PATH';
+    if (binding.verifyMethod !== 'TLS_CONNECT') patch.verifyMethod = 'TLS_CONNECT';
+    if (!normalizeOptionalString(binding.reloadCommand)) {
+      const reloadCommand = normalizeOptionalString(siblingBinding?.reloadCommand)
+        ?? readString(capabilityProfile, 'reloadCommand')
+        ?? readString(siteAsset.metadata, 'reloadCommand');
+      if (reloadCommand) patch.reloadCommand = reloadCommand;
+    }
+    if (Object.keys(patch).length === 0) return;
+    await this.requireBindingsRepository().updateCertificateBinding(tenantId, binding.id, patch);
   }
 
   private async ensureAgentHostAnchor(tenantId: string, agentId: string | undefined, serviceInstanceId?: string): Promise<string | undefined> {
@@ -829,10 +1016,67 @@ export class AssetsApplicationService {
     }
     if (tomcatDetail) {
       projectLinuxTomcatDiscovery(agentId, tomcatDetail, payload);
-    }
-    return payload;
+	    }
+	    return payload;
+	  }
+
+  private async hydrateServiceAssetStrategy<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {
+    const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, asset.id);
+    return {
+      ...asset,
+      deploymentStrategy: resolveDeploymentStrategy({ asset, targetBinding }),
+    };
   }
-}
+
+  private async validateDeploymentStrategyReferences(tenantId: string, strategy: DeploymentStrategyDto): Promise<void> {
+    if (strategy.type === 'AGENT') {
+      const agent = strategy.agent;
+      if (!agent) throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agent 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+      if (!await this.repository.getSiteAsset(tenantId, agent.siteAssetId)) {
+        throw new AppError('RESOURCE_NOT_FOUND', 'AGENT 策略引用的 SiteAsset 不存在', { siteAssetId: agent.siteAssetId });
+      }
+      if (!await this.repository.getManagedTarget(tenantId, agent.managedTargetId)) {
+        throw new AppError('RESOURCE_NOT_FOUND', 'AGENT 策略引用的 ManagedTarget 不存在', { managedTargetId: agent.managedTargetId });
+      }
+      return;
+    }
+    if (strategy.type === 'WORKFLOW') {
+      const workflow = strategy.workflow;
+      if (!workflow) throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflow 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+      if (!this.workflowTemplates) {
+        throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入，不能保存 WORKFLOW 部署策略', { code: 'WORKFLOW_VERSION_VALIDATOR_MISSING' });
+      }
+      const version = await this.workflowTemplates.getVersion(workflow.workflowVersionId);
+      if (version.templateId !== workflow.workflowId) {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略引用的 workflowId 与 workflowVersionId 不匹配', {
+          code: 'DEPLOYMENT_STRATEGY_INVALID',
+          workflowId: workflow.workflowId,
+          workflowVersionId: workflow.workflowVersionId,
+          actualWorkflowId: version.templateId,
+        });
+      }
+      if (version.status !== 'published') {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略只能引用已发布的工作流版本', {
+          code: 'WORKFLOW_VERSION_NOT_PUBLISHED',
+          workflowId: workflow.workflowId,
+          workflowVersionId: workflow.workflowVersionId,
+          status: version.status,
+        });
+      }
+      if (workflow.rollbackWorkflowVersionId) {
+        const rollbackVersion = await this.workflowTemplates.getVersion(workflow.rollbackWorkflowVersionId);
+        if (rollbackVersion.status !== 'published') {
+          throw new AppError('VALIDATION_FAILED', 'WORKFLOW 回滚策略只能引用已发布的工作流版本', {
+            code: 'WORKFLOW_VERSION_NOT_PUBLISHED',
+            workflowId: rollbackVersion.templateId,
+            workflowVersionId: workflow.rollbackWorkflowVersionId,
+            status: rollbackVersion.status,
+          });
+        }
+      }
+    }
+  }
+	}
 
 function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; siteAssets: NormalizedDiscoveredSiteAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
   const bindings = arrayOfObjects(payload.bindings ?? payload.certificateBindings) as unknown as NormalizedDiscoveredBindingDto[];
@@ -973,8 +1217,8 @@ function projectWindowsIISDiscovery(
         serviceAssetRef: `${hostHeader}:${port}:${protocol}`.toLowerCase(),
         siteAssetRef: `site-asset:${siteKey}`.toLowerCase(),
       });
-    }
-  }
+	    }
+	  }
 }
 
 function projectLinuxWebDiscovery(
@@ -991,12 +1235,13 @@ function projectLinuxWebDiscovery(
 ): void {
   const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
   const serviceName = providerType === 'NGINX' ? 'nginx' : 'apache';
+  const configPath = readString(detail, 'ConfigPath') ?? readString(detail, 'configPath');
   payload.services.push({
     hostname: hostRef,
     providerType,
     serviceName,
     displayName: serviceName,
-    configPath: readString(detail, 'ConfigPath') ?? readString(detail, 'configPath'),
+    configPath,
     discoverySource: 'AGENT',
     status: 'ACTIVE',
     rawFacts: detail,
@@ -1005,12 +1250,54 @@ function projectLinuxWebDiscovery(
   for (const site of sites) {
     const siteName = normalizeOptionalString(readString(site, 'Name') ?? readString(site, 'name'));
     if (!siteName) continue;
+    const serverNames = readStringArray(site, 'ServerNames').concat(readStringArray(site, 'serverNames'));
+    const hostHeader = normalizeOptionalString(serverNames[0] ?? siteName);
+    const sitePath = readString(site, 'SitePath') ?? readString(site, 'sitePath');
+    const siteMode = readString(site, 'SiteMode') ?? readString(site, 'siteMode');
+    const proxyTargets = readStringArray(site, 'ProxyTargets').concat(readStringArray(site, 'proxyTargets'));
+    const configFiles = readStringArray(site, 'ConfigFiles').concat(readStringArray(site, 'configFiles'));
     const bindings = readObjectArray(site, 'Listen').concat(readObjectArray(site, 'listen'));
     for (const binding of bindings) {
       const port = readNumber(binding, 'Port') ?? readNumber(binding, 'port');
       const protocol = normalizeProtocol(readString(binding, 'Protocol') ?? readString(binding, 'protocol'));
-      const address = normalizeOptionalString(readStringArray(site, 'ServerNames')[0] ?? readStringArray(site, 'serverNames')[0] ?? siteName);
+      const address = normalizeOptionalString(hostHeader ?? siteName);
       if (!port || !protocol || !address) continue;
+      const bindingAddress = normalizeOptionalString(readString(binding, 'Address') ?? readString(binding, 'address')) ?? '*';
+      const bindingInformation = `${bindingAddress}:${port}:${hostHeader ?? ''}`;
+      const siteKey = `${agentId}:${providerType.toLowerCase()}:${siteName}:${bindingInformation}`.toLowerCase();
+      payload.siteAssets.push({
+        serviceRef: `${hostRef}:${providerType}:${serviceName}`.toLowerCase(),
+        serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+        siteAssetRef: `site-asset:${siteKey}`,
+        hostname: hostRef,
+        providerType,
+        serviceName,
+        agentId,
+        siteType: 'WEB_SITE',
+        siteName,
+        siteKey,
+        bindingInformation,
+        hostHeader: hostHeader ?? undefined,
+        listenIp: bindingAddress,
+        port,
+        protocol,
+        configPath: configFiles[0] || configPath,
+        runtimeStatus: siteMode,
+        discoverySource: 'AGENT',
+        status: 'ACTIVE',
+        metadata: {
+          sitePath,
+          siteMode,
+          serverNames,
+          proxyTargets,
+          configFiles,
+          certPath: readString(binding, 'CertificatePath') ?? readString(binding, 'certificatePath'),
+          keyPath: readString(binding, 'CertificateKeyPath') ?? readString(binding, 'certificateKeyPath'),
+          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
+          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
+          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
+        },
+      });
       payload.serviceAssets.push({
         hostname: hostRef,
         providerType,
@@ -1022,6 +1309,11 @@ function projectLinuxWebDiscovery(
         displayName: address,
         discoverySource: 'AGENT',
         status: 'ACTIVE',
+        metadata: {
+          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
+          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
+          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
+        },
       });
       payload.bindings.push({
         hostname: hostRef,
@@ -1034,7 +1326,16 @@ function projectLinuxWebDiscovery(
         certPath: readString(binding, 'CertificatePath') ?? readString(binding, 'certificatePath'),
         keyPath: readString(binding, 'CertificateKeyPath') ?? readString(binding, 'certificateKeyPath'),
         verifyMethod: 'TLS_CONNECT',
+        bindingKey: bindingInformation,
         serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+        siteAssetRef: `site-asset:${siteKey}`,
+        metadata: {
+          sourceFile: configFiles[0] || configPath,
+          serverNames,
+          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
+          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
+          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
+        },
       });
     }
   }
@@ -1052,12 +1353,13 @@ function projectLinuxTomcatDiscovery(
   },
 ): void {
   const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
+  const configPath = readString(detail, 'ConfigPath') ?? readString(detail, 'configPath');
   payload.services.push({
     hostname: hostRef,
     providerType: 'TOMCAT',
     serviceName: 'tomcat',
     displayName: 'tomcat',
-    configPath: readString(detail, 'ConfigPath') ?? readString(detail, 'configPath'),
+    configPath,
     discoverySource: 'AGENT',
     status: 'ACTIVE',
     rawFacts: detail,
@@ -1068,6 +1370,32 @@ function projectLinuxTomcatDiscovery(
     const protocol = normalizeProtocol(readString(connector, 'Protocol') ?? readString(connector, 'protocol'));
     if (!port || !protocol) continue;
     const address = normalizeOptionalString(readString(connector, 'Address') ?? readString(connector, 'address')) ?? hostRef;
+    const bindingAddress = normalizeOptionalString(readString(connector, 'Address') ?? readString(connector, 'address')) ?? '*';
+    const bindingInformation = `${bindingAddress}:${port}:${address}`;
+    const siteKey = `${agentId}:tomcat:${address}:${bindingInformation}`.toLowerCase();
+    payload.siteAssets.push({
+      serviceRef: `${hostRef}:TOMCAT:tomcat`.toLowerCase(),
+      serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+      siteAssetRef: `site-asset:${siteKey}`,
+      hostname: hostRef,
+      providerType: 'TOMCAT',
+      serviceName: 'tomcat',
+      agentId,
+      siteType: 'WEB_SITE',
+      siteName: address,
+      siteKey,
+      bindingInformation,
+      hostHeader: address,
+      listenIp: bindingAddress,
+      port,
+      protocol,
+      configPath,
+      discoverySource: 'AGENT',
+      status: 'ACTIVE',
+      metadata: {
+        keystorePath: readString(connector, 'KeystorePath') ?? readString(connector, 'keystorePath'),
+      },
+    });
     payload.serviceAssets.push({
       hostname: hostRef,
       providerType: 'TOMCAT',
@@ -1087,12 +1415,14 @@ function projectLinuxTomcatDiscovery(
       domainName: address,
       port,
       protocol,
+      bindingKey: bindingInformation,
       bindingType: 'FILE_PATH',
       certPath: readString(connector, 'CertificatePath') ?? readString(connector, 'certificatePath'),
       keyPath: readString(connector, 'CertificateKeyPath') ?? readString(connector, 'certificateKeyPath'),
       keystorePath: readString(connector, 'KeystorePath') ?? readString(connector, 'keystorePath'),
       verifyMethod: 'TLS_CONNECT',
       serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+      siteAssetRef: `site-asset:${siteKey}`,
     });
   }
 }
@@ -1101,6 +1431,12 @@ function readString(value: Record<string, unknown> | undefined, key: string): st
   if (!value) return undefined;
   const direct = value[key];
   return typeof direct === 'string' && direct.trim() ? direct.trim() : undefined;
+}
+
+function readRecord(value: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const direct = value[key];
+  return direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : undefined;
 }
 
 function readNumber(value: Record<string, unknown> | undefined, key: string): number | undefined {
@@ -1294,15 +1630,23 @@ function managedTargetToCreateDto(
 }
 
 function managedTargetCapabilityProfile(
-  discovered: Pick<NormalizedDiscoveredSiteAssetDto, 'protocol' | 'bindingInformation' | 'hostHeader' | 'siteType'>,
+  discovered: Pick<NormalizedDiscoveredSiteAssetDto, 'protocol' | 'bindingInformation' | 'hostHeader' | 'siteType' | 'metadata'>,
   siteAsset: { providerType: string; serviceAssetId?: string },
 ): Record<string, unknown> {
+  const metadata = toRecord(discovered.metadata ?? {});
   return {
     providerType: siteAsset.providerType,
     siteType: discovered.siteType ?? 'CUSTOM',
     protocol: discovered.protocol,
     bindingInformation: discovered.bindingInformation,
     hostHeader: discovered.hostHeader,
+    certPath: readString(metadata, 'certPath'),
+    keyPath: readString(metadata, 'keyPath'),
+    reloadCommand: readString(metadata, 'reloadCommand'),
+    testCommand: readString(metadata, 'testCommand'),
+    sourceFile: readString(metadata, 'sourceFile'),
+    serverNames: readStringArray(metadata, 'serverNames'),
+    permission: readRecord(metadata, 'permission') ?? {},
     serviceAssetLinked: Boolean(siteAsset.serviceAssetId),
   };
 }

@@ -79,10 +79,13 @@ export interface DeploymentArtifactSnapshotDto {
   certificateVersionId: string;
   certificateFormatId: string;
   format: string;
-  pfxBase64: string;
-  pfxPassword: string;
   containsPrivateKey: boolean;
+  certificatePem?: string;
+  privateKeyPem?: string;
+  pfxBase64?: string;
+  pfxPassword?: string;
   expectedFingerprintSha256?: string;
+  warnings?: string[];
 }
 
 export interface RetryExecutionRunInput {

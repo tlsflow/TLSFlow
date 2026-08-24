@@ -14,6 +14,7 @@ export interface HttpResponseBody {
   statusCode?: number;
   headers?: Record<string, string>;
   body?: unknown;
+  stream?: (response: import('node:http').ServerResponse) => Promise<void> | void;
 }
 
 export type HttpHandler = (request: HttpRequest) => Promise<HttpResponseBody | unknown> | HttpResponseBody | unknown;
