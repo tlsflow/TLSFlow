@@ -6,7 +6,28 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
 import { AgentsApplicationService } from '../application/agents.application-service.js';
-import type { AckAgentTaskInput, AgentCapabilitySnapshotInput, AgentHeartbeatInput, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DisableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type {
+  AckAgentTaskInput,
+  AgentCapabilitySnapshotInput,
+  AgentHeartbeatInput,
+  CheckAgentUpgradeInput,
+  CreateAgentCertificateSigningRequestInput,
+  CreateAgentSessionInput,
+  CreateEnrollmentTokenInput,
+  CreateLinuxGoInstallSessionInput,
+  CreateWindowsPowerShellInstallSessionInput,
+  DisableAgentInput,
+  EnqueueAgentTaskInput,
+  PublishAgentVersionInput,
+  RegisterAgentInput,
+  RevokeAgentCertificateInput,
+  RotateAgentCertificateInput,
+  SignAgentCertificateInput,
+  SubmitAgentTaskLogInput,
+  SubmitAgentTaskLogsInput,
+  SubmitAgentTaskResultInput,
+  SubmitAgentUpgradeResultInput,
+} from '../dto/agents.dto.js';
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
@@ -24,6 +45,13 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks/log-cursor', '查询 Agent 日志 ack cursor', tags, (request) => this.getLogCursor(request));
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
+    router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows PowerShell Agent 安装会话', tags, (request) => this.createWindowsPowerShellInstallSession(request));
+    router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
+    router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows PowerShell Agent bootstrap 脚本', tags, (request) => this.getWindowsPowerShellBootstrap(request));
+    router.get('/api/v1/agents/install/windows/manifest', '获取 Windows PowerShell Agent 安装清单', tags, (request) => this.getWindowsPowerShellManifest(request));
+    router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
+    router.get('/api/v1/agents/install/linux/manifest', '获取 Linux Go Agent 安装清单', tags, (request) => this.getLinuxGoManifest(request));
+    router.get('/api/v1/agents/install/linux/bundle.tar.gz', '下载 Linux Go Agent 安装 bundle', tags, (request) => this.getLinuxBundle(request));
     router.post('/api/v1/agents/disable', '禁用 Agent', tags, (request) => this.disableAgent(request));
     router.post('/api/v1/agents/register', '注册 Agent', tags, (request) => this.registerAgent(request));
     router.post('/api/v1/agents/sessions', '创建 Agent mTLS 会话', tags, (request) => this.createSession(request));
@@ -64,7 +92,101 @@ export class AgentsController {
       ttlSeconds: { type: 'number' },
       createdBy: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.createEnrollmentToken(tenantId(request), { createdBy: actorId(request), ...body } as unknown as CreateEnrollmentTokenInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.createEnrollmentToken(tenantId(request), { createdBy: actorId(request), ...body } as unknown as CreateEnrollmentTokenInput, requestId(request)),
+    };
+  }
+
+  private createWindowsPowerShellInstallSession(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      zone: { type: 'string' },
+      serviceName: { type: 'string' },
+      displayName: { type: 'string' },
+      installRoot: { type: 'string' },
+      configDir: { type: 'string' },
+      dataDir: { type: 'string' },
+      logDir: { type: 'string' },
+      startAfterInstall: { type: 'boolean' },
+    });
+    return {
+      statusCode: 201,
+      body: this.service.createWindowsPowerShellInstallSession(
+        tenantId(request),
+        body as unknown as CreateWindowsPowerShellInstallSessionInput,
+        requestId(request),
+        inferBaseUrl(request),
+      ),
+    };
+  }
+
+  private createLinuxGoInstallSession(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      zone: { type: 'string' },
+      agentKey: { type: 'string' },
+      serviceName: { type: 'string' },
+      displayName: { type: 'string' },
+      installRoot: { type: 'string' },
+      configDir: { type: 'string' },
+      dataDir: { type: 'string' },
+      logDir: { type: 'string' },
+    });
+    return {
+      statusCode: 201,
+      body: this.service.createLinuxGoInstallSession(
+        tenantId(request),
+        body as unknown as CreateLinuxGoInstallSessionInput,
+        requestId(request),
+        inferBaseUrl(request),
+      ),
+    };
+  }
+
+  private async getWindowsPowerShellBootstrap(request: HttpRequest) {
+    const token = readQuery(request, 'token');
+    await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+      },
+      body: renderWindowsPowerShellBootstrapScript(`${inferBaseUrl(request)}/api/v1/agents/install/windows/manifest?token=${encodeURIComponent(token)}`),
+    };
+  }
+
+  private async getWindowsPowerShellManifest(request: HttpRequest) {
+    const token = readQuery(request, 'token');
+    const session = await this.service.getWindowsPowerShellInstallSessionByToken(tenantId(request), token);
+    return this.service.buildWindowsPowerShellInstallManifest(session);
+  }
+
+  private async getLinuxGoBootstrap(request: HttpRequest) {
+    const token = readQuery(request, 'token');
+    await this.service.getInstallSessionByToken(token);
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/x-shellscript; charset=utf-8',
+      },
+      body: renderLinuxBootstrapScript(`${inferBaseUrl(request)}/api/v1/agents/install/linux/manifest?token=${encodeURIComponent(token)}`),
+    };
+  }
+
+  private async getLinuxGoManifest(request: HttpRequest) {
+    const token = readQuery(request, 'token');
+    const session = await this.service.getInstallSessionByToken(token);
+    return this.service.buildLinuxGoInstallManifest(session, inferBaseUrl(request));
+  }
+
+  private getLinuxBundle(_request: HttpRequest) {
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'application/gzip',
+        'content-disposition': 'attachment; filename=\"gcac-linux-agent-bundle.tar.gz\"',
+      },
+      body: this.service.buildLinuxBundleTarGz(),
+    };
   }
 
   private getAgentDetail(request: HttpRequest) {
@@ -318,6 +440,9 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/tasks/log-cursor', operationId: 'getAgentTaskLogCursor', summary: '查询 Agent 日志 ack cursor', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows PowerShell Agent 安装会话', tags, responseSchema: schema },
+    { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows PowerShell Agent bootstrap 脚本', tags, responseSchema: { type: 'string' } },
+    { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows PowerShell Agent 安装清单', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/register', operationId: 'registerAgent', summary: '注册 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/sessions', operationId: 'createAgentMtlsSession', summary: '创建 Agent mTLS 会话', tags, responseSchema: schema },
@@ -365,4 +490,116 @@ function readOptionalCsv(request: HttpRequest, key: string): string[] | undefine
   const normalized = Array.isArray(value) ? value.join(',') : value;
   if (!normalized) return undefined;
   return normalized.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function inferBaseUrl(request: HttpRequest): string {
+  const forwardedProto = Array.isArray(request.headers['x-forwarded-proto']) ? request.headers['x-forwarded-proto'][0] : request.headers['x-forwarded-proto'];
+  const proto = typeof forwardedProto === 'string' && forwardedProto ? forwardedProto : 'http';
+  const host = Array.isArray(request.headers.host) ? request.headers.host[0] : request.headers.host;
+  return `${proto}://${host ?? 'localhost'}`;
+}
+
+function renderWindowsPowerShellBootstrapScript(manifestUrl: string): string {
+  return [
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    '$manifest = Invoke-RestMethod -Method Get -Uri ' + toPsSingleQuoted(manifestUrl),
+    '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
+    "$root = Join-Path $env:TEMP ('gcac-winps-agent-' + $manifest.sessionId)",
+    'New-Item -ItemType Directory -Force -Path $root | Out-Null',
+    'foreach ($artifact in $manifest.artifacts) {',
+    '  $path = Join-Path $root $artifact.path',
+    '  $dir = Split-Path -Parent $path',
+    '  New-Item -ItemType Directory -Force -Path $dir | Out-Null',
+    '  [System.IO.File]::WriteAllText($path, [string]$artifact.content, $utf8Bom)',
+    '}',
+    "$configPath = Join-Path $root 'config\\agent.config.template.json'",
+    '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
+    '$config.tenantId = [string]$manifest.tenantId',
+    '$config.agentKey = [string]$manifest.agentKey',
+    '$config.controlPlaneUrl = [string]$manifest.controlPlaneUrl',
+    '$config.service.name = [string]$manifest.serviceName',
+    '$config.service.displayName = [string]$manifest.displayName',
+    "$config.paths.windows.configPath = [string](Join-Path $manifest.configDir 'agent.config.json')",
+    '$config.paths.windows.dataDir = [string]$manifest.dataDir',
+    '$config.paths.windows.logDir = [string]$manifest.logDir',
+    "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
+    "if ($null -eq $config.PSObject.Properties['enrollmentToken']) { $config | Add-Member -NotePropertyName enrollmentToken -NotePropertyValue ([string]$manifest.enrollmentToken) } else { $config.enrollmentToken = [string]$manifest.enrollmentToken }",
+    '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
+    'New-Item -ItemType Directory -Force -Path $manifest.dataDir | Out-Null',
+    "$installScript = Join-Path $root 'install-service.ps1'",
+    '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; LogDir = [string]$manifest.logDir }',
+    'if ($manifest.startAfterInstall -eq $true) { $params.StartAfterInstall = $true }',
+    '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
+    "Write-Host 'Bootstrap completed. Files staged at:' $root",
+  ].join('\r\n')
+}
+
+function renderLinuxBootstrapScript(manifestUrl: string): string {
+  return [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    '',
+    'if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then',
+    '  echo "请使用 root 或 sudo 执行安装脚本" >&2',
+    '  exit 1',
+    'fi',
+    '',
+    `MANIFEST_URL=${toShSingleQuoted(manifestUrl)}`,
+    'WORKDIR="$(mktemp -d /tmp/gcac-linux-agent-XXXXXX)"',
+    'cleanup() { rm -rf "$WORKDIR"; }',
+    'trap cleanup EXIT',
+    '',
+    'curl -fsSL "$MANIFEST_URL" -o "$WORKDIR/manifest.json"',
+    'MANIFEST_PATH="$WORKDIR/manifest.json" node <<\'NODE\'',
+    'const fs = require("node:fs");',
+    'const path = process.env.MANIFEST_PATH;',
+    'const manifest = JSON.parse(fs.readFileSync(path, "utf8"));',
+    'const config = {',
+    '  schemaVersion: "full-agent.linux-go.config.v1",',
+    '  tenantId: manifest.tenantId,',
+    '  agentKey: manifest.agentKey,',
+    '  enrollmentToken: manifest.enrollmentToken,',
+    '  zone: manifest.zone,',
+    '  controlPlaneUrl: manifest.controlPlaneUrl,',
+    '  heartbeatIntervalSeconds: 30,',
+    '  paths: {',
+    '    linux: {',
+    '      configPath: `${manifest.configDir}/agent.config.json`,',
+    '      dataDir: manifest.dataDir,',
+    '      logDir: manifest.logDir,',
+    '    },',
+    '  },',
+    '  service: {',
+    '    name: manifest.serviceName,',
+    '    displayName: manifest.displayName,',
+    '  },',
+    '};',
+    'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',
+    'NODE',
+    '',
+    'BUNDLE_URL="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.bundleUrl);\' "$WORKDIR/manifest.json")"',
+    'SERVICE_NAME="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.serviceName);\' "$WORKDIR/manifest.json")"',
+    'DISPLAY_NAME="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.displayName);\' "$WORKDIR/manifest.json")"',
+    'INSTALL_ROOT="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.installRoot);\' "$WORKDIR/manifest.json")"',
+    'CONFIG_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.configDir);\' "$WORKDIR/manifest.json")"',
+    'DATA_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.dataDir);\' "$WORKDIR/manifest.json")"',
+    'LOG_DIR="$(node -e \'const fs=require(\"node:fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(m.logDir);\' "$WORKDIR/manifest.json")"',
+    '',
+    'curl -fsSL "$BUNDLE_URL" -o "$WORKDIR/bundle.tar.gz"',
+    'tar -xzf "$WORKDIR/bundle.tar.gz" -C "$WORKDIR"',
+    'install -d "$WORKDIR/config"',
+    'install -m 0644 "$WORKDIR/manifest.json" "$WORKDIR/config/agent.config.template.json"',
+    'chmod +x "$WORKDIR/linux/install-systemd.sh"',
+    'SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="true" bash "$WORKDIR/linux/install-systemd.sh"',
+  ].join('\n')
+}
+
+function toPsSingleQuoted(value: string): string {
+  return "'" + value.replace(/'/gu, "''") + "'"
+}
+
+function toShSingleQuoted(value: string): string {
+  return "'" + value.replace(/'/gu, `'\\''`) + "'"
 }

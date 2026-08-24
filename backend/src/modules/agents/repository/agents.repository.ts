@@ -11,6 +11,7 @@ import type {
   AgentCertificateAuthority,
   AgentCertificateSigningRequest,
   AgentHeartbeat,
+  AgentInstallSession,
   AgentRegistration,
   AgentSession,
   AgentTaskEnvelope,
@@ -64,6 +65,10 @@ export interface AgentsRepository {
   getUpgradePlan(tenantId: string, planId: string): Promise<AgentUpgradePlan | undefined>;
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined>;
   listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]>;
+  createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession>;
+  getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined>;
+  findInstallSessionByTokenHash(tenantId: string, tokenHash: string): Promise<AgentInstallSession | undefined>;
+  findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined>;
 }
 
 type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
@@ -103,6 +108,7 @@ export class PgAgentsRepository implements AgentsRepository {
   private readonly taskLogCursors: PgDocumentRepository<AgentTaskLogCursorRecord>;
   private readonly releases: PgDocumentRepository<AgentVersionRelease>;
   private readonly upgradePlans: PgDocumentRepository<AgentUpgradePlan>;
+  private readonly installSessions: PgDocumentRepository<AgentInstallSession>;
 
   constructor(db: DatabasePort = new PgliteDatabase()) {
     this.enrollmentTokens = new PgDocumentRepository(db, 'agents:enrollmentTokens');
@@ -118,6 +124,7 @@ export class PgAgentsRepository implements AgentsRepository {
     this.taskLogCursors = new PgDocumentRepository(db, 'agents:taskLogCursors');
     this.releases = new PgDocumentRepository(db, 'agents:releases');
     this.upgradePlans = new PgDocumentRepository(db, 'agents:upgradePlans');
+    this.installSessions = new PgDocumentRepository(db, 'agents:installSessions');
   }
 
   async createEnrollmentToken(token: EnrollmentToken): Promise<EnrollmentToken> {
@@ -306,5 +313,22 @@ export class PgAgentsRepository implements AgentsRepository {
   async listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]> {
     return (await this.upgradePlans.list((item) => item.tenantId === tenantId && item.agentId === agentId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession> {
+    return this.installSessions.upsert(session);
+  }
+
+  async getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined> {
+    const row = await this.installSessions.get(sessionId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async findInstallSessionByTokenHash(tenantId: string, tokenHash: string): Promise<AgentInstallSession | undefined> {
+    return (await this.installSessions.list((item) => item.tenantId === tenantId && item.bootstrapTokenHash === tokenHash))[0];
+  }
+
+  async findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined> {
+    return (await this.installSessions.list((item) => item.bootstrapTokenHash === tokenHash))[0];
   }
 }

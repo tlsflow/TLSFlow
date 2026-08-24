@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 
 export interface CreateEnrollmentTokenInput {
@@ -159,6 +159,28 @@ export interface DisableAgentInput {
   actorId: string;
 }
 
+export interface CreateWindowsPowerShellInstallSessionInput {
+  zone?: string;
+  serviceName?: string;
+  displayName?: string;
+  installRoot?: string;
+  configDir?: string;
+  dataDir?: string;
+  logDir?: string;
+  startAfterInstall?: boolean;
+}
+
+export interface CreateLinuxGoInstallSessionInput {
+  zone?: string;
+  agentKey?: string;
+  serviceName?: string;
+  displayName?: string;
+  installRoot?: string;
+  configDir?: string;
+  dataDir?: string;
+  logDir?: string;
+}
+
 export interface EnrollmentTokenDto extends EnrollmentToken {
   token?: string;
 }
@@ -174,6 +196,7 @@ export interface AgentTaskLogEntryDto extends AgentTaskLogEntry {}
 export interface AgentTaskLogCursorDto extends AgentTaskLogCursor {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
+export interface AgentInstallSessionDto extends AgentInstallSession {}
 
 export interface AgentCertificateIssueResult {
   csr: AgentCertificateSigningRequest;
@@ -232,6 +255,27 @@ export interface AgentUpgradeSuggestionProjection {
   agentId: string;
   currentVersion: string;
   suggestion: AgentUpgradePreview;
+}
+
+export interface AgentInstallSessionBootstrapProjection {
+  sessionId: string;
+  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  expiresAt: string;
+  bootstrapUrl: string;
+  manifestUrl: string;
+  installCommand: string;
+  enrollmentToken?: string;
+  serviceName: string;
+  displayName: string;
+  installRoot: string;
+  configDir: string;
+  dataDir?: string;
+  logDir: string;
+  agentKey: string;
+  tenantId?: string;
+  zone: string;
+  enrollmentTokenPreview: string;
+  bundleUrl?: string;
 }
 
 export interface AgentDetailProjection {
