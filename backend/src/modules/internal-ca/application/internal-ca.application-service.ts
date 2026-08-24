@@ -10,6 +10,7 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import { CaProviderRegistry, createDefaultCaProviderRegistry, type CaIssuanceResult } from '../providers/ca-provider.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
+import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
 import type {
   CaCapabilityRecordEntity,
   CaIssuanceRecordEntity,
@@ -121,6 +122,7 @@ export class InternalCaApplicationService {
   private readonly repository: InternalCaRepository;
   private readonly providers: CaProviderRegistry;
   private readonly openssl: OpenSslCa;
+  private readonly nodeTaskChannel: CaNodeTaskChannel;
 
   constructor(private readonly dependencies: {
     db: DatabasePort;
@@ -131,10 +133,12 @@ export class InternalCaApplicationService {
     repository?: InternalCaRepository;
     providers?: CaProviderRegistry;
     openssl?: OpenSslCa;
+    nodeTaskChannel?: CaNodeTaskChannel;
   }) {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
     this.openssl = dependencies.openssl ?? new OpenSslCa();
+    this.nodeTaskChannel = dependencies.nodeTaskChannel ?? new CaNodeTaskChannel();
   }
 
   getRepository(): InternalCaRepository {
@@ -1136,10 +1140,16 @@ export class InternalCaApplicationService {
   async enqueueNodeTask(tenantId: string, providerId: string, taskType: CaNodeTaskEntity['taskType'], payload: Record<string, unknown>, idempotencyKey: string): Promise<CaNodeTaskEntity> {
     await this.requireProvider(tenantId, providerId);
     const now = new Date().toISOString();
-    return this.repository.saveNodeTask({
+    const task = await this.repository.saveNodeTask({
       id: newId('cantask'), tenantId, providerId, taskType, payload, idempotencyKey,
       status: 'queued', createdAt: now, updatedAt: now,
     });
+    this.nodeTaskChannel.notify(providerId);
+    return task;
+  }
+
+  subscribeNodeTasks(providerId: string, listener: CaNodeTaskNotificationListener): () => void {
+    return this.nodeTaskChannel.subscribe(providerId, listener);
   }
 
   async leaseNodeTask(tenantId: string, nodeId: string): Promise<CaNodeTaskEntity | undefined> {
@@ -1152,7 +1162,7 @@ export class InternalCaApplicationService {
   async completeNodeTask(tenantId: string, nodeId: string, taskId: string, input: { success: boolean; result?: Record<string, unknown>; errorCode?: string; errorMessage?: string }): Promise<CaNodeTaskEntity> {
     const task = await this.repository.getNodeTask(tenantId, taskId);
     if (!task || task.nodeId !== nodeId || task.status !== 'leased') throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA Node 任务租约无效');
-    return this.repository.saveNodeTask({
+    const completed = await this.repository.saveNodeTask({
       ...task,
       status: input.success ? 'succeeded' : 'failed',
       result: input.result,
@@ -1160,6 +1170,8 @@ export class InternalCaApplicationService {
       errorMessage: input.success ? undefined : input.errorMessage ?? 'CA Node task failed',
       updatedAt: new Date().toISOString(),
     });
+    this.nodeTaskChannel.notify(task.providerId);
+    return completed;
   }
 
   async markRequestActive(tenantId: string, requestId: string): Promise<CertificateRequestEntity> {

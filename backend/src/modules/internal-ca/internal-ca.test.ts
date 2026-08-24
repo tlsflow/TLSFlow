@@ -6,7 +6,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { buildReuseRisks, InternalCaApplicationService } from './application/internal-ca.application-service.js';
-import { agentInstallPublicBaseUrl, pathId } from './controller/internal-ca.controller.js';
+import { agentInstallPublicBaseUrl, getInternalCaRouteContracts, pathId, renderAdcsAgentInstallScript } from './controller/internal-ca.controller.js';
 import { CaProviderRegistry } from './providers/ca-provider.js';
 
 async function createFixture(providers?: CaProviderRegistry) {
@@ -44,6 +44,14 @@ test('标准 REST 删除路由可以读取最后一个路径段作为资源 ID',
   assert.equal(pathId({
     method: 'DELETE', path: '/api/v1/ca-providers/caprov_delete_me', query: {}, context: { requestId: 'req_path', traceId: 'trace_path' }, headers: {},
   }), 'caprov_delete_me');
+});
+
+test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间隔', () => {
+  const script = renderAdcsAgentInstallScript({
+    controlPlaneUrl: 'https://gcac.example.test', tenantId: 'tenant-1', providerId: 'provider-1', token: 'token-1',
+  });
+  assert.doesNotMatch(script, /pollSeconds/);
+  assert.equal(getInternalCaRouteContracts().some((route) => route.operationId === 'streamCaNodeTasks'), true);
 });
 
 test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和信任分发', async () => {

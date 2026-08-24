@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
@@ -28,7 +29,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 type config struct {
 	ControlPlaneURL string `json:"controlPlaneUrl"`
@@ -37,7 +38,6 @@ type config struct {
 	EnrollmentToken string `json:"enrollmentToken,omitempty"`
 	NodeID          string `json:"nodeId,omitempty"`
 	NodeName        string `json:"nodeName"`
-	PollSeconds     int    `json:"pollSeconds"`
 	DataDir         string `json:"dataDir"`
 	CAConfig        string `json:"caConfig,omitempty"`
 	DefaultTemplate string `json:"defaultTemplate,omitempty"`
@@ -47,6 +47,7 @@ type agent struct {
 	configPath   string
 	config       config
 	client       *http.Client
+	streamClient *http.Client
 	mu           sync.Mutex
 	privateKey   ed25519.PrivateKey
 	publicKeyPEM string
@@ -140,9 +141,6 @@ func newAgent(configPath string) (*agent, error) {
 	if cfg.NodeName == "" {
 		cfg.NodeName, _ = os.Hostname()
 	}
-	if cfg.PollSeconds < 5 {
-		cfg.PollSeconds = 10
-	}
 	if cfg.DataDir == "" {
 		cfg.DataDir = filepath.Dir(configPath)
 	}
@@ -153,7 +151,11 @@ func newAgent(configPath string) (*agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &agent{configPath: configPath, config: cfg, client: &http.Client{Timeout: 45 * time.Second}, privateKey: privateKey, publicKeyPEM: publicKeyPEM}, nil
+	return &agent{
+		configPath: configPath, config: cfg,
+		client: &http.Client{Timeout: 45 * time.Second}, streamClient: &http.Client{},
+		privateKey: privateKey, publicKeyPEM: publicKeyPEM,
+	}, nil
 }
 
 func (a *agent) run(ctx context.Context) error {
@@ -169,16 +171,22 @@ func (a *agent) run(ctx context.Context) error {
 			return err
 		}
 	}
-	ticker := time.NewTicker(time.Duration(a.config.PollSeconds) * time.Second)
-	defer ticker.Stop()
+	reconnectDelay := time.Second
 	for {
-		if err := a.heartbeatAndLease(ctx); err != nil {
-			log.Printf("控制面同步失败：%v", err)
+		err := a.streamTasks(ctx)
+		if ctx.Err() != nil {
+			return nil
 		}
+		log.Printf("任务推送通道已断开，将在 %s 后重连：%v", reconnectDelay, err)
+		timer := time.NewTimer(reconnectDelay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
+		}
+		if reconnectDelay < 30*time.Second {
+			reconnectDelay *= 2
 		}
 	}
 }
@@ -240,21 +248,74 @@ func (a *agent) register(discovery map[string]any) error {
 	return a.saveConfig()
 }
 
-func (a *agent) heartbeatAndLease(ctx context.Context) error {
-	var heartbeat map[string]any
-	if err := a.post(ctx, "/api/v1/ca-nodes/heartbeat", map[string]any{
-		"nodeId": a.config.NodeID, "healthStatus": "online", "role": "member", "capabilities": capabilities(), "version": version,
-	}, &heartbeat); err != nil {
+func (a *agent) streamTasks(ctx context.Context) error {
+	const path = "/api/v1/ca-nodes/tasks/stream"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.config.ControlPlaneURL, "/")+path, nil)
+	if err != nil {
 		return err
 	}
-	var task map[string]any
-	if err := a.post(ctx, "/api/v1/ca-nodes/tasks/lease", map[string]any{"nodeId": a.config.NodeID}, &task); err != nil {
+	request.Header.Set("accept", "text/event-stream")
+	request.Header.Set("cache-control", "no-cache")
+	request.Header.Set("x-tenant-id", a.config.TenantID)
+	if err := a.signRequest(request, path, []byte("{}")); err != nil {
 		return err
 	}
-	if fmt.Sprint(task["id"]) == "" {
-		return nil
+	response, err := a.streamClient.Do(request)
+	if err != nil {
+		return err
 	}
-	return a.executeTask(ctx, task)
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		return fmt.Errorf("任务推送通道返回 HTTP %d：%s", response.StatusCode, sanitizeOutput(string(body)))
+	}
+	return readServerEvents(ctx, response.Body, func(event string, data []byte) error {
+		if event != "task" {
+			return nil
+		}
+		var task map[string]any
+		if err := json.Unmarshal(data, &task); err != nil {
+			return fmt.Errorf("任务推送数据无效：%w", err)
+		}
+		return a.executeTask(ctx, task)
+	})
+}
+
+func readServerEvents(ctx context.Context, input io.Reader, handle func(event string, data []byte) error) error {
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	event := "message"
+	data := make([]byte, 0, 1024)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		line := scanner.Text()
+		if line == "" {
+			if len(data) > 0 {
+				if err := handle(event, bytes.TrimSuffix(data, []byte("\n"))); err != nil {
+					return err
+				}
+			}
+			event = "message"
+			data = data[:0]
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			data = append(data, strings.TrimSpace(strings.TrimPrefix(line, "data:"))...)
+			data = append(data, '\n')
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return io.EOF
 }
 
 func (a *agent) executeTask(ctx context.Context, task map[string]any) error {
@@ -375,19 +436,9 @@ func (a *agent) post(ctx context.Context, path string, payload any, output any) 
 	request.Header.Set("content-type", "application/json")
 	request.Header.Set("x-tenant-id", a.config.TenantID)
 	if a.config.NodeID != "" {
-		timestamp := time.Now().UTC().Format(time.RFC3339Nano)
-		nonceBytes := make([]byte, 24)
-		if _, err := rand.Read(nonceBytes); err != nil {
+		if err := a.signRequest(request, path, encoded); err != nil {
 			return err
 		}
-		nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
-		bodyHash := sha256.Sum256(encoded)
-		canonical := strings.Join([]string{http.MethodPost, path, a.config.TenantID, a.config.NodeID, timestamp, nonce, hex.EncodeToString(bodyHash[:])}, "\n")
-		signature := ed25519.Sign(a.privateKey, []byte(canonical))
-		request.Header.Set("x-gcac-node-id", a.config.NodeID)
-		request.Header.Set("x-gcac-timestamp", timestamp)
-		request.Header.Set("x-gcac-nonce", nonce)
-		request.Header.Set("x-gcac-signature", base64.StdEncoding.EncodeToString(signature))
 	}
 	response, err := a.client.Do(request)
 	if err != nil {
@@ -404,6 +455,23 @@ func (a *agent) post(ctx context.Context, path string, payload any, output any) 
 	if output != nil && len(body) > 0 {
 		return json.Unmarshal(body, output)
 	}
+	return nil
+}
+
+func (a *agent) signRequest(request *http.Request, path string, canonicalBody []byte) error {
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	nonceBytes := make([]byte, 24)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return err
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
+	bodyHash := sha256.Sum256(canonicalBody)
+	canonical := strings.Join([]string{request.Method, path, a.config.TenantID, a.config.NodeID, timestamp, nonce, hex.EncodeToString(bodyHash[:])}, "\n")
+	signature := ed25519.Sign(a.privateKey, []byte(canonical))
+	request.Header.Set("x-gcac-node-id", a.config.NodeID)
+	request.Header.Set("x-gcac-timestamp", timestamp)
+	request.Header.Set("x-gcac-nonce", nonce)
+	request.Header.Set("x-gcac-signature", base64.StdEncoding.EncodeToString(signature))
 	return nil
 }
 

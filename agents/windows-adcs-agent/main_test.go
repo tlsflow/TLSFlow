@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -35,5 +37,25 @@ func TestCertutilReason(t *testing.T) {
 func TestPayloadStringRejectsMissingField(t *testing.T) {
 	if _, err := payloadString(map[string]any{}, "csrPem"); err == nil {
 		t.Fatal("缺少任务字段时必须返回错误")
+	}
+}
+
+func TestReadServerEventsDispatchesTaskWithoutPolling(t *testing.T) {
+	input := strings.NewReader("event: connected\ndata: {\"nodeId\":\"node-1\"}\n\nevent: heartbeat\ndata: {}\n\nevent: task\ndata: {\"id\":\"task-1\",\"taskType\":\"health_check\"}\n\n")
+	var events []string
+	err := readServerEvents(context.Background(), input, func(event string, data []byte) error {
+		events = append(events, event+":"+string(data))
+		return nil
+	})
+	if err == nil || err.Error() != "EOF" {
+		t.Fatalf("流结束时应返回 EOF，实际为：%v", err)
+	}
+	expected := []string{
+		`connected:{"nodeId":"node-1"}`,
+		`heartbeat:{}`,
+		`task:{"id":"task-1","taskType":"health_check"}`,
+	}
+	if !reflect.DeepEqual(events, expected) {
+		t.Fatalf("SSE 事件解析错误：%v", events)
 	}
 }

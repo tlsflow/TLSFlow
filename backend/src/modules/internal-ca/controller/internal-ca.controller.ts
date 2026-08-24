@@ -61,6 +61,7 @@ export class InternalCaController {
     router.post('/api/v1/ca-nodes/register', '注册 CA Node', tags, (request) => this.registerNode(request));
     router.post('/api/v1/ca-nodes/heartbeat', '上报 CA Node 心跳', tags, (request) => this.heartbeatNode(request));
     router.post('/api/v1/ca-nodes/tasks/lease', '获取 CA Node 任务', tags, (request) => this.leaseNodeTask(request));
+    router.get('/api/v1/ca-nodes/tasks/stream', '建立 CA Node 任务推送通道', tags, (request) => this.streamNodeTasks(request));
     router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
     router.post('/api/v1/adcs-agents/install-sessions', '创建 AD CS Agent 一键安装会话', tags, (request) => this.createAdcsAgentInstallSession(request));
     router.get('/api/v1/adcs-agents/install.ps1', '下载 AD CS Agent 安装脚本', tags, (request) => this.getAdcsAgentInstallScript(request));
@@ -305,6 +306,65 @@ export class InternalCaController {
     return this.service.leaseNodeTask(node.tenantId, node.id);
   }
 
+  private async streamNodeTasks(request: HttpRequest) {
+    const node = await this.authenticateNode(request, {});
+    await this.service.heartbeatNode(node.tenantId, node.id, { healthStatus: 'online' });
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+      stream: async (response: import('node:http').ServerResponse) => {
+        let closed = false;
+        let dispatching = false;
+        let dispatchRequested = false;
+        const writeEvent = (event: string, data: unknown) => {
+          if (closed || response.writableEnded || response.destroyed) return;
+          response.write(`event: ${event}\n`);
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+        const dispatch = async (): Promise<void> => {
+          if (closed) return;
+          if (dispatching) {
+            dispatchRequested = true;
+            return;
+          }
+          dispatching = true;
+          try {
+            const task = await this.service.leaseNodeTask(node.tenantId, node.id);
+            if (task) writeEvent('task', task);
+          } catch {
+            writeEvent('error', { message: 'CA Node 任务推送失败' });
+          } finally {
+            dispatching = false;
+            if (dispatchRequested) {
+              dispatchRequested = false;
+              void dispatch();
+            }
+          }
+        };
+        const unsubscribe = this.service.subscribeNodeTasks(node.providerId, () => { void dispatch(); });
+        const heartbeat = setInterval(() => {
+          writeEvent('heartbeat', { emittedAt: new Date().toISOString() });
+          void this.service.heartbeatNode(node.tenantId, node.id, { healthStatus: 'online' }).catch(cleanup);
+        }, 20_000);
+        const cleanup = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+        };
+        response.on('close', cleanup);
+        response.on('error', cleanup);
+        writeEvent('connected', { nodeId: node.id, providerId: node.providerId });
+        await dispatch();
+      },
+    };
+  }
+
   private async completeNodeTask(request: HttpRequest) {
     const body = objectBody(request);
     const node = await this.authenticateNode(request, body);
@@ -439,6 +499,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/ca-nodes/register', operationId: 'registerCaNode', summary: '注册 CA Node', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/heartbeat', operationId: 'heartbeatCaNode', summary: '上报 CA Node 心跳', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/lease', operationId: 'leaseCaNodeTask', summary: '获取 CA Node 任务', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/ca-nodes/tasks/stream', operationId: 'streamCaNodeTasks', summary: '建立 CA Node 任务推送通道', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/:id/result', operationId: 'completeCaNodeTask', summary: '回传 CA Node 任务结果', tags, responseSchema },
     { method: 'POST', path: '/api/v1/adcs-agents/install-sessions', operationId: 'createAdcsAgentInstallSession', summary: '创建 AD CS Agent 一键安装会话', tags, responseSchema },
     { method: 'GET', path: '/api/v1/adcs-agents/install.ps1', operationId: 'getAdcsAgentInstallScript', summary: '下载 AD CS Agent 安装脚本', tags, responseSchema },
@@ -509,7 +570,7 @@ export function agentInstallPublicBaseUrl(request: HttpRequest): string {
   return `${protocol}://${host}`;
 }
 
-function renderAdcsAgentInstallScript(input: { controlPlaneUrl: string; tenantId: string; providerId: string; token: string }): string {
+export function renderAdcsAgentInstallScript(input: { controlPlaneUrl: string; tenantId: string; providerId: string; token: string }): string {
   const manifest = JSON.stringify(input).replace(/'/g, "''");
   return [
     "$ErrorActionPreference = 'Stop'",
@@ -524,7 +585,7 @@ function renderAdcsAgentInstallScript(input: { controlPlaneUrl: string; tenantId
     "New-Item -ItemType Directory -Force -Path $installRoot, $dataRoot | Out-Null",
     "$binaryUrl = ([string]$manifest.controlPlaneUrl).TrimEnd('/') + '/api/v1/adcs-agents/binary'",
     "Invoke-WebRequest -UseBasicParsing -Uri $binaryUrl -OutFile $binaryPath",
-    "$config = [ordered]@{ controlPlaneUrl = $manifest.controlPlaneUrl; tenantId = $manifest.tenantId; providerId = $manifest.providerId; enrollmentToken = $manifest.token; nodeName = $env:COMPUTERNAME; pollSeconds = 10; dataDir = $dataRoot }",
+    "$config = [ordered]@{ controlPlaneUrl = $manifest.controlPlaneUrl; tenantId = $manifest.tenantId; providerId = $manifest.providerId; enrollmentToken = $manifest.token; nodeName = $env:COMPUTERNAME; dataDir = $dataRoot }",
     "$utf8 = New-Object System.Text.UTF8Encoding($false)",
     "[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 8), $utf8)",
     "icacls.exe $dataRoot /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\\Administrators:(OI)(CI)F' | Out-Null",
