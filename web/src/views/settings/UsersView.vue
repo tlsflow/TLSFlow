@@ -23,7 +23,6 @@ import { GcConfirmAction, GcModal, GcPageToolbar, GcTabs } from '@/design-system
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const SETTINGS_PAGE_SIZE = 20
 
 interface UserDraft {
@@ -390,28 +389,26 @@ onMounted(async () => {
 
 <template>
   <section class="gc-page users-view">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
-          <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
-          <GcConfirmAction
-            v-if="selectedCount > 0"
-            :action-name="t('settings.users.actions.bulkDelete')"
-            :impact-count="selectedCount"
-            :risk-text="t('settings.users.risks.bulkDelete')"
-            confirm-text="DELETE"
-            @confirm="removeUsers(selectedUserIds)"
-          />
-        </template>
-        <template #primary>
-          <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
-        </template>
-        <template #tabs>
-          <GcTabs v-model="activeDirectoryTab" :tabs="directoryTabs" :aria-label="t('settings.users.aria.principalType')" />
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
+        <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
+        <GcConfirmAction
+          v-if="selectedCount > 0"
+          :action-name="t('settings.users.actions.bulkDelete')"
+          :impact-count="selectedCount"
+          :risk-text="t('settings.users.risks.bulkDelete')"
+          confirm-text="DELETE"
+          @confirm="removeUsers(selectedUserIds)"
+        />
+      </template>
+      <template #primary>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
+      </template>
+      <template #tabs>
+        <GcTabs v-model="activeDirectoryTab" :tabs="directoryTabs" :aria-label="t('settings.users.aria.principalType')" />
+      </template>
+    </GcPageToolbar>
 
     <p v-if="pageError" class="users-view__error">{{ pageError }}</p>
 

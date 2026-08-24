@@ -85,7 +85,6 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryPermission: 'cloud_account_asset.create',
   primaryActionLabel: t('providers.actions.add'),
   primaryAction: openAccountForm,
-  toolbarPlacement: 'hero-leading',
   moduleName: 'cloud-providers',
   resourceName: t('providers.sections.accounts'),
   defaultStatus: 'UNKNOWN',

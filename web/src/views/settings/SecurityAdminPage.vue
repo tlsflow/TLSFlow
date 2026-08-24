@@ -37,7 +37,6 @@ const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
 const formId = `security-admin-create-form-${++securityAdminFormSeed}`
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -85,23 +84,21 @@ onMounted(load)
 
 <template>
   <section class="security-admin" :class="{ 'gc-page': !props.embedded, 'security-admin--embedded': props.embedded }">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <button
-            v-if="config.create && config.fields?.length"
-            class="gc-button gc-button--primary"
-            type="button"
-            @click="createModalOpen = true"
-          >
-            {{ config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
-          </button>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
+      </template>
+      <template #primary>
+        <button
+          v-if="config.create && config.fields?.length"
+          class="gc-button gc-button--primary"
+          type="button"
+          @click="createModalOpen = true"
+        >
+          {{ config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
+        </button>
+      </template>
+    </GcPageToolbar>
 
     <header v-if="config.eyebrow || config.title || config.description" class="security-admin__header-copy">
       <p v-if="config.eyebrow">{{ config.eyebrow }}</p>

@@ -184,7 +184,7 @@ describe('WorkflowTemplatesView', () => {
     await flushPromises()
     const initialLoadCalls = vi.mocked(listWorkflowTemplates).mock.calls.length
 
-    const toolbarButtons = [...document.body.querySelectorAll('.business-page__hero-toolbar button')].map((item) => item.textContent?.trim())
+    const toolbarButtons = [...document.body.querySelectorAll('.gc-data-table__toolbar .business-page__toolbar-actions button')].map((item) => item.textContent?.trim())
     expect(toolbarButtons).toEqual(['刷新', '从插件新建工作流'])
     expect(document.body.textContent).not.toContain('工作流总数')
     expect(document.body.textContent).not.toContain('待发布草稿')

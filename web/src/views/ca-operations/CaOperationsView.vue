@@ -21,7 +21,6 @@ const objectTypes: CaOperationObjectType[] = ['request', 'issuance', 'revocation
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-actions')))
 const tree = ref<CaOperationsTree>({ trustDomains: [], unassignedAuthorities: [] })
 const selectedCaId = ref('')
 const selectedView = ref<CaOperationObjectType>('request')
@@ -200,18 +199,16 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   <section class="gc-page ca-operations">
     <GcPageHeader :title="t('caOperations.title')" />
 
-    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar class="ca-operations__hero-actions">
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
-            {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
-          </button>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar class="ca-operations__hero-actions">
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
+      </template>
+      <template #primary>
+        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
+          {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
+        </button>
+      </template>
+    </GcPageToolbar>
 
     <p v-if="errorKey" class="ca-operations__error" role="alert">{{ t(errorKey) }}</p>
     <p v-if="loadingTree" class="ca-operations__loading" role="status">{{ t('common.loading') }}</p>

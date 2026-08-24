@@ -53,7 +53,6 @@ const editorError = ref('')
 const editorMessage = ref('')
 const advancedOpen = ref(false)
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const SETTINGS_PAGE_SIZE = 20
 
 const deletingId = ref('')
@@ -405,16 +404,14 @@ onMounted(async () => {
 
 <template>
   <section class="gc-page identity-sources">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.identitySources.actions.create') }}</button>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">{{ t('common.refresh') }}</button>
+      </template>
+      <template #primary>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.identitySources.actions.create') }}</button>
+      </template>
+    </GcPageToolbar>
 
     <p v-if="pageError" class="identity-sources__error">{{ pageError }}</p>
 

@@ -106,7 +106,6 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const shouldTeleportActions = ref(false)
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
 
@@ -210,7 +209,6 @@ const monitorStatusOptions = computed(() => [
 ])
 
 onMounted(() => {
-  shouldTeleportActions.value = Boolean(document.querySelector('#gc-shell-hero-actions'))
   clearStoredMonitorState()
   void refreshAll()
   refreshTimer = setInterval(() => {
@@ -893,19 +891,17 @@ function trimProbeStateToTargets() {
 
 <template>
   <section class="gc-page monitor-page">
-    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportActions">
-      <div class="monitor-page__actions">
-        <GcButton variant="secondary" :loading="loading" @click="() => refreshAll({ scanRisks: true })">
-          {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
-        </GcButton>
-        <GcButton variant="primary" :loading="probing" :disabled="monitorTargets.length === 0" @click="() => probeAllTargets()">
-          {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
-        </GcButton>
-        <GcButton variant="primary" :disabled="loading" @click="openAddDialog">
-          {{ t('monitoring.actions.add') }}
-        </GcButton>
-      </div>
-    </Teleport>
+    <div class="monitor-page__actions">
+      <GcButton variant="secondary" :loading="loading" @click="() => refreshAll({ scanRisks: true })">
+        {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
+      </GcButton>
+      <GcButton variant="primary" :loading="probing" :disabled="monitorTargets.length === 0" @click="() => probeAllTargets()">
+        {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
+      </GcButton>
+      <GcButton variant="primary" :disabled="loading" @click="openAddDialog">
+        {{ t('monitoring.actions.add') }}
+      </GcButton>
+    </div>
 
     <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error">
       <GcButton variant="primary" :loading="loading" @click="refreshAll()">

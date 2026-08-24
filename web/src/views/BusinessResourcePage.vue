@@ -50,12 +50,8 @@ const showEmptyState = computed(() => props.config.showEmptyState !== false)
 const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
 const showDetailPanel = computed(() => props.config.showDetailPanel === true)
 const showActionPanel = computed(() => props.config.showActionPanel === true)
-const toolbarPlacement = computed(() => props.config.toolbarPlacement ?? 'table')
-const showToolbarInHero = computed(() => toolbarPlacement.value === 'hero-leading')
-const showInlineToolbarRow = computed(() => !showToolbarInHero.value)
 const hasFilters = computed(() => Boolean(props.config.filters?.length))
 const filtersVisible = ref(false)
-const shouldTeleportToolbarActions = computed(() => showToolbarInHero.value && typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 watch(
   () => state.rows.value,
@@ -217,42 +213,7 @@ defineExpose({
 
 <template>
   <section class="gc-page business-page" :data-module="config.moduleName">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar v-if="showToolbarInHero" class="business-page__hero-toolbar">
-        <template #actions>
-          <button
-            v-if="hasFilters"
-            class="gc-button"
-            type="button"
-            :aria-expanded="filtersVisible"
-            @click="toggleFilters"
-          >
-            {{ t('businessPage.toggleFilters') }}
-          </button>
-          <slot name="toolbar-actions-before-refresh" />
-          <button class="gc-button" type="button" @click="state.reload">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <GcPermissionButton
-            v-if="!showHeader && showPrimaryAction"
-            class="gc-button gc-button--primary"
-            :permission="config.primaryPermission"
-            :disabled="primaryActionPending"
-            @click="runPrimaryAction"
-          >
-            {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
-          </GcPermissionButton>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
-
-    <GcPageHeader v-if="showHeader" :title="config.title" :description="config.description">
-      <template v-if="showPrimaryAction" #actions>
-        <GcPermissionButton class="gc-button gc-button--primary" :permission="config.primaryPermission" :disabled="primaryActionPending" @click="runPrimaryAction">
-          {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
-        </GcPermissionButton>
-      </template>
-    </GcPageHeader>
+    <GcPageHeader v-if="showHeader" :title="config.title" :description="config.description" />
 
     <p v-if="primaryActionError" class="business-page__primary-error">{{ primaryActionError }}</p>
     <slot name="after-header" />
@@ -273,6 +234,15 @@ defineExpose({
       <p>{{ t('businessPage.errorCode', { code: state.error.value.errorCode }) }}</p>
       <p v-if="state.error.value.requestId">requestId：{{ state.error.value.requestId }}</p>
       <button class="gc-button" type="button" @click="state.reload">{{ t('businessPage.retry') }}</button>
+      <GcPermissionButton
+        v-if="showPrimaryAction"
+        class="gc-button gc-button--primary"
+        :permission="config.primaryPermission"
+        :disabled="primaryActionPending"
+        @click="runPrimaryAction"
+      >
+        {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
+      </GcPermissionButton>
     </GcEmptyState>
 
     <GcDataTable
@@ -284,8 +254,8 @@ defineExpose({
       :aria-label="t('businessPage.resourceList', { resource: config.resourceName })"
       dense
     >
-      <template v-if="showInlineToolbarRow || filtersVisible" #toolbar>
-        <div v-if="showInlineToolbarRow" class="business-page__toolbar">
+      <template #toolbar>
+        <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
             <strong>{{ t('businessPage.resourceList', { resource: config.resourceName }) }}</strong>
             <span>{{ t('businessPage.total', { count: state.total.value }) }}</span>
@@ -306,7 +276,7 @@ defineExpose({
             </template>
             <template #primary>
               <GcPermissionButton
-                v-if="!showHeader && showPrimaryAction"
+                v-if="showPrimaryAction"
                 class="gc-button gc-button--primary"
                 :permission="config.primaryPermission"
                 :disabled="primaryActionPending"
@@ -498,10 +468,7 @@ defineExpose({
 .business-page__toolbar-title { display: grid; gap: var(--gc-space-1); }
 .business-page__toolbar-title strong { font-size: var(--gc-font-size-sm); letter-spacing: 0; }
 .business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 650; }
-.business-page__hero-toolbar,
 .business-page__toolbar-actions { min-width: 0; }
-.business-page__hero-toolbar :deep(.gc-button),
-.business-page__hero-toolbar :deep(.gc-permission-button),
 .business-page__toolbar-actions :deep(.gc-button),
 .business-page__toolbar-actions :deep(.gc-permission-button),
 .business-page__row-actions :deep(.gc-button),

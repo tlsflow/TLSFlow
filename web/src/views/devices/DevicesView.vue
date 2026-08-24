@@ -41,7 +41,6 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryPermission: 'host.create',
   primaryActionLabel: t('devices.actions.add'),
   primaryAction: () => { onboardingOpen.value = true },
-  toolbarPlacement: 'hero-leading',
   moduleName: 'devices',
   resourceName: t('devices.page.title'),
   defaultStatus: 'UNKNOWN',

@@ -174,7 +174,6 @@ const pageConfig = computed<BusinessPageConfig>(() => {
         format: (record) => formatDeploymentTime(readString(record, column.candidates)),
       }
       : column),
-    toolbarPlacement: 'hero-leading',
     showHeader: false,
     showMetrics: false,
     showDetailPanel: false,

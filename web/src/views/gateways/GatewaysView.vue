@@ -253,7 +253,6 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryPermission: 'gateway.write',
   primaryActionLabel: t('gateways.actions.addGatewayAgent'),
   primaryAction: openGatewayInstallModal,
-  toolbarPlacement: 'hero-leading',
   moduleName: 'gateways',
   resourceName: t('gateways.resourceName'),
   defaultStatus: 'ONLINE',

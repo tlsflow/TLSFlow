@@ -76,7 +76,6 @@ interface TemplatePreset {
 }
 
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-actions')))
 
 const PLATFORM_PRESETS: Record<Exclude<SystemPlatform, ''>, TemplatePreset> = {
   windows: {
@@ -622,19 +621,17 @@ function toErrorMessage(cause: unknown, fallback: string) {
       :description="t('bindings.list.descriptionWithCount', { count: rows.length })"
     />
 
-    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar class="artifact-page__hero-actions">
-        <template #actions>
-          <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>
-          <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.format.create" @click="openCreateDialog">
-            {{ t('bindings.actions.create') }}
-          </GcPermissionButton>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar class="artifact-page__hero-actions">
+      <template #actions>
+        <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>
+        <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
+      </template>
+      <template #primary>
+        <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.format.create" @click="openCreateDialog">
+          {{ t('bindings.actions.create') }}
+        </GcPermissionButton>
+      </template>
+    </GcPageToolbar>
 
     <section v-if="filtersVisible" class="gc-card artifact-page__filters">
       <label class="artifact-page__filter">

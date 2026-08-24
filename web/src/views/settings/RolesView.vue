@@ -64,7 +64,6 @@ interface ObjectTreeNode {
 }
 
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 const roleRows = ref<ApiRecord[]>([])
 const objectSetRows = ref<ApiRecord[]>([])
@@ -873,16 +872,14 @@ onMounted(() => void reloadAll())
 
 <template>
   <section class="gc-page roles-view">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">{{ t('common.refresh') }}</button>
-        </template>
-        <template #primary>
-          <button class="gc-button gc-button--primary" type="button" @click="openCreateRole">{{ t('settings.roles.actions.createRole') }}</button>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">{{ t('common.refresh') }}</button>
+      </template>
+      <template #primary>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreateRole">{{ t('settings.roles.actions.createRole') }}</button>
+      </template>
+    </GcPageToolbar>
 
     <p v-if="pageError" class="roles-view__error">{{ pageError }}</p>
 

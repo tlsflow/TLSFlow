@@ -126,6 +126,28 @@ describe('BusinessResourcePage', () => {
     expect(primaryAction).toHaveBeenCalledTimes(1)
   })
 
+  it('将列表操作栏固定在数据表上方', async () => {
+    usePermissionStore().setPermissions(['test.write'])
+
+    const wrapper = mount(BusinessResourcePage, {
+      props: {
+        config: createConfig({
+          showHeader: false,
+          primaryAction: async () => undefined,
+          filters: [{ key: 'keyword', label: '关键字', type: 'text' }],
+        }),
+      },
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('资源一'))
+    const tableToolbar = wrapper.get('.gc-data-table__toolbar')
+    expect(tableToolbar.find('.business-page__toolbar').exists()).toBe(true)
+    expect(tableToolbar.text()).toContain('筛选')
+    expect(tableToolbar.text()).toContain('刷新')
+    expect(tableToolbar.text()).toContain('新增测试')
+    expect(wrapper.find(':scope > .gc-page-toolbar').exists()).toBe(false)
+  })
+
   it('普通资源动作按钮会执行 run 并刷新列表', async () => {
     usePermissionStore().setPermissions(['test.write'])
     const run = vi.fn(async () => undefined)

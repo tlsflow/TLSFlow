@@ -50,7 +50,6 @@ interface BrowserOptionItem {
 }
 
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const loading = ref(false)
 const loadingSelection = ref(false)
 const saving = ref(false)
@@ -616,16 +615,14 @@ onUnmounted(() => {
 
 <template>
   <section class="gc-page credentials-page">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
-        </template>
-        <template #primary>
-          <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
-        </template>
-      </GcPageToolbar>
-    </Teleport>
+    <GcPageToolbar>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
+      </template>
+      <template #primary>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
+      </template>
+    </GcPageToolbar>
 
     <p v-if="error" class="credentials-page__error" role="alert">{{ error }}</p>
 
