@@ -84,6 +84,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+      browser-runtime:
+        condition: service_started
     ports:
       - "${GCAC_PORT:-8080}:80"
     restart: unless-stopped
@@ -96,12 +98,14 @@ services:
     image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:-0.1.0}
     environment:
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
+      BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
       BROWSER_SESSION_ROOT: /run/gcac-browser-sessions
       BROWSER_SESSION_SCRIPT: /app/container/start-session.sh
       BROWSER_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+      BROWSER_NOVNC_ROOT: /app/novnc
     read_only: true
     tmpfs:
-      - /run/gcac-browser-sessions:rw,noexec,nosuid,size=512m
+      - /run/gcac-browser-sessions:rw,noexec,nosuid,uid=10001,gid=10001,mode=0700,size=512m
       - /tmp:rw,noexec,nosuid,size=256m
     cap_drop:
       - ALL

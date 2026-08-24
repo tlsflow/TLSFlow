@@ -1,8 +1,10 @@
-import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect as tcpConnect } from 'node:net';
-import type { Duplex } from 'node:stream';
+import { readFile } from 'node:fs/promises';
+import { extname, resolve, sep } from 'node:path';
 import { URL } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { SessionProcessLauncher, type SessionProcessHandle } from './session-process.js';
 
 type SessionStatus = 'created' | 'ready' | 'stopped' | 'expired' | 'failed';
@@ -43,7 +45,9 @@ const sessions = new Map<string, SessionRecord>();
 const port = Number(process.env.PORT ?? 8787);
 const sharedSecret = process.env.BROWSER_RUNTIME_SHARED_SECRET;
 const publicBaseUrl = (process.env.BROWSER_RUNTIME_PUBLIC_BASE_URL ?? `http://localhost:${port}`).replace(/\/+$/, '');
+const noVncRoot = resolve(process.env.BROWSER_NOVNC_ROOT ?? '/app/novnc');
 const processLauncher = new SessionProcessLauncher();
+const vncWebSocketServer = new WebSocketServer({ noServer: true });
 
 const server = createServer(async (request, response) => {
   try {
@@ -56,7 +60,7 @@ const server = createServer(async (request, response) => {
       });
     }
     if (request.method === 'GET' && /^\/vnc\/[^/]+\//.test(url.pathname)) {
-      return proxyVncHttp(request, response, url);
+      return await proxyVncHttp(request, response, url);
     }
     authorizeRuntimeRequest(request);
     if (request.method === 'POST' && url.pathname === '/v1/sessions') {
@@ -85,11 +89,13 @@ const server = createServer(async (request, response) => {
 server.on('upgrade', (request, socket, head) => {
   try {
     const url = new URL(request.url ?? '/', 'http://runtime.local');
-    if (!/^\/vnc\/[^/]+\//.test(url.pathname)) {
-      socket.destroy();
-      return;
-    }
-    proxyVncWebSocket(request, socket, head, url);
+    if (!/^\/vnc\/[^/]+\//.test(url.pathname)) return socket.destroy();
+    const route = parseVncRoute(url);
+    if (!route) return socket.destroy();
+    const record = requireReadyVncSession(route.sessionId);
+    vncWebSocketServer.handleUpgrade(request, socket, head, (client) => {
+      bridgeVncSocket(client, record);
+    });
   } catch {
     socket.destroy();
   }
@@ -365,55 +371,59 @@ function isAllowedBrowserResource(raw: string, allowedOrigins: string[]): boolea
   }
 }
 
-function proxyVncHttp(request: IncomingMessage, response: ServerResponse, url: URL): void {
+async function proxyVncHttp(_request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const route = parseVncRoute(url);
   if (!route) throw httpError(404, 'RESOURCE_NOT_FOUND', 'VNC 路径无效');
-  const record = requireReadyVncSession(route.sessionId);
-  const targetPort = record.processHandle.vncPort;
-  const target = httpRequest({
-    hostname: '127.0.0.1',
-    port: targetPort,
-    method: request.method,
-    path: `${route.innerPath}${url.search}`,
-    headers: { ...request.headers, host: `127.0.0.1:${targetPort}` },
-  }, (upstream) => {
-    response.writeHead(upstream.statusCode ?? 502, upstream.headers);
-    upstream.pipe(response);
-  });
-  target.on('error', (error) => {
-    response.statusCode = 502;
-    response.setHeader('content-type', 'application/json; charset=utf-8');
-    response.end(JSON.stringify({ errorCode: 'BROWSER_RUNTIME_UNAVAILABLE', errorMessage: error.message }));
-  });
-  request.pipe(target);
+  requireReadyVncSession(route.sessionId);
+  const targetPath = resolve(noVncRoot, `.${route.innerPath}`);
+  if (!targetPath.startsWith(`${noVncRoot}${sep}`)) {
+    throw httpError(403, 'RESOURCE_FORBIDDEN', 'VNC 静态资源路径无效');
+  }
+  try {
+    const content = await readFile(targetPath);
+    response.statusCode = 200;
+    response.setHeader('content-type', contentType(targetPath));
+    response.setHeader('cache-control', 'public, max-age=3600');
+    response.end(content);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      throw httpError(404, 'RESOURCE_NOT_FOUND', 'VNC 静态资源不存在');
+    }
+    throw error;
+  }
 }
 
-function proxyVncWebSocket(request: IncomingMessage, socket: Duplex, head: Buffer, url: URL): void {
-  const route = parseVncRoute(url);
-  if (!route) {
-    socket.destroy();
-    return;
-  }
-  const record = requireReadyVncSession(route.sessionId);
-  const targetPort = record.processHandle.vncPort;
-  const upstream = tcpConnect(targetPort, '127.0.0.1', () => {
-    const requestLine = `${request.method ?? 'GET'} ${route.innerPath}${url.search} HTTP/${request.httpVersion}\r\n`;
-    const headers = Object.entries({ ...request.headers, host: `127.0.0.1:${targetPort}` })
-      .flatMap(([key, value]) => (
-        Array.isArray(value)
-          ? value.map((item) => `${key}: ${item}`)
-          : value === undefined
-            ? []
-            : [`${key}: ${value}`]
-      ))
-      .join('\r\n');
-    upstream.write(`${requestLine}${headers}\r\n\r\n`);
-    if (head.length > 0) upstream.write(head);
-    upstream.pipe(socket);
-    socket.pipe(upstream);
+function bridgeVncSocket(client: WebSocket, record: SessionRecord): void {
+  const target = tcpConnect(record.processHandle.rfbPort, '127.0.0.1');
+  target.on('data', (chunk) => {
+    if (client.readyState === WebSocket.OPEN) client.send(chunk);
   });
-  upstream.on('error', () => socket.destroy());
-  socket.on('error', () => upstream.destroy());
+  target.on('error', () => client.close());
+  target.on('close', () => client.close());
+  client.on('message', (data: RawData) => {
+    if (!target.destroyed) target.write(rawDataToBuffer(data));
+  });
+  client.on('close', () => target.destroy());
+  client.on('error', () => target.destroy());
+}
+
+function rawDataToBuffer(data: RawData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  return Buffer.concat(data);
+}
+
+function contentType(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case '.css': return 'text/css; charset=utf-8';
+    case '.html': return 'text/html; charset=utf-8';
+    case '.js': return 'text/javascript; charset=utf-8';
+    case '.json': return 'application/json; charset=utf-8';
+    case '.png': return 'image/png';
+    case '.svg': return 'image/svg+xml';
+    case '.wasm': return 'application/wasm';
+    default: return 'application/octet-stream';
+  }
 }
 
 function requireReadyVncSession(sessionId: string): SessionRecord {

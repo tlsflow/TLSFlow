@@ -10,10 +10,13 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
-    "playwright": "latest"
+    "@novnc/novnc": "1.6.0",
+    "playwright": "latest",
+    "ws": "8.21.2"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/ws": "8.18.1",
     "tsx": "latest",
     "typescript": "latest"
   }

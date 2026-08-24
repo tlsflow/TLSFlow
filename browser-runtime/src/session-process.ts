@@ -13,7 +13,6 @@ export interface SessionProcessHandle {
   readonly displayNumber: number;
   readonly cdpPort: number;
   readonly rfbPort: number;
-  readonly vncPort: number;
   readonly exit: Promise<number | null>;
   exited: boolean;
   stopped: boolean;
@@ -28,7 +27,6 @@ export interface SessionProcessLauncherOptions {
   readonly displayBase?: number;
   readonly cdpPortBase?: number;
   readonly rfbPortBase?: number;
-  readonly vncPortBase?: number;
 }
 
 export class SessionSlotPool {
@@ -66,7 +64,6 @@ export class SessionProcessLauncher {
   private readonly displayBase: number;
   private readonly cdpPortBase: number;
   private readonly rfbPortBase: number;
-  private readonly vncPortBase: number;
   private readonly slots: SessionSlotPool;
   private readonly children = new Map<string, ChildProcess>();
   private readonly cleanupPromises = new Map<string, Promise<void>>();
@@ -79,7 +76,6 @@ export class SessionProcessLauncher {
     this.displayBase = options.displayBase ?? 100;
     this.cdpPortBase = options.cdpPortBase ?? 19_000;
     this.rfbPortBase = options.rfbPortBase ?? 15_900;
-    this.vncPortBase = options.vncPortBase ?? 16_000;
     this.slots = new SessionSlotPool(options.maxSessions ?? positiveInteger(process.env.BROWSER_RUNTIME_MAX_SESSIONS, 4));
   }
 
@@ -94,7 +90,6 @@ export class SessionProcessLauncher {
       const displayNumber = this.displayBase + slot;
       const cdpPort = this.cdpPortBase + slot;
       const rfbPort = this.rfbPortBase + slot;
-      const vncPort = this.vncPortBase + slot;
       const child = spawn(this.scriptPath, [], {
         detached: true,
         stdio: 'ignore',
@@ -105,7 +100,6 @@ export class SessionProcessLauncher {
           DISPLAY_NUM: String(displayNumber),
           CDP_PORT: String(cdpPort),
           RFB_PORT: String(rfbPort),
-          VNC_PORT: String(vncPort),
           CHROMIUM_EXECUTABLE: this.chromiumExecutable,
           SCREEN_SIZE: this.screenSize,
         },
@@ -128,7 +122,6 @@ export class SessionProcessLauncher {
         displayNumber,
         cdpPort,
         rfbPort,
-        vncPort,
         exit,
         exited: false,
         stopped: false,

@@ -7,12 +7,13 @@ umask 077
 : "${DISPLAY_NUM:?DISPLAY_NUM is required}"
 : "${CDP_PORT:?CDP_PORT is required}"
 : "${RFB_PORT:?RFB_PORT is required}"
-: "${VNC_PORT:?VNC_PORT is required}"
 
 export DISPLAY=":${DISPLAY_NUM}"
 export HOME="${SESSION_DIR}/home"
+export XDG_CONFIG_HOME="${SESSION_DIR}/config"
+export XDG_CACHE_HOME="${SESSION_DIR}/cache"
 
-mkdir -p "${HOME}/profile" "${SESSION_DIR}/logs"
+mkdir -p "${HOME}/profile" "${XDG_CONFIG_HOME}" "${XDG_CACHE_HOME}" "${SESSION_DIR}/logs"
 
 pids=()
 
@@ -40,11 +41,10 @@ x11vnc -display "${DISPLAY}" -forever -shared -nopw -localhost -rfbport "${RFB_P
   >"${SESSION_DIR}/logs/x11vnc.log" 2>&1 &
 pids+=("$!")
 
-websockify --web=/usr/share/novnc "${VNC_PORT}" "127.0.0.1:${RFB_PORT}" \
-  >"${SESSION_DIR}/logs/novnc.log" 2>&1 &
-pids+=("$!")
-
 "${CHROMIUM_EXECUTABLE:-chromium}" \
+  --no-sandbox \
+  --disable-gpu \
+  --disable-crash-reporter \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="${CDP_PORT}" \
   --user-data-dir="${HOME}/profile" \
