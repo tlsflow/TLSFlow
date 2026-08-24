@@ -4,6 +4,7 @@ import type {
   ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
   CreateWorkflowTemplateFromFileInput,
+  RenameWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   UpdateWorkflowTemplateVersionNoteInput,
   WorkflowRuntimeInput,
@@ -27,6 +28,10 @@ export class WorkflowTemplatesApplicationService {
 
   async createTemplate(input: CreateWorkflowTemplateInput) {
     return this.domain.createTemplate(input);
+  }
+
+  async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
+    return this.domain.renameTemplate(input);
   }
 
   compileCanvas(input: unknown) {

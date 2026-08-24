@@ -10,6 +10,7 @@ import type {
   ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
   CreateWorkflowTemplateFromFileInput,
+  RenameWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   UpdateWorkflowTemplateVersionNoteInput,
   WorkflowAssertion,
@@ -96,6 +97,20 @@ export class WorkflowTemplatesDomainService {
     await this.templatesRepository.upsert(template);
     await this.versionsRepository.upsert(version);
     return { template: { ...template }, version: clone(version) };
+  }
+
+  async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const name = String(input.name ?? '').trim();
+    if (!name) throw new AppError('VALIDATION_FAILED', '工作流名称不能为空', { field: 'name' });
+    if (name === template.name) return this.withCurrentVersionSummary(template);
+    template.name = name;
+    template.updatedAt = new Date().toISOString();
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    return this.withCurrentVersionSummary(template);
   }
 
   async createTemplateFromFile(input: CreateWorkflowTemplateFromFileInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {

@@ -286,6 +286,11 @@ export interface CreateWorkflowTemplateInput {
   changeSummary?: string;
 }
 
+export interface RenameWorkflowTemplateInput {
+  templateId: string;
+  name: string;
+}
+
 export interface UpdateWorkflowTemplateInput {
   templateId: string;
   content: WorkflowDslV1;

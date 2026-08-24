@@ -9,6 +9,7 @@ import type {
   ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
+  RenameWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   UpdateWorkflowTemplateVersionNoteInput,
   WorkflowRuntimeInput,
@@ -23,6 +24,7 @@ export class WorkflowTemplatesController {
   register(router: Router): void {
     router.get('/api/v1/workflow-templates', '列出工作流模板', tag, async (request) => this.listTemplates(request));
     router.post('/api/v1/workflow-templates', '创建工作流模板草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplate(request.body as CreateWorkflowTemplateInput) }));
+    router.post('/api/v1/workflow-templates/rename', '修改工作流名称', tag, async (request) => ({ statusCode: 200, body: await this.service.renameTemplate(request.body as RenameWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-templates/canvas/compile', '后端编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/canvas/validate', '后端校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/delete', '删除工作流模板', tag, async (request) => ({ statusCode: 200, body: await this.service.disableTemplate(String((request.body as { id?: string }).id ?? '')) }));
@@ -73,6 +75,7 @@ export function getWorkflowTemplateRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '列出工作流模板', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates', operationId: 'createWorkflowTemplate', summary: '创建工作流模板草稿', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflow-templates/rename', operationId: 'renameWorkflowTemplate', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/compile', operationId: 'compileWorkflowCanvas', summary: '后端编译工作流画布', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/validate', operationId: 'validateWorkflowCanvas', summary: '后端校验工作流画布', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/delete', operationId: 'deleteWorkflowTemplate', summary: '删除工作流模板', tags: tag, responseSchema: objectSchema },

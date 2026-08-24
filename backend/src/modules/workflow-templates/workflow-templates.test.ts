@@ -387,6 +387,33 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
+  it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {
+    const app = new App();
+    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      body: { content: templateFixture(), changeSummary: '初始版本' },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdBody = created.body as { template: { id: string }; version: { id: string; contentHash: string } };
+
+    const renamed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates/rename',
+      body: { templateId: createdBody.template.id, name: '  edge-cert-renamed  ' },
+    });
+    assert.equal(renamed.statusCode, 200);
+    assert.equal((renamed.body as { name: string }).name, 'edge-cert-renamed');
+
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    const version = (versions.body as { items: Array<{ id: string; contentHash: string; content: WorkflowDslV1 }> }).items[0];
+    assert.equal(version?.id, createdBody.version.id);
+    assert.equal(version?.contentHash, createdBody.version.contentHash);
+    assert.equal(version?.content.metadata.name, 'edge-cert-update');
+  });
+
   it('HTTP 版本备注接口只更新备注，不改写版本内容', async () => {
     const app = new App();
     new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
