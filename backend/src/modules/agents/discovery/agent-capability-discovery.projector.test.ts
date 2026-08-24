@@ -153,6 +153,71 @@ test('成熟 Agent Web 快照直接投影框架、站点和配置绑定证书', 
   assert.equal(fixture.projectionContext()?.preserveEmptyWeb, false);
 });
 
+test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影到 ManagedTarget', async () => {
+  const fixture = createFixture();
+  const fingerprint = 'a'.repeat(64);
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory',
+    confidence: 0.99,
+    value: {
+      scope: 'FULL_WEB_DISCOVERY',
+      frameworks: [{
+        frameworkType: 'web.nginx',
+        displayName: 'Nginx',
+        metadata: {
+          programPath: 'D:/runtime/nginx/nginx.exe',
+          configPath: 'D:/runtime/nginx/conf/nginx.conf',
+          configFingerprint: fingerprint,
+        },
+      }],
+      sites: [{
+        frameworkType: 'web.nginx',
+        name: 'portal.example.test',
+        serverNames: ['portal.example.test'],
+        metadata: {
+          configPath: 'D:/runtime/nginx/conf/nginx.conf',
+          configFingerprint: fingerprint,
+          listeners: [{
+            address: '*',
+            port: 443,
+            protocol: 'HTTPS',
+            host: 'portal.example.test',
+            sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
+            certificatePath: 'D:/runtime/nginx/conf/certs/portal.crt',
+            certificateKeyPath: 'D:/runtime/nginx/conf/certs/portal.key',
+            serviceName: 'nginx-production',
+            programPath: 'D:/runtime/nginx/nginx.exe',
+            configFingerprint: fingerprint,
+          }],
+        },
+      }],
+      certificateFiles: [{
+        path: 'D:/runtime/nginx/conf/certs/portal.crt',
+        sha256Fingerprint: 'b'.repeat(64),
+        subject: 'CN=portal.example.test',
+        issuer: 'CN=GCAC Test CA',
+        notBefore: '2026-08-01T00:00:00Z',
+        notAfter: '2027-08-01T00:00:00Z',
+      }],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    managedTargets: Array<{ metadata?: { certificateLocation?: Record<string, unknown> } }>;
+    certificateBindings: Array<{ deploymentTarget?: Record<string, unknown> }>;
+  };
+  assert.deepEqual(projected.managedTargets[0]?.metadata?.certificateLocation, {
+    storageKind: 'PEM_FILES',
+    certificatePath: 'D:/runtime/nginx/conf/certs/portal.crt',
+    privateKeyPath: 'D:/runtime/nginx/conf/certs/portal.key',
+    sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
+    serviceName: 'nginx-production',
+    programPath: 'D:/runtime/nginx/nginx.exe',
+    configFingerprint: fingerprint,
+  });
+  assert.deepEqual(projected.certificateBindings[0]?.deploymentTarget, projected.managedTargets[0]?.metadata?.certificateLocation);
+});
+
 test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报的证书元数据', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{

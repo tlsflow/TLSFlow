@@ -508,6 +508,14 @@ function buildDeploymentTarget(
   const rawKeystorePath = stringValue(listener.keystorePath);
   const actualPath = stringValue(certificate.metadata?.path);
   const thumbprint = normalizeInventoryThumbprint(stringValue(listener.certificateThumbprint) ?? stringValue(certificate.metadata?.thumbprint));
+  const serviceName = stringValue(listener.serviceName);
+  const programPath = stringValue(listener.programPath);
+  const configFingerprint = stringValue(listener.configFingerprint);
+  const runtimeFacts = {
+    ...(serviceName ? { serviceName } : {}),
+    ...(programPath ? { programPath } : {}),
+    ...(configFingerprint ? { configFingerprint } : {}),
+  };
   if (thumbprint && !rawCertificatePath && !rawKeystorePath) {
     return {
       storageKind: 'WINDOWS_CERTIFICATE_STORE',
@@ -515,6 +523,7 @@ function buildDeploymentTarget(
       storeLocation: stringValue(listener.certificateStoreLocation) ?? stringValue(certificate.metadata?.storeLocation) ?? 'LocalMachine',
       storeThumbprint: thumbprint,
       ...(sourceConfigPath ? { sourceConfigPath } : {}),
+      ...runtimeFacts,
     };
   }
   if (rawKeystorePath) {
@@ -526,12 +535,13 @@ function buildDeploymentTarget(
       keystoreType: stringValue(listener.keystoreType) ?? keystoreTypeFromPath(keystorePath) ?? 'UNKNOWN',
       ...(stringValue(listener.keyAlias) ? { keyAlias: stringValue(listener.keyAlias) } : {}),
       ...(sourceConfigPath ? { sourceConfigPath } : {}),
+      ...runtimeFacts,
     };
   }
   if (!rawCertificatePath) return undefined;
   const certificatePath = deployablePath(actualPath, rawCertificatePath, sourceConfigPath);
   if (!certificatePath || /^windows-tls:\/\//i.test(certificatePath)) return undefined;
-  const target: DeploymentTarget = { storageKind: 'PEM_FILES', certificatePath, ...(sourceConfigPath ? { sourceConfigPath } : {}) };
+  const target: DeploymentTarget = { storageKind: 'PEM_FILES', certificatePath, ...(sourceConfigPath ? { sourceConfigPath } : {}), ...runtimeFacts };
   const keyPath = stringValue(listener.certificateKeyPath);
   const chainPath = stringValue(listener.certificateChainPath);
   if (keyPath) target.privateKeyPath = deployableSiblingPath(certificatePath, rawCertificatePath, keyPath, sourceConfigPath);

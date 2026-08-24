@@ -67,6 +67,7 @@ type windowsNginxDetail struct {
 	Running           bool                      `json:"running"`
 	Version           string                    `json:"version,omitempty"`
 	BinaryPath        string                    `json:"binaryPath,omitempty"`
+	ServiceName       string                    `json:"serviceName,omitempty"`
 	ConfigRoot        string                    `json:"configRoot,omitempty"`
 	ConfigPath        string                    `json:"configPath,omitempty"`
 	IncludeFiles      []string                  `json:"includeFiles,omitempty"`
@@ -212,15 +213,13 @@ func discoverWindowsRuntimeFacts(facts windowsRuntimeFactSnapshot) (windowsNginx
 }
 
 func discoverWindowsNginx(facts windowsRuntimeFactSnapshot) windowsNginxDetail {
+	service := firstWindowsRuntimeService(facts.Services, "nginx")
 	process := firstWindowsRuntimeProcess(facts.Processes, "nginx")
 	if process == nil {
-		for _, service := range facts.Services {
-			if windowsRuntimeNameMatches(service.Name, "nginx") || windowsRuntimeNameMatches(service.DisplayName, "nginx") {
-				process = &windowsRuntimeProcessFact{
-					ExecutablePath: firstNonEmpty(service.ExecutablePath, extractWindowsExecutablePath(service.PathName)),
-					Version:        service.Version,
-				}
-				break
+		if service != nil {
+			process = &windowsRuntimeProcessFact{
+				ExecutablePath: firstNonEmpty(service.ExecutablePath, extractWindowsExecutablePath(service.PathName)),
+				Version:        service.Version,
 			}
 		}
 	}
@@ -229,21 +228,41 @@ func discoverWindowsNginx(facts windowsRuntimeFactSnapshot) windowsNginxDetail {
 	}
 
 	detail := windowsNginxDetail{
-		Installed:  strings.TrimSpace(process.ExecutablePath) != "",
-		Running:    firstWindowsRuntimeProcess(facts.Processes, "nginx") != nil,
-		Version:    process.Version,
-		BinaryPath: strings.TrimSpace(process.ExecutablePath),
+		Installed:   strings.TrimSpace(process.ExecutablePath) != "",
+		Running:     firstWindowsRuntimeProcess(facts.Processes, "nginx") != nil,
+		Version:     process.Version,
+		BinaryPath:  strings.TrimSpace(process.ExecutablePath),
+		ServiceName: serviceName(service),
 	}
-	prefix := windowsCommandArgument(process.CommandLine, "-p")
-	if prefix == "" {
-		prefix = filepath.Dir(filepath.Dir(detail.BinaryPath))
+	processCommandLine := strings.TrimSpace(process.CommandLine)
+	serviceCommandLine := ""
+	if service != nil {
+		serviceCommandLine = strings.TrimSpace(service.PathName)
 	}
+	prefix := firstNonEmpty(
+		windowsCommandArgument(processCommandLine, "-p"),
+		windowsCommandArgument(serviceCommandLine, "-p"),
+	)
 	detail.ConfigRoot = windowsCleanPath(prefix)
-	configPath := windowsCommandArgument(process.CommandLine, "-c")
+	configPath := firstNonEmpty(
+		windowsCommandArgument(processCommandLine, "-c"),
+		windowsCommandArgument(serviceCommandLine, "-c"),
+	)
 	if configPath == "" {
-		configPath = filepath.Join(detail.ConfigRoot, "conf", "nginx.conf")
-	} else {
-		configPath = resolveWindowsRuntimePath(detail.ConfigRoot, "", configPath)
+		detail.Warnings = append(detail.Warnings, windowsDiscoveryWarning{
+			Code:    "CONFIG_PATH_UNCONFIRMED",
+			Message: "NGINX 运行参数未提供实际配置路径，跳过配置解析",
+		})
+		return detail
+	}
+	configPath = resolveWindowsRuntimePath(detail.ConfigRoot, "", configPath)
+	if !windowsRuntimePathIsAbsolute(configPath) {
+		detail.Warnings = append(detail.Warnings, windowsDiscoveryWarning{
+			Code:    "CONFIG_PATH_UNCONFIRMED",
+			Message: "NGINX 配置路径不是可确认的绝对路径，跳过配置解析",
+			Path:    configPath,
+		})
+		return detail
 	}
 	detail.ConfigPath = configPath
 	detail.Sites, detail.IncludeFiles, detail.ConfigFingerprint, detail.Warnings = parseWindowsNginxConfigTree(configPath, detail.ConfigRoot)
@@ -558,6 +577,17 @@ func resolveWindowsRuntimePath(root string, baseDir string, value string) string
 		return windowsCleanPath(filepath.Join(root, value))
 	}
 	return windowsCleanPath(value)
+}
+
+func windowsRuntimePathIsAbsolute(value string) bool {
+	value = strings.TrimSpace(value)
+	if filepath.IsAbs(value) {
+		return true
+	}
+	if strings.HasPrefix(value, `\\`) {
+		return true
+	}
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '\\' || value[2] == '/')
 }
 
 func windowsCleanPath(value string) string {

@@ -64,6 +64,9 @@ export interface StandardDeviceDiscoveryV2 {
       storeLocation?: string;
       storeThumbprint?: string;
       sourceConfigPath?: string;
+      serviceName?: string;
+      programPath?: string;
+      configFingerprint?: string;
     };
     bindingName?: string;
     metadata?: Record<string, unknown>;

@@ -75,6 +75,14 @@ function assertDeploymentTarget(value: unknown, path: string): void {
     const child = value[key];
     if (child !== undefined && (typeof child !== 'string' || !child.trim() || /[\r\n]/.test(child) || /^windows-tls:\/\//i.test(child.trim()))) invalidField(`${path}.${key}`);
   }
+  for (const key of ['serviceName', 'programPath'] as const) {
+    const child = value[key];
+    if (child !== undefined && (typeof child !== 'string' || !child.trim() || /[\r\n]/.test(child))) invalidField(`${path}.${key}`);
+  }
+  if (value.configFingerprint !== undefined
+    && (typeof value.configFingerprint !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value.configFingerprint.trim()))) {
+    invalidField(`${path}.configFingerprint`);
+  }
   if (value.storageKind === 'PEM_FILES' && typeof value.certificatePath !== 'string' && typeof value.privateKeyPath !== 'string') invalidField(`${path}.certificatePath`);
   if (value.storageKind === 'KEYSTORE' && typeof value.keystorePath !== 'string') invalidField(`${path}.keystorePath`);
   if (value.storageKind === 'WINDOWS_CERTIFICATE_STORE' && (typeof value.storeName !== 'string' || typeof value.storeLocation !== 'string' || typeof value.storeThumbprint !== 'string')) invalidField(`${path}.storeThumbprint`);

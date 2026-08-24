@@ -41,9 +41,9 @@ func collectWindowsMatureWebInventory(ctx context.Context, logger *runtimeLogger
 			logger.Warn("mature Windows runtime discovery failed: %v", err)
 		}
 	} else {
-		appendWindowsMatureRuntimeDetail(inventory, "web.nginx", "Nginx", nginx.Installed, nginx.Version, nginx.BinaryPath, nginx.ConfigPath, nginx.ConfigFingerprint, nginx.Sites, nginx.Warnings)
-		appendWindowsMatureRuntimeDetail(inventory, "web.apache", "Apache", apache.Installed, apache.Version, apache.BinaryPath, apache.ConfigPath, apache.ConfigFingerprint, apache.Sites, apache.Warnings)
-		appendWindowsMatureRuntimeDetail(inventory, "app.tomcat", "Tomcat", tomcat.Installed, tomcat.Version, tomcat.JavaPath, tomcat.ConfigPath, tomcat.ConfigFingerprint, windowsTomcatSite(tomcat), tomcat.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "web.nginx", "Nginx", nginx.Installed, nginx.Version, nginx.BinaryPath, nginx.ServiceName, nginx.ConfigPath, nginx.ConfigFingerprint, nginx.Sites, nginx.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "web.apache", "Apache", apache.Installed, apache.Version, apache.BinaryPath, apache.ServiceName, apache.ConfigPath, apache.ConfigFingerprint, apache.Sites, apache.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "app.tomcat", "Tomcat", tomcat.Installed, tomcat.Version, tomcat.JavaPath, tomcat.ServiceName, tomcat.ConfigPath, tomcat.ConfigFingerprint, windowsTomcatSite(tomcat), tomcat.Warnings)
 	}
 
 	if logger != nil {
@@ -70,6 +70,22 @@ func appendWindowsMatureRuntimeDetail(
 	sites []windowsRuntimeSite,
 	warnings []windowsDiscoveryWarning,
 ) {
+	appendWindowsMatureRuntimeDetailWithService(inventory, frameworkType, displayName, installed, version, programPath, "", configPath, configFingerprint, sites, warnings)
+}
+
+func appendWindowsMatureRuntimeDetailWithService(
+	inventory map[string]any,
+	frameworkType string,
+	displayName string,
+	installed bool,
+	version string,
+	programPath string,
+	serviceName string,
+	configPath string,
+	configFingerprint string,
+	sites []windowsRuntimeSite,
+	warnings []windowsDiscoveryWarning,
+) {
 	for _, warning := range warnings {
 		appendWindowsMatureWarning(inventory, warning)
 	}
@@ -78,22 +94,32 @@ func appendWindowsMatureRuntimeDetail(
 	}
 
 	frameworks := inventory["frameworks"].([]map[string]any)
+	frameworkMetadata := map[string]any{
+		"source": "runtime-effective-config",
+	}
+	if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
+		frameworkMetadata["programPath"] = path
+	}
+	if path := normalizeWindowsRuntimeInventoryPath(configPath); path != "" {
+		frameworkMetadata["configPath"] = path
+	}
+	if strings.TrimSpace(serviceName) != "" {
+		frameworkMetadata["serviceName"] = strings.TrimSpace(serviceName)
+	}
+	if strings.TrimSpace(configFingerprint) != "" {
+		frameworkMetadata["configFingerprint"] = strings.TrimSpace(configFingerprint)
+	}
 	frameworks = append(frameworks, map[string]any{
 		"frameworkType": frameworkType,
 		"displayName":   displayName,
 		"version":       version,
-		"metadata": map[string]any{
-			"programPath":       normalizeWindowsRuntimeInventoryPath(programPath),
-			"configPath":        normalizeWindowsRuntimeInventoryPath(configPath),
-			"configFingerprint": configFingerprint,
-			"source":            "runtime-effective-config",
-		},
+		"metadata":      frameworkMetadata,
 	})
 	inventory["frameworks"] = frameworks
 	appendWindowsMatureConfigFile(inventory, configPath)
 
 	for _, site := range sites {
-		appendWindowsMatureSite(inventory, frameworkType, site, configPath, configFingerprint)
+		appendWindowsMatureSite(inventory, frameworkType, site, programPath, serviceName, configPath, configFingerprint)
 	}
 }
 
@@ -101,6 +127,8 @@ func appendWindowsMatureSite(
 	inventory map[string]any,
 	frameworkType string,
 	site windowsRuntimeSite,
+	programPath string,
+	serviceName string,
 	fallbackConfigPath string,
 	fallbackConfigFingerprint string,
 ) {
@@ -118,7 +146,15 @@ func appendWindowsMatureSite(
 			"host":               firstNonEmpty(listener.HostHeader, firstWindowsRuntimePath(site.ServerNames)),
 			"bindingInformation": listener.BindingInformation,
 			"sourceConfigPath":   normalizeWindowsRuntimeInventoryPath(sourceConfigPath),
-			"configFingerprint":  firstNonEmpty(listener.ConfigFingerprint, site.ConfigFingerprint, fallbackConfigFingerprint),
+		}
+		if fingerprint := firstNonEmpty(listener.ConfigFingerprint, site.ConfigFingerprint, fallbackConfigFingerprint); fingerprint != "" {
+			listenerRecord["configFingerprint"] = fingerprint
+		}
+		if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
+			listenerRecord["programPath"] = path
+		}
+		if strings.TrimSpace(serviceName) != "" {
+			listenerRecord["serviceName"] = strings.TrimSpace(serviceName)
 		}
 		appendWindowsMatureListenerPaths(listenerRecord, listener)
 		listeners = append(listeners, listenerRecord)
@@ -143,6 +179,23 @@ func appendWindowsMatureSite(
 		addresses = append(addresses, stringFromMap(listener, "host"), stringFromMap(listener, "address"))
 	}
 	sites := inventory["sites"].([]map[string]any)
+	siteMetadata := map[string]any{
+		"siteId":      site.ID,
+		"sitePath":    normalizeWindowsRuntimeInventoryPath(site.SitePath),
+		"configPath":  normalizeWindowsRuntimeInventoryPath(firstNonEmpty(firstWindowsRuntimePath(site.ConfigFiles), fallbackConfigPath)),
+		"configFiles": normalizeWindowsRuntimeInventoryPaths(site.ConfigFiles),
+		"listeners":   listeners,
+		"source":      "runtime-effective-config",
+	}
+	if fingerprint := firstNonEmpty(site.ConfigFingerprint, fallbackConfigFingerprint); fingerprint != "" {
+		siteMetadata["configFingerprint"] = fingerprint
+	}
+	if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
+		siteMetadata["programPath"] = path
+	}
+	if strings.TrimSpace(serviceName) != "" {
+		siteMetadata["serviceName"] = strings.TrimSpace(serviceName)
+	}
 	sites = append(sites, map[string]any{
 		"frameworkType": frameworkType,
 		"name":          site.Name,
@@ -150,15 +203,7 @@ func appendWindowsMatureSite(
 		"addresses":     uniqueWindowsStrings(addresses),
 		"port":          primaryListener["port"],
 		"protocol":      "HTTPS",
-		"metadata": map[string]any{
-			"siteId":            site.ID,
-			"sitePath":          normalizeWindowsRuntimeInventoryPath(site.SitePath),
-			"configPath":        normalizeWindowsRuntimeInventoryPath(firstNonEmpty(firstWindowsRuntimePath(site.ConfigFiles), fallbackConfigPath)),
-			"configFiles":       normalizeWindowsRuntimeInventoryPaths(site.ConfigFiles),
-			"configFingerprint": firstNonEmpty(site.ConfigFingerprint, fallbackConfigFingerprint),
-			"listeners":         listeners,
-			"source":            "runtime-effective-config",
-		},
+		"metadata":      siteMetadata,
 	})
 	inventory["sites"] = sites
 }

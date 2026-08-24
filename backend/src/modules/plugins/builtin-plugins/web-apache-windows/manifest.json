@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache.windows",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayNameKey": "plugin.webApacheWindows.name",
   "descriptionKey": "plugin.webApacheWindows.description",
   "defaultLocale": "zh-CN",
@@ -48,7 +48,7 @@
   ],
   "compatibility": {
     "productFamilies": [
-      "web.apache"
+      "WINDOWS_SERVER"
     ],
     "frameworkTypes": [
       "web.apache"
