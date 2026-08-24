@@ -155,20 +155,6 @@ function firstUserModePath(): string {
   return userModeMenuItems.value[0]?.path ?? '/certificates'
 }
 
-function switchViewMode(mode: 'user' | 'professional'): void {
-  if (appStore.viewMode === mode) return
-  appStore.setViewMode(mode)
-  if (mode === 'user' && !isUserModePath(route.path)) {
-    void router.push(firstUserModePath())
-  }
-}
-
-function selectViewMode(mode: 'user' | 'professional'): void {
-  switchViewMode(mode)
-  closeMobileNav(false)
-  closeUserMenu()
-}
-
 function toggleSidebar(): void {
   if (isMobileViewport.value) {
     toggleMobileNav()
@@ -786,32 +772,6 @@ function removeToastNotice(id: number): void {
                   </span>
                   <span>{{ t('userMenu.changePassword') }}</span>
                 </button>
-
-                <div class="gc-shell__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
-                  <span
-                    class="gc-shell__view-mode-thumb"
-                    :class="{ 'gc-shell__view-mode-thumb--right': !isUserViewMode }"
-                    aria-hidden="true"
-                  />
-                  <button
-                    class="gc-shell__view-mode-button"
-                    :class="{ 'gc-shell__view-mode-button--active': isUserViewMode }"
-                    type="button"
-                    :aria-pressed="isUserViewMode"
-                    @click="selectViewMode('user')"
-                  >
-                    {{ t('viewMode.user') }}
-                  </button>
-                  <button
-                    class="gc-shell__view-mode-button"
-                    :class="{ 'gc-shell__view-mode-button--active': !isUserViewMode }"
-                    type="button"
-                    :aria-pressed="!isUserViewMode"
-                    @click="selectViewMode('professional')"
-                  >
-                    {{ t('viewMode.professional') }}
-                  </button>
-                </div>
 
             <button
               class="gc-shell__user-menu-action"

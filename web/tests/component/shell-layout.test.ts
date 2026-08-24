@@ -161,7 +161,7 @@ describe('ShellLayout', () => {
     wrapper.unmount()
   })
 
-  it('将设置固定在侧栏底部，并将视图切换放入用户菜单', async () => {
+  it('将设置固定在侧栏底部，并从用户菜单移除视图切换', async () => {
     const router = createTestRouter()
     await router.push('/dashboard')
     await router.isReady()
@@ -179,7 +179,7 @@ describe('ShellLayout', () => {
     expect(wrapper.find('.gc-workbench__sidebar-footer .gc-workbench__view-mode').exists()).toBe(false)
 
     await wrapper.get('.gc-shell__user-button').trigger('click')
-    expect(wrapper.find('.gc-shell__user-menu .gc-shell__view-mode').exists()).toBe(true)
+    expect(wrapper.find('.gc-shell__user-menu .gc-shell__view-mode').exists()).toBe(false)
   })
 
   it('在退出登录上方提供使用手册入口', async () => {
