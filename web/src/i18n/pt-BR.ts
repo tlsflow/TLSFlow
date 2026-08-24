@@ -11,21 +11,21 @@ export default {
     refresh: 'Atualizar',
     logout: 'Sair',
     enter: 'Abrir',
-    loading: 'Loading',
-    userFallback: 'Guest user',
-    tenantFallback: 'Default tenant'
+    loading: 'Carregando',
+    userFallback: 'Usuário não autenticado',
+    tenantFallback: 'Tenant padrão'
   },
   api: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'Falha na requisição'
     }
   },
   auth: {
     errors: {
-      missingSession: 'The login API did not return a session'
+      missingSession: 'Falha no login: nenhuma sessão válida foi obtida'
     },
     mock: {
-      displayName: 'Frontend skeleton user'
+      displayName: 'Usuário do sistema (Mock)'
     }
   },
   designSystem: {
@@ -38,352 +38,352 @@ export default {
       confirm: 'Confirmar'
     },
     dataTable: {
-      empty: 'Sem dados',
+      empty: 'Nenhum dado',
       loading: 'Carregando...'
     },
     dryRunChecklist: {
-      title: 'Resultados de pré-verificação dry-run',
-      ariaLabel: 'resultados de pré-verificação dry-run',
-      empty: 'Nenhum resultado de pré-verificação dry-run foi gerado.',
-      unnamedCheck: 'Verificação sem nome'
+      title: 'Conclusão da pré-verificação Dry-run',
+      ariaLabel: 'conclusão da pré-verificação dry-run',
+      empty: 'Nenhum resultado de pré-verificação dry-run foi gerado ainda.',
+      unnamedCheck: 'Item de verificação sem nome'
     },
     dryRunResult: {
-      title: 'Resultado da execução dry-run',
+      title: 'Resultado da execução Dry-run',
       close: 'Fechar'
     },
     modal: {
       closeAria: 'Fechar modal'
     },
     secretInput: {
-      label: 'Referência Secret',
-      placeholder: 'Selecione ou insira um SecretRef. Texto puro não é salvo',
-      hint: 'Campos sensíveis armazenam apenas referências e não ficam salvos em texto puro no navegador.'
+      label: 'Referência de Secret',
+      placeholder: 'Selecione ou informe uma referência de segredo (SecretRef); o conteúdo não será armazenado em texto claro',
+      hint: 'Campos sensíveis armazenam apenas referências de segredo e não exibem valores em texto claro na interface.'
     },
     riskBadge: {
       levelPrefix: 'Nível: '
     },
     status: {
-      DRAFT: 'Draft',
-      PUBLISHED: 'Published',
-      PENDING_APPROVAL: 'Pending approval',
-      READY: 'Ready',
-      RUNNING: 'Running',
-      SUCCESS: 'Success',
-      PARTIAL_SUCCESS: 'Partial success',
-      FAILED: 'Failed',
-      CANCELLED: 'Cancelled',
-      ROLLED_BACK: 'Rolled back',
-      DISCOVERED: 'Discovered',
-      MANAGED: 'Managed',
-      DRIFTED: 'Drifted',
-      EXPIRED: 'Expired',
-      ERROR: 'Error',
-      IGNORED: 'Ignored',
+      DRAFT: 'Rascunho',
+      PUBLISHED: 'Publicado',
+      PENDING_APPROVAL: 'Pendente de aprovação',
+      READY: 'Pronto para execução',
+      RUNNING: 'Em execução',
+      SUCCESS: 'Sucesso',
+      PARTIAL_SUCCESS: 'Sucesso parcial',
+      FAILED: 'Falha',
+      CANCELLED: 'Cancelado',
+      ROLLED_BACK: 'Revertido',
+      DISCOVERED: 'Descoberto',
+      MANAGED: 'Gerenciado',
+      DRIFTED: 'Com desvio',
+      EXPIRED: 'Expirado',
+      ERROR: 'Erro',
+      IGNORED: 'Ignorado',
       ONLINE: 'Online',
       OFFLINE: 'Offline',
-      DISABLED: 'Disabled',
-      UPGRADING: 'Upgrading',
-      UPDATE_REQUIRED: 'Update required',
-      UP_TO_DATE: 'Up to date',
-      UNKNOWN: 'Unknown'
+      DISABLED: 'Desabilitado',
+      UPGRADING: 'Atualizando',
+      UPDATE_REQUIRED: 'Atualização necessária',
+      UP_TO_DATE: 'Atualizado',
+      UNKNOWN: 'Desconhecido'
     },
     risk: {
       LOW: {
-        label: 'Low',
-        description: 'Needs attention, but does not directly block the operation.'
+        label: 'Baixo',
+        description: 'Exige atenção, mas não bloqueia diretamente a operação.'
       },
       MEDIUM: {
-        label: 'Medium',
-        description: 'May affect deployment or monitoring results and needs confirmation.'
+        label: 'Médio',
+        description: 'Pode afetar a implantação ou os resultados de monitoramento e exige confirmação.'
       },
       HIGH: {
-        label: 'High',
-        description: 'May cause service interruption or security exposure.'
+        label: 'Alto',
+        description: 'Pode causar interrupção de serviço ou exposição de segurança.'
       },
       CRITICAL: {
-        label: 'Critical',
-        description: 'Must be handled first. Risky operations require secondary confirmation.'
+        label: 'Crítico',
+        description: 'Deve ser tratado com prioridade. Operações de risco exigem confirmação secundária.'
       }
     },
     capability: {
       available: 'Disponível',
       missing: 'Ausente',
       title: 'Compatibilidade de capacidades',
-      description: 'Somente resultados confirmados pela API capability do backend são exibidos; itens desconhecidos não são tratados como sucesso.',
+      description: 'Exibe apenas resultados de compatibilidade de capacidades já confirmados; itens não confirmados não são considerados compatíveis.',
       matrixLabel: 'Matriz de compatibilidade de capacidades',
       satisfied: 'Atendido',
       unknown: 'Desconhecido',
-      manualRisk: 'Revisão manual',
-      empty: 'Sem dados de capability. O frontend mantém uma exibição degradada.'
+      manualRisk: 'Confirmação manual',
+      empty: 'Nenhum dado de compatibilidade de capacidades disponível.'
     },
     executionLogViewer: {
       mode: {
-        realtime: 'Live updates',
-        autoRefresh: 'Auto refresh'
+        realtime: 'Atualização em tempo real',
+        autoRefresh: 'Atualização automática'
       },
       search: {
-        placeholder: 'Search log content'
+        placeholder: 'Pesquisar conteúdo dos logs'
       },
       level: {
-        aria: 'Log level',
-        all: 'All'
+        aria: 'Nível do log',
+        all: 'Todos'
       },
       hint: {
-        streaming: 'Task status and logs will update live.',
-        autoRefresh: 'Task status and logs will refresh automatically.',
-        pollingFallback: 'Currently using polling fallback.'
+        streaming: 'O status da tarefa e os logs serão atualizados em tempo real.',
+        autoRefresh: 'O status da tarefa e os logs serão atualizados automaticamente.',
+        pollingFallback: 'Atualmente usando atualização periódica.'
       },
       steps: {
-        aria: 'Execution steps',
-        emptyDetail: 'No step description yet'
+        aria: 'Etapas de execução',
+        emptyDetail: 'Ainda não há descrição da etapa'
       },
       empty: {
-        logs: 'No logs yet.'
+        logs: 'Ainda não há logs.'
       }
     },
     executionProgress: {
       aria: {
-        progressOverview: 'Execution progress overview',
-        taskList: 'Task list',
-        latestEvents: 'Latest events',
-        executionLog: 'Execution log'
+        progressOverview: 'Visão geral do progresso da execução',
+        taskList: 'Lista de tarefas',
+        latestEvents: 'Eventos mais recentes',
+        executionLog: 'Log de execução'
       },
       checklist: {
-        title: 'Check results'
+        title: 'Conclusões das verificações'
       },
       detail: {
-        stepsCompleted: '{completed}/{total} steps completed',
-        summaryFailed: '{total} check results returned, {failed} failed',
-        summaryPassed: 'All {passed} checks passed',
-        summaryReturned: '{total} check results returned',
-        summaryWarning: '{total} check results returned, {warning} warnings',
-        waitingStart: 'Waiting for the task to start',
-        waitingSteps: 'Waiting for execution steps from the backend'
+        stepsCompleted: '{completed}/{total} etapas concluídas',
+        summaryFailed: '{total} resultados de verificação retornados, {failed} com falha',
+        summaryPassed: 'Todas as {passed} verificações foram aprovadas',
+        summaryReturned: '{total} resultados de verificação retornados',
+        summaryWarning: '{total} resultados de verificação retornados, {warning} avisos',
+        waitingStart: 'Aguardando o início da tarefa',
+        waitingSteps: 'Aguardando as etapas de execução'
       },
       empty: {
-        activity: 'Execution log entries will appear after the task completes.',
-        events: 'No events have been returned yet.',
-        tasks: 'The task has not been created yet. Waiting for execution steps from the backend.'
+        activity: 'Os logs de execução serão exibidos gradualmente após a conclusão da tarefa.',
+        events: 'Nenhum evento registrado ainda.',
+        tasks: 'A tarefa ainda não foi criada; aguardando as etapas de execução…'
       },
       event: {
-        collapse: 'Collapse events',
-        defaultLabel: 'Event',
-        defaultTitle: 'Task event',
-        expand: 'Expand events',
-        waitingDetail: 'Waiting for event data'
+        collapse: 'Recolher eventos',
+        defaultLabel: 'Evento',
+        defaultTitle: 'Evento da tarefa',
+        expand: 'Expandir eventos',
+        waitingDetail: 'Aguardando registro do evento'
       },
       feed: {
-        completed: 'Execution completed',
-        failed: 'Execution failed',
-        warning: 'Completed with warnings'
+        completed: 'Execução concluída',
+        failed: 'Execução com falha',
+        warning: 'Concluída com avisos'
       },
       loading: {
-        pollingFallback: 'Auto-refresh fallback active',
-        refreshing: 'Refreshing'
+        pollingFallback: 'Atualizando periodicamente…',
+        refreshing: 'Atualizando'
       },
       log: {
-        collapse: 'Collapse full log',
-        expand: 'View full log'
+        collapse: 'Recolher log completo',
+        expand: 'Ver log completo'
       },
       metrics: {
-        completed: 'Completed',
-        failed: 'Failed',
-        passed: 'Passed',
-        queued: 'Queued',
-        running: 'Running',
-        totalTasks: 'Total tasks',
-        unknown: 'Unknown',
-        warning: 'Warnings'
+        completed: 'Concluídas',
+        failed: 'Falhas',
+        passed: 'Aprovadas',
+        queued: 'Na fila',
+        running: 'Em execução',
+        totalTasks: 'Total de tarefas',
+        unknown: 'Desconhecidas',
+        warning: 'Avisos'
       },
       process: {
-        execution: 'Execution'
+        execution: 'Execução'
       },
       progress: {
-        completed: 'All complete',
-        failed: 'Completed with failed items',
-        pending: 'Waiting for result writeback',
-        processFailed: '{process} failed',
-        queued: 'Waiting for scheduling',
-        running: 'Task in progress',
-        warning: 'Completed with risk warnings'
+        completed: 'Tudo concluído',
+        failed: 'Concluído com itens com falha',
+        pending: 'Aguardando gravação dos resultados',
+        processFailed: '{process} falhou',
+        queued: 'Aguardando agendamento',
+        running: 'Tarefa em andamento',
+        warning: 'Concluído com alertas de risco'
       },
       section: {
-        completedCount: '{completed}/{total} completed',
-        executionLog: 'Execution log',
-        latestEvents: 'Latest events',
-        taskProgress: 'Task progress'
+        completedCount: '{completed}/{total} concluídas',
+        executionLog: 'Log de execução',
+        latestEvents: 'Eventos mais recentes',
+        taskProgress: 'Progresso da tarefa'
       },
       status: {
-        completed: 'Completed',
-        failed: 'Failed',
-        queued: 'Waiting',
-        running: 'Running',
-        warning: 'Warning'
+        completed: 'Concluída',
+        failed: 'Falha',
+        queued: 'Aguardando',
+        running: 'Em execução',
+        warning: 'Com aviso'
       },
       step: {
-        backup: 'Pre-backup',
-        discover: 'Environment discovery',
-        installDryRun: 'Material loading',
-        installExecution: 'Certificate installation',
-        reload: 'Service reload',
-        verify: 'Result verification'
+        backup: 'Backup prévio',
+        discover: 'Identificação do ambiente',
+        installDryRun: 'Preparação dos materiais',
+        installExecution: 'Instalação do certificado',
+        reload: 'Atualização do serviço',
+        verify: 'Validação do resultado'
       },
       subtitle: {
-        completed: 'The task has completed.',
-        failed: 'The task ended with a failed result.',
-        failedChecks: '{total} checks, {failed} failed',
-        passedChecks: '{total} checks passed',
-        queued: 'The task has been created and is waiting to run.',
-        running: 'The task has started. Waiting for more results.',
-        runningChecks: '{total} checks returned',
-        warningChecks: '{total} checks, {warning} warnings'
+        completed: 'A tarefa foi concluída.',
+        failed: 'A tarefa terminou, mas retornou resultado de falha.',
+        failedChecks: '{total} verificações, {failed} com falha',
+        passedChecks: '{total} verificações aprovadas',
+        queued: 'A tarefa foi criada e aguarda execução.',
+        running: 'A tarefa foi iniciada; aguardando resultados.',
+        runningChecks: '{total} verificações retornadas',
+        warningChecks: '{total} verificações, {warning} avisos'
       },
       time: {
-        waitingStart: 'Waiting to start'
+        waitingStart: 'Aguardando início'
       }
     },
     deploymentWizard: {
       actions: {
-        cancel: 'Cancel',
-        dryRun: 'Run dry-run first',
-        next: 'Next',
-        previous: 'Previous',
-        save: 'Save plan'
+        cancel: 'Cancelar',
+        dryRun: 'Executar Dry-run primeiro',
+        next: 'Próximo',
+        previous: 'Anterior',
+        save: 'Salvar plano'
       },
       aria: {
-        steps: 'Deployment steps',
-        wizard: 'Deployment wizard'
+        steps: 'Etapas de implantação',
+        wizard: 'Assistente de implantação'
       },
       capability: {
-        targetMissingDetail: 'No deployment target selected.',
-        targetSelectedDetail: 'Deployment target selected. Run a dry-run before submitting.',
-        targetSelection: 'Deployment target selection',
-        targetSource: 'Deployment target'
+        targetMissingDetail: 'Nenhum alvo de implantação foi selecionado.',
+        targetSelectedDetail: 'Alvo de implantação selecionado; é recomendável concluir o dry-run antes de enviar.',
+        targetSelection: 'Seleção do alvo de implantação',
+        targetSource: 'Alvo de implantação'
       },
       checks: {
-        failed: 'Failed {count}',
-        passed: 'Passed {count}',
-        unknown: 'Unknown {count}',
-        unnamed: 'Unnamed check',
-        warning: 'Warning {count}'
+        failed: 'Falha {count}',
+        passed: 'Aprovado {count}',
+        unknown: 'Desconhecido {count}',
+        unnamed: 'Item de verificação sem nome',
+        warning: 'Aviso {count}'
       },
       empty: {
-        noTargets: 'No application asset targets available',
-        selectTarget: 'Select an application asset deployment target.'
+        noTargets: 'Nenhum alvo de ativo de aplicação disponível',
+        selectTarget: 'Selecione um alvo de implantação de ativo de aplicação.'
       },
       fallback: {
-        generatedByApplicationEntry: 'Generated from application entry',
-        missingBinding: 'Binding information not provided',
-        unboundCertificateVariable: 'Certificate variable not bound',
-        unconfigured: 'Not configured',
-        unconfiguredRunner: 'Runner not configured',
-        unknownEnd: 'Unknown end',
-        unknownStart: 'Unknown start',
-        unnamedSite: 'Unnamed site',
-        unnamedVersion: 'Unnamed version',
-        unrecognizedManagedTarget: 'Unrecognized managed target',
-        unselected: 'Not selected',
-        unselectedVersion: 'Version not selected',
-        unselectedWorkflow: 'Workflow not selected'
+        generatedByApplicationEntry: 'Gerado pela entrada da aplicação',
+        missingBinding: 'Informações de binding não fornecidas',
+        unboundCertificateVariable: 'Variável de certificado não vinculada',
+        unconfigured: 'Não configurado',
+        unconfiguredRunner: 'Local de execução não configurado',
+        unknownEnd: 'Término desconhecido',
+        unknownStart: 'Início desconhecido',
+        unnamedSite: 'Site sem nome',
+        unnamedVersion: 'Versão sem nome',
+        unrecognizedManagedTarget: 'Alvo gerenciado não reconhecido',
+        unselected: 'Não selecionado',
+        unselectedVersion: 'Versão não selecionada',
+        unselectedWorkflow: 'Workflow não selecionado'
       },
       fields: {
-        applicationTarget: 'Application asset deployment target',
-        artifactConfig: 'Artifact config',
-        binding: 'Binding',
-        certificateAsset: 'Certificate asset',
-        certificateVariable: 'Certificate variable',
-        certificateVersion: 'Certificate version',
-        deploymentTarget: 'Deployment target',
-        keyword: 'Keyword search',
-        managedTarget: 'Managed target',
-        runner: 'Runner',
+        applicationTarget: 'Alvo de implantação do ativo de aplicação',
+        artifactConfig: 'Configuração do artefato',
+        binding: 'Vínculo',
+        certificateAsset: 'Ativo de certificado',
+        certificateVariable: 'Variável de certificado',
+        certificateVersion: 'Versão do certificado',
+        deploymentTarget: 'Alvo de implantação',
+        keyword: 'Pesquisa por palavra-chave',
+        managedTarget: 'Alvo gerenciado',
+        runner: 'Local de execução',
         site: 'Site',
-        verifyUrl: 'Verify URL',
-        version: 'Version',
-        workflow: 'Workflow'
+        verifyUrl: 'URL de verificação',
+        version: 'Versão',
+        workflow: 'Fluxo de trabalho'
       },
       panels: {
-        certificateTitle: '1. Certificate material',
-        submitTitle: '3. Precheck and submit',
-        targetTitle: '2. Deployment target'
+        certificateTitle: '1. Material do certificado',
+        submitTitle: '3. Pré-verificação e envio',
+        targetTitle: '2. Alvo de implantação'
       },
       panelState: {
-        needPrerequisites: 'Prerequisites required',
-        operable: 'Ready',
-        pending: 'Pending',
-        readyNext: 'Ready for next step'
+        needPrerequisites: 'Seleções prévias pendentes',
+        operable: 'Operável',
+        pending: 'Pendente',
+        readyNext: 'Pronto para a próxima etapa'
       },
       placeholders: {
-        selectTarget: 'Select application asset target',
-        targetKeyword: 'Search by domain, site, or binding information'
+        selectTarget: 'Selecione o alvo do ativo de aplicação',
+        targetKeyword: 'Pesquisar por domínio, site ou informações de binding'
       },
       plan: {
-        dryRunCompleted: 'The latest dry-run has completed.',
-        submitCompleted: 'The latest submit has completed.'
+        dryRunCompleted: 'O dry-run mais recente foi concluído.',
+        submitCompleted: 'O envio mais recente foi concluído.'
       },
       preview: {
-        needCertificate: 'Select certificate material first.',
-        needTarget: 'After selecting certificate material, choose application asset targets.',
-        ready: 'The selected certificate version will be deployed to {count} application asset targets.'
+        needCertificate: 'Selecione primeiro o material do certificado.',
+        needTarget: 'Depois de selecionar o material do certificado, indique os alvos de ativos de aplicação.',
+        ready: 'A versão de certificado selecionada será implantada em {count} alvos de ativos de aplicação.'
       },
       status: {
-        checksReturned: 'Precheck results returned. Decide whether to save, submit, or execute.',
-        current: 'Current status',
-        default: 'Run a dry-run before deciding whether to submit.',
-        dryRunStarted: 'Dry-run started. Check progress in the execution result panel.',
-        submitted: 'Plan submitted.'
+        checksReturned: 'Os resultados da pré-verificação retornaram; decida se deseja salvar, enviar ou executar.',
+        current: 'Status atual',
+        default: 'É recomendável iniciar um dry-run antes de decidir se deve enviar a execução.',
+        dryRunStarted: 'Pré-verificação iniciada; veja o progresso na área de resultados da execução.',
+        submitted: 'Plano enviado.'
       },
       steps: {
         certificate: {
-          description: 'Certificate asset and version',
-          title: 'Select certificate material'
+          description: 'Ativo e versão do certificado',
+          title: 'Selecionar material do certificado'
         },
         submit: {
-          description: 'Dry-run, save, submit, execute',
-          title: 'Precheck and submit'
+          description: 'Dry-run, salvar, enviar e executar',
+          title: 'Pré-verificar e enviar'
         },
         target: {
-          description: 'Application asset, site, and binding',
-          title: 'Select deployment target'
+          description: 'Ativo de aplicação, site e binding',
+          title: 'Selecionar alvo de implantação'
         }
       },
       stepState: {
-        active: 'In progress',
-        done: 'Done',
-        pending: 'Pending'
+        active: 'Em andamento',
+        done: 'Concluído',
+        pending: 'Pendente'
       },
       target: {
-        workflowMode: 'Workflow mode'
+        workflowMode: 'Modo de workflow'
       },
       version: {
-        autoLatest: 'Always select the latest deployable certificate automatically (current: {current})',
-        noDeployableVersion: 'No deployable certificate version available',
+        autoLatest: 'Selecionar automaticamente a versão implantável mais recente (atual: {current})',
+        noDeployableVersion: 'Não há versão de certificado implantável no momento',
         range: '{id} ({notBefore} ~ {notAfter})'
       },
-      currentStep: 'Step {current} / {total}',
-      selectedTargetCount: '{count} targets selected',
-      subtitle: 'Configure the deployment plan step by step',
-      title: 'Deployment wizard'
+      currentStep: 'Etapa {current} / {total}',
+      selectedTargetCount: '{count} alvos selecionados',
+      subtitle: 'Configure o plano de implantação passo a passo',
+      title: 'Assistente de implantação'
     }
   },
   shell: {
-    currentLocation: 'Current location',
-    breadcrumb: 'Breadcrumb',
-    currentGroupNavigation: 'Current group navigation',
-    backDashboard: 'Back to dashboard'
+    currentLocation: 'Localização atual',
+    breadcrumb: 'Trilha de navegação',
+    currentGroupNavigation: 'Navegação do grupo atual',
+    backDashboard: 'Voltar ao painel'
   },
   preferences: {
     theme: 'Tema',
     language: 'Idioma',
     themeLight: 'Claro',
     themeDark: 'Escuro',
-    themeToggle: 'Switch theme',
-    languageSelect: 'Select language',
+    themeToggle: 'Alternar modo do tema',
+    languageSelect: 'Selecionar idioma da interface',
     title: 'Preferências de exibição',
-    description: 'Theme and language are saved to your backend user preferences.',
+    description: 'Tema e idioma são salvos nas preferências do usuário no backend.',
     errors: {
-      loadFailed: 'Failed to load preferences',
-      saveFailed: 'Failed to save preferences'
+      loadFailed: 'Falha ao carregar preferências',
+      saveFailed: 'Falha ao salvar preferências'
     }
   },
   userMenu: {
@@ -406,856 +406,822 @@ export default {
     tooShort: 'A nova senha deve ter pelo menos 8 caracteres'
   },
   nav: {
-    dashboard: 'Overview',
-    dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificates',
-    certificatesDesc: 'Certificate library, bindings, and expiry status',
-    certificateAssets: 'Certificate assets',
-    certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
-    certificateFormats: 'Certificate format config',
-    certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
-    assets: 'Application assets',
-    assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
+    dashboard: 'Visão geral',
+    dashboardDesc: 'Visão geral do status de aplicações, certificados, Agents, gateways e auditoria',
+    certificates: 'Certificados',
+    certificatesDesc: 'Biblioteca de certificados, vínculos e status de expiração',
+    certificateAssets: 'Ativos de certificado',
+    certificateAssetsDesc: 'Certificados, referências de chave privada, impressões digitais e prazos de expiração',
+    certificateFormats: 'Configuração de formatos de certificado',
+    certificateFormatsDesc: 'Defina regras de formato como PFX, CER, CRT e PEM para certificados salvos',
+    assets: 'Ativos de aplicação',
+    assetsDesc: 'Entradas de aplicação e alvos de implantação de certificado por domínio/IP',
     agents: 'Agents',
-    agentsDesc: 'Online status, heartbeat, and capability set',
+    agentsDesc: 'Status online, heartbeat e conjunto de capacidades',
     gateways: 'Gateways',
-    gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
-    deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
-    deploymentPlans: 'Deployment plans',
-    deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
-    executions: 'Execution records',
-    executionsDesc: 'Execution steps, logs, failures, and rollback',
-    workflows: 'Workflows',
-    workflowsDesc: 'Workflows and plugins',
-    workflowTemplates: 'Workflows',
-    workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
+    gatewaysDesc: 'Gateways de zona isolada, protocolos e alvos alcançáveis',
+    deployments: 'Implantação de certificados',
+    deploymentsDesc: 'Planos de implantação e registros de execução',
+    deploymentPlans: 'Planos de implantação',
+    deploymentPlansDesc: 'Planos de implantação de certificados e entradas de aprovação',
+    executions: 'Registros de execução',
+    executionsDesc: 'Etapas de execução, logs, falhas e rollback',
+    workflows: 'Fluxos de trabalho',
+    workflowsDesc: 'Fluxos de trabalho e plugins',
+    workflowTemplates: 'Fluxos de trabalho',
+    workflowTemplatesDesc: 'Rascunhos do canvas, variáveis, declarações de capacidade e publicação',
     plugins: 'Plugins',
-    pluginsDesc: 'Provider, executor, and sandbox status',
-    monitoring: 'Monitoring',
-    monitoringDesc: 'Alerts, audit, and certificate status',
-    monitorAlerts: 'Monitor alerts',
-    monitorAlertsDesc: 'Expiry, drift, and execution failure events',
-    audits: 'Audit logs',
-    auditsDesc: 'Operation evidence and compliance exports',
-    reports: 'Reports',
-    reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
-    incidentWindowReport: 'Incident window',
-    incidentWindowReportDesc: 'Prioritize expiring and expired certificates',
-    riskResponseReport: 'Risk response',
-    riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
-    automationEffectivenessReport: 'Automation effectiveness',
-    automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
-    settings: 'Settings',
-    settingsDesc: 'Tenants, users, permissions, and system configuration',
-    systemSettings: 'System settings',
-    systemSettingsDesc: 'System configuration and security metadata',
-    users: 'Users',
-    usersDesc: 'Console users, status, and roles',
-    roles: 'Roles',
-    rolesDesc: 'Roles, authorization object scopes, and member assignments',
-    identitySources: 'Identity sources',
-    identitySourcesDesc: 'AD/LDAP service configuration',
-    groupRoleMappings: 'Group role mappings'
+    pluginsDesc: 'Provider, executores e status do sandbox',
+    monitoring: 'Monitoramento',
+    monitoringDesc: 'Alertas, auditoria e status de certificados',
+    monitorAlerts: 'Alertas de monitoramento',
+    monitorAlertsDesc: 'Eventos de expiração, desvio e falha de execução',
+    audits: 'Logs de auditoria',
+    auditsDesc: 'Evidências de operação e exportações de conformidade',
+    settings: 'Configurações',
+    settingsDesc: 'Tenants, usuários, permissões e configuração do sistema',
+    systemSettings: 'Configurações do sistema',
+    systemSettingsDesc: 'Configuração do sistema e metadados de segurança',
+    users: 'Gerenciamento de usuários',
+    usersDesc: 'Usuários do console, status e funções',
+    roles: 'Gerenciamento de permissões',
+    rolesDesc: 'Funções, escopos de objetos autorizados e atribuição de membros',
+    identitySources: 'Fontes de identidade',
+    identitySourcesDesc: 'Configuração de serviços AD/LDAP',
+    groupRoleMappings: 'Mapeamentos de grupos para funções'
   },
   routes: {
-    certificateImport: 'Import certificate',
-    certificateDetail: 'Certificate detail',
-    certificateUsages: 'Usages',
-    certificateFormats: 'Format artifacts'
+    certificateImport: 'Importar certificado',
+    certificateDetail: 'Detalhes do certificado',
+    certificateUsages: 'Relações de uso',
+    certificateFormats: 'Artefatos de formato'
   },
   businessPage: {
     request: {
-      notRequested: 'No request yet'
+      notRequested: 'Ainda não solicitado'
     },
     error: {
-      unknown: 'Unknown error'
+      unknown: 'Erro desconhecido'
     },
-    primaryActionFailed: 'Primary action failed',
-    processing: 'Processing…',
-    metricsAria: 'Business metrics',
-    apiFailed: 'API request failed',
-    errorCode: 'Error code: {code}',
-    retry: 'Retry',
-    resourceList: '{resource} list',
+    primaryActionFailed: 'Falha ao executar a ação principal',
+    processing: 'Processando…',
+    metricsAria: 'Métricas de negócio',
+    apiFailed: 'Falha na requisição ao serviço',
+    errorCode: 'Código de erro: {code}',
+    retry: 'Tentar novamente',
+    resourceList: 'Lista de {resource}',
     total: 'Total {count}',
-    dangerConfirmRequired: 'High-risk action requires confirmation',
-    all: 'All',
-    clearFilters: 'Clear filters',
-    pagination: 'Page {page} / {pageSize} per page',
-    resourceDetailAria: 'Resource details',
-    resourceDetailTitle: '{resource} details',
-    contextAria: 'Context links',
-    resourceActionsAria: 'Resource actions',
-    resourceActionsTitle: 'Resource actions',
-    resourceActionsHint: 'High-risk actions require secondary confirmation; authorization is still enforced by the backend.'
+    dangerConfirmRequired: 'Operações de alto risco exigem confirmação',
+    all: 'Todos',
+    clearFilters: 'Limpar filtros',
+    pagination: 'Página {page} / {pageSize} por página',
+    resourceDetailAria: 'Detalhes do recurso',
+    resourceDetailTitle: 'Detalhes de {resource}',
+    contextAria: 'Entradas de contexto',
+    resourceActionsAria: 'Ações do recurso',
+    resourceActionsTitle: 'Ações do recurso',
+    resourceActionsHint: 'Operações de alto risco exigem confirmação secundária; a validação final depende da autorização do sistema.'
   },
   executionDetail: {
     error: {
-      loadStepsFailed: 'Failed to query execution steps',
-      streamConnectFailed: 'Failed to connect to the execution detail stream'
+      loadStepsFailed: 'Falha ao consultar etapas de execução',
+      streamConnectFailed: 'Falha na conexão de atualização dos detalhes da execução'
     },
     step: {
-      nameFallback: 'Step {index}',
-      dryRunCheckSummary: 'Precheck result: passed {passed} / warnings {warning} / failed {failed} / unknown {unknown}. {topChecks}',
+      nameFallback: 'Etapa {index}',
+      dryRunCheckSummary: 'Conclusão da pré-verificação: aprovadas {passed} / avisos {warning} / falhas {failed} / desconhecidas {unknown}. {topChecks}',
       dryRunPending: {
-        queued: 'Still queued and not started yet.',
-        running: 'This step is running. Waiting for the agent to return a result.',
-        failed: 'This step failed and no structured precheck result has been received yet.',
-        finished: 'This step has ended, but no structured precheck result has been received yet.'
+        queued: 'Ainda está na fila e a execução não começou.',
+        running: 'Esta etapa está em execução; aguardando o Agent retornar o resultado da pré-verificação.',
+        failed: 'Esta etapa falhou e o resultado da pré-verificação ainda não foi obtido.',
+        finished: 'Esta etapa terminou, mas o resultado da pré-verificação ainda não foi obtido.'
       },
-      dryRunDiscover: 'Read-only precheck: discovered deployment target and {providerLabel} site context. Site {siteName}, binding {binding}. {pendingText}',
-      dryRunVerify: 'Read-only precheck: validated certificate material, target binding, and domain match. Target {providerLabel} binding {binding}. {pendingText}',
-      dryRunCreated: 'Read-only precheck has been created. {pendingText}',
+      dryRunDiscover: 'Pré-verificação somente leitura: identificação do alvo de implantação e das informações de site de {providerLabel}. Site {siteName}, binding {binding}. {pendingText}',
+      dryRunVerify: 'Pré-verificação somente leitura: validação do material do certificado, do binding do alvo e da correspondência de domínio. Alvo {providerLabel}, binding {binding}. {pendingText}',
+      dryRunCreated: 'Pré-verificação somente leitura criada. {pendingText}',
       failure: {
-        emptyMessage: 'The backend did not receive a concrete error message'
+        emptyMessage: 'Nenhuma mensagem de erro específica foi recebida'
       },
       running: {
-        dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
-        waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
+        dispatched: 'Tarefa do Agent enviada ({taskId}); aguardando o resultado da execução.',
+        waitingAgentResult: 'Etapa em execução; aguardando o Agent retornar o resultado…'
       },
       pending: {
-        waitingDependency: 'The step is waiting for previous steps to finish.'
+        waitingDependency: 'A etapa aguarda a conclusão das etapas anteriores.'
       },
       verifyRecovered: {
-        detail: 'Agent-side remote TLS probing failed, but the control plane completed real TLS verification for {remoteTarget} and confirmed the target certificate matches. {originalError}',
-        originalSuffix: 'Original Agent error: {originalError}'
+        detail: 'A sondagem TLS remota no lado do Agent falhou, mas o sistema concluiu a verificação TLS real de {remoteTarget} e confirmou que o certificado de destino corresponde. {originalError}',
+        originalSuffix: 'Erro original do Agent: {originalError}'
       },
       resultReturned: {
-        withTask: '{executor} {mode} returned. Agent taskId={taskId}',
-        withoutTask: '{executor} {mode} returned.'
+        withTask: '{executor} {mode} retornou. Agent taskId={taskId}',
+        withoutTask: '{executor} {mode} retornou.'
       },
-      createdFallback: 'Step {index} has been created. Waiting for the backend to add details'
+      createdFallback: 'Etapa {index} criada; aguardando detalhes da execução…'
     },
     dryRun: {
       failedNoChecks: {
-        label: 'Dry-run failed',
-        detail: '{failedStepCount} precheck steps failed or timed out, and the agent did not return a structured conclusion.'
+        label: 'Dry-run falhou',
+        detail: '{failedStepCount} etapas de pré-verificação falharam ou expiraram, e nenhuma conclusão estruturada de pré-verificação foi recebida.'
       },
       queued: {
-        label: 'Dry-run queued',
-        detail: 'The precheck task has been created and is waiting to start.'
+        label: 'Dry-run na fila',
+        detail: 'A tarefa de pré-verificação foi criada e aguarda início.'
       },
       running: {
-        label: 'Dry-run running',
-        detail: 'The precheck has started. Waiting for structured results.'
+        label: 'Dry-run em execução',
+        detail: 'A pré-verificação foi iniciada; aguardando o retorno dos resultados.'
       },
       pending: {
-        label: 'Dry-run ended without conclusion',
-        detail: '{finishedWithoutChecks} steps have ended, but no dryRunChecks / dryRunSummary was returned.'
+        label: 'Dry-run encerrado sem conclusão',
+        detail: '{finishedWithoutChecks} etapas terminaram, mas nenhuma conclusão de pré-verificação foi recebida.'
       },
       receiving: {
-        label: 'Dry-run receiving results',
-        detail: 'Partial conclusions received: passed {passed}, warnings {warning}, failed {failed}, unknown {unknown}.'
+        label: 'Dry-run recebendo resultados',
+        detail: 'Conclusões parciais recebidas: aprovadas {passed}, avisos {warning}, falhas {failed}, desconhecidas {unknown}.'
       },
       failed: {
-        label: 'Dry-run failed',
-        detail: 'Precheck failed {failed} items, warning {warning} items, passed {passed} items.'
+        label: 'Dry-run falhou',
+        detail: 'Pré-verificação com {failed} itens falhos, {warning} avisos e {passed} itens aprovados.'
       },
       warning: {
-        label: 'Dry-run has risk warnings',
-        detail: 'Precheck completed: passed {passed}, warnings {warning}, unknown {unknown}.'
+        label: 'Dry-run com alertas de risco',
+        detail: 'Pré-verificação concluída: {passed} aprovadas, {warning} avisos, {unknown} desconhecidas.'
       },
       passed: {
-        label: 'Dry-run passed',
-        detail: 'All prechecks passed, {passed} total.'
+        label: 'Dry-run bem-sucedido',
+        detail: 'Todas as pré-verificações foram aprovadas, total de {passed}.'
       }
     },
     agent: {
       taskSuffix: '(Agent taskId={taskId})'
     },
     log: {
-      verifyRecovered: '[ControlPlane] Agent-side remote TLS probing failed, but the control plane completed real TLS verification and confirmed the target certificate matches.'
+      verifyRecovered: '[ControlPlane] A sondagem TLS remota no lado do Agent falhou, mas o sistema concluiu a verificação TLS real e confirmou que o certificado de destino corresponde.'
     },
     workflowStep: {
-      failedDefault: 'Workflow node {index} failed',
-      skipped: 'Workflow node skipped because the condition was not met.',
-      successAssertions: 'Workflow node succeeded, assertions passed {passed}/{total}.',
-      success: 'Workflow node succeeded.'
+      failedDefault: 'Nó do workflow {index} falhou',
+      skipped: 'Nó do workflow ignorado porque a condição não foi atendida.',
+      successAssertions: 'Nó do workflow executado com sucesso; asserções aprovadas {passed}/{total}.',
+      success: 'Nó do workflow executado com sucesso.'
     },
     binding: {
-      hostMissing: 'host header not provided'
+      hostMissing: 'Host Header não fornecido'
     },
     site: {
-      unnamed: 'Unnamed site'
+      unnamed: 'Site sem nome'
     },
     provider: {
-      target: 'Target'
+      target: 'Alvo'
     }
   },
   executions: {
-    title: 'Execution records',
-    description: 'View deployment execution status, step logs, dry-run precheck results, failure reasons, and rollback entry points.',
-    resourceName: 'Execution run',
+    title: 'Registros de execução',
+    description: 'Veja o status da execução de implantação, logs das etapas, conclusões de pré-verificação dry-run, motivos de falha e entradas de rollback.',
+    resourceName: 'Registro de execução',
     errors: {
-      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}',
-      loadFailed: 'Failed to load execution records'
+      streamConnectFailed: 'Falha na conexão de atualização dos detalhes da execução: HTTP {status}',
+      loadFailed: 'Falha ao carregar os registros de execução'
     },
     actions: {
-      refreshList: 'Refresh list',
-      refreshing: 'Refreshing',
-      viewDetail: 'View details',
-      rollback: 'Start rollback',
-      rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
+      refreshList: 'Atualizar lista',
+      refreshing: 'Atualizando',
+      viewDetail: 'Ver detalhes',
+      rollback: 'Iniciar rollback',
+      rollbackRisk: 'O rollback alterará novamente a configuração do certificado no serviço de destino; confirme primeiro as referências de backup e o escopo de impacto.'
     },
     columns: {
-      name: 'Execution ID',
+      name: 'Identificador da execução',
       status: 'Status',
-      risk: 'Risk',
-      planId: 'Deployment plan',
-      startedAt: 'Start time'
+      risk: 'Risco',
+      planId: 'Plano de implantação',
+      startedAt: 'Hora de início'
     },
     metrics: {
       total: {
-        title: 'Total executions',
-        description: 'Currently traceable execution runs.'
+        title: 'Total de execuções',
+        description: 'Registros de execução atualmente rastreáveis.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Failed, partially successful, or rollback-needed executions.'
+        title: 'Alto risco pendente',
+        description: 'Execuções com falha, sucesso parcial ou necessidade de rollback.'
       }
     },
     fields: {
-      executionId: 'Execution ID',
-      deploymentPlan: 'Deployment plan',
-      runType: 'Run type',
-      status: 'Execution status',
-      target: 'Execution target',
-      externalRunId: 'External run ID',
-      startedAt: 'Start time',
-      finishedAt: 'End time',
-      errorCode: 'Error code',
-      failureReason: 'Failure reason'
+      executionId: 'ID da execução',
+      deploymentPlan: 'Plano de implantação',
+      runType: 'Tipo de execução',
+      status: 'Status da execução',
+      target: 'Alvo da execução',
+      externalRunId: 'ID externo da execução',
+      startedAt: 'Hora de início',
+      finishedAt: 'Hora de término',
+      errorCode: 'Código de erro',
+      failureReason: 'Motivo da falha'
     },
     links: {
-      deploymentPlan: 'View deployment plan',
-      auditEvents: 'View audit events'
+      deploymentPlan: 'Ver plano de implantação',
+      auditEvents: 'Ver eventos de auditoria'
     },
     empty: {
-      title: 'No execution records',
-      description: 'Logs, status, and audit links appear here after a deployment plan runs.'
+      title: 'Nenhum registro de execução',
+      description: 'Após a execução de um plano de implantação, logs, status e vínculos de auditoria aparecerão aqui.'
     },
     list: {
-      ariaLabel: 'Execution record list',
-      title: 'Execution records',
-      summary: '{total} execution records, newest first.',
-      range: 'Showing {start}-{end} of {total}',
-      assetsLabel: 'Assets',
-      logLabel: 'Log summary',
-      runNumber: 'Run {number}',
-      planUnknown: 'No deployment plan linked',
-      assetUnknown: 'No asset recorded',
-      timeUnknown: 'Start time not recorded',
-      logRunning: 'Execution is running and detail logs will keep updating.',
-      logPending: 'Execution is queued and waiting for scheduling.',
-      logFailed: 'Execution failed with error code {code}.',
-      logSuccess: 'Execution succeeded in {duration}.',
-      logCompleted: 'Execution finished. Open details for the full log.',
-      errorCodeUnknown: 'not recorded',
-      durationUnknown: 'unknown',
-      durationSeconds: '{count} seconds',
-      durationMinutes: '{count} minutes',
-      viewDetailHint: 'Open details',
-      openDetailAria: 'Open execution {id} for plan {plan}',
-      previousPage: 'Previous',
-      nextPage: 'Next',
-      pageSummary: 'Page {page} of {pages}'
+      ariaLabel: 'Lista de execuções', title: 'Registros de execução', summary: '{total} registros, mais recentes primeiro.', range: 'Exibindo {start}-{end} de {total}',
+      assetsLabel: 'Ativos', logLabel: 'Resumo do log', runNumber: 'Execução {number}', planUnknown: 'Nenhum plano associado', assetUnknown: 'Nenhum ativo registrado', timeUnknown: 'Horário inicial não registrado',
+      logRunning: 'A execução está em andamento.', logPending: 'A execução está na fila.', logFailed: 'A execução falhou com o código {code}.', logSuccess: 'A execução foi concluída em {duration}.', logCompleted: 'Execução encerrada.',
+      errorCodeUnknown: 'não registrado', durationUnknown: 'desconhecida', durationSeconds: '{count} segundos', durationMinutes: '{count} minutos', viewDetailHint: 'Ver detalhes', openDetailAria: 'Abrir execução {id} do plano {plan}', previousPage: 'Anterior', nextPage: 'Próxima', pageSummary: 'Página {page} de {pages}'
     },
-    types: {
-      dryRun: 'Precheck',
-      apply: 'Apply',
-      rollback: 'Rollback',
-      retry: 'Retry',
-      unknown: 'Other'
-    },
+    types: { dryRun: 'Pré-verificação', apply: 'Executar', rollback: 'Rollback', retry: 'Repetir', unknown: 'Outro' },
     summary: {
-      passed: 'Passed',
-      warning: 'Warnings',
-      failed: 'Failed',
-      unknown: 'Unknown'
+      passed: 'Aprovado',
+      warning: 'Aviso',
+      failed: 'Falha',
+      unknown: 'Desconhecido'
     },
     detail: {
-      title: 'Execution details',
-      titleWithId: 'Execution details {id}',
-      description: 'View basic information, step status, and logs for the execution run.',
-      eyebrow: 'Execution record',
-      planLabel: 'Deployment plan {plan}',
-      loadingSteps: 'Loading steps...',
-      loadingLogs: 'Loading logs...',
-      noStepDetail: 'No step details',
-      notStarted: 'Not started',
-      noSteps: 'No steps.',
-      noLogs: 'No logs.'
+      title: 'Detalhes da execução',
+      titleWithId: 'Detalhes da execução {id}',
+      description: 'Veja as informações básicas, o status das etapas e os logs do registro de execução.',
+      eyebrow: 'Registro de execução',
+      planLabel: 'Plano de implantação {plan}',
+      loadingSteps: 'Carregando etapas...',
+      loadingLogs: 'Carregando logs...',
+      noStepDetail: 'Nenhum detalhe da etapa',
+      notStarted: 'Não iniciado',
+      noSteps: 'Nenhuma etapa.',
+      noLogs: 'Nenhum log.'
     },
     tabs: {
-      summary: 'Summary',
-      steps: 'Steps',
+      summary: 'Visão geral',
+      steps: 'Etapas',
       logs: 'Logs'
     }
   },
   plugins: {
     title: 'Plugins',
-    description: 'Plugin packages, providers, permission declarations, signature validation, sandbox status, and isolation entry points.',
+    description: 'Gerencie pacotes de plugins, executores, declarações de permissão e estado de isolamento do sandbox.',
     resourceName: 'Plugin',
     actions: {
-      install: 'Install plugin',
-      detail: 'Details',
-      disable: 'Disable plugin',
-      disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
+      install: 'Instalar plugin',
+      detail: 'Detalhes',
+      disable: 'Desativar plugin',
+      disableRisk: 'Desativar um plugin afeta capacidades de Provider, modelos e executores.'
     },
     columns: {
-      name: 'Plugin name',
+      name: 'Nome do plugin',
       status: 'Status',
-      risk: 'Risk',
-      version: 'Version',
-      signature: 'Signature'
+      risk: 'Risco',
+      version: 'Versão',
+      signature: 'Assinatura'
     },
     metrics: {
       total: {
-        title: 'Total plugins',
-        description: 'Installed and upgradeable plugins.'
+        title: 'Total de plugins',
+        description: 'Plugins instalados e com atualização disponível.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plugins with high-risk permissions, signature errors, or sandbox isolation.'
+        title: 'Alto risco pendente',
+        description: 'Plugins com permissões de alto risco, assinatura anormal ou isolamento em sandbox.'
       }
     },
     empty: {
-      title: 'No plugins',
-      description: 'Review permission differences, signatures, and rollback strategy before installing plugins.'
+      title: 'Nenhum plugin',
+      description: 'Antes de instalar, confirme permissões, assinatura e estratégia de rollback do plugin.'
     },
     detail: {
-      title: 'Plugin details',
+      title: 'Detalhes do plugin',
       titleWithName: 'Plugin {name}',
-      description: 'Plugin details are shown in a modal while the main page keeps a compact list.',
-      versionLabel: 'Version {version}'
+      description: 'Veja detalhes do plugin, declarações de permissão e informações de isolamento do sandbox.',
+      versionLabel: 'Versão {version}'
     },
     fields: {
       pluginId: 'Plugin ID',
-      name: 'Plugin name',
-      currentStatus: 'Current status',
-      version: 'Version',
-      signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      name: 'Nome do plugin',
+      currentStatus: 'Status atual',
+      version: 'Versão',
+      signatureStatus: 'Status da assinatura',
+      riskLevel: 'Nível de risco'
     }
   },
   deploymentPlans: {
-    title: 'Deployment plans',
-    description: 'Plan preview, impact scope, approval, execution batches, verification, and rollback entry points.',
-    resourceName: 'Deployment plan',
+    title: 'Planos de implantação',
+    description: 'Prévia do plano, escopo de impacto, aprovação, lotes de execução, verificação e entradas de rollback.',
+    resourceName: 'Plano de implantação',
     apiActions: {
-      submit: 'Submit deployment plan',
-      execute: 'Execute deployment plan',
-      cancel: 'Cancel deployment plan',
-      delete: 'Delete deployment plan'
+      submit: 'Enviar plano de implantação',
+      execute: 'Executar plano de implantação',
+      cancel: 'Cancelar plano de implantação',
+      delete: 'Excluir plano de implantação'
     },
     actions: {
-      create: 'Create deployment plan',
-      detail: 'Details',
-      edit: 'Edit plan',
-      dryRun: 'Dry-run impact preview',
-      dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
-      submit: 'Submit for approval',
-      submitRisk: 'After submission, the plan enters approval or pending execution status.',
-      execute: 'Execute deployment',
-      executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; run a dry-run impact preview first.',
-      cancel: 'Cancel plan',
-      cancelRisk: 'Only cancels unfinished deployment plans. Completed deployments are not rolled back.',
-      rollback: 'Rollback execution',
-      rollbackRisk: 'Rollback modifies the target service certificate configuration again and requires a real runId.',
-      delete: 'Delete plan',
-      deleteRisk: 'Hard-deletes the plan, deployment targets, execution records, and related audit history. This cannot be recovered.'
+      create: 'Criar plano de implantação',
+      detail: 'Detalhes',
+      edit: 'Editar plano',
+      dryRun: 'Prévia de impacto Dry-run',
+      dryRunRisk: 'Gera apenas a prévia de impacto, sem executar a implantação real.',
+      submit: 'Enviar para aprovação',
+      submitRisk: 'Após o envio, o plano entra em aprovação ou fica pendente de execução.',
+      execute: 'Executar implantação',
+      executeRisk: 'A execução altera a configuração de certificados do alvo. Planos concluídos ou com falha também usam esta entrada para nova execução; antes de executar, rode a prévia de impacto Dry-run.',
+      cancel: 'Cancelar plano',
+      cancelRisk: 'Cancela apenas planos de implantação ainda não concluídos. Implantações já concluídas não são revertidas.',
+      rollback: 'Executar rollback',
+      rollbackRisk: 'O rollback altera novamente a configuração de certificado do serviço alvo e exige um runId real.',
+      delete: 'Excluir plano',
+      deleteRisk: 'Exclui permanentemente o plano, os alvos de implantação, os registros de execução e o histórico de auditoria correspondente. Não é possível recuperar.'
     },
     columns: {
-      name: 'Plan name',
+      name: 'Nome do plano',
       status: 'Status',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      scheduledAt: 'Scheduled time',
-      actions: 'Actions'
+      currentAssetCertificateExpiresAt: 'Fim do certificado atual',
+      updateNeeded: 'Precisa atualizar',
+      scheduledAt: 'Horário planejado',
+      actions: 'Ações'
     },
     metrics: {
       total: {
-        title: 'Total plans',
-        description: 'Plans waiting for approval, pending execution, or running.'
+        title: 'Total de planos',
+        description: 'Planos aguardando aprovação, pendentes de execução ou em execução.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plans affecting production services or lacking rollback capability.'
+        title: 'Alto risco pendente',
+        description: 'Planos que afetam serviços de produção ou não têm capacidade de rollback.'
       }
     },
     fields: {
-      planId: 'Plan ID',
-      name: 'Plan name',
-      status: 'Plan status',
-      approvalStatus: 'Approval status',
-      certificateVersionId: 'Certificate version ID',
-      certificateFormatId: 'Certificate format config ID',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      targetSummary: 'Target binding summary',
-      latestRun: 'Latest execution batch',
-      approvalId: 'Approval ID',
-      snapshotHash: 'Snapshot hash',
-      failureReason: 'Failure reason',
-      createdAt: 'Created at',
-      updatedAt: 'Updated at'
+      planId: 'ID do plano',
+      name: 'Nome do plano',
+      status: 'Status do plano',
+      approvalStatus: 'Status da aprovação',
+      certificateVersionId: 'ID da versão do certificado',
+      certificateFormatId: 'ID da configuração de formato do certificado',
+      currentAssetCertificateExpiresAt: 'Fim do certificado atual',
+      updateNeeded: 'Precisa atualizar',
+      targetSummary: 'Resumo de vínculos do alvo',
+      latestRun: 'Lote de execução mais recente',
+      approvalId: 'ID da aprovação',
+      snapshotHash: 'Hash do snapshot',
+      failureReason: 'Motivo da falha',
+      createdAt: 'Criado em',
+      updatedAt: 'Atualizado em'
     },
     links: {
-      executions: 'View execution records',
-      bindings: 'View related bindings'
+      executions: 'Ver registros de execução',
+      bindings: 'Ver vínculos relacionados'
     },
     empty: {
-      title: 'No deployment plans',
-      description: 'Start from a certificate or binding, create an impact preview in the deployment wizard, then submit the plan.'
+      title: 'Nenhum plano de implantação',
+      description: 'Comece por um certificado ou vínculo, gere a prévia de impacto no assistente de implantação e então envie o plano.'
     },
     disabled: {
-      missingApproval: 'Approval information is missing, so execution is not allowed.',
-      needDryRun: 'A successful dry-run impact preview is required before real execution.',
-      missingRunId: 'runId is missing, so rollback is not allowed.',
-      missingSelection: 'Deployment plan selection is missing'
+      missingApproval: 'Faltam informações de aprovação, portanto a execução não é permitida.',
+      needDryRun: 'Antes da execução real, é obrigatório concluir uma prévia de impacto Dry-run com sucesso.',
+      missingRunId: 'Falta runId, portanto o rollback não é permitido.',
+      missingSelection: 'Falta selecionar um plano de implantação'
     },
     common: {
-      cancel: 'Cancel',
-      close: 'Close',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided'
+      cancel: 'Cancelar',
+      close: 'Fechar',
+      notConfigured: 'Não configurado',
+      notProvided: 'Não informado'
     },
     detail: {
-      certificateVersionLabel: 'Certificate version',
-      description: 'View basic plan information, related records, and the latest execution result.',
-      emptyRelatedRecords: 'No related records.',
-      loadingRelatedRecords: 'Loading related records...',
-      noExecutionRecords: 'This plan has no execution records yet.',
-      noTargetSummary: 'Target summary not provided',
-      planIdLine: 'Plan ID {planId}',
+      certificateVersionLabel: 'Versão do certificado',
+      description: 'Veja informações básicas do plano, registros relacionados e o resultado da execução mais recente.',
+      emptyRelatedRecords: 'Nenhum registro relacionado.',
+      loadingRelatedRecords: 'Carregando registros relacionados...',
+      noExecutionRecords: 'Este plano ainda não tem registros de execução.',
+      noTargetSummary: 'Resumo do alvo não informado',
+      planIdLine: 'ID do plano {planId}',
       recordKinds: {
-        certificateUpdate: 'Certificate update',
+        certificateUpdate: 'Atualização de certificado',
         dryRun: 'Dry-run'
       },
-      relatedPlan: 'Plan {planId}',
-      relatedRun: 'Run {runId}',
-      relatedSource: 'Source {source}',
+      relatedPlan: 'Plano {planId}',
+      relatedRun: 'Execução {runId}',
+      relatedSource: 'Origem {source}',
       tabs: {
-        latestExecution: 'Latest execution',
-        relatedRecords: 'Related records',
-        summary: 'Summary'
+        latestExecution: 'Execução mais recente',
+        relatedRecords: 'Registros relacionados',
+        summary: 'Resumo'
       },
-      targetLabel: 'Target',
-      title: 'Deployment plan details',
-      titleWithName: 'Deployment plan {name}',
-      viewLogs: 'View logs'
+      targetLabel: 'Alvo',
+      title: 'Detalhes do plano de implantação',
+      titleWithName: 'Plano de implantação {name}',
+      viewLogs: 'Ver logs'
     },
     dryRunRequired: {
-      copy: 'Current action: {action}. Run a dry-run first, confirm impact scope and check results, then continue with real execution.',
-      description: 'A successful dry-run impact preview is required before real execution.',
-      primaryAction: 'Run dry-run first',
-      runningAction: 'Starting dry-run…',
-      title: 'Dry-run required first'
+      copy: 'Operação atual: {action}. Faça primeiro um Dry-run, confirme o escopo de impacto e as conclusões das verificações, e só então continue com a execução real.',
+      description: 'Antes da execução real, é obrigatório concluir uma prévia de impacto Dry-run com sucesso.',
+      primaryAction: 'Fazer Dry-run primeiro',
+      runningAction: 'Iniciando Dry-run…',
+      title: 'É necessário executar Dry-run primeiro'
     },
     execution: {
-      applyName: 'Deployment execution {runId}',
-      applyTitle: 'Certificate update execution',
-      dryRunTitle: 'Dry-run result',
-      fallbackName: 'Execution {runId}',
-      rollbackTitle: 'Certificate rollback execution'
+      applyName: 'Execução de implantação {runId}',
+      applyTitle: 'Execução de atualização de certificado',
+      dryRunTitle: 'Resultado do Dry-run',
+      fallbackName: 'Execução {runId}',
+      rollbackTitle: 'Execução de rollback de certificado'
     },
     feedback: {
-      cancelled: 'Deployment plan cancelled.',
-      cancelledWithPlanId: 'Deployment plan cancelled. planId: {planId}',
-      deleted: 'Deployment plan deleted.',
-      deletedWithPlanId: 'Deployment plan deleted. planId: {planId}',
-      dryRunStartedMissingRunId: 'dry-run started, but the response is missing runId.',
-      dryRunStartedWithRunId: 'dry-run started. Execution status is shown in the modal. runId: {runId}',
-      dryRunTriggered: 'dry-run triggered.',
-      dryRunTriggeredWithPlanId: 'dry-run triggered. planId: {planId}',
-      dryRunTriggeredWithRunId: 'dry-run triggered. Precheck progress is shown in the modal. runId: {runId}',
-      executeTriggered: 'Deployment execution triggered.',
-      executeTriggeredWithPlanId: 'Deployment execution triggered. planId: {planId}',
-      executeTriggeredWithRunId: 'Deployment execution triggered. Execution progress is shown in the modal. runId: {runId}',
-      loadedDraft: 'Draft plan loaded.',
-      loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
-      savedWithPlanId: 'Deployment plan saved. planId: {planId}',
-      submitted: 'Deployment plan submitted.',
-      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}'
+      cancelled: 'Plano de implantação cancelado.',
+      cancelledWithPlanId: 'Plano de implantação cancelado (plano {planId}).',
+      deleted: 'Plano de implantação excluído.',
+      deletedWithPlanId: 'Plano de implantação excluído (plano {planId}).',
+      dryRunStartedMissingRunId: 'Pré-verificação iniciada.',
+      dryRunStartedWithRunId: 'Pré-verificação iniciada ({runId}); acompanhe o progresso na janela.',
+      dryRunTriggered: 'Pré-verificação acionada.',
+      dryRunTriggeredWithPlanId: 'Pré-verificação acionada (plano {planId}).',
+      dryRunTriggeredWithRunId: 'Pré-verificação acionada ({runId}); acompanhe o progresso na janela.',
+      executeTriggered: 'Implantação acionada.',
+      executeTriggeredWithPlanId: 'Implantação acionada (plano {planId}).',
+      executeTriggeredWithRunId: 'Implantação acionada ({runId}); acompanhe o progresso na janela.',
+      loadedDraft: 'Rascunho do plano carregado.',
+      loadedDraftWithPlanId: 'Rascunho carregado (plano {planId}).',
+      savedWithPlanId: 'Plano salvo ({planId}).',
+      submitted: 'Plano de implantação enviado.',
+      submittedWithPlanId: 'Plano de implantação enviado (plano {planId}).'
     },
     target: {
-      controlPlane: 'Control plane',
-      noBindingInfo: 'Binding information not provided',
-      noCertificateVariables: 'Certificate variables not bound',
-      noHostHeader: 'host header not provided',
-      noOutputSelected: 'No output selected'
+      controlPlane: 'Plataforma',
+      noBindingInfo: 'Informações de vínculo não informadas',
+      noCertificateVariables: 'Variáveis de certificado não vinculadas',
+      noHostHeader: 'Host Header não informado',
+      noOutputSelected: 'Nenhuma saída selecionada'
     },
     errors: {
-      actionFailed: '{action} failed',
-      createReturnedMissingPlanId: 'Deployment plan was created but no planId was returned',
-      loadCreateDataFailed: 'Failed to load deployment plan creation data',
-      loadRelatedRecordsFailed: 'Failed to load related records',
-      missingApplicationAssetIdForDryRun: 'Application asset ID is missing, so dry-run cannot start.',
-      missingApplicationAssetIdForSave: 'Application asset ID is missing, so the deployment plan cannot be saved.',
-      missingPlanId: 'Deployment plan ID is missing. Empty planId request blocked.',
-      missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
-      missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
-      saveFailed: 'Failed to save deployment plan',
-      startDryRunFailed: 'Failed to start dry-run'
+      actionFailed: '{action} falhou',
+      createReturnedMissingPlanId: 'O plano foi criado, mas nenhum identificador foi retornado. Atualize a lista.',
+      loadCreateDataFailed: 'Falha ao carregar dados de criação do plano de implantação',
+      loadRelatedRecordsFailed: 'Falha ao carregar registros relacionados',
+      missingApplicationAssetIdForDryRun: 'Falta o ativo de aplicação; não é possível iniciar a pré-verificação.',
+      missingApplicationAssetIdForSave: 'Falta o ativo de aplicação; não é possível salvar o plano.',
+      missingPlanId: 'Identificador do plano ausente. Selecione novamente.',
+      missingPlanIdForAction: '{action} falhou: identificador do plano ausente. Selecione novamente.',
+      missingRunIdRequest: 'Identificador da execução ausente. Selecione novamente.',
+      saveFailed: 'Falha ao salvar o plano de implantação',
+      startDryRunFailed: 'Falha ao iniciar dry-run'
     }
   },
   agents: {
     actions: {
-      close: 'Close',
-      delete: 'Delete',
-      deleteRisk: 'Deleting removes the Agent record directly and cannot be undone.',
-      detail: 'Details',
-      disable: 'Disable',
-      disableRisk: 'After disabling, this Agent stops receiving new tasks.',
-      enable: 'Enable',
-      enableRisk: 'After enabling, this Agent becomes schedulable again.'
+      close: 'Fechar',
+      delete: 'Excluir',
+      deleteRisk: 'Excluir remove diretamente o registro do Agent, e esta operação não pode ser desfeita.',
+      detail: 'Detalhes',
+      disable: 'Desativar',
+      disableRisk: 'Depois de desativado, este Agent deixará de receber novas tarefas.',
+      enable: 'Ativar',
+      enableRisk: 'Depois de ativado, este Agent voltará ao estado escalonável.'
     },
     app: {
-      fallbackName: 'App {index}'
+      fallbackName: 'Aplicação {index}'
     },
     certificate: {
-      boundCertificate: 'Bound certificate',
-      expiredDays: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      modalDescription: 'Shows key certificate information used by the current site binding.',
-      modalTitle: 'Certificate details',
-      overviewDescription: 'Shows certificate name, issuer, validity period, fingerprint, and other key details.',
-      overviewTitle: 'Certificate overview',
-      projectDetailDescription: 'Shows project certificate asset details and related usages in the current Agent context.',
-      projectDetailTitle: 'Project certificate details',
-      querying: 'Querying...',
-      remainingDays: '{days} days remaining',
-      remainingWithViewAction: '{remaining} / click to view certificate',
-      statusExpired: 'Expired',
-      statusExpiring: 'Expiring soon',
-      statusLabel: 'Certificate status',
-      statusUnknown: 'Validity unknown',
-      statusValid: 'Valid',
-      view: 'View certificate',
-      viewProjectDetail: 'View project certificate details'
+      boundCertificate: 'Certificado vinculado ao site',
+      expiredDays: 'Expirado há {days} dias',
+      expiresToday: 'Expira hoje',
+      modalDescription: 'Exibe as principais informações do certificado usado pelo vínculo do site atual.',
+      modalTitle: 'Detalhes do certificado',
+      overviewDescription: 'Exibe nome do certificado, emissor, início da validade, expiração, impressão digital e outras informações principais.',
+      overviewTitle: 'Visão geral do certificado',
+      projectDetailDescription: 'Exibe detalhes do ativo de certificado no projeto atual e seus usos relacionados no contexto deste Agent.',
+      projectDetailTitle: 'Detalhes do certificado neste projeto',
+      querying: 'Consultando...',
+      remainingDays: '{days} dias restantes',
+      remainingWithViewAction: '{remaining} / clique para ver o certificado',
+      statusExpired: 'Expirado',
+      statusExpiring: 'Perto de expirar',
+      statusLabel: 'Status do certificado',
+      statusUnknown: 'Validade desconhecida',
+      statusValid: 'Válido',
+      view: 'Ver certificado',
+      viewProjectDetail: 'Ver detalhes do certificado neste projeto'
     },
     certificateUsage: {
-      iisSite: 'Agent IIS site',
-      linuxSite: 'Agent Linux site',
-      tomcatConnector: 'Agent Tomcat connector'
+      iisSite: 'Site IIS do Agent',
+      linuxSite: 'Site Linux do Agent',
+      tomcatConnector: 'Conector Tomcat do Agent'
     },
     columns: {
-      actions: 'Actions',
-      hostname: 'Hostname',
-      ipAddress: 'IP address',
-      lastHeartbeat: 'Last heartbeat',
-      onlineStatus: 'Online status',
-      osType: 'OS type',
-      version: 'Version'
+      actions: 'Ações',
+      hostname: 'Nome do host',
+      ipAddress: 'Endereço IP',
+      lastHeartbeat: 'Último heartbeat',
+      onlineStatus: 'Status online',
+      osType: 'Tipo de sistema',
+      version: 'Versão'
     },
     common: {
-      defaultAddress: 'Default address',
-      no: 'No',
-      noHostHeader: 'No Host Header',
-      noListenAddress: 'No listen address',
-      none: 'None',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided',
-      notWritable: 'Not writable',
-      unrecognized: 'Unrecognized',
-      writable: 'Writable',
-      yes: 'Yes'
+      defaultAddress: 'Endereço padrão',
+      no: 'Não',
+      noHostHeader: 'Sem Host Header',
+      noListenAddress: 'Sem endereço de escuta',
+      none: 'Nenhum',
+      notConfigured: 'Não configurado',
+      notProvided: 'Não informado',
+      notWritable: 'Não gravável',
+      unrecognized: 'Não reconhecido',
+      writable: 'Gravável',
+      yes: 'Sim'
     },
     detail: {
-      loading: 'Loading details...',
-      manualRescan: 'Manual rescan',
-      manualRescanCannotPullTasks: 'This Agent cannot pull tasks, so rescan cannot run',
-      manualRescanCreated: 'Manual rescan task created. Waiting for the Agent to pull it.',
-      manualRescanSubmitting: 'Submitting rescan...',
-      manualRescanUnsupportedType: 'This Agent type does not support manual rescan',
-      modalDescription: 'Shows the Agent summary, runtime environment, and IIS site data.',
-      modalTitle: 'Agent details',
-      nodeEyebrow: 'Agent node',
-      tabsAriaLabel: 'Agent detail tabs'
+      loading: 'Carregando detalhes...',
+      manualRescan: 'Revarredura manual',
+      manualRescanCannotPullTasks: 'Este Agent não pode buscar tarefas, portanto a revarredura não pode ser executada',
+      manualRescanCreated: 'Tarefa de revarredura manual criada. Aguardando o Agent buscá-la para execução.',
+      manualRescanSubmitting: 'Enviando revarredura...',
+      manualRescanUnsupportedType: 'Este tipo de Agent não oferece suporte a revarredura manual',
+      modalDescription: 'Veja as principais informações do Agent, o ambiente de execução e os dados de sites IIS.',
+      modalTitle: 'Detalhes do Agent',
+      nodeEyebrow: 'Nó do Agent',
+      tabsAriaLabel: 'Abas de detalhes do Agent'
     },
     empty: {
-      description: 'Click Install Agent, choose a platform and version, then generate a one-time install command.',
-      noFrameworkSites: 'No {name} sites found',
-      noIisSites: 'No IIS sites found',
-      noRuntimeLogs: 'No runtime logs',
-      noTomcatApps: 'No Tomcat apps found',
-      noTomcatConnectors: 'No Tomcat connectors found',
-      title: 'No Agents'
+      description: 'Clique em "Instalar Agent", escolha a plataforma e a versão e gere um comando de instalação de uso único.',
+      noFrameworkSites: 'Nenhum site {name} encontrado',
+      noIisSites: 'Nenhum site IIS encontrado',
+      noRuntimeLogs: 'Nenhum log de execução',
+      noTomcatApps: 'Nenhuma aplicação Tomcat encontrada',
+      noTomcatConnectors: 'Nenhum conector Tomcat encontrado',
+      title: 'Nenhum Agent'
     },
     errors: {
-      certificateAssetIncomplete: 'Certificate asset data is incomplete, so details cannot be opened.',
-      certificateAssetNotFound: 'No matching certificate asset was found in this project.',
-      certificateAssetQueryFailed: 'Failed to query certificate asset.',
-      detailDataMissing: 'The detail API returned no data.',
-      generateInstallCommandFailed: 'Failed to generate install command.',
-      installCommandMissing: 'The backend did not return an install command.',
-      loadDetailFailed: 'Failed to load details.',
-      manualRescanFailed: 'Failed to start manual rescan.'
+      certificateAssetIncomplete: 'Os dados do ativo de certificado estão incompletos; não é possível abrir os detalhes.',
+      certificateAssetNotFound: 'Nenhum ativo de certificado correspondente foi encontrado neste projeto.',
+      certificateAssetQueryFailed: 'Falha ao consultar o ativo de certificado.',
+      detailDataMissing: 'Não foi possível obter as informações de detalhe.',
+      generateInstallCommandFailed: 'Falha ao gerar o comando de instalação.',
+      installCommandMissing: 'O sistema não retornou o comando de instalação.',
+      loadDetailFailed: 'Falha ao carregar detalhes.',
+      manualRescanFailed: 'Falha ao iniciar a revarredura manual.'
     },
     fields: {
-      agentVersion: 'Agent version',
-      appCount: 'App count',
-      appList: 'App list',
-      appPool: 'App pool',
-      arch: 'Architecture',
-      binaryPath: 'Binary path',
-      certificateFile: 'Certificate file',
-      certificateName: 'Certificate name',
-      certificateStore: 'Certificate store',
-      certificateSubject: 'Certificate subject',
-      certificateThumbprint: 'Certificate thumbprint',
-      configFile: 'Config file',
-      configPath: 'Config path',
-      connectorCount: 'Connector count',
-      connectorList: 'Connector list',
-      domain: 'Domain',
-      frameworkVersion: '{name} version',
-      healthStatus: 'Health status',
-      healthSummary: 'Health summary',
-      hostname: 'Hostname',
-      httpsBinding: 'HTTPS binding',
-      httpsListen: 'HTTPS listen',
-      iisVersion: 'IIS version',
-      installPrefix: 'Install prefix',
-      installStatus: 'Install status',
-      ipAddress: 'IP address',
-      issuer: 'Issuer',
-      lastCapabilityReportAt: 'Last capability report time',
-      lastHeartbeat: 'Last heartbeat',
-      lastRecoveryAt: 'Last recovery time',
-      lastReportAt: 'Last report time',
-      linuxDistribution: 'Linux distribution',
-      listenAddress: 'Listen address',
-      notAfter: 'Not after',
-      notBefore: 'Not before',
-      offlineDetected: 'Offline detected',
-      osType: 'OS type',
-      osVersion: 'OS version',
-      patchVersion: 'Patch version',
-      privateKeyOrKeystore: 'Private key / Keystore',
-      proxyTarget: 'Proxy target',
-      remainingDays: 'Remaining days',
-      role: 'Role',
-      runningStatus: 'Running status',
-      runtimeLog: 'Runtime log',
-      serviceName: 'Service name',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      siteCount: 'Site count',
-      siteList: 'Site list',
-      tlsConnector: 'TLS connector',
-      tomcatVersion: 'Tomcat version',
-      zone: 'Zone'
+      agentVersion: 'Versão do Agent',
+      appCount: 'Quantidade de aplicações',
+      appList: 'Lista de aplicações',
+      appPool: 'Pool de aplicações',
+      arch: 'Arquitetura do sistema',
+      binaryPath: 'Caminho do binário',
+      certificateFile: 'Arquivo do certificado',
+      certificateName: 'Nome do certificado',
+      certificateStore: 'Repositório de certificados',
+      certificateSubject: 'Assunto do certificado',
+      certificateThumbprint: 'Impressão digital do certificado',
+      configFile: 'Arquivo de configuração',
+      configPath: 'Caminho da configuração',
+      connectorCount: 'Quantidade de conectores',
+      connectorList: 'Lista de conectores',
+      domain: 'Domínio',
+      frameworkVersion: 'Versão do {name}',
+      healthStatus: 'Status de saúde',
+      healthSummary: 'Resumo de anomalias',
+      hostname: 'Nome do host',
+      httpsBinding: 'Binding HTTPS',
+      httpsListen: 'Escuta HTTPS',
+      iisVersion: 'Versão do IIS',
+      installPrefix: 'Prefixo de instalação',
+      installStatus: 'Status da instalação',
+      ipAddress: 'Endereço IP',
+      issuer: 'Emissor',
+      lastCapabilityReportAt: 'Último envio de capacidades',
+      lastHeartbeat: 'Último heartbeat',
+      lastRecoveryAt: 'Última recuperação',
+      lastReportAt: 'Último envio',
+      linuxDistribution: 'Distribuição Linux',
+      listenAddress: 'Endereço de escuta',
+      notAfter: 'Expira em',
+      notBefore: 'Início da validade',
+      offlineDetected: 'Offline detectado',
+      osType: 'Tipo de sistema',
+      osVersion: 'Versão do sistema operacional',
+      patchVersion: 'Versão do patch',
+      privateKeyOrKeystore: 'Chave privada / Keystore',
+      proxyTarget: 'Alvo do proxy',
+      remainingDays: 'Dias restantes',
+      role: 'Função',
+      runningStatus: 'Status de execução',
+      runtimeLog: 'Log de execução',
+      serviceName: 'Nome do serviço',
+      sha256Fingerprint: 'Impressão digital SHA-256',
+      siteCount: 'Quantidade de sites',
+      siteList: 'Lista de sites',
+      tlsConnector: 'Conector TLS',
+      tomcatVersion: 'Versão do Tomcat',
+      zone: 'Zona'
     },
     health: {
-      degraded: 'Degraded',
-      failed: 'Failed',
-      healthy: 'Healthy',
-      unknown: 'Unknown'
+      degraded: 'Degradado',
+      failed: 'Falha',
+      healthy: 'Saudável',
+      unknown: 'Desconhecido'
     },
     install: {
-      bootstrapToken: 'Bootstrap token',
-      command: 'Install command',
-      commandCopied: 'Install command copied',
-      copyCommand: 'Copy install command',
-      copyToken: 'Copy token',
-      expired: 'Expired',
-      generateCommand: 'Generate install command',
-      generating: 'Generating...',
-      modalDescription: 'Choose platform and version to generate a one-time install command. The token is valid for 10 minutes and can only be used once.',
-      modalTitle: 'Install Agent',
-      platform: 'Platform',
-      platformLinuxDescription: 'For Ubuntu, Debian, CentOS, Rocky, AlmaLinux, and other Linux distributions.',
-      platformWindowsDescription: 'For Windows Server and Windows 10/11. Registers as a system service after installation.',
-      remainingTime: '{minutes}m {seconds}s',
-      remainingValidity: 'Remaining validity',
-      singleUseHint: 'Once the bootstrap script requests this token, it expires immediately and cannot be reused.',
-      tokenCopied: 'Token copied',
-      version: 'Version',
-      versionLatest: 'Latest stable',
-      zone: 'Zone'
+      bootstrapToken: 'Código de instalação',
+      command: 'Comando de instalação',
+      commandCopied: 'Comando de instalação copiado',
+      copyCommand: 'Copiar comando de instalação',
+      copyToken: 'Copiar código de instalação',
+      expired: 'Expirado',
+      generateCommand: 'Gerar comando de instalação',
+      generating: 'Gerando...',
+      modalDescription: 'Escolha a plataforma e a versão para gerar um comando de instalação de uso único. O código de instalação é válido por 10 minutos e só pode ser usado uma vez.',
+      modalTitle: 'Instalar Agent',
+      platform: 'Plataforma',
+      platformLinuxDescription: 'Para Ubuntu, Debian, CentOS, Rocky, AlmaLinux e outras distribuições Linux.',
+      platformWindowsDescription: 'Para Windows Server e Windows 10/11; após a instalação, registra-se como serviço do sistema.',
+      remainingTime: '{minutes}min {seconds}s',
+      remainingValidity: 'Validade restante',
+      singleUseHint: 'Assim que o mesmo código de instalação for solicitado pelo script bootstrap, ele expira imediatamente e não pode ser reutilizado.',
+      tokenCopied: 'Código de instalação copiado',
+      version: 'Versão',
+      versionLatest: 'Última versão estável',
+      zone: 'Zona'
     },
     labels: {
-      certificatePath: 'Certificate: {value}',
-      deployDirectory: 'Deploy directory: {value}',
-      directory: 'Directory: {value}',
+      certificatePath: 'Certificado: {value}',
+      deployDirectory: 'Diretório de implantação: {value}',
+      directory: 'Diretório: {value}',
       keystorePath: 'Keystore: {value}',
-      listenAddress: 'Listen address: {value}',
-      path: 'Path: {value}',
-      privateKeyPath: 'Private key: {value}',
-      reloadCommand: 'Reload command: {value}',
-      siteName: 'Site name: {value}',
-      taskType: 'Task type: {value}',
-      testCommand: 'Test command: {value}',
-      thumbprint: 'Thumbprint: {value}'
+      listenAddress: 'Endereço de escuta: {value}',
+      path: 'Caminho: {value}',
+      privateKeyPath: 'Chave privada: {value}',
+      reloadCommand: 'Comando Reload: {value}',
+      siteName: 'Nome do site: {value}',
+      taskType: 'Tipo de tarefa: {value}',
+      testCommand: 'Comando de teste: {value}',
+      thumbprint: 'Impressão digital: {value}'
     },
     linux: {
-      certDirectoryWritable: 'Certificate directory: {status}',
-      helperRequired: 'Helper required',
-      keyDirectoryWritable: 'Private key directory: {status}',
-      permissionMode: 'Permission mode: {mode}'
+      certDirectoryWritable: 'Diretório de certificados: {status}',
+      helperRequired: 'Helper necessário',
+      keyDirectoryWritable: 'Diretório de chaves privadas: {status}',
+      permissionMode: 'Modo de permissão: {mode}'
     },
     logs: {
-      collapse: 'Collapse',
-      expand: 'Expand',
-      listAriaLabel: 'Runtime log list'
+      collapse: 'Recolher',
+      expand: 'Expandir',
+      listAriaLabel: 'Lista de logs de execução'
     },
     metrics: {
-      abnormalDescription: 'Offline, failed, or drifted Agents need priority handling.',
-      abnormalTitle: 'Abnormal Agents',
-      totalDescription: 'Number of Agents currently registered with the control plane.',
-      totalTitle: 'Total Agents'
+      abnormalDescription: 'Agents offline, com falha ou com drift precisam de tratamento prioritário.',
+      abnormalTitle: 'Agents anormais',
+      totalDescription: 'Quantidade de Agents atualmente registrados no sistema.',
+      totalTitle: 'Total de Agents'
     },
     page: {
-      description: 'View Agents, generate install commands for different platforms, and inspect details in a dedicated modal.',
-      installAgent: 'Install Agent'
+      description: 'Veja a lista de Agents, gere comandos de instalação para diferentes plataformas e consulte detalhes na janela.',
+      installAgent: 'Instalar Agent'
     },
     sections: {
-      frameworkOverviewDescription: 'Shows {name} installation status, running status, and config location on the host.',
-      frameworkOverviewTitle: '{name} overview',
-      frameworkSitesDescription: 'Shows sites, roots, domains, reverse proxy targets, and certificate paths discovered by {name}.',
-      frameworkSitesTitle: '{name} sites',
-      healthDescription: 'Shows control-plane offline detection, latest recovery time, pending result uploads, and health summary.',
-      healthTitle: 'Health and recovery',
-      iisOverviewDescription: 'Shows IIS installation status and version information on the host.',
-      iisOverviewTitle: 'IIS overview',
-      iisSitesDescription: 'Shows IIS websites, site paths, binding ports, and certificate subjects.',
-      iisSitesTitle: 'IIS sites',
-      logOverviewDescription: 'Shows the latest capability report time to help judge whether detail data is fresh.',
-      logOverviewTitle: 'Log overview',
-      mainInfoDescription: 'Shows Agent identity, role, and latest heartbeat.',
-      mainInfoTitle: 'Main information',
-      runtimeDescription: 'Shows runtime system and version information reported by the Agent.',
-      runtimeLogsDescription: 'Shows persisted runtime logs for manual rescans, heartbeat anomalies, and capability report interruptions.',
-      runtimeLogsTitle: 'Runtime logs',
-      runtimeTitle: 'Runtime environment',
-      tomcatAppsDescription: 'Shows application paths and deployment directories discovered in Tomcat Host/Context.',
-      tomcatAppsTitle: 'Tomcat apps',
-      tomcatConnectorsDescription: 'Shows Tomcat Connector listen address, protocol, TLS switch, and certificate path.',
-      tomcatConnectorsTitle: 'Tomcat connectors',
-      tomcatOverviewDescription: 'Shows Tomcat installation status, running status, and Catalina path on the host.',
-      tomcatOverviewTitle: 'Tomcat overview'
+      frameworkOverviewDescription: 'Status de instalação, status de execução e localização da configuração do {name} no host.',
+      frameworkOverviewTitle: 'Visão geral do {name}',
+      frameworkSitesDescription: 'Sites, diretórios raiz, domínios, alvos de proxy reverso e caminhos de certificados identificados pelo {name}.',
+      frameworkSitesTitle: 'Sites {name}',
+      healthDescription: 'Julgamento offline do sistema, horário de recuperação e resumo de saúde de execução do Agent.',
+      healthTitle: 'Saúde e recuperação',
+      iisOverviewDescription: 'Status de instalação e informações de versão do IIS no host.',
+      iisOverviewTitle: 'Visão geral do IIS',
+      iisSitesDescription: 'Lista de sites IIS, caminhos dos sites, portas de binding e nomes de assunto dos certificados.',
+      iisSitesTitle: 'Sites IIS',
+      logOverviewDescription: 'Horário do último envio de capacidades, usado para avaliar a atualidade das informações.',
+      logOverviewTitle: 'Visão geral de logs',
+      mainInfoDescription: 'Identidade, função e status de heartbeat do Agent.',
+      mainInfoTitle: 'Informações principais',
+      runtimeDescription: 'Sistema de execução e informações de versão reportados pelo Agent.',
+      runtimeLogsDescription: 'Logs de execução de revarredura manual, anomalias de heartbeat e interrupções de envio de capacidades.',
+      runtimeLogsTitle: 'Logs de execução',
+      runtimeTitle: 'Ambiente de execução',
+      tomcatAppsDescription: 'Caminhos de aplicações e diretórios de implantação identificados em Tomcat Host/Context.',
+      tomcatAppsTitle: 'Aplicações Tomcat',
+      tomcatConnectorsDescription: 'Endereço de escuta, protocolo, chave TLS e caminho de certificado do Tomcat Connector.',
+      tomcatConnectorsTitle: 'Conectores Tomcat',
+      tomcatOverviewDescription: 'Status de instalação, status de execução e caminho Catalina do Tomcat no host.',
+      tomcatOverviewTitle: 'Visão geral do Tomcat'
     },
     site: {
-      domainCount: '{count} domains',
+      domainCount: '{count} domínios',
       fallbackName: 'Site {index}'
     },
     siteMode: {
-      reverseProxy: 'Reverse proxy',
-      staticRoot: 'Static site'
+      reverseProxy: 'Proxy reverso',
+      staticRoot: 'Site estático'
     },
     status: {
-      installed: 'Installed',
-      notInstalled: 'Not installed',
-      notRunning: 'Not running',
-      running: 'Running'
+      installed: 'Instalado',
+      notInstalled: 'Não instalado',
+      notRunning: 'Não está em execução',
+      running: 'Em execução'
     },
     tabs: {
       logs: 'Logs',
-      overview: 'Overview'
+      overview: 'Visão geral'
     }
   },
   dashboard: {
     aria: {
-      assetHeatmap: 'Application asset status heatmap',
-      certificateStatusList: 'Certificate status list',
-      metrics: 'Core metrics',
-      quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and application asset status',
-      statusLegend: 'Status legend'
+      assetHeatmap: 'Mapa de calor de status dos ativos de aplicação',
+      certificateStatusList: 'Lista de status dos certificados',
+      metrics: 'Indicadores principais',
+      quickActions: 'Entradas principais de funcionalidades',
+      statusHeatmap: 'Status de certificados, Agents, gateways e ativos de aplicação',
+      statusLegend: 'Legenda de status'
     },
     assets: {
-      groupCount: '{summary} · {total} items',
-      title: 'Application asset status',
-      updatedAt: 'Updated at {time}'
+      groupCount: '{summary} · {total} itens',
+      title: 'Status dos ativos de aplicação',
+      updatedAt: 'Atualizado em {time}'
     },
     audit: {
-      description: 'Prioritizes failures, denials, high-risk events, and key business changes.',
-      title: 'Recent audit logs'
+      description: 'Exibe primeiro falhas, recusas, eventos de alto risco e mudanças críticas de negócio.',
+      title: 'Logs de auditoria recentes'
     },
     certificateState: {
-      critical: 'Near expiry',
-      expired: 'Expired',
-      expiring: 'Expiring soon',
-      unknown: 'Unknown',
+      critical: 'Perto de expirar',
+      expired: 'Expirado',
+      expiring: 'Expirando em breve',
+      unknown: 'Desconhecido',
       valid: 'Normal'
     },
     days: {
-      expired: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      notRecorded: 'Not recorded',
-      remaining: '{days} days'
+      expired: 'Expirado há {days} dias',
+      expiresToday: 'Expira hoje',
+      notRecorded: 'Não registrado',
+      remaining: '{days} dias'
     },
     empty: {
-      noAuditLogs: 'No audit logs',
-      noCertificateStatus: 'No certificate status data',
-      noObjects: 'No objects'
+      noAuditLogs: 'Nenhum log de auditoria',
+      noCertificateStatus: 'Nenhum dado de status de certificado',
+      noObjects: 'Nenhum objeto'
     },
     errors: {
-      loadFailed: 'Failed to load overview data',
-      missingOverviewData: 'Overview API returned no data'
+      loadFailed: 'Falha ao carregar dados da visão geral',
+      missingOverviewData: 'Não foi possível obter as informações da visão geral.'
     },
     legend: {
-      disabled: 'Disabled',
-      error: 'Abnormal',
+      disabled: 'Desativado',
+      error: 'Anormal',
       ok: 'Normal',
-      unknown: 'Unknown',
-      warning: 'Attention'
+      unknown: 'Desconhecido',
+      warning: 'Atenção'
     },
     loading: {
-      description: 'Reading overview data.',
-      title: 'Loading'
+      description: 'Carregando informações da visão geral…',
+      title: 'Carregando'
     },
     metrics: {
       activeAgents: {
-        title: 'Active Agents',
-        description: 'Agents currently online and schedulable.'
+        title: 'Quantidade de Agents ativos',
+        description: 'Agents atualmente online e escalonáveis.'
       },
       activeGateways: {
-        title: 'Active gateways',
-        description: 'Isolation-zone gateways currently online.'
+        title: 'Quantidade de gateways ativos',
+        description: 'Gateways de zonas isoladas atualmente online.'
       },
       applications: {
-        title: 'Current applications',
-        description: 'Managed application entry assets.'
+        title: 'Quantidade atual de aplicações',
+        description: 'Ativos de entrada de aplicação já gerenciados.'
       },
       expiringCertificates: {
-        title: 'Certificates expiring in 15 days',
-        description: 'Certificates that need renewal or replacement.'
+        title: 'Certificados que expiram em 15 dias',
+        description: 'Certificados que exigem renovação ou substituição.'
       },
       managedBindings: {
-        title: 'Managed bindings',
-        description: 'Certificate bindings already in managed status.'
+        title: 'Quantidade de vínculos gerenciados',
+        description: 'Vínculos de certificados que já estão em estado gerenciado.'
       },
       validCertificates: {
-        title: 'Active certificates',
-        description: 'Certificate versions that are active and not expired.'
+        title: 'Quantidade de certificados ativos',
+        description: 'Versões de certificado ativas e ainda não expiradas.'
       }
     },
     quickActions: {
       agents: {
         title: 'Agent',
-        description: 'View online status and task capabilities.'
+        description: 'Veja status online e capacidades de tarefa.'
       },
       assets: {
-        title: 'Application assets',
-        description: 'Maintain domains, ports, and deployment targets.'
+        title: 'Ativos de aplicação',
+        description: 'Mantenha domínios, portas e alvos de implantação.'
       },
       audits: {
-        title: 'Audit logs',
-        description: 'Trace operators and execution results.'
+        title: 'Logs de auditoria',
+        description: 'Rastreie operadores e resultados de execução.'
       },
       certificates: {
-        title: 'Certificate management',
-        description: 'Import, view, and convert certificates.'
+        title: 'Gestão de certificados',
+        description: 'Importe, veja e converta certificados.'
       },
       deploymentPlans: {
-        title: 'Deployment plans',
-        description: 'Create and execute certificate update plans.'
+        title: 'Planos de implantação',
+        description: 'Crie e execute planos de atualização de certificados.'
       },
       gateways: {
         title: 'Gateway',
-        description: 'Manage isolation-zone execution entry points.'
+        description: 'Gerencie entradas de execução em zonas isoladas.'
       }
     },
     statusBlock: {
@@ -1263,21 +1229,21 @@ export default {
         certificateRemaining: '{name}, {days}'
       },
       status: {
-        active: 'Active',
-        critical: 'Near expiry',
-        deleted: 'Deleted',
-        disabled: 'Disabled',
-        expired: 'Expired',
-        expiring: 'Expiring soon',
-        inactive: 'Inactive',
+        active: 'Ativo',
+        critical: 'Perto de expirar',
+        deleted: 'Excluído',
+        disabled: 'Desativado',
+        expired: 'Expirado',
+        expiring: 'Expirando em breve',
+        inactive: 'Inativo',
         offline: 'Offline',
         online: 'Online',
-        retired: 'Retired',
-        revoked: 'Revoked',
-        stale: 'Stale',
-        unknown: 'Unknown',
-        unreachable: 'Unreachable',
-        upgrading: 'Upgrading',
+        retired: 'Retirado',
+        revoked: 'Revogado',
+        stale: 'Expirado sem atualização',
+        unknown: 'Desconhecido',
+        unreachable: 'Inacessível',
+        upgrading: 'Atualizando',
         valid: 'Normal'
       }
     },
@@ -1286,1397 +1252,1361 @@ export default {
         title: 'Agent'
       },
       applicationAssets: {
-        title: 'Application assets'
+        title: 'Ativos de aplicação'
       },
       certificates: {
-        title: 'Certificates'
+        title: 'Certificados'
       },
       gateways: {
         title: 'Gateways'
       },
       summary: {
-        allNormal: 'All normal',
-        needsAttention: '{count} need attention'
+        allNormal: 'Tudo normal',
+        needsAttention: '{count} precisam de atenção'
       }
     },
     table: {
-      bindings: 'Bindings',
-      certificate: 'Certificate',
-      domain: 'Domain',
-      notAfterMissing: 'Expiry time not recorded',
-      remainingTime: 'Remaining time',
+      bindings: 'Vínculos',
+      certificate: 'Certificado',
+      domain: 'Domínio',
+      notAfterMissing: 'Expiração não registrada',
+      remainingTime: 'Tempo restante',
       status: 'Status'
     }
   },
   gateways: {
     actions: {
-      addGatewayAgent: 'Add Gateway Agent',
-      close: 'Close',
-      copied: 'Copied',
-      copyEnableCommand: 'Copy enable command',
-      copyInstallCommand: 'Copy install command',
-      detail: 'Details',
-      enableExistingAgent: 'Enable Gateway on existing Agent',
-      generateEnableCommand: 'Generate enable command',
-      generateInstallCommand: 'Generate install command',
-      generating: 'Generating...',
-      probe: 'Probe',
-      probeRisk: 'Starts a reachability probe from this Gateway region.'
+      addGatewayAgent: 'Adicionar Gateway Agent',
+      close: 'Fechar',
+      copied: 'Copiado',
+      copyEnableCommand: 'Copiar comando de ativação',
+      copyInstallCommand: 'Copiar comando de instalação',
+      detail: 'Detalhes',
+      enableExistingAgent: 'Ativar Gateway em Agent existente',
+      generateEnableCommand: 'Gerar comando de ativação',
+      generateInstallCommand: 'Gerar comando de instalação',
+      generating: 'Gerando...',
+      probe: 'Sondar',
+      probeRisk: 'Inicia uma sondagem de acessibilidade a partir da região deste Gateway.'
     },
     columns: {
-      actions: 'Actions',
+      actions: 'Ações',
       gateway: 'Gateway',
-      lastHeartbeat: 'Last heartbeat',
-      load: 'Load',
-      region: 'Region',
+      lastHeartbeat: 'Último heartbeat',
+      load: 'Carga',
+      region: 'Região',
       status: 'Status'
     },
     detail: {
       abilities: {
         agentTask: {
-          description: 'Forward deployment, check, and other tasks to Agents in this region.',
-          title: 'Task forwarding'
+          description: 'Encaminha implantação, verificações e outras tarefas para Agents dentro da região.',
+          title: 'Encaminhamento de tarefas'
         },
         directControl: {
-          description: 'Forward controlled operations to Agents in this region without direct control-plane access to internal ports.',
-          title: 'Remote control forwarding'
+          description: 'Encaminha operações controladas para Agents dentro da região, sem que o sistema precise acessar diretamente portas internas.',
+          title: 'Encaminhamento de controle remoto'
         },
         probe: {
-          description: 'Check whether hosts, websites, or Agents are reachable from this region.',
-          title: 'Connectivity check'
+          description: 'Verifica, a partir desta região, se hosts, sites ou Agents estão acessíveis.',
+          title: 'Verificação de conectividade'
         }
       },
-      eyebrow: 'Regional gateway',
-      heroDescription: 'Handles probing and forwarding in region {region}',
+      eyebrow: 'Gateway regional',
+      heroDescription: 'Responsável por sondagem e encaminhamento na região {region}',
       overview: {
-        availableCapacity: 'Available capacity',
-        connectionStatus: 'Connection status',
-        lastContact: 'Last contact',
-        processing: 'Processing',
-        serviceRegion: 'Service region',
-        successRate: 'Success rate'
+        availableCapacity: 'Capacidade disponível',
+        connectionStatus: 'Status da conexão',
+        lastContact: 'Último contato',
+        processing: 'Processando',
+        serviceRegion: 'Região de serviço',
+        successRate: 'Taxa de sucesso'
       },
       sections: {
-        overview: 'Runtime overview',
-        services: 'Available services'
+        overview: 'Visão geral de execução',
+        services: 'Serviços disponíveis'
       }
     },
     empty: {
-      description: 'Add a Gateway Agent, or enable the Gateway role on an existing Agent.',
-      title: 'No gateways'
+      description: 'Adicione um Gateway Agent ou ative a função Gateway em um Agent existente.',
+      title: 'Nenhum gateway'
     },
     errors: {
-      generateEnableCommandFailed: 'Failed to generate Gateway enable command.',
-      generateInstallCommandFailed: 'Failed to generate Gateway Agent install command.',
-      missingEnableCommand: 'The backend did not return a Gateway enable command.',
-      missingInstallCommand: 'The backend did not return a Gateway Agent install command.'
+      generateEnableCommandFailed: 'Falha ao gerar o comando de ativação do Gateway.',
+      generateInstallCommandFailed: 'Falha ao gerar o comando de instalação do Gateway Agent.',
+      missingEnableCommand: 'O sistema não retornou o comando de ativação do Gateway.',
+      missingInstallCommand: 'O sistema não retornou o comando de instalação do Gateway Agent.'
     },
     fields: {
-      config: 'Config',
-      enableCommand: 'Enable command',
-      expiresAt: 'Expires at',
-      installCode: 'Install code',
-      installCommand: 'Install command',
-      platform: 'Platform',
-      region: 'Region',
-      service: 'Service',
-      unboundAgent: 'Do not bind a specific Agent'
+      config: 'Configuração',
+      enableCommand: 'Comando de ativação',
+      expiresAt: 'Expira em',
+      installCode: 'Código de instalação',
+      installCommand: 'Comando de instalação',
+      platform: 'Plataforma',
+      region: 'Região',
+      service: 'Serviço',
+      unboundAgent: 'Não vincular a um Agent específico'
     },
     links: {
-      assets: 'View assets',
-      executions: 'View execution records'
+      assets: 'Ver ativos',
+      executions: 'Ver registros de execução'
     },
     modals: {
       detail: {
-        title: 'Gateway details'
+        title: 'Detalhes do gateway'
       },
       enable: {
-        title: 'Enable Gateway on existing Agent'
+        title: 'Ativar Gateway em Agent existente'
       },
       install: {
-        title: 'Add Gateway Agent'
+        title: 'Adicionar Gateway Agent'
       }
     },
     page: {
-      description: 'Manage regional routing Gateway Agents.',
+      description: 'Gerencie Gateway Agents de roteamento regional.',
       title: 'Gateways'
     },
     platforms: {
       linuxSystemd: {
-        description: 'Install Gateway Agent service on a Linux host'
+        description: 'Instalar o serviço Gateway Agent em um host Linux'
       },
       windowsService: {
-        description: 'Install Gateway Agent service on a Windows host'
+        description: 'Instalar o serviço Gateway Agent em um host Windows'
       }
     },
     resourceName: 'Gateway',
     status: {
-      disabled: 'Disabled',
+      disabled: 'Desativado',
       offline: 'Offline',
-      online: 'Online',
-      revoked: 'Revoked',
-      upgrading: 'Upgrading'
+      online: 'Online normal',
+      revoked: 'Revogado',
+      upgrading: 'Atualizando'
     },
     values: {
-      availableCapacity: 'Can accept {count} tasks',
-      defaultRegion: 'Default region',
-      regionGatewayName: '{region} gateway',
-      taskCount: '{count} tasks'
+      availableCapacity: 'Pode receber {count} tarefas',
+      defaultRegion: 'Região padrão',
+      regionGatewayName: 'Gateway {region}',
+      taskCount: '{count} tarefas'
     }
   },
   auditFormat: {
     actions: {
-      secretResolveService: 'Service reads Secret',
-      secretResolve: 'Executor reads Secret',
-      secretCreate: 'Create Secret',
-      secretVersionCreate: 'Create Secret version',
-      secretRotate: 'Rotate Secret',
-      certificateImport: 'Import certificate',
-      certificateFormatUpdate: 'Update certificate artifact',
-      certificateFormatDelete: 'Delete certificate artifact',
-      deploymentCreate: 'Create deployment plan',
-      deploymentExecute: 'Execute deployment plan',
-      deploymentRollback: 'Request rollback',
-      approvalCreate: 'Create approval',
-      approvalApprove: 'Approve request',
-      approvalReject: 'Reject request',
-      authLogin: 'User login',
-      authLogout: 'User logout'
+      secretResolveService: 'Serviço lê Secret',
+      secretResolve: 'Executor lê Secret',
+      secretCreate: 'Criar Secret',
+      secretVersionCreate: 'Criar versão do Secret',
+      secretRotate: 'Rotacionar Secret',
+      certificateImport: 'Importar certificado',
+      certificateFormatUpdate: 'Atualizar artefato do certificado',
+      certificateFormatDelete: 'Excluir artefato do certificado',
+      deploymentCreate: 'Criar plano de implantação',
+      deploymentExecute: 'Executar plano de implantação',
+      deploymentRollback: 'Solicitar rollback',
+      approvalCreate: 'Criar aprovação',
+      approvalApprove: 'Aprovar solicitação',
+      approvalReject: 'Rejeitar solicitação',
+      authLogin: 'Login do usuário',
+      authLogout: 'Logout do usuário'
     },
     events: {
-      authLoginSuccess: 'Login succeeded',
-      authLoginFailure: 'Login failed',
-      authLoginFailed: 'Login failed',
-      authLogout: 'Logged out',
-      authExternalLoginSuccess: 'External identity login succeeded',
-      authExternalLoginFailed: 'External identity login failed',
-      secretCreated: 'Created Secret',
-      secretVersionCreated: 'Created Secret version',
-      secretUsed: 'Read Secret',
-      secretRotated: 'Rotated Secret',
-      permissionDenied: 'Permission denied',
-      approvalCreated: 'Created approval',
-      approvalApproved: 'Approval approved',
-      approvalRejected: 'Approval rejected',
-      certificateImported: 'Certificate changed',
-      deploymentCreated: 'Created deployment',
-      deploymentExecuted: 'Executed deployment',
-      deploymentRollbackRequested: 'Requested deployment rollback',
-      pluginInstalled: 'Installed plugin',
-      pluginPermissionDenied: 'Plugin permission denied',
-      workflowTemplateExecuted: 'Executed workflow template'
+      authLoginSuccess: 'Login bem-sucedido',
+      authLoginFailure: 'Falha no login',
+      authLoginFailed: 'Falha no login',
+      authLogout: 'Logout realizado',
+      authExternalLoginSuccess: 'Login por identidade externa bem-sucedido',
+      authExternalLoginFailed: 'Falha no login por identidade externa',
+      secretCreated: 'Secret criado',
+      secretVersionCreated: 'Versão do Secret criada',
+      secretUsed: 'Secret lido',
+      secretRotated: 'Secret rotacionado',
+      permissionDenied: 'Permissão negada',
+      approvalCreated: 'Aprovação criada',
+      approvalApproved: 'Aprovação concedida',
+      approvalRejected: 'Aprovação rejeitada',
+      certificateImported: 'Certificado alterado',
+      deploymentCreated: 'Implantação criada',
+      deploymentExecuted: 'Implantação executada',
+      deploymentRollbackRequested: 'Rollback da implantação solicitado',
+      pluginInstalled: 'Plugin instalado',
+      pluginPermissionDenied: 'Permissão do plugin negada',
+      workflowTemplateExecuted: 'Template de workflow executado'
     },
     types: {
-      audit: 'Audit',
-      auth: 'Authentication',
-      security: 'Security',
+      audit: 'Auditoria',
+      auth: 'Autenticação',
+      security: 'Segurança',
       secret: 'Secret',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution',
-      approval: 'Approval',
-      permission: 'Permission',
+      certificate: 'Certificado',
+      certificateVersion: 'Certificado',
+      certificateVersionFormat: 'Artefato do certificado',
+      deployment: 'Implantação',
+      deploymentPlan: 'Plano de implantação',
+      execution: 'Execução',
+      approval: 'Aprovação',
+      permission: 'Permissão',
       plugin: 'Plugin',
-      workflowTemplate: 'Workflow',
+      workflowTemplate: 'Fluxo de trabalho',
       gateway: 'Gateway',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Binding'
+      serviceAsset: 'Ativo de aplicação',
+      binding: 'Vinculação'
     },
     actors: {
-      user: 'User',
-      system: 'System',
+      user: 'Usuário',
+      system: 'Sistema',
       agent: 'Agent',
       plugin: 'Plugin',
       executor: 'Executor'
     },
     resources: {
       secret: 'Secret',
-      secretVersion: 'Secret version',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate version',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution task',
-      executionRun: 'Execution task',
-      approval: 'Approval',
+      secretVersion: 'Versão do Secret',
+      certificate: 'Certificado',
+      certificateVersion: 'Versão do certificado',
+      certificateVersionFormat: 'Artefato do certificado',
+      deployment: 'Implantação',
+      deploymentPlan: 'Plano de implantação',
+      execution: 'Tarefa de execução',
+      executionRun: 'Tarefa de execução',
+      approval: 'Solicitação de aprovação',
       plugin: 'Plugin',
-      workflowTemplate: 'Workflow template',
+      workflowTemplate: 'Template de workflow',
       gateway: 'Gateway',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Certificate binding',
-      auditLog: 'Audit log'
+      serviceAsset: 'Ativo de aplicação',
+      binding: 'Vinculação de certificado',
+      auditLog: 'Log de auditoria'
     },
     results: {
-      success: 'Success',
-      failure: 'Failed',
-      denied: 'Denied'
+      success: 'Sucesso',
+      failure: 'Falha',
+      denied: 'Negado'
     },
     verbs: {
-      success: ' completed ',
-      failure: ' failed ',
-      denied: ' denied '
+      success: ' concluiu ',
+      failure: ' falhou ',
+      denied: ' negou '
     },
     tokens: {
-      auth: 'authentication',
+      auth: 'autenticação',
       login: 'login',
       logout: 'logout',
-      external: 'external',
+      external: 'externo',
       secret: 'Secret',
-      resolve: 'read',
-      service: 'service',
-      used: 'used',
-      created: 'created',
-      create: 'create',
-      updated: 'updated',
-      update: 'update',
-      deleted: 'deleted',
-      delete: 'delete',
-      version: 'version',
-      certificate: 'certificate',
-      imported: 'imported',
-      import: 'import',
-      format: 'artifact',
-      deployment: 'deployment',
-      executed: 'executed',
-      execute: 'execute',
+      resolve: 'ler',
+      service: 'serviço',
+      used: 'usado',
+      created: 'criado',
+      create: 'criar',
+      updated: 'atualizado',
+      update: 'atualizar',
+      deleted: 'excluído',
+      delete: 'excluir',
+      version: 'versão',
+      certificate: 'certificado',
+      imported: 'importado',
+      import: 'importar',
+      format: 'artefato',
+      deployment: 'implantação',
+      executed: 'executado',
+      execute: 'executar',
       rollback: 'rollback',
-      requested: 'requested',
-      approval: 'approval',
-      approved: 'approved',
-      rejected: 'rejected',
-      permission: 'permission',
-      denied: 'denied',
+      requested: 'solicitado',
+      approval: 'aprovação',
+      approved: 'aprovado',
+      rejected: 'rejeitado',
+      permission: 'permissão',
+      denied: 'negado',
       gateway: 'gateway',
-      credential: 'credential',
-      issued: 'issued',
-      revoked: 'revoked',
-      task: 'task',
-      evidence: 'evidence',
-      recorded: 'recorded',
-      result: 'result',
+      credential: 'credencial',
+      issued: 'emitido',
+      revoked: 'revogado',
+      task: 'tarefa',
+      evidence: 'evidência',
+      recorded: 'registrado',
+      result: 'resultado',
       plugin: 'plugin',
       workflow: 'workflow',
       template: 'template',
-      synced: 'synced',
-      tested: 'tested',
-      source: 'source',
-      identity: 'identity source',
-      group: 'group',
-      mapping: 'mapping'
+      synced: 'sincronizado',
+      tested: 'testado',
+      source: 'origem',
+      identity: 'fonte de identidade',
+      group: 'grupo',
+      mapping: 'mapeamento'
     },
     actorWithId: '{actorType} {actorId}',
-    summary: '{actor}{verb}"{title}", resource: {resource}.',
+    summary: '{actor}{verb}"{title}", objeto: {resource}.',
     fallbacks: {
-      unknown: 'Unknown'
+      unknown: 'Desconhecido'
     }
   },
   audit: {
     page: {
-      title: 'Audit logs',
-      description: 'Organizes logs by user actions, failures/denials, and key business changes while keeping readable summaries.'
+      title: 'Logs de auditoria',
+      description: 'Organiza logs por ações de usuários, falhas/negações e alterações críticas de negócio, mantendo resumos legíveis.'
     },
     actions: {
-      exportEvidence: 'Export audit evidence',
-      exporting: 'Exporting…',
-      refreshing: 'Refreshing…'
+      exportEvidence: 'Exportar evidências de auditoria',
+      exporting: 'Exportando…',
+      refreshing: 'Atualizando…'
     },
     errors: {
-      exportFailed: 'Failed to export audit evidence',
-      loadFailed: 'Failed to load audit logs',
+      exportFailed: 'Falha ao exportar evidências de auditoria',
+      loadFailed: 'Falha ao carregar logs de auditoria',
       withRequestId: '{message} ({requestId})'
     },
     metrics: {
-      ariaLabel: 'Audit overview',
+      ariaLabel: 'Visão geral da auditoria',
       total: {
-        title: 'Total audits',
-        description: 'Traceable operation records in the current filter scope.'
+        title: 'Total de auditorias',
+        description: 'Registros de operação rastreáveis no escopo de filtro atual.'
       },
       failed: {
-        title: 'Failed / denied',
-        description: 'Failed executions and denied access that need priority review.'
+        title: 'Falhas / negações',
+        description: 'Execuções com falha e acessos negados que exigem revisão prioritária.'
       },
       userActions: {
-        title: 'User actions',
-        description: 'Business changes and access actions directly initiated by users.'
+        title: 'Ações de usuários',
+        description: 'Alterações de negócio e ações de acesso iniciadas diretamente por usuários.'
       }
     },
     list: {
-      ariaLabel: 'Audit log list',
-      title: 'Log list',
-      summary: '{total} total, sorted by newest first.',
-      timeNotRecorded: 'Time not recorded'
+      ariaLabel: 'Lista de logs de auditoria',
+      title: 'Lista de logs',
+      summary: '{total} no total, ordenados por mais recentes primeiro.',
+      timeNotRecorded: 'Horário não registrado'
     },
     empty: {
-      title: 'No audit events',
-      description: 'Key operations should be traceable to operation records and task records.'
+      title: 'Nenhum evento de auditoria',
+      description: 'Operações críticas devem ser rastreáveis até os registros de operação e de tarefa correspondentes.'
     }
   },
   securityAdmin: {
     emptyValue: '—',
     errors: {
-      loadFailed: 'Load failed',
-      submitFailed: 'Submit failed'
+      loadFailed: 'Falha ao carregar',
+      submitFailed: 'Falha ao enviar'
     },
     actions: {
-      createResource: 'Add {resource}',
-      submitting: 'Submitting…'
+      createResource: 'Adicionar {resource}',
+      submitting: 'Enviando…'
     },
     modal: {
-      createDescription: 'Fill in the fields below to create {resource}'
+      createDescription: 'Preencha os campos abaixo para criar {resource}'
     },
     placeholders: {
-      selectField: 'Select {field}'
+      selectField: 'Selecione {field}'
     },
     table: {
-      ariaLabel: 'Management list',
-      resourceList: '{resource} list',
-      total: '{count} total'
-    }
-  },
-  notifications: {
-    title: 'Gerenciamento de notificações',
-    description: 'Gerencie canais, rotas, modelos, silêncios e registros confiáveis de entrega.',
-    tabs: { channels: 'Canais', deliveries: 'Entregas', rules: 'Regras e modelos' },
-    sections: { channels: 'Registros de canais', deliveries: 'Registros de entrega' },
-    channels: { createTitle: 'Criar canal de notificação' },
-    settings: { privateOriginsTitle: 'Endereços de implantação privada', privateOriginsDescription: 'Configure as Origins HTTPS privadas permitidas para WeCom, Feishu e DingTalk.' },
-    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook genérico' },
-    deploymentModes: { public: 'Nuvem pública', private: 'Implantação privada' },
-    fields: {
-      name: 'Nome do canal', type: 'Tipo do canal', deploymentMode: 'Modo de implantação', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
-      smtpSecurity: 'Segurança da conexão', smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', secretValuePlaceholder: 'Informe o valor secreto',
-      optionalSecretValuePlaceholder: 'Opcional; informe o valor secreto', wecomWebhookUrl: 'URL Webhook do robô de grupo WeCom', slackWebhookUrl: 'URL Slack Incoming Webhook',
-      feishuWebhookUrl: 'URL Webhook do robô personalizado Feishu', dingtalkWebhookUrl: 'URL Webhook do robô personalizado DingTalk', feishuSigningSecret: 'Segredo de assinatura do Feishu',
-      dingtalkSigningSecret: 'Segredo de assinatura do DingTalk', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (opcional)',
-      webhookUrl: 'URL Webhook', webhookUrlPlaceholder: 'Informe a URL Webhook completa', webhookMethod: 'Método HTTP', webhookHeaders: 'Headers fixos (JSON)',
-      webhookHeadersPlaceholder: 'Exemplo: x-source = gcac', signingSecret: 'Segredo de assinatura HMAC-SHA256', testTarget: 'Destino de teste',
-      testTargetPlaceholder: 'Separe destinatários de Email por vírgulas', lastSuccess: 'Último sucesso', latency: 'Latência (ms)',
-      createdAt: 'Criado em', updatedAt: 'Atualizado em', failureCategory: 'Categoria da falha', channel: 'Canal de notificação', selectChannel: 'Selecione um canal',
-      source: 'Origem do evento', priority: 'Prioridade da rota', dedupeWindow: 'Janela de deduplicação (segundos)', templateKey: 'Chave do modelo', locale: 'Idioma',
-      titleTemplate: 'Modelo do título', bodyTemplate: 'Modelo do corpo', reason: 'Motivo do silêncio', startsAt: 'Início', endsAt: 'Fim',
-      wecomPrivateOrigins: 'Origins privadas do WeCom', feishuPrivateOrigins: 'Origins privadas do Feishu', dingtalkPrivateOrigins: 'Origins privadas do DingTalk', privateOriginsPlaceholder: 'Uma por linha, por exemplo https://notify.example.internal'
-    },
-    actions: {
-      createChannel: 'Novo canal', createRoute: 'Nova rota', createTemplate: 'Novo modelo', createSilence: 'Novo silêncio',
-      confirmCreate: 'Criar', cancel: 'Cancelar', saveSettings: 'Salvar configurações', test: 'Enviar teste', testChannel: 'Testar canal: {name}', retry: 'Tentar novamente', enable: 'Ativar', disable: 'Desativar'
-    },
-    rules: { createRoute: 'Criar rota de notificação', createTemplate: 'Criar modelo de notificação', createSilence: 'Criar regra de silêncio' },
-    summary: { routes: 'Rotas de notificação', templates: 'Modelos de notificação', silences: 'Regras de silêncio', recordCount: '{count} registros' },
-    empty: { channels: 'Nenhum canal de notificação', deliveries: 'Nenhum registro de entrega', routes: 'Nenhuma rota de notificação', templates: 'Nenhum modelo de notificação', silences: 'Nenhuma regra de silêncio' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Segredo de assinatura', botToken: 'Bot Token' } },
-    messages: {
-      loadFailed: 'Falha ao carregar dados de gerenciamento de notificações', operationFailed: 'Falha na operação de gerenciamento de notificações', testUsesChannelTarget: 'Este canal enviará a notificação de teste para o destino configurado.',
-      secretStoredHint: 'Este valor será criptografado e não será exibido novamente após a criação.', createSecretFailed: 'Falha ao salvar o valor criptografado', invalidHeaders: 'Os Headers fixos devem ser um objeto JSON válido',
-      smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória', botTokenRequired: 'O Telegram Bot Token é obrigatório',
-      chatIdRequired: 'O Telegram Chat ID é obrigatório', feishuWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado Feishu', dingtalkWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado DingTalk',
-      wecomWebhookUrlInvalid: 'Informe uma URL Webhook HTTPS válida do robô WeCom', telegramBotTokenInvalid: 'O formato do Telegram Bot Token é inválido', telegramMessageThreadIdInvalid: 'O Telegram Topic ID deve ser um inteiro positivo',
-      privateDeploymentAllowlistHint: 'Endereços privados devem primeiro ser adicionados à lista de Origins HTTPS confiáveis acima.', privateOriginInvalid: 'O endereço privado deve ser uma Origin HTTPS exata, sem caminho, consulta, informações de usuário ou fragmento.', privateOriginsSecurityHint: 'Informe apenas esquema, host e porta opcional. URLs Webhook completas, tokens e segredos de assinatura continuam criptografados no serviço Secret.', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
+      ariaLabel: 'Lista de gerenciamento',
+      resourceList: 'Lista de {resource}',
+      total: '{count} no total'
     }
   },
   settings: {
-    securityLabel: 'Security settings entry',
+    securityLabel: 'Entrada de configurações de segurança',
     permissionPolicies: {
-      resourceName: 'Permission policy',
+      resourceName: 'Política de permissão',
       actions: {
-        create: 'Create policy'
+        create: 'Criar política'
       },
       columns: {
-        id: 'Policy ID',
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        scope: 'Scope'
+        id: 'ID da política',
+        subjectType: 'Tipo de sujeito',
+        subjectId: 'ID do sujeito',
+        effect: 'Efeito',
+        actions: 'Ações',
+        resourceTypes: 'Tipos de recurso',
+        scope: 'Escopo'
       },
       fields: {
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        tenantId: 'Tenant scope'
+        subjectType: 'Tipo de sujeito',
+        subjectId: 'ID do sujeito',
+        effect: 'Efeito',
+        actions: 'Ações',
+        resourceTypes: 'Tipos de recurso',
+        tenantId: 'Escopo do tenant'
       },
       subjectTypes: {
-        role: 'Role',
-        user: 'User',
+        role: 'Função',
+        user: 'Usuário',
         plugin: 'Plugin',
         executor: 'Executor'
       },
       effects: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: 'Permitir',
+        deny: 'Negar'
       }
     },
     groupRoleMappings: {
-      resourceName: 'Group mapping',
+      resourceName: 'Mapeamento de grupo',
       actions: {
-        create: 'Create mapping'
+        create: 'Criar mapeamento'
       },
       columns: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role',
-        enabled: 'Enabled',
-        updatedAt: 'Updated at'
+        sourceId: 'ID da fonte de identidade',
+        externalGroup: 'Grupo externo',
+        roleId: 'Função local',
+        enabled: 'Habilitado',
+        updatedAt: 'Atualizado em'
       },
       fields: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role ID'
+        sourceId: 'ID da fonte de identidade',
+        externalGroup: 'Grupo externo',
+        roleId: 'ID da função local'
       }
     },
     users: {
-      title: 'Account principals',
+      title: 'Lista de sujeitos de conta',
       summary: {
-        groups: '{count} total',
-        users: '{total} total, {selected} selected'
+        groups: '{count} no total',
+        users: '{total} no total, {selected} selecionados'
       },
       actions: {
-        createUser: 'Create user',
-        addGroup: 'Add group',
-        bulkDelete: 'Bulk delete',
-        edit: 'Edit',
-        delete: 'Delete',
-        lookupLoading: 'Looking up...',
-        lookupUser: 'Look up user',
-        lookupGroup: 'Look up group',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        adding: 'Adding...'
+        createUser: 'Criar usuário',
+        addGroup: 'Adicionar grupo',
+        bulkDelete: 'Excluir em lote',
+        edit: 'Editar',
+        delete: 'Excluir',
+        lookupLoading: 'Pesquisando...',
+        lookupUser: 'Pesquisar usuário',
+        lookupGroup: 'Pesquisar grupo',
+        creating: 'Criando...',
+        saving: 'Salvando...',
+        saveChanges: 'Salvar alterações',
+        adding: 'Adicionando...'
       },
       risks: {
-        bulkDelete: 'Bulk delete removes local credentials and role bindings for selected users.',
-        deleteUser: 'Deleting the user removes this account\'s local credentials and role bindings.'
+        bulkDelete: 'A exclusão em lote remove as credenciais locais e vínculos de função dos usuários selecionados.',
+        deleteUser: 'Excluir o usuário remove as credenciais locais e vínculos de função desta conta.'
       },
       tabs: {
-        users: 'Users',
-        groups: 'Groups'
+        users: 'Usuários',
+        groups: 'Grupos'
       },
       empty: {
-        users: 'No users',
-        groups: 'No groups'
+        users: 'Nenhum usuário',
+        groups: 'Nenhum grupo de usuários'
       },
       columns: {
-        username: 'User name',
-        displayName: 'Display name',
+        username: 'Nome de usuário',
+        displayName: 'Nome de exibição',
         email: 'Email',
-        source: 'Source',
-        identitySourceName: 'Identity source name',
+        source: 'Origem',
+        identitySourceName: 'Nome da fonte de identidade',
         status: 'Status',
         tenant: 'Tenant',
-        roles: 'Roles',
-        lastSyncedAt: 'Last synced',
-        updatedAt: 'Updated at',
-        actions: 'Actions',
-        groupName: 'Group name',
-        code: 'Code',
-        externalRef: 'External reference'
+        roles: 'Funções',
+        lastSyncedAt: 'Última sincronização',
+        updatedAt: 'Atualizado em',
+        actions: 'Ações',
+        groupName: 'Nome do grupo',
+        code: 'Código',
+        externalRef: 'Identificador externo'
       },
       dialog: {
-        userCreateTitle: 'Create user',
-        userEditTitle: 'Edit user',
-        userCreateDescription: 'Create a local user, or look up an identity-source user by user name and create a bound user.',
-        userEditDescription: 'Edit display name, email, status, and roles.',
-        groupCreateTitle: 'Add group',
-        groupCreateDescription: 'Create a local group, or look up an external group from an identity source.'
+        userCreateTitle: 'Criar usuário',
+        userEditTitle: 'Editar usuário',
+        userCreateDescription: 'Crie um usuário local ou pesquise um usuário da fonte de identidade pelo nome de usuário e crie um usuário vinculado.',
+        userEditDescription: 'Edite o nome de exibição, email, status e funções.',
+        groupCreateTitle: 'Adicionar grupo',
+        groupCreateDescription: 'Crie um grupo local ou pesquise um grupo externo em uma fonte de identidade.'
       },
       aria: {
-        principalType: 'Principal type',
-        createMode: 'Creation mode',
-        externalUserProfile: 'External identity user profile',
-        groupCreateMode: 'Group creation mode',
-        externalGroupProfile: 'External identity group profile'
+        principalType: 'Tipo de sujeito',
+        createMode: 'Modo de criação',
+        externalUserProfile: 'Perfil de usuário da identidade externa',
+        groupCreateMode: 'Modo de criação de grupo',
+        externalGroupProfile: 'Perfil do grupo da identidade externa'
       },
       modes: {
-        localUser: 'Local user',
-        externalUser: 'Identity source user',
-        localGroup: 'Local group',
-        externalGroup: 'Identity source group'
+        localUser: 'Usuário local',
+        externalUser: 'Usuário da fonte de identidade',
+        localGroup: 'Grupo local',
+        externalGroup: 'Grupo da fonte de identidade'
       },
       fields: {
-        identitySource: 'Identity source',
-        directoryUsername: 'Directory user name',
-        username: 'User name',
-        displayName: 'Display name',
+        identitySource: 'Fonte de identidade',
+        directoryUsername: 'Nome de usuário do diretório',
+        username: 'Nome de usuário',
+        displayName: 'Nome de exibição',
         email: 'Email',
-        role: 'Role',
-        initialPassword: 'Initial password',
+        role: 'Função',
+        initialPassword: 'Senha inicial',
         status: 'Status',
-        directoryGroupName: 'Directory group name',
-        groupName: 'Group name',
-        groupCode: 'Group code',
+        directoryGroupName: 'Nome do grupo no diretório',
+        groupName: 'Nome do grupo',
+        groupCode: 'Código do grupo',
         directoryDn: 'Directory DN'
       },
       placeholders: {
-        selectIdentitySource: 'Select an identity source',
-        directoryUsername: 'For example jackson',
-        displayName: 'Certificate operator',
-        initialPassword: 'Enter an initial password',
-        directoryGroupName: 'For example GCAC-Ops',
-        groupName: 'Certificate operations group'
+        selectIdentitySource: 'Selecione uma fonte de identidade',
+        directoryUsername: 'Por exemplo, jackson',
+        displayName: 'Operador de certificados',
+        initialPassword: 'Informe a senha inicial',
+        directoryGroupName: 'Por exemplo, GCAC-Ops',
+        groupName: 'Grupo de operações de certificados'
       },
       options: {
-        unset: 'Not set'
+        unset: 'Não definido'
       },
       status: {
-        active: 'Enabled',
-        disabled: 'Disabled'
+        active: 'Habilitado',
+        disabled: 'Desabilitado'
       },
       labels: {
         identitySourceOption: '{name} ({type})'
       },
       errors: {
-        loadUsersFailed: 'Failed to load users',
-        loadGroupsFailed: 'Failed to load groups',
-        createUserFailed: 'Failed to create user',
-        updateUserFailed: 'Failed to update user',
-        externalUserEmpty: 'The identity source did not return a user profile',
-        lookupExternalUserFailed: 'Failed to look up identity-source user',
-        externalGroupEmpty: 'The identity source did not return a group profile',
-        lookupExternalGroupFailed: 'Failed to look up identity-source group',
-        createGroupFailed: 'Failed to create group',
-        deleteUsersFailed: 'Failed to delete users'
+        loadUsersFailed: 'Falha ao carregar usuários',
+        loadGroupsFailed: 'Falha ao carregar grupos de usuários',
+        createUserFailed: 'Falha ao criar usuário',
+        updateUserFailed: 'Falha ao atualizar usuário',
+        externalUserEmpty: 'A fonte de identidade não retornou o perfil do usuário',
+        lookupExternalUserFailed: 'Falha ao pesquisar usuário da fonte de identidade',
+        externalGroupEmpty: 'A fonte de identidade não retornou o perfil do grupo',
+        lookupExternalGroupFailed: 'Falha ao pesquisar grupo da fonte de identidade',
+        createGroupFailed: 'Falha ao criar grupo de usuários',
+        deleteUsersFailed: 'Falha ao excluir usuários'
       }
     },
     roles: {
       page: {
-        title: 'Role permissions',
-        description: 'Manage authorization object scopes by role, and assign users or groups to roles.'
+        title: 'Gerenciamento de permissões',
+        description: 'Mantenha os escopos de objetos autorizados por função e atribua usuários ou grupos às funções.'
       },
       actions: {
-        createRole: 'Create role',
-        refreshObjects: 'Refresh objects',
-        loading: 'Loading...',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        detail: 'Details',
-        authorize: 'Authorize',
-        grantPermission: 'Grant permission',
-        assignMembers: 'Assign members',
-        delete: 'Delete',
-        deleteRole: 'Delete role',
-        deleting: 'Deleting...',
-        clearSelection: 'Clear selection'
+        createRole: 'Criar função',
+        refreshObjects: 'Atualizar objetos',
+        loading: 'Carregando...',
+        creating: 'Criando...',
+        saving: 'Salvando...',
+        detail: 'Detalhes',
+        authorize: 'Autorizar',
+        grantPermission: 'Conceder permissão',
+        assignMembers: 'Atribuir membros',
+        delete: 'Excluir',
+        deleteRole: 'Excluir função',
+        deleting: 'Excluindo...',
+        clearSelection: 'Limpar seleção'
       },
       columns: {
-        roleId: 'Role ID',
-        code: 'Code',
-        name: 'Name',
-        builtin: 'Built-in',
-        policyCount: 'Policy count',
-        permissions: 'Permissions',
-        actions: 'Actions',
-        objectScope: 'Object scope',
-        accessLevel: 'Access level',
-        effect: 'Effect',
-        memberType: 'Member type',
-        member: 'Member'
+        roleId: 'ID da função',
+        code: 'Código',
+        name: 'Nome',
+        builtin: 'Integrada',
+        policyCount: 'Quantidade de políticas',
+        permissions: 'Pontos de permissão',
+        actions: 'Ações',
+        objectScope: 'Escopo do objeto',
+        accessLevel: 'Nível de permissão',
+        effect: 'Efeito',
+        memberType: 'Tipo de membro',
+        member: 'Membro'
       },
       table: {
-        emptyRoles: 'No roles',
-        roleRecords: 'Role records',
-        emptyGrants: 'This role has no object permissions',
-        currentPermissions: 'Current role permissions',
-        emptyMembers: 'This role has no member assignments',
-        assignedMembers: 'Assigned members'
+        emptyRoles: 'Nenhuma função',
+        roleRecords: 'Registros de função',
+        emptyGrants: 'Esta função ainda não tem permissões de objeto',
+        currentPermissions: 'Permissões atuais da função',
+        emptyMembers: 'Esta função ainda não tem membros atribuídos',
+        assignedMembers: 'Membros atribuídos'
       },
       categories: {
-        certificate: 'Certificate',
+        certificate: 'Certificado',
         gateway: 'Gateway',
         agent: 'Agent',
-        serviceAsset: 'Application asset',
-        deploymentPlan: 'Deployment plan',
-        workflow: 'Workflow',
+        serviceAsset: 'Ativo de aplicação',
+        deploymentPlan: 'Plano de atualização',
+        workflow: 'Fluxo de trabalho',
         auditLog: 'Log',
-        systemSetting: 'System setting'
+        systemSetting: 'Configuração do sistema'
       },
       accessLevel: {
-        read: 'Read only',
-        edit: 'Edit',
-        control: 'Full control'
+        read: 'Somente leitura',
+        edit: 'Editar',
+        control: 'Controle total'
       },
       effect: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: 'Permitir',
+        deny: 'Negar'
       },
       principal: {
-        user: 'User',
-        group: 'Group',
-        externalGroup: 'Identity source group'
+        user: 'Usuário',
+        group: 'Grupo',
+        externalGroup: 'Grupo da fonte de identidade'
       },
       summary: {
-        selectedMembers: '{count} members selected',
-        chooseMembers: 'Select users or groups',
-        selectedScopes: '{count} scopes selected',
-        chooseObjectNode: 'Select an object tree node',
-        selectedScopeLabel: 'Selected scopes',
-        selectedMemberLabel: 'Selected members'
+        selectedMembers: '{count} membros selecionados',
+        chooseMembers: 'Selecione usuários ou grupos',
+        selectedScopes: '{count} escopos selecionados',
+        chooseObjectNode: 'Selecione um nó da árvore de objetos',
+        selectedScopeLabel: 'Escopos selecionados',
+        selectedMemberLabel: 'Membros selecionados'
       },
       tree: {
-        rootLabel: 'All objects',
-        rootDescription: 'All authorizable business objects',
-        typeDescription: 'All {category} records',
-        allBusinessObjects: 'All business objects',
-        selectedScopeAria: 'Selected authorization scopes',
-        objectTreeAria: 'Authorizable object tree',
-        authorizableObjects: 'Authorizable objects',
-        loading: 'Loading object tree...',
+        rootLabel: 'Todos os objetos',
+        rootDescription: 'Todos os objetos de negócio autorizáveis',
+        typeDescription: 'Todos os registros de {category}',
+        allBusinessObjects: 'Todos os objetos de negócio',
+        selectedScopeAria: 'Escopos de autorização selecionados',
+        objectTreeAria: 'Árvore de objetos autorizáveis',
+        authorizableObjects: 'Objetos autorizáveis',
+        loading: 'Carregando árvore de objetos...',
         kind: {
-          all: 'All',
-          category: 'Category',
-          record: 'Record'
+          all: 'Todos',
+          category: 'Categoria',
+          record: 'Registro'
         }
       },
       format: {
         labelWithId: '{label} ({id})',
         recordFallback: '{category} {value}',
-        unnamedRecord: 'Unnamed record'
+        unnamedRecord: 'Registro sem nome'
       },
       detail: {
-        title: 'Role details',
-        titleWithName: 'Role {name}',
-        description: 'Maintain object scopes, concrete objects, access levels, and member assignments here.'
+        title: 'Detalhes da função',
+        titleWithName: 'Função {name}',
+        description: 'Mantenha aqui escopos de objeto, objetos específicos, níveis de permissão e atribuições de membros.'
       },
       create: {
-        title: 'Create role',
-        description: 'Describe the role responsibilities and optionally grant object scopes directly.',
-        nameLabel: 'Role name',
-        namePlaceholder: 'Certificate operator',
-        descriptionLabel: 'Description',
-        descriptionPlaceholder: 'Responsible for daily certificate operations',
-        authorizedRole: 'Authorized role',
-        newRole: 'New role'
+        title: 'Criar função',
+        description: 'Preencha as responsabilidades da função e, se necessário, já autorize escopos de objeto.',
+        nameLabel: 'Nome da função',
+        namePlaceholder: 'Operador de certificados',
+        descriptionLabel: 'Descrição',
+        descriptionPlaceholder: 'Responsável pelas operações diárias de certificados',
+        authorizedRole: 'Função autorizada',
+        newRole: 'Nova função'
       },
       grant: {
-        title: 'Grant role permission',
-        description: 'Select scopes from the object tree and set the access level for them.',
-        roleLabel: 'Role'
+        title: 'Conceder permissões à função',
+        description: 'Selecione escopos na árvore de objetos e defina diretamente o nível de permissão desses escopos.',
+        roleLabel: 'Função'
       },
       member: {
-        title: 'Assign members',
-        titleWithName: 'Assign members: {name}',
-        description: 'Select users or groups. The system assigns them to the role’s existing authorized object scopes.',
-        targetRole: 'Target role',
-        authorizedScope: 'Authorized scopes',
-        objectScopeCount: '{count} object scopes',
-        selectedMembersAria: 'Selected members',
-        assignableMembersAria: 'Assignable members',
-        emptyAssignable: 'No assignable {type}'
+        title: 'Atribuir membros',
+        titleWithName: 'Atribuir membros: {name}',
+        description: 'Selecione usuários ou grupos. O sistema atribuirá os membros aos escopos de objeto já autorizados para esta função.',
+        targetRole: 'Função de destino',
+        authorizedScope: 'Escopo autorizado',
+        objectScopeCount: '{count} escopos de objeto',
+        selectedMembersAria: 'Membros selecionados',
+        assignableMembersAria: 'Membros atribuíveis',
+        emptyAssignable: 'Nenhum {type} atribuível'
       },
       errors: {
-        loadObjectTreeFailed: 'Failed to load object tree',
-        loadDataFailed: 'Failed to load permission management data',
-        missingRoleId: 'The backend did not return a role ID',
-        createRoleFailed: 'Failed to create role',
-        grantRoleFailed: 'Failed to grant role permission',
-        roleNoObjectScopes: 'This role has no authorized object scopes yet. Grant permissions to the role first.',
-        assignMembersFailed: 'Failed to assign members',
-        deleteRoleFailed: 'Failed to delete role',
-        missingObjectSetId: 'The backend did not return an object scope ID'
+        loadObjectTreeFailed: 'Falha ao carregar a árvore de objetos',
+        loadDataFailed: 'Falha ao carregar dados de gerenciamento de permissões',
+        missingRoleId: 'ID da função não recebido',
+        createRoleFailed: 'Falha ao criar função',
+        grantRoleFailed: 'Falha ao conceder permissões à função',
+        roleNoObjectScopes: 'Esta função ainda não tem escopos de objeto autorizados. Conceda permissões à função primeiro.',
+        assignMembersFailed: 'Falha ao atribuir membros',
+        deleteRoleFailed: 'Falha ao excluir função',
+        missingObjectSetId: 'ID do escopo de objeto não recebido'
       },
       confirm: {
-        deleteRole: 'Delete role "{name}"? This also removes its user assignments and object authorizations.'
+        deleteRole: 'Confirmar exclusão da função "{name}"? Após a exclusão, as atribuições de usuários e autorizações de objetos desta função também serão removidas.'
       },
       auditLogs: {
         auth: {
-          name: 'Authentication login logs',
-          description: 'Login, logout, and external identity source login'
+          name: 'Logs de login de autenticação',
+          description: 'Login, logout e login por fonte de identidade externa'
         },
         security: {
-          name: 'Security management logs',
-          description: 'User, role, permission, and identity source changes'
+          name: 'Logs de gerenciamento de segurança',
+          description: 'Alterações de usuários, funções, permissões e fontes de identidade'
         },
         certificate: {
-          name: 'Certificate logs',
-          description: 'Certificate import, version, format, and binding operations'
+          name: 'Logs de certificados',
+          description: 'Importação, versões, artefatos e vinculações de certificados'
         },
         asset: {
-          name: 'Asset logs',
-          description: 'Application asset, host, service instance, and site asset operations'
+          name: 'Logs de ativos',
+          description: 'Operações de ativos de aplicação, hosts, instâncias de serviço e ativos de site'
         },
         gateway: {
-          name: 'Gateway logs',
-          description: 'Gateway route, probe, and status changes'
+          name: 'Logs de gateway',
+          description: 'Rotas, sondagens e alterações de status de gateway'
         },
         agent: {
-          name: 'Agent logs',
-          description: 'Agent registration, heartbeat, task, and upgrade operations'
+          name: 'Logs de Agent',
+          description: 'Registro, heartbeat, tarefas e operações de upgrade do Agent'
         },
         deployment: {
-          name: 'Deployment plan logs',
-          description: 'Deployment plans, execution, rollback, and approval'
+          name: 'Logs de planos de atualização',
+          description: 'Planos de implantação, execuções, rollback e aprovações'
         },
         workflow: {
-          name: 'Workflow logs',
-          description: 'Workflow template and execution operations'
+          name: 'Logs de workflow',
+          description: 'Operações de templates de workflow e execuções'
         },
         secret: {
-          name: 'Secret logs',
-          description: 'Secret creation, use, and rotation'
+          name: 'Logs de Secret',
+          description: 'Criação, uso e rotação de Secret'
         },
         system: {
-          name: 'System logs',
-          description: 'System settings and platform-level events'
+          name: 'Logs do sistema',
+          description: 'Configurações do sistema e eventos em nível de plataforma'
         }
       }
     },
     identitySources: {
       actions: {
-        create: 'Create identity source',
-        edit: 'Edit',
-        delete: 'Delete',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        expandAdvanced: 'Expand advanced settings',
-        collapseAdvanced: 'Collapse advanced settings'
+        create: 'Criar fonte de identidade',
+        edit: 'Editar',
+        delete: 'Excluir',
+        creating: 'Criando...',
+        saving: 'Salvando...',
+        saveChanges: 'Salvar alterações',
+        expandAdvanced: 'Expandir configurações avançadas',
+        collapseAdvanced: 'Recolher configurações avançadas'
       },
       columns: {
-        name: 'Name',
-        type: 'Directory type',
-        server: 'Server',
+        name: 'Nome',
+        type: 'Tipo de diretório',
+        server: 'Servidor',
         status: 'Status',
-        actions: 'Actions'
+        actions: 'Ações'
       },
       table: {
-        title: 'Identity source list',
-        total: '{count} total'
+        title: 'Lista de fontes de identidade',
+        total: '{count} no total'
       },
-      empty: 'No identity sources',
+      empty: 'Nenhuma fonte de identidade',
       dialog: {
-        createTitle: 'Create identity source',
-        editTitle: 'Edit identity source',
-        createDescription: 'Fill in basic connection information first; filters and directory type are in advanced settings.',
-        editDescription: 'Update identity source configuration. To update the service account password, enter a new password.'
+        createTitle: 'Criar fonte de identidade',
+        editTitle: 'Editar fonte de identidade',
+        createDescription: 'Preencha primeiro as informações básicas de conexão; filtros e tipo de diretório ficam nas configurações avançadas.',
+        editDescription: 'Altere a configuração da fonte de identidade; para atualizar a senha da conta de serviço, preencha uma nova senha.'
       },
       fields: {
-        name: 'Name',
-        domain: 'Domain',
-        protocol: 'Protocol',
-        serverAddress: 'Server address',
-        bindDn: 'Service account DN',
-        bindPassword: 'Service account password',
-        directoryType: 'Directory type',
-        defaultRole: 'Default role',
-        enabled: 'Enabled status',
-        userDnTemplate: 'User DN/UPN template',
-        userFilter: 'User filter',
-        groupFilter: 'Group filter',
-        syncUserFilter: 'Sync user filter',
-        requireGroupMapping: 'Require login users to match a group mapping'
+        name: 'Nome',
+        domain: 'Domínio',
+        protocol: 'Protocolo',
+        serverAddress: 'Endereço do servidor',
+        bindDn: 'DN da conta de serviço',
+        bindPassword: 'Senha da conta de serviço',
+        directoryType: 'Tipo de diretório',
+        defaultRole: 'Função padrão',
+        enabled: 'Status de habilitação',
+        userDnTemplate: 'Template de DN/UPN do usuário',
+        userFilter: 'Filtro de usuários',
+        groupFilter: 'Filtro de grupos',
+        syncUserFilter: 'Filtro de sincronização de usuários',
+        requireGroupMapping: 'Exigir que o usuário de login corresponda a um mapeamento de grupo'
       },
       placeholders: {
-        name: 'For example: Enterprise AD',
-        bindPasswordCreate: 'Enter the service account password',
-        bindPasswordEdit: 'Leave empty to keep the existing password',
-        autoByDirectoryType: 'Leave empty to derive from directory type',
-        userFilter: 'For example: (uid={{username}})',
-        groupFilter: 'For example: (member={{userDn}})'
+        name: 'Por exemplo: AD corporativo',
+        bindPasswordCreate: 'Informe a senha da conta de serviço',
+        bindPasswordEdit: 'Deixe em branco para manter a senha atual',
+        autoByDirectoryType: 'Deixe em branco para derivar automaticamente pelo tipo de diretório',
+        userFilter: 'Por exemplo: (uid={{username}})',
+        groupFilter: 'Por exemplo: (member={{userDn}})'
       },
       labels: {
-        finalUrl: 'Final URL: {url}'
+        finalUrl: 'URL final: {url}'
       },
       options: {
-        unset: 'Not set'
+        unset: 'Não definido'
       },
       status: {
-        enabled: 'Enabled',
-        disabled: 'Disabled',
-        disabledShort: 'Disabled'
+        enabled: 'Habilitado',
+        disabled: 'Desabilitado',
+        disabledShort: 'Desabilitado'
       },
       types: {
-        ldap: 'Standard LDAP'
+        ldap: 'LDAP padrão'
       },
       risks: {
-        delete: 'Deleting the identity source invalidates login, sync, and group mappings for this directory.'
+        delete: 'Excluir a fonte de identidade invalidará o login, a sincronização e os mapeamentos de grupo deste diretório.'
       },
       secret: {
-        bindPasswordName: '{name} LDAP service account password'
+        bindPasswordName: 'Senha da conta de serviço LDAP de {name}'
       },
       messages: {
-        createSuccess: 'Identity source created',
-        updateSuccess: 'Identity source updated'
+        createSuccess: 'Fonte de identidade criada com sucesso',
+        updateSuccess: 'Fonte de identidade atualizada com sucesso'
       },
       errors: {
-        loadFailed: 'Failed to load identity sources',
-        createBindPasswordSecretFailed: 'Failed to create service account password Secret',
-        createFailed: 'Failed to create identity source',
-        updateFailed: 'Failed to update identity source',
-        deleteFailed: 'Failed to delete identity source'
+        loadFailed: 'Falha ao carregar fontes de identidade',
+        createBindPasswordSecretFailed: 'Falha ao criar Secret da senha da conta de serviço',
+        createFailed: 'Falha ao criar fonte de identidade',
+        updateFailed: 'Falha ao atualizar fonte de identidade',
+        deleteFailed: 'Falha ao excluir fonte de identidade'
       }
     }
   },
   bindings: {
     actions: {
-      create: 'New config file',
-      edit: 'Edit',
-      delete: 'Delete',
-      deleting: 'Deleting...',
-      applyTemplate: 'Apply built-in template',
-      saving: 'Saving...',
-      confirmSave: 'Save'
+      create: 'Criar configuração',
+      edit: 'Editar',
+      delete: 'Excluir',
+      deleting: 'Excluindo...',
+      applyTemplate: 'Aplicar modelo integrado',
+      saving: 'Salvando...',
+      confirmSave: 'Confirmar salvamento'
     },
     columns: {
-      configName: 'Config name',
-      targetSummary: 'Target environment',
-      displayFormat: 'Content format',
-      extension: 'Extension',
-      encodingSummary: 'Encoding',
-      exportSummary: 'Contents / export options',
-      actions: 'Actions'
+      configName: 'Nome da configuração',
+      targetSummary: 'Ambiente de destino',
+      displayFormat: 'Formato do conteúdo',
+      extension: 'Extensão',
+      encodingSummary: 'Codificação',
+      exportSummary: 'Conteúdo / opções de exportação',
+      actions: 'Ações'
     },
     dialog: {
-      createTitle: 'Create certificate format config',
-      editTitle: 'Edit certificate format config',
-      description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
+      createTitle: 'Criar configuração de formato de certificado',
+      editTitle: 'Editar configuração de formato de certificado',
+      description: 'Selecione a plataforma do sistema e a plataforma de destino; depois aplique um modelo integrado e ajuste item a item o conteúdo exportado.'
     },
     list: {
-      title: 'Certificate format config list',
-      descriptionWithCount: 'Reusable certificate format templates are saved here. {count} currently.'
+      title: 'Lista de configurações de formato de certificado',
+      descriptionWithCount: 'Modelos reutilizáveis de formato de certificado. Atualmente {count} registro(s).'
     },
     empty: {
-      text: 'No certificate format configs'
+      text: 'Nenhuma configuração de formato de certificado'
     },
     fields: {
-      contentFormat: 'Content format',
-      systemPlatform: 'System platform',
-      runtimePlatform: 'Target platform',
-      configName: 'Config name',
-      backendFormat: 'Backend format',
-      outputExtension: 'Output extension',
-      expiresAt: 'Config expiry time (optional)',
-      certificateEncoding: 'Certificate encoding',
-      certificateContentEncoding: 'Certificate content encoding',
-      privateKeyEncoding: 'Private key encoding',
-      includeLeafCertificate: 'Include leaf certificate',
-      includeCertificateChain: 'Include certificate chain',
-      includePrivateKey: 'Include private key',
-      mainArtifactIncludesChain: 'Main artifact includes certificate chain',
-      generateChainFile: 'Generate extra chain file',
-      generatePrivateKeyFile: 'Generate extra private key file',
-      exportPassword: 'Export password'
+      contentFormat: 'Formato do conteúdo',
+      systemPlatform: 'Plataforma do sistema',
+      runtimePlatform: 'Plataforma de destino',
+      configName: 'Nome da configuração',
+      backendFormat: 'Formato base',
+      outputExtension: 'Extensão de saída',
+      expiresAt: 'Data de expiração da configuração (opcional)',
+      certificateEncoding: 'Codificação do certificado',
+      certificateContentEncoding: 'Codificação do conteúdo do certificado',
+      privateKeyEncoding: 'Codificação da chave privada',
+      includeLeafCertificate: 'Incluir certificado público',
+      includeCertificateChain: 'Incluir cadeia de certificados',
+      includePrivateKey: 'Incluir chave privada',
+      mainArtifactIncludesChain: 'Artefato principal inclui a cadeia de certificados',
+      generateChainFile: 'Gerar arquivo adicional da cadeia',
+      generatePrivateKeyFile: 'Gerar arquivo adicional da chave privada',
+      exportPassword: 'Senha de exportação'
     },
     formats: {
-      pfx: 'PKCS#12 / PFX container',
-      jks: 'JKS container',
-      pemBundle: 'PEM single-file bundle',
-      pemCert: 'PEM certificate file',
-      pemKey: 'Private key file',
-      cer: 'Certificate file (.cer)',
-      crt: 'Certificate file (.crt)',
-      p7b: 'PKCS#7 / P7B certificate chain',
-      custom: 'Custom'
+      pfx: 'Contêiner PKCS#12 / PFX',
+      jks: 'Contêiner JKS',
+      pemBundle: 'Bundle PEM em arquivo único',
+      pemCert: 'Arquivo de certificado PEM',
+      pemKey: 'Arquivo de chave privada',
+      cer: 'Arquivo de certificado (.cer)',
+      crt: 'Arquivo de certificado (.crt)',
+      p7b: 'Cadeia de certificados PKCS#7 / P7B',
+      custom: 'Personalizado'
     },
     sections: {
       templates: {
-        title: 'Built-in templates',
-        description: 'Templates prefill format, contents, and export rules based on common TLS deployment patterns and can still be edited.'
+        title: 'Modelos integrados',
+        description: 'Os modelos preenchem formato, conteúdo e regras de exportação com base em padrões comuns de implantação TLS, e ainda podem ser editados depois.'
       },
       basic: {
-        title: 'Basic information',
-        description: 'Define the config identity, real content format, and final extension.'
+        title: 'Informações básicas',
+        description: 'Defina a identidade da configuração, o formato real do conteúdo e a extensão final.'
       },
       encoding: {
-        title: 'Encoding',
-        description: 'Only encoding options valid for the current content format are shown.'
+        title: 'Seleção de codificação',
+        description: 'Somente as opções de codificação compatíveis com o formato de conteúdo atual são exibidas.'
       },
       content: {
-        title: 'Contents',
-        description: 'Defines what the main artifact contains: public certificate, certificate chain, and private key.'
+        title: 'Conteúdo incluído',
+        description: 'Define o que o arquivo do artefato principal contém: certificado público, cadeia de certificados e chave privada.'
       },
       export: {
-        title: 'Export options',
-        description: 'Define whether to generate extra chain/private-key files and container password options.'
+        title: 'Opções de exportação',
+        description: 'Define se serão gerados arquivos adicionais de cadeia, arquivos de chave privada e opções de senha específicas do contêiner.'
       }
     },
     filters: {
-      keywordPlaceholder: 'Config name / target environment / Alias / content format'
+      keywordPlaceholder: 'Nome da configuração / ambiente de destino / Alias / formato do conteúdo'
     },
     placeholders: {
-      configName: 'For example: device-compatible single-file PEM',
-      exportPassword: 'Enter the PFX/JKS export password'
+      configName: 'Exemplo: PEM em arquivo único compatível com dispositivo',
+      exportPassword: 'Informe a senha de exportação PFX/JKS'
     },
     validation: {
-      selectPlatformsFirst: 'Select the system platform and target platform first.',
-      configNameRequired: 'Config name is required',
-      passwordRequired: 'PFX/JKS configs require an export password'
+      selectPlatformsFirst: 'Selecione primeiro a plataforma do sistema e a plataforma de destino.',
+      configNameRequired: 'O nome da configuração é obrigatório',
+      passwordRequired: 'Configurações PFX/JKS exigem senha de exportação'
     },
     errors: {
-      loadFailed: 'Failed to load certificate format configs',
-      saveFailed: 'Failed to save certificate format config',
-      deleteFailed: 'Failed to delete certificate format config',
-      createExportSecretFailed: 'Failed to create export password Secret',
+      loadFailed: 'Falha ao carregar configurações de formato de certificado',
+      saveFailed: 'Falha ao salvar a configuração de formato de certificado',
+      deleteFailed: 'Falha ao excluir a configuração de formato de certificado',
+      createExportSecretFailed: 'Falha ao criar o Secret da senha de exportação',
       withCode: '{message} ({code})'
     },
     fallbacks: {
-      unnamedConfig: 'Unnamed config-{index}',
-      unspecified: 'Unspecified',
-      aliasUnset: 'Alias not set'
+      unnamedConfig: 'Configuração sem nome-{index}',
+      unspecified: 'Não especificado',
+      aliasUnset: 'Alias não definido'
     },
     labels: {
       aliasWithValue: 'Alias: {alias}',
-      requestId: 'Request ID: {requestId}'
+      requestId: 'ID da solicitação: {requestId}'
     },
     encoding: {
-      pkcs12Container: 'PKCS#12 container',
-      jksContainer: 'JKS container',
-      privateKeyWithEncoding: 'Private key {encoding}',
-      pkcs7Chain: 'PKCS#7 certificate chain',
-      certificateWithEncoding: 'Certificate {encoding}',
-      default: 'Default'
+      pkcs12Container: 'Contêiner PKCS#12',
+      jksContainer: 'Contêiner JKS',
+      privateKeyWithEncoding: 'Chave privada {encoding}',
+      pkcs7Chain: 'Cadeia de certificados PKCS#7',
+      certificateWithEncoding: 'Certificado {encoding}',
+      default: 'Padrão'
     },
     export: {
-      leafCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      extraChainFile: 'Extra chain file',
-      extraPrivateKeyFile: 'Extra private key file'
+      leafCertificate: 'Certificado público',
+      certificateChain: 'Cadeia de certificados',
+      privateKey: 'Chave privada',
+      extraChainFile: 'Arquivo adicional da cadeia',
+      extraPrivateKeyFile: 'Arquivo adicional da chave privada'
     },
     secret: {
-      defaultConfigName: 'Certificate format config',
-      exportPasswordName: '{name} export password'
+      defaultConfigName: 'Configuração de formato de certificado',
+      exportPasswordName: 'Senha de exportação de {name}'
     },
     select: {
-      placeholder: 'Select'
+      placeholder: 'Selecione'
     },
     separators: {
       export: ' · '
     },
     hints: {
-      savedPassword: 'An export password is already configured. Enter a new password to replace it.'
+      savedPassword: 'Já existe uma senha de exportação configurada; para substituí-la, informe diretamente uma nova senha.'
     },
     templates: {
       windowsIis: {
-        configName: 'Windows-IIS-PKCS12 standard template',
-        description: 'IIS most commonly uses PKCS#12/PFX containers. The main artifact directly carries the server certificate, certificate chain, and private key.'
+        configName: 'Modelo padrão Windows-IIS-PKCS12',
+        description: 'O IIS normalmente usa contêiner PKCS#12/PFX; o artefato principal leva diretamente o certificado do servidor, a cadeia de certificados e a chave privada.'
       },
       windowsNginx: {
-        configName: 'Windows-NGINX-PEM standard template',
-        description: 'NGINX commonly uses a PEM single file for the server certificate and chain, plus a separate private key file.'
+        configName: 'Modelo padrão Windows-NGINX-PEM',
+        description: 'O NGINX geralmente usa um único arquivo PEM para o certificado do servidor e a cadeia, além de um arquivo separado de chave privada.'
       },
       windowsApache: {
-        configName: 'Windows-Apache-PEM standard template',
-        description: 'Apache is usually delivered as a PEM certificate file plus a separate private key, with an extra chain file for operational compatibility.'
+        configName: 'Modelo padrão Windows-Apache-PEM',
+        description: 'O Apache normalmente recebe um arquivo de certificado PEM e uma chave privada separada; o arquivo adicional da cadeia facilita a compatibilidade operacional.'
       },
       windowsTomcat: {
-        configName: 'Windows-Tomcat-PKCS12 standard template',
-        description: 'Tomcat mainly uses JKS/PKCS#12 keystores. This template defaults to the more portable PKCS#12 format.'
+        configName: 'Modelo padrão Windows-Tomcat-PKCS12',
+        description: 'O Tomcat usa principalmente keystores JKS/PKCS#12. Este modelo usa por padrão o formato PKCS#12, mais portátil.'
       },
       windowsOther: {
-        configName: 'Windows device-compatible single-file PEM template',
-        description: 'For devices that require a single file containing the public certificate, certificate chain, and private key. The extension can be adjusted to .crt/.cer.'
+        configName: 'Modelo Windows de PEM em arquivo único compatível com dispositivos',
+        description: 'Compatível com dispositivos que exigem um único arquivo contendo certificado público, cadeia de certificados e chave privada; a extensão pode ser ajustada para .crt/.cer.'
       },
       linuxIis: {
-        configName: 'Linux-IIS compatibility template',
-        description: 'If the final target is still IIS, PKCS#12/PFX remains the most reasonable delivery artifact.'
+        configName: 'Modelo de compatibilidade Linux-IIS',
+        description: 'Se o destino final ainda for IIS, o artefato de entrega mais razoável continua sendo o contêiner PKCS#12/PFX.'
       },
       linuxNginx: {
-        configName: 'Linux-NGINX-PEM standard template',
-        description: 'Official NGINX configuration revolves around a PEM single-file certificate chain and a separate private key.'
+        configName: 'Modelo padrão Linux-NGINX-PEM',
+        description: 'A configuração oficial do NGINX gira em torno de uma cadeia de certificados PEM em arquivo único e uma chave privada separada.'
       },
       linuxApache: {
-        configName: 'Linux-Apache-PEM standard template',
-        description: 'Apache commonly uses a PEM certificate file plus a separate private key, with an extra chain file for split deployment.'
+        configName: 'Modelo padrão Linux-Apache-PEM',
+        description: 'O Apache normalmente usa um arquivo de certificado PEM com chave privada separada; o arquivo adicional da cadeia facilita implantações separadas.'
       },
       linuxTomcat: {
-        configName: 'Linux-Tomcat-PKCS12 standard template',
-        description: 'Tomcat defaults to keystore delivery. This template uses the more portable PKCS#12 format.'
+        configName: 'Modelo padrão Linux-Tomcat-PKCS12',
+        description: 'O Tomcat costuma receber um contêiner keystore. Este modelo usa o formato PKCS#12, mais portátil.'
       },
       linuxOther: {
-        configName: 'Linux device-compatible single-file PEM template',
-        description: 'For generic Linux devices that accept a single PEM file, start with a bundle and adjust extension and contents for the target device.'
+        configName: 'Modelo Linux de PEM em arquivo único compatível com dispositivos',
+        description: 'Para dispositivos Linux genéricos que aceitam um único arquivo PEM, comece com um bundle e ajuste a extensão e o conteúdo conforme o dispositivo de destino.'
       }
     }
   },
   assets: {
-    title: 'Application assets',
-    description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
-    resourceName: 'Application asset',
+    title: 'Ativos de aplicação',
+    description: 'Gerencie entradas de aplicação por domínio ou IP, com foco em endereço, porta, protocolo, site e localização de execução.',
+    resourceName: 'Ativo de aplicação',
     actions: {
-      add: 'Add asset',
-      edit: 'Edit',
-      detail: 'Details',
-      addVariable: 'Add variable',
-      delete: 'Delete',
-      rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
-      rollingBack: 'Rolling back...',
-      saving: 'Saving...',
-      creating: 'Creating...',
-      saveChanges: 'Save changes',
-      confirmCreate: 'Create'
+      add: 'Adicionar ativo',
+      edit: 'Editar',
+      detail: 'Detalhes',
+      addVariable: 'Adicionar variável',
+      delete: 'Excluir',
+      rollbackFromLatestSnapshot: 'Iniciar reversão a partir do snapshot mais recente',
+      rollingBack: 'Revertendo...',
+      saving: 'Salvando...',
+      creating: 'Criando...',
+      saveChanges: 'Salvar alterações',
+      confirmCreate: 'Confirmar criação'
     },
     columns: {
-      domain: 'Domain',
-      port: 'Port',
-      protocol: 'Protocol',
-      platform: 'Platform',
+      domain: 'Domínio de acesso',
+      port: 'Porta',
+      protocol: 'Protocolo',
+      platform: 'Plataforma',
       framework: 'Framework',
       site: 'Site',
       status: 'Status',
-      actions: 'Actions'
+      actions: 'Ações'
     },
     fields: {
-      assetId: 'Application asset ID',
-      domain: 'Domain',
-      addressType: 'Address type',
-      port: 'Port',
-      protocol: 'Protocol',
-      verifyUrl: 'Verify URL',
-      platform: 'Platform',
-      frameworkType: 'Framework type',
-      serviceInstanceId: 'Service instance ID',
-      siteId: 'Site ID',
-      managedTargetId: 'Managed target ID',
-      bindingKey: 'Binding key',
-      hostId: 'Host ID',
-      environment: 'Environment',
-      discoverySource: 'Discovery source',
-      lastDiscoveredAt: 'Last discovered at',
+      assetId: 'ID do ativo de aplicação',
+      domain: 'Domínio de acesso',
+      addressType: 'Tipo de endereço',
+      port: 'Porta',
+      protocol: 'Protocolo',
+      verifyUrl: 'URL de verificação',
+      platform: 'Plataforma',
+      frameworkType: 'Tipo de framework',
+      serviceInstanceId: 'ID da instância de serviço',
+      siteId: 'ID do site',
+      managedTargetId: 'ID do destino gerenciado',
+      bindingKey: 'Chave de binding',
+      hostId: 'ID do host',
+      environment: 'Ambiente',
+      discoverySource: 'Origem da descoberta',
+      lastDiscoveredAt: 'Última descoberta em',
       tags: 'Tags',
-      managedTarget: 'Managed target',
-      siteName: 'Site name',
-      bindingInformation: 'Binding information',
+      managedTarget: 'Destino gerenciado',
+      siteName: 'Nome do site',
+      bindingInformation: 'Informações de binding',
       hostHeader: 'Host Header',
-      sniName: 'SNI name',
-      currentCertificate: 'Current certificate',
-      targetCertificate: 'Target certificate',
-      expectedFingerprint: 'Expected fingerprint',
-      certificateStore: 'Certificate store',
-      snapshotType: 'Snapshot type',
-      time: 'Time',
-      executionRun: 'Execution run',
-      displayName: 'Display name',
-      siteInstance: 'Site instance',
-      certificateFormat: 'Certificate artifact format',
-      workflow: 'Workflow',
-      publishedVersion: 'Published version',
-      runner: 'Runner',
-      artifactFormat: 'Artifact format'
+      sniName: 'Nome SNI',
+      currentCertificate: 'Certificado atual',
+      targetCertificate: 'Certificado de destino',
+      expectedFingerprint: 'Fingerprint esperado',
+      certificateStore: 'Repositório de certificados',
+      snapshotType: 'Tipo de snapshot',
+      time: 'Hora',
+      executionRun: 'Registro de execução',
+      displayName: 'Nome de exibição',
+      siteInstance: 'Instância do site',
+      certificateFormat: 'Configuração do artefato de certificado',
+      workflow: 'Fluxo de trabalho',
+      workflowVersionSelection: 'Política de versão do workflow',
+      publishedVersion: 'Versão publicada',
+      runner: 'Local de execução',
+      artifactFormat: 'Configuração de formato do artefato'
     },
     links: {
-      certificateBindings: 'View certificate bindings',
-      executions: 'View execution records'
+      certificateBindings: 'Ver bindings de certificado',
+      executions: 'Ver registros de execução'
     },
     empty: {
-      title: 'No application assets',
-      description: 'Waiting for discovery to write ServiceAsset records, or add entry points through backend APIs.',
-      noBindingInformation: 'No binding information',
-      notSet: 'Not set',
-      notSelected: 'Not selected',
-      noVariablePreset: 'No variables can be added',
-      basicEntryIncomplete: 'Basic entry incomplete'
+      title: 'Nenhum ativo de aplicação',
+      description: 'Aguardando descoberta automática do sistema ou cadastro manual da entrada da aplicação.',
+      noBindingInformation: 'Nenhuma informação de binding',
+      notSet: 'Não definido',
+      notSelected: 'Não selecionado',
+      noVariablePreset: 'Nenhuma variável disponível para adicionar',
+      basicEntryIncomplete: 'Entrada básica incompleta'
     },
     detail: {
-      title: 'Application details',
-      description: 'Keep asset details, bindings, deployment entry, and snapshots in one modal.',
-      tabsAriaLabel: 'Application detail tabs',
+      title: 'Detalhes da aplicação',
+      description: 'Veja detalhes do ativo, relações de binding, entrada de implantação e registros de snapshot.',
+      tabsAriaLabel: 'Abas de detalhes da aplicação',
       tabs: {
-        overview: 'Overview',
+        overview: 'Informações básicas',
         snapshots: 'Snapshots'
       },
-      loadingTargetBinding: 'Loading target binding details...',
-      loadingSnapshots: 'Loading snapshots...',
-      emptyCertificateBindings: 'No certificate bindings.',
-      emptySnapshots: 'No snapshots.',
-      rollbackSubmitted: 'Rollback request submitted. Check executions for the rollback run.',
+      loadingTargetBinding: 'Carregando detalhes do binding de destino...',
+      loadingSnapshots: 'Carregando snapshots...',
+      emptyCertificateBindings: 'Nenhuma relação de binding de certificado.',
+      emptySnapshots: 'Nenhum snapshot.',
+      rollbackSubmitted: 'Solicitação de reversão enviada. Consulte o registro de execução da reversão em "Registros de execução".',
       sections: {
         overview: {
-          title: 'Overview',
-          description: 'The application asset is the primary object. Hosts and sites only provide execution targeting information.'
+          title: 'Informações básicas',
+          description: 'O ativo de aplicação é o objeto principal; host e site aparecem apenas como informações de localização da execução.'
         },
         targetBinding: {
-          title: 'Target binding',
-          description: 'Bindings must point to a site and managed target instead of guessing by domain.'
+          title: 'Binding de destino',
+          description: 'O binding deve apontar claramente para um site e um destino gerenciado, em vez de continuar tentando inferir pelo domínio.'
         },
         certificateBindings: {
-          title: 'Certificate bindings',
-          description: 'Certificate relationships are tied to bindings instead of only relying on domains.'
+          title: 'Relações de binding de certificado',
+          description: 'As relações de certificado são explicitadas no binding, em vez de depender apenas do domínio.'
         },
         snapshots: {
           title: 'Snapshots',
-          description: 'Pre-deploy, post-deploy, and rollback state must be visible directly, not only as task records.'
+          description: 'O estado antes da implantação, depois da implantação e após a reversão deve ser visível diretamente, não apenas como registro de tarefa.'
         }
       }
     },
     managementModes: {
-      agent: 'Agent mode',
-      agentDescription: 'Bind Agent, site instance, and managed target',
-      workflow: 'Workflow mode',
-      workflowDescription: 'Select workflow version and runtime variables'
+      agent: 'Modo Agent',
+      agentDescription: 'Vincular Agent, instância do site e destino gerenciado',
+      workflow: 'Modo workflow',
+      workflowDescription: 'Selecionar versão do workflow e variáveis de execução'
+    },
+    workflowVersionSelection: {
+      pinned: 'Fixar versão selecionada',
+      latestPublished: 'Sempre usar a versão publicada mais recente'
     },
     loading: {
-      agents: 'Loading Agents...',
-      sites: 'Loading sites...',
-      managedTargets: 'Loading targets...',
-      certificateFormats: 'Loading format configs...',
-      workflows: 'Loading workflows...',
-      versions: 'Loading versions...',
-      gateways: 'Loading Gateways...',
-      credentials: 'Loading credentials...'
+      agents: 'Carregando Agents...',
+      sites: 'Carregando sites...',
+      managedTargets: 'Carregando destinos...',
+      certificateFormats: 'Carregando configurações de formato...',
+      workflows: 'Carregando workflows...',
+      versions: 'Carregando versões...',
+      gateways: 'Carregando Gateways...',
+      credentials: 'Carregando credenciais...'
     },
     select: {
-      agent: 'Select Agent',
-      siteInstance: 'Select site instance',
-      managedTarget: 'Select managed target',
-      certificateFormat: 'Select certificate artifact format',
-      workflow: 'Select workflow',
-      publishedVersion: 'Select published version',
-      gateway: 'Select Gateway',
-      variablePreset: 'Select preset variable',
-      credential: 'Select credential',
-      generic: 'Select',
-      artifactFormat: 'Select format config',
-      output: 'Select output',
-      optionalOutput: 'Optional'
+      agent: 'Selecione o Agent',
+      siteInstance: 'Selecione a instância do site',
+      managedTarget: 'Selecione o destino gerenciado',
+      certificateFormat: 'Selecione a configuração do artefato de certificado',
+      workflow: 'Selecione o workflow',
+      publishedVersion: 'Selecione a versão publicada',
+      gateway: 'Selecione o Gateway',
+      variablePreset: 'Selecionar variável predefinida',
+      credential: 'Selecione a credencial',
+      generic: 'Selecione',
+      artifactFormat: 'Selecione a configuração de formato',
+      output: 'Selecione a saída',
+      optionalOutput: 'Opcional'
     },
     validation: {
-      variableNameRequired: 'Variable name is required',
-      variableNameInvalid: 'Variable {name} has an invalid name',
-      variableDuplicated: 'Variable {name} is duplicated',
-      variableRequired: 'Variable {name} is required',
-      variableMustBeNumber: 'Variable {name} must be a number',
-      variableMustBeJsonObject: 'Variable {name} must be a JSON object',
-      variableInvalidJson: 'Variable {name} is not valid JSON',
-      variableCredentialInvalid: 'Variable {name} must select a valid credential',
-      certificateFormatRequired: 'Certificate variable {name} must select a certificate format config',
-      certificateOutputRequired: 'Certificate variable {name}.{slot} must select an output',
-      certificateOutputMissing: 'Selected output for certificate variable {name}.{slot} does not exist'
+      variableNameRequired: 'O nome da variável não pode ficar vazio',
+      variableNameInvalid: 'O nome da variável {name} é inválido',
+      variableDuplicated: 'A variável {name} está duplicada',
+      variableRequired: 'A variável {name} é obrigatória',
+      variableMustBeNumber: 'A variável {name} deve ser numérica',
+      variableMustBeJsonObject: 'A variável {name} deve ser um objeto JSON',
+      variableInvalidJson: 'A variável {name} não é um JSON válido',
+      variableCredentialInvalid: 'A variável {name} deve selecionar uma credencial válida',
+      certificateFormatRequired: 'A variável de certificado {name} deve selecionar uma configuração de formato de certificado',
+      certificateOutputRequired: 'A variável de certificado {name}.{slot} deve selecionar uma saída',
+      certificateOutputMissing: 'A saída selecionada para a variável de certificado {name}.{slot} não existe'
     },
     workflowVariableTypes: {
-      string: 'String',
-      number: 'Number',
-      boolean: 'Boolean',
+      string: 'Texto',
+      number: 'Número',
+      boolean: 'Booleano',
       enum: 'Enum',
-      object: 'Object',
-      file: 'File',
-      credential: 'Credential',
-      certificate: 'Certificate'
+      object: 'Objeto',
+      file: 'Arquivo',
+      credential: 'Credencial',
+      certificate: 'Certificado'
     },
     wizard: {
-      ariaLabel: 'Application asset creation steps',
+      ariaLabel: 'Etapas de criação do ativo de aplicação',
       steps: {
-        basicEntry: 'Basic entry',
-        deploymentMode: 'Deployment mode',
-        confirmSave: 'Confirm and save'
+        basicEntry: 'Entrada básica',
+        deploymentMode: 'Modo de implantação',
+        confirmSave: 'Confirmar salvamento'
       },
       stepState: {
-        active: 'In progress',
-        done: 'Completed',
-        pending: 'Not started',
-        incomplete: 'Incomplete',
-        readyNext: 'Ready for next step',
-        pendingSubmit: 'Ready to submit'
+        active: 'Em andamento',
+        done: 'Concluído',
+        pending: 'A iniciar',
+        incomplete: 'Pendente',
+        readyNext: 'Pronto para avançar',
+        pendingSubmit: 'Aguardando envio'
       },
       panels: {
-        basicEntryTitle: 'Basic entry',
-        basicEntryDescription: 'Fill in domain, port, protocol, and platform first to define the application entry identity.',
-        agentTitle: 'Agent target binding',
-        agentDescription: 'Select Agent, site instance, managed target, and certificate artifact format.',
-        workflowTitle: 'Workflow runtime config',
-        workflowDescription: 'Select workflow version, runner, and variables. Certificate variables are injected at runtime.',
-        confirmTitle: 'Confirm and save',
-        confirmDescription: 'Review application entry, deployment mode, and runtime parameters before saving the asset.'
+        basicEntryTitle: 'Entrada básica',
+        basicEntryDescription: 'Preencha primeiro domínio, porta, protocolo e plataforma para definir a identidade da entrada de aplicação.',
+        agentTitle: 'Binding de destino do Agent',
+        agentDescription: 'Selecione Agent, instância do site, destino gerenciado e configuração do artefato de certificado.',
+        workflowTitle: 'Configuração de execução do workflow',
+        workflowDescription: 'Selecione a versão do workflow, o local de execução e as variáveis; variáveis de certificado serão injetadas em tempo de execução.',
+        confirmTitle: 'Confirmar salvamento',
+        confirmDescription: 'Revise a entrada da aplicação, o modo de implantação e os parâmetros de execução antes de gravar o ativo.'
       }
     },
     form: {
-      createTitle: 'Add application asset manually',
-      editTitle: 'Edit application asset',
-      createDescription: 'Create an application entry and bind target information required for later deployment.',
-      editDescription: 'Update the application entry and deployment target binding.',
-      createRequestCompleted: 'Create request completed.',
-      editRequestCompleted: 'Save request completed.',
-      agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      createTitle: 'Adicionar ativo de aplicação manualmente',
+      editTitle: 'Editar ativo de aplicação',
+      createDescription: 'Crie uma entrada de aplicação e vincule as informações de destino exigidas para implantações posteriores.',
+      editDescription: 'Altere a entrada da aplicação e o binding do destino de implantação.',
+      createRequestCompleted: 'Solicitação de criação concluída.',
+      editRequestCompleted: 'Solicitação de salvamento concluída.',
+      agentCertificateFormatHint: 'No modo Agent, esta configuração de artefato de certificado será usada para gerar materiais de implantação.',
       placeholders: {
-        displayName: 'For example: production site entry',
-        verifyUrl: 'For example: https://example.com/health',
-        siteName: 'For example: production site',
-        bindingInformation: 'For example: *:443:example.com',
-        hostHeader: 'For example: example.com',
-        sniName: 'For example: example.com'
+        displayName: 'Exemplo: entrada do site de produção',
+        verifyUrl: 'Exemplo: https://example.com/health',
+        siteName: 'Exemplo: site de produção',
+        bindingInformation: 'Exemplo: *:443:example.com',
+        hostHeader: 'Exemplo: example.com',
+        sniName: 'Exemplo: example.com'
       }
     },
     review: {
-      accessEntry: 'Access entry',
-      deploymentMode: 'Deployment mode',
-      agentSiteTarget: 'Agent / site / target',
-      workflowVersion: 'Workflow version',
+      accessEntry: 'Entrada de acesso',
+      deploymentMode: 'Modo de implantação',
+      agentSiteTarget: 'Agent / site / destino',
+      workflowVersion: 'Versão do workflow',
       gatewayRunner: 'Gateway: {gateway}',
-      variableCount: '{count} variables',
-      onlyBasicEntry: 'Basic entry only',
-      autoGeneratedByEntry: 'Generated from application entry'
+      variableCount: '{count} variável(is)',
+      onlyBasicEntry: 'Somente entrada básica',
+      autoGeneratedByEntry: 'Gerado a partir da entrada da aplicação'
     },
     workflowTarget: {
-      title: 'Workflow target information',
-      description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
-      dslSyncHint: 'Synced to DSL target variables'
+      title: 'Informações do destino do workflow',
+      description: 'Usado para exibição do ativo de workflow, sondagem pós-implantação e sincronização de variáveis de destino DSL.',
+      dslSyncHint: 'Sincronizado para variáveis de destino DSL'
     },
     workflowVariables: {
-      title: 'Workflow variables',
-      configuredCount: '{configured}/{total} configured',
-      name: 'Variable name',
-      type: 'Type',
-      value: 'Value',
+      title: 'Variáveis do workflow',
+      configuredCount: '{configured}/{total} configurada(s)',
+      name: 'Nome da variável',
+      type: 'Tipo',
+      value: 'Valor',
       manual: 'Manual',
-      empty: 'No workflow variables.',
-      noPublishedVersion: 'Select a published workflow version before configuring variables.',
-      certificateAutoInjected: 'The certificate version is selected by the deployment plan and injected automatically at runtime.',
-      certificateDescription: 'The certificate version is selected by the deployment plan. Bind format config and outputs below; {name}.outputs.*.content is injected at runtime.',
+      empty: 'Nenhuma variável de workflow.',
+      noPublishedVersion: 'Selecione uma versão publicada do workflow antes de configurar variáveis.',
+      certificateAutoInjected: 'A versão do certificado é selecionada pelo plano de implantação e injetada automaticamente em tempo de execução.',
+      certificateDescription: 'A versão do certificado é selecionada pelo plano de implantação; vincule abaixo a configuração de formato e as saídas, e {name}.outputs.*.content será injetado em tempo de execução.',
       presets: {
-        deviceHost: 'Target host or device address',
-        sshUsername: 'SSH user name',
-        credential: 'Workflow credential',
-        certificate: 'Certificate artifact',
-        targetPlatform: 'Target platform',
-        verifyHost: 'Verification host',
-        verifyPort: 'Verification port',
-        verifyPath: 'Verification path',
-        apacheServiceName: 'Apache systemd service name',
-        apacheSiteConfigPath: 'Apache site config path',
-        certificateFilePath: 'Certificate destination path',
-        certificateKeyFilePath: 'Private key destination path',
-        backupRoot: 'Certificate backup root',
-        expectedResponseContains: 'Expected response contains text',
-        virtualHostServerName: 'VirtualHost ServerName'
+        deviceHost: 'Host de destino ou endereço do dispositivo',
+        sshUsername: 'Nome de usuário SSH',
+        credential: 'Credencial do workflow',
+        certificate: 'Artefato de certificado',
+        targetPlatform: 'Plataforma de destino',
+        verifyHost: 'Host de verificação',
+        verifyPort: 'Porta de verificação',
+        verifyPath: 'Caminho de verificação',
+        apacheServiceName: 'Nome do serviço systemd do Apache',
+        apacheSiteConfigPath: 'Caminho da configuração do site Apache',
+        certificateFilePath: 'Caminho de destino do certificado',
+        certificateKeyFilePath: 'Caminho de destino da chave privada',
+        backupRoot: 'Diretório raiz de backup do certificado',
+        expectedResponseContains: 'Texto esperado na resposta de verificação',
+        virtualHostServerName: 'ServerName do VirtualHost'
       }
     },
     certificateBindings: {
-      title: 'Certificate variable bindings',
-      description: 'Select certificate artifact format and outputs for certificate variables in the workflow.',
-      variableCount: '{count} certificate variables',
-      defaultVariableDescription: 'Certificate artifact variable',
-      noArtifactOutputs: 'No selectable outputs for the current format config.'
+      title: 'Bindings de variáveis de certificado',
+      description: 'Selecione a configuração de artefato de certificado e as saídas para variáveis de certificado no workflow.',
+      variableCount: '{count} variável(is) de certificado',
+      defaultVariableDescription: 'Variável de artefato de certificado',
+      noArtifactOutputs: 'A configuração de formato atual não possui saídas selecionáveis.'
     },
     certificateOutputs: {
-      publicCertificateWithChain: 'Public certificate + certificate chain',
-      publicCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      pemBundle: 'PEM bundle artifact',
-      container: '{format} container',
+      publicCertificateWithChain: 'Certificado público + cadeia de certificados',
+      publicCertificate: 'Certificado público',
+      certificateChain: 'Cadeia de certificados',
+      privateKey: 'Chave privada',
+      pemBundle: 'Artefato bundle PEM',
+      container: 'Contêiner {format}',
       bundle: 'Bundle'
     },
     certificateFormats: {
-      savedConfigMissingWithId: '{id} (saved config, not returned by current list)',
-      withPrivateKey: 'With private key',
-      withoutPrivateKey: 'Without private key'
+      savedConfigMissingWithId: '{id} (configuração salva, não retornada pela lista atual)',
+      withPrivateKey: 'Com chave privada',
+      withoutPrivateKey: 'Sem chave privada'
     },
     snapshotTypes: {
-      preDeploy: 'Pre-deploy',
-      postDeploy: 'Post-deploy',
-      postRollback: 'Post-rollback',
-      errorState: 'Error state',
-      rollbackPoint: 'Rollback point'
+      preDeploy: 'Antes da implantação',
+      postDeploy: 'Após a implantação',
+      postRollback: 'Após a reversão',
+      errorState: 'Estado de erro',
+      rollbackPoint: 'Ponto de reversão'
     },
     errors: {
-      loadWorkflowListFailed: 'Failed to load workflow list',
-      loadWorkflowVersionsFailed: 'Failed to load workflow versions',
-      loadGatewayListFailed: 'Failed to load gateway list',
-      loadCertificateFormatsFailed: 'Failed to load certificate format configs',
-      loadAssetDetailFailed: 'Failed to load application asset details',
-      rollbackFailed: 'Failed to start rollback',
-      loadTargetsFailed: 'Failed to load sites and managed targets',
-      createAssetFailed: 'Failed to create application asset',
-      loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
-      noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
+      loadWorkflowListFailed: 'Falha ao carregar a lista de workflows',
+      loadWorkflowVersionsFailed: 'Falha ao carregar versões do workflow',
+      loadGatewayListFailed: 'Falha ao carregar a lista de gateways',
+      loadCertificateFormatsFailed: 'Falha ao carregar configurações de formato de certificado',
+      loadAssetDetailFailed: 'Falha ao carregar detalhes do ativo de aplicação',
+      rollbackFailed: 'Falha ao iniciar reversão',
+      loadTargetsFailed: 'Falha ao carregar sites e destinos gerenciados',
+      createAssetFailed: 'Falha ao criar ativo de aplicação',
+      loadWorkflowCredentialsFailed: 'Falha ao carregar credenciais do workflow',
+      noAvailableSiteInstance: 'Nenhuma instância de site disponível encontrada. Confirme nos detalhes do Agent se os sites do framework foram reportados com sucesso.'
     },
     platforms: {
-      appliance: 'Appliance'
+      appliance: 'Dispositivo'
     },
     runners: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Plataforma'
     },
     status: {
-      archived: 'Archived',
-      unknownStatus: 'Unknown status'
+      archived: 'Arquivado',
+      unknownStatus: 'Status desconhecido'
     },
     common: {
-      required: 'Required',
-      optional: 'Optional'
+      required: 'Obrigatório',
+      optional: 'Opcional'
     }
   },
   certificates: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'Falha na solicitação'
     },
     detail: {
-      backList: 'Back to list',
-      description: 'Shows certificate version details, format artifacts, and related assets.',
-      title: 'Certificate details'
+      backList: 'Voltar à lista',
+      description: 'Exibe detalhes da versão do certificado, artefatos de formato e ativos relacionados.',
+      title: 'Detalhes do certificado'
     },
     detailPanel: {
       sources: {
-        agentContext: 'Agent context',
-        platformBinding: 'Platform binding record'
+        agentContext: 'Contexto do Agent',
+        platformBinding: 'Registro de binding da plataforma'
       },
       usage: {
         columns: {
-          domainName: 'Domain / target',
-          agentName: 'Agent name',
-          siteName: 'Site name',
-          bindingType: 'Binding type',
-          usageSource: 'Source',
+          domainName: 'Domínio / destino',
+          agentName: 'Nome do Agent',
+          siteName: 'Nome do site',
+          bindingType: 'Tipo de binding',
+          usageSource: 'Origem',
           status: 'Status'
         },
-        empty: 'No related assets',
-        toolbar: 'Related assets'
+        empty: 'Nenhum ativo relacionado',
+        toolbar: 'Ativos relacionados'
       },
       summary: {
-        certificateName: 'Certificate name',
-        logicalDomain: 'Logical domain',
-        issuer: 'Issuer',
-        subject: 'Subject',
-        serialNumber: 'Serial number',
-        chainStatus: 'Chain status'
+        certificateName: 'Nome do certificado',
+        logicalDomain: 'Domínio lógico',
+        issuer: 'Emissor',
+        subject: 'Titular',
+        serialNumber: 'Número de série',
+        chainStatus: 'Status da cadeia'
       },
       sections: {
-        subjectInfo: 'Subject information',
-        issuerInfo: 'Issuer information',
-        certificateFields: 'Certificate fields',
-        extensionFields: 'Extension fields'
+        subjectInfo: 'Informações do titular',
+        issuerInfo: 'Informações do emissor',
+        certificateFields: 'Campos do certificado',
+        extensionFields: 'Campos de extensão'
       },
       fields: {
-        commonName: 'Common name (CN)',
-        organization: 'Organization (O)',
-        organizationalUnit: 'Organizational unit (OU)',
-        countryRegion: 'Country / region (C)',
-        stateProvince: 'State / province (ST)',
-        locality: 'Locality (L)',
-        version: 'Version',
-        signatureAlgorithm: 'Signature algorithm',
-        publicKeyAlgorithm: 'Public key algorithm',
-        fingerprintSha256: 'SHA-256 fingerprint',
+        commonName: 'Nome comum (CN)',
+        organization: 'Organização (O)',
+        organizationalUnit: 'Unidade organizacional (OU)',
+        countryRegion: 'País / região (C)',
+        stateProvince: 'Estado / província (ST)',
+        locality: 'Localidade (L)',
+        version: 'Versão',
+        signatureAlgorithm: 'Algoritmo de assinatura',
+        publicKeyAlgorithm: 'Algoritmo da chave pública',
+        fingerprintSha256: 'Fingerprint SHA-256',
         san: 'SAN',
-        deployable: 'Deployable',
-        leafStorageRef: 'Leaf certificate reference',
-        chainCertificateCount: 'Chain certificate count',
-        chainDiagnostics: 'Chain diagnostics'
+        deployable: 'Implantável',
+        leafStorageRef: 'Referência do certificado folha',
+        chainCertificateCount: 'Quantidade de certificados da cadeia',
+        chainDiagnostics: 'Diagnóstico da cadeia'
       },
       fallbacks: {
-        unknownCertificate: 'Unknown certificate',
-        unknownIssuer: 'Unknown issuer',
-        unnamedCertificate: 'Unnamed certificate',
-        unknownDomain: 'Unknown domain',
-        unknownSubject: 'Unknown subject',
-        unknown: 'Unknown',
-        notPartOfCertificate: 'Not part of the certificate',
-        none: 'None',
+        unknownCertificate: 'Certificado desconhecido',
+        unknownIssuer: 'Emissor desconhecido',
+        unnamedCertificate: 'Certificado sem nome',
+        unknownDomain: 'Domínio desconhecido',
+        unknownSubject: 'Titular desconhecido',
+        unknown: 'Desconhecido',
+        notPartOfCertificate: 'Não faz parte do certificado',
+        none: 'Nenhum',
         emptyValue: '—',
-        unknownType: 'Unknown type',
-        unknownResource: 'Unknown resource',
-        unknownTarget: 'Unknown target'
+        unknownType: 'Tipo desconhecido',
+        unknownResource: 'Recurso desconhecido',
+        unknownTarget: 'Destino desconhecido'
       },
       values: {
-        yes: 'Yes',
-        no: 'No'
+        yes: 'Sim',
+        no: 'Não'
       },
       separators: {
         diagnostic: '; ',
@@ -2684,262 +2614,262 @@ export default {
       },
       chain: {
         roles: {
-          leaf: 'Leaf certificate',
-          root: 'Root certificate',
-          intermediate: 'Intermediate certificate'
+          leaf: 'Certificado folha',
+          root: 'Certificado raiz',
+          intermediate: 'Certificado intermediário'
         },
-        title: 'Certificate chain',
-        empty: 'No certificate chain information',
-        subject: 'Subject: {value}',
-        issuer: 'Issuer: {value}'
+        title: 'Cadeia de certificados',
+        empty: 'Nenhuma informação de cadeia de certificados',
+        subject: 'Titular: {value}',
+        issuer: 'Emissor: {value}'
       },
       errors: {
-        loadFailedTitle: 'Failed to load certificate details',
-        code: 'Error code: {code}'
+        loadFailedTitle: 'Falha ao carregar detalhes do certificado',
+        code: 'Código de erro: {code}'
       },
       actions: {
-        retry: 'Retry'
+        retry: 'Tentar novamente'
       },
       states: {
-        loading: 'Loading...'
+        loading: 'Carregando...'
       },
       tabs: {
-        ariaLabel: 'Certificate detail tabs',
-        detail: 'Details',
-        usage: 'Related assets'
+        ariaLabel: 'Abas de detalhes do certificado',
+        detail: 'Detalhes',
+        usage: 'Ativos relacionados'
       },
       validity: {
-        title: 'Certificate validity',
-        notBefore: 'Valid from: {value}',
-        notAfter: 'Expires at: {value}'
+        title: 'Validade do certificado',
+        notBefore: 'Válido a partir de: {value}',
+        notAfter: 'Expira em: {value}'
       }
     },
     formats: {
       columns: {
-        certificateVersionId: 'Version ID',
-        createdAt: 'Created at',
-        format: 'Format',
-        secretRef: 'Secret reference',
+        certificateVersionId: 'ID da versão',
+        createdAt: 'Criado em',
+        format: 'Formato',
+        secretRef: 'Referência Secret',
         status: 'Status'
       },
-      create: 'Create format config',
-      createFailed: 'Failed to create format',
-      description: 'PEM/DER/PFX/JKS/P7B format configuration entry for certificate {id}.',
-      empty: 'No format configs',
+      create: 'Criar configuração de formato',
+      createFailed: 'Falha ao criar formato',
+      description: 'Entrada de configuração de formatos PEM/DER/PFX/JKS/P7B do certificado {id}.',
+      empty: 'Nenhuma configuração de formato',
       fields: {
-        alias: 'Alias (optional)',
-        containsPrivateKey: 'Contains private key (PEM)',
+        alias: 'Alias (opcional)',
+        containsPrivateKey: 'Contém chave privada (PEM)',
         passwordSecretRef: 'passwordSecretRef (PFX/JKS)',
-        targetFormat: 'Target format',
-        versionId: 'Version ID'
+        targetFormat: 'Formato de destino',
+        versionId: 'ID da versão'
       },
-      hint: 'PFX/JKS must use an existing backend passwordSecretRef. Deployment materials are generated on demand from the certificate version and format config.',
-      loadFailed: 'Failed to load format configs',
-      optionAvailable: '{label} - available',
+      hint: 'PFX/JKS deve usar um passwordSecretRef já existente no sistema; os materiais de implantação são gerados sob demanda com base na versão do certificado e na configuração de formato.',
+      loadFailed: 'Falha ao carregar configurações de formato',
+      optionAvailable: '{label} - disponível',
       placeholders: {
-        alias: 'For example gcac-cert'
+        alias: 'Exemplo: gcac-cert'
       },
-      title: 'Certificate format config',
-      toolbar: 'Format config list',
-      unsupported: '{format} cannot be created with the current capability declaration.'
+      title: 'Configuração de formato de certificado',
+      toolbar: 'Lista de configurações de formato',
+      unsupported: '{format} não pode ser criado pela declaração de capacidade atual.'
     },
     import: {
-      backList: 'Back to certificate list',
-      description: 'Currently only PEM + KEY and PFX are supported; PFX only supports file import. Imported material must include the server certificate, full intermediate chain, and private key. Root certificates are optional.',
+      backList: 'Voltar à lista de certificados',
+      description: 'Atualmente, apenas PEM + KEY e PFX são suportados; PFX só permite importação por arquivo. Os materiais importados devem incluir certificado do servidor, cadeia intermediária completa e chave privada. O certificado raiz não é obrigatório.',
       errors: {
-        importFailed: 'Import failed',
-        materialRequiredBeforeValidate: 'Complete the import material before starting validation.',
-        needPassedValidation: 'Complete step 3 validation and make sure it passed before importing.',
-        validateFailed: 'Validation failed'
+        importFailed: 'Falha na importação',
+        materialRequiredBeforeValidate: 'É necessário preencher os materiais de importação antes de iniciar a validação.',
+        needPassedValidation: 'Conclua a validação da etapa 3 e confirme que ela foi aprovada antes de importar.',
+        validateFailed: 'Falha na validação'
       },
       formats: {
         pem: {
-          hint: 'Server certificate, full intermediate chain, and private key must all be provided. Root certificates are optional and only produce a warning when missing.'
+          hint: 'É obrigatório fornecer certificado do servidor, cadeia intermediária completa e chave privada. O certificado raiz não é obrigatório; se faltar, apenas um alerta será exibido.'
         },
         pfx: {
-          hint: 'Only file import is supported. The container must include the server certificate, full intermediate chain, and private key. Root certificates are optional and only produce a warning when missing.'
+          hint: 'Somente importação por arquivo é suportada. O contêiner deve conter certificado do servidor, cadeia intermediária completa e chave privada. O certificado raiz não é obrigatório; se faltar, apenas um alerta será exibido.'
         }
       },
       methods: {
         file: {
-          hint: 'Use this when you already have cert / key or .pfx files.',
-          label: 'Select file'
+          hint: 'Indicado para cenários em que você já possui arquivos cert / key ou .pfx.',
+          label: 'Selecionar arquivo'
         },
         text: {
-          hint: 'Paste PEM text directly to avoid uploading temporary files.',
-          label: 'Paste text'
+          hint: 'Indicado para colar diretamente texto PEM e evitar upload de arquivos temporários.',
+          label: 'Colar texto'
         }
       },
-      title: 'Import certificate'
+      title: 'Importar certificado'
     },
     importForm: {
       hints: {
-        pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
-        pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
-        pfxFileOnly: 'PFX only supports file import.'
+        pemChainCheck: 'Envie ou cole o certificado do servidor, a cadeia intermediária completa e a chave privada; o sistema validará a cadeia de certificados e a correspondência da chave privada.',
+        pfxChainCheck: 'Envie um arquivo PFX/P12 e informe a senha; o sistema analisará o certificado do servidor, a cadeia de certificados e a chave privada dentro do contêiner.',
+        pfxFileOnly: 'PFX só suporta importação por arquivo.'
       },
       roles: {
-        leaf: 'Leaf certificate',
-        root: 'Root certificate',
-        intermediate: 'Intermediate certificate'
+        leaf: 'Certificado folha',
+        root: 'Certificado raiz',
+        intermediate: 'Certificado intermediário'
       },
       steps: {
-        ariaLabel: 'Certificate import steps',
-        formatAndMethod: 'Format and method',
-        materials: 'Import materials',
-        validateAndImport: 'Validate and import'
+        ariaLabel: 'Etapas de importação do certificado',
+        formatAndMethod: 'Formato e método',
+        materials: 'Materiais de importação',
+        validateAndImport: 'Validar e importar'
       },
       formatIntro: {
-        title: 'Choose import format and method',
-        description: 'Confirm the material format first, then upload files or paste text. PFX currently only supports file import.'
+        title: 'Escolha o formato e o método de importação',
+        description: 'Confirme primeiro o formato dos materiais e depois escolha entre enviar arquivos ou colar texto. Atualmente, PFX só suporta importação por arquivo.'
       },
       labels: {
-        importType: 'Import type',
-        importMethod: 'Import method',
-        materialStatus: 'Material status'
+        importType: 'Tipo de importação',
+        importMethod: 'Método de importação',
+        materialStatus: 'Status dos materiais'
       },
       status: {
-        supported: 'Supported',
-        unsupported: 'Unsupported',
-        completed: 'Completed',
-        incomplete: 'Incomplete',
-        matched: 'Matched',
-        unmatched: 'Unmatched'
+        supported: 'Suportado',
+        unsupported: 'Não suportado',
+        completed: 'Concluído',
+        incomplete: 'Incompleto',
+        matched: 'Compatível',
+        unmatched: 'Não compatível'
       },
       fields: {
-        certificateChainFile: 'Certificate chain file',
-        certificatePemText: 'Certificate PEM text',
-        privateKey: 'Private key ({kind})',
-        file: 'file',
-        pemText: 'PEM text',
-        pfxFile: 'PFX/P12 file',
-        certificateName: 'Certificate name',
-        pfxPassword: 'PFX password'
+        certificateChainFile: 'Arquivo da cadeia de certificados',
+        certificatePemText: 'Texto PEM do certificado',
+        privateKey: 'Chave privada ({kind})',
+        file: 'Arquivo',
+        pemText: 'Texto PEM',
+        pfxFile: 'Arquivo PFX/P12',
+        certificateName: 'Nome do certificado',
+        pfxPassword: 'Senha do PFX'
       },
       placeholders: {
         certificatePem: '-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----',
-        certificateName: 'For example example.com production certificate',
-        required: 'Required'
+        certificateName: 'Exemplo: certificado de produção example.com',
+        required: 'Obrigatório'
       },
       validation: {
-        title: 'Validate import materials',
-        description: 'Validate the certificate chain, validity period, private key match, and material completeness before importing.',
-        passed: 'Validation passed. Ready to import.',
-        failed: 'Validation failed'
+        title: 'Validar materiais de importação',
+        description: 'Antes de importar, valide a cadeia de certificados, o período de validade, a correspondência da chave privada e a completude dos materiais.',
+        passed: 'Validação aprovada; pronto para importar',
+        failed: 'Validação reprovada'
       },
       report: {
-        certificateSummary: 'Certificate summary',
-        serialNumber: 'Serial number',
-        validity: 'Validity',
-        validityRange: '{start} to {end}',
-        issuer: 'Issuer',
-        issuerWithValue: 'Issuer: {value}',
-        subject: 'Subject',
-        chainValidation: 'Chain validation',
-        chainStatus: 'Chain status',
-        certificateCount: 'Certificate count',
-        privateKeyMatch: 'Private key match',
-        provided: 'Provided',
-        matchResult: 'Match result',
-        privateKeySource: 'Private key source',
-        blockers: 'Blockers',
-        warnings: 'Warnings'
+        certificateSummary: 'Resumo do certificado',
+        serialNumber: 'Número de série',
+        validity: 'Validade',
+        validityRange: '{start} até {end}',
+        issuer: 'Emissor',
+        issuerWithValue: 'Emissor: {value}',
+        subject: 'Titular',
+        chainValidation: 'Validação da cadeia de certificados',
+        chainStatus: 'Status da cadeia',
+        certificateCount: 'Quantidade de certificados',
+        privateKeyMatch: 'Correspondência da chave privada',
+        provided: 'Fornecido',
+        matchResult: 'Resultado da correspondência',
+        privateKeySource: 'Origem da chave privada',
+        blockers: 'Bloqueios',
+        warnings: 'Alertas'
       },
-      selectedFile: 'Selected: {name}',
-      importSuccess: 'Imported successfully. Certificate version ID: {id}',
+      selectedFile: 'Selecionado: {name}',
+      importSuccess: 'Importação concluída. ID da versão do certificado: {id}',
       actions: {
-        validating: 'Validating...',
-        validate: 'Validate',
-        cancel: 'Cancel',
-        previous: 'Previous',
-        next: 'Next',
-        importing: 'Importing...',
-        import: 'Import certificate'
+        validating: 'Validando...',
+        validate: 'Iniciar validação',
+        cancel: 'Cancelar',
+        previous: 'Anterior',
+        next: 'Próximo',
+        importing: 'Importando...',
+        import: 'Importar certificado'
       }
     },
     list: {
       filters: {
-        keyword: 'Keyword',
-        domain: 'Domain',
+        keyword: 'Palavra-chave',
+        domain: 'Domínio',
         status: 'Status'
       },
       placeholders: {
-        assetKeyword: 'Domain / SAN / fingerprint',
-        versionKeyword: 'Name / issuer / subject / version ID'
+        assetKeyword: 'Domínio / SAN / fingerprint',
+        versionKeyword: 'Nome / emissor / titular / ID da versão'
       },
       columns: {
-        notBefore: 'Start date',
-        notAfter: 'End date',
-        associatedAsset: 'Related asset',
+        notBefore: 'Data inicial',
+        notAfter: 'Data final',
+        associatedAsset: 'Ativo relacionado',
         status: 'Status',
-        certificateVersionId: 'Certificate version ID'
+        certificateVersionId: 'ID da versão do certificado'
       },
       lifecycle: {
-        unknown: 'Unknown',
-        expired: 'Expired',
-        expiringSoon: 'Expiring soon',
-        valid: 'Valid'
+        unknown: 'Desconhecido',
+        expired: 'Expirado',
+        expiringSoon: 'Expira em breve',
+        valid: 'Válido'
       },
       fallbacks: {
-        unselectedDomain: 'No domain selected',
-        unnamedDomain: 'Unnamed domain',
-        noSupplement: 'No additional information'
+        unselectedDomain: 'Nenhum domínio selecionado',
+        unnamedDomain: 'Domínio sem nome',
+        noSupplement: 'Nenhuma informação complementar'
       },
       assets: {
-        title: 'Domain list',
-        loadFailed: 'Failed to load domain list',
-        empty: 'No domains',
-        unselectedTitle: 'No domain selected',
-        unselectedDescription: 'Select a logical certificate domain on the left first.'
+        title: 'Lista de domínios',
+        loadFailed: 'Falha ao carregar a lista de domínios',
+        empty: 'Nenhuma lista de domínios',
+        unselectedTitle: 'Nenhum domínio selecionado',
+        unselectedDescription: 'Selecione primeiro um domínio lógico de certificado à esquerda.'
       },
       versions: {
-        title: 'SSL certificate list',
-        titleWithDomain: 'SSL certificates for {domain}',
-        description: 'Shows SSL certificates under the current domain, including certificate name, start date, end date, issuer, and subject.',
-        loadFailed: 'Failed to load SSL certificate list',
-        emptyForDomain: 'No SSL certificates under this domain',
-        emptyForDomainDescription: 'Use the import certificate button on the right of the filters to add certificate versions for this domain.',
-        empty: 'No SSL certificates',
-        toolbar: 'Certificate version list',
-        currentCount: '{count} currently'
+        title: 'Lista de certificados SSL',
+        titleWithDomain: 'Lista de certificados SSL de {domain}',
+        description: 'À direita são exibidos os certificados SSL do domínio atual, incluindo nome do certificado, data inicial, data final, emissor e titular.',
+        loadFailed: 'Falha ao carregar a lista de certificados SSL',
+        emptyForDomain: 'Nenhum certificado SSL neste domínio',
+        emptyForDomainDescription: 'Use o botão de importação de certificado à direita da barra de filtros para adicionar versões de certificado a este domínio.',
+        empty: 'Nenhum certificado SSL',
+        toolbar: 'Lista de versões de certificado',
+        currentCount: 'Atualmente {count} registro(s)'
       },
       actions: {
-        clear: 'Clear',
-        deleteRisk: 'Deleting removes the current certificate version directly. If it is still referenced by a binding or deployment, the backend will reject the operation.'
+        clear: 'Limpar',
+        deleteRisk: 'Excluir removerá diretamente a versão atual do certificado; se ela ainda estiver referenciada por um binding ou implantação, o sistema recusará a operação.'
       },
       errors: {
-        deleteFailed: 'Delete failed',
-        materialRequiredForFormat: 'Certificate material for the current format is required.',
-        importFailedWithCheck: 'Import failed. Check the input material.',
-        validateFailedWithCheck: 'Validation failed. Check the input material.'
+        deleteFailed: 'Falha ao excluir',
+        materialRequiredForFormat: 'É necessário fornecer o material de certificado correspondente ao formato atual.',
+        importFailedWithCheck: 'Falha na importação. Verifique os materiais informados.',
+        validateFailedWithCheck: 'Falha na validação. Verifique os materiais informados.'
       },
       import: {
-        description: 'Currently only PEM + KEY and PFX are supported; each import must include the server certificate, full intermediate chain, and private key. Root certificates are optional and show a warning when missing. The private key is stored only as a backend Secret and is never echoed in responses.'
+        description: 'Atualmente, apenas PEM + KEY e PFX são suportados; cada importação deve incluir certificado do servidor, cadeia intermediária completa e chave privada. O certificado raiz não é obrigatório e, se faltar, será exibido um alerta. A chave privada é armazenada somente no Secret do sistema e nunca retorna nas respostas da API.'
       }
     },
     usages: {
-      backDetail: 'Back to details',
+      backDetail: 'Voltar aos detalhes',
       columns: {
-        domainName: 'Domain / target',
-        resourceId: 'Resource ID',
-        resourceType: 'Resource type',
+        domainName: 'Domínio / destino',
+        resourceId: 'ID do recurso',
+        resourceType: 'Tipo de recurso',
         status: 'Status',
-        updatedAt: 'Updated at'
+        updatedAt: 'Atualizado em'
       },
-      description: 'Bindings, deployment targets, and resource references for certificate {id}.',
-      empty: 'No usages',
-      loadFailed: 'Failed to load usages',
-      title: 'Certificate usages',
-      toolbar: 'Usages'
+      description: 'Bindings, destinos de implantação e referências de recurso do certificado {id}.',
+      empty: 'Nenhuma relação de uso',
+      loadFailed: 'Falha ao carregar relações de uso',
+      title: 'Relações de uso do certificado',
+      toolbar: 'Relações de uso'
     }
   },
   workflows: {
     credentials: {
       summary: {
-        usernamePassword: 'Username + password',
-        usernamePasswordWithUsername: 'Username + password / {username}',
-        sshKey: 'SSH private key',
-        sshKeyWithUsername: 'SSH private key / {username}',
+        usernamePassword: 'Nome de usuário + senha',
+        usernamePasswordWithUsername: 'Nome de usuário + senha / {username}',
+        sshKey: 'Chave privada SSH',
+        sshKeyWithUsername: 'Chave privada SSH / {username}',
         apiKey: 'API Key / {name} / {location}',
         bearerToken: 'Bearer Token'
       }
@@ -2947,858 +2877,667 @@ export default {
     canvasModel: {
       nodeTypes: {
         http: {
-          description: 'Call a structured HTTP API instead of scattered curl strings.'
+          description: 'Chama uma API HTTP estruturada em vez de comandos curl dispersos.'
         },
         ssh: {
-          displayName: 'SSH command',
-          description: 'Declare the SSH command to run while storing only connection and credential references.'
+          displayName: 'Comando SSH',
+          description: 'Declara o comando SSH a executar, mantendo apenas referências de conexão e credenciais.'
         },
         sftp: {
-          displayName: 'SFTP upload/download',
-          description: 'Upload or download files through a formal SFTP step, suitable for certificate and config installation.'
+          displayName: 'Upload/download SFTP',
+          description: 'Faz upload ou download de arquivos por uma etapa SFTP formal, adequada para instalar certificados e configurações.'
         },
         scp: {
-          displayName: 'SCP upload/download',
-          description: 'Copy files through SCP, suitable for simple host file distribution.'
+          displayName: 'Upload/download SCP',
+          description: 'Copia arquivos por SCP, adequado para distribuição simples de arquivos em hosts.'
         },
         verify: {
-          displayName: 'Verify',
-          description: 'Assert HTTP status, text, regex, or certificate fingerprint.'
+          displayName: 'Verificação',
+          description: 'Valida status HTTP, texto, regex ou fingerprint do certificado.'
         },
         condition: {
-          displayName: 'Condition',
-          description: 'Choose the next path based on variable existence or value.'
+          displayName: 'Condição',
+          description: 'Escolhe o próximo caminho com base na existência ou no valor da variável.'
         },
         transform: {
-          displayName: 'Transform',
-          description: 'Use JSONata to convert upstream output into new workflow context variables.'
+          displayName: 'Transformação',
+          description: 'Usa JSONata para converter a saída anterior em novas variáveis de contexto do workflow.'
         },
         wait: {
-          displayName: 'Wait',
-          description: 'Wait for a fixed number of seconds before continuing.'
+          displayName: 'Espera',
+          description: 'Aguarda um número fixo de segundos antes de continuar.'
         },
         manual: {
-          displayName: 'Manual approval',
-          description: 'Pause the workflow until manual confirmation.'
+          displayName: 'Confirmação manual',
+          description: 'Pausa o fluxo de trabalho até a confirmação manual.'
         }
       },
       fields: {
-        command: 'Command',
-        connectionRef: 'Connection variable',
-        contentRef: 'Content variable',
-        credential: 'Credential',
-        description: 'Description',
-        direction: 'Direction',
-        expected: 'Expected value',
-        expectedHostKeyFingerprint: 'Host Key fingerprint',
-        hostKeyPolicy: 'Host Key policy',
-        hostRef: 'Host variable',
-        inputRef: 'Input variable',
-        instruction: 'Approval instruction',
-        localPath: 'Local path',
-        mode: 'File mode',
-        operator: 'Operator',
-        remotePath: 'Remote path',
-        seconds: 'Wait seconds',
-        temporaryPath: 'Temporary path',
+        command: 'Comando',
+        connectionRef: 'Variável de conexão',
+        contentRef: 'Variável de conteúdo',
+        credential: 'Credencial',
+        description: 'Descrição',
+        direction: 'Direção',
+        expected: 'Valor esperado',
+        expectedHostKeyFingerprint: 'Fingerprint da Host Key',
+        hostKeyPolicy: 'Política de Host Key',
+        hostRef: 'Variável de host',
+        inputRef: 'Variável de entrada',
+        instruction: 'Instrução de aprovação',
+        localPath: 'Caminho local',
+        mode: 'Permissão do arquivo',
+        operator: 'Operador',
+        remotePath: 'Caminho remoto',
+        seconds: 'Segundos de espera',
+        temporaryPath: 'Caminho temporário',
         timeoutMs: 'Timeout ms',
-        timeoutSeconds: 'Timeout seconds',
-        transformInput: 'Transform input',
-        outputFormat: 'Output format',
-        usernameVariable: 'Username variable',
-        variable: 'Variable',
-        verifyType: 'Verify type'
+        timeoutSeconds: 'Segundos de timeout',
+        transformInput: 'Entrada da transformação',
+        outputFormat: 'Formato de saída',
+        usernameVariable: 'Variável de nome de usuário',
+        variable: 'Variável',
+        verifyType: 'Tipo de verificação'
       },
       options: {
         direction: {
-          download: 'Download',
-          upload: 'Upload'
+          download: 'Baixar',
+          upload: 'Enviar'
         },
         hostKeyPolicy: {
-          manualApproval: 'Manual approval',
-          strict: 'Strict verification',
-          trustOnFirstUse: 'Trust on first use'
+          manualApproval: 'Aprovação manual',
+          strict: 'Verificação estrita',
+          trustOnFirstUse: 'Confiar no primeiro uso'
         },
         operator: {
-          equals: 'Equals',
-          exists: 'Exists',
-          notEquals: 'Not equals',
-          notExists: 'Does not exist'
+          equals: 'Igual a',
+          exists: 'Existe',
+          notEquals: 'Diferente de',
+          notExists: 'Não existe'
         },
         transformFormat: {
-          raw: 'Raw value',
-          jsonString: 'JSON string'
+          raw: 'Valor bruto',
+          jsonString: 'String JSON'
         },
         verifyType: {
-          certificateFingerprint: 'Certificate fingerprint',
+          certificateFingerprint: 'Fingerprint do certificado',
           httpStatus: 'HTTP status',
-          regex: 'Regex match',
-          textContains: 'Text contains'
+          regex: 'Correspondência regex',
+          textContains: 'Texto contem'
         }
       },
       stages: {
         backup: {
-          title: 'Backup',
-          description: 'Keep rollback material.'
+          title: 'Cópia de segurança',
+          description: 'Mantém materiais para rollback.'
         },
         install: {
-          title: 'Install',
-          description: 'Write certificates or configuration.'
+          title: 'Instalação',
+          description: 'Implanta certificados ou configurações.'
         },
         prepare: {
-          title: 'Prepare',
-          description: 'Prepare connections, variables, and material.'
+          title: 'Preparação',
+          description: 'Prepara conexões, variáveis e materiais.'
         },
         refresh: {
-          title: 'Refresh',
-          description: 'Reload services or refresh targets.'
+          title: 'Atualização',
+          description: 'Recarrega serviços ou atualiza alvos.'
         },
         verify: {
-          title: 'Verify',
-          description: 'Confirm the result matches expectations.'
+          title: 'Verificação',
+          description: 'Confirma que o resultado atende ao esperado.'
         }
       },
       defaults: {
-        displayName: '{name} workflow',
+        displayName: 'Fluxo de trabalho {name}',
         nodes: {
-          backupExistingCertificate: 'Back up existing certificate',
-          reloadService: 'Reload service'
+          backupExistingCertificate: 'Fazer backup do certificado existente',
+          reloadService: 'Recarregar servico'
         },
         variables: {
           certificatePaths: {
-            description: 'Target certificate path configuration'
+            description: 'Configuração de caminhos do certificado de destino'
           },
           credential: {
-            description: 'Connection credential'
+            description: 'Credencial de conexão'
           },
           deviceHost: {
-            description: 'Target host'
+            description: 'Host de destino'
           },
           serverCert: {
-            description: 'Server certificate material to deploy',
+            description: 'Material do certificado do servidor a implantar',
             outputs: {
               certFile: {
-                description: 'Server certificate file'
+                description: 'Arquivo do certificado do servidor'
               },
               keyFile: {
-                description: 'Private key file'
+                description: 'Arquivo da chave privada'
               }
             }
           },
           sshUsername: {
-            description: 'SSH login username'
+            description: 'Nome de usuário para login SSH'
           },
           verifyUrl: {
-            description: 'Post-deployment verification URL'
+            description: 'URL de verificação pós-implantação'
           }
         },
         config: {
-          conditionDescription: 'Check whether the target host variable exists',
-          manualInstruction: 'Please confirm the target device certificate has switched to the new version.'
+          conditionDescription: 'Verifica se a variável do host de destino existe',
+          manualInstruction: 'Confirme se o certificado do dispositivo de destino foi alternado para a nova versão.'
         }
       },
       variableFlow: {
-        system: 'System',
-        variable: 'Variable'
+        system: 'Sistema',
+        variable: 'Variável'
       },
       errors: {
-        unknownNodeType: 'Unknown node type: {type}'
+        unknownNodeType: 'Tipo de nó desconhecido: {type}'
       }
     },
     canvasEditor: {
-      summary: '{nodes} nodes, {edges} edges, {variables} variables',
-      stageNodeCount: '{count} nodes',
-      copyLabel: '{label} copy',
+      summary: '{nodes} nós, {edges} conexões, {variables} variáveis',
+      stageNodeCount: '{count} nós',
+      copyLabel: 'Cópia de {label}',
       actions: {
-        addVariable: 'Add variable',
-        collapseBottomPanelAria: 'Collapse bottom control panel',
-        collapseDown: 'Collapse down',
-        copy: 'Copy',
-        copyNode: 'Copy node',
-        delete: 'Delete',
-        deleteNode: 'Delete node',
-        expandBottomPanelAria: 'Expand bottom control panel',
-        expandPanel: 'Expand panel',
-        layout: 'Arrange layout',
-        mockCurrentNode: 'Simulate current node only',
-        mockRunning: 'Simulating...',
-        paste: 'Paste',
-        pasteNode: 'Paste node',
-        realRun: 'Run current node for real',
-        realRunHttp: 'Run current HTTP node',
-        realRunRunning: 'Running...',
-        realRunSsh: 'Run current SSH node',
-        realRunTransfer: 'Run real file transfer',
-        redo: 'Redo',
-        saveDraft: 'Save draft',
-        saving: 'Saving...',
-        undo: 'Undo',
-        zoomIn: 'Zoom in',
-        zoomOut: 'Zoom out'
+        addVariable: 'Adicionar variável',
+        collapseBottomPanelAria: 'Recolher painel de controle inferior',
+        collapseDown: 'Recolher para baixo',
+        copy: 'Copiar',
+        copyNode: 'Copiar nó',
+        delete: 'Excluir',
+        deleteNode: 'Excluir nó',
+        expandBottomPanelAria: 'Expandir painel de controle inferior',
+        expandPanel: 'Expandir painel',
+        layout: 'Organizar layout',
+        mockCurrentNode: 'Simular apenas o nó atual',
+        mockRunning: 'Simulando...',
+        paste: 'Colar',
+        pasteNode: 'Colar nó',
+        realRun: 'Executar teste real do nó atual',
+        realRunHttp: 'Executar teste real do nó HTTP atual',
+        realRunRunning: 'Executando...',
+        realRunSsh: 'Executar o nó SSH atual',
+        realRunTransfer: 'Executar teste real de transferência de arquivo',
+        redo: 'Refazer',
+        saveDraft: 'Salvar rascunho',
+        saving: 'Salvando...',
+        undo: 'Desfazer',
+        zoomIn: 'Aumentar zoom',
+        zoomOut: 'Diminuir zoom'
       },
       aria: {
-        bottomPanel: 'Bottom panel',
-        canvasArea: 'Canvas area',
-        dslPanel: 'DSL panel',
-        nodePalette: 'Node palette',
-        propertiesPanel: 'Properties panel',
-        runtimePanel: 'Runtime panel',
-        toolbar: 'Workflow canvas toolbar',
-        validationPanel: 'Validation panel',
-        variablesPanel: 'Variables panel'
+        bottomPanel: 'Painel inferior',
+        canvasArea: 'Área do canvas',
+        dslPanel: 'Painel DSL',
+        nodePalette: 'Paleta de nós',
+        propertiesPanel: 'Painel de propriedades',
+        runtimePanel: 'Painel de runtime',
+        toolbar: 'Barra de ferramentas do canvas do fluxo de trabalho',
+        validationPanel: 'Painel de validação',
+        variablesPanel: 'Painel de variáveis'
       },
       credentialHints: {
-        savedApiKey: 'Saved API key',
-        savedBearerToken: 'Saved Bearer token',
-        savedSshSftp: 'Saved SSH / SFTP credentials',
-        savedUsernamePassword: 'Saved username + password'
+        savedApiKey: 'API Key salva',
+        savedBearerToken: 'Bearer Token salvo',
+        savedSshSftp: 'Credenciais SSH / SFTP salvas',
+        savedUsernamePassword: 'Nome de usuário + senha salvos'
       },
       credentials: {
-        emptyCreateHint: 'No available credentials. Create one from Credential Management on the list page.',
-        loading: 'Loading credentials from backend...'
+        emptyCreateHint: 'Não há credenciais disponíveis. Crie uma em Gerenciamento de credenciais na página de lista.',
+        loading: 'Carregando lista de credenciais...'
       },
       dsl: {
-        title: 'DSL import and overwrite',
-        hint: 'Paste external DSL JSON or choose a local DSL file. Import only overwrites the current canvas in the browser; a new workflow version is created only after saving the draft.',
-        selectFile: 'Select DSL file',
+        title: 'Importação e substituição de DSL',
+        hint: 'Cole um DSL JSON externo ou selecione um arquivo DSL local. A importação substitui apenas o canvas atual no navegador; uma nova versão do fluxo de trabalho só será criada após salvar o rascunho.',
+        selectFile: 'Selecionar arquivo DSL',
         actions: {
-          importOverwrite: 'Import DSL and overwrite canvas',
-          resetToCanvas: 'Refill current canvas DSL'
+          importOverwrite: 'Importar DSL e substituir canvas',
+          resetToCanvas: 'Preencher novamente com o DSL do canvas atual'
         },
         messages: {
-          fileLoaded: 'Loaded file: {fileName}',
-          imported: 'DSL imported and current canvas overwritten, {count} nodes total.',
-          resetToCompiled: 'Refilled backend-compiled DSL.'
+          fileLoaded: 'Arquivo carregado: {fileName}',
+          imported: 'DSL importado e canvas atual substituído, total de {count} nós.',
+          resetToCompiled: 'DSL compilado pelo backend preenchido novamente.'
         },
         errors: {
-          importFailed: 'DSL import failed',
-          invalidTopLevel: 'Invalid DSL top-level structure. It must be an object.'
+          importFailed: 'Falha ao importar DSL',
+          invalidTopLevel: 'Estrutura de nível superior do DSL inválida. Deve ser um objeto.'
         }
       },
       empty: {
-        selectNodeToEdit: 'Select a node to edit properties.'
+        selectNodeToEdit: 'Selecione um nó para editar as propriedades.'
       },
       errors: {
-        backendValidationFailed: 'Backend validation failed',
-        credentialsLoadFailed: 'Failed to load workflow credentials',
-        missingStepName: 'Step name is missing',
-        missingWorkflowDsl: 'Backend did not return workflow DSL'
+        backendValidationFailed: 'Falha na validação do backend',
+        credentialsLoadFailed: 'Falha ao carregar credenciais do fluxo de trabalho',
+        missingStepName: 'Nome da etapa ausente',
+        missingWorkflowDsl: 'Não foi possível obter o DSL do fluxo de trabalho'
       },
       fields: {
-        authType: 'Auth type',
-        clientCertificate: 'Client certificate',
-        clientPrivateKey: 'Client private key',
-        command: 'Command',
-        connectionVariable: 'Connection variable',
-        contentRef: 'Content reference',
-        cookieName: 'Cookie name',
-        credential: 'Credential',
-        credentialSelector: 'Credential selector',
-        defaultValue: 'Default value',
-        deliveryLocation: 'Delivery location',
-        description: 'Description',
-        direction: 'Direction',
-        fileMode: 'File mode',
-        headerName: 'Header name',
-        hostRefOrHostname: 'Host variable / hostname',
-        hostVariable: 'Host variable',
-        keyName: 'Key name',
-        localPath: 'Local path',
-        newNodeStage: 'New node stage',
-        nodeName: 'Node name',
-        remotePath: 'Remote path',
-        required: 'Required',
-        secretValue: 'Secret value',
-        sensitive: 'Sensitive',
-        stage: 'Stage',
-        temporaryPath: 'Temporary path',
-        timeoutSeconds: 'Timeout seconds',
-        type: 'Type',
-        username: 'Username',
-        variableName: 'Variable name'
+        authType: 'Tipo de autenticação',
+        clientCertificate: 'Certificado do cliente',
+        clientPrivateKey: 'Chave privada do cliente',
+        command: 'Comando',
+        connectionVariable: 'Variável de conexão',
+        contentRef: 'Referência de conteúdo',
+        cookieName: 'Nome do Cookie',
+        credential: 'Credencial',
+        credentialSelector: 'Seletor de credencial',
+        defaultValue: 'Valor padrão',
+        deliveryLocation: 'Local de envio',
+        description: 'Descrição',
+        direction: 'Direção',
+        fileMode: 'Permissão do arquivo',
+        headerName: 'Nome do Header',
+        hostRefOrHostname: 'Variável de host / hostname',
+        hostVariable: 'Variável de host',
+        keyName: 'Nome da Key',
+        localPath: 'Caminho local',
+        newNodeStage: 'Estágio do novo nó',
+        nodeName: 'Nome do nó',
+        remotePath: 'Caminho remoto',
+        required: 'Obrigatório',
+        secretValue: 'Valor sigiloso',
+        sensitive: 'Sensível',
+        stage: 'Estágio',
+        temporaryPath: 'Caminho temporário',
+        timeoutSeconds: 'Segundos de timeout',
+        type: 'Tipo',
+        username: 'Nome de usuário',
+        variableName: 'Nome da variável'
       },
       options: {
-        download: 'Download',
-        manualInput: 'Manual input',
-        notSelected: 'Not selected',
-        upload: 'Upload'
+        download: 'Baixar',
+        manualInput: 'Preenchimento manual',
+        notSelected: 'Não selecionado',
+        upload: 'Enviar'
       },
       runtime: {
-        noCredentialVariables: 'This workflow has no credential variables.',
-        noExtraVariables: 'The current node has no extra runtime variables.'
+        noCredentialVariables: 'Este fluxo de trabalho não tem variáveis de credencial.',
+        noExtraVariables: 'O nó atual não tem variáveis extras de runtime.'
       },
       sections: {
-        httpAuth: 'HTTP authentication',
-        nodePalette: 'Node palette',
-        properties: 'Properties',
-        referenceFlow: 'Reference flow',
-        runtimeCredentialVariables: 'Runtime credential variables',
-        runtimeVariables: 'Runtime variables',
-        singleNodeTest: 'Single-node test run',
-        variableConfig: 'Variable configuration'
+        httpAuth: 'Autenticação HTTP',
+        nodePalette: 'Paleta de nós',
+        properties: 'Propriedades',
+        referenceFlow: 'Fluxo de referências',
+        runtimeCredentialVariables: 'Variáveis de credencial em runtime',
+        runtimeVariables: 'Variáveis de runtime',
+        singleNodeTest: 'Teste de nó único',
+        variableConfig: 'Configuração de variáveis'
       },
       tabs: {
         runtime: 'Runtime',
-        validation: 'Validation',
-        variables: 'Variables'
+        validation: 'Validação',
+        variables: 'Variáveis'
       },
       test: {
-        cause: 'Cause',
-        code: 'Code',
-        emptyHint: 'Select a node to run a simulation or real test.',
-        error: 'Error',
-        executionPlan: 'Execution plan',
-        exitCode: 'Exit code',
-        failureDetails: 'Failure details',
-        hint: 'Test hint',
+        cause: 'Causa',
+        code: 'Código',
+        emptyHint: 'Selecione um nó para executar uma simulação ou um teste real.',
+        error: 'Erro',
+        executionPlan: 'Plano de execução',
+        exitCode: 'Código de saída',
+        failureDetails: 'Detalhes da falha',
+        hint: 'Dica de teste',
         logs: 'Logs',
-        nodeOutput: 'Node output',
-        running: 'Running',
-        stage: 'Stage',
-        stderr: 'Standard error',
-        stdout: 'Standard output',
-        suggestion: 'Suggestion',
-        target: 'Target',
+        nodeOutput: 'Saída do nó',
+        running: 'Em execução',
+        stage: 'Estágio',
+        stderr: 'Erro padrão',
+        stdout: 'Saída padrão',
+        suggestion: 'Sugestão',
+        target: 'Destino',
         errors: {
-          mockRunFailed: 'Simulation failed',
-          realRunFailed: 'Real test run failed'
+          mockRunFailed: 'Falha na simulação',
+          realRunFailed: 'Falha no teste real'
         },
         messages: {
-          mockCompleted: 'Simulation completed.',
-          mockFailed: 'Simulation failed.',
-          realCompleted: 'Real test run completed.',
-          realFailed: 'Real test run failed.'
+          mockCompleted: 'Simulação concluída.',
+          mockFailed: 'Falha na simulação.',
+          realCompleted: 'Teste real concluído.',
+          realFailed: 'Falha no teste real.'
         }
       },
       validation: {
         levels: {
-          error: 'Error',
-          risk: 'Risk',
-          warning: 'Warning'
+          error: 'Erro',
+          risk: 'Risco',
+          warning: 'Aviso'
         },
         location: {
           canvas: 'Canvas',
-          edge: 'Edge',
-          fieldSuffix: 'field',
-          node: 'Node'
+          edge: 'Conexão',
+          fieldSuffix: 'campo',
+          node: 'Nó'
         },
-        noBlockingErrors: 'No blocking errors.'
+        noBlockingErrors: 'Nenhum erro bloqueante.'
       },
       variables: {
-        customRuntimeDescription: 'Custom runtime variable',
-        notUsed: 'Not used',
-        usedBy: 'Used by: {nodes}'
+        customRuntimeDescription: 'Variável de runtime personalizada',
+        notUsed: 'Não utilizada',
+        usedBy: 'Usada por: {nodes}'
       }
     },
     templates: {
-      title: 'Workflows',
-      resourceName: 'Workflow',
-      description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
+      title: 'Fluxos de trabalho',
+      resourceName: 'Fluxo de trabalho',
+      description: 'Gerencie versões de fluxos CURL/SSH/SFTP, status de publicação e histórico de alterações a partir dos rascunhos do canvas.',
       actions: {
-        addVersion: 'Add version',
-        applyTemplate: 'Apply template',
-        cancel: 'Cancel',
-        close: 'Close',
-        createBlank: 'Create blank',
-        credentialManagement: 'Credential management',
-        delete: 'Delete',
-        detail: 'Details',
-        edit: 'Edit',
-        publishVersion: 'Publish version',
-        saveNote: 'Save note',
-        switchVersion: 'Switch version',
-        templateManagement: 'Template management',
-        versionManagement: 'Version management'
+        addVersion: 'Adicionar versão',
+        applyTemplate: 'Aplicar modelo',
+        cancel: 'Cancelar',
+        close: 'Fechar',
+        createBlank: 'Criar em branco',
+        credentialManagement: 'Gerenciamento de credenciais',
+        delete: 'Excluir',
+        detail: 'Detalhes',
+        edit: 'Editar',
+        publishVersion: 'Publicar versão',
+        saveNote: 'Salvar observação',
+        switchVersion: 'Alternar versão',
+        templateManagement: 'Gerenciamento de modelos',
+        versionManagement: 'Gerenciamento de versões'
       },
       states: {
-        creating: 'Creating...',
-        loading: 'Loading...',
-        processing: 'Processing...',
-        saving: 'Saving...'
+        creating: 'Criando...',
+        loading: 'Carregando...',
+        processing: 'Processando...',
+        saving: 'Salvando...'
       },
       fields: {
-        actions: 'Actions',
-        createdAt: 'Created at',
-        currentStatus: 'Current status',
-        currentVersion: 'Current version',
-        currentVersionId: 'Current version ID',
-        id: 'Workflow ID',
-        name: 'Workflow name',
-        note: 'Note',
+        actions: 'Ações',
+        createdAt: 'Criado em',
+        currentStatus: 'Status atual',
+        currentVersion: 'Versão atual',
+        currentVersionId: 'ID da versão atual',
+        id: 'ID do fluxo de trabalho',
+        name: 'Nome do fluxo de trabalho',
+        note: 'Observação',
         status: 'Status',
-        updatedAt: 'Updated at'
+        updatedAt: 'Atualizado em'
       },
       empty: {
-        description: 'Create a canvas draft first, then publish versions to the production flow.',
-        noChangeSummary: 'No change summary.',
-        noChangeSummaryShort: 'No change summary',
-        noVersions: 'No versions.',
-        title: 'No workflows'
+        description: 'Crie primeiro um rascunho no canvas e depois publique versões para o fluxo oficial.',
+        noChangeSummary: 'Sem resumo de alterações.',
+        noChangeSummaryShort: 'Sem resumo de alterações',
+        noVersions: 'Nenhuma versão.',
+        title: 'Nenhum fluxo de trabalho'
       },
       tabs: {
-        summary: 'Overview',
-        versions: 'Versions'
+        summary: 'Visão geral',
+        versions: 'Versões'
       },
       versionStatuses: {
-        disabled: 'Disabled',
-        draft: 'Draft',
-        published: 'Published'
+        disabled: 'Desativado',
+        draft: 'Rascunho',
+        published: 'Publicado'
       },
       detail: {
-        description: 'Workflow details, canvas drafts, and versions are kept in this modal; the main page stays compact.',
-        publishedVersion: 'Published version {version}',
-        title: 'Workflow details',
-        titleWithName: 'Workflow {name}'
+        description: 'Veja detalhes do fluxo de trabalho, rascunho do canvas e lista de versoes.',
+        publishedVersion: 'Versão publicada atual {version}',
+        title: 'Detalhes do fluxo de trabalho',
+        titleWithName: 'Fluxo de trabalho {name}'
       },
       versionManager: {
-        description: 'Manage only workflow version creation and publishing here; workflow canvas content is not changed.',
-        titleWithName: 'Version management: {name}'
+        description: 'Gerencie aqui a criação e publicação de versões do fluxo de trabalho, sem alterar o conteúdo do canvas.',
+        titleWithName: 'Gerenciamento de versões: {name}'
       },
       changeSummaries: {
-        applyFromFileTemplate: 'Apply file template to workflow draft',
-        createCanvasDraft: 'Create workflow draft from frontend canvas',
-        createFromFileTemplate: 'Create workflow draft from file template',
-        createVersionDraft: 'Create new draft version from version management',
-        saveCanvasDraft: 'Save draft version from canvas editor'
+        applyFromFileTemplate: 'Substituir rascunho do fluxo a partir de modelo de arquivo',
+        createCanvasDraft: 'Criar rascunho de fluxo de trabalho pelo canvas do frontend',
+        createFromFileTemplate: 'Criar rascunho de fluxo de trabalho a partir de modelo de arquivo',
+        createVersionDraft: 'Criar nova versão rascunho pelo gerenciamento de versões',
+        saveCanvasDraft: 'Salvar versão rascunho pelo editor de canvas'
       },
       messages: {
-        canvasDraftUpdated: 'Current draft version updated.',
-        switchedVersion: 'Switched to {version}.',
-        versionDraftCreated: 'New draft version created.',
-        versionNoteUpdated: 'Version note updated.'
+        canvasDraftUpdated: 'Versão rascunho atual atualizada.',
+        switchedVersion: 'Alternado para {version}.',
+        versionDraftCreated: 'Nova versão rascunho criada.',
+        versionNoteUpdated: 'Observação da versão atualizada.'
       },
       errors: {
-        createVersionFailed: 'Failed to create workflow version',
-        loadVersionsFailed: 'Failed to load workflow versions',
-        missingWorkflowDsl: 'Backend did not return workflow DSL',
-        publishVersionFailed: 'Failed to publish workflow version',
-        saveCanvasDraftFailed: 'Failed to save canvas draft',
-        updateVersionNoteFailed: 'Failed to update version note'
+        createVersionFailed: 'Falha ao criar versão do fluxo de trabalho',
+        loadVersionsFailed: 'Falha ao carregar versões do fluxo de trabalho',
+        missingWorkflowDsl: 'Não foi possível obter o DSL do fluxo de trabalho',
+        publishVersionFailed: 'Falha ao publicar versão do fluxo de trabalho',
+        saveCanvasDraftFailed: 'Falha ao salvar rascunho do canvas',
+        updateVersionNoteFailed: 'Falha ao atualizar observação da versão'
       },
       delete: {
-        riskText: 'Deleting disables this workflow and all versions, hiding them from the list; historical execution records will not be rewritten.'
+        riskText: 'A exclusão desativa este fluxo de trabalho e todas as suas versões, removendo-os da lista; os registros históricos de execução não serão regravados.'
       },
       loading: {
-        versions: 'Loading versions...'
+        versions: 'Carregando versões...'
       },
       fileTemplates: {
-        applyAction: 'Apply template to current workflow',
-        applyTitle: 'Apply file template to workflow',
-        createAction: 'Create workflow from template',
-        createTitle: 'Create workflow from file template',
-        currentTarget: 'Current target: {name}',
-        description: 'Template files come from the built-in template library or user import directory. Applying one to an existing workflow creates a new draft version and does not rewrite history.',
-        empty: 'No recognizable workflow template files.',
-        identifier: 'Identifier {name}',
-        invalid: 'Invalid',
-        invalidFile: 'Invalid file',
-        loading: 'Scanning file templates...',
-        valid: 'Available',
+        applyAction: 'Aplicar modelo ao fluxo de trabalho atual',
+        applyTitle: 'Aplicar modelo de arquivo ao fluxo de trabalho',
+        createAction: 'Criar fluxo de trabalho a partir do modelo',
+        createTitle: 'Novo fluxo de trabalho a partir de modelo de arquivo',
+        currentTarget: 'Destino atual: {name}',
+        description: 'Os arquivos de modelo vêm da biblioteca interna de modelos ou do diretório de importação do usuário. Ao substituir um fluxo existente, uma nova versão rascunho será criada sem regravar versões históricas.',
+        empty: 'Nenhum arquivo de modelo de fluxo de trabalho reconhecível.',
+        identifier: 'Identificador {name}',
+        invalid: 'Inválido',
+        invalidFile: 'Arquivo inválido',
+        loading: 'Escaneando modelos de arquivo...',
+        valid: 'Disponível',
         sources: {
-          builtin: 'Built-in',
-          userImported: 'User imported'
+          builtin: 'Interno',
+          userImported: 'Importado pelo usuário'
         },
         errors: {
-          actionFailed: 'Failed to run file template action',
-          loadFailed: 'Failed to load workflow file templates',
-          missingApplyTarget: 'Missing workflow target to apply'
+          actionFailed: 'Falha ao executar ação de modelo de arquivo',
+          loadFailed: 'Falha ao carregar modelos de arquivo de fluxo de trabalho',
+          missingApplyTarget: 'Destino de fluxo de trabalho ausente para aplicação'
         }
       },
       credentials: {
         actions: {
-          create: 'Create credential'
+          create: 'Criar credencial'
         },
-        addTitle: 'Add credential',
-        count: '{count} item(s)',
-        description: 'Create reusable login and API credentials for workflows in one place. The frontend only selects and reuses them, without requiring manual internal reference strings.',
-        empty: 'No backend credential records. After creation, they can be selected directly in variables, SSH nodes, and HTTP nodes.',
-        loading: 'Loading credential metadata from backend...',
-        registeredTitle: 'Registered credentials',
-        title: 'Credential management',
+        addTitle: 'Adicionar credencial',
+        count: '{count} itens',
+        description: 'Gerencie em um único lugar as credenciais de login e API necessárias para fluxos de trabalho, com suporte a seleção e reuso direto no canvas e nos nós.',
+        empty: 'Nenhum registro de credencial. Depois de criadas, elas podem ser selecionadas diretamente em variáveis, nós SSH e nós HTTP.',
+        loading: 'Carregando informações de credenciais...',
+        registeredTitle: 'Credenciais registradas',
+        title: 'Gerenciamento de credenciais',
         fields: {
-          deliveryLocation: 'Delivery location',
-          headerOrParam: 'Header / parameter name',
-          name: 'Credential name',
-          referenceLocation: 'Reference location',
-          storageType: 'Storage type',
-          type: 'Credential type',
-          username: 'Username'
+          deliveryLocation: 'Local de envio',
+          headerOrParam: 'Nome do Header / parâmetro',
+          name: 'Nome da credencial',
+          referenceLocation: 'Local de referencia',
+          storageType: 'Tipo de armazenamento',
+          type: 'Tipo de credencial',
+          username: 'Nome de usuário'
         },
         kinds: {
           common: {
-            family: 'General'
+            family: 'Geral'
           },
           sshKey: {
-            title: 'SSH private key'
+            title: 'Chave privada SSH'
           },
           usernamePassword: {
-            title: 'Username + password'
+            title: 'Nome de usuário + senha'
           }
         },
         secretLabels: {
-          password: 'Password',
-          sshKey: 'SSH private key'
+          password: 'Senha',
+          sshKey: 'Chave privada SSH'
         },
         placeholders: {
-          apiKey: 'Enter API Key',
-          bearer: 'Enter Bearer Token',
-          password: 'Enter login password',
-          sshKey: 'Paste PEM private key'
+          apiKey: 'Informe a API Key',
+          bearer: 'Informe o Bearer Token',
+          password: 'Informe a senha de login',
+          sshKey: 'Cole a chave privada em formato PEM'
         },
         messages: {
-          created: 'Credential created. It can now be selected in workflow variables, SSH nodes, and HTTP nodes.'
+          created: 'Credencial criada. Ela já pode ser selecionada em variáveis do fluxo de trabalho, nós SSH e nós HTTP.'
         },
         errors: {
-          createFailed: 'Failed to create credential',
-          loadFailed: 'Failed to load backend credentials',
-          missingCreatedId: 'Credential creation did not return a valid ID'
+          createFailed: 'Falha ao criar credencial',
+          loadFailed: 'Falha ao carregar credenciais',
+          missingCreatedId: 'A criação da credencial não retornou um ID válido'
         }
       }
     }
   },
   monitoring: {
     actions: {
-      add: 'Add monitor',
-      probe: 'Probe sites',
-      probing: 'Probing...',
-      refresh: 'Refresh data',
-      refreshing: 'Refreshing...',
-      remove: 'Remove'
+      add: 'Adicionar monitoramento',
+      probe: 'Verificar sites',
+      probing: 'Verificando...',
+      refresh: 'Atualizar dados',
+      refreshing: 'Atualizando...',
+      remove: 'Remover'
     },
     errors: {
-      addFailed: 'Failed to add monitor target',
-      deleteFailed: 'Failed to delete monitor target',
-      invalidTarget: 'The backend returned an invalid monitor target',
-      loadFailed: 'Failed to load monitoring data',
-      probeFailed: 'Probe request failed',
-      updateIntervalFailed: 'Failed to update probe interval'
+      addFailed: 'Falha ao adicionar alvo de monitoramento',
+      deleteFailed: 'Falha ao excluir alvo de monitoramento',
+      invalidTarget: 'Dados inválidos do alvo de monitoramento',
+      loadFailed: 'Falha ao carregar dados de monitoramento',
+      probeFailed: 'Falha na requisição de verificação',
+      updateIntervalFailed: 'Falha ao atualizar frequência de verificação'
     },
     empty: {
-      actualCertificate: 'No observed TLS certificate yet. HTTPS targets collect certificate information automatically during site probes.',
-      description: 'Add a monitor from the top right. The system will probe the site on schedule and collect certificate information.',
-      noAddableAssets: 'No application assets can be added. Adjust existing target probe intervals in the detail view.',
-      observedCertificateHistory: 'No bound certificate versions yet. The first certificate collected by a site probe will be retained automatically.',
-      probeHistory: 'No probe history.',
-      riskEvents: 'No related events.',
-      title: 'No monitor targets'
+      actualCertificate: 'Ainda não há certificado TLS observado. Alvos HTTPS coletam informações de certificado automaticamente durante a verificação do site.',
+      description: 'Clique em adicionar monitoramento no canto superior direito. O sistema verificará o site conforme a frequência definida e coletará informações de certificado.',
+      noAddableAssets: 'Não há ativos de aplicação que possam ser adicionados. Para alvos existentes, ajuste a frequência de verificação nos detalhes.',
+      observedCertificateHistory: 'Ainda não há versões de certificado vinculadas. O primeiro certificado coletado pela verificação do site será preservado automaticamente.',
+      probeHistory: 'Nenhum histórico de verificação.',
+      riskEvents: 'Nenhum evento relacionado.',
+      title: 'Nenhum alvo de monitoramento'
     },
     sections: {
-      actualCertificate: 'Current observed site certificate',
-      actualCertificateHint: 'Collected automatically during site probes',
-      observedCertificateHistory: 'Bound certificate versions',
-      observedCertificateHistoryHint: 'Keeps version records as observed TLS certificates change',
-      probeHistory: 'Probe history',
-      probeHistoryHint: 'Latest 20 backend probe results',
-      riskEvents: 'Risk events',
-      riskEventsHint: 'Certificate chain, domain, fingerprint, and execution status',
-      targets: 'Monitor targets'
+      actualCertificate: 'Certificado observado atualmente no site',
+      actualCertificateHint: 'Coletado automaticamente durante a verificação do site',
+      observedCertificateHistory: 'Versões de certificado vinculadas',
+      observedCertificateHistoryHint: 'Mantém registros de versão conforme mudanças no certificado TLS observado',
+      probeHistory: 'Histórico de verificação',
+      probeHistoryHint: 'Últimos 20 resultados de verificação do sistema',
+      riskEvents: 'Eventos de risco',
+      riskEventsHint: 'Cadeia de certificados, domínio, fingerprint e status de execução',
+      targets: 'Alvos de monitoramento'
     },
     labels: {
-      applicationAsset: 'Application asset',
-      currentTarget: 'Current target',
-      probeInterval: 'Probe interval'
+      applicationAsset: 'Ativo de aplicação',
+      currentTarget: 'Alvo atual',
+      probeInterval: 'Frequência de verificação'
     },
     metrics: {
-      availability: 'Availability',
-      certificateStatus: 'Certificate status',
-      latency: 'Latency',
-      observedCertificateChanges: 'Observed certificate changes'
+      availability: 'Disponibilidade',
+      certificateStatus: 'Status do certificado',
+      latency: 'Latência',
+      observedCertificateChanges: 'Mudanças no certificado observado'
     },
     probe: {
-      completed: 'Probe completed',
-      emptyHistoryBlock: 'Probe {index}: no probe yet',
-      latencyNotCollected: 'Latency not collected',
-      recentAria: 'Latest 10 probe results',
-      waiting: 'Waiting for site probe'
+      completed: 'Verificação concluída',
+      emptyHistoryBlock: 'Verificação {index}: ainda sem verificação',
+      latencyNotCollected: 'Latência não coletada',
+      recentAria: 'Últimos 10 resultados de verificação',
+      waiting: 'Aguardando verificação do site'
     },
     status: {
-      error: 'Error',
-      none: 'Pending',
-      ready: 'Healthy',
-      warning: 'Warning'
+      error: 'Erro',
+      none: 'Pendente',
+      ready: 'Normal',
+      warning: 'Aviso'
     },
     fallback: {
-      noEndpoint: 'No endpoint configured',
-      noFingerprint: 'No fingerprint',
-      noSummary: 'No summary',
-      notCollected: 'Not collected',
-      notSelected: 'Not selected',
-      unknownAsset: 'Unknown asset',
-      unknownCertificate: 'Unknown certificate',
-      unknownIssuer: 'Unknown issuer',
-      unnamedEvent: 'Unnamed event'
+      noEndpoint: 'Nenhum endpoint configurado',
+      noFingerprint: 'Sem fingerprint',
+      noSummary: 'Sem resumo',
+      notCollected: 'Não coletado',
+      notSelected: 'Não selecionado',
+      unknownAsset: 'Ativo desconhecido',
+      unknownCertificate: 'Certificado desconhecido',
+      unknownIssuer: 'Emissor desconhecido',
+      unnamedEvent: 'Evento sem nome'
     },
     certificate: {
-      actualCertificate: 'Observed certificate',
-      chainUntrusted: 'Not trusted by the system trust chain',
-      chainVerification: 'Chain verification',
-      chainVerified: 'Chain verified',
-      chainVerifyFailedWithReason: 'Chain verification failed: {reason}',
-      collectedAt: 'Collected at',
-      issuer: 'Issuer',
-      serialNumber: 'Serial number',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      subject: 'Subject',
-      validity: 'Validity',
-      validityRange: '{start} to {end}'
+      actualCertificate: 'Certificado observado',
+      chainUntrusted: 'Não aprovado pela cadeia de confiança do sistema',
+      chainVerification: 'Verificação da cadeia',
+      chainVerified: 'Cadeia verificada',
+      chainVerifyFailedWithReason: 'Falha na verificação da cadeia: {reason}',
+      collectedAt: 'Coletado em',
+      issuer: 'Emissor',
+      serialNumber: 'Número de série',
+      sha256Fingerprint: 'Fingerprint SHA-256',
+      subject: 'Assunto',
+      validity: 'Validade',
+      validityRange: '{start} até {end}'
     },
     columns: {
-      certificateName: 'Certificate name',
-      changedAt: 'Changed at',
-      expiresAt: 'Expires at',
-      issuerName: 'Issuer name',
-      latency: 'Latency',
-      result: 'Result',
-      source: 'Source',
+      certificateName: 'Nome do certificado',
+      changedAt: 'Alterado em',
+      expiresAt: 'Expira em',
+      issuerName: 'Nome do emissor',
+      latency: 'Latência',
+      result: 'Resultado',
+      source: 'Origem',
       status: 'Status',
-      time: 'Time'
+      time: 'Hora'
     },
     dialog: {
-      defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
-      description: 'Select a target from application assets. The system will collect availability, latency, certificate information, and certificate history.',
-      loadingAssets: 'Loading assets...',
-      selectAsset: 'Select application asset',
-      title: 'Add monitor'
+      defaultMetricsHint: 'Disponibilidade, latência, informações do certificado e histórico de certificados são monitorados por padrão.',
+      description: 'Selecione um alvo na lista de ativos de aplicação. O sistema coletará disponibilidade, latência, informações do certificado e histórico de certificados.',
+      loadingAssets: 'Carregando ativos...',
+      selectAsset: 'Selecione o ativo de aplicação',
+      title: 'Adicionar monitoramento'
     },
     source: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Plataforma'
     },
     targets: {
-      assetCount: '{count} assets'
+      assetCount: '{count} ativos'
     }
   },
   login: {
-    visualLabel: '产品说明',
-    brand: 'GCAC 证书控制台',
-    brandSecondary: '证书集中管理平台',
-    headlinePrefix: '让证书管理',
-    headlineHighlight: '更智能',
-    headlineSuffix: '、更安全',
-    intro: '一站式管理证书资产，自动化部署编排，全链路审计追踪，将证书运维从繁琐的人工操作转变为可验证、可回溯的标准化流程，为企业数字基础设施保驾护航。',
-    capabilitiesLabel: '平台能力',
-    featureLifecycle: '全生命周期管理',
-    featureLifecycleDesc: '从导入、续签、版本追踪到到期预警，覆盖证书资产的每一个环节。',
-    featureAutomation: '自动化部署编排',
-    featureAutomationDesc: '面向 Nginx、Tomcat、IIS 等主流环境，一键生成可审计的部署计划。',
-    featureRollback: '安全执行与回滚',
-    featureRollbackDesc: '部署前自动校验，执行全程留痕，失败即回滚，确保生产环境稳定无忧。',
-    formLabel: '登录表单',
-    secure: '安全连接',
-    welcome: '登录控制台',
-    hint: '使用企业账号进入 GCAC 管理工作台',
-    username: '用户名',
-    usernamePlaceholder: '请输入用户名',
-    password: '密码',
-    passwordPlaceholder: '请输入密码',
-    failed: '登录失败，请稍后重试',
-    submitting: '正在验证身份…',
-    submit: '登 录',
-    policy: 'RBAC 权限保护',
-    audit: '操作全程审计'
+    visualLabel: 'Descrição do produto',
+    brand: 'Console de Certificados GCAC',
+    brandSecondary: 'Plataforma centralizada de gerenciamento de certificados',
+    headlinePrefix: 'Torne o gerenciamento de certificados',
+    headlineHighlight: 'mais inteligente',
+    headlineSuffix: ' e mais seguro',
+    intro: 'Gerencie ativos de certificados em um só lugar, orquestre implantações automatizadas e acompanhe auditoria ponta a ponta, transformando a operação manual de certificados em um processo padronizado, verificável e rastreável para proteger a infraestrutura digital da empresa.',
+    capabilitiesLabel: 'Capacidades da plataforma',
+    featureLifecycle: 'Gerenciamento de ciclo de vida completo',
+    featureLifecycleDesc: 'Da importação, renovação e rastreamento de versões aos alertas de expiração, cobre cada etapa dos ativos de certificados.',
+    featureAutomation: 'Orquestração automatizada de implantação',
+    featureAutomationDesc: 'Para ambientes comuns como Nginx, Tomcat e IIS, gera planos de implantação auditáveis com um clique.',
+    featureRollback: 'Execução segura e rollback',
+    featureRollbackDesc: 'Valida automaticamente antes da implantação, registra toda a execução e faz rollback em caso de falha, mantendo o ambiente de produção estável.',
+    formLabel: 'Formulário de login',
+    secure: 'Conexão segura',
+    welcome: 'Entrar no console',
+    hint: 'Use a conta corporativa para acessar o workspace de gerenciamento do GCAC',
+    username: 'Nome de usuário',
+    usernamePlaceholder: 'Digite o nome de usuário',
+    password: 'Senha',
+    passwordPlaceholder: 'Digite a senha',
+    failed: 'Falha no login. Tente novamente mais tarde',
+    submitting: 'Verificando identidade...',
+    submit: 'Entrar',
+    policy: 'Proteção por permissões RBAC',
+    audit: 'Auditoria completa das operações'
   },
-  reports: {
-    common: {
-      loadFailed: '报表加载失败，请稍后重试',
-      dataAsOf: '数据截止时间：{time}',
-      rangeDays: '最近 {days} 天',
-      samples: '样本数：{count}',
-      secondsValue: '{value} 秒',
-      emptyValue: '—',
-      trend: '历史趋势',
-      date: '日期',
-      snapshotMetrics: '快照指标数',
-      completeness: '完整性',
-      complete: '完整',
-      incomplete: '不完整',
-      noTrend: '当前时间范围暂无历史快照',
-      groupBreakdown: '分组对比',
-      dimension: '维度',
-      groupValue: '分组值',
-      count: '数量',
-      noGroups: '暂无分组数据',
-      drilldown: '对象下钻',
-      selectedMetric: '当前指标：{metric}',
-      noItems: '暂无符合条件的对象'
-    },
-    incidentWindow: {
-      title: '证书事故窗口报表',
-      description: '识别正在进入事故窗口的证书，并定位缺少替换证书、计划或执行通道的对象。'
-    },
-    riskResponse: {
-      title: '风险处置报表',
-      description: '查看风险确认与解决是否及时，定位未完成样本、重新打开和 SLA 逾期。'
-    },
-    automationEffectiveness: {
-      title: '自动化成效报表',
-      description: '分别查看运行级和目标级成功率，并定位重试、回滚、人工介入和失败阶段。'
-    },
-    export: {
-      csv: '导出 CSV',
-      generating: '正在生成…',
-      failed: 'CSV 生成失败',
-      history: '导出记录',
-      download: '下载',
-      noHistory: '暂无导出记录',
-      status: {
-        queued: '排队中',
-        running: '生成中',
-        succeeded: '已完成',
-        failed: '失败',
-        expired: '已过期'
-      }
-    },
-    aria: {
-      reportPage: '运营报表页面',
-      rangeFilter: '报表时间范围',
-      metrics: '报表核心指标',
-      filters: '报表筛选条件'
-    },
-    filters: {
-      environment: '环境',
-      ownerId: '负责人 ID',
-      assetId: '对象 ID',
-      tag: '标签',
-      severity: '风险等级',
-      riskType: '风险类型',
-      automationId: '自动化 ID',
-      failureStage: '失败阶段',
-      all: '全部',
-      apply: '应用筛选',
-      reset: '重置筛选'
-    },
-    groups: {
-      dimensions: {
-        usage_status: '使用状态',
-        readiness_stage: '准备阶段',
-        environment: '环境',
-        owner_id: '负责人',
-        severity: '风险等级',
-        risk_type: '风险类型',
-        action_type: '动作类型',
-        failure_stage: '失败阶段'
-      },
-      values: {
-        in_use: '在用',
-        idle: '闲置',
-        unknown: '未知',
-        missing_replacement: '缺少替换证书',
-        plan_missing: '尚未创建计划',
-        waiting_approval: '等待审批',
-        blocked: '执行通道阻塞',
-        ready: '已准备',
-        critical: '严重',
-        high: '高',
-        medium: '中',
-        low: '低',
-        create_deployment_plan: '创建部署计划',
-        execute_deployment_plan: '执行部署计划',
-        send_notification: '发送通知',
-        selection: '目标选择',
-        plan_creation: '计划创建',
-        dry_run: '预检',
-        approval: '审批',
-        execution: '执行',
-        verification: '验证',
-        rollback: '回滚',
-        notification: '通知',
-        none: '无失败阶段'
-      }
-    },
-    columns: {
-      certificateAssetId: '证书资产 ID',
-      certificateVersionId: '证书版本 ID',
-      name: '名称',
-      primaryDomain: '主域名',
-      notAfter: '到期时间',
-      usageStatus: '使用状态',
-      readinessStage: '准备阶段',
-      environment: '环境',
-      ownerId: '负责人',
-      tags: '标签',
-      publicExposure: '公网暴露',
-      bindingIds: '绑定 ID',
-      risk: '风险',
-      history: '状态历史',
-      slaPolicy: 'SLA 策略',
-      timing: '处置时长',
-      id: 'ID',
-      automationId: '自动化 ID',
-      automationVersion: '自动化版本',
-      automationNameSnapshot: '自动化名称',
-      triggerType: '触发类型',
-      status: '状态',
-      failureStage: '失败阶段',
-      startedAt: '开始时间',
-      finishedAt: '完成时间',
-      createdAt: '创建时间',
-      runId: '运行 ID',
-      targetSnapshot: '目标快照',
-      actionType: '动作类型',
-      deploymentPlanId: '部署计划 ID',
-      executionRunId: '执行记录 ID',
-      notificationRequestIds: '通知请求 ID',
-      attemptCount: '尝试次数',
-      rollbackStatus: '回滚状态',
-      manualIntervention: '人工介入',
-      unknown: '{name}'
-    },
-    metrics: {
-      certificates: {
-        expiring: {
-          '30d': '16–30 天到期',
-          '15d': '8–15 天到期',
-          '7d': '4–7 天到期',
-          '3d': '2–3 天到期',
-          '1d': '0–1 天到期'
-        },
-        expired: {
-          in_use: '已过期且在用'
-        },
-        missing_replacement: '缺少替换证书',
-        missing_deployment_plan: '尚未创建计划',
-        waiting_approval: '等待审批',
-        execution_channel_blocked: '执行通道阻塞'
-      },
-      risks: {
-        created: '新增风险',
-        resolved: '已解决风险',
-        reopened: '重新打开',
-        open_end_of_period: '期末未解决',
-        overdue_acknowledgement: '确认 SLA 逾期',
-        overdue_resolution: '解决 SLA 逾期',
-        tta: {
-          average_seconds: '平均确认时长'
-        },
-        ttr: {
-          average_seconds: '平均解决时长'
-        },
-        ack_sla_rate: '确认 SLA 达标率',
-        resolve_sla_rate: '解决 SLA 达标率'
-      },
-      automations: {
-        runs: {
-          total: '自动化运行数',
-          success_rate: '运行级成功率'
-        },
-        targets: {
-          total: '自动化目标数',
-          success_rate: '目标级成功率',
-          failed: '失败目标',
-          retried: '重试目标',
-          rollback_succeeded: '回滚成功',
-          rollback_failed: '回滚失败',
-          manual_intervention: '需要人工介入',
-          waiting_approval: '等待审批目标'
-        }
-      }
-    }
+  compatibility: {
+    title: 'Catálogo de compatibilidade', description: 'Suporte, limitações e evidências vêm dos Perfis de Compatibilidade.', generatedAt: 'Gerado em: {time}', loading: 'Carregando catálogo…', loadFailed: 'Falha ao carregar o catálogo', none: 'Nenhum',
+    columns: { profile: 'Perfil', version: 'Versão', status: 'Status', automation: 'Automação', evidence: 'Evidência', verifiedAt: 'Última verificação', limitations: 'Limitações' },
+    status: { certified: 'Certificado', supported: 'Suportado', compatible: 'Compatível', experimental: 'Experimental', legacy: 'Legado', unsupported: 'Não suportado' },
+    evidence: { current: 'Atual', expired: 'Expirada', failed: 'Falhou' }
   },
   errors: {
     forbiddenTitle: '403 Sem permissão',
-    forbiddenMessage: 'You do not have permission to access this page.',
-    missingPermission: 'Missing permission: {permission}',
+    forbiddenMessage: 'Você não tem a permissão necessária para acessar esta página.',
+    missingPermission: 'Permissão ausente: {permission}',
     notFoundTitle: '404 Página não encontrada',
-    notFoundMessage: 'This route is not registered.',
+    notFoundMessage: 'Esta página não existe. Verifique se o endereço acessado está correto.',
     backDashboard: 'Voltar ao painel'
   }
 } as const

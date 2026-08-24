@@ -3,42 +3,42 @@
 export default {
   app: {
     brand: 'GCAC コンソール',
-    platform: '企業向け SSL 証明書ライフサイクル管理平台',
+    platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',
     defaultBreadcrumb: 'コンソール',
     dashboard: 'ダッシュボード'
   },
   common: {
     refresh: '更新',
-    logout: 'ログアウト',
+    logout: '終了',
     enter: '開く',
-    loading: 'Loading',
-    userFallback: 'Guest user',
-    tenantFallback: 'Default tenant'
+    loading: '読み込み中',
+    userFallback: '未ログインユーザー',
+    tenantFallback: 'デフォルトテナント'
   },
   api: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'リクエストに失敗しました'
     }
   },
   auth: {
     errors: {
-      missingSession: 'The login API did not return a session'
+      missingSession: 'ログインに失敗しました。有効なセッションを取得できませんでした'
     },
     mock: {
-      displayName: 'Frontend skeleton user'
+      displayName: 'システムユーザー（Mock）'
     }
   },
   designSystem: {
     confirm: {
       title: '{action}を確認',
       impactCount: '影響を受けるリソース数：{count}',
-      defaultRisk: 'この操作はデプロイ、再試行、ロールバック、または不可逆な変更を引き起こす可能性があります。',
-      typeToConfirm: '確認のため {text} を入力',
+      defaultRisk: 'この操作により、デプロイ、再試行、ロールバック、または取り消せない変更が発生する可能性があります。',
+      typeToConfirm: '二次確認のため {text} を入力',
       cancel: 'キャンセル',
       confirm: '確認'
     },
     dataTable: {
-      empty: 'データがありません',
+      empty: 'データはまだありません',
       loading: '読み込み中...'
     },
     dryRunChecklist: {
@@ -52,338 +52,338 @@ export default {
       close: '閉じる'
     },
     modal: {
-      closeAria: 'モーダルを閉じる'
+      closeAria: 'ダイアログを閉じる'
     },
     secretInput: {
       label: 'Secret 参照',
-      placeholder: 'SecretRef を選択または入力。平文は保存しません',
-      hint: '機密フィールドは参照のみを保存し、ブラウザーに長期の平文保存はしません。'
+      placeholder: 'シークレット参照（SecretRef）を選択または入力してください。内容は平文で保存されません',
+      hint: '機密フィールドにはシークレット参照のみを保存し、画面に平文で表示しません。'
     },
     riskBadge: {
       levelPrefix: 'レベル：'
     },
     status: {
-      DRAFT: 'Draft',
-      PUBLISHED: 'Published',
-      PENDING_APPROVAL: 'Pending approval',
-      READY: 'Ready',
-      RUNNING: 'Running',
-      SUCCESS: 'Success',
-      PARTIAL_SUCCESS: 'Partial success',
-      FAILED: 'Failed',
-      CANCELLED: 'Cancelled',
-      ROLLED_BACK: 'Rolled back',
-      DISCOVERED: 'Discovered',
-      MANAGED: 'Managed',
-      DRIFTED: 'Drifted',
-      EXPIRED: 'Expired',
-      ERROR: 'Error',
-      IGNORED: 'Ignored',
-      ONLINE: 'Online',
-      OFFLINE: 'Offline',
-      DISABLED: 'Disabled',
-      UPGRADING: 'Upgrading',
-      UPDATE_REQUIRED: 'Update required',
-      UP_TO_DATE: 'Up to date',
-      UNKNOWN: 'Unknown'
+      DRAFT: 'ドラフト',
+      PUBLISHED: '公開済み',
+      PENDING_APPROVAL: '承認待ち',
+      READY: '実行待ち',
+      RUNNING: '実行中',
+      SUCCESS: '成功',
+      PARTIAL_SUCCESS: '一部成功',
+      FAILED: '失敗',
+      CANCELLED: 'キャンセル済み',
+      ROLLED_BACK: 'ロールバック済み',
+      DISCOVERED: '検出済み',
+      MANAGED: '管理対象',
+      DRIFTED: 'ドリフト検出済み',
+      EXPIRED: '期限切れ',
+      ERROR: '異常',
+      IGNORED: '無視済み',
+      ONLINE: 'オンライン',
+      OFFLINE: 'オフライン',
+      DISABLED: '無効化済み',
+      UPGRADING: 'アップグレード中',
+      UPDATE_REQUIRED: '更新が必要',
+      UP_TO_DATE: '最新',
+      UNKNOWN: '不明'
     },
     risk: {
       LOW: {
-        label: 'Low',
-        description: 'Needs attention, but does not directly block the operation.'
+        label: '低',
+        description: '注意が必要ですが、操作を直接ブロックしません。'
       },
       MEDIUM: {
-        label: 'Medium',
-        description: 'May affect deployment or monitoring results and needs confirmation.'
+        label: '中',
+        description: 'デプロイまたは監視結果に影響する可能性があるため、確認が必要です。'
       },
       HIGH: {
-        label: 'High',
-        description: 'May cause service interruption or security exposure.'
+        label: '高',
+        description: 'サービス中断またはセキュリティ露出を引き起こす可能性があります。'
       },
       CRITICAL: {
-        label: 'Critical',
-        description: 'Must be handled first. Risky operations require secondary confirmation.'
+        label: '重大',
+        description: '優先対応が必要です。危険な操作には二次確認が必要です。'
       }
     },
     capability: {
-      available: '利用可能',
+      available: '対応済み',
       missing: '不足',
-      title: '能力互換性',
-      description: 'バックエンド capability API で確認できる結果のみを表示します。不明な項目を成功扱いにはしません。',
-      matrixLabel: '能力互換性マトリクス',
-      satisfied: '満たす',
+      title: '機能互換性',
+      description: '確認済みの機能互換性結果のみ表示します。未確認項目はサポート済みとは見なしません。',
+      matrixLabel: '機能互換性マトリクス',
+      satisfied: '満たしています',
       unknown: '不明',
       manualRisk: '手動確認',
-      empty: 'capability データがありません。フロントエンドは縮退表示を維持します。'
+      empty: '機能互換性データはまだありません。'
     },
     executionLogViewer: {
       mode: {
-        realtime: 'Live updates',
-        autoRefresh: 'Auto refresh'
+        realtime: 'リアルタイム更新',
+        autoRefresh: '自動更新'
       },
       search: {
-        placeholder: 'Search log content'
+        placeholder: 'ログ内容を検索'
       },
       level: {
-        aria: 'Log level',
-        all: 'All'
+        aria: 'ログレベル',
+        all: 'すべて'
       },
       hint: {
-        streaming: 'Task status and logs will update live.',
-        autoRefresh: 'Task status and logs will refresh automatically.',
-        pollingFallback: 'Currently using polling fallback.'
+        streaming: 'タスクステータスとログは持継リアルタイム更新。',
+        autoRefresh: 'タスクステータスとログは自動更新。',
+        pollingFallback: '現在は定期更新モードを使用しています。'
       },
       steps: {
-        aria: 'Execution steps',
-        emptyDetail: 'No step description yet'
+        aria: '実行ステップ',
+        emptyDetail: 'ステップ説明はまだありません'
       },
       empty: {
-        logs: 'No logs yet.'
+        logs: 'ログはまだありません。'
       }
     },
     executionProgress: {
       aria: {
-        progressOverview: 'Execution progress overview',
-        taskList: 'Task list',
-        latestEvents: 'Latest events',
-        executionLog: 'Execution log'
+        progressOverview: '実行進捗の概要',
+        taskList: 'タスクリスト',
+        latestEvents: '最新イベント',
+        executionLog: '実行ログ'
       },
       checklist: {
-        title: 'Check results'
+        title: 'チェック結果'
       },
       detail: {
-        stepsCompleted: '{completed}/{total} steps completed',
-        summaryFailed: '{total} check results returned, {failed} failed',
-        summaryPassed: 'All {passed} checks passed',
-        summaryReturned: '{total} check results returned',
-        summaryWarning: '{total} check results returned, {warning} warnings',
-        waitingStart: 'Waiting for the task to start',
-        waitingSteps: 'Waiting for execution steps from the backend'
+        stepsCompleted: '{completed}/{total} ステップ完了済み',
+        summaryFailed: '{total} 件のチェック結果が返され、{failed} 件が失敗しました',
+        summaryPassed: '{passed} 件チェック全部合格',
+        summaryReturned: '{total} 件のチェック結果が返されました',
+        summaryWarning: '{total} 件のチェック結果が返され、{warning} 件の警告があります',
+        waitingStart: 'タスクの開始を待っています',
+        waitingSteps: '実行ステップを待っています…'
       },
       empty: {
-        activity: 'Execution log entries will appear after the task completes.',
-        events: 'No events have been returned yet.',
-        tasks: 'The task has not been created yet. Waiting for execution steps from the backend.'
+        activity: '実行ログでタスク完了後逐步表示。',
+        events: 'イベント記録はまだありません。',
+        tasks: 'タスクはまだ作成されていません。実行ステップを待っています…'
       },
       event: {
-        collapse: 'Collapse events',
-        defaultLabel: 'Event',
-        defaultTitle: 'Task event',
-        expand: 'Expand events',
-        waitingDetail: 'Waiting for event data'
+        collapse: 'イベントを折りたたむ',
+        defaultLabel: 'イベント',
+        defaultTitle: 'タスクイベント',
+        expand: 'イベントを展開',
+        waitingDetail: 'イベント記録を待っています'
       },
       feed: {
-        completed: 'Execution completed',
-        failed: 'Execution failed',
-        warning: 'Completed with warnings'
+        completed: '実行完了',
+        failed: '実行失敗',
+        warning: '警告付きで完了'
       },
       loading: {
-        pollingFallback: 'Auto-refresh fallback active',
-        refreshing: 'Refreshing'
+        pollingFallback: '定期更新中…',
+        refreshing: '更新中'
       },
       log: {
-        collapse: 'Collapse full log',
-        expand: 'View full log'
+        collapse: '完全なログを折りたたむ',
+        expand: '完全なログを表示'
       },
       metrics: {
-        completed: 'Completed',
-        failed: 'Failed',
-        passed: 'Passed',
-        queued: 'Queued',
-        running: 'Running',
-        totalTasks: 'Total tasks',
-        unknown: 'Unknown',
-        warning: 'Warnings'
+        completed: '完了',
+        failed: '失敗',
+        passed: '合格',
+        queued: 'キュー待ち',
+        running: '実行中',
+        totalTasks: '総タスク数',
+        unknown: '不明',
+        warning: '警告'
       },
       process: {
-        execution: 'Execution'
+        execution: '実行'
       },
       progress: {
-        completed: 'All complete',
-        failed: 'Completed with failed items',
-        pending: 'Waiting for result writeback',
-        processFailed: '{process} failed',
-        queued: 'Waiting for scheduling',
-        running: 'Task in progress',
-        warning: 'Completed with risk warnings'
+        completed: 'すべて完了',
+        failed: '完了済み、存で失敗件',
+        pending: '結果の書き戻しを待っています',
+        processFailed: '{process} に失敗しました',
+        queued: 'スケジューリング待ち',
+        running: 'タスク実行中',
+        warning: '完了済み、存でリスク警告'
       },
       section: {
-        completedCount: '{completed}/{total} completed',
-        executionLog: 'Execution log',
-        latestEvents: 'Latest events',
-        taskProgress: 'Task progress'
+        completedCount: '{completed}/{total} 完了済み',
+        executionLog: '実行ログ',
+        latestEvents: '最新イベント',
+        taskProgress: 'タスク進行状況'
       },
       status: {
-        completed: 'Completed',
-        failed: 'Failed',
-        queued: 'Waiting',
-        running: 'Running',
-        warning: 'Warning'
+        completed: '完了',
+        failed: '失敗',
+        queued: '待機中',
+        running: '実行中',
+        warning: '警告あり'
       },
       step: {
-        backup: 'Pre-backup',
-        discover: 'Environment discovery',
-        installDryRun: 'Material loading',
-        installExecution: 'Certificate installation',
-        reload: 'Service reload',
-        verify: 'Result verification'
+        backup: '事前バックアップ',
+        discover: '環境識別',
+        installDryRun: 'マテリアル準備',
+        installExecution: '証明書インストール',
+        reload: 'サービス更新',
+        verify: '結果検証'
       },
       subtitle: {
-        completed: 'The task has completed.',
-        failed: 'The task ended with a failed result.',
-        failedChecks: '{total} checks, {failed} failed',
-        passedChecks: '{total} checks passed',
-        queued: 'The task has been created and is waiting to run.',
-        running: 'The task has started. Waiting for more results.',
-        runningChecks: '{total} checks returned',
-        warningChecks: '{total} checks, {warning} warnings'
+        completed: 'タスクは完了しました。',
+        failed: 'タスク終了済み、但戻る了失敗結果。',
+        failedChecks: '{total} 件チェック、{failed} 件に失敗しました',
+        passedChecks: '{total} 件チェック合格',
+        queued: 'タスクは作成済みです。実行を待っています。',
+        running: 'タスクは開始済みです。実行結果を待っています。',
+        runningChecks: '戻る {total} 件チェック済み',
+        warningChecks: '{total} 件チェック、{warning} 件警告'
       },
       time: {
-        waitingStart: 'Waiting to start'
+        waitingStart: '開始待ち'
       }
     },
     deploymentWizard: {
       actions: {
-        cancel: 'Cancel',
-        dryRun: 'Run dry-run first',
-        next: 'Next',
-        previous: 'Previous',
-        save: 'Save plan'
+        cancel: 'キャンセル',
+        dryRun: '先に Dry-run',
+        next: '次へ',
+        previous: '前へ',
+        save: 'プランを保存'
       },
       aria: {
-        steps: 'Deployment steps',
-        wizard: 'Deployment wizard'
+        steps: 'デプロイ手順',
+        wizard: 'デプロイウィザード'
       },
       capability: {
-        targetMissingDetail: 'No deployment target selected.',
-        targetSelectedDetail: 'Deployment target selected. Run a dry-run before submitting.',
-        targetSelection: 'Deployment target selection',
-        targetSource: 'Deployment target'
+        targetMissingDetail: 'デプロイターゲットがまだ選択されていません。',
+        targetSelectedDetail: '選択デプロイターゲット済み、推奨先完了 dry-run 再送信実行。',
+        targetSelection: 'デプロイターゲット選択',
+        targetSource: 'デプロイターゲット'
       },
       checks: {
-        failed: 'Failed {count}',
-        passed: 'Passed {count}',
-        unknown: 'Unknown {count}',
-        unnamed: 'Unnamed check',
-        warning: 'Warning {count}'
+        failed: '失敗 {count}',
+        passed: '合格 {count}',
+        unknown: '不明 {count}',
+        unnamed: '無名のチェック項目',
+        warning: '警告 {count}'
       },
       empty: {
-        noTargets: 'No application asset targets available',
-        selectTarget: 'Select an application asset deployment target.'
+        noTargets: '選択可能なアプリケーションアセットターゲットはまだありません',
+        selectTarget: '1 個アプリケーションアセットのデプロイターゲット。を選択してください'
       },
       fallback: {
-        generatedByApplicationEntry: 'Generated from application entry',
-        missingBinding: 'Binding information not provided',
-        unboundCertificateVariable: 'Certificate variable not bound',
-        unconfigured: 'Not configured',
-        unconfiguredRunner: 'Runner not configured',
-        unknownEnd: 'Unknown end',
-        unknownStart: 'Unknown start',
-        unnamedSite: 'Unnamed site',
-        unnamedVersion: 'Unnamed version',
-        unrecognizedManagedTarget: 'Unrecognized managed target',
-        unselected: 'Not selected',
-        unselectedVersion: 'Version not selected',
-        unselectedWorkflow: 'Workflow not selected'
+        generatedByApplicationEntry: 'アプリケーションエントリから生成',
+        missingBinding: 'バインド情報が指定されていません',
+        unboundCertificateVariable: '証明書変数がバインドされていません',
+        unconfigured: '未設定',
+        unconfiguredRunner: '実行場所が未設定です',
+        unknownEnd: '終了不明',
+        unknownStart: '開始不明',
+        unnamedSite: '無名のサイト',
+        unnamedVersion: '無名のバージョン',
+        unrecognizedManagedTarget: '未識別の管理対象ターゲット',
+        unselected: '未選択',
+        unselectedVersion: 'バージョン未選択',
+        unselectedWorkflow: 'ワークフロー未選択'
       },
       fields: {
-        applicationTarget: 'Application asset deployment target',
-        artifactConfig: 'Artifact config',
-        binding: 'Binding',
-        certificateAsset: 'Certificate asset',
-        certificateVariable: 'Certificate variable',
-        certificateVersion: 'Certificate version',
-        deploymentTarget: 'Deployment target',
-        keyword: 'Keyword search',
-        managedTarget: 'Managed target',
-        runner: 'Runner',
-        site: 'Site',
-        verifyUrl: 'Verify URL',
-        version: 'Version',
-        workflow: 'Workflow'
+        applicationTarget: 'アプリケーションアセットのデプロイターゲット',
+        artifactConfig: '成果物設定',
+        binding: 'バインド',
+        certificateAsset: '証明書アセット',
+        certificateVariable: '証明書変数',
+        certificateVersion: '証明書バージョン',
+        deploymentTarget: 'デプロイターゲット',
+        keyword: 'キーワード検索',
+        managedTarget: '管理対象ターゲット',
+        runner: '実行場所',
+        site: 'サイト',
+        verifyUrl: '検証 URL',
+        version: 'バージョン',
+        workflow: 'ワークフロー'
       },
       panels: {
-        certificateTitle: '1. Certificate material',
-        submitTitle: '3. Precheck and submit',
-        targetTitle: '2. Deployment target'
+        certificateTitle: '1. 証明書マテリアル',
+        submitTitle: '3. 事前チェックと送信',
+        targetTitle: '2. デプロイターゲット'
       },
       panelState: {
-        needPrerequisites: 'Prerequisites required',
-        operable: 'Ready',
-        pending: 'Pending',
-        readyNext: 'Ready for next step'
+        needPrerequisites: '前提選択の完了待ち',
+        operable: '操作可能',
+        pending: '完了待ち',
+        readyNext: '次のステップへ進めます'
       },
       placeholders: {
-        selectTarget: 'Select application asset target',
-        targetKeyword: 'Search by domain, site, or binding information'
+        selectTarget: 'アプリケーションアセットターゲットを選択してください',
+        targetKeyword: 'ドメイン名、サイト、バインド情報で検索'
       },
       plan: {
-        dryRunCompleted: 'The latest dry-run has completed.',
-        submitCompleted: 'The latest submit has completed.'
+        dryRunCompleted: '直近の dry-run は完了しました。',
+        submitCompleted: '直近の送信は完了しました。'
       },
       preview: {
-        needCertificate: 'Select certificate material first.',
-        needTarget: 'After selecting certificate material, choose application asset targets.',
-        ready: 'The selected certificate version will be deployed to {count} application asset targets.'
+        needCertificate: '先に証明書マテリアルの選択を完了してください。',
+        needTarget: '証明書マテリアルの選択後、配布先のアプリケーションアセットターゲットを指定してください。',
+        ready: '選択した証明書バージョンを {count} 個のアプリケーションアセットターゲットへデプロイします。'
       },
       status: {
-        checksReturned: 'Precheck results returned. Decide whether to save, submit, or execute.',
-        current: 'Current status',
-        default: 'Run a dry-run before deciding whether to submit.',
-        dryRunStarted: 'Dry-run started. Check progress in the execution result panel.',
-        submitted: 'Plan submitted.'
+        checksReturned: '事前チェック結果が返されました。結果に基づいて保存、送信、または直接実行を決定できます。',
+        current: '現在のステータス',
+        default: '先に dry-run を開始してから、実行を送信するかどうかを決定することを推奨します。',
+        dryRunStarted: '事前チェックを開始しました。実行結果エリアで進行状況を確認してください。',
+        submitted: 'プランを送信しました。'
       },
       steps: {
         certificate: {
-          description: 'Certificate asset and version',
-          title: 'Select certificate material'
+          description: '証明書アセットとバージョン',
+          title: '証明書マテリアルを選択'
         },
         submit: {
-          description: 'Dry-run, save, submit, execute',
-          title: 'Precheck and submit'
+          description: 'Dry-run、保存、送信、実行',
+          title: '事前チェックして送信'
         },
         target: {
-          description: 'Application asset, site, and binding',
-          title: 'Select deployment target'
+          description: 'アプリケーションアセット、サイト、バインド',
+          title: 'デプロイターゲットを選択'
         }
       },
       stepState: {
-        active: 'In progress',
-        done: 'Done',
-        pending: 'Pending'
+        active: '進行中',
+        done: '完了',
+        pending: '開始待ち'
       },
       target: {
-        workflowMode: 'Workflow mode'
+        workflowMode: 'ワークフローモード'
       },
       version: {
-        autoLatest: 'Always select the latest deployable certificate automatically (current: {current})',
-        noDeployableVersion: 'No deployable certificate version available',
+        autoLatest: '自動選択最新可デプロイバージョン（現在：{current}）',
+        noDeployableVersion: '現在デプロイ可能な証明書バージョンはありません',
         range: '{id} ({notBefore} ~ {notAfter})'
       },
-      currentStep: 'Step {current} / {total}',
-      selectedTargetCount: '{count} targets selected',
-      subtitle: 'Configure the deployment plan step by step',
-      title: 'Deployment wizard'
+      currentStep: 'ステップ {current} / {total}',
+      selectedTargetCount: '{count} 個のターゲットを選択済み',
+      subtitle: '段階的にデプロイプラン設定を完了します',
+      title: 'デプロイウィザード'
     }
   },
   shell: {
-    currentLocation: 'Current location',
-    breadcrumb: 'Breadcrumb',
-    currentGroupNavigation: 'Current group navigation',
-    backDashboard: 'Back to dashboard'
+    currentLocation: '現在位置',
+    breadcrumb: 'パンくずリスト',
+    currentGroupNavigation: '現在のグループナビゲーション',
+    backDashboard: 'ダッシュボードへ戻る'
   },
   preferences: {
     theme: 'テーマ',
     language: '言語',
-    themeLight: 'ライト',
-    themeDark: 'ダーク',
-    themeToggle: 'Switch theme',
-    languageSelect: 'Select language',
+    themeLight: 'ライトモード',
+    themeDark: 'ダークモード',
+    themeToggle: 'テーマモードを切り替え',
+    languageSelect: '画面言語を選択',
     title: '表示設定',
-    description: 'Theme and language are saved to your backend user preferences.',
+    description: 'テーマと言語は現在のユーザーのバックエンド設定に保存されます。',
     errors: {
-      loadFailed: 'Failed to load preferences',
-      saveFailed: 'Failed to save preferences'
+      loadFailed: '設定の読み込みに失敗しました',
+      saveFailed: '設定の保存に失敗しました'
     }
   },
   userMenu: {
@@ -393,892 +393,884 @@ export default {
   },
   password: {
     title: 'パスワード変更',
-    description: 'Change the local password for the signed-in user.',
+    description: '現在ログイン中のユーザーのローカルパスワードを変更します。',
     current: '現在のパスワード',
     new: '新しいパスワード',
-    confirm: '新しいパスワードの確認',
+    confirm: '新しいパスワードを確認',
     cancel: 'キャンセル',
-    submit: '保存',
-    submitting: 'Saving…',
-    success: 'Password updated',
-    failed: 'Password change failed',
-    mismatch: 'The new passwords do not match',
-    tooShort: 'The new password must be at least 8 characters'
+    submit: 'パスワードを保存',
+    submitting: '保存中…',
+    success: 'パスワードを更新しました',
+    failed: 'パスワード変更に失敗しました',
+    mismatch: '2 回入力した新しいパスワードが一致しません',
+    tooShort: '新しいパスワードは 8 文字以上で入力してください'
   },
   nav: {
-    dashboard: 'Overview',
-    dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificates',
-    certificatesDesc: 'Certificate library, bindings, and expiry status',
-    certificateAssets: 'Certificate assets',
-    certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
-    certificateFormats: 'Certificate format config',
-    certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
-    assets: 'Application assets',
-    assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
-    agents: 'Agents',
-    agentsDesc: 'Online status, heartbeat, and capability set',
-    gateways: 'Gateways',
-    gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
-    deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
-    deploymentPlans: 'Deployment plans',
-    deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
-    executions: 'Execution records',
-    executionsDesc: 'Execution steps, logs, failures, and rollback',
-    workflows: 'Workflows',
-    workflowsDesc: 'Workflows and plugins',
-    workflowTemplates: 'Workflows',
-    workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
-    plugins: 'Plugins',
-    pluginsDesc: 'Provider, executor, and sandbox status',
-    monitoring: 'Monitoring',
-    monitoringDesc: 'Alerts, audit, and certificate status',
-    monitorAlerts: 'Monitor alerts',
-    monitorAlertsDesc: 'Expiry, drift, and execution failure events',
-    audits: 'Audit logs',
-    auditsDesc: 'Operation evidence and compliance exports',
-    reports: 'Reports',
-    reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
-    incidentWindowReport: 'Incident window',
-    incidentWindowReportDesc: 'Prioritize expiring and expired certificates',
-    riskResponseReport: 'Risk response',
-    riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
-    automationEffectivenessReport: 'Automation effectiveness',
-    automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
-    settings: 'Settings',
-    settingsDesc: 'Tenants, users, permissions, and system configuration',
-    systemSettings: 'System settings',
-    systemSettingsDesc: 'System configuration and security metadata',
-    users: 'Users',
-    usersDesc: 'Console users, status, and roles',
-    roles: 'Roles',
-    rolesDesc: 'Roles, authorization object scopes, and member assignments',
-    identitySources: 'Identity sources',
-    identitySourcesDesc: 'AD/LDAP service configuration',
-    groupRoleMappings: 'Group role mappings'
+    dashboard: '概要',
+    dashboardDesc: 'アプリケーション、証明書、Agent、ゲートウェイと監査ステータス概要',
+    certificates: '証明書',
+    certificatesDesc: '証明書ライブラリ、バインド関係と期限切れステータス',
+    certificateAssets: '証明書アセット',
+    certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
+    certificateFormats: '証明書形式設定',
+    certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
+    assets: 'アプリケーションアセット',
+    assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
+    agents: 'Agent',
+    agentsDesc: 'オンラインステータス、ハートビートと機能セット',
+    gateways: 'ゲートウェイ',
+    gatewaysDesc: '隔離ゾーンゲートウェイ、プロトコルとへ達可能ターゲット',
+    deployments: '証明書デプロイ',
+    deploymentsDesc: 'デプロイプランと実行記録',
+    deploymentPlans: 'デプロイプラン',
+    deploymentPlansDesc: '証明書デプロイプランと承認導線',
+    executions: '実行記録',
+    executionsDesc: '実行ステップ、ログ、失敗とロールバック',
+    workflows: 'ワークフロー',
+    workflowsDesc: 'ワークフローとプラグイン',
+    workflowTemplates: 'ワークフロー',
+    workflowTemplatesDesc: 'キャンバスドラフト、変数、機能宣言と公開',
+    plugins: 'プラグイン',
+    pluginsDesc: 'Provider、Executorとサンドボックスステータス',
+    monitoring: '監視',
+    monitoringDesc: 'アラート、監査と証明書ステータス',
+    monitorAlerts: '監視アラート',
+    monitorAlertsDesc: '期限切れ、ドリフトと実行失敗イベント',
+    audits: '監査ログ',
+    auditsDesc: '操作証拠と合规エクスポート',
+    settings: '設定',
+    settingsDesc: 'テナント、ユーザー、権限とシステム設定',
+    systemSettings: 'システム設定',
+    systemSettingsDesc: 'システム設定と安全元データ',
+    users: 'ユーザー管理',
+    usersDesc: 'コンソールユーザー、ステータスとロール',
+    roles: '権限管理',
+    rolesDesc: 'ロール、認可対象範囲とメンバー割り当て',
+    identitySources: 'ID ソース',
+    identitySourcesDesc: 'AD/LDAP サービス設定',
+    groupRoleMappings: 'グループロールマッピング'
   },
   routes: {
-    certificateImport: 'Import certificate',
-    certificateDetail: 'Certificate detail',
-    certificateUsages: 'Usages',
-    certificateFormats: 'Format artifacts'
+    certificateImport: '証明書をインポート',
+    certificateDetail: '証明書詳細',
+    certificateUsages: '使用関係',
+    certificateFormats: '形式成果物'
   },
   businessPage: {
     request: {
-      notRequested: 'No request yet'
+      notRequested: 'まだリクエストしていません'
     },
     error: {
-      unknown: 'Unknown error'
+      unknown: '不明なエラー'
     },
-    primaryActionFailed: 'Primary action failed',
-    processing: 'Processing…',
-    metricsAria: 'Business metrics',
-    apiFailed: 'API request failed',
-    errorCode: 'Error code: {code}',
-    retry: 'Retry',
-    resourceList: '{resource} list',
-    total: 'Total {count}',
-    dangerConfirmRequired: 'High-risk action requires confirmation',
-    all: 'All',
-    clearFilters: 'Clear filters',
-    pagination: 'Page {page} / {pageSize} per page',
-    resourceDetailAria: 'Resource details',
-    resourceDetailTitle: '{resource} details',
-    contextAria: 'Context links',
-    resourceActionsAria: 'Resource actions',
-    resourceActionsTitle: 'Resource actions',
-    resourceActionsHint: 'High-risk actions require secondary confirmation; authorization is still enforced by the backend.'
+    primaryActionFailed: '主操作の実行に失敗しました',
+    processing: '処理中…',
+    metricsAria: '業務指標',
+    apiFailed: 'サービスリクエストに失敗しました',
+    errorCode: 'エラーコード：{code}',
+    retry: '再試行',
+    resourceList: '{resource}一覧',
+    total: '合計 {count}',
+    dangerConfirmRequired: '高リスク操作には確認が必要です',
+    all: 'すべて',
+    clearFilters: 'フィルターをクリア',
+    pagination: '{page} ページ / 1ページ {pageSize} 件',
+    resourceDetailAria: 'リソース詳細',
+    resourceDetailTitle: '{resource}詳細',
+    contextAria: 'コンテキスト導線',
+    resourceActionsAria: 'リソース操作',
+    resourceActionsTitle: 'リソース操作',
+    resourceActionsHint: '高リスク操作には二次確認が必要です。最終的にはシステムの権限検証に従います。'
   },
   executionDetail: {
     error: {
-      loadStepsFailed: 'Failed to query execution steps',
-      streamConnectFailed: 'Failed to connect to the execution detail stream'
+      loadStepsFailed: '実行ステップの照会に失敗しました',
+      streamConnectFailed: '実行詳細更新接続に失敗しました'
     },
     step: {
-      nameFallback: 'Step {index}',
-      dryRunCheckSummary: 'Precheck result: passed {passed} / warnings {warning} / failed {failed} / unknown {unknown}. {topChecks}',
+      nameFallback: 'ステップ {index}',
+      dryRunCheckSummary: '事前チェックの結論：合格 {passed} / 警告 {warning} / 失敗 {failed} / 不明 {unknown}。{topChecks}',
       dryRunPending: {
-        queued: 'Still queued and not started yet.',
-        running: 'This step is running. Waiting for the agent to return a result.',
-        failed: 'This step failed and no structured precheck result has been received yet.',
-        finished: 'This step has ended, but no structured precheck result has been received yet.'
+        queued: '現在もキュー内にあり、まだ実行を開始していません。',
+        running: '現在のステップを実行中です。Agent から事前チェック結果が返るのを待っています。',
+        failed: '現在のステップは失敗しましたが、事前チェック結果はまだ取得していません。',
+        finished: '現在のステップは終了しましたが、事前チェック結果はまだ取得していません。'
       },
-      dryRunDiscover: 'Read-only precheck: discovered deployment target and {providerLabel} site context. Site {siteName}, binding {binding}. {pendingText}',
-      dryRunVerify: 'Read-only precheck: validated certificate material, target binding, and domain match. Target {providerLabel} binding {binding}. {pendingText}',
-      dryRunCreated: 'Read-only precheck has been created. {pendingText}',
+      dryRunDiscover: '読み取り専用事前チェック：識別デプロイターゲットと {providerLabel} サイト情報。サイト {siteName}、バインド {binding}。{pendingText}',
+      dryRunVerify: '読み取り専用事前チェック：検証証明書マテリアル、ターゲットバインドとドメイン名一致。ターゲット {providerLabel} バインド {binding}。{pendingText}',
+      dryRunCreated: '読み取り専用事前チェック作成済み。{pendingText}',
       failure: {
-        emptyMessage: 'The backend did not receive a concrete error message'
+          emptyMessage: '具体的なエラー情報を受信していません'
       },
       running: {
-        dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
-        waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
+        dispatched: 'Agent タスクを配信しました（{taskId}）。実行結果を待っています。',
+        waitingAgentResult: 'ステップを実行中です。Agent から結果が返るのを待っています…'
       },
       pending: {
-        waitingDependency: 'The step is waiting for previous steps to finish.'
+        waitingDependency: '前のステップが完了するまで待機しています。'
       },
       verifyRecovered: {
-        detail: 'Agent-side remote TLS probing failed, but the control plane completed real TLS verification for {remoteTarget} and confirmed the target certificate matches. {originalError}',
-        originalSuffix: 'Original Agent error: {originalError}'
+        detail: 'Agent 側リモート TLS プローブ失敗、ただし、システムは {remoteTarget} 実際の TLS 検証確認しターゲット証明書一致済み。{originalError}',
+        originalSuffix: '原始 Agent エラー：{originalError}'
       },
       resultReturned: {
-        withTask: '{executor} {mode} returned. Agent taskId={taskId}',
-        withoutTask: '{executor} {mode} returned.'
+        withTask: '{executor} {mode} が返されました。Agent taskId={taskId}',
+        withoutTask: '{executor} {mode} が返されました。'
       },
-      createdFallback: 'Step {index} has been created. Waiting for the backend to add details'
+      createdFallback: 'ステップ {index} を作成しました。実行詳細を待っています…'
     },
     dryRun: {
       failedNoChecks: {
-        label: 'Dry-run failed',
-        detail: '{failedStepCount} precheck steps failed or timed out, and the agent did not return a structured conclusion.'
+        label: 'Dry-run 実行に失敗しました',
+        detail: '{failedStepCount} 個の事前チェックステップが失敗またはタイムアウトしました。構造化された事前チェックの結論は受信していません。'
       },
       queued: {
-        label: 'Dry-run queued',
-        detail: 'The precheck task has been created and is waiting to start.'
+        label: 'Dry-run キュー待ち中',
+        detail: '事前チェックタスクを作成しました。実行開始を待っています。'
       },
       running: {
-        label: 'Dry-run running',
-        detail: 'The precheck has started. Waiting for structured results.'
+        label: 'Dry-run 実行中',
+        detail: '事前チェックを開始しました。結果が返るのを待っています。'
       },
       pending: {
-        label: 'Dry-run ended without conclusion',
-        detail: '{finishedWithoutChecks} steps have ended, but no dryRunChecks / dryRunSummary was returned.'
+        label: 'Dry-run は終了しましたが結論がありません',
+        detail: '{finishedWithoutChecks} 個のステップが終了しましたが、事前チェックの結論は受信していません。'
       },
       receiving: {
-        label: 'Dry-run receiving results',
-        detail: 'Partial conclusions received: passed {passed}, warnings {warning}, failed {failed}, unknown {unknown}.'
+        label: 'Dry-run 接收中',
+        detail: '一部の結論を受信しました：合格 {passed}、警告 {warning}、失敗 {failed}、不明 {unknown}。'
       },
       failed: {
-        label: 'Dry-run failed',
-        detail: 'Precheck failed {failed} items, warning {warning} items, passed {passed} items.'
+        label: 'Dry-run に失敗しました',
+        detail: '事前チェック失敗 {failed} 件、警告 {warning} 件、合格 {passed} 件。'
       },
       warning: {
-        label: 'Dry-run has risk warnings',
-        detail: 'Precheck completed: passed {passed}, warnings {warning}, unknown {unknown}.'
+        label: 'Dry-run 有リスク警告',
+        detail: '事前チェック完了済み：合格 {passed} 件、警告 {warning} 件、不明 {unknown} 件。'
       },
       passed: {
-        label: 'Dry-run passed',
-        detail: 'All prechecks passed, {passed} total.'
+        label: 'Dry-run に成功しました',
+        detail: '事前チェック全部合格、共 {passed} 件。'
       }
     },
     agent: {
-      taskSuffix: '(Agent taskId={taskId})'
+      taskSuffix: '（Agent taskId={taskId}）'
     },
     log: {
-      verifyRecovered: '[ControlPlane] Agent-side remote TLS probing failed, but the control plane completed real TLS verification and confirmed the target certificate matches.'
+      verifyRecovered: '[ControlPlane] Agent 側リモート TLS プローブ失敗、但システム実際の TLS 検証確認しターゲット証明書一致。'
     },
     workflowStep: {
-      failedDefault: 'Workflow node {index} failed',
-      skipped: 'Workflow node skipped because the condition was not met.',
-      successAssertions: 'Workflow node succeeded, assertions passed {passed}/{total}.',
-      success: 'Workflow node succeeded.'
+      failedDefault: 'ワークフローノード {index} 実行に失敗しました',
+      skipped: 'ワークフローノード跳過済み、件件未満たしています。',
+      successAssertions: 'ワークフローノード実行成功、断言合格 {passed}/{total}。',
+      success: 'ワークフローノード実行成功。'
     },
     binding: {
-      hostMissing: 'host header not provided'
+      hostMissing: '未提供ホスト头（Host Header）'
     },
     site: {
-      unnamed: 'Unnamed site'
+      unnamed: '無名のサイト'
     },
     provider: {
-      target: 'Target'
+      target: 'ターゲット'
     }
   },
   executions: {
-    title: 'Execution records',
-    description: 'View deployment execution status, step logs, dry-run precheck results, failure reasons, and rollback entry points.',
-    resourceName: 'Execution run',
+    title: '実行記録',
+    description: 'デプロイ実行ステータス、ステップログ、dry-run 事前チェックの結論、失敗原因、ロールバック導線を表示します。',
+    resourceName: '実行記録',
     errors: {
-      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}',
-      loadFailed: 'Failed to load execution records'
+      streamConnectFailed: '実行詳細更新接続に失敗しました：HTTP {status}',
+      loadFailed: '実行記録の読み込みに失敗しました'
     },
     actions: {
-      refreshList: 'Refresh list',
-      refreshing: 'Refreshing',
-      viewDetail: 'View details',
-      rollback: 'Start rollback',
-      rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
+      refreshList: '更新一覧',
+      refreshing: '更新中',
+      viewDetail: '表示詳細',
+      rollback: 'ロールバックを開始',
+      rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず確認バックアップ引用と影響範囲。'
     },
     columns: {
-      name: 'Execution ID',
-      status: 'Status',
-      risk: 'Risk',
-      planId: 'Deployment plan',
-      startedAt: 'Start time'
+      name: '実行番号',
+      status: 'ステータス',
+      risk: 'リスク',
+      planId: 'デプロイプラン',
+      startedAt: '開始時刻'
     },
     metrics: {
       total: {
-        title: 'Total executions',
-        description: 'Currently traceable execution runs.'
+        title: '実行合計',
+        description: '現在可追踪の実行記録。'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Failed, partially successful, or rollback-needed executions.'
+        title: '高リスク待処理',
+        description: '失敗、部分成功または必要ロールバックの実行。'
       }
     },
     fields: {
-      executionId: 'Execution ID',
-      deploymentPlan: 'Deployment plan',
-      runType: 'Run type',
-      status: 'Execution status',
-      target: 'Execution target',
-      externalRunId: 'External run ID',
-      startedAt: 'Start time',
-      finishedAt: 'End time',
-      errorCode: 'Error code',
-      failureReason: 'Failure reason'
+      executionId: '実行 ID',
+      deploymentPlan: 'デプロイプラン',
+      runType: '実行タイプ',
+      status: '実行ステータス',
+      target: '実行ターゲット',
+      externalRunId: '外部実行 ID',
+      startedAt: '開始時刻',
+      finishedAt: '終了時刻',
+      errorCode: 'エラーコード',
+      failureReason: '失敗原因'
     },
     links: {
-      deploymentPlan: 'View deployment plan',
-      auditEvents: 'View audit events'
+      deploymentPlan: '表示デプロイプラン',
+      auditEvents: '表示監査イベント'
     },
     empty: {
-      title: 'No execution records',
-      description: 'Logs, status, and audit links appear here after a deployment plan runs.'
+      title: '実行記録はまだありません',
+      description: 'デプロイプラン実行後はここで表示ログ、ステータスと監査関連。'
     },
     list: {
-      ariaLabel: 'Execution record list',
-      title: 'Execution records',
-      summary: '{total} execution records, newest first.',
-      range: 'Showing {start}-{end} of {total}',
-      assetsLabel: 'Assets',
-      logLabel: 'Log summary',
-      runNumber: 'Run {number}',
-      planUnknown: 'No deployment plan linked',
-      assetUnknown: 'No asset recorded',
-      timeUnknown: 'Start time not recorded',
-      logRunning: 'Execution is running and detail logs will keep updating.',
-      logPending: 'Execution is queued and waiting for scheduling.',
-      logFailed: 'Execution failed with error code {code}.',
-      logSuccess: 'Execution succeeded in {duration}.',
-      logCompleted: 'Execution finished. Open details for the full log.',
-      errorCodeUnknown: 'not recorded',
-      durationUnknown: 'unknown',
-      durationSeconds: '{count} seconds',
-      durationMinutes: '{count} minutes',
-      viewDetailHint: 'Open details',
-      openDetailAria: 'Open execution {id} for plan {plan}',
-      previousPage: 'Previous',
-      nextPage: 'Next',
-      pageSummary: 'Page {page} of {pages}'
+      ariaLabel: '実行記録一覧',
+      title: '実行記録一覧',
+      summary: '{total} 件の実行記録を新しい順に表示します。',
+      range: '{start}-{end} / {total}',
+      assetsLabel: '資産',
+      logLabel: 'ログ概要',
+      runNumber: '{number} 回目',
+      planUnknown: 'デプロイプラン未関連付け',
+      assetUnknown: '資産未記録',
+      timeUnknown: '開始時刻未記録',
+      logRunning: '実行中です。詳細ログは継続して更新されます。',
+      logPending: '実行はキューに入り、スケジュール待ちです。',
+      logFailed: '実行に失敗しました。エラーコード: {code}',
+      logSuccess: '実行に成功しました。所要時間 {duration}。',
+      logCompleted: '実行は終了しました。詳細で完全なログを確認できます。',
+      errorCodeUnknown: '未記録',
+      durationUnknown: '不明',
+      durationSeconds: '{count} 秒',
+      durationMinutes: '{count} 分',
+      viewDetailHint: '詳細を表示',
+      openDetailAria: 'プラン {plan} の実行記録 {id} を表示',
+      previousPage: '前へ',
+      nextPage: '次へ',
+      pageSummary: '{page} / {pages} ページ'
     },
     types: {
-      dryRun: 'Precheck',
-      apply: 'Apply',
-      rollback: 'Rollback',
-      retry: 'Retry',
-      unknown: 'Other'
+      dryRun: '事前チェック',
+      apply: '本番実行',
+      rollback: 'ロールバック',
+      retry: '再試行',
+      unknown: 'その他'
     },
     summary: {
-      passed: 'Passed',
-      warning: 'Warnings',
-      failed: 'Failed',
-      unknown: 'Unknown'
+      passed: '合格',
+      warning: '警告',
+      failed: '失敗',
+      unknown: '不明'
     },
     detail: {
-      title: 'Execution details',
-      titleWithId: 'Execution details {id}',
-      description: 'View basic information, step status, and logs for the execution run.',
-      eyebrow: 'Execution record',
-      planLabel: 'Deployment plan {plan}',
-      loadingSteps: 'Loading steps...',
-      loadingLogs: 'Loading logs...',
-      noStepDetail: 'No step details',
-      notStarted: 'Not started',
-      noSteps: 'No steps.',
-      noLogs: 'No logs.'
+      title: '実行詳細',
+      titleWithId: '実行詳細 {id}',
+      description: '表示実行記録の基本情報、ステップステータスとログ。',
+      eyebrow: '実行記録',
+      planLabel: 'デプロイプラン {plan}',
+      loadingSteps: '読み込みステップ中...',
+      loadingLogs: '読み込みログ中...',
+      noStepDetail: 'ステップ説明はまだありません',
+      notStarted: '未開始',
+      noSteps: 'ステップ。はまだありません',
+      noLogs: 'ログはまだありません。'
     },
     tabs: {
-      summary: 'Summary',
-      steps: 'Steps',
-      logs: 'Logs'
+      summary: '概要',
+      steps: 'ステップ',
+      logs: 'ログ'
     }
   },
   plugins: {
-    title: 'Plugins',
-    description: 'Plugin packages, providers, permission declarations, signature validation, sandbox status, and isolation entry points.',
-    resourceName: 'Plugin',
+    title: 'プラグイン',
+    description: '管理プラグインパッケージ、Executor、権限宣言とサンドボックス隔離ステータス。',
+    resourceName: 'プラグイン',
     actions: {
-      install: 'Install plugin',
-      detail: 'Details',
-      disable: 'Disable plugin',
-      disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
+      install: 'インストールプラグイン',
+      detail: '詳細',
+      disable: '無効化プラグイン',
+      disableRisk: '無効化プラグインは影響 Provider、テンプレートとExecutor機能。'
     },
     columns: {
-      name: 'Plugin name',
-      status: 'Status',
-      risk: 'Risk',
-      version: 'Version',
-      signature: 'Signature'
+      name: 'プラグイン名前',
+      status: 'ステータス',
+      risk: 'リスク',
+      version: 'バージョン',
+      signature: '署名'
     },
     metrics: {
       total: {
-        title: 'Total plugins',
-        description: 'Installed and upgradeable plugins.'
+        title: 'プラグイン合計',
+        description: 'インストールとアップグレード可能なプラグイン済み。'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plugins with high-risk permissions, signature errors, or sandbox isolation.'
+        title: '高リスク待処理',
+        description: '高リスク権限、署名異常またはサンドボックス隔離プラグイン。'
       }
     },
     empty: {
-      title: 'No plugins',
-      description: 'Review permission differences, signatures, and rollback strategy before installing plugins.'
+      title: 'プラグインはまだありません',
+      description: 'インストール前確認してくださいプラグイン権限、署名とロールバックポリシー。'
     },
     detail: {
-      title: 'Plugin details',
-      titleWithName: 'Plugin {name}',
-      description: 'Plugin details are shown in a modal while the main page keeps a compact list.',
-      versionLabel: 'Version {version}'
+      title: 'プラグイン詳細',
+      titleWithName: 'プラグイン {name}',
+      description: '表示プラグイン詳細、権限宣言とサンドボックス隔離情報。',
+      versionLabel: 'バージョン {version}'
     },
     fields: {
-      pluginId: 'Plugin ID',
-      name: 'Plugin name',
-      currentStatus: 'Current status',
-      version: 'Version',
-      signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      pluginId: 'プラグイン ID',
+      name: 'プラグイン名前',
+      currentStatus: '現在のステータス',
+      version: 'バージョン',
+      signatureStatus: '署名ステータス',
+      riskLevel: 'リスク等级'
     }
   },
   deploymentPlans: {
-    title: 'Deployment plans',
-    description: 'Plan preview, impact scope, approval, execution batches, verification, and rollback entry points.',
-    resourceName: 'Deployment plan',
+    title: 'デプロイプラン',
+    description: 'プランのプレビュー、影響範囲、承認、実行バッチ、検証、ロールバック導線を扱います。',
+    resourceName: 'デプロイプラン',
     apiActions: {
-      submit: 'Submit deployment plan',
-      execute: 'Execute deployment plan',
-      cancel: 'Cancel deployment plan',
-      delete: 'Delete deployment plan'
+      submit: '送信デプロイプラン',
+      execute: '実行デプロイプラン',
+      cancel: 'キャンセルデプロイプラン',
+      delete: '削除デプロイプラン'
     },
     actions: {
-      create: 'Create deployment plan',
-      detail: 'Details',
-      edit: 'Edit plan',
-      dryRun: 'Dry-run impact preview',
-      dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
-      submit: 'Submit for approval',
-      submitRisk: 'After submission, the plan enters approval or pending execution status.',
-      execute: 'Execute deployment',
-      executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; run a dry-run impact preview first.',
-      cancel: 'Cancel plan',
-      cancelRisk: 'Only cancels unfinished deployment plans. Completed deployments are not rolled back.',
-      rollback: 'Rollback execution',
-      rollbackRisk: 'Rollback modifies the target service certificate configuration again and requires a real runId.',
-      delete: 'Delete plan',
-      deleteRisk: 'Hard-deletes the plan, deployment targets, execution records, and related audit history. This cannot be recovered.'
+      create: '作成デプロイプラン',
+      detail: '詳細',
+      edit: '編集プラン',
+      dryRun: 'Dry-run 影響プレビュー',
+      dryRunRisk: 'のみ生成影響プレビュー、しません実行正式デプロイ。',
+      submit: '送信承認',
+      submitRisk: '送信後プランは開く承認または待実行ステータス。',
+      execute: '実行デプロイ',
+      executeRisk: '実行すると対象の証明書設定が変更されます。完了済みまたは失敗したプランの再実行にもこの導線を使用します。実行前に Dry-run の影響プレビューを実行してください。',
+      cancel: 'キャンセルプラン',
+      cancelRisk: '未完了のデプロイプランのみキャンセルします。完了済みのデプロイはロールバックされません。',
+      rollback: 'ロールバック実行',
+      rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず使用実際の runId。',
+      delete: '削除プラン',
+      deleteRisk: '永久削除プラン、デプロイターゲット、実行記録と对応監査履歴、不可恢复。'
     },
     columns: {
-      name: 'Plan name',
-      status: 'Status',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      scheduledAt: 'Scheduled time',
-      actions: 'Actions'
+      name: 'プラン名前',
+      status: 'ステータス',
+      currentAssetCertificateExpiresAt: '現在証明書終了時刻',
+      updateNeeded: '必要更新',
+      scheduledAt: 'プラン時刻',
+      actions: '操作'
     },
     metrics: {
       total: {
-        title: 'Total plans',
-        description: 'Plans waiting for approval, pending execution, or running.'
+        title: 'プラン合計',
+        description: '承認待ち、実行待ち、実行中のプランです。'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plans affecting production services or lacking rollback capability.'
+        title: '高リスク待処理',
+        description: '影響生産サービスまたは不足ロールバック機能のプラン。'
       }
     },
     fields: {
-      planId: 'Plan ID',
-      name: 'Plan name',
-      status: 'Plan status',
-      approvalStatus: 'Approval status',
-      certificateVersionId: 'Certificate version ID',
-      certificateFormatId: 'Certificate format config ID',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      targetSummary: 'Target binding summary',
-      latestRun: 'Latest execution batch',
-      approvalId: 'Approval ID',
-      snapshotHash: 'Snapshot hash',
-      failureReason: 'Failure reason',
-      createdAt: 'Created at',
-      updatedAt: 'Updated at'
+      planId: 'プラン ID',
+      name: 'プラン名前',
+      status: 'プランステータス',
+      approvalStatus: '承認ステータス',
+      certificateVersionId: '証明書バージョン ID',
+      certificateFormatId: '証明書形式設定 ID',
+      currentAssetCertificateExpiresAt: '現在証明書終了時刻',
+      updateNeeded: '必要更新',
+      targetSummary: 'ターゲットバインドサマリー',
+      latestRun: '最新実行批回',
+      approvalId: '承認 ID',
+      snapshotHash: 'スナップショット Hash',
+      failureReason: '失敗原因',
+      createdAt: '作成時刻',
+      updatedAt: '更新時刻'
     },
     links: {
-      executions: 'View execution records',
-      bindings: 'View related bindings'
+      executions: '表示実行記録',
+      bindings: '表示相関バインド'
     },
     empty: {
-      title: 'No deployment plans',
-      description: 'Start from a certificate or binding, create an impact preview in the deployment wizard, then submit the plan.'
+      title: 'デプロイプランはまだありません',
+      description: '先から証明書またはバインド開くデプロイ向導、生成影響プレビュー後再送信プラン。'
     },
     disabled: {
-      missingApproval: 'Approval information is missing, so execution is not allowed.',
-      needDryRun: 'A successful dry-run impact preview is required before real execution.',
-      missingRunId: 'runId is missing, so rollback is not allowed.',
-      missingSelection: 'Deployment plan selection is missing'
+      missingApproval: '承認合格情報、できません実行。が不足しています',
+      needDryRun: '正式実行前必ず先完了一回成功の Dry-run 影響プレビュー。',
+      missingRunId: ' runId、できませんロールバック。が不足しています',
+      missingSelection: 'デプロイプラン選択が不足しています'
     },
     common: {
-      cancel: 'Cancel',
-      close: 'Close',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided'
+      cancel: 'キャンセル',
+      close: '閉じる',
+      notConfigured: '未設定',
+      notProvided: '未提供'
     },
     detail: {
-      certificateVersionLabel: 'Certificate version',
-      description: 'View basic plan information, related records, and the latest execution result.',
-      emptyRelatedRecords: 'No related records.',
-      loadingRelatedRecords: 'Loading related records...',
-      noExecutionRecords: 'This plan has no execution records yet.',
-      noTargetSummary: 'Target summary not provided',
-      planIdLine: 'Plan ID {planId}',
+      certificateVersionLabel: '証明書バージョン',
+      description: 'プランの基本情報、関連レコード、直近の実行結果を表示します。',
+      emptyRelatedRecords: '関連記録。はまだありません',
+      loadingRelatedRecords: '読み込み関連記録中...',
+      noExecutionRecords: '現在プランまだありません実行記録。',
+      noTargetSummary: '未提供ターゲットサマリー',
+      planIdLine: 'プラン ID {planId}',
       recordKinds: {
-        certificateUpdate: 'Certificate update',
+        certificateUpdate: '証明書更新',
         dryRun: 'Dry-run'
       },
-      relatedPlan: 'Plan {planId}',
-      relatedRun: 'Run {runId}',
-      relatedSource: 'Source {source}',
+      relatedPlan: 'プラン {planId}',
+      relatedRun: '実行 {runId}',
+      relatedSource: 'ソース {source}',
       tabs: {
-        latestExecution: 'Latest execution',
-        relatedRecords: 'Related records',
-        summary: 'Summary'
+        latestExecution: '直近実行',
+        relatedRecords: '関連記録',
+        summary: '概要'
       },
-      targetLabel: 'Target',
-      title: 'Deployment plan details',
-      titleWithName: 'Deployment plan {name}',
-      viewLogs: 'View logs'
+      targetLabel: 'ターゲット',
+      title: 'デプロイプラン詳細',
+      titleWithName: 'デプロイプラン {name}',
+      viewLogs: '表示ログ'
     },
     dryRunRequired: {
-      copy: 'Current action: {action}. Run a dry-run first, confirm impact scope and check results, then continue with real execution.',
-      description: 'A successful dry-run impact preview is required before real execution.',
-      primaryAction: 'Run dry-run first',
-      runningAction: 'Starting dry-run…',
-      title: 'Dry-run required first'
+      copy: '現在の操作：{action}。先に Dry-run を実行し、影響範囲とチェックの結論を確認してから正式実行を続行してください。',
+      description: '正式実行前必要先完了一回成功の Dry-run 影響プレビュー。',
+      primaryAction: '先に Dry-run',
+      runningAction: 'Dry-run を開始中…',
+      title: '必要先実行 Dry-run'
     },
     execution: {
-      applyName: 'Deployment execution {runId}',
-      applyTitle: 'Certificate update execution',
-      dryRunTitle: 'Dry-run result',
-      fallbackName: 'Execution {runId}',
-      rollbackTitle: 'Certificate rollback execution'
+      applyName: 'デプロイ実行 {runId}',
+      applyTitle: '証明書更新実行',
+      dryRunTitle: 'Dry-run 結果',
+      fallbackName: '実行 {runId}',
+      rollbackTitle: '証明書ロールバック実行'
     },
     feedback: {
-      cancelled: 'Deployment plan cancelled.',
-      cancelledWithPlanId: 'Deployment plan cancelled. planId: {planId}',
-      deleted: 'Deployment plan deleted.',
-      deletedWithPlanId: 'Deployment plan deleted. planId: {planId}',
-      dryRunStartedMissingRunId: 'dry-run started, but the response is missing runId.',
-      dryRunStartedWithRunId: 'dry-run started. Execution status is shown in the modal. runId: {runId}',
-      dryRunTriggered: 'dry-run triggered.',
-      dryRunTriggeredWithPlanId: 'dry-run triggered. planId: {planId}',
-      dryRunTriggeredWithRunId: 'dry-run triggered. Precheck progress is shown in the modal. runId: {runId}',
-      executeTriggered: 'Deployment execution triggered.',
-      executeTriggeredWithPlanId: 'Deployment execution triggered. planId: {planId}',
-      executeTriggeredWithRunId: 'Deployment execution triggered. Execution progress is shown in the modal. runId: {runId}',
-      loadedDraft: 'Draft plan loaded.',
-      loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
-      savedWithPlanId: 'Deployment plan saved. planId: {planId}',
-      submitted: 'Deployment plan submitted.',
-      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}'
+      cancelled: 'デプロイプランキャンセル済み。',
+      cancelledWithPlanId: 'デプロイプランキャンセル（プラン {planId}）済み。',
+      deleted: 'デプロイプラン削除済み。',
+      deletedWithPlanId: 'デプロイプラン削除（プラン {planId}）済み。',
+      dryRunStartedMissingRunId: '事前チェックを開始しました。',
+      dryRunStartedWithRunId: '事前チェックを開始しました（{runId}）。ダイアログで進行状況を確認してください。',
+      dryRunTriggered: '事前チェック触発済み。',
+      dryRunTriggeredWithPlanId: '事前チェック触発（プラン {planId}）済み。',
+      dryRunTriggeredWithRunId: '事前チェックをトリガーしました（{runId}）。ダイアログで進行状況を確認してください。',
+      executeTriggered: 'デプロイ触発済み。',
+      executeTriggeredWithPlanId: 'デプロイ触発（プラン {planId}）済み。',
+      executeTriggeredWithRunId: 'デプロイをトリガーしました（{runId}）。ダイアログで進行状況を確認してください。',
+      loadedDraft: '読み込みドラフトプラン済み。',
+      loadedDraftWithPlanId: '読み込みドラフト（プラン {planId}）済み。',
+      savedWithPlanId: 'プラン保存済み（{planId}）。',
+      submitted: 'デプロイプラン送信済み。',
+      submittedWithPlanId: 'デプロイプラン送信（プラン {planId}）済み。'
     },
     target: {
-      controlPlane: 'Control plane',
-      noBindingInfo: 'Binding information not provided',
-      noCertificateVariables: 'Certificate variables not bound',
-      noHostHeader: 'host header not provided',
-      noOutputSelected: 'No output selected'
+      controlPlane: 'プラットフォーム',
+      noBindingInfo: 'バインド情報が指定されていません',
+      noCertificateVariables: '証明書変数がバインドされていません',
+      noHostHeader: '未提供ホスト头（Host Header）',
+      noOutputSelected: '出力項目が未選択です'
     },
     errors: {
-      actionFailed: '{action} failed',
-      createReturnedMissingPlanId: 'Deployment plan was created but no planId was returned',
-      loadCreateDataFailed: 'Failed to load deployment plan creation data',
-      loadRelatedRecordsFailed: 'Failed to load related records',
-      missingApplicationAssetIdForDryRun: 'Application asset ID is missing, so dry-run cannot start.',
-      missingApplicationAssetIdForSave: 'Application asset ID is missing, so the deployment plan cannot be saved.',
-      missingPlanId: 'Deployment plan ID is missing. Empty planId request blocked.',
-      missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
-      missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
-      saveFailed: 'Failed to save deployment plan',
-      startDryRunFailed: 'Failed to start dry-run'
+      actionFailed: '{action}に失敗しました',
+      createReturnedMissingPlanId: 'プランは作成されましたが、番号を取得できませんでした。一覧を更新してください。',
+      loadCreateDataFailed: 'デプロイプラン作成データの読み込みに失敗しました',
+      loadRelatedRecordsFailed: '関連記録の読み込みに失敗しました',
+      missingApplicationAssetIdForDryRun: 'アプリケーションアセットが不足しているため、事前チェックを開始できません。',
+      missingApplicationAssetIdForSave: 'アプリケーションアセット、できません保存プラン。が不足しています',
+      missingPlanId: 'プラン番号が不足しています。再選択してください。',
+      missingPlanIdForAction: '{action}に失敗しました：プラン番号が不足しています。再選択してください。',
+      missingRunIdRequest: '実行番号が不足しています。再選択してください。',
+      saveFailed: 'デプロイプランの保存に失敗しました',
+      startDryRunFailed: 'dry-run の開始に失敗しました'
     }
   },
   agents: {
     actions: {
-      close: 'Close',
-      delete: 'Delete',
-      deleteRisk: 'Deleting removes the Agent record directly and cannot be undone.',
-      detail: 'Details',
-      disable: 'Disable',
-      disableRisk: 'After disabling, this Agent stops receiving new tasks.',
-      enable: 'Enable',
-      enableRisk: 'After enabling, this Agent becomes schedulable again.'
+      close: '閉じる',
+      delete: '削除',
+      deleteRisk: '削除では直接削除 Agent 記録、この操作元に戻せません。',
+      detail: '詳細',
+      disable: '無効化',
+      disableRisk: '無効化後この Agent 停止接收新タスク。',
+      enable: '有効化',
+      enableRisk: '有効化後この Agent 恢复として可スケジューリングステータス。'
     },
     app: {
-      fallbackName: 'App {index}'
+      fallbackName: 'アプリケーション {index}'
     },
     certificate: {
-      boundCertificate: 'Bound certificate',
-      expiredDays: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      modalDescription: 'Shows key certificate information used by the current site binding.',
-      modalTitle: 'Certificate details',
-      overviewDescription: 'Shows certificate name, issuer, validity period, fingerprint, and other key details.',
-      overviewTitle: 'Certificate overview',
-      projectDetailDescription: 'Shows project certificate asset details and related usages in the current Agent context.',
-      projectDetailTitle: 'Project certificate details',
-      querying: 'Querying...',
-      remainingDays: '{days} days remaining',
-      remainingWithViewAction: '{remaining} / click to view certificate',
-      statusExpired: 'Expired',
-      statusExpiring: 'Expiring soon',
-      statusLabel: 'Certificate status',
-      statusUnknown: 'Validity unknown',
-      statusValid: 'Valid',
-      view: 'View certificate',
-      viewProjectDetail: 'View project certificate details'
+      boundCertificate: 'サイトバインド証明書',
+      expiredDays: '期限切れ {days} 日',
+      expiresToday: '本日付限切れ',
+      modalDescription: '表示現在サイトバインド使用の証明書キー情報。',
+      modalTitle: '証明書詳細',
+      overviewDescription: '表示証明書名、発行者、開始時刻、期限切れ日時とフィンガープリント等キー情報。',
+      overviewTitle: '証明書概要',
+      projectDetailDescription: 'で現在 Agent 詳細上下文中表示件目内証明書アセット詳細と関連使用関係。',
+      projectDetailTitle: '本件目証明書詳細',
+      querying: '照会中...',
+      remainingDays: '残り {days} 日',
+      remainingWithViewAction: '{remaining} / クリック表示証明書',
+      statusExpired: '期限切れ',
+      statusExpiring: '期限切れ間近',
+      statusLabel: '証明書ステータス',
+      statusUnknown: '有効期間不明',
+      statusValid: '有効',
+      view: '表示証明書',
+      viewProjectDetail: '表示本件目証明書詳細'
     },
     certificateUsage: {
-      iisSite: 'Agent IIS site',
-      linuxSite: 'Agent Linux site',
-      tomcatConnector: 'Agent Tomcat connector'
+      iisSite: 'Agent IIS サイト',
+      linuxSite: 'Agent Linux サイト',
+      tomcatConnector: 'Agent Tomcat 接続器'
     },
     columns: {
-      actions: 'Actions',
-      hostname: 'Hostname',
-      ipAddress: 'IP address',
-      lastHeartbeat: 'Last heartbeat',
-      onlineStatus: 'Online status',
-      osType: 'OS type',
-      version: 'Version'
+      actions: '操作',
+      hostname: 'ホスト名',
+      ipAddress: 'IP アドレス',
+      lastHeartbeat: '直近ハートビート',
+      onlineStatus: 'オンラインステータス',
+      osType: 'システムタイプ',
+      version: 'バージョン'
     },
     common: {
-      defaultAddress: 'Default address',
-      no: 'No',
-      noHostHeader: 'No Host Header',
-      noListenAddress: 'No listen address',
-      none: 'None',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided',
-      notWritable: 'Not writable',
-      unrecognized: 'Unrecognized',
-      writable: 'Writable',
-      yes: 'Yes'
+      defaultAddress: 'デフォルトアドレス',
+      no: '否',
+      noHostHeader: '無 Host Header',
+      noListenAddress: '無リッスンアドレス',
+      none: '無',
+      notConfigured: '未設定',
+      notProvided: '未提供',
+      notWritable: '不可写',
+      unrecognized: '未識別',
+      writable: '可写',
+      yes: '是'
     },
     detail: {
-      loading: 'Loading details...',
-      manualRescan: 'Manual rescan',
-      manualRescanCannotPullTasks: 'This Agent cannot pull tasks, so rescan cannot run',
-      manualRescanCreated: 'Manual rescan task created. Waiting for the Agent to pull it.',
-      manualRescanSubmitting: 'Submitting rescan...',
-      manualRescanUnsupportedType: 'This Agent type does not support manual rescan',
-      modalDescription: 'Shows the Agent summary, runtime environment, and IIS site data.',
-      modalTitle: 'Agent details',
-      nodeEyebrow: 'Agent node',
-      tabsAriaLabel: 'Agent detail tabs'
+      loading: '詳細読み込み中...',
+      manualRescan: '手動再スキャン',
+      manualRescanCannotPullTasks: '現在の Agent はタスクを取得できないため、再スキャンを実行できません',
+      manualRescanCreated: '手動再スキャンタスクを作成しました。Agent による取得と実行を待っています。',
+      manualRescanSubmitting: '再スキャンを送信中...',
+      manualRescanUnsupportedType: '現在の Agent タイプは手動再スキャンに対応していません',
+      modalDescription: '表示 Agent の主要情報、実行環境および IIS サイト情報。',
+      modalTitle: 'Agent詳細',
+      nodeEyebrow: 'Agent ノード',
+      tabsAriaLabel: 'Agent 詳細タブ'
     },
     empty: {
-      description: 'Click Install Agent, choose a platform and version, then generate a one-time install command.',
-      noFrameworkSites: 'No {name} sites found',
-      noIisSites: 'No IIS sites found',
-      noRuntimeLogs: 'No runtime logs',
-      noTomcatApps: 'No Tomcat apps found',
-      noTomcatConnectors: 'No Tomcat connectors found',
-      title: 'No Agents'
+      description: 'クリック右上“インストールAgent”、選択プラットフォームとバージョン後生成一度限りのインストールコマンド。',
+      noFrameworkSites: '未検出 {name} サイト',
+      noIisSites: '未検出 IIS サイト',
+      noRuntimeLogs: '実行ログはまだありません',
+      noTomcatApps: '未検出 Tomcat アプリケーション',
+      noTomcatConnectors: '未検出 Tomcat 接続器',
+      title: ' Agentはまだありません'
     },
     errors: {
-      certificateAssetIncomplete: 'Certificate asset data is incomplete, so details cannot be opened.',
-      certificateAssetNotFound: 'No matching certificate asset was found in this project.',
-      certificateAssetQueryFailed: 'Failed to query certificate asset.',
-      detailDataMissing: 'The detail API returned no data.',
-      generateInstallCommandFailed: 'Failed to generate install command.',
-      installCommandMissing: 'The backend did not return an install command.',
-      loadDetailFailed: 'Failed to load details.',
-      manualRescanFailed: 'Failed to start manual rescan.'
+      certificateAssetIncomplete: '証明書アセットデータ不完全な、できません跳转詳細。',
+      certificateAssetNotFound: '本件目中未找へ对応証明書アセット。',
+      certificateAssetQueryFailed: '証明書アセットの照会に失敗しました。',
+      detailDataMissing: '詳細情報を取得できませんでした。',
+      generateInstallCommandFailed: 'インストールコマンドを生成失敗。',
+      installCommandMissing: 'システム未戻るインストールコマンド。',
+      loadDetailFailed: '読み込み詳細失敗。',
+      manualRescanFailed: '手動再スキャンの開始に失敗しました。'
     },
     fields: {
-      agentVersion: 'Agent version',
-      appCount: 'App count',
-      appList: 'App list',
-      appPool: 'App pool',
-      arch: 'Architecture',
-      binaryPath: 'Binary path',
-      certificateFile: 'Certificate file',
-      certificateName: 'Certificate name',
-      certificateStore: 'Certificate store',
-      certificateSubject: 'Certificate subject',
-      certificateThumbprint: 'Certificate thumbprint',
-      configFile: 'Config file',
-      configPath: 'Config path',
-      connectorCount: 'Connector count',
-      connectorList: 'Connector list',
-      domain: 'Domain',
-      frameworkVersion: '{name} version',
-      healthStatus: 'Health status',
-      healthSummary: 'Health summary',
-      hostname: 'Hostname',
-      httpsBinding: 'HTTPS binding',
-      httpsListen: 'HTTPS listen',
-      iisVersion: 'IIS version',
-      installPrefix: 'Install prefix',
-      installStatus: 'Install status',
-      ipAddress: 'IP address',
-      issuer: 'Issuer',
-      lastCapabilityReportAt: 'Last capability report time',
-      lastHeartbeat: 'Last heartbeat',
-      lastRecoveryAt: 'Last recovery time',
-      lastReportAt: 'Last report time',
-      linuxDistribution: 'Linux distribution',
-      listenAddress: 'Listen address',
-      notAfter: 'Not after',
-      notBefore: 'Not before',
-      offlineDetected: 'Offline detected',
-      osType: 'OS type',
-      osVersion: 'OS version',
-      patchVersion: 'Patch version',
-      privateKeyOrKeystore: 'Private key / Keystore',
-      proxyTarget: 'Proxy target',
-      remainingDays: 'Remaining days',
-      role: 'Role',
-      runningStatus: 'Running status',
-      runtimeLog: 'Runtime log',
-      serviceName: 'Service name',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      siteCount: 'Site count',
-      siteList: 'Site list',
-      tlsConnector: 'TLS connector',
-      tomcatVersion: 'Tomcat version',
-      zone: 'Zone'
+      agentVersion: 'Agent バージョン',
+      appCount: 'アプリケーション数',
+      appList: 'アプリケーション一覧',
+      appPool: 'アプリケーション程序池',
+      arch: 'システム架构',
+      binaryPath: '二进制パス',
+      certificateFile: '証明書ファイル',
+      certificateName: '証明書名',
+      certificateStore: '証明書仓庫',
+      certificateSubject: '証明書主题',
+      certificateThumbprint: '証明書フィンガープリント',
+      configFile: '設定ファイル',
+      configPath: '設定パス',
+      connectorCount: '接続器数',
+      connectorList: '接続器一覧',
+      domain: 'ドメイン名',
+      frameworkVersion: '{name} バージョン',
+      healthStatus: '正常ステータス',
+      healthSummary: '異常サマリー',
+      hostname: 'ホスト名',
+      httpsBinding: 'HTTPS バインド',
+      httpsListen: 'HTTPS リッスン',
+      iisVersion: 'IIS バージョン',
+      installPrefix: 'インストール前缀',
+      installStatus: 'インストールステータス',
+      ipAddress: 'IP アドレス',
+      issuer: '発行者',
+      lastCapabilityReportAt: '上回機能報告時刻',
+      lastHeartbeat: '直近ハートビート',
+      lastRecoveryAt: '直近恢复時刻',
+      lastReportAt: '直近報告時刻',
+      linuxDistribution: 'Linux 発行版',
+      listenAddress: 'リッスンアドレス',
+      notAfter: '期限切れ日時',
+      notBefore: '開始時刻',
+      offlineDetected: '判定オフライン済み',
+      osType: 'システムタイプ',
+      osVersion: '操作システムバージョン',
+      patchVersion: 'パッチバージョン',
+      privateKeyOrKeystore: '秘密鍵 / Keystore',
+      proxyTarget: 'プロキシターゲット',
+      remainingDays: '残り日数',
+      role: 'ロール',
+      runningStatus: '実行ステータス',
+      runtimeLog: '実行ログ',
+      serviceName: 'サービス名',
+      sha256Fingerprint: 'SHA-256 フィンガープリント',
+      siteCount: 'サイト数',
+      siteList: 'サイト一覧',
+      tlsConnector: 'TLS コネクター',
+      tomcatVersion: 'Tomcat バージョン',
+      zone: 'ゾーン'
     },
     health: {
-      degraded: 'Degraded',
-      failed: 'Failed',
-      healthy: 'Healthy',
-      unknown: 'Unknown'
+      degraded: '劣化',
+      failed: '失敗',
+      healthy: '正常',
+      unknown: '不明'
     },
     install: {
-      bootstrapToken: 'Bootstrap token',
-      command: 'Install command',
-      commandCopied: 'Install command copied',
-      copyCommand: 'Copy install command',
-      copyToken: 'Copy token',
-      expired: 'Expired',
-      generateCommand: 'Generate install command',
-      generating: 'Generating...',
-      modalDescription: 'Choose platform and version to generate a one-time install command. The token is valid for 10 minutes and can only be used once.',
-      modalTitle: 'Install Agent',
-      platform: 'Platform',
-      platformLinuxDescription: 'For Ubuntu, Debian, CentOS, Rocky, AlmaLinux, and other Linux distributions.',
-      platformWindowsDescription: 'For Windows Server and Windows 10/11. Registers as a system service after installation.',
-      remainingTime: '{minutes}m {seconds}s',
-      remainingValidity: 'Remaining validity',
-      singleUseHint: 'Once the bootstrap script requests this token, it expires immediately and cannot be reused.',
-      tokenCopied: 'Token copied',
-      version: 'Version',
-      versionLatest: 'Latest stable',
-      zone: 'Zone'
+      bootstrapToken: 'インストールコード',
+      command: 'インストールコマンド',
+      commandCopied: 'インストールコマンドコピー済み',
+      copyCommand: 'インストールコマンドをコピー',
+      copyToken: 'インストールコードをコピー',
+      expired: '期限切れ',
+      generateCommand: 'インストールコマンドを生成',
+      generating: '生成中...',
+      modalDescription: '選択プラットフォームとバージョン、生成一度限りのインストールコマンド。インストールコード 10 分内有効、かつ1 回だけ使用できます。',
+      modalTitle: 'インストール Agent',
+      platform: 'プラットフォーム',
+      platformLinuxDescription: 'Ubuntu、Debian、CentOS、Rocky、AlmaLinux 等 Linux 発行版。',
+      platformWindowsDescription: 'Windows Server と Windows 10/11、インストール後システムサービスとして登録。',
+      remainingTime: '{minutes}分 {seconds}秒',
+      remainingValidity: '残り有効期間',
+      singleUseHint: '同じインストールコードで bootstrap スクリプトがリクエストされると、ただちに失効し、再利用できません。',
+      tokenCopied: 'インストールコードコピー済み',
+      version: 'バージョン',
+      versionLatest: '最新安定版',
+      zone: 'ゾーン'
     },
     labels: {
-      certificatePath: 'Certificate: {value}',
-      deployDirectory: 'Deploy directory: {value}',
-      directory: 'Directory: {value}',
-      keystorePath: 'Keystore: {value}',
-      listenAddress: 'Listen address: {value}',
-      path: 'Path: {value}',
-      privateKeyPath: 'Private key: {value}',
-      reloadCommand: 'Reload command: {value}',
-      siteName: 'Site name: {value}',
-      taskType: 'Task type: {value}',
-      testCommand: 'Test command: {value}',
-      thumbprint: 'Thumbprint: {value}'
+      certificatePath: '証明書：{value}',
+      deployDirectory: 'デプロイディレクトリ：{value}',
+      directory: 'ディレクトリ：{value}',
+      keystorePath: 'Keystore：{value}',
+      listenAddress: 'リッスンアドレス：{value}',
+      path: 'パス：{value}',
+      privateKeyPath: '秘密鍵：{value}',
+      reloadCommand: 'Reload コマンド：{value}',
+      siteName: 'サイト名前：{value}',
+      taskType: 'タスクタイプ：{value}',
+      testCommand: '測試コマンド：{value}',
+      thumbprint: 'フィンガープリント：{value}'
     },
     linux: {
-      certDirectoryWritable: 'Certificate directory: {status}',
-      helperRequired: 'Helper required',
-      keyDirectoryWritable: 'Private key directory: {status}',
-      permissionMode: 'Permission mode: {mode}'
+      certDirectoryWritable: '証明書ディレクトリ：{status}',
+      helperRequired: '必要 helper',
+      keyDirectoryWritable: '秘密鍵ディレクトリ：{status}',
+      permissionMode: '権限モード：{mode}'
     },
     logs: {
-      collapse: 'Collapse',
-      expand: 'Expand',
-      listAriaLabel: 'Runtime log list'
+      collapse: '折りたたむ',
+      expand: '展開',
+      listAriaLabel: '実行ログ一覧'
     },
     metrics: {
-      abnormalDescription: 'Offline, failed, or drifted Agents need priority handling.',
-      abnormalTitle: 'Abnormal Agents',
-      totalDescription: 'Number of Agents currently registered with the control plane.',
-      totalTitle: 'Total Agents'
+      abnormalDescription: 'オフライン、失敗またはドリフトステータスの Agent 必要優先処理。',
+      abnormalTitle: '異常 Agent',
+      totalDescription: '現在登録済みへシステムの Agent 数。',
+      totalTitle: 'Agent 合計'
     },
     page: {
-      description: 'View Agents, generate install commands for different platforms, and inspect details in a dedicated modal.',
-      installAgent: 'Install Agent'
+      description: '表示 Agent 一覧、生成異なるプラットフォームのインストールコマンド、かつでダイアログ中表示詳細。',
+      installAgent: 'インストールAgent'
     },
     sections: {
-      frameworkOverviewDescription: 'Shows {name} installation status, running status, and config location on the host.',
-      frameworkOverviewTitle: '{name} overview',
-      frameworkSitesDescription: 'Shows sites, roots, domains, reverse proxy targets, and certificate paths discovered by {name}.',
-      frameworkSitesTitle: '{name} sites',
-      healthDescription: 'Shows control-plane offline detection, latest recovery time, pending result uploads, and health summary.',
-      healthTitle: 'Health and recovery',
-      iisOverviewDescription: 'Shows IIS installation status and version information on the host.',
-      iisOverviewTitle: 'IIS overview',
-      iisSitesDescription: 'Shows IIS websites, site paths, binding ports, and certificate subjects.',
-      iisSitesTitle: 'IIS sites',
-      logOverviewDescription: 'Shows the latest capability report time to help judge whether detail data is fresh.',
-      logOverviewTitle: 'Log overview',
-      mainInfoDescription: 'Shows Agent identity, role, and latest heartbeat.',
-      mainInfoTitle: 'Main information',
-      runtimeDescription: 'Shows runtime system and version information reported by the Agent.',
-      runtimeLogsDescription: 'Shows persisted runtime logs for manual rescans, heartbeat anomalies, and capability report interruptions.',
-      runtimeLogsTitle: 'Runtime logs',
-      runtimeTitle: 'Runtime environment',
-      tomcatAppsDescription: 'Shows application paths and deployment directories discovered in Tomcat Host/Context.',
-      tomcatAppsTitle: 'Tomcat apps',
-      tomcatConnectorsDescription: 'Shows Tomcat Connector listen address, protocol, TLS switch, and certificate path.',
-      tomcatConnectorsTitle: 'Tomcat connectors',
-      tomcatOverviewDescription: 'Shows Tomcat installation status, running status, and Catalina path on the host.',
-      tomcatOverviewTitle: 'Tomcat overview'
+      frameworkOverviewDescription: '宿ホスト上の {name} インストールステータス、実行ステータスと設定場所。',
+      frameworkOverviewTitle: '{name} 概况',
+      frameworkSitesDescription: '{name} 識別へのサイト、根ディレクトリ、ドメイン名、反向プロキシターゲットと証明書ファイルパス。',
+      frameworkSitesTitle: '{name} サイト',
+      healthDescription: 'システム对 Agent のオフライン判断、恢复時刻と実行正常サマリー。',
+      healthTitle: '正常と恢复',
+      iisOverviewDescription: '宿ホスト上の IIS インストールステータスとバージョン情報。',
+      iisOverviewTitle: 'IIS 概况',
+      iisSitesDescription: 'IIS 網站一覧、サイトパス、バインドポートおよび証明書主题名。',
+      iisSitesTitle: 'IIS サイト',
+      logOverviewDescription: '直近直近の機能報告時刻、機能情報の判断に使用するの鮮度。',
+      logOverviewTitle: 'ログ概要',
+      mainInfoDescription: 'Agent ID、ロールとハートビートステータス。',
+      mainInfoTitle: '主要情報',
+      runtimeDescription: 'Agent 報告の実行システムとバージョン情報。',
+      runtimeLogsDescription: '手動再スキャン結果、ハートビート異常および機能報告中断等実行ログ。',
+      runtimeLogsTitle: '実行ログ',
+      runtimeTitle: '実行環境',
+      tomcatAppsDescription: 'Tomcat Host/Context 中識別へのアプリケーションパスとデプロイディレクトリ。',
+      tomcatAppsTitle: 'Tomcat アプリケーション',
+      tomcatConnectorsDescription: 'Tomcat Connector のリッスンアドレス、プロトコル、TLS 开関と証明書パス。',
+      tomcatConnectorsTitle: 'Tomcat 接続器',
+      tomcatOverviewDescription: '宿ホスト上の Tomcat インストールステータス、実行ステータスと Catalina パス。',
+      tomcatOverviewTitle: 'Tomcat 概况'
     },
     site: {
-      domainCount: '{count} domains',
-      fallbackName: 'Site {index}'
+      domainCount: '{count} 個ドメイン名',
+      fallbackName: 'サイト {index}'
     },
     siteMode: {
-      reverseProxy: 'Reverse proxy',
-      staticRoot: 'Static site'
+      reverseProxy: '反向プロキシ',
+      staticRoot: '静態サイト'
     },
     status: {
-      installed: 'Installed',
-      notInstalled: 'Not installed',
-      notRunning: 'Not running',
-      running: 'Running'
+      installed: 'インストール済み',
+      notInstalled: '未インストール',
+      notRunning: '未実行',
+      running: '実行中'
     },
     tabs: {
-      logs: 'Logs',
-      overview: 'Overview'
+      logs: 'ログ',
+      overview: '概要'
     }
   },
   dashboard: {
     aria: {
-      assetHeatmap: 'Application asset status heatmap',
-      certificateStatusList: 'Certificate status list',
-      metrics: 'Core metrics',
-      quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and application asset status',
-      statusLegend: 'Status legend'
+      assetHeatmap: 'アプリケーションアセットステータス热力图',
+      certificateStatusList: '証明書ステータス一覧',
+      metrics: '核心指標',
+      quickActions: '主要機能への導線',
+      statusHeatmap: '証明書、Agent、ゲートウェイとアプリケーションアセットステータス',
+      statusLegend: 'ステータス图例'
     },
     assets: {
-      groupCount: '{summary} · {total} items',
-      title: 'Application asset status',
-      updatedAt: 'Updated at {time}'
+      groupCount: '{summary} · {total} 個',
+      title: 'アプリケーションアセットステータス',
+      updatedAt: '更新于 {time}'
     },
     audit: {
-      description: 'Prioritizes failures, denials, high-risk events, and key business changes.',
-      title: 'Recent audit logs'
+      description: '優先表示失敗、拒否、高リスクとキー業務変更。',
+      title: '直近監査ログ'
     },
     certificateState: {
-      critical: 'Near expiry',
-      expired: 'Expired',
-      expiring: 'Expiring soon',
-      unknown: 'Unknown',
-      valid: 'Normal'
+      critical: '期限切れ間近',
+      expired: '期限切れ',
+      expiring: '期限切れ間近',
+      unknown: '不明',
+      valid: '正常'
     },
     days: {
-      expired: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      notRecorded: 'Not recorded',
-      remaining: '{days} days'
+      expired: '期限切れ {days} 日',
+      expiresToday: '本日付限切れ',
+      notRecorded: '未記録',
+      remaining: '{days} 日'
     },
     empty: {
-      noAuditLogs: 'No audit logs',
-      noCertificateStatus: 'No certificate status data',
-      noObjects: 'No objects'
+      noAuditLogs: '監査ログはまだありません',
+      noCertificateStatus: '証明書ステータスデータはまだありません',
+      noObjects: 'オブジェクトはまだありません'
     },
     errors: {
-      loadFailed: 'Failed to load overview data',
-      missingOverviewData: 'Overview API returned no data'
+      loadFailed: '概要データの読み込みに失敗しました',
+      missingOverviewData: '概要情報を取得できませんでした。'
     },
     legend: {
-      disabled: 'Disabled',
-      error: 'Abnormal',
-      ok: 'Normal',
-      unknown: 'Unknown',
-      warning: 'Attention'
+      disabled: '無効化',
+      error: '異常',
+      ok: '正常',
+      unknown: '不明',
+      warning: '関注'
     },
     loading: {
-      description: 'Reading overview data.',
-      title: 'Loading'
+      description: '読み込み概要情報中…',
+      title: '読み込み中'
     },
     metrics: {
       activeAgents: {
-        title: 'Active Agents',
-        description: 'Agents currently online and schedulable.'
+        title: 'アクティブ Agent 数',
+        description: '現在オンラインかつスケジューリングの Agent。'
       },
       activeGateways: {
-        title: 'Active gateways',
-        description: 'Isolation-zone gateways currently online.'
+        title: 'アクティブゲートウェイ数',
+        description: '現在オンラインの隔離ゾーンゲートウェイ。'
       },
       applications: {
-        title: 'Current applications',
-        description: 'Managed application entry assets.'
+        title: '現在アプリケーション数',
+        description: '管理対象になっているアプリケーションエントリアセットです。'
       },
       expiringCertificates: {
-        title: 'Certificates expiring in 15 days',
-        description: 'Certificates that need renewal or replacement.'
+        title: '15 日内期限切れ証明書',
+        description: '必要安排継期または替换の証明書。'
       },
       managedBindings: {
-        title: 'Managed bindings',
-        description: 'Certificate bindings already in managed status.'
+        title: '管理対象バインド数',
+        description: '開く管理対象ステータスの証明書バインド済み。'
       },
       validCertificates: {
-        title: 'Active certificates',
-        description: 'Certificate versions that are active and not expired.'
+        title: 'アクティブ証明書数',
+        description: 'ステータスアクティブかつまだ期限切れの証明書バージョン。'
       }
     },
     quickActions: {
       agents: {
         title: 'Agent',
-        description: 'View online status and task capabilities.'
+        description: '表示オンラインステータスとタスク機能。'
       },
       assets: {
-        title: 'Application assets',
-        description: 'Maintain domains, ports, and deployment targets.'
+        title: 'アプリケーションアセット',
+        description: '維護ドメイン名、ポートとデプロイターゲット。'
       },
       audits: {
-        title: 'Audit logs',
-        description: 'Trace operators and execution results.'
+        title: '監査ログ',
+        description: '追踪操作人と実行結果。'
       },
       certificates: {
-        title: 'Certificate management',
-        description: 'Import, view, and convert certificates.'
+        title: '証明書管理',
+        description: 'インポート、表示と转换証明書。'
       },
       deploymentPlans: {
-        title: 'Deployment plans',
-        description: 'Create and execute certificate update plans.'
+        title: 'デプロイプラン',
+        description: '作成と実行証明書更新プラン。'
       },
       gateways: {
-        title: 'Gateway',
-        description: 'Manage isolation-zone execution entry points.'
+        title: 'ゲートウェイ',
+        description: '隔離ゾーンの実行導線を管理します。'
       }
     },
     statusBlock: {
       detail: {
-        certificateRemaining: '{name}, {days}'
+        certificateRemaining: '{name}、{days}'
       },
       status: {
-        active: 'Active',
-        critical: 'Near expiry',
-        deleted: 'Deleted',
-        disabled: 'Disabled',
-        expired: 'Expired',
-        expiring: 'Expiring soon',
-        inactive: 'Inactive',
-        offline: 'Offline',
-        online: 'Online',
-        retired: 'Retired',
-        revoked: 'Revoked',
-        stale: 'Stale',
-        unknown: 'Unknown',
-        unreachable: 'Unreachable',
-        upgrading: 'Upgrading',
-        valid: 'Normal'
+        active: 'アクティブ',
+        critical: '期限切れ間近',
+        deleted: '削除済み',
+        disabled: '無効化',
+        expired: '期限切れ',
+        expiring: '期限切れ間近',
+        inactive: '不アクティブ',
+        offline: 'オフライン',
+        online: 'オンライン',
+        retired: '退役済み',
+        revoked: '吊销済み',
+        stale: '期限切れ未更新',
+        unknown: '不明',
+        unreachable: '不へ達可能',
+        upgrading: 'アップグレード中',
+        valid: '正常'
       }
     },
     statusGroups: {
@@ -1286,1660 +1278,1624 @@ export default {
         title: 'Agent'
       },
       applicationAssets: {
-        title: 'Application assets'
+        title: 'アプリケーションアセット'
       },
       certificates: {
-        title: 'Certificates'
+        title: '証明書'
       },
       gateways: {
-        title: 'Gateways'
+        title: 'ゲートウェイ'
       },
       summary: {
-        allNormal: 'All normal',
-        needsAttention: '{count} need attention'
+        allNormal: '全部正常',
+        needsAttention: '{count} 個必要関注'
       }
     },
     table: {
-      bindings: 'Bindings',
-      certificate: 'Certificate',
-      domain: 'Domain',
-      notAfterMissing: 'Expiry time not recorded',
-      remainingTime: 'Remaining time',
-      status: 'Status'
+      bindings: 'バインド',
+      certificate: '証明書',
+      domain: 'ドメイン名',
+      notAfterMissing: '未記録期限切れ日時',
+      remainingTime: '残り時刻',
+      status: 'ステータス'
     }
   },
   gateways: {
     actions: {
-      addGatewayAgent: 'Add Gateway Agent',
-      close: 'Close',
-      copied: 'Copied',
-      copyEnableCommand: 'Copy enable command',
-      copyInstallCommand: 'Copy install command',
-      detail: 'Details',
-      enableExistingAgent: 'Enable Gateway on existing Agent',
-      generateEnableCommand: 'Generate enable command',
-      generateInstallCommand: 'Generate install command',
-      generating: 'Generating...',
-      probe: 'Probe',
-      probeRisk: 'Starts a reachability probe from this Gateway region.'
+      addGatewayAgent: '追加 Gateway Agent',
+      close: '閉じる',
+      copied: 'コピー済み',
+      copyEnableCommand: 'コピー有効化コマンド',
+      copyInstallCommand: 'インストールコマンドをコピー',
+      detail: '詳細',
+      enableExistingAgent: '既存 Agent 有効化 Gateway',
+      generateEnableCommand: '生成有効化コマンド',
+      generateInstallCommand: 'インストールコマンドを生成',
+      generating: '生成中...',
+      probe: 'プローブ',
+      probeRisk: 'この Gateway が属するゾーンから到達性プローブを 1 回実行します。'
     },
     columns: {
-      actions: 'Actions',
-      gateway: 'Gateway',
-      lastHeartbeat: 'Last heartbeat',
-      load: 'Load',
-      region: 'Region',
-      status: 'Status'
+      actions: '操作',
+      gateway: 'ゲートウェイ',
+      lastHeartbeat: '直近ハートビート',
+      load: '负載',
+      region: 'ゾーン',
+      status: 'ステータス'
     },
     detail: {
       abilities: {
         agentTask: {
-          description: 'Forward deployment, check, and other tasks to Agents in this region.',
-          title: 'Task forwarding'
+          description: '把デプロイ、チェック等タスク转给ゾーン内の Agent 実行。',
+          title: 'タスク转発'
         },
         directControl: {
-          description: 'Forward controlled operations to Agents in this region without direct control-plane access to internal ports.',
-          title: 'Remote control forwarding'
+          description: '把受控操作转発へゾーン内 Agent、システム無必要直连内網ポート。',
+          title: '远程控制转発'
         },
         probe: {
-          description: 'Check whether hosts, websites, or Agents are reachable from this region.',
-          title: 'Connectivity check'
+          description: 'このゾーンからホスト、Web サイト、Agent にアクセスできるかを確認します。',
+          title: '连通性チェック'
         }
       },
-      eyebrow: 'Regional gateway',
-      heroDescription: 'Handles probing and forwarding in region {region}',
+      eyebrow: 'ゾーンゲートウェイ',
+      heroDescription: '负责 {region} ゾーン内のプローブと转発',
       overview: {
-        availableCapacity: 'Available capacity',
-        connectionStatus: 'Connection status',
-        lastContact: 'Last contact',
-        processing: 'Processing',
-        serviceRegion: 'Service region',
-        successRate: 'Success rate'
+        availableCapacity: '利用可能容量',
+        connectionStatus: '接続ステータス',
+        lastContact: '直近連络',
+        processing: '正で処理',
+        serviceRegion: 'サービスゾーン',
+        successRate: '成功率'
       },
       sections: {
-        overview: 'Runtime overview',
-        services: 'Available services'
+        overview: '実行概要',
+        services: '利用可能サービス'
       }
     },
     empty: {
-      description: 'Add a Gateway Agent, or enable the Gateway role on an existing Agent.',
-      title: 'No gateways'
+      description: '追加 Gateway Agent、またはで既存 Agent 上有効化 Gateway ロール。',
+      title: 'ゲートウェイはまだありません'
     },
     errors: {
-      generateEnableCommandFailed: 'Failed to generate Gateway enable command.',
-      generateInstallCommandFailed: 'Failed to generate Gateway Agent install command.',
-      missingEnableCommand: 'The backend did not return a Gateway enable command.',
-      missingInstallCommand: 'The backend did not return a Gateway Agent install command.'
+      generateEnableCommandFailed: '生成 Gateway 有効化コマンド失敗。',
+      generateInstallCommandFailed: '生成 Gateway Agent インストールコマンド失敗。',
+      missingEnableCommand: 'システム未戻る Gateway 有効化コマンド。',
+      missingInstallCommand: 'システム未戻る Gateway Agent インストールコマンド。'
     },
     fields: {
-      config: 'Config',
-      enableCommand: 'Enable command',
-      expiresAt: 'Expires at',
-      installCode: 'Install code',
-      installCommand: 'Install command',
-      platform: 'Platform',
-      region: 'Region',
-      service: 'Service',
-      unboundAgent: 'Do not bind a specific Agent'
+      config: '設定',
+      enableCommand: '有効化コマンド',
+      expiresAt: '期限切れ時刻',
+      installCode: 'インストールコード',
+      installCommand: 'インストールコマンド',
+      platform: 'プラットフォーム',
+      region: 'ゾーン',
+      service: 'サービス',
+      unboundAgent: '不バインド具体的な Agent'
     },
     links: {
-      assets: 'View assets',
-      executions: 'View execution records'
+      assets: 'アセットを表示',
+      executions: '表示実行記録'
     },
     modals: {
       detail: {
-        title: 'Gateway details'
+        title: 'ゲートウェイ詳細'
       },
       enable: {
-        title: 'Enable Gateway on existing Agent'
+        title: '既存 Agent 有効化 Gateway'
       },
       install: {
-        title: 'Add Gateway Agent'
+        title: '追加 Gateway Agent'
       }
     },
     page: {
-      description: 'Manage regional routing Gateway Agents.',
-      title: 'Gateways'
+      description: '管理ゾーン路由 Gateway Agent。',
+      title: 'ゲートウェイ'
     },
     platforms: {
       linuxSystemd: {
-        description: 'Install Gateway Agent service on a Linux host'
+        description: 'で Linux ホストインストール Gateway Agent サービス'
       },
       windowsService: {
-        description: 'Install Gateway Agent service on a Windows host'
+        description: 'で Windows ホストインストール Gateway Agent サービス'
       }
     },
-    resourceName: 'Gateway',
+    resourceName: 'ゲートウェイ',
     status: {
-      disabled: 'Disabled',
-      offline: 'Offline',
-      online: 'Online',
-      revoked: 'Revoked',
-      upgrading: 'Upgrading'
+      disabled: '停止済み',
+      offline: 'オフライン',
+      online: '正常オンライン',
+      revoked: '撤销済み',
+      upgrading: 'アップグレード中'
     },
     values: {
-      availableCapacity: 'Can accept {count} tasks',
-      defaultRegion: 'Default region',
-      regionGatewayName: '{region} gateway',
-      taskCount: '{count} tasks'
+      availableCapacity: '可接收 {count} 個タスク',
+      defaultRegion: 'デフォルトゾーン',
+      regionGatewayName: '{region}ゲートウェイ',
+      taskCount: '{count} 個タスク'
     }
   },
   auditFormat: {
     actions: {
-      secretResolveService: 'Service reads Secret',
-      secretResolve: 'Executor reads Secret',
-      secretCreate: 'Create Secret',
-      secretVersionCreate: 'Create Secret version',
-      secretRotate: 'Rotate Secret',
-      certificateImport: 'Import certificate',
-      certificateFormatUpdate: 'Update certificate artifact',
-      certificateFormatDelete: 'Delete certificate artifact',
-      deploymentCreate: 'Create deployment plan',
-      deploymentExecute: 'Execute deployment plan',
-      deploymentRollback: 'Request rollback',
-      approvalCreate: 'Create approval',
-      approvalApprove: 'Approve request',
-      approvalReject: 'Reject request',
-      authLogin: 'User login',
-      authLogout: 'User logout'
+      secretResolveService: 'サービス読取 Secret',
+      secretResolve: 'Executor読取 Secret',
+      secretCreate: '作成 Secret',
+      secretVersionCreate: '作成 Secret バージョン',
+      secretRotate: '轮换 Secret',
+      certificateImport: '証明書をインポート',
+      certificateFormatUpdate: '更新証明書成果物',
+      certificateFormatDelete: '削除証明書成果物',
+      deploymentCreate: '作成デプロイプラン',
+      deploymentExecute: '実行デプロイプラン',
+      deploymentRollback: 'リクエストロールバック',
+      approvalCreate: '作成承認',
+      approvalApprove: '承認を許可',
+      approvalReject: '拒否承認',
+      authLogin: 'ユーザーログイン',
+      authLogout: 'ユーザー終了'
     },
     events: {
-      authLoginSuccess: 'Login succeeded',
-      authLoginFailure: 'Login failed',
-      authLoginFailed: 'Login failed',
-      authLogout: 'Logged out',
-      authExternalLoginSuccess: 'External identity login succeeded',
-      authExternalLoginFailed: 'External identity login failed',
-      secretCreated: 'Created Secret',
-      secretVersionCreated: 'Created Secret version',
-      secretUsed: 'Read Secret',
-      secretRotated: 'Rotated Secret',
-      permissionDenied: 'Permission denied',
-      approvalCreated: 'Created approval',
-      approvalApproved: 'Approval approved',
-      approvalRejected: 'Approval rejected',
-      certificateImported: 'Certificate changed',
-      deploymentCreated: 'Created deployment',
-      deploymentExecuted: 'Executed deployment',
-      deploymentRollbackRequested: 'Requested deployment rollback',
-      pluginInstalled: 'Installed plugin',
-      pluginPermissionDenied: 'Plugin permission denied',
-      workflowTemplateExecuted: 'Executed workflow template'
+      authLoginSuccess: 'ログインに成功しました',
+      authLoginFailure: 'ログインに失敗しました',
+      authLoginFailed: 'ログインに失敗しました',
+      authLogout: 'ログアウト',
+      authExternalLoginSuccess: '外部IDログインに成功しました',
+      authExternalLoginFailed: '外部IDログインに失敗しました',
+      secretCreated: '作成 Secret',
+      secretVersionCreated: '作成 Secret バージョン',
+      secretUsed: '読取 Secret',
+      secretRotated: '轮换 Secret',
+      permissionDenied: '権限拒否',
+      approvalCreated: '作成承認',
+      approvalApproved: '承認合格',
+      approvalRejected: '承認驳回',
+      certificateImported: '証明書変更',
+      deploymentCreated: '作成デプロイ',
+      deploymentExecuted: '実行デプロイ',
+      deploymentRollbackRequested: 'リクエストデプロイロールバック',
+      pluginInstalled: 'インストールプラグイン',
+      pluginPermissionDenied: 'プラグイン権限拒否',
+      workflowTemplateExecuted: '実行ワークフローテンプレート'
     },
     types: {
-      audit: 'Audit',
-      auth: 'Authentication',
-      security: 'Security',
+      audit: '監査',
+      auth: '認証',
+      security: '安全',
       secret: 'Secret',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution',
-      approval: 'Approval',
-      permission: 'Permission',
-      plugin: 'Plugin',
-      workflowTemplate: 'Workflow',
-      gateway: 'Gateway',
+      certificate: '証明書',
+      certificateVersion: '証明書',
+      certificateVersionFormat: '証明書成果物',
+      deployment: 'デプロイ',
+      deploymentPlan: 'デプロイプラン',
+      execution: '実行',
+      approval: '承認',
+      permission: '権限',
+      plugin: 'プラグイン',
+      workflowTemplate: 'ワークフロー',
+      gateway: 'ゲートウェイ',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Binding'
+      serviceAsset: 'アプリケーションアセット',
+      binding: 'バインド'
     },
     actors: {
-      user: 'User',
-      system: 'System',
+      user: 'ユーザー',
+      system: 'システム',
       agent: 'Agent',
-      plugin: 'Plugin',
+      plugin: 'プラグイン',
       executor: 'Executor'
     },
     resources: {
       secret: 'Secret',
-      secretVersion: 'Secret version',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate version',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution task',
-      executionRun: 'Execution task',
-      approval: 'Approval',
-      plugin: 'Plugin',
-      workflowTemplate: 'Workflow template',
-      gateway: 'Gateway',
+      secretVersion: 'Secret バージョン',
+      certificate: '証明書',
+      certificateVersion: '証明書バージョン',
+      certificateVersionFormat: '証明書成果物',
+      deployment: 'デプロイ',
+      deploymentPlan: 'デプロイプラン',
+      execution: '実行タスク',
+      executionRun: '実行タスク',
+      approval: '承認単',
+      plugin: 'プラグイン',
+      workflowTemplate: 'ワークフローテンプレート',
+      gateway: 'ゲートウェイ',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Certificate binding',
-      auditLog: 'Audit log'
+      serviceAsset: 'アプリケーションアセット',
+      binding: '証明書バインド',
+      auditLog: '監査ログ'
     },
     results: {
-      success: 'Success',
-      failure: 'Failed',
-      denied: 'Denied'
+      success: '成功',
+      failure: '失敗',
+      denied: '拒否'
     },
     verbs: {
-      success: ' completed ',
-      failure: ' failed ',
-      denied: ' denied '
+      success: '完了',
+      failure: '失敗',
+      denied: '拒否'
     },
     tokens: {
-      auth: 'authentication',
-      login: 'login',
-      logout: 'logout',
-      external: 'external',
+      auth: '認証',
+      login: 'ログイン',
+      logout: '終了',
+      external: '外部',
       secret: 'Secret',
-      resolve: 'read',
-      service: 'service',
-      used: 'used',
-      created: 'created',
-      create: 'create',
-      updated: 'updated',
-      update: 'update',
-      deleted: 'deleted',
-      delete: 'delete',
-      version: 'version',
-      certificate: 'certificate',
-      imported: 'imported',
-      import: 'import',
-      format: 'artifact',
-      deployment: 'deployment',
-      executed: 'executed',
-      execute: 'execute',
-      rollback: 'rollback',
-      requested: 'requested',
-      approval: 'approval',
-      approved: 'approved',
-      rejected: 'rejected',
-      permission: 'permission',
-      denied: 'denied',
-      gateway: 'gateway',
-      credential: 'credential',
-      issued: 'issued',
-      revoked: 'revoked',
-      task: 'task',
-      evidence: 'evidence',
-      recorded: 'recorded',
-      result: 'result',
-      plugin: 'plugin',
-      workflow: 'workflow',
-      template: 'template',
-      synced: 'synced',
-      tested: 'tested',
-      source: 'source',
-      identity: 'identity source',
-      group: 'group',
-      mapping: 'mapping'
+      resolve: '読取',
+      service: 'サービス',
+      used: '使用',
+      created: '作成',
+      create: '作成',
+      updated: '更新',
+      update: '更新',
+      deleted: '削除',
+      delete: '削除',
+      version: 'バージョン',
+      certificate: '証明書',
+      imported: 'インポート',
+      import: 'インポート',
+      format: '成果物',
+      deployment: 'デプロイ',
+      executed: '実行',
+      execute: '実行',
+      rollback: 'ロールバック',
+      requested: 'リクエスト',
+      approval: '承認',
+      approved: '合格',
+      rejected: '驳回',
+      permission: '権限',
+      denied: '拒否',
+      gateway: 'ゲートウェイ',
+      credential: '認証情報',
+      issued: '発放',
+      revoked: '吊销',
+      task: 'タスク',
+      evidence: '証拠',
+      recorded: '記録',
+      result: '結果',
+      plugin: 'プラグイン',
+      workflow: 'ワークフロー',
+      template: 'テンプレート',
+      synced: '同時に',
+      tested: '測試',
+      source: 'ソース',
+      identity: 'ID ソース',
+      group: '組',
+      mapping: '映射'
     },
     actorWithId: '{actorType} {actorId}',
-    summary: '{actor}{verb}"{title}", resource: {resource}.',
+    summary: '{actor}{verb}“{title}”、オブジェクト：{resource}。',
     fallbacks: {
-      unknown: 'Unknown'
+      unknown: '不明'
     }
   },
   audit: {
     page: {
-      title: 'Audit logs',
-      description: 'Organizes logs by user actions, failures/denials, and key business changes while keeping readable summaries.'
+      title: '監査ログ',
+      description: 'によりユーザー操作、失敗/拒否とキー業務変更組织ログ、保留可読サマリー。'
     },
     actions: {
-      exportEvidence: 'Export audit evidence',
-      exporting: 'Exporting…',
-      refreshing: 'Refreshing…'
+      exportEvidence: 'エクスポート監査証拠',
+      exporting: 'エクスポート中…',
+      refreshing: '更新中…'
     },
     errors: {
-      exportFailed: 'Failed to export audit evidence',
-      loadFailed: 'Failed to load audit logs',
-      withRequestId: '{message} ({requestId})'
+      exportFailed: 'エクスポート監査証拠に失敗しました',
+      loadFailed: '監査ログの読み込みに失敗しました',
+      withRequestId: '{message}（{requestId}）'
     },
     metrics: {
-      ariaLabel: 'Audit overview',
+      ariaLabel: '監査概要',
       total: {
-        title: 'Total audits',
-        description: 'Traceable operation records in the current filter scope.'
+        title: '監査合計',
+        description: '現在フィルター範囲内可追踪の操作記録。'
       },
       failed: {
-        title: 'Failed / denied',
-        description: 'Failed executions and denied access that need priority review.'
+        title: '失敗 / 拒否',
+        description: '優先的な再確認が必要な失敗実行とアクセス拒否です。'
       },
       userActions: {
-        title: 'User actions',
-        description: 'Business changes and access actions directly initiated by users.'
+        title: 'ユーザー操作',
+        description: 'ユーザーが直接開始した業務変更とアクセス操作です。'
       }
     },
     list: {
-      ariaLabel: 'Audit log list',
-      title: 'Log list',
-      summary: '{total} total, sorted by newest first.',
-      timeNotRecorded: 'Time not recorded'
+      ariaLabel: '監査ログ一覧',
+      title: 'ログ一覧',
+      summary: '合計 {total} 件。デフォルトでは最新時刻順に並びます。',
+      timeNotRecorded: '未記録時刻'
     },
     empty: {
-      title: 'No audit events',
-      description: 'Key operations should be traceable to operation records and task records.'
+      title: '監査イベントはまだありません',
+      description: 'キー操作応能回溯へ对応の操作記録とタスク記録。'
     }
   },
   securityAdmin: {
     emptyValue: '—',
     errors: {
-      loadFailed: 'Load failed',
-      submitFailed: 'Submit failed'
+      loadFailed: '読み込みに失敗しました',
+      submitFailed: '送信に失敗しました'
     },
     actions: {
-      createResource: 'Add {resource}',
-      submitting: 'Submitting…'
+      createResource: '追加{resource}',
+      submitting: '送信中…'
     },
     modal: {
-      createDescription: 'Fill in the fields below to create {resource}'
+      createDescription: '入力以下フィールド後作成{resource}'
     },
     placeholders: {
-      selectField: 'Select {field}'
+      selectField: '{field}を選択してください'
     },
     table: {
-      ariaLabel: 'Management list',
-      resourceList: '{resource} list',
-      total: '{count} total'
-    }
-  },
-  notifications: {
-    title: '通知管理',
-    description: '通知チャネル、ルート、テンプレート、サイレンス、配信履歴を一元管理します。',
-    tabs: { channels: '通知チャネル', deliveries: '配信履歴', rules: 'ルールとテンプレート' },
-    sections: { channels: '通知チャネル一覧', deliveries: '配信履歴' },
-    channels: { createTitle: '通知チャネルを新規作成' },
-    settings: { privateOriginsTitle: 'プライベート環境の接続先', privateOriginsDescription: 'WeCom、Feishu、DingTalk のプライベート HTTPS Origin を設定します。' },
-    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: '汎用 Webhook' },
-    deploymentModes: { public: 'パブリッククラウド', private: 'プライベート展開' },
-    fields: {
-      name: 'チャネル名', type: 'チャネル種別', deploymentMode: '展開モード', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
-      smtpSecurity: '接続の暗号化', smtpUsername: 'SMTP ユーザー名', smtpPassword: 'SMTP パスワード', secretValuePlaceholder: '秘密情報を入力',
-      optionalSecretValuePlaceholder: '任意；秘密情報を入力', wecomWebhookUrl: 'WeCom グループボット Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      feishuWebhookUrl: 'Feishu カスタムボット Webhook URL', dingtalkWebhookUrl: 'DingTalk カスタムボット Webhook URL', feishuSigningSecret: 'Feishu 署名キー',
-      dingtalkSigningSecret: 'DingTalk 署名キー', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID（任意）',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '完全な Webhook URL を入力', webhookMethod: 'HTTP メソッド', webhookHeaders: '固定 Header（JSON）',
-      webhookHeadersPlaceholder: '例：x-source = gcac', signingSecret: 'HMAC-SHA256 署名キー', testTarget: 'テスト送信先',
-      testTargetPlaceholder: 'Email はカンマ区切りで入力できます', lastSuccess: '最終成功', latency: '遅延（ミリ秒）',
-      createdAt: '作成日時', updatedAt: '更新日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
-      source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー', locale: '言語',
-      titleTemplate: 'タイトルテンプレート', bodyTemplate: '本文テンプレート', reason: 'サイレンス理由', startsAt: '開始日時', endsAt: '終了日時',
-      wecomPrivateOrigins: 'WeCom プライベート Origin', feishuPrivateOrigins: 'Feishu プライベート Origin', dingtalkPrivateOrigins: 'DingTalk プライベート Origin', privateOriginsPlaceholder: '1 行に 1 件、例 https://notify.example.internal'
-    },
-    actions: {
-      createChannel: 'チャネルを新規作成', createRoute: 'ルートを新規作成', createTemplate: 'テンプレートを新規作成', createSilence: 'サイレンスを新規作成',
-      confirmCreate: '作成', cancel: 'キャンセル', saveSettings: '設定を保存', test: 'テスト送信', testChannel: 'チャネルをテスト：{name}', retry: '再配信', enable: '有効化', disable: '無効化'
-    },
-    rules: { createRoute: '通知ルートを新規作成', createTemplate: '通知テンプレートを新規作成', createSilence: 'サイレンスルールを新規作成' },
-    summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール', recordCount: '{count} 件' },
-    empty: { channels: '通知チャネルはありません', deliveries: '配信履歴はありません', routes: '通知ルートはありません', templates: '通知テンプレートはありません', silences: 'サイレンスルールはありません' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP ユーザー名', smtpPassword: 'SMTP パスワード', webhookUrl: 'Webhook URL', signingSecret: '署名キー', botToken: 'Bot Token' } },
-    messages: {
-      loadFailed: '通知管理データの読み込みに失敗しました', operationFailed: '通知管理の操作に失敗しました', testUsesChannelTarget: '設定済みの送信先へテスト通知を送信します。',
-      secretStoredHint: 'この内容は暗号化して保存され、作成後は再表示されません。', createSecretFailed: '秘密情報の保存に失敗しました', invalidHeaders: '固定 Header は有効な JSON オブジェクトである必要があります',
-      smtpCredentialsPairRequired: 'SMTP ユーザー名とパスワードは両方入力してください', webhookUrlRequired: 'Webhook URL は必須です', botTokenRequired: 'Telegram Bot Token は必須です',
-      chatIdRequired: 'Telegram Chat ID は必須です', feishuWebhookUrlInvalid: 'Feishu 公式カスタムボット Webhook URL を入力してください', dingtalkWebhookUrlInvalid: 'DingTalk 公式カスタムボット Webhook URL を入力してください',
-      wecomWebhookUrlInvalid: '有効な WeCom ボット HTTPS Webhook URL を入力してください', telegramBotTokenInvalid: 'Telegram Bot Token の形式が無効です', telegramMessageThreadIdInvalid: 'Telegram Topic ID は正の整数である必要があります',
-      privateDeploymentAllowlistHint: 'プライベートエンドポイントは先に上記の信頼済み HTTPS Origin リストへ追加する必要があります。', privateOriginInvalid: 'プライベートアドレスはパス、クエリ、ユーザー情報、フラグメントを含まない正確な HTTPS Origin である必要があります。', privateOriginsSecurityHint: 'ここにはスキーム、ホスト、任意のポートのみ入力します。完全な Webhook URL、Token、署名鍵は Secret サービスで暗号化保存されます。', telegramUsesBotApi: 'Telegram 通知はイベント受信用 Webhook ではなく、公式 Bot API の sendMessage を使用します。'
+      ariaLabel: '管理一覧',
+      resourceList: '{resource}一覧',
+      total: '共 {count} 件'
     }
   },
   settings: {
-    securityLabel: 'Security settings entry',
+    securityLabel: 'セキュリティ設定への導線',
     permissionPolicies: {
-      resourceName: 'Permission policy',
+      resourceName: '権限ポリシー',
       actions: {
-        create: 'Create policy'
+        create: '作成ポリシー'
       },
       columns: {
-        id: 'Policy ID',
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        scope: 'Scope'
+        id: 'ポリシー ID',
+        subjectType: 'サブジェクトタイプ',
+        subjectId: 'サブジェクト ID',
+        effect: '效果',
+        actions: '动作',
+        resourceTypes: 'リソースタイプ',
+        scope: 'スコープ'
       },
       fields: {
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        tenantId: 'Tenant scope'
+        subjectType: 'サブジェクトタイプ',
+        subjectId: 'サブジェクト ID',
+        effect: '效果',
+        actions: '动作',
+        resourceTypes: 'リソースタイプ',
+        tenantId: 'テナントスコープ'
       },
       subjectTypes: {
-        role: 'Role',
-        user: 'User',
-        plugin: 'Plugin',
+        role: 'ロール',
+        user: 'ユーザー',
+        plugin: 'プラグイン',
         executor: 'Executor'
       },
       effects: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: '允許',
+        deny: '拒否'
       }
     },
     groupRoleMappings: {
-      resourceName: 'Group mapping',
+      resourceName: '組映射',
       actions: {
-        create: 'Create mapping'
+        create: '作成映射'
       },
       columns: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role',
-        enabled: 'Enabled',
-        updatedAt: 'Updated at'
+        sourceId: 'ID ソース ID',
+        externalGroup: '外部グループ',
+        roleId: 'ローカルロール',
+        enabled: '有効化',
+        updatedAt: '更新時刻'
       },
       fields: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role ID'
+        sourceId: 'ID ソース ID',
+        externalGroup: '外部グループ',
+        roleId: 'ローカルロール ID'
       }
     },
     users: {
-      title: 'Account principals',
+      title: 'アカウントサブジェクト一覧',
       summary: {
-        groups: '{count} total',
-        users: '{total} total, {selected} selected'
+        groups: '共 {count} 件',
+        users: '共 {total} 件、選 {selected} 件済み'
       },
       actions: {
-        createUser: 'Create user',
-        addGroup: 'Add group',
-        bulkDelete: 'Bulk delete',
-        edit: 'Edit',
-        delete: 'Delete',
-        lookupLoading: 'Looking up...',
-        lookupUser: 'Look up user',
-        lookupGroup: 'Look up group',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        adding: 'Adding...'
+        createUser: '作成ユーザー',
+        addGroup: '追加組',
+        bulkDelete: '一括削除',
+        edit: '編集',
+        delete: '削除',
+        lookupLoading: '検索中...',
+        lookupUser: '検索ユーザー',
+        lookupGroup: '検索組',
+        creating: '作成中...',
+        saving: '保存中...',
+        saveChanges: '保存変更',
+        adding: '追加中...'
       },
       risks: {
-        bulkDelete: 'Bulk delete removes local credentials and role bindings for selected users.',
-        deleteUser: 'Deleting the user removes this account\'s local credentials and role bindings.'
+        bulkDelete: '一括削除では削除選択したユーザーのローカル認証情報とロール関連。',
+        deleteUser: '削除ユーザーは削除このアカウントのローカル認証情報とロール関連。'
       },
       tabs: {
-        users: 'Users',
-        groups: 'Groups'
+        users: 'ユーザー',
+        groups: '組'
       },
       empty: {
-        users: 'No users',
-        groups: 'No groups'
+        users: 'ユーザーはまだありません',
+        groups: 'ユーザー組はまだありません'
       },
       columns: {
-        username: 'User name',
-        displayName: 'Display name',
-        email: 'Email',
-        source: 'Source',
-        identitySourceName: 'Identity source name',
-        status: 'Status',
-        tenant: 'Tenant',
-        roles: 'Roles',
-        lastSyncedAt: 'Last synced',
-        updatedAt: 'Updated at',
-        actions: 'Actions',
-        groupName: 'Group name',
-        code: 'Code',
-        externalRef: 'External reference'
+        username: 'ユーザー名',
+        displayName: '表示名',
+        email: '邮箱',
+        source: 'ソース',
+        identitySourceName: 'ID ソース名前',
+        status: 'ステータス',
+        tenant: 'テナント',
+        roles: 'ロール',
+        lastSyncedAt: '直近同時に',
+        updatedAt: '更新時刻',
+        actions: '操作',
+        groupName: '組名前',
+        code: 'エンコーディング',
+        externalRef: '外部標識'
       },
       dialog: {
-        userCreateTitle: 'Create user',
-        userEditTitle: 'Edit user',
-        userCreateDescription: 'Create a local user, or look up an identity-source user by user name and create a bound user.',
-        userEditDescription: 'Edit display name, email, status, and roles.',
-        groupCreateTitle: 'Add group',
-        groupCreateDescription: 'Create a local group, or look up an external group from an identity source.'
+        userCreateTitle: '作成ユーザー',
+        userEditTitle: '編集ユーザー',
+        userCreateDescription: '作成ローカルユーザー、またはID ソースからユーザー名で検索して作成バインドユーザー。',
+        userEditDescription: '編集ユーザーの表示名、邮箱、ステータスとロール。',
+        groupCreateTitle: '追加組',
+        groupCreateDescription: '作成ローカル組、またはID ソースからグループ名で検索して追加外部グループ。'
       },
       aria: {
-        principalType: 'Principal type',
-        createMode: 'Creation mode',
-        externalUserProfile: 'External identity user profile',
-        groupCreateMode: 'Group creation mode',
-        externalGroupProfile: 'External identity group profile'
+        principalType: 'サブジェクトタイプ',
+        createMode: '作成方式',
+        externalUserProfile: 'ID ソースユーザー资料',
+        groupCreateMode: '作成組方式',
+        externalGroupProfile: 'ID ソースユーザー組资料'
       },
       modes: {
-        localUser: 'Local user',
-        externalUser: 'Identity source user',
-        localGroup: 'Local group',
-        externalGroup: 'Identity source group'
+        localUser: 'ローカルユーザー',
+        externalUser: 'ID ソースユーザー',
+        localGroup: 'ローカル組',
+        externalGroup: 'ID ソース組'
       },
       fields: {
-        identitySource: 'Identity source',
-        directoryUsername: 'Directory user name',
-        username: 'User name',
-        displayName: 'Display name',
-        email: 'Email',
-        role: 'Role',
-        initialPassword: 'Initial password',
-        status: 'Status',
-        directoryGroupName: 'Directory group name',
-        groupName: 'Group name',
-        groupCode: 'Group code',
-        directoryDn: 'Directory DN'
+        identitySource: 'ID ソース',
+        directoryUsername: 'ディレクトリユーザー名',
+        username: 'ユーザー名',
+        displayName: '表示名',
+        email: '邮箱',
+        role: 'ロール',
+        initialPassword: '初始パスワード',
+        status: 'ステータス',
+        directoryGroupName: 'ディレクトリ組名前',
+        groupName: '組名前',
+        groupCode: '組エンコーディング',
+        directoryDn: 'ディレクトリ DN'
       },
       placeholders: {
-        selectIdentitySource: 'Select an identity source',
-        directoryUsername: 'For example jackson',
-        displayName: 'Certificate operator',
-        initialPassword: 'Enter an initial password',
-        directoryGroupName: 'For example GCAC-Ops',
-        groupName: 'Certificate operations group'
+        selectIdentitySource: 'ID ソースを選択してください',
+        directoryUsername: '例： jackson',
+        displayName: '証明書操作员',
+        initialPassword: '入力初始パスワード',
+        directoryGroupName: '例： GCAC-Ops',
+        groupName: '証明書運用グループ'
       },
       options: {
-        unset: 'Not set'
+        unset: '不設定'
       },
       status: {
-        active: 'Enabled',
-        disabled: 'Disabled'
+        active: '有効化',
+        disabled: '無効化'
       },
       labels: {
-        identitySourceOption: '{name} ({type})'
+        identitySourceOption: '{name}（{type}）'
       },
       errors: {
-        loadUsersFailed: 'Failed to load users',
-        loadGroupsFailed: 'Failed to load groups',
-        createUserFailed: 'Failed to create user',
-        updateUserFailed: 'Failed to update user',
-        externalUserEmpty: 'The identity source did not return a user profile',
-        lookupExternalUserFailed: 'Failed to look up identity-source user',
-        externalGroupEmpty: 'The identity source did not return a group profile',
-        lookupExternalGroupFailed: 'Failed to look up identity-source group',
-        createGroupFailed: 'Failed to create group',
-        deleteUsersFailed: 'Failed to delete users'
+        loadUsersFailed: 'ユーザーの読み込みに失敗しました',
+        loadGroupsFailed: 'ユーザー組の読み込みに失敗しました',
+        createUserFailed: 'ユーザーの作成に失敗しました',
+        updateUserFailed: '更新ユーザーに失敗しました',
+        externalUserEmpty: 'ID ソース没有戻るユーザー资料',
+        lookupExternalUserFailed: '検索ID ソースユーザーに失敗しました',
+        externalGroupEmpty: 'ID ソース没有戻るユーザー組资料',
+        lookupExternalGroupFailed: '検索ID ソースユーザー組に失敗しました',
+        createGroupFailed: 'ユーザー組の作成に失敗しました',
+        deleteUsersFailed: '削除ユーザーに失敗しました'
       }
     },
     roles: {
       page: {
-        title: 'Role permissions',
-        description: 'Manage authorization object scopes by role, and assign users or groups to roles.'
+        title: '権限管理',
+        description: 'ロールを中心に管理認可対象範囲、かつユーザーまたはグループを割り当てへロール。'
       },
       actions: {
-        createRole: 'Create role',
-        refreshObjects: 'Refresh objects',
-        loading: 'Loading...',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        detail: 'Details',
-        authorize: 'Authorize',
-        grantPermission: 'Grant permission',
-        assignMembers: 'Assign members',
-        delete: 'Delete',
-        deleteRole: 'Delete role',
-        deleting: 'Deleting...',
-        clearSelection: 'Clear selection'
+        createRole: '作成ロール',
+        refreshObjects: '更新オブジェクト',
+        loading: '読み込み中...',
+        creating: '作成中...',
+        saving: '保存中...',
+        detail: '詳細',
+        authorize: '授権',
+        grantPermission: '付与権限',
+        assignMembers: '分配成员',
+        delete: '削除',
+        deleteRole: '削除ロール',
+        deleting: '削除中...',
+        clearSelection: '清空選択'
       },
       columns: {
-        roleId: 'Role ID',
-        code: 'Code',
-        name: 'Name',
-        builtin: 'Built-in',
-        policyCount: 'Policy count',
-        permissions: 'Permissions',
-        actions: 'Actions',
-        objectScope: 'Object scope',
-        accessLevel: 'Access level',
-        effect: 'Effect',
-        memberType: 'Member type',
-        member: 'Member'
+        roleId: 'ロール ID',
+        code: 'エンコーディング',
+        name: '名前',
+        builtin: '組み込み',
+        policyCount: 'ポリシー数',
+        permissions: '権限項目',
+        actions: '操作',
+        objectScope: 'オブジェクト範囲',
+        accessLevel: '権限レベル',
+        effect: '效果',
+        memberType: '成员タイプ',
+        member: '成员'
       },
       table: {
-        emptyRoles: 'No roles',
-        roleRecords: 'Role records',
-        emptyGrants: 'This role has no object permissions',
-        currentPermissions: 'Current role permissions',
-        emptyMembers: 'This role has no member assignments',
-        assignedMembers: 'Assigned members'
+        emptyRoles: 'ロールはまだありません',
+        roleRecords: 'ロール記録',
+        emptyGrants: '現在ロールまだありませんオブジェクト権限',
+        currentPermissions: '現在ロール権限',
+        emptyMembers: '現在ロールまだありませんメンバー割り当て',
+        assignedMembers: '分配成员済み'
       },
       categories: {
-        certificate: 'Certificate',
-        gateway: 'Gateway',
+        certificate: '証明書',
+        gateway: 'ゲートウェイ',
         agent: 'Agent',
-        serviceAsset: 'Application asset',
-        deploymentPlan: 'Deployment plan',
-        workflow: 'Workflow',
-        auditLog: 'Log',
-        systemSetting: 'System setting'
+        serviceAsset: 'アプリケーションアセット',
+        deploymentPlan: '更新プラン',
+        workflow: 'ワークフロー',
+        auditLog: 'ログ',
+        systemSetting: 'システム設定'
       },
       accessLevel: {
-        read: 'Read only',
-        edit: 'Edit',
-        control: 'Full control'
+        read: '読み取り専用',
+        edit: '編集',
+        control: '完全控制'
       },
       effect: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: '允許',
+        deny: '拒否'
       },
       principal: {
-        user: 'User',
-        group: 'Group',
-        externalGroup: 'Identity source group'
+        user: 'ユーザー',
+        group: '組',
+        externalGroup: 'ID ソース組'
       },
       summary: {
-        selectedMembers: '{count} members selected',
-        chooseMembers: 'Select users or groups',
-        selectedScopes: '{count} scopes selected',
-        chooseObjectNode: 'Select an object tree node',
-        selectedScopeLabel: 'Selected scopes',
-        selectedMemberLabel: 'Selected members'
+        selectedMembers: '選 {count} 個成员済み',
+        chooseMembers: 'ユーザーまたは組を選択してください',
+        selectedScopes: '選 {count} 個範囲済み',
+        chooseObjectNode: 'オブジェクトツリーノードを選択してください',
+        selectedScopeLabel: '選範囲済み',
+        selectedMemberLabel: '選成员済み'
       },
       tree: {
-        rootLabel: 'All objects',
-        rootDescription: 'All authorizable business objects',
-        typeDescription: 'All {category} records',
-        allBusinessObjects: 'All business objects',
-        selectedScopeAria: 'Selected authorization scopes',
-        objectTreeAria: 'Authorizable object tree',
-        authorizableObjects: 'Authorizable objects',
-        loading: 'Loading object tree...',
+        rootLabel: '全部オブジェクト',
+        rootDescription: '所有権限付与可能な業務オブジェクト',
+        typeDescription: '{category}全部記録',
+        allBusinessObjects: '全部業務オブジェクト',
+        selectedScopeAria: '選授権範囲済み',
+        objectTreeAria: '権限付与可能なオブジェクトツリー',
+        authorizableObjects: '権限付与可能なオブジェクト',
+        loading: '読み込みオブジェクトツリー中...',
         kind: {
-          all: 'All',
-          category: 'Category',
-          record: 'Record'
+          all: 'すべて',
+          category: '分类',
+          record: '記録'
         }
       },
       format: {
-        labelWithId: '{label} ({id})',
+        labelWithId: '{label}（{id}）',
         recordFallback: '{category} {value}',
-        unnamedRecord: 'Unnamed record'
+        unnamedRecord: '無名の記録'
       },
       detail: {
-        title: 'Role details',
-        titleWithName: 'Role {name}',
-        description: 'Maintain object scopes, concrete objects, access levels, and member assignments here.'
+        title: 'ロール詳細',
+        titleWithName: 'ロール {name}',
+        description: 'オブジェクト範囲、具体的なオブジェクト、権限レベルとメンバー割り当てここで維護。'
       },
       create: {
-        title: 'Create role',
-        description: 'Describe the role responsibilities and optionally grant object scopes directly.',
-        nameLabel: 'Role name',
-        namePlaceholder: 'Certificate operator',
-        descriptionLabel: 'Description',
-        descriptionPlaceholder: 'Responsible for daily certificate operations',
-        authorizedRole: 'Authorized role',
-        newRole: 'New role'
+        title: '作成ロール',
+        description: '入力ロール職責、かつ直接としてこのロール認可対象範囲。',
+        nameLabel: 'ロール名前',
+        namePlaceholder: '証明書操作员',
+        descriptionLabel: '説明',
+        descriptionPlaceholder: '负责証明書日常操作',
+        authorizedRole: '授権ロール',
+        newRole: '新ロール'
       },
       grant: {
-        title: 'Grant role permission',
-        description: 'Select scopes from the object tree and set the access level for them.',
-        roleLabel: 'Role'
+        title: '付与ロール権限',
+        description: 'からオブジェクトツリー選択範囲、直接設定この範囲上の権限レベル。',
+        roleLabel: 'ロール'
       },
       member: {
-        title: 'Assign members',
-        titleWithName: 'Assign members: {name}',
-        description: 'Select users or groups. The system assigns them to the role’s existing authorized object scopes.',
-        targetRole: 'Target role',
-        authorizedScope: 'Authorized scopes',
-        objectScopeCount: '{count} object scopes',
-        selectedMembersAria: 'Selected members',
-        assignableMembersAria: 'Assignable members',
-        emptyAssignable: 'No assignable {type}'
+        title: '分配成员',
+        titleWithName: '分配成员：{name}',
+        description: '選択ユーザーまたは組、システムは把メンバー割り当てへこのロール有の認可対象範囲済み。',
+        targetRole: 'ターゲットロール',
+        authorizedScope: '授権範囲',
+        objectScopeCount: '{count} 個オブジェクト範囲',
+        selectedMembersAria: '選成员済み',
+        assignableMembersAria: '可分配成员',
+        emptyAssignable: '可分配{type}はまだありません'
       },
       errors: {
-        loadObjectTreeFailed: 'Failed to load object tree',
-        loadDataFailed: 'Failed to load permission management data',
-        missingRoleId: 'The backend did not return a role ID',
-        createRoleFailed: 'Failed to create role',
-        grantRoleFailed: 'Failed to grant role permission',
-        roleNoObjectScopes: 'This role has no authorized object scopes yet. Grant permissions to the role first.',
-        assignMembersFailed: 'Failed to assign members',
-        deleteRoleFailed: 'Failed to delete role',
-        missingObjectSetId: 'The backend did not return an object scope ID'
+        loadObjectTreeFailed: 'オブジェクトツリーの読み込みに失敗しました',
+        loadDataFailed: '権限管理データの読み込みに失敗しました',
+        missingRoleId: 'ロール ID を取得していません',
+        createRoleFailed: 'ロールの作成に失敗しました',
+        grantRoleFailed: '付与ロール権限に失敗しました',
+        roleNoObjectScopes: 'このロールまだありません認可対象範囲、先にロールへ権限を付与してください。',
+        assignMembersFailed: '分配成员に失敗しました',
+        deleteRoleFailed: '削除ロールに失敗しました',
+        missingObjectSetId: 'オブジェクト範囲 ID を取得していません'
       },
       confirm: {
-        deleteRole: 'Delete role "{name}"? This also removes its user assignments and object authorizations.'
+        deleteRole: '確認削除ロール“{name}”？削除後は同時に削除このロールのユーザー分配とオブジェクト授権。'
       },
       auditLogs: {
         auth: {
-          name: 'Authentication login logs',
-          description: 'Login, logout, and external identity source login'
+          name: '認証ログインログ',
+          description: 'ログイン、ログアウト、外部ID ソースログイン'
         },
         security: {
-          name: 'Security management logs',
-          description: 'User, role, permission, and identity source changes'
+          name: '安全管理ログ',
+          description: 'ユーザー、ロール、権限、ID ソース変更'
         },
         certificate: {
-          name: 'Certificate logs',
-          description: 'Certificate import, version, format, and binding operations'
+          name: '証明書ログ',
+          description: '証明書インポート、バージョン、成果物とバインド操作'
         },
         asset: {
-          name: 'Asset logs',
-          description: 'Application asset, host, service instance, and site asset operations'
+          name: 'アセットログ',
+          description: 'アプリケーションアセット、ホスト、サービスインスタンス、サイトアセットの操作'
         },
         gateway: {
-          name: 'Gateway logs',
-          description: 'Gateway route, probe, and status changes'
+          name: 'ゲートウェイログ',
+          description: 'ゲートウェイ路由、プローブとステータス変更'
         },
         agent: {
-          name: 'Agent logs',
-          description: 'Agent registration, heartbeat, task, and upgrade operations'
+          name: 'Agent ログ',
+          description: 'Agent 登録、ハートビート、タスクとアップグレード操作'
         },
         deployment: {
-          name: 'Deployment plan logs',
-          description: 'Deployment plans, execution, rollback, and approval'
+          name: '更新プランログ',
+          description: 'デプロイプラン、実行、ロールバックと承認'
         },
         workflow: {
-          name: 'Workflow logs',
-          description: 'Workflow template and execution operations'
+          name: 'ワークフローログ',
+          description: 'ワークフローテンプレートと実行操作'
         },
         secret: {
-          name: 'Secret logs',
-          description: 'Secret creation, use, and rotation'
+          name: '鍵ログ',
+          description: 'Secret 作成、使用と轮换'
         },
         system: {
-          name: 'System logs',
-          description: 'System settings and platform-level events'
+          name: 'システムログ',
+          description: 'システム設定とプラットフォーム级イベント'
         }
       }
     },
     identitySources: {
       actions: {
-        create: 'Create identity source',
-        edit: 'Edit',
-        delete: 'Delete',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        expandAdvanced: 'Expand advanced settings',
-        collapseAdvanced: 'Collapse advanced settings'
+        create: '作成ID ソース',
+        edit: '編集',
+        delete: '削除',
+        creating: '作成中...',
+        saving: '保存中...',
+        saveChanges: '保存変更',
+        expandAdvanced: '展開高级設定',
+        collapseAdvanced: '折りたたむ高级設定'
       },
       columns: {
-        name: 'Name',
-        type: 'Directory type',
-        server: 'Server',
-        status: 'Status',
-        actions: 'Actions'
+        name: '名前',
+        type: 'ディレクトリタイプ',
+        server: 'サーバー',
+        status: 'ステータス',
+        actions: '操作'
       },
       table: {
-        title: 'Identity source list',
-        total: '{count} total'
+        title: 'ID ソース一覧',
+        total: '共 {count} 件'
       },
-      empty: 'No identity sources',
+      empty: 'ID ソースはまだありません',
       dialog: {
-        createTitle: 'Create identity source',
-        editTitle: 'Edit identity source',
-        createDescription: 'Fill in basic connection information first; filters and directory type are in advanced settings.',
-        editDescription: 'Update identity source configuration. To update the service account password, enter a new password.'
+        createTitle: '作成ID ソース',
+        editTitle: '編集ID ソース',
+        createDescription: 'まず基本的な接続情報を入力します。フィルターとディレクトリタイプは詳細設定にあります。',
+        editDescription: '変更ID ソース設定；若要更新サービスアカウントパスワード、重新入力パスワード。'
       },
       fields: {
-        name: 'Name',
-        domain: 'Domain',
-        protocol: 'Protocol',
-        serverAddress: 'Server address',
-        bindDn: 'Service account DN',
-        bindPassword: 'Service account password',
-        directoryType: 'Directory type',
-        defaultRole: 'Default role',
-        enabled: 'Enabled status',
-        userDnTemplate: 'User DN/UPN template',
-        userFilter: 'User filter',
-        groupFilter: 'Group filter',
-        syncUserFilter: 'Sync user filter',
-        requireGroupMapping: 'Require login users to match a group mapping'
+        name: '名前',
+        domain: 'ドメイン名',
+        protocol: 'プロトコル',
+        serverAddress: 'サーバーアドレス',
+        bindDn: 'サービスアカウント DN',
+        bindPassword: 'サービスアカウントパスワード',
+        directoryType: 'ディレクトリタイプ',
+        defaultRole: 'デフォルトロール',
+        enabled: '有効化ステータス',
+        userDnTemplate: 'ユーザー DN/UPN テンプレート',
+        userFilter: 'ユーザー過滤器',
+        groupFilter: '組過滤器',
+        syncUserFilter: '同時にユーザー過滤器',
+        requireGroupMapping: '要求ログインユーザー必ず命中組映射'
       },
       placeholders: {
-        name: 'For example: Enterprise AD',
-        bindPasswordCreate: 'Enter the service account password',
-        bindPasswordEdit: 'Leave empty to keep the existing password',
-        autoByDirectoryType: 'Leave empty to derive from directory type',
-        userFilter: 'For example: (uid={{username}})',
-        groupFilter: 'For example: (member={{userDn}})'
+        name: '例：企業 AD',
+        bindPasswordCreate: '入力サービスアカウントパスワード',
+        bindPasswordEdit: '空欄の場合は既存のパスワードを使用します',
+        autoByDirectoryType: '留空则によりディレクトリタイプ自動推導',
+        userFilter: '例：(uid={{username}})',
+        groupFilter: '例：(member={{userDn}})'
       },
       labels: {
-        finalUrl: 'Final URL: {url}'
+        finalUrl: '最終アドレス：{url}'
       },
       options: {
-        unset: 'Not set'
+        unset: '不設定'
       },
       status: {
-        enabled: 'Enabled',
-        disabled: 'Disabled',
-        disabledShort: 'Disabled'
+        enabled: '有効化',
+        disabled: '停止済み',
+        disabledShort: '無効化'
       },
       types: {
-        ldap: 'Standard LDAP'
+        ldap: '標準 LDAP'
       },
       risks: {
-        delete: 'Deleting the identity source invalidates login, sync, and group mappings for this directory.'
+        delete: '削除ID ソース後、このディレクトリのログイン、同時にと組映射都は失効。'
       },
       secret: {
-        bindPasswordName: '{name} LDAP service account password'
+        bindPasswordName: '{name} LDAP サービスアカウントパスワード'
       },
       messages: {
-        createSuccess: 'Identity source created',
-        updateSuccess: 'Identity source updated'
+        createSuccess: 'ID ソース作成に成功しました',
+        updateSuccess: 'ID ソース更新に成功しました'
       },
       errors: {
-        loadFailed: 'Failed to load identity sources',
-        createBindPasswordSecretFailed: 'Failed to create service account password Secret',
-        createFailed: 'Failed to create identity source',
-        updateFailed: 'Failed to update identity source',
-        deleteFailed: 'Failed to delete identity source'
+        loadFailed: 'ID ソースの読み込みに失敗しました',
+        createBindPasswordSecretFailed: 'サービスアカウントパスワード Secret の作成に失敗しました',
+        createFailed: 'ID ソースの作成に失敗しました',
+        updateFailed: '更新ID ソースに失敗しました',
+        deleteFailed: '削除ID ソースに失敗しました'
       }
     }
   },
   bindings: {
     actions: {
-      create: 'New config file',
-      edit: 'Edit',
-      delete: 'Delete',
-      deleting: 'Deleting...',
-      applyTemplate: 'Apply built-in template',
-      saving: 'Saving...',
-      confirmSave: 'Save'
+      create: '新建設定ファイル',
+      edit: '編集',
+      delete: '削除',
+      deleting: '削除中...',
+      applyTemplate: '適用組み込みテンプレート',
+      saving: '保存中...',
+      confirmSave: '確認保存'
     },
     columns: {
-      configName: 'Config name',
-      targetSummary: 'Target environment',
-      displayFormat: 'Content format',
-      extension: 'Extension',
-      encodingSummary: 'Encoding',
-      exportSummary: 'Contents / export options',
-      actions: 'Actions'
+      configName: '設定ファイル名前',
+      targetSummary: 'ターゲット環境',
+      displayFormat: '内容形式',
+      extension: '拡張子',
+      encodingSummary: 'エンコーディング',
+      exportSummary: '含める内容 / エクスポートオプション',
+      actions: '操作'
     },
     dialog: {
-      createTitle: 'Create certificate format config',
-      editTitle: 'Edit certificate format config',
-      description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
+      createTitle: '新建証明書形式設定',
+      editTitle: '編集証明書形式設定',
+      description: '選択システムプラットフォームとターゲットプラットフォーム後、可適用組み込みテンプレートかつ項目ごとに調整エクスポート内容。'
     },
     list: {
-      title: 'Certificate format config list',
-      descriptionWithCount: 'Reusable certificate format templates are saved here. {count} currently.'
+      title: '証明書形式設定一覧',
+      descriptionWithCount: '可复用の証明書形式テンプレート。現在 {count} 件'
     },
     empty: {
-      text: 'No certificate format configs'
+      text: '証明書形式設定はまだありません'
     },
     fields: {
-      contentFormat: 'Content format',
-      systemPlatform: 'System platform',
-      runtimePlatform: 'Target platform',
-      configName: 'Config name',
-      backendFormat: 'Backend format',
-      outputExtension: 'Output extension',
-      expiresAt: 'Config expiry time (optional)',
-      certificateEncoding: 'Certificate encoding',
-      certificateContentEncoding: 'Certificate content encoding',
-      privateKeyEncoding: 'Private key encoding',
-      includeLeafCertificate: 'Include leaf certificate',
-      includeCertificateChain: 'Include certificate chain',
-      includePrivateKey: 'Include private key',
-      mainArtifactIncludesChain: 'Main artifact includes certificate chain',
-      generateChainFile: 'Generate extra chain file',
-      generatePrivateKeyFile: 'Generate extra private key file',
-      exportPassword: 'Export password'
+      contentFormat: '内容形式',
+      systemPlatform: 'システムプラットフォーム',
+      runtimePlatform: 'ターゲットプラットフォーム',
+      configName: '設定ファイル名前',
+      backendFormat: '基盤形式',
+      outputExtension: '輸出拡張子',
+      expiresAt: '設定失効時刻（任意）',
+      certificateEncoding: '証明書エンコーディング',
+      certificateContentEncoding: '証明書内容エンコーディング',
+      privateKeyEncoding: '秘密鍵エンコーディング',
+      includeLeafCertificate: '公開鍵証明書を含める',
+      includeCertificateChain: '含める証明書チェーン',
+      includePrivateKey: '含める秘密鍵',
+      mainArtifactIncludesChain: '主成果物含める証明書チェーン',
+      generateChainFile: '証明書チェーンファイルも生成',
+      generatePrivateKeyFile: '秘密鍵ファイルも生成',
+      exportPassword: 'エクスポートパスワード'
     },
     formats: {
-      pfx: 'PKCS#12 / PFX container',
-      jks: 'JKS container',
-      pemBundle: 'PEM single-file bundle',
-      pemCert: 'PEM certificate file',
-      pemKey: 'Private key file',
-      cer: 'Certificate file (.cer)',
-      crt: 'Certificate file (.crt)',
-      p7b: 'PKCS#7 / P7B certificate chain',
-      custom: 'Custom'
+      pfx: 'PKCS#12 / PFX 容器',
+      jks: 'JKS 容器',
+      pemBundle: 'PEM 単ファイル Bundle',
+      pemCert: 'PEM 証明書ファイル',
+      pemKey: '秘密鍵ファイル',
+      cer: '証明書ファイル（.cer）',
+      crt: '証明書ファイル（.crt）',
+      p7b: 'PKCS#7 / P7B 証明書チェーン',
+      custom: 'カスタム'
     },
     sections: {
       templates: {
-        title: 'Built-in templates',
-        description: 'Templates prefill format, contents, and export rules based on common TLS deployment patterns and can still be edited.'
+        title: '組み込みテンプレート',
+        description: '各プラットフォームで一般的な TLS 配置方式に基づき、内容形式、含める内容、エクスポートルールを事前入力します。適用後も変更できます。'
       },
       basic: {
-        title: 'Basic information',
-        description: 'Define the config identity, real content format, and final extension.'
+        title: '基本情報',
+        description: 'まず設定ファイル ID、実際の内容形式、最終的な拡張子を定義します。'
       },
       encoding: {
-        title: 'Encoding',
-        description: 'Only encoding options valid for the current content format are shown.'
+        title: 'エンコーディング選択',
+        description: '現在の内容形式でサポートされているエンコーディングオプションのみ表示します。'
       },
       content: {
-        title: 'Contents',
-        description: 'Defines what the main artifact contains: public certificate, certificate chain, and private key.'
+        title: '含める内容',
+        description: '主成果物ファイルに含める内容を定義します：公開鍵、証明書チェーン、秘密鍵。'
       },
       export: {
-        title: 'Export options',
-        description: 'Define whether to generate extra chain/private-key files and container password options.'
+        title: 'エクスポートオプション',
+        description: '証明書チェーンファイルや秘密鍵ファイルを追加生成するか、コンテナ専用パスワードを使うかを定義します。'
       }
     },
     filters: {
-      keywordPlaceholder: 'Config name / target environment / Alias / content format'
+      keywordPlaceholder: '設定名前 / ターゲット環境 / Alias / 内容形式'
     },
     placeholders: {
-      configName: 'For example: device-compatible single-file PEM',
-      exportPassword: 'Enter the PFX/JKS export password'
+      configName: '例：デバイス互換の単一ファイル PEM',
+      exportPassword: ' PFX/JKS エクスポートパスワードを入力してください'
     },
     validation: {
-      selectPlatformsFirst: 'Select the system platform and target platform first.',
-      configNameRequired: 'Config name is required',
-      passwordRequired: 'PFX/JKS configs require an export password'
+      selectPlatformsFirst: '先選択システムプラットフォームとターゲットプラットフォーム。',
+      configNameRequired: '必ず入力設定ファイル名前',
+      passwordRequired: 'PFX/JKS 設定必ず入力エクスポートパスワード'
     },
     errors: {
-      loadFailed: 'Failed to load certificate format configs',
-      saveFailed: 'Failed to save certificate format config',
-      deleteFailed: 'Failed to delete certificate format config',
-      createExportSecretFailed: 'Failed to create export password Secret',
-      withCode: '{message} ({code})'
+      loadFailed: '証明書形式設定の読み込みに失敗しました',
+      saveFailed: '証明書形式設定の保存に失敗しました',
+      deleteFailed: '削除証明書形式設定に失敗しました',
+      createExportSecretFailed: 'エクスポートパスワード Secret の作成に失敗しました',
+      withCode: '{message}（{code}）'
     },
     fallbacks: {
-      unnamedConfig: 'Unnamed config-{index}',
-      unspecified: 'Unspecified',
-      aliasUnset: 'Alias not set'
+      unnamedConfig: '無名の設定-{index}',
+      unspecified: '未指定',
+      aliasUnset: '未設定 Alias'
     },
     labels: {
-      aliasWithValue: 'Alias: {alias}',
-      requestId: 'Request ID: {requestId}'
+      aliasWithValue: 'Alias：{alias}',
+      requestId: 'リクエスト ID：{requestId}'
     },
     encoding: {
-      pkcs12Container: 'PKCS#12 container',
-      jksContainer: 'JKS container',
-      privateKeyWithEncoding: 'Private key {encoding}',
-      pkcs7Chain: 'PKCS#7 certificate chain',
-      certificateWithEncoding: 'Certificate {encoding}',
-      default: 'Default'
+      pkcs12Container: 'PKCS#12 容器',
+      jksContainer: 'JKS 容器',
+      privateKeyWithEncoding: '秘密鍵 {encoding}',
+      pkcs7Chain: 'PKCS#7 証明書チェーン',
+      certificateWithEncoding: '証明書 {encoding}',
+      default: 'デフォルト'
     },
     export: {
-      leafCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      extraChainFile: 'Extra chain file',
-      extraPrivateKeyFile: 'Extra private key file'
+      leafCertificate: '公開鍵',
+      certificateChain: '証明書チェーン',
+      privateKey: '秘密鍵',
+      extraChainFile: '追加の証明書チェーンファイル',
+      extraPrivateKeyFile: '追加の秘密鍵ファイル'
     },
     secret: {
-      defaultConfigName: 'Certificate format config',
-      exportPasswordName: '{name} export password'
+      defaultConfigName: '証明書形式設定',
+      exportPasswordName: '{name} エクスポートパスワード'
     },
     select: {
-      placeholder: 'Select'
+      placeholder: '選択'
     },
     separators: {
       export: ' · '
     },
     hints: {
-      savedPassword: 'An export password is already configured. Enter a new password to replace it.'
+      savedPassword: '設定エクスポートパスワード；如必要更换済み、直接入力新パスワード上書き。'
     },
     templates: {
       windowsIis: {
-        configName: 'Windows-IIS-PKCS12 standard template',
-        description: 'IIS most commonly uses PKCS#12/PFX containers. The main artifact directly carries the server certificate, certificate chain, and private key.'
+        configName: 'Windows-IIS-PKCS12-標準テンプレート',
+        description: 'IIS 使用 PKCS#12/PFX 容器最一般的な、主成果物内直接携带サーバー証明書、証明書チェーンと秘密鍵。'
       },
       windowsNginx: {
-        configName: 'Windows-NGINX-PEM standard template',
-        description: 'NGINX commonly uses a PEM single file for the server certificate and chain, plus a separate private key file.'
+        configName: 'Windows-NGINX-PEM-標準テンプレート',
+        description: 'NGINX では一般的に、サーバー証明書と証明書チェーンを単一の PEM ファイルにまとめ、秘密鍵ファイルを別に配置します。'
       },
       windowsApache: {
-        configName: 'Windows-Apache-PEM standard template',
-        description: 'Apache is usually delivered as a PEM certificate file plus a separate private key, with an extra chain file for operational compatibility.'
+        configName: 'Windows-Apache-PEM-標準テンプレート',
+        description: 'Apache では通常、PEM 証明書ファイルと独立した秘密鍵を配布します。証明書チェーンファイルを追加でエクスポートすると、運用習慣の違いに対応しやすくなります。'
       },
       windowsTomcat: {
-        configName: 'Windows-Tomcat-PKCS12 standard template',
-        description: 'Tomcat mainly uses JKS/PKCS#12 keystores. This template defaults to the more portable PKCS#12 format.'
+        configName: 'Windows-Tomcat-PKCS12-標準テンプレート',
+        description: 'Tomcat では JKS/PKCS#12 keystore が主に使われます。ここではより汎用的な PKCS#12 をデフォルトで使用します。'
       },
       windowsOther: {
-        configName: 'Windows device-compatible single-file PEM template',
-        description: 'For devices that require a single file containing the public certificate, certificate chain, and private key. The extension can be adjusted to .crt/.cer.'
+        configName: 'Windows-デバイス互換の単一ファイル PEM テンプレート',
+        description: '一部デバイスの要件に対応します。単一ファイルに公開証明書、証明書チェーン、秘密鍵をまとめ、必要に応じて拡張子を .crt/.cer に変更できます。'
       },
       linuxIis: {
-        configName: 'Linux-IIS compatibility template',
-        description: 'If the final target is still IIS, PKCS#12/PFX remains the most reasonable delivery artifact.'
+        configName: 'Linux-IIS 互換テンプレート',
+        description: '最終ターゲットが IIS の場合、最も妥当な配布物は引き続き PKCS#12/PFX コンテナです。'
       },
       linuxNginx: {
-        configName: 'Linux-NGINX-PEM standard template',
-        description: 'Official NGINX configuration revolves around a PEM single-file certificate chain and a separate private key.'
+        configName: 'Linux-NGINX-PEM-標準テンプレート',
+        description: 'NGINX の公式設定は、単一 PEM ファイルの証明書チェーンと独立した秘密鍵を前提に構成されています。'
       },
       linuxApache: {
-        configName: 'Linux-Apache-PEM standard template',
-        description: 'Apache commonly uses a PEM certificate file plus a separate private key, with an extra chain file for split deployment.'
+        configName: 'Linux-Apache-PEM-標準テンプレート',
+        description: 'Apache では一般的に、PEM 証明書ファイルと独立した秘密鍵を組み合わせます。証明書チェーンファイルを追加でエクスポートすると、分割デプロイしやすくなります。'
       },
       linuxTomcat: {
-        configName: 'Linux-Tomcat-PKCS12 standard template',
-        description: 'Tomcat defaults to keystore delivery. This template uses the more portable PKCS#12 format.'
+        configName: 'Linux-Tomcat-PKCS12-標準テンプレート',
+        description: 'Tomcat では keystore コンテナでの配布がデフォルトで推奨されます。ここではより汎用的な PKCS#12 を使用します。'
       },
       linuxOther: {
-        configName: 'Linux device-compatible single-file PEM template',
-        description: 'For generic Linux devices that accept a single PEM file, start with a bundle and adjust extension and contents for the target device.'
+        configName: 'Linux-デバイス互換の単一ファイル PEM テンプレート',
+        description: 'Linux 汎用デバイスが受け入れる場合単ファイル PEM、先に使用できます bundle 形式、再によりターゲットデバイス調整拡張子と含める内容。'
       }
     }
   },
   assets: {
-    title: 'Application assets',
-    description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
-    resourceName: 'Application asset',
+    title: 'アプリケーションアセット',
+    description: 'ドメイン名または IP を主な対象としてアプリケーションエントリを管理し、アドレス、ポート、プロトコル、サイト、実行先の特定に集中します。',
+    resourceName: 'アプリケーションアセット',
     actions: {
-      add: 'Add asset',
-      edit: 'Edit',
-      detail: 'Details',
-      addVariable: 'Add variable',
-      delete: 'Delete',
-      rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
-      rollingBack: 'Rolling back...',
-      saving: 'Saving...',
-      creating: 'Creating...',
-      saveChanges: 'Save changes',
-      confirmCreate: 'Create'
+      add: 'アセットを追加',
+      edit: '編集',
+      detail: '詳細',
+      addVariable: '追加変数',
+      delete: '削除',
+      rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
+      rollingBack: 'ロールバック中...',
+      saving: '保存中...',
+      creating: '作成中...',
+      saveChanges: '保存変更',
+      confirmCreate: '確認作成'
     },
     columns: {
-      domain: 'Domain',
-      port: 'Port',
-      protocol: 'Protocol',
-      platform: 'Platform',
-      framework: 'Framework',
-      site: 'Site',
-      status: 'Status',
-      actions: 'Actions'
+      domain: 'アクセスドメイン名',
+      port: 'ポート',
+      protocol: 'プロトコル',
+      platform: 'プラットフォーム',
+      framework: 'フレームワーク',
+      site: 'サイト',
+      status: 'ステータス',
+      actions: '操作'
     },
     fields: {
-      assetId: 'Application asset ID',
-      domain: 'Domain',
-      addressType: 'Address type',
-      port: 'Port',
-      protocol: 'Protocol',
-      verifyUrl: 'Verify URL',
-      platform: 'Platform',
-      frameworkType: 'Framework type',
-      serviceInstanceId: 'Service instance ID',
-      siteId: 'Site ID',
-      managedTargetId: 'Managed target ID',
-      bindingKey: 'Binding key',
-      hostId: 'Host ID',
-      environment: 'Environment',
-      discoverySource: 'Discovery source',
-      lastDiscoveredAt: 'Last discovered at',
-      tags: 'Tags',
-      managedTarget: 'Managed target',
-      siteName: 'Site name',
-      bindingInformation: 'Binding information',
+      assetId: 'アプリケーションアセット ID',
+      domain: 'アクセスドメイン名',
+      addressType: 'アドレスタイプ',
+      port: 'ポート',
+      protocol: 'プロトコル',
+      verifyUrl: '検証 URL',
+      platform: 'プラットフォーム',
+      frameworkType: 'フレームワークタイプ',
+      serviceInstanceId: 'サービスインスタンス ID',
+      siteId: 'サイト ID',
+      managedTargetId: '管理対象ターゲット ID',
+      bindingKey: 'バインドキー',
+      hostId: '宿ホスト ID',
+      environment: '環境',
+      discoverySource: '検出ソース',
+      lastDiscoveredAt: '最後検出時刻',
+      tags: 'タグ',
+      managedTarget: '管理対象ターゲット',
+      siteName: 'サイト名',
+      bindingInformation: 'バインド情報',
       hostHeader: 'Host Header',
-      sniName: 'SNI name',
-      currentCertificate: 'Current certificate',
-      targetCertificate: 'Target certificate',
-      expectedFingerprint: 'Expected fingerprint',
-      certificateStore: 'Certificate store',
-      snapshotType: 'Snapshot type',
-      time: 'Time',
-      executionRun: 'Execution run',
-      displayName: 'Display name',
-      siteInstance: 'Site instance',
-      certificateFormat: 'Certificate artifact format',
-      workflow: 'Workflow',
-      publishedVersion: 'Published version',
-      runner: 'Runner',
-      artifactFormat: 'Artifact format'
+      sniName: 'SNI 名',
+      currentCertificate: '現在証明書',
+      targetCertificate: 'ターゲット証明書',
+      expectedFingerprint: '期望フィンガープリント',
+      certificateStore: '証明書ストレージ',
+      snapshotType: 'スナップショットタイプ',
+      time: '時刻',
+      executionRun: '実行記録',
+      displayName: '表示名前',
+      siteInstance: 'サイトインスタンス',
+      certificateFormat: '証明書成果物設定',
+      workflow: 'ワークフロー',
+      workflowVersionSelection: 'ワークフローバージョンポリシー',
+      publishedVersion: '公開済みバージョン',
+      runner: '実行場所',
+      artifactFormat: '成果物形式設定'
     },
     links: {
-      certificateBindings: 'View certificate bindings',
-      executions: 'View execution records'
+      certificateBindings: '表示証明書バインド',
+      executions: '表示実行記録'
     },
     empty: {
-      title: 'No application assets',
-      description: 'Waiting for discovery to write ServiceAsset records, or add entry points through backend APIs.',
-      noBindingInformation: 'No binding information',
-      notSet: 'Not set',
-      notSelected: 'Not selected',
-      noVariablePreset: 'No variables can be added',
-      basicEntryIncomplete: 'Basic entry incomplete'
+      title: 'アプリケーションアセットはまだありません',
+      description: 'システムによる自動検出を待つか、アプリケーションエントリを手動で補足してください。',
+      noBindingInformation: 'バインド情報が指定されていません',
+      notSet: '未設定',
+      notSelected: '未選択',
+      noVariablePreset: '可追加変数はまだありません',
+      basicEntryIncomplete: '基本エントリが未完了です'
     },
     detail: {
-      title: 'Application details',
-      description: 'Keep asset details, bindings, deployment entry, and snapshots in one modal.',
-      tabsAriaLabel: 'Application detail tabs',
+      title: 'アプリケーション詳細',
+      description: 'アセット詳細、バインド関係、デプロイ導線、スナップショット記録を表示します。',
+      tabsAriaLabel: 'アプリケーション詳細タブ',
       tabs: {
-        overview: 'Overview',
-        snapshots: 'Snapshots'
+        overview: '基本情報',
+        snapshots: 'スナップショット'
       },
-      loadingTargetBinding: 'Loading target binding details...',
-      loadingSnapshots: 'Loading snapshots...',
-      emptyCertificateBindings: 'No certificate bindings.',
-      emptySnapshots: 'No snapshots.',
-      rollbackSubmitted: 'Rollback request submitted. Check executions for the rollback run.',
+      loadingTargetBinding: '読み込みターゲットバインド詳細中...',
+      loadingSnapshots: 'スナップショットを読み込み中...',
+      emptyCertificateBindings: '証明書バインド関係。はまだありません',
+      emptySnapshots: 'スナップショットはまだありません',
+      rollbackSubmitted: 'ロールバックリクエストを送信しました。“実行記録”でロールバック実行を確認してください。',
       sections: {
         overview: {
-          title: 'Overview',
-          description: 'The application asset is the primary object. Hosts and sites only provide execution targeting information.'
+          title: '基本情報',
+          description: 'アプリケーションアセットが主対象です。ホストとサイトは実行先を特定する情報としてのみ表示されます。'
         },
         targetBinding: {
-          title: 'Target binding',
-          description: 'Bindings must point to a site and managed target instead of guessing by domain.'
+          title: 'ターゲットバインド',
+          description: 'バインドはドメイン名から推測せず、サイトと管理対象ターゲットへ明確に紐付ける必要があります。'
         },
         certificateBindings: {
-          title: 'Certificate bindings',
-          description: 'Certificate relationships are tied to bindings instead of only relying on domains.'
+          title: '証明書バインド関係',
+          description: '証明書の関係はドメイン名だけで判断せず、binding 上で明確にします。'
         },
         snapshots: {
-          title: 'Snapshots',
-          description: 'Pre-deploy, post-deploy, and rollback state must be visible directly, not only as task records.'
+          title: 'スナップショット',
+          description: 'デプロイ前後とロールバック後の現場状態を直接確認できる必要があります。タスク記録だけを残してはいけません。'
         }
       }
     },
     managementModes: {
-      agent: 'Agent mode',
-      agentDescription: 'Bind Agent, site instance, and managed target',
-      workflow: 'Workflow mode',
-      workflowDescription: 'Select workflow version and runtime variables'
+      agent: 'Agent モード',
+      agentDescription: 'Agent、サイトインスタンス、管理対象ターゲットをバインド',
+      workflow: 'ワークフローモード',
+      workflowDescription: '選択ワークフローバージョンと実行変数'
+    },
+    workflowVersionSelection: {
+      pinned: '指定バージョンに固定',
+      latestPublished: '常に最新の公開済みバージョンを使用'
     },
     loading: {
-      agents: 'Loading Agents...',
-      sites: 'Loading sites...',
-      managedTargets: 'Loading targets...',
-      certificateFormats: 'Loading format configs...',
-      workflows: 'Loading workflows...',
-      versions: 'Loading versions...',
-      gateways: 'Loading Gateways...',
-      credentials: 'Loading credentials...'
+      agents: '読み込み Agent 中...',
+      sites: '読み込みサイト中...',
+      managedTargets: '読み込みターゲット中...',
+      certificateFormats: '読み込み形式設定中...',
+      workflows: '読み込みワークフロー中...',
+      versions: '読み込みバージョン中...',
+      gateways: '読み込み Gateway 中...',
+      credentials: '認証情報を読み込み中...'
     },
     select: {
-      agent: 'Select Agent',
-      siteInstance: 'Select site instance',
-      managedTarget: 'Select managed target',
-      certificateFormat: 'Select certificate artifact format',
-      workflow: 'Select workflow',
-      publishedVersion: 'Select published version',
-      gateway: 'Select Gateway',
-      variablePreset: 'Select preset variable',
-      credential: 'Select credential',
-      generic: 'Select',
-      artifactFormat: 'Select format config',
-      output: 'Select output',
-      optionalOutput: 'Optional'
+      agent: ' Agentを選択してください',
+      siteInstance: 'サイトインスタンスを選択してください',
+      managedTarget: '管理対象ターゲットを選択してください',
+      certificateFormat: '証明書成果物設定を選択してください',
+      workflow: 'ワークフローを選択してください',
+      publishedVersion: '公開済みバージョンを選択してください',
+      gateway: ' Gatewayを選択してください',
+      variablePreset: 'プリセット変数を選択',
+      credential: '認証情報を選択してください',
+      generic: '選択',
+      artifactFormat: '形式設定を選択してください',
+      output: '出力項目を選択してください',
+      optionalOutput: '選択しなくても構いません'
     },
     validation: {
-      variableNameRequired: 'Variable name is required',
-      variableNameInvalid: 'Variable {name} has an invalid name',
-      variableDuplicated: 'Variable {name} is duplicated',
-      variableRequired: 'Variable {name} is required',
-      variableMustBeNumber: 'Variable {name} must be a number',
-      variableMustBeJsonObject: 'Variable {name} must be a JSON object',
-      variableInvalidJson: 'Variable {name} is not valid JSON',
-      variableCredentialInvalid: 'Variable {name} must select a valid credential',
-      certificateFormatRequired: 'Certificate variable {name} must select a certificate format config',
-      certificateOutputRequired: 'Certificate variable {name}.{slot} must select an output',
-      certificateOutputMissing: 'Selected output for certificate variable {name}.{slot} does not exist'
+      variableNameRequired: '変数名前できませんとして空',
+      variableNameInvalid: '変数 {name} の名前が不正です',
+      variableDuplicated: '変数 {name} が重複しています',
+      variableRequired: '変数 {name} 必須',
+      variableMustBeNumber: '変数 {name} は数値である必要があります',
+      variableMustBeJsonObject: '変数 {name} は JSON オブジェクトである必要があります',
+      variableInvalidJson: '変数 {name} は有効な JSON ではありません',
+      variableCredentialInvalid: '変数 {name} 必ず選択有効認証情報',
+      certificateFormatRequired: '証明書変数 {name} 必ず選択証明書形式設定',
+      certificateOutputRequired: '証明書変数 {name}.{slot} は出力項目を選択する必要があります',
+      certificateOutputMissing: '証明書変数 {name}.{slot} で選択した出力項目が存在しません'
     },
     workflowVariableTypes: {
-      string: 'String',
-      number: 'Number',
-      boolean: 'Boolean',
-      enum: 'Enum',
-      object: 'Object',
-      file: 'File',
-      credential: 'Credential',
-      certificate: 'Certificate'
+      string: '文字列',
+      number: '数字',
+      boolean: '真偽値',
+      enum: '列挙',
+      object: 'オブジェクト',
+      file: 'ファイル',
+      credential: '認証情報',
+      certificate: '証明書'
     },
     wizard: {
-      ariaLabel: 'Application asset creation steps',
+      ariaLabel: 'アプリケーションアセット作成ステップ',
       steps: {
-        basicEntry: 'Basic entry',
-        deploymentMode: 'Deployment mode',
-        confirmSave: 'Confirm and save'
+        basicEntry: '基本エントリ',
+        deploymentMode: 'デプロイモード',
+        confirmSave: '確認保存'
       },
       stepState: {
-        active: 'In progress',
-        done: 'Completed',
-        pending: 'Not started',
-        incomplete: 'Incomplete',
-        readyNext: 'Ready for next step',
-        pendingSubmit: 'Ready to submit'
+        active: '進行中',
+        done: '完了',
+        pending: '開始待ち',
+        incomplete: '完了待ち',
+        readyNext: '次のステップへ進めます',
+        pendingSubmit: '送信待ち'
       },
       panels: {
-        basicEntryTitle: 'Basic entry',
-        basicEntryDescription: 'Fill in domain, port, protocol, and platform first to define the application entry identity.',
-        agentTitle: 'Agent target binding',
-        agentDescription: 'Select Agent, site instance, managed target, and certificate artifact format.',
-        workflowTitle: 'Workflow runtime config',
-        workflowDescription: 'Select workflow version, runner, and variables. Certificate variables are injected at runtime.',
-        confirmTitle: 'Confirm and save',
-        confirmDescription: 'Review application entry, deployment mode, and runtime parameters before saving the asset.'
+        basicEntryTitle: '基本エントリ',
+        basicEntryDescription: 'まずドメイン名、ポート、プロトコル、プラットフォームを入力し、アプリケーションエントリの識別情報を確定します。',
+        agentTitle: 'Agent ターゲットバインド',
+        agentDescription: 'Agent、サイトインスタンス、管理対象ターゲット、証明書成果物設定を選択します。',
+        workflowTitle: 'ワークフロー実行設定',
+        workflowDescription: '選択ワークフローバージョン、実行場所と変数、証明書変数はでランタイム注入。',
+        confirmTitle: '確認保存',
+        confirmDescription: 'アプリケーションエントリ、デプロイモード、実行パラメータを確認し、確認後にアプリケーションアセットへ書き込みます。'
       }
     },
     form: {
-      createTitle: 'Add application asset manually',
-      editTitle: 'Edit application asset',
-      createDescription: 'Create an application entry and bind target information required for later deployment.',
-      editDescription: 'Update the application entry and deployment target binding.',
-      createRequestCompleted: 'Create request completed.',
-      editRequestCompleted: 'Save request completed.',
-      agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      createTitle: '手動追加アプリケーションアセット',
+      editTitle: '編集アプリケーションアセット',
+      createDescription: 'アプリケーションエントリを作成し、後続のデプロイに必要なターゲット情報をバインドします。',
+      editDescription: 'アプリケーションエントリとデプロイターゲットのバインドを変更します。',
+      createRequestCompleted: '作成リクエスト完了済み。',
+      editRequestCompleted: '保存リクエスト完了済み。',
+      agentCertificateFormatHint: 'Agent モードではは使用この証明書成果物設定生成デプロイマテリアル。',
       placeholders: {
-        displayName: 'For example: production site entry',
-        verifyUrl: 'For example: https://example.com/health',
-        siteName: 'For example: production site',
-        bindingInformation: 'For example: *:443:example.com',
-        hostHeader: 'For example: example.com',
-        sniName: 'For example: example.com'
+        displayName: '例：本番サイトエントリ',
+        verifyUrl: '例：https://example.com/health',
+        siteName: '例：本番サイト',
+        bindingInformation: '例：*:443:example.com',
+        hostHeader: '例：example.com',
+        sniName: '例：example.com'
       }
     },
     review: {
-      accessEntry: 'Access entry',
-      deploymentMode: 'Deployment mode',
-      agentSiteTarget: 'Agent / site / target',
-      workflowVersion: 'Workflow version',
-      gatewayRunner: 'Gateway: {gateway}',
-      variableCount: '{count} variables',
-      onlyBasicEntry: 'Basic entry only',
-      autoGeneratedByEntry: 'Generated from application entry'
+      accessEntry: 'アクセスエントリ',
+      deploymentMode: 'デプロイモード',
+      agentSiteTarget: 'Agent / サイト / ターゲット',
+      workflowVersion: 'ワークフローバージョン',
+      gatewayRunner: 'Gateway：{gateway}',
+      variableCount: '{count} 個変数',
+      onlyBasicEntry: '基本エントリのみ',
+      autoGeneratedByEntry: 'アプリケーションエントリから生成'
     },
     workflowTarget: {
-      title: 'Workflow target information',
-      description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
-      dslSyncHint: 'Synced to DSL target variables'
+      title: 'ワークフローターゲット情報',
+      description: 'ワークフロー資産表示、デプロイ後プローブ、DSL ターゲット変数同期に使用します。',
+      dslSyncHint: 'DSL ターゲット変数に同期済み'
     },
     workflowVariables: {
-      title: 'Workflow variables',
-      configuredCount: '{configured}/{total} configured',
-      name: 'Variable name',
-      type: 'Type',
-      value: 'Value',
-      manual: 'Manual',
-      empty: 'No workflow variables.',
-      noPublishedVersion: 'Select a published workflow version before configuring variables.',
-      certificateAutoInjected: 'The certificate version is selected by the deployment plan and injected automatically at runtime.',
-      certificateDescription: 'The certificate version is selected by the deployment plan. Bind format config and outputs below; {name}.outputs.*.content is injected at runtime.',
+      title: 'ワークフロー変数',
+      configuredCount: '設定 {configured}/{total}済み',
+      name: '変数名前',
+      type: 'タイプ',
+      value: '值',
+      manual: '手動',
+      empty: 'ワークフロー変数。はまだありません',
+      noPublishedVersion: '公開済みワークフローバージョン後設定変数。を選択してください',
+      certificateAutoInjected: '証明書バージョン由デプロイプラン選択、ランタイム自動注入。',
+      certificateDescription: '証明書バージョンはデプロイプランで選択します。アプリケーションアセットでは下方で形式設定と出力項目をバインドし、実行時に {name}.outputs.*.content を注入します。',
       presets: {
-        deviceHost: 'Target host or device address',
-        sshUsername: 'SSH user name',
-        credential: 'Workflow credential',
-        certificate: 'Certificate artifact',
-        targetPlatform: 'Target platform',
-        verifyHost: 'Verification host',
-        verifyPort: 'Verification port',
-        verifyPath: 'Verification path',
-        apacheServiceName: 'Apache systemd service name',
-        apacheSiteConfigPath: 'Apache site config path',
-        certificateFilePath: 'Certificate destination path',
-        certificateKeyFilePath: 'Private key destination path',
-        backupRoot: 'Certificate backup root',
-        expectedResponseContains: 'Expected response contains text',
-        virtualHostServerName: 'VirtualHost ServerName'
+        deviceHost: 'ターゲットホストまたはデバイスアドレス',
+        sshUsername: 'SSH ユーザー名',
+        credential: 'ワークフロー認証情報',
+        certificate: '証明書成果物',
+        targetPlatform: 'ターゲットプラットフォーム',
+        verifyHost: '検証ホスト',
+        verifyPort: '検証ポート',
+        verifyPath: '検証パス',
+        apacheServiceName: 'Apache systemd サービス名',
+        apacheSiteConfigPath: 'Apache サイト設定パス',
+        certificateFilePath: '証明書目のパス',
+        certificateKeyFilePath: '秘密鍵目のパス',
+        backupRoot: '証明書バックアップ根ディレクトリ',
+        expectedResponseContains: '検証応答含めるテキスト',
+        virtualHostServerName: '虚拟ホスト ServerName'
       }
     },
     certificateBindings: {
-      title: 'Certificate variable bindings',
-      description: 'Select certificate artifact format and outputs for certificate variables in the workflow.',
-      variableCount: '{count} certificate variables',
-      defaultVariableDescription: 'Certificate artifact variable',
-      noArtifactOutputs: 'No selectable outputs for the current format config.'
+      title: '証明書変数バインド',
+      description: 'ワークフロー内の証明書変数に対して、証明書成果物設定と出力項目を選択します。',
+      variableCount: '{count} 個証明書変数',
+      defaultVariableDescription: '証明書成果物変数',
+      noArtifactOutputs: '現在の形式設定には選択可能な出力項目がありません。'
     },
     certificateOutputs: {
-      publicCertificateWithChain: 'Public certificate + certificate chain',
-      publicCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      pemBundle: 'PEM bundle artifact',
-      container: '{format} container',
+      publicCertificateWithChain: '公開鍵証明書+証明書チェーン',
+      publicCertificate: '公開鍵証明書',
+      certificateChain: '証明書チェーン',
+      privateKey: '秘密鍵',
+      pemBundle: 'PEM 結合成果物',
+      container: '{format} 容器',
       bundle: 'Bundle'
     },
     certificateFormats: {
-      savedConfigMissingWithId: '{id} (saved config, not returned by current list)',
-      withPrivateKey: 'With private key',
-      withoutPrivateKey: 'Without private key'
+      savedConfigMissingWithId: '{id}（保存済み設定、現在一覧未戻る）',
+      withPrivateKey: '含秘密鍵',
+      withoutPrivateKey: '無秘密鍵'
     },
     snapshotTypes: {
-      preDeploy: 'Pre-deploy',
-      postDeploy: 'Post-deploy',
-      postRollback: 'Post-rollback',
-      errorState: 'Error state',
-      rollbackPoint: 'Rollback point'
+      preDeploy: 'デプロイ前',
+      postDeploy: 'デプロイ後',
+      postRollback: 'ロールバック後',
+      errorState: 'エラー態',
+      rollbackPoint: 'ロールバックポイント'
     },
     errors: {
-      loadWorkflowListFailed: 'Failed to load workflow list',
-      loadWorkflowVersionsFailed: 'Failed to load workflow versions',
-      loadGatewayListFailed: 'Failed to load gateway list',
-      loadCertificateFormatsFailed: 'Failed to load certificate format configs',
-      loadAssetDetailFailed: 'Failed to load application asset details',
-      rollbackFailed: 'Failed to start rollback',
-      loadTargetsFailed: 'Failed to load sites and managed targets',
-      createAssetFailed: 'Failed to create application asset',
-      loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
-      noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
+      loadWorkflowListFailed: 'ワークフロー一覧の読み込みに失敗しました',
+      loadWorkflowVersionsFailed: 'ワークフローバージョンの読み込みに失敗しました',
+      loadGatewayListFailed: 'ゲートウェイ一覧の読み込みに失敗しました',
+      loadCertificateFormatsFailed: '証明書形式設定の読み込みに失敗しました',
+      loadAssetDetailFailed: 'アプリケーションアセット詳細の読み込みに失敗しました',
+      rollbackFailed: 'ロールバックの開始に失敗しました',
+      loadTargetsFailed: 'サイトと管理対象ターゲットの読み込みに失敗しました',
+      createAssetFailed: 'アプリケーションアセットの作成に失敗しました',
+      loadWorkflowCredentialsFailed: 'ワークフロー認証情報の読み込みに失敗しました',
+      noAvailableSiteInstance: '利用可能なサイトインスタンスが見つかりません。先に Agent 詳細でフレームワークサイトが正常に報告されていることを確認してください。'
     },
     platforms: {
-      appliance: 'Appliance'
+      appliance: 'デバイス'
     },
     runners: {
-      controlPlane: 'Control plane'
+      controlPlane: 'プラットフォーム'
     },
     status: {
-      archived: 'Archived',
-      unknownStatus: 'Unknown status'
+      archived: '归档済み',
+      unknownStatus: '不明なステータス'
     },
     common: {
-      required: 'Required',
-      optional: 'Optional'
+      required: '必須',
+      optional: '任意'
     }
   },
   certificates: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'リクエストに失敗しました'
     },
     detail: {
-      backList: 'Back to list',
-      description: 'Shows certificate version details, format artifacts, and related assets.',
-      title: 'Certificate details'
+      backList: '戻る一覧',
+      description: '証明書バージョンの詳細、形式別成果物、関連アセットを表示します。',
+      title: '証明書詳細'
     },
     detailPanel: {
       sources: {
-        agentContext: 'Agent context',
-        platformBinding: 'Platform binding record'
+        agentContext: 'Agent上下文',
+        platformBinding: 'プラットフォームバインド記録'
       },
       usage: {
         columns: {
-          domainName: 'Domain / target',
-          agentName: 'Agent name',
-          siteName: 'Site name',
-          bindingType: 'Binding type',
-          usageSource: 'Source',
-          status: 'Status'
+          domainName: 'ドメイン名/ターゲット',
+          agentName: 'Agent名前',
+          siteName: 'サイト名前',
+          bindingType: 'バインドタイプ',
+          usageSource: 'ソース',
+          status: 'ステータス'
         },
-        empty: 'No related assets',
-        toolbar: 'Related assets'
+        empty: '関連アセットはまだありません',
+        toolbar: '関連アセット'
       },
       summary: {
-        certificateName: 'Certificate name',
-        logicalDomain: 'Logical domain',
-        issuer: 'Issuer',
-        subject: 'Subject',
-        serialNumber: 'Serial number',
-        chainStatus: 'Chain status'
+        certificateName: '証明書名',
+        logicalDomain: '逻輯ドメイン名',
+        issuer: '発行者',
+        subject: 'サブジェクト',
+        serialNumber: 'シリアル番号',
+        chainStatus: 'チェーンステータス'
       },
       sections: {
-        subjectInfo: 'Subject information',
-        issuerInfo: 'Issuer information',
-        certificateFields: 'Certificate fields',
-        extensionFields: 'Extension fields'
+        subjectInfo: 'サブジェクト情報',
+        issuerInfo: '発行者情報',
+        certificateFields: '証明書フィールド',
+        extensionFields: '扩展フィールド'
       },
       fields: {
-        commonName: 'Common name (CN)',
-        organization: 'Organization (O)',
-        organizationalUnit: 'Organizational unit (OU)',
-        countryRegion: 'Country / region (C)',
-        stateProvince: 'State / province (ST)',
-        locality: 'Locality (L)',
-        version: 'Version',
-        signatureAlgorithm: 'Signature algorithm',
-        publicKeyAlgorithm: 'Public key algorithm',
-        fingerprintSha256: 'SHA-256 fingerprint',
+        commonName: '公用名(CN)',
+        organization: '組织(O)',
+        organizationalUnit: '組织単位(OU)',
+        countryRegion: '国家/地区(C)',
+        stateProvince: '省/州(ST)',
+        locality: '城市(L)',
+        version: 'バージョン',
+        signatureAlgorithm: '署名算法',
+        publicKeyAlgorithm: '公開鍵アルゴリズム',
+        fingerprintSha256: 'SHA-256 フィンガープリント',
         san: 'SAN',
-        deployable: 'Deployable',
-        leafStorageRef: 'Leaf certificate reference',
-        chainCertificateCount: 'Chain certificate count',
-        chainDiagnostics: 'Chain diagnostics'
+        deployable: '可デプロイ',
+        leafStorageRef: 'リーフ証明書引用',
+        chainCertificateCount: 'チェーン証明書数',
+        chainDiagnostics: 'チェーン診断'
       },
       fallbacks: {
-        unknownCertificate: 'Unknown certificate',
-        unknownIssuer: 'Unknown issuer',
-        unnamedCertificate: 'Unnamed certificate',
-        unknownDomain: 'Unknown domain',
-        unknownSubject: 'Unknown subject',
-        unknown: 'Unknown',
-        notPartOfCertificate: 'Not part of the certificate',
-        none: 'None',
+        unknownCertificate: '不明な証明書',
+        unknownIssuer: '不明な署発者',
+        unnamedCertificate: '無名の証明書',
+        unknownDomain: '不明なドメイン名',
+        unknownSubject: '不明なサブジェクト',
+        unknown: '不明',
+        notPartOfCertificate: '証明書の一部ではありません',
+        none: 'まだありません',
         emptyValue: '—',
-        unknownType: 'Unknown type',
-        unknownResource: 'Unknown resource',
-        unknownTarget: 'Unknown target'
+        unknownType: '不明なタイプ',
+        unknownResource: '不明なリソース',
+        unknownTarget: '不明なターゲット'
       },
       values: {
-        yes: 'Yes',
-        no: 'No'
+        yes: '是',
+        no: '否'
       },
       separators: {
-        diagnostic: '; ',
-        list: ', '
+        diagnostic: '；',
+        list: '、'
       },
       chain: {
         roles: {
-          leaf: 'Leaf certificate',
-          root: 'Root certificate',
-          intermediate: 'Intermediate certificate'
+          leaf: 'リーフ証明書',
+          root: 'ルート証明書',
+          intermediate: '中間証明書'
         },
-        title: 'Certificate chain',
-        empty: 'No certificate chain information',
-        subject: 'Subject: {value}',
-        issuer: 'Issuer: {value}'
+        title: '証明書チェーン',
+        empty: '証明書チェーン情報はまだありません',
+        subject: 'サブジェクト：{value}',
+        issuer: '署発者：{value}'
       },
       errors: {
-        loadFailedTitle: 'Failed to load certificate details',
-        code: 'Error code: {code}'
+        loadFailedTitle: '証明書詳細の読み込みに失敗しました',
+        code: 'エラーコード：{code}'
       },
       actions: {
-        retry: 'Retry'
+        retry: '再試行'
       },
       states: {
-        loading: 'Loading...'
+        loading: '読み込み中...'
       },
       tabs: {
-        ariaLabel: 'Certificate detail tabs',
-        detail: 'Details',
-        usage: 'Related assets'
+        ariaLabel: '証明書詳細タブ',
+        detail: '詳細',
+        usage: '関連アセット'
       },
       validity: {
-        title: 'Certificate validity',
-        notBefore: 'Valid from: {value}',
-        notAfter: 'Expires at: {value}'
+        title: '証明書有効期間',
+        notBefore: '生效：{value}',
+        notAfter: '期限切れ：{value}'
       }
     },
     formats: {
       columns: {
-        certificateVersionId: 'Version ID',
-        createdAt: 'Created at',
-        format: 'Format',
-        secretRef: 'Secret reference',
-        status: 'Status'
+        certificateVersionId: 'バージョン ID',
+        createdAt: '作成時刻',
+        format: '形式',
+        secretRef: 'Secret 参照',
+        status: 'ステータス'
       },
-      create: 'Create format config',
-      createFailed: 'Failed to create format',
-      description: 'PEM/DER/PFX/JKS/P7B format configuration entry for certificate {id}.',
-      empty: 'No format configs',
+      create: '作成形式設定',
+      createFailed: '形式の作成に失敗しました',
+      description: '証明書 {id} の PEM/DER/PFX/JKS/P7B 形式設定への導線です。',
+      empty: '形式設定はまだありません',
       fields: {
-        alias: 'Alias (optional)',
-        containsPrivateKey: 'Contains private key (PEM)',
-        passwordSecretRef: 'passwordSecretRef (PFX/JKS)',
-        targetFormat: 'Target format',
-        versionId: 'Version ID'
+        alias: 'Alias（任意）',
+        containsPrivateKey: '含める秘密鍵（PEM）',
+        passwordSecretRef: 'passwordSecretRef（PFX/JKS）',
+        targetFormat: 'ターゲット形式',
+        versionId: 'バージョン ID'
       },
-      hint: 'PFX/JKS must use an existing backend passwordSecretRef. Deployment materials are generated on demand from the certificate version and format config.',
-      loadFailed: 'Failed to load format configs',
-      optionAvailable: '{label} - available',
+      hint: 'PFX/JKS ではシステム上の passwordSecretRef を必ず使用します。実際のデプロイ時は、証明書バージョンと形式設定に基づいてマテリアルを即時生成します。',
+      loadFailed: '形式設定の読み込みに失敗しました',
+      optionAvailable: '{label} - 利用可能',
       placeholders: {
-        alias: 'For example gcac-cert'
+        alias: '例： gcac-cert'
       },
-      title: 'Certificate format config',
-      toolbar: 'Format config list',
-      unsupported: '{format} cannot be created with the current capability declaration.'
+      title: '証明書形式設定',
+      toolbar: '形式設定一覧',
+      unsupported: '{format} は現在の機能宣言では作成できません。'
     },
     import: {
-      backList: 'Back to certificate list',
-      description: 'Currently only PEM + KEY and PFX are supported; PFX only supports file import. Imported material must include the server certificate, full intermediate chain, and private key. Root certificates are optional.',
+      backList: '証明書一覧へ戻る',
+      description: '現在は PEM + KEY と PFX のみサポートします。PFX はファイルインポートのみ対応です。インポートマテリアルにはサーバー証明書、完全な中間証明書チェーン、秘密鍵を必ず含めてください。ルート証明書は必須ではありません。',
       errors: {
-        importFailed: 'Import failed',
-        materialRequiredBeforeValidate: 'Complete the import material before starting validation.',
-        needPassedValidation: 'Complete step 3 validation and make sure it passed before importing.',
-        validateFailed: 'Validation failed'
+        importFailed: 'インポートに失敗しました',
+        materialRequiredBeforeValidate: '先にインポートマテリアルの入力を完了してから検証を開始してください。',
+        needPassedValidation: '先にステップ 3 の検証を完了し、検証合格後にインポートしてください。',
+        validateFailed: '検証に失敗しました'
       },
       formats: {
         pem: {
-          hint: 'Server certificate, full intermediate chain, and private key must all be provided. Root certificates are optional and only produce a warning when missing.'
+          hint: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵を同時に提供してください。ルート証明書は必須ではありません。不足している場合は警告を表示します。'
         },
         pfx: {
-          hint: 'Only file import is supported. The container must include the server certificate, full intermediate chain, and private key. Root certificates are optional and only produce a warning when missing.'
+          hint: 'ファイルインポートのみ対応です。コンテナ内にはサーバー証明書、完全な中間証明書チェーン、秘密鍵を必ず含めてください。ルート証明書は必須ではありません。不足している場合は警告を表示します。'
         }
       },
       methods: {
         file: {
-          hint: 'Use this when you already have cert / key or .pfx files.',
-          label: 'Select file'
+          hint: 'cert / key または .pfx ファイルがある場合に適しています。',
+          label: '選択ファイル'
         },
         text: {
-          hint: 'Paste PEM text directly to avoid uploading temporary files.',
-          label: 'Paste text'
+          hint: 'PEM テキストを直接貼り付け、臨時ファイルのアップロードを避けたい場合に適しています。',
+          label: '貼り付けテキスト'
         }
       },
-      title: 'Import certificate'
+      title: '証明書をインポート'
     },
     importForm: {
       hints: {
-        pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
-        pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
-        pfxFileOnly: 'PFX only supports file import.'
+        pemChainCheck: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵をアップロードまたは貼り付けてください。システムが証明書チェーンと秘密鍵の一致関係を検証します。',
+        pfxChainCheck: 'PFX/P12 ファイルをアップロードし、パスワードを入力してください。システムがコンテナ内のサーバー証明書、証明書チェーン、秘密鍵を解析します。',
+        pfxFileOnly: 'PFX はファイルインポートのみサポートします。'
       },
       roles: {
-        leaf: 'Leaf certificate',
-        root: 'Root certificate',
-        intermediate: 'Intermediate certificate'
+        leaf: 'リーフ証明書',
+        root: 'ルート証明書',
+        intermediate: '中間証明書'
       },
       steps: {
-        ariaLabel: 'Certificate import steps',
-        formatAndMethod: 'Format and method',
-        materials: 'Import materials',
-        validateAndImport: 'Validate and import'
+        ariaLabel: '証明書インポートステップ',
+        formatAndMethod: '形式と方式',
+        materials: 'インポートマテリアル',
+        validateAndImport: '検証かつインポート'
       },
       formatIntro: {
-        title: 'Choose import format and method',
-        description: 'Confirm the material format first, then upload files or paste text. PFX currently only supports file import.'
+        title: '選択インポート形式と方式',
+        description: '先確認マテリアル形式、再選択アップロードファイルまたは貼り付けテキスト。PFX 目前のみサポートファイルインポート。'
       },
       labels: {
-        importType: 'Import type',
-        importMethod: 'Import method',
-        materialStatus: 'Material status'
+        importType: 'インポートタイプ',
+        importMethod: 'インポート方式',
+        materialStatus: 'マテリアルステータス'
       },
       status: {
-        supported: 'Supported',
-        unsupported: 'Unsupported',
-        completed: 'Completed',
-        incomplete: 'Incomplete',
-        matched: 'Matched',
-        unmatched: 'Unmatched'
+        supported: 'サポート済み',
+        unsupported: '暫不サポート',
+        completed: '完了',
+        incomplete: '未完了',
+        matched: '一致',
+        unmatched: '不一致'
       },
       fields: {
-        certificateChainFile: 'Certificate chain file',
-        certificatePemText: 'Certificate PEM text',
-        privateKey: 'Private key ({kind})',
-        file: 'file',
-        pemText: 'PEM text',
-        pfxFile: 'PFX/P12 file',
-        certificateName: 'Certificate name',
-        pfxPassword: 'PFX password'
+        certificateChainFile: '証明書チェーンファイル',
+        certificatePemText: '証明書 PEM テキスト',
+        privateKey: '秘密鍵（{kind}）',
+        file: 'ファイル',
+        pemText: 'PEM テキスト',
+        pfxFile: 'PFX/P12 ファイル',
+        certificateName: '証明書名',
+        pfxPassword: 'PFX パスワード'
       },
       placeholders: {
-        certificatePem: '-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----',
-        certificateName: 'For example example.com production certificate',
-        required: 'Required'
+        certificatePem: '-----BEGIN CERTIFICATE-----\\n...\\n-----END CERTIFICATE-----',
+        certificateName: '例： example.com 生産証明書',
+        required: '必須'
       },
       validation: {
-        title: 'Validate import materials',
-        description: 'Validate the certificate chain, validity period, private key match, and material completeness before importing.',
-        passed: 'Validation passed. Ready to import.',
-        failed: 'Validation failed'
+        title: '検証インポートマテリアル',
+        description: '送信インポート前先検証証明書チェーン、有効期間、秘密鍵一致とマテリアル完全な性。',
+        passed: '検証合格、可以インポート',
+        failed: '検証未合格'
       },
       report: {
-        certificateSummary: 'Certificate summary',
-        serialNumber: 'Serial number',
-        validity: 'Validity',
-        validityRange: '{start} to {end}',
-        issuer: 'Issuer',
-        issuerWithValue: 'Issuer: {value}',
-        subject: 'Subject',
-        chainValidation: 'Chain validation',
-        chainStatus: 'Chain status',
-        certificateCount: 'Certificate count',
-        privateKeyMatch: 'Private key match',
-        provided: 'Provided',
-        matchResult: 'Match result',
-        privateKeySource: 'Private key source',
-        blockers: 'Blockers',
-        warnings: 'Warnings'
+        certificateSummary: '証明書サマリー',
+        serialNumber: 'シリアル番号',
+        validity: '有効期間',
+        validityRange: '{start} 至 {end}',
+        issuer: '発行者',
+        issuerWithValue: '署発者：{value}',
+        subject: 'サブジェクト',
+        chainValidation: '証明書チェーン検証',
+        chainStatus: 'チェーンステータス',
+        certificateCount: '証明書数',
+        privateKeyMatch: '秘密鍵一致',
+        provided: '提供済み',
+        matchResult: '一致結果',
+        privateKeySource: '秘密鍵ソース',
+        blockers: 'ブロック件',
+        warnings: '警告'
       },
-      selectedFile: 'Selected: {name}',
-      importSuccess: 'Imported successfully. Certificate version ID: {id}',
+      selectedFile: '選択：{name}済み',
+      importSuccess: 'インポート成功、証明書バージョン ID：{id}',
       actions: {
-        validating: 'Validating...',
-        validate: 'Validate',
-        cancel: 'Cancel',
-        previous: 'Previous',
-        next: 'Next',
-        importing: 'Importing...',
-        import: 'Import certificate'
+        validating: '検証中...',
+        validate: '開始検証',
+        cancel: 'キャンセル',
+        previous: '前へ',
+        next: '次へ',
+        importing: 'インポート中...',
+        import: '証明書をインポート'
       }
     },
     list: {
       filters: {
-        keyword: 'Keyword',
-        domain: 'Domain',
-        status: 'Status'
+        keyword: 'キーワード',
+        domain: 'ドメイン名',
+        status: 'ステータス'
       },
       placeholders: {
-        assetKeyword: 'Domain / SAN / fingerprint',
-        versionKeyword: 'Name / issuer / subject / version ID'
+        assetKeyword: 'ドメイン名 / SAN / フィンガープリント',
+        versionKeyword: '名前 / 発行者 / サブジェクト / バージョン ID'
       },
       columns: {
-        notBefore: 'Start date',
-        notAfter: 'End date',
-        associatedAsset: 'Related asset',
-        status: 'Status',
-        certificateVersionId: 'Certificate version ID'
+        notBefore: '開始日付',
+        notAfter: '終了日付',
+        associatedAsset: '関連アセット',
+        status: 'ステータス',
+        certificateVersionId: '証明書バージョン ID'
       },
       lifecycle: {
-        unknown: 'Unknown',
-        expired: 'Expired',
-        expiringSoon: 'Expiring soon',
-        valid: 'Valid'
+        unknown: '不明',
+        expired: '期限切れ',
+        expiringSoon: '期限切れ間近',
+        valid: '有効'
       },
       fallbacks: {
-        unselectedDomain: 'No domain selected',
-        unnamedDomain: 'Unnamed domain',
-        noSupplement: 'No additional information'
+        unselectedDomain: 'ドメイン名未選択',
+        unnamedDomain: '無名のドメイン名',
+        noSupplement: '补充情報はまだありません'
       },
       assets: {
-        title: 'Domain list',
-        loadFailed: 'Failed to load domain list',
-        empty: 'No domains',
-        unselectedTitle: 'No domain selected',
-        unselectedDescription: 'Select a logical certificate domain on the left first.'
+        title: 'ドメイン名一覧',
+        loadFailed: 'ドメイン名一覧の読み込みに失敗しました',
+        empty: 'ドメイン名一覧はまだありません',
+        unselectedTitle: 'ドメイン名未選択',
+        unselectedDescription: '先で左侧選択1 個逻輯証明書ドメイン名。'
       },
       versions: {
-        title: 'SSL certificate list',
-        titleWithDomain: 'SSL certificates for {domain}',
-        description: 'Shows SSL certificates under the current domain, including certificate name, start date, end date, issuer, and subject.',
-        loadFailed: 'Failed to load SSL certificate list',
-        emptyForDomain: 'No SSL certificates under this domain',
-        emptyForDomainDescription: 'Use the import certificate button on the right of the filters to add certificate versions for this domain.',
-        empty: 'No SSL certificates',
-        toolbar: 'Certificate version list',
-        currentCount: '{count} currently'
+        title: 'SSL 証明書一覧',
+        titleWithDomain: '{domain} の SSL 証明書一覧',
+        description: '右側表示現在ドメイン名下の SSL 証明書一覧、含める証明書名、開始日付、終了日付、発行者とサブジェクト情報。',
+        loadFailed: 'SSL 証明書一覧の読み込みに失敗しました',
+        emptyForDomain: 'このドメイン名下まだありません SSL 証明書',
+        emptyForDomainDescription: '可以合格フィルター栏右側のインポート証明書により钮补充このドメイン名の証明書バージョン。',
+        empty: ' SSL 証明書はまだありません',
+        toolbar: '証明書バージョン一覧',
+        currentCount: '現在 {count} 件'
       },
       actions: {
-        clear: 'Clear',
-        deleteRisk: 'Deleting removes the current certificate version directly. If it is still referenced by a binding or deployment, the backend will reject the operation.'
+        clear: '清空',
+        deleteRisk: '削除すると現在の証明書バージョンが直接削除されます。このバージョンがまだバインドまたはデプロイから参照されている場合、システムはこの操作を拒否します。'
       },
       errors: {
-        deleteFailed: 'Delete failed',
-        materialRequiredForFormat: 'Certificate material for the current format is required.',
-        importFailedWithCheck: 'Import failed. Check the input material.',
-        validateFailedWithCheck: 'Validation failed. Check the input material.'
+        deleteFailed: '削除に失敗しました',
+        materialRequiredForFormat: '必ず提供現在形式对応の証明書マテリアル。',
+        importFailedWithCheck: 'インポート失敗、チェック入力マテリアル。',
+        validateFailedWithCheck: '検証失敗、チェック入力マテリアル。'
       },
       import: {
-        description: 'Currently only PEM + KEY and PFX are supported; each import must include the server certificate, full intermediate chain, and private key. Root certificates are optional and show a warning when missing. The private key is stored only as a backend Secret and is never echoed in responses.'
+        description: '現在はのみサポート PEM + KEY 和 PFX；毎回インポート都必ず含めるサーバー証明書、完全な中間証明書チェーンと秘密鍵。ルート証明書は必須ではありません。不足している場合は警告を表示します。秘密鍵はシステムの Secret ストレージにのみ保存、API レスポンスには返されません。'
       }
     },
     usages: {
-      backDetail: 'Back to details',
+      backDetail: '戻る詳細',
       columns: {
-        domainName: 'Domain / target',
-        resourceId: 'Resource ID',
-        resourceType: 'Resource type',
-        status: 'Status',
-        updatedAt: 'Updated at'
+        domainName: 'ドメイン名/ターゲット',
+        resourceId: 'リソース ID',
+        resourceType: 'リソースタイプ',
+        status: 'ステータス',
+        updatedAt: '更新時刻'
       },
-      description: 'Bindings, deployment targets, and resource references for certificate {id}.',
-      empty: 'No usages',
-      loadFailed: 'Failed to load usages',
-      title: 'Certificate usages',
-      toolbar: 'Usages'
+      description: '証明書 {id} のバインド、デプロイターゲットとリソース引用。',
+      empty: '使用関係はまだありません',
+      loadFailed: '使用関係の読み込みに失敗しました',
+      title: '証明書使用関係',
+      toolbar: '使用関係'
     }
   },
   workflows: {
     credentials: {
       summary: {
-        usernamePassword: 'Username + password',
-        usernamePasswordWithUsername: 'Username + password / {username}',
-        sshKey: 'SSH private key',
-        sshKeyWithUsername: 'SSH private key / {username}',
+        usernamePassword: 'ユーザー名 + パスワード',
+        usernamePasswordWithUsername: 'ユーザー名 + パスワード / {username}',
+        sshKey: 'SSH 秘密鍵',
+        sshKeyWithUsername: 'SSH 秘密鍵 / {username}',
         apiKey: 'API Key / {name} / {location}',
         bearerToken: 'Bearer Token'
       }
@@ -2947,858 +2903,667 @@ export default {
     canvasModel: {
       nodeTypes: {
         http: {
-          description: 'Call a structured HTTP API instead of scattered curl strings.'
+          description: '调用结构化 HTTP 接口、取代分散の curl コマンド。'
         },
         ssh: {
-          displayName: 'SSH command',
-          description: 'Declare the SSH command to run while storing only connection and credential references.'
+          displayName: 'SSH コマンド',
+          description: '実行する SSH コマンドを宣言、のみ保存接続と認証情報引用。'
         },
         sftp: {
-          displayName: 'SFTP upload/download',
-          description: 'Upload or download files through a formal SFTP step, suitable for certificate and config installation.'
+          displayName: 'SFTP アップロード/ダウンロード',
+          description: '合格正式 SFTP step アップロードまたはダウンロードファイル、适合証明書と設定インストール。'
         },
         scp: {
-          displayName: 'SCP upload/download',
-          description: 'Copy files through SCP, suitable for simple host file distribution.'
+          displayName: 'SCP アップロード/ダウンロード',
+          description: '合格 SCP コピーファイル、适合简単ホストファイル分発。'
         },
         verify: {
-          displayName: 'Verify',
-          description: 'Assert HTTP status, text, regex, or certificate fingerprint.'
+          displayName: '検証',
+          description: '对 HTTP ステータス、テキスト、正则または証明書フィンガープリント做断言。'
         },
         condition: {
-          displayName: 'Condition',
-          description: 'Choose the next path based on variable existence or value.'
+          displayName: '分支判断',
+          description: '根拠変数存で性または值决定後継パス。'
         },
         transform: {
-          displayName: 'Transform',
-          description: 'Use JSONata to convert upstream output into new workflow context variables.'
+          displayName: '変換',
+          description: 'JSONata で上流出力を新しいワークフローコンテキスト変数に変換します。'
         },
         wait: {
-          displayName: 'Wait',
-          description: 'Wait for a fixed number of seconds before continuing.'
+          displayName: '待機',
+          description: '指定した秒数待機してから実行を続行します。'
         },
         manual: {
-          displayName: 'Manual approval',
-          description: 'Pause the workflow until manual confirmation.'
+          displayName: '手動確認',
+          description: 'ワークフローを一時停止し、手動確認後に続行します。'
         }
       },
       fields: {
-        command: 'Command',
-        connectionRef: 'Connection variable',
-        contentRef: 'Content variable',
-        credential: 'Credential',
-        description: 'Description',
-        direction: 'Direction',
-        expected: 'Expected value',
-        expectedHostKeyFingerprint: 'Host Key fingerprint',
-        hostKeyPolicy: 'Host Key policy',
-        hostRef: 'Host variable',
-        inputRef: 'Input variable',
-        instruction: 'Approval instruction',
-        localPath: 'Local path',
-        mode: 'File mode',
-        operator: 'Operator',
-        remotePath: 'Remote path',
-        seconds: 'Wait seconds',
-        temporaryPath: 'Temporary path',
-        timeoutMs: 'Timeout ms',
-        timeoutSeconds: 'Timeout seconds',
-        transformInput: 'Transform input',
-        outputFormat: 'Output format',
-        usernameVariable: 'Username variable',
-        variable: 'Variable',
-        verifyType: 'Verify type'
+        command: 'コマンド',
+        connectionRef: '接続変数',
+        contentRef: '内容変数',
+        credential: '認証情報',
+        description: '説明',
+        direction: '方向',
+        expected: '期望值',
+        expectedHostKeyFingerprint: 'Host Key フィンガープリント',
+        hostKeyPolicy: 'Host Key ポリシー',
+        hostRef: 'ホスト変数',
+        inputRef: '入力変数',
+        instruction: '確認説明',
+        localPath: 'ローカルパス',
+        mode: 'ファイル権限',
+        operator: '操作符',
+        remotePath: 'リモートパス',
+        seconds: '待機秒数',
+        temporaryPath: '一時パス',
+        timeoutMs: 'タイムアウト ms',
+        timeoutSeconds: '超時秒数',
+        transformInput: '変換入力',
+        outputFormat: '出力形式',
+        usernameVariable: 'ユーザー名変数',
+        variable: '変数',
+        verifyType: '検証タイプ'
       },
       options: {
         direction: {
-          download: 'Download',
-          upload: 'Upload'
+          download: 'ダウンロード',
+          upload: 'アップロード'
         },
         hostKeyPolicy: {
-          manualApproval: 'Manual approval',
-          strict: 'Strict verification',
-          trustOnFirstUse: 'Trust on first use'
+          manualApproval: '手動承認',
+          strict: '厳格検証',
+          trustOnFirstUse: '首回信任'
         },
         operator: {
-          equals: 'Equals',
-          exists: 'Exists',
-          notEquals: 'Not equals',
-          notExists: 'Does not exist'
+          equals: '等于',
+          exists: '存で',
+          notEquals: '不等于',
+          notExists: '不存で'
         },
         transformFormat: {
-          raw: 'Raw value',
-          jsonString: 'JSON string'
+          raw: '生値',
+          jsonString: 'JSON 文字列'
         },
         verifyType: {
-          certificateFingerprint: 'Certificate fingerprint',
-          httpStatus: 'HTTP status',
-          regex: 'Regex match',
-          textContains: 'Text contains'
+          certificateFingerprint: '証明書フィンガープリント',
+          httpStatus: 'HTTP ステータス',
+          regex: '正则一致',
+          textContains: 'テキスト含める'
         }
       },
       stages: {
         backup: {
-          title: 'Backup',
-          description: 'Keep rollback material.'
+          title: 'バックアップ',
+          description: '保留可ロールバックマテリアル。'
         },
         install: {
-          title: 'Install',
-          description: 'Write certificates or configuration.'
+          title: 'インストール',
+          description: 'デプロイ証明書または設定。'
         },
         prepare: {
-          title: 'Prepare',
-          description: 'Prepare connections, variables, and material.'
+          title: '準備',
+          description: '接続、変数、マテリアルを準備します。'
         },
         refresh: {
-          title: 'Refresh',
-          description: 'Reload services or refresh targets.'
+          title: '更新',
+          description: '重載サービスまたは更新ターゲット。'
         },
         verify: {
-          title: 'Verify',
-          description: 'Confirm the result matches expectations.'
+          title: '検証',
+          description: '確認結果符合预期。'
         }
       },
       defaults: {
-        displayName: '{name} workflow',
+        displayName: '{name} ワークフロー',
         nodes: {
-          backupExistingCertificate: 'Back up existing certificate',
-          reloadService: 'Reload service'
+          backupExistingCertificate: 'バックアップ既存証明書',
+          reloadService: '重載サービス'
         },
         variables: {
           certificatePaths: {
-            description: 'Target certificate path configuration'
+            description: 'ターゲット証明書パス設定'
           },
           credential: {
-            description: 'Connection credential'
+            description: '接続認証情報'
           },
           deviceHost: {
-            description: 'Target host'
+            description: 'ターゲットホスト'
           },
           serverCert: {
-            description: 'Server certificate material to deploy',
+            description: '待デプロイサーバー証明書マテリアル',
             outputs: {
               certFile: {
-                description: 'Server certificate file'
+                description: 'サーバー証明書ファイル'
               },
               keyFile: {
-                description: 'Private key file'
+                description: '秘密鍵ファイル'
               }
             }
           },
           sshUsername: {
-            description: 'SSH login username'
+            description: 'SSH ログインユーザー名'
           },
           verifyUrl: {
-            description: 'Post-deployment verification URL'
+            description: 'デプロイ後検証アドレス'
           }
         },
         config: {
-          conditionDescription: 'Check whether the target host variable exists',
-          manualInstruction: 'Please confirm the target device certificate has switched to the new version.'
+          conditionDescription: 'チェックターゲットホスト変数是否存で',
+          manualInstruction: '確認してくださいターゲットデバイス証明書切り替えへ新バージョン済み。'
         }
       },
       variableFlow: {
-        system: 'System',
-        variable: 'Variable'
+        system: 'システム',
+        variable: '変数'
       },
       errors: {
-        unknownNodeType: 'Unknown node type: {type}'
+        unknownNodeType: '不明なノードタイプ：{type}'
       }
     },
     canvasEditor: {
-      summary: '{nodes} nodes, {edges} edges, {variables} variables',
-      stageNodeCount: '{count} nodes',
-      copyLabel: '{label} copy',
+      summary: 'ノード {nodes} 個、接続線 {edges} 件、変数 {variables} 個',
+      stageNodeCount: '{count} 個ノード',
+      copyLabel: '{label} 副本',
       actions: {
-        addVariable: 'Add variable',
-        collapseBottomPanelAria: 'Collapse bottom control panel',
-        collapseDown: 'Collapse down',
-        copy: 'Copy',
-        copyNode: 'Copy node',
-        delete: 'Delete',
-        deleteNode: 'Delete node',
-        expandBottomPanelAria: 'Expand bottom control panel',
-        expandPanel: 'Expand panel',
-        layout: 'Arrange layout',
-        mockCurrentNode: 'Simulate current node only',
-        mockRunning: 'Simulating...',
-        paste: 'Paste',
-        pasteNode: 'Paste node',
-        realRun: 'Run current node for real',
-        realRunHttp: 'Run current HTTP node',
-        realRunRunning: 'Running...',
-        realRunSsh: 'Run current SSH node',
-        realRunTransfer: 'Run real file transfer',
-        redo: 'Redo',
-        saveDraft: 'Save draft',
-        saving: 'Saving...',
-        undo: 'Undo',
-        zoomIn: 'Zoom in',
-        zoomOut: 'Zoom out'
+        addVariable: '追加変数',
+        collapseBottomPanelAria: '折叠底部控制パネル',
+        collapseDown: '向下折叠',
+        copy: 'コピー',
+        copyNode: 'コピーノード',
+        delete: '削除',
+        deleteNode: '削除ノード',
+        expandBottomPanelAria: '展開底部控制パネル',
+        expandPanel: '展開パネル',
+        layout: '整理布局',
+        mockCurrentNode: 'のみ模拟現在ノード',
+        mockRunning: '模拟中...',
+        paste: '貼り付け',
+        pasteNode: '貼り付けノード',
+        realRun: '真実試跑現在ノード',
+        realRunHttp: '真実 HTTP 試跑現在ノード',
+        realRunRunning: '試跑中...',
+        realRunSsh: '真実 SSH 実行現在ノード',
+        realRunTransfer: '真実ファイル传輸試跑',
+        redo: '重做',
+        saveDraft: '保存ドラフト',
+        saving: '保存中...',
+        undo: '撤销',
+        zoomIn: '放大',
+        zoomOut: '缩小'
       },
       aria: {
-        bottomPanel: 'Bottom panel',
-        canvasArea: 'Canvas area',
-        dslPanel: 'DSL panel',
-        nodePalette: 'Node palette',
-        propertiesPanel: 'Properties panel',
-        runtimePanel: 'Runtime panel',
-        toolbar: 'Workflow canvas toolbar',
-        validationPanel: 'Validation panel',
-        variablesPanel: 'Variables panel'
+        bottomPanel: '下部パネル',
+        canvasArea: 'キャンバスゾーン',
+        dslPanel: 'DSL パネル',
+        nodePalette: 'ノードライブラリ',
+        propertiesPanel: 'プロパティパネル',
+        runtimePanel: '実行時パネル',
+        toolbar: 'ワークフローキャンバスツールバー',
+        validationPanel: '検証パネル',
+        variablesPanel: '変数パネル'
       },
       credentialHints: {
-        savedApiKey: 'Saved API key',
-        savedBearerToken: 'Saved Bearer token',
-        savedSshSftp: 'Saved SSH / SFTP credentials',
-        savedUsernamePassword: 'Saved username + password'
+        savedApiKey: '保存済みの API Key',
+        savedBearerToken: '保存済みの Bearer Token',
+        savedSshSftp: '保存済みの SSH / SFTP 認証情報',
+        savedUsernamePassword: '保存済みのユーザー名 + パスワード'
       },
       credentials: {
-        emptyCreateHint: 'No available credentials. Create one from Credential Management on the list page.',
-        loading: 'Loading credentials from backend...'
+        emptyCreateHint: '利用可能な認証情報はまだありません。一覧ページの認証情報管理で先に作成してください。',
+        loading: '認証情報一覧を読み込み中…'
       },
       dsl: {
-        title: 'DSL import and overwrite',
-        hint: 'Paste external DSL JSON or choose a local DSL file. Import only overwrites the current canvas in the browser; a new workflow version is created only after saving the draft.',
-        selectFile: 'Select DSL file',
+        title: 'DSL インポートと上書き',
+        hint: '外部 DSL JSON を直接貼り付けるか、ローカル DSL ファイルを選択できます。インポートはブラウザー内の現在のキャンバスのみ上書きし、「ドラフトを保存」をクリックして初めて新しいワークフローバージョンが生成されます。',
+        selectFile: 'DSL ファイルを選択',
         actions: {
-          importOverwrite: 'Import DSL and overwrite canvas',
-          resetToCanvas: 'Refill current canvas DSL'
+          importOverwrite: 'DSL をインポートしてキャンバスを上書き',
+          resetToCanvas: '現在のキャンバス DSL を反映'
         },
         messages: {
-          fileLoaded: 'Loaded file: {fileName}',
-          imported: 'DSL imported and current canvas overwritten, {count} nodes total.',
-          resetToCompiled: 'Refilled backend-compiled DSL.'
+          fileLoaded: 'ファイルを読み込みました：{fileName}',
+          imported: 'DSL をインポートし、現在のキャンバスを上書きしました。合計 {count} 個のノードです。',
+          resetToCompiled: 'コンパイル後の DSL を反映しました。'
         },
         errors: {
-          importFailed: 'DSL import failed',
-          invalidTopLevel: 'Invalid DSL top-level structure. It must be an object.'
+          importFailed: 'DSL インポートに失敗しました',
+          invalidTopLevel: 'DSL のトップレベル構造が無効です。オブジェクトである必要があります。'
         }
       },
       empty: {
-        selectNodeToEdit: 'Select a node to edit properties.'
+        selectNodeToEdit: 'ノードを選択してから属性を編集してください。'
       },
       errors: {
-        backendValidationFailed: 'Backend validation failed',
-        credentialsLoadFailed: 'Failed to load workflow credentials',
-        missingStepName: 'Step name is missing',
-        missingWorkflowDsl: 'Backend did not return workflow DSL'
+        backendValidationFailed: '検証に失敗しました',
+        credentialsLoadFailed: 'ワークフロー認証情報の読み込みに失敗しました',
+        missingStepName: 'ステップ名が不足しています',
+        missingWorkflowDsl: 'ワークフロー DSL を取得できませんでした'
       },
       fields: {
-        authType: 'Auth type',
-        clientCertificate: 'Client certificate',
-        clientPrivateKey: 'Client private key',
-        command: 'Command',
-        connectionVariable: 'Connection variable',
-        contentRef: 'Content reference',
-        cookieName: 'Cookie name',
-        credential: 'Credential',
-        credentialSelector: 'Credential selector',
-        defaultValue: 'Default value',
-        deliveryLocation: 'Delivery location',
-        description: 'Description',
-        direction: 'Direction',
-        fileMode: 'File mode',
-        headerName: 'Header name',
-        hostRefOrHostname: 'Host variable / hostname',
-        hostVariable: 'Host variable',
-        keyName: 'Key name',
-        localPath: 'Local path',
-        newNodeStage: 'New node stage',
-        nodeName: 'Node name',
-        remotePath: 'Remote path',
-        required: 'Required',
-        secretValue: 'Secret value',
-        sensitive: 'Sensitive',
-        stage: 'Stage',
-        temporaryPath: 'Temporary path',
-        timeoutSeconds: 'Timeout seconds',
-        type: 'Type',
-        username: 'Username',
-        variableName: 'Variable name'
+        authType: '認証タイプ',
+        clientCertificate: 'クライアント証明書',
+        clientPrivateKey: 'クライアント秘密鍵',
+        command: 'コマンド',
+        connectionVariable: '接続変数',
+        contentRef: '内容引用',
+        cookieName: 'Cookie 名',
+        credential: '認証情報',
+        credentialSelector: '認証情報セレクター',
+        defaultValue: 'デフォルト値',
+        deliveryLocation: '受け渡し場所',
+        description: '説明',
+        direction: '方向',
+        fileMode: 'ファイル権限',
+        headerName: 'Header 名',
+        hostRefOrHostname: 'ホスト変数 / ホスト名',
+        hostVariable: 'ホスト変数',
+        keyName: 'Key 名',
+        localPath: 'ローカルパス',
+        newNodeStage: '追加ノードステージ',
+        nodeName: 'ノード名',
+        remotePath: 'リモートパス',
+        required: '必須',
+        secretValue: 'シークレット値',
+        sensitive: '機密',
+        stage: '所属ステージ',
+        temporaryPath: '一時パス',
+        timeoutSeconds: '超時秒数',
+        type: 'タイプ',
+        username: 'ユーザー名',
+        variableName: '変数名'
       },
       options: {
-        download: 'Download',
-        manualInput: 'Manual input',
-        notSelected: 'Not selected',
-        upload: 'Upload'
+        download: 'ダウンロード',
+        manualInput: '手動入力',
+        notSelected: '未選択',
+        upload: 'アップロード'
       },
       runtime: {
-        noCredentialVariables: 'This workflow has no credential variables.',
-        noExtraVariables: 'The current node has no extra runtime variables.'
+        noCredentialVariables: '現在ワークフロー没有認証情報変数。',
+        noExtraVariables: '現在のノードには追加のランタイム変数がありません。'
       },
       sections: {
-        httpAuth: 'HTTP authentication',
-        nodePalette: 'Node palette',
-        properties: 'Properties',
-        referenceFlow: 'Reference flow',
-        runtimeCredentialVariables: 'Runtime credential variables',
-        runtimeVariables: 'Runtime variables',
-        singleNodeTest: 'Single-node test run',
-        variableConfig: 'Variable configuration'
+        httpAuth: 'HTTP 認証',
+        nodePalette: 'ノードライブラリ',
+        properties: 'プロパティパネル',
+        referenceFlow: '引用流',
+        runtimeCredentialVariables: 'ランタイム認証情報変数',
+        runtimeVariables: 'ランタイム変数',
+        singleNodeTest: '単ノード測試実行',
+        variableConfig: '変数設定'
       },
       tabs: {
-        runtime: 'Runtime',
-        validation: 'Validation',
-        variables: 'Variables'
+        runtime: '実行時',
+        validation: '検証',
+        variables: '変数'
       },
       test: {
-        cause: 'Cause',
-        code: 'Code',
-        emptyHint: 'Select a node to run a simulation or real test.',
-        error: 'Error',
-        executionPlan: 'Execution plan',
-        exitCode: 'Exit code',
-        failureDetails: 'Failure details',
-        hint: 'Test hint',
-        logs: 'Logs',
-        nodeOutput: 'Node output',
-        running: 'Running',
-        stage: 'Stage',
-        stderr: 'Standard error',
-        stdout: 'Standard output',
-        suggestion: 'Suggestion',
-        target: 'Target',
+        cause: '原因',
+        code: 'コード',
+        emptyHint: '選択ノード後可実行模拟または真実試跑。',
+        error: 'エラー',
+        executionPlan: '実行プラン',
+        exitCode: '終了コード',
+        failureDetails: '失敗詳細',
+        hint: '測試提示',
+        logs: 'ログ',
+        nodeOutput: 'ノード出力',
+        running: '実行中',
+        stage: 'ステージ',
+        stderr: '標準エラー',
+        stdout: '標準出力',
+        suggestion: '推奨',
+        target: 'ターゲット',
         errors: {
-          mockRunFailed: 'Simulation failed',
-          realRunFailed: 'Real test run failed'
+          mockRunFailed: '模拟実行に失敗しました',
+          realRunFailed: '真実試跑に失敗しました'
         },
         messages: {
-          mockCompleted: 'Simulation completed.',
-          mockFailed: 'Simulation failed.',
-          realCompleted: 'Real test run completed.',
-          realFailed: 'Real test run failed.'
+          mockCompleted: '模拟実行完了。',
+          mockFailed: '模拟実行失敗。',
+          realCompleted: '真実試跑完了。',
+          realFailed: '真実試跑失敗。'
         }
       },
       validation: {
         levels: {
-          error: 'Error',
-          risk: 'Risk',
-          warning: 'Warning'
+          error: 'エラー',
+          risk: 'リスク',
+          warning: '警告'
         },
         location: {
-          canvas: 'Canvas',
-          edge: 'Edge',
-          fieldSuffix: 'field',
-          node: 'Node'
+          canvas: 'キャンバス',
+          edge: '接続線',
+          fieldSuffix: 'フィールド',
+          node: 'ノード'
         },
-        noBlockingErrors: 'No blocking errors.'
+        noBlockingErrors: '没有ブロックエラー。'
       },
       variables: {
-        customRuntimeDescription: 'Custom runtime variable',
-        notUsed: 'Not used',
-        usedBy: 'Used by: {nodes}'
+        customRuntimeDescription: 'カスタム実行変数',
+        notUsed: '未使用',
+        usedBy: '使用場所：{nodes}'
       }
     },
     templates: {
-      title: 'Workflows',
-      resourceName: 'Workflow',
-      description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
+      title: 'ワークフロー',
+      resourceName: 'ワークフロー',
+      description: 'によりキャンバスドラフト管理 CURL/SSH/SFTP ワークフローバージョン、公開ステータスと変更記録。',
       actions: {
-        addVersion: 'Add version',
-        applyTemplate: 'Apply template',
-        cancel: 'Cancel',
-        close: 'Close',
-        createBlank: 'Create blank',
-        credentialManagement: 'Credential management',
-        delete: 'Delete',
-        detail: 'Details',
-        edit: 'Edit',
-        publishVersion: 'Publish version',
-        saveNote: 'Save note',
-        switchVersion: 'Switch version',
-        templateManagement: 'Template management',
-        versionManagement: 'Version management'
+        addVersion: '追加バージョン',
+        applyTemplate: '適用テンプレート',
+        cancel: 'キャンセル',
+        close: '閉じる',
+        createBlank: '空白新建',
+        credentialManagement: '認証情報管理',
+        delete: '削除',
+        detail: '詳細',
+        edit: '編集',
+        publishVersion: '公開バージョン',
+        saveNote: '保存メモ',
+        switchVersion: '切り替えバージョン',
+        templateManagement: 'テンプレート管理',
+        versionManagement: 'バージョン管理'
       },
       states: {
-        creating: 'Creating...',
-        loading: 'Loading...',
-        processing: 'Processing...',
-        saving: 'Saving...'
+        creating: '作成中...',
+        loading: '読み込み中...',
+        processing: '処理中...',
+        saving: '保存中...'
       },
       fields: {
-        actions: 'Actions',
-        createdAt: 'Created at',
-        currentStatus: 'Current status',
-        currentVersion: 'Current version',
-        currentVersionId: 'Current version ID',
-        id: 'Workflow ID',
-        name: 'Workflow name',
-        note: 'Note',
-        status: 'Status',
-        updatedAt: 'Updated at'
+        actions: '操作',
+        createdAt: '作成時刻',
+        currentStatus: '現在のステータス',
+        currentVersion: '現在バージョン',
+        currentVersionId: '現在バージョン ID',
+        id: 'ワークフロー ID',
+        name: 'ワークフロー名前',
+        note: 'メモ',
+        status: 'ステータス',
+        updatedAt: '更新時刻'
       },
       empty: {
-        description: 'Create a canvas draft first, then publish versions to the production flow.',
-        noChangeSummary: 'No change summary.',
-        noChangeSummaryShort: 'No change summary',
-        noVersions: 'No versions.',
-        title: 'No workflows'
+        description: '先作成キャンバスドラフト、再に基づくバージョン公開へ正式経路。',
+        noChangeSummary: '没有変更説明。',
+        noChangeSummaryShort: '没有変更説明',
+        noVersions: 'バージョン。はまだありません',
+        title: 'ワークフローはまだありません'
       },
       tabs: {
-        summary: 'Overview',
-        versions: 'Versions'
+        summary: '概要',
+        versions: 'バージョン'
       },
       versionStatuses: {
-        disabled: 'Disabled',
-        draft: 'Draft',
-        published: 'Published'
+        disabled: '無効化済み',
+        draft: 'ドラフト',
+        published: '公開済み'
       },
       detail: {
-        description: 'Workflow details, canvas drafts, and versions are kept in this modal; the main page stays compact.',
-        publishedVersion: 'Published version {version}',
-        title: 'Workflow details',
-        titleWithName: 'Workflow {name}'
+        description: '表示ワークフロー詳細、キャンバスドラフトとバージョン清単。',
+        publishedVersion: '現在公開バージョン {version}',
+        title: 'ワークフロー詳細',
+        titleWithName: 'ワークフロー {name}'
       },
       versionManager: {
-        description: 'Manage only workflow version creation and publishing here; workflow canvas content is not changed.',
-        titleWithName: 'Version management: {name}'
+        description: '管理ワークフローバージョンの新建と公開、不涉およびキャンバス内容の変更。',
+        titleWithName: 'バージョン管理：{name}'
       },
       changeSummaries: {
-        applyFromFileTemplate: 'Apply file template to workflow draft',
-        createCanvasDraft: 'Create workflow draft from frontend canvas',
-        createFromFileTemplate: 'Create workflow draft from file template',
-        createVersionDraft: 'Create new draft version from version management',
-        saveCanvasDraft: 'Save draft version from canvas editor'
+        applyFromFileTemplate: 'からファイルテンプレート上書きワークフロードラフト',
+        createCanvasDraft: 'フロントエンドキャンバス作成ワークフロードラフト',
+        createFromFileTemplate: 'からファイルテンプレート作成ワークフロードラフト',
+        createVersionDraft: 'バージョン管理作成新バージョンドラフト',
+        saveCanvasDraft: 'キャンバスエディター保存ドラフトバージョン'
       },
       messages: {
-        canvasDraftUpdated: 'Current draft version updated.',
-        switchedVersion: 'Switched to {version}.',
-        versionDraftCreated: 'New draft version created.',
-        versionNoteUpdated: 'Version note updated.'
+        canvasDraftUpdated: '現在ドラフトバージョン更新済み。',
+        switchedVersion: '{version} に切り替えました。',
+        versionDraftCreated: '新バージョンドラフト作成済み。',
+        versionNoteUpdated: 'バージョンメモ更新済み。'
       },
       errors: {
-        createVersionFailed: 'Failed to create workflow version',
-        loadVersionsFailed: 'Failed to load workflow versions',
-        missingWorkflowDsl: 'Backend did not return workflow DSL',
-        publishVersionFailed: 'Failed to publish workflow version',
-        saveCanvasDraftFailed: 'Failed to save canvas draft',
-        updateVersionNoteFailed: 'Failed to update version note'
+        createVersionFailed: 'ワークフローバージョンの作成に失敗しました',
+        loadVersionsFailed: 'ワークフローバージョンの読み込みに失敗しました',
+        missingWorkflowDsl: 'ワークフロー DSL を取得できませんでした',
+        publishVersionFailed: '公開ワークフローバージョンに失敗しました',
+        saveCanvasDraftFailed: 'キャンバスドラフトの保存に失敗しました',
+        updateVersionNoteFailed: '更新バージョンメモに失敗しました'
       },
       delete: {
-        riskText: 'Deleting disables this workflow and all versions, hiding them from the list; historical execution records will not be rewritten.'
+        riskText: '削除では無効化このワークフローおよび其全部バージョン、一覧中不再表示；履歴実行記録しません被書き換え。'
       },
       loading: {
-        versions: 'Loading versions...'
+        versions: '読み込みバージョン中...'
       },
       fileTemplates: {
-        applyAction: 'Apply template to current workflow',
-        applyTitle: 'Apply file template to workflow',
-        createAction: 'Create workflow from template',
-        createTitle: 'Create workflow from file template',
-        currentTarget: 'Current target: {name}',
-        description: 'Template files come from the built-in template library or user import directory. Applying one to an existing workflow creates a new draft version and does not rewrite history.',
-        empty: 'No recognizable workflow template files.',
-        identifier: 'Identifier {name}',
-        invalid: 'Invalid',
-        invalidFile: 'Invalid file',
-        loading: 'Scanning file templates...',
-        valid: 'Available',
+        applyAction: 'によりテンプレート上書き現在ワークフロー',
+        applyTitle: '用ファイルテンプレート上書きワークフロー',
+        createAction: 'によりテンプレート作成ワークフロー',
+        createTitle: 'からファイルテンプレート新建ワークフロー',
+        currentTarget: '現在ターゲット：{name}',
+        description: 'テンプレートファイル由来組み込みテンプレート庫またはユーザーインポートディレクトリ。上書き既存ワークフロー時、は作成新のドラフトバージョン、しません書き換え履歴バージョン。',
+        empty: '可識別のワークフローテンプレートファイル。はまだありません',
+        identifier: '標識 {name}',
+        invalid: '無効',
+        invalidFile: 'ファイル無効',
+        loading: 'スキャンファイルテンプレート中...',
+        valid: '利用可能',
         sources: {
-          builtin: 'Built-in',
-          userImported: 'User imported'
+          builtin: '組み込み',
+          userImported: 'ユーザーインポート'
         },
         errors: {
-          actionFailed: 'Failed to run file template action',
-          loadFailed: 'Failed to load workflow file templates',
-          missingApplyTarget: 'Missing workflow target to apply'
+          actionFailed: '実行ファイルテンプレート动作に失敗しました',
+          loadFailed: 'ワークフローファイルテンプレートの読み込みに失敗しました',
+          missingApplyTarget: '待上書きのワークフローターゲットが不足しています'
         }
       },
       credentials: {
         actions: {
-          create: 'Create credential'
+          create: '作成認証情報'
         },
-        addTitle: 'Add credential',
-        count: '{count} item(s)',
-        description: 'Create reusable login and API credentials for workflows in one place. The frontend only selects and reuses them, without requiring manual internal reference strings.',
-        empty: 'No backend credential records. After creation, they can be selected directly in variables, SSH nodes, and HTTP nodes.',
-        loading: 'Loading credential metadata from backend...',
-        registeredTitle: 'Registered credentials',
-        title: 'Credential management',
+        addTitle: '追加認証情報',
+        count: '{count} 個',
+        description: '集中管理ワークフロー所必要のログイン認証情報と API 認証情報、サポートでキャンバスとノード中直接選択复用。',
+        empty: '認証情報記録。作成後可直接で変数、SSH ノードと HTTP ノード里選択。はまだありません',
+        loading: '認証情報を読み込み中…',
+        registeredTitle: '登録済み認証情報',
+        title: '認証情報管理',
         fields: {
-          deliveryLocation: 'Delivery location',
-          headerOrParam: 'Header / parameter name',
-          name: 'Credential name',
-          referenceLocation: 'Reference location',
-          storageType: 'Storage type',
-          type: 'Credential type',
-          username: 'Username'
+          deliveryLocation: '受け渡し場所',
+          headerOrParam: 'Header / パラメータ名',
+          name: '認証情報名前',
+          referenceLocation: '引用場所',
+          storageType: 'ストレージタイプ',
+          type: '認証情報タイプ',
+          username: 'ユーザー名'
         },
         kinds: {
           common: {
-            family: 'General'
+            family: '汎用'
           },
           sshKey: {
-            title: 'SSH private key'
+            title: 'SSH 秘密鍵'
           },
           usernamePassword: {
-            title: 'Username + password'
+            title: 'ユーザー名 + パスワード'
           }
         },
         secretLabels: {
-          password: 'Password',
-          sshKey: 'SSH private key'
+          password: 'パスワード',
+          sshKey: 'SSH 秘密鍵'
         },
         placeholders: {
-          apiKey: 'Enter API Key',
-          bearer: 'Enter Bearer Token',
-          password: 'Enter login password',
-          sshKey: 'Paste PEM private key'
+          apiKey: '入力 API Key',
+          bearer: '入力 Bearer Token',
+          password: '入力ログインパスワード',
+          sshKey: '貼り付け PEM 形式秘密鍵'
         },
         messages: {
-          created: 'Credential created. It can now be selected in workflow variables, SSH nodes, and HTTP nodes.'
+          created: '認証情報作成済み、可直接でワークフロー変数、SSH ノードと HTTP ノード中選択。'
         },
         errors: {
-          createFailed: 'Failed to create credential',
-          loadFailed: 'Failed to load backend credentials',
-          missingCreatedId: 'Credential creation did not return a valid ID'
+          createFailed: '認証情報の作成に失敗しました',
+          loadFailed: '認証情報の読み込みに失敗しました',
+          missingCreatedId: '作成認証情報未戻る有効な番号'
         }
       }
     }
   },
   monitoring: {
     actions: {
-      add: 'Add monitor',
-      probe: 'Probe sites',
-      probing: 'Probing...',
-      refresh: 'Refresh data',
-      refreshing: 'Refreshing...',
-      remove: 'Remove'
+      add: '追加監視',
+      probe: '検査サイト',
+      probing: '検査中...',
+      refresh: '更新データ',
+      refreshing: '更新中...',
+      remove: '削除'
     },
     errors: {
-      addFailed: 'Failed to add monitor target',
-      deleteFailed: 'Failed to delete monitor target',
-      invalidTarget: 'The backend returned an invalid monitor target',
-      loadFailed: 'Failed to load monitoring data',
-      probeFailed: 'Probe request failed',
-      updateIntervalFailed: 'Failed to update probe interval'
+      addFailed: '監視ターゲット追加に失敗しました',
+      deleteFailed: '監視ターゲットの削除に失敗しました',
+      invalidTarget: '監視ターゲットデータ無効',
+      loadFailed: '監視データの読み込みに失敗しました',
+      probeFailed: 'プローブリクエストに失敗しました',
+      updateIntervalFailed: 'プローブ頻度の更新に失敗しました'
     },
     empty: {
-      actualCertificate: 'No observed TLS certificate yet. HTTPS targets collect certificate information automatically during site probes.',
-      description: 'Add a monitor from the top right. The system will probe the site on schedule and collect certificate information.',
-      noAddableAssets: 'No application assets can be added. Adjust existing target probe intervals in the detail view.',
-      observedCertificateHistory: 'No bound certificate versions yet. The first certificate collected by a site probe will be retained automatically.',
-      probeHistory: 'No probe history.',
-      riskEvents: 'No related events.',
-      title: 'No monitor targets'
+      actualCertificate: '実測 TLS 証明書。HTTPS ターゲットはでサイト検査時自動収集証明書情報。はまだありません',
+      description: 'クリック右上追加監視、システムはによりターゲット頻度検査サイトかつ同時に収集証明書情報。',
+      noAddableAssets: '可追加アプリケーションアセット、有ターゲットで詳細中調整プローブ頻度済み。はまだありません',
+      observedCertificateHistory: 'バインド証明書バージョン。サイト検査収集へ第一张証明書後は自動保留。はまだありません',
+      probeHistory: 'プローブ履歴。はまだありません',
+      riskEvents: '相関イベント。はまだありません',
+      title: '監視ターゲットはまだありません'
     },
     sections: {
-      actualCertificate: 'Current observed site certificate',
-      actualCertificateHint: 'Collected automatically during site probes',
-      observedCertificateHistory: 'Bound certificate versions',
-      observedCertificateHistoryHint: 'Keeps version records as observed TLS certificates change',
-      probeHistory: 'Probe history',
-      probeHistoryHint: 'Latest 20 backend probe results',
-      riskEvents: 'Risk events',
-      riskEventsHint: 'Certificate chain, domain, fingerprint, and execution status',
-      targets: 'Monitor targets'
+      actualCertificate: '現在サイト実測証明書',
+      actualCertificateHint: '随サイト検査自動収集',
+      observedCertificateHistory: 'バインド証明書バージョン',
+      observedCertificateHistoryHint: 'により実測 TLS 証明書変化保留バージョン記録',
+      probeHistory: 'プローブ履歴',
+      probeHistoryHint: 'システムプローブ結果直近 20 回記録',
+      riskEvents: 'リスクイベント',
+      riskEventsHint: '証明書チェーン、ドメイン名、フィンガープリントと実行ステータス',
+      targets: '監視ターゲット'
     },
     labels: {
-      applicationAsset: 'Application asset',
-      currentTarget: 'Current target',
-      probeInterval: 'Probe interval'
+      applicationAsset: 'アプリケーションアセット',
+      currentTarget: '現在ターゲット',
+      probeInterval: 'プローブ頻度'
     },
     metrics: {
-      availability: 'Availability',
-      certificateStatus: 'Certificate status',
-      latency: 'Latency',
-      observedCertificateChanges: 'Observed certificate changes'
+      availability: 'へ達性',
+      certificateStatus: '証明書ステータス',
+      latency: 'アクセス遅延',
+      observedCertificateChanges: '実測証明書変更'
     },
     probe: {
-      completed: 'Probe completed',
-      emptyHistoryBlock: 'Probe {index}: no probe yet',
-      latencyNotCollected: 'Latency not collected',
-      recentAria: 'Latest 10 probe results',
-      waiting: 'Waiting for site probe'
+      completed: 'プローブ完了',
+      emptyHistoryBlock: '第 {index} 回：プローブはまだありません',
+      latencyNotCollected: '未収集遅延',
+      recentAria: '直近 10 回プローブ結果',
+      waiting: 'サイト検査待ち'
     },
     status: {
-      error: 'Error',
-      none: 'Pending',
-      ready: 'Healthy',
-      warning: 'Warning'
+      error: 'エラー',
+      none: '実行待ち',
+      ready: '正常',
+      warning: '警告'
     },
     fallback: {
-      noEndpoint: 'No endpoint configured',
-      noFingerprint: 'No fingerprint',
-      noSummary: 'No summary',
-      notCollected: 'Not collected',
-      notSelected: 'Not selected',
-      unknownAsset: 'Unknown asset',
-      unknownCertificate: 'Unknown certificate',
-      unknownIssuer: 'Unknown issuer',
-      unnamedEvent: 'Unnamed event'
+      noEndpoint: 'アクセスアドレスが未設定です',
+      noFingerprint: '無フィンガープリント',
+      noSummary: '無サマリー',
+      notCollected: '未収集',
+      notSelected: '未選択',
+      unknownAsset: '不明なアセット',
+      unknownCertificate: '不明な証明書',
+      unknownIssuer: '不明な発行者',
+      unnamedEvent: '無名のイベント'
     },
     certificate: {
-      actualCertificate: 'Observed certificate',
-      chainUntrusted: 'Not trusted by the system trust chain',
-      chainVerification: 'Chain verification',
-      chainVerified: 'Chain verified',
-      chainVerifyFailedWithReason: 'Chain verification failed: {reason}',
-      collectedAt: 'Collected at',
-      issuer: 'Issuer',
-      serialNumber: 'Serial number',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      subject: 'Subject',
-      validity: 'Validity',
-      validityRange: '{start} to {end}'
+      actualCertificate: '実測証明書',
+      chainUntrusted: '未合格システム信頼チェーン検証',
+      chainVerification: 'チェーン検証',
+      chainVerified: 'チェーン検証に合格',
+      chainVerifyFailedWithReason: 'チェーン検証に失敗しました：{reason}',
+      collectedAt: '収集時刻',
+      issuer: '発行者',
+      serialNumber: 'シリアル番号',
+      sha256Fingerprint: 'SHA-256 フィンガープリント',
+      subject: 'サブジェクト',
+      validity: '有効期間',
+      validityRange: '{start} 至 {end}'
     },
     columns: {
-      certificateName: 'Certificate name',
-      changedAt: 'Changed at',
-      expiresAt: 'Expires at',
-      issuerName: 'Issuer name',
-      latency: 'Latency',
-      result: 'Result',
-      source: 'Source',
-      status: 'Status',
-      time: 'Time'
+      certificateName: '証明書名',
+      changedAt: '更换時刻',
+      expiresAt: '期限切れ日時',
+      issuerName: '発行者名',
+      latency: '遅延',
+      result: '結果',
+      source: 'ソース',
+      status: 'ステータス',
+      time: '時刻'
     },
     dialog: {
-      defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
-      description: 'Select a target from application assets. The system will collect availability, latency, certificate information, and certificate history.',
-      loadingAssets: 'Loading assets...',
-      selectAsset: 'Select application asset',
-      title: 'Add monitor'
+      defaultMetricsHint: 'デフォルト監視へ達性、アクセス遅延、証明書情報と証明書履歴。',
+      description: 'アプリケーションアセット一覧選択1 個ターゲット、システムは固定収集から達性、アクセス遅延、証明書情報と証明書履歴。まで',
+      loadingAssets: 'アセットを読み込み中...',
+      selectAsset: 'アプリケーションアセットを選択してください',
+      title: '追加監視'
     },
     source: {
-      controlPlane: 'Control plane'
+      controlPlane: 'プラットフォーム'
     },
     targets: {
-      assetCount: '{count} assets'
+      assetCount: '{count} 個のアセット'
     }
   },
   login: {
-    visualLabel: '产品说明',
-    brand: 'GCAC 证书控制台',
-    brandSecondary: '证书集中管理平台',
-    headlinePrefix: '让证书管理',
-    headlineHighlight: '更智能',
-    headlineSuffix: '、更安全',
-    intro: '一站式管理证书资产，自动化部署编排，全链路审计追踪，将证书运维从繁琐的人工操作转变为可验证、可回溯的标准化流程，为企业数字基础设施保驾护航。',
-    capabilitiesLabel: '平台能力',
-    featureLifecycle: '全生命周期管理',
-    featureLifecycleDesc: '从导入、续签、版本追踪到到期预警，覆盖证书资产的每一个环节。',
-    featureAutomation: '自动化部署编排',
-    featureAutomationDesc: '面向 Nginx、Tomcat、IIS 等主流环境，一键生成可审计的部署计划。',
-    featureRollback: '安全执行与回滚',
-    featureRollbackDesc: '部署前自动校验，执行全程留痕，失败即回滚，确保生产环境稳定无忧。',
-    formLabel: '登录表单',
-    secure: '安全连接',
-    welcome: '登录控制台',
-    hint: '使用企业账号进入 GCAC 管理工作台',
-    username: '用户名',
-    usernamePlaceholder: '请输入用户名',
-    password: '密码',
-    passwordPlaceholder: '请输入密码',
-    failed: '登录失败，请稍后重试',
-    submitting: '正在验证身份…',
-    submit: '登 录',
-    policy: 'RBAC 权限保护',
-    audit: '操作全程审计'
+    visualLabel: '製品説明',
+    brand: 'GCAC 証明書コンソール',
+    brandSecondary: '証明書集中管理プラットフォーム',
+    headlinePrefix: '証明書管理を',
+    headlineHighlight: 'よりスマートに',
+    headlineSuffix: '、より安全に',
+    intro: '証明書アセットの一元管理、自動デプロイのオーケストレーション、全経路の監査追跡により、煩雑な手作業による証明書運用を、検証可能で追跡可能な標準化プロセスへ転換し、企業のデジタル基盤を支えます。',
+    capabilitiesLabel: 'プラットフォーム機能',
+    featureLifecycle: 'ライフサイクル全体の管理',
+    featureLifecycleDesc: 'からインポート、継署、バージョン追踪期限切れ限切れアラート、上書き証明書アセットの每1 個环節。',
+    featureAutomation: '自動デプロイオーケストレーション',
+    featureAutomationDesc: '面向 Nginx、Tomcat、IIS 等主要環境、一键生成可監査のデプロイプラン。',
+    featureRollback: '安全な実行とロールバック',
+    featureRollbackDesc: 'デプロイ前自動検証、実行全過程留痕、失敗即ロールバック、確認本番環境安定無忧。',
+    formLabel: 'ログインフォーム',
+    secure: '安全な接続',
+    welcome: 'コンソールへログイン',
+    hint: '企業アカウントで GCAC 管理ワークスペースに入ります',
+    username: 'ユーザー名',
+    usernamePlaceholder: 'ユーザー名を入力してください',
+    password: 'パスワード',
+    passwordPlaceholder: 'パスワードを入力してください',
+    failed: 'ログインに失敗しました。しばらくしてから再試行してください',
+    submitting: '本人確認中…',
+    submit: 'ログイン',
+    policy: 'RBAC 権限保護',
+    audit: '操作の全過程を監査'
   },
-  reports: {
-    common: {
-      loadFailed: '报表加载失败，请稍后重试',
-      dataAsOf: '数据截止时间：{time}',
-      rangeDays: '最近 {days} 天',
-      samples: '样本数：{count}',
-      secondsValue: '{value} 秒',
-      emptyValue: '—',
-      trend: '历史趋势',
-      date: '日期',
-      snapshotMetrics: '快照指标数',
-      completeness: '完整性',
-      complete: '完整',
-      incomplete: '不完整',
-      noTrend: '当前时间范围暂无历史快照',
-      groupBreakdown: '分组对比',
-      dimension: '维度',
-      groupValue: '分组值',
-      count: '数量',
-      noGroups: '暂无分组数据',
-      drilldown: '对象下钻',
-      selectedMetric: '当前指标：{metric}',
-      noItems: '暂无符合条件的对象'
-    },
-    incidentWindow: {
-      title: '证书事故窗口报表',
-      description: '识别正在进入事故窗口的证书，并定位缺少替换证书、计划或执行通道的对象。'
-    },
-    riskResponse: {
-      title: '风险处置报表',
-      description: '查看风险确认与解决是否及时，定位未完成样本、重新打开和 SLA 逾期。'
-    },
-    automationEffectiveness: {
-      title: '自动化成效报表',
-      description: '分别查看运行级和目标级成功率，并定位重试、回滚、人工介入和失败阶段。'
-    },
-    export: {
-      csv: '导出 CSV',
-      generating: '正在生成…',
-      failed: 'CSV 生成失败',
-      history: '导出记录',
-      download: '下载',
-      noHistory: '暂无导出记录',
-      status: {
-        queued: '排队中',
-        running: '生成中',
-        succeeded: '已完成',
-        failed: '失败',
-        expired: '已过期'
-      }
-    },
-    aria: {
-      reportPage: '运营报表页面',
-      rangeFilter: '报表时间范围',
-      metrics: '报表核心指标',
-      filters: '报表筛选条件'
-    },
-    filters: {
-      environment: '环境',
-      ownerId: '负责人 ID',
-      assetId: '对象 ID',
-      tag: '标签',
-      severity: '风险等级',
-      riskType: '风险类型',
-      automationId: '自动化 ID',
-      failureStage: '失败阶段',
-      all: '全部',
-      apply: '应用筛选',
-      reset: '重置筛选'
-    },
-    groups: {
-      dimensions: {
-        usage_status: '使用状态',
-        readiness_stage: '准备阶段',
-        environment: '环境',
-        owner_id: '负责人',
-        severity: '风险等级',
-        risk_type: '风险类型',
-        action_type: '动作类型',
-        failure_stage: '失败阶段'
-      },
-      values: {
-        in_use: '在用',
-        idle: '闲置',
-        unknown: '未知',
-        missing_replacement: '缺少替换证书',
-        plan_missing: '尚未创建计划',
-        waiting_approval: '等待审批',
-        blocked: '执行通道阻塞',
-        ready: '已准备',
-        critical: '严重',
-        high: '高',
-        medium: '中',
-        low: '低',
-        create_deployment_plan: '创建部署计划',
-        execute_deployment_plan: '执行部署计划',
-        send_notification: '发送通知',
-        selection: '目标选择',
-        plan_creation: '计划创建',
-        dry_run: '预检',
-        approval: '审批',
-        execution: '执行',
-        verification: '验证',
-        rollback: '回滚',
-        notification: '通知',
-        none: '无失败阶段'
-      }
-    },
-    columns: {
-      certificateAssetId: '证书资产 ID',
-      certificateVersionId: '证书版本 ID',
-      name: '名称',
-      primaryDomain: '主域名',
-      notAfter: '到期时间',
-      usageStatus: '使用状态',
-      readinessStage: '准备阶段',
-      environment: '环境',
-      ownerId: '负责人',
-      tags: '标签',
-      publicExposure: '公网暴露',
-      bindingIds: '绑定 ID',
-      risk: '风险',
-      history: '状态历史',
-      slaPolicy: 'SLA 策略',
-      timing: '处置时长',
-      id: 'ID',
-      automationId: '自动化 ID',
-      automationVersion: '自动化版本',
-      automationNameSnapshot: '自动化名称',
-      triggerType: '触发类型',
-      status: '状态',
-      failureStage: '失败阶段',
-      startedAt: '开始时间',
-      finishedAt: '完成时间',
-      createdAt: '创建时间',
-      runId: '运行 ID',
-      targetSnapshot: '目标快照',
-      actionType: '动作类型',
-      deploymentPlanId: '部署计划 ID',
-      executionRunId: '执行记录 ID',
-      notificationRequestIds: '通知请求 ID',
-      attemptCount: '尝试次数',
-      rollbackStatus: '回滚状态',
-      manualIntervention: '人工介入',
-      unknown: '{name}'
-    },
-    metrics: {
-      certificates: {
-        expiring: {
-          '30d': '16–30 天到期',
-          '15d': '8–15 天到期',
-          '7d': '4–7 天到期',
-          '3d': '2–3 天到期',
-          '1d': '0–1 天到期'
-        },
-        expired: {
-          in_use: '已过期且在用'
-        },
-        missing_replacement: '缺少替换证书',
-        missing_deployment_plan: '尚未创建计划',
-        waiting_approval: '等待审批',
-        execution_channel_blocked: '执行通道阻塞'
-      },
-      risks: {
-        created: '新增风险',
-        resolved: '已解决风险',
-        reopened: '重新打开',
-        open_end_of_period: '期末未解决',
-        overdue_acknowledgement: '确认 SLA 逾期',
-        overdue_resolution: '解决 SLA 逾期',
-        tta: {
-          average_seconds: '平均确认时长'
-        },
-        ttr: {
-          average_seconds: '平均解决时长'
-        },
-        ack_sla_rate: '确认 SLA 达标率',
-        resolve_sla_rate: '解决 SLA 达标率'
-      },
-      automations: {
-        runs: {
-          total: '自动化运行数',
-          success_rate: '运行级成功率'
-        },
-        targets: {
-          total: '自动化目标数',
-          success_rate: '目标级成功率',
-          failed: '失败目标',
-          retried: '重试目标',
-          rollback_succeeded: '回滚成功',
-          rollback_failed: '回滚失败',
-          manual_intervention: '需要人工介入',
-          waiting_approval: '等待审批目标'
-        }
-      }
-    }
+  compatibility: {
+    title: '互換性カタログ', description: '対応範囲、制限、証拠は Compatibility Profile から取得します。', generatedAt: '生成日時: {time}', loading: '互換性カタログを読み込み中…', loadFailed: '互換性カタログの読み込みに失敗しました', none: 'なし',
+    columns: { profile: 'Profile', version: 'バージョン', status: '状態', automation: '自動化', evidence: '証拠', verifiedAt: '最終確認', limitations: '制限' },
+    status: { certified: '認証済み', supported: 'サポート', compatible: '互換', experimental: '実験的', legacy: 'レガシー', unsupported: '非対応' },
+    evidence: { current: '有効', expired: '期限切れ', failed: '失敗' }
   },
   errors: {
     forbiddenTitle: '403 権限がありません',
-    forbiddenMessage: 'You do not have permission to access this page.',
-    missingPermission: 'Missing permission: {permission}',
-    notFoundTitle: '404 ページがありません',
-    notFoundMessage: 'This route is not registered.',
+    forbiddenMessage: 'このページにアクセスするために必要な権限がありません。',
+    missingPermission: '不足している権限：{permission}',
+    notFoundTitle: '404 ページが存在しません',
+    notFoundMessage: 'このページは存在しません。アクセス先が正しいか確認してください。',
     backDashboard: 'ダッシュボードへ戻る'
   }
 } as const

@@ -6,8 +6,7 @@ export type JobType =
   | 'DEPLOYMENT_EXECUTE'
   | 'AGENT_COMMAND_DISPATCH'
   | 'MONITOR_CHECK'
-  | 'WORKFLOW_RUN'
-  | 'REPORT_EXPORT';
+  | 'WORKFLOW_RUN';
 
 export interface RetryPolicy {
   maxAttempts: number;

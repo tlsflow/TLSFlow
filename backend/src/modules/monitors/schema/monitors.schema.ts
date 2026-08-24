@@ -51,23 +51,6 @@ export interface RiskEvent {
   occurrenceCount: number;
 }
 
-export const riskStatusActions = ['created', 'acknowledged', 'suppressed', 'ignored', 'resolved', 'reopened'] as const;
-export type RiskStatusAction = (typeof riskStatusActions)[number];
-
-export interface RiskStatusHistory {
-  id: string;
-  tenantId: string;
-  riskEventId: string;
-  action: RiskStatusAction;
-  fromStatus?: RiskStatus;
-  toStatus: RiskStatus;
-  reason?: string;
-  actorType: 'user' | 'system';
-  actorId?: string;
-  occurredAt: string;
-  metadata: Record<string, unknown>;
-}
-
 export interface AlertRuleThreshold {
   metric: 'count';
   operator: 'gte';

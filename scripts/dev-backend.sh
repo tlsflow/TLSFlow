@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR/backend"
 
-if [ ! -x node_modules/.bin/tsx ] && [ ! -f node_modules/.bin/tsx.cmd ]; then
-  echo "[backend] 依赖未安装完整，执行 npm install"
+if [ ! -d node_modules ]; then
+  echo "[backend] node_modules 不存在，执行 npm install"
   npm install
 fi
 

@@ -26,48 +26,24 @@ describe('权限 Store', () => {
       '/deployment-plans',
       '/workflow-templates',
       '/monitors',
-      '/reports/incident-window',
       '/settings'
     ])
-    const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
-    expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
-  })
-
-  it('通知读取权限会显示设置下的通知中心标签', () => {
-    const store = usePermissionStore()
-    store.setPermissions(['notification.channel.read'])
-    expect(store.visibleMenuItems).toHaveLength(1)
-    expect(store.visibleMenuItems[0]?.path).toBe('/settings/notifications')
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/settings/notifications'])
   })
 
   it('证书部署和工作流作为顶层菜单按权限展示', () => {
     const store = usePermissionStore()
 
     store.setPermissions(['execution.read'])
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.deployments'])
+    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['证书部署'])
     expect(store.visibleMenuItems[0]?.path).toBe('/executions')
     expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/executions'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['执行记录'])
 
     store.setPermissions(['plugin.read'])
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.workflows'])
+    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['工作流'])
     expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
     expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflow-templates', '/plugins'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.plugins'])
-  })
-
-  it('报表菜单只对 report.read 权限开放', () => {
-    const store = usePermissionStore()
-
-    store.setPermissions(['report.read'])
-
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.reports'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual([
-      '/reports/incident-window',
-      '/reports/risk-response',
-      '/reports/automation-effectiveness'
-    ])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['插件'])
   })
 
   it('通过 Provider 加载权限', async () => {

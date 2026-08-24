@@ -34,6 +34,15 @@ export const AUDIT_EVENT_TYPES = {
   PLUGIN_INSTALLED: 'plugin.installed',
   PLUGIN_PERMISSION_DENIED: 'plugin.permission_denied',
   WORKFLOW_TEMPLATE_EXECUTED: 'workflow_template.executed',
+  AUTOMATION_CREATED: 'automation.created',
+  AUTOMATION_UPDATED: 'automation.updated',
+  AUTOMATION_COPIED: 'automation.copied',
+  AUTOMATION_ENABLED: 'automation.enabled',
+  AUTOMATION_DISABLED: 'automation.disabled',
+  AUTOMATION_DELETED: 'automation.deleted',
+  AUTOMATION_EXECUTED: 'automation.executed',
+  AUTOMATION_STOPPED: 'automation.stopped',
+  AUTOMATION_RETRIED: 'automation.retried',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];

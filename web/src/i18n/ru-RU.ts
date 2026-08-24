@@ -3,29 +3,29 @@
 export default {
   app: {
     brand: 'Консоль GCAC',
-    platform: 'Платформа управления жизненным циклом SSL-сертификатов',
+    platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',
     defaultBreadcrumb: 'Консоль',
-    dashboard: 'Панель'
+    dashboard: 'Панель мониторинга'
   },
   common: {
     refresh: 'Обновить',
     logout: 'Выйти',
-    enter: 'Открыть',
-    loading: 'Loading',
-    userFallback: 'Guest user',
-    tenantFallback: 'Default tenant'
+    enter: 'Войти',
+    loading: 'Загрузка',
+    userFallback: 'Пользователь не вошел',
+    tenantFallback: 'Тенант по умолчанию'
   },
   api: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'Запрос не выполнен'
     }
   },
   auth: {
     errors: {
-      missingSession: 'The login API did not return a session'
+      missingSession: 'Ошибка входа: действительный сеанс не получен'
     },
     mock: {
-      displayName: 'Frontend skeleton user'
+      displayName: 'Системный пользователь (Mock)'
     }
   },
   designSystem: {
@@ -33,7 +33,7 @@ export default {
       title: 'Подтвердить {action}',
       impactCount: 'Затронуто ресурсов: {count}',
       defaultRisk: 'Эта операция может запустить развертывание, повтор, откат или необратимые изменения.',
-      typeToConfirm: 'Введите {text} для подтверждения',
+      typeToConfirm: 'Введите {text} для повторного подтверждения',
       cancel: 'Отмена',
       confirm: 'Подтвердить'
     },
@@ -42,1220 +42,1186 @@ export default {
       loading: 'Загрузка...'
     },
     dryRunChecklist: {
-      title: 'Результаты dry-run проверки',
-      ariaLabel: 'результаты dry-run проверки',
-      empty: 'Результаты dry-run проверки еще не сформированы.',
-      unnamedCheck: 'Проверка без имени'
+      title: 'Итоги предварительной проверки Dry-run',
+      ariaLabel: 'итоги предварительной проверки dry-run',
+      empty: 'Результаты предварительной проверки dry-run еще не сформированы.',
+      unnamedCheck: 'Безымянная проверка'
     },
     dryRunResult: {
-      title: 'Результат выполнения dry-run',
+      title: 'Результат выполнения Dry-run',
       close: 'Закрыть'
     },
     modal: {
-      closeAria: 'Закрыть модальное окно'
+      closeAria: 'Закрыть диалоговое окно'
     },
     secretInput: {
       label: 'Ссылка Secret',
-      placeholder: 'Выберите или введите SecretRef. Открытый текст не сохраняется',
-      hint: 'Чувствительные поля хранят только ссылки и не сохраняются в браузере как открытый текст.'
+      placeholder: 'Выберите или введите ссылку на секрет (SecretRef), значение не будет храниться в открытом виде',
+      hint: 'Для чувствительных полей хранится только ссылка на секрет; открытое значение не показывается в интерфейсе.'
     },
     riskBadge: {
       levelPrefix: 'Уровень: '
     },
     status: {
-      DRAFT: 'Draft',
-      PUBLISHED: 'Published',
-      PENDING_APPROVAL: 'Pending approval',
-      READY: 'Ready',
-      RUNNING: 'Running',
-      SUCCESS: 'Success',
-      PARTIAL_SUCCESS: 'Partial success',
-      FAILED: 'Failed',
-      CANCELLED: 'Cancelled',
-      ROLLED_BACK: 'Rolled back',
-      DISCOVERED: 'Discovered',
-      MANAGED: 'Managed',
-      DRIFTED: 'Drifted',
-      EXPIRED: 'Expired',
-      ERROR: 'Error',
-      IGNORED: 'Ignored',
-      ONLINE: 'Online',
-      OFFLINE: 'Offline',
-      DISABLED: 'Disabled',
-      UPGRADING: 'Upgrading',
-      UPDATE_REQUIRED: 'Update required',
-      UP_TO_DATE: 'Up to date',
-      UNKNOWN: 'Unknown'
+      DRAFT: 'Черновик',
+      PUBLISHED: 'Опубликовано',
+      PENDING_APPROVAL: 'Ожидает согласования',
+      READY: 'Готово к выполнению',
+      RUNNING: 'Выполняется',
+      SUCCESS: 'Успешно',
+      PARTIAL_SUCCESS: 'Частично успешно',
+      FAILED: 'Ошибка',
+      CANCELLED: 'Отменено',
+      ROLLED_BACK: 'Откат выполнен',
+      DISCOVERED: 'Обнаружено',
+      MANAGED: 'Под управлением',
+      DRIFTED: 'Есть дрейф',
+      EXPIRED: 'Истекло',
+      ERROR: 'Ошибка',
+      IGNORED: 'Игнорируется',
+      ONLINE: 'В сети',
+      OFFLINE: 'Не в сети',
+      DISABLED: 'Отключено',
+      UPGRADING: 'Обновляется',
+      UPDATE_REQUIRED: 'Требует обновления',
+      UP_TO_DATE: 'Актуально',
+      UNKNOWN: 'Неизвестно'
     },
     risk: {
       LOW: {
-        label: 'Low',
-        description: 'Needs attention, but does not directly block the operation.'
+        label: 'Низкий',
+        description: 'Требует внимания, но не блокирует операцию напрямую.'
       },
       MEDIUM: {
-        label: 'Medium',
-        description: 'May affect deployment or monitoring results and needs confirmation.'
+        label: 'Средний',
+        description: 'Может повлиять на развертывание или мониторинг, требуется подтверждение.'
       },
       HIGH: {
-        label: 'High',
-        description: 'May cause service interruption or security exposure.'
+        label: 'Высокий',
+        description: 'Может привести к прерыванию сервиса или раскрытию безопасности.'
       },
       CRITICAL: {
-        label: 'Critical',
-        description: 'Must be handled first. Risky operations require secondary confirmation.'
+        label: 'Критический',
+        description: 'Нужно обработать в первую очередь; опасные операции требуют повторного подтверждения.'
       }
     },
     capability: {
-      available: 'Доступно',
+      available: 'Есть',
       missing: 'Отсутствует',
       title: 'Совместимость возможностей',
-      description: 'Показаны только результаты, подтвержденные backend API capability; неизвестные элементы не считаются успешными.',
+      description: 'Показываются только подтвержденные результаты совместимости; неподтвержденные пункты не считаются поддерживаемыми.',
       matrixLabel: 'Матрица совместимости возможностей',
       satisfied: 'Выполнено',
       unknown: 'Неизвестно',
-      manualRisk: 'Ручная проверка',
-      empty: 'Нет данных capability. Фронтенд сохраняет упрощенное отображение.'
+      manualRisk: 'Ручное подтверждение',
+      empty: 'Нет данных о совместимости возможностей.'
     },
     executionLogViewer: {
       mode: {
-        realtime: 'Live updates',
-        autoRefresh: 'Auto refresh'
+        realtime: 'Обновление в реальном времени',
+        autoRefresh: 'Автообновление'
       },
       search: {
-        placeholder: 'Search log content'
+        placeholder: 'Поиск по журналу'
       },
       level: {
-        aria: 'Log level',
-        all: 'All'
+        aria: 'Уровень журнала',
+        all: 'Все'
       },
       hint: {
-        streaming: 'Task status and logs will update live.',
-        autoRefresh: 'Task status and logs will refresh automatically.',
-        pollingFallback: 'Currently using polling fallback.'
+        streaming: 'Статус задачи и журналы будут обновляться в реальном времени.',
+        autoRefresh: 'Статус задачи и журналы будут обновляться автоматически.',
+        pollingFallback: 'Сейчас используется периодическое обновление.'
       },
       steps: {
-        aria: 'Execution steps',
-        emptyDetail: 'No step description yet'
+        aria: 'Шаги выполнения',
+        emptyDetail: 'Описание шага пока отсутствует'
       },
       empty: {
-        logs: 'No logs yet.'
+        logs: 'Журналов пока нет.'
       }
     },
     executionProgress: {
       aria: {
-        progressOverview: 'Execution progress overview',
-        taskList: 'Task list',
-        latestEvents: 'Latest events',
-        executionLog: 'Execution log'
+        progressOverview: 'Сводка прогресса выполнения',
+        taskList: 'Список задач',
+        latestEvents: 'Последние события',
+        executionLog: 'Журнал выполнения'
       },
       checklist: {
-        title: 'Check results'
+        title: 'Итоги проверок'
       },
       detail: {
-        stepsCompleted: '{completed}/{total} steps completed',
-        summaryFailed: '{total} check results returned, {failed} failed',
-        summaryPassed: 'All {passed} checks passed',
-        summaryReturned: '{total} check results returned',
-        summaryWarning: '{total} check results returned, {warning} warnings',
-        waitingStart: 'Waiting for the task to start',
-        waitingSteps: 'Waiting for execution steps from the backend'
+        stepsCompleted: 'Выполнено шагов: {completed}/{total}',
+        summaryFailed: 'Получено результатов проверок: {total}, ошибок: {failed}',
+        summaryPassed: 'Все проверки пройдены: {passed}',
+        summaryReturned: 'Получено результатов проверок: {total}',
+        summaryWarning: 'Получено результатов проверок: {total}, предупреждений: {warning}',
+        waitingStart: 'Ожидание запуска задачи',
+        waitingSteps: 'Ожидание шагов выполнения...'
       },
       empty: {
-        activity: 'Execution log entries will appear after the task completes.',
-        events: 'No events have been returned yet.',
-        tasks: 'The task has not been created yet. Waiting for execution steps from the backend.'
+        activity: 'Журнал выполнения будет постепенно отображаться после завершения задачи.',
+        events: 'Событий пока нет.',
+        tasks: 'Задача еще не создана, ожидание шагов выполнения...'
       },
       event: {
-        collapse: 'Collapse events',
-        defaultLabel: 'Event',
-        defaultTitle: 'Task event',
-        expand: 'Expand events',
-        waitingDetail: 'Waiting for event data'
+        collapse: 'Свернуть события',
+        defaultLabel: 'Событие',
+        defaultTitle: 'Событие задачи',
+        expand: 'Развернуть события',
+        waitingDetail: 'Ожидание записей событий'
       },
       feed: {
-        completed: 'Execution completed',
-        failed: 'Execution failed',
-        warning: 'Completed with warnings'
+        completed: 'Выполнение завершено',
+        failed: 'Выполнение завершилось ошибкой',
+        warning: 'Завершено с предупреждениями'
       },
       loading: {
-        pollingFallback: 'Auto-refresh fallback active',
-        refreshing: 'Refreshing'
+        pollingFallback: 'Идет периодическое обновление...',
+        refreshing: 'Обновление'
       },
       log: {
-        collapse: 'Collapse full log',
-        expand: 'View full log'
+        collapse: 'Свернуть полный журнал',
+        expand: 'Показать полный журнал'
       },
       metrics: {
-        completed: 'Completed',
-        failed: 'Failed',
-        passed: 'Passed',
-        queued: 'Queued',
-        running: 'Running',
-        totalTasks: 'Total tasks',
-        unknown: 'Unknown',
-        warning: 'Warnings'
+        completed: 'Завершено',
+        failed: 'Ошибки',
+        passed: 'Пройдено',
+        queued: 'В очереди',
+        running: 'Выполняется',
+        totalTasks: 'Всего задач',
+        unknown: 'Неизвестно',
+        warning: 'Предупреждения'
       },
       process: {
-        execution: 'Execution'
+        execution: 'Выполнение'
       },
       progress: {
-        completed: 'All complete',
-        failed: 'Completed with failed items',
-        pending: 'Waiting for result writeback',
-        processFailed: '{process} failed',
-        queued: 'Waiting for scheduling',
-        running: 'Task in progress',
-        warning: 'Completed with risk warnings'
+        completed: 'Все завершено',
+        failed: 'Завершено, есть ошибки',
+        pending: 'Ожидание записи результата',
+        processFailed: '{process} завершился ошибкой',
+        queued: 'Ожидание планирования',
+        running: 'Задача выполняется',
+        warning: 'Завершено, есть предупреждения о рисках'
       },
       section: {
-        completedCount: '{completed}/{total} completed',
-        executionLog: 'Execution log',
-        latestEvents: 'Latest events',
-        taskProgress: 'Task progress'
+        completedCount: '{completed}/{total} завершено',
+        executionLog: 'Журнал выполнения',
+        latestEvents: 'Последние события',
+        taskProgress: 'Прогресс задачи'
       },
       status: {
-        completed: 'Completed',
-        failed: 'Failed',
-        queued: 'Waiting',
-        running: 'Running',
-        warning: 'Warning'
+        completed: 'Завершено',
+        failed: 'Ошибка',
+        queued: 'Ожидание',
+        running: 'Выполняется',
+        warning: 'Есть предупреждения'
       },
       step: {
-        backup: 'Pre-backup',
-        discover: 'Environment discovery',
-        installDryRun: 'Material loading',
-        installExecution: 'Certificate installation',
-        reload: 'Service reload',
-        verify: 'Result verification'
+        backup: 'Предварительное резервное копирование',
+        discover: 'Распознавание среды',
+        installDryRun: 'Подготовка материалов',
+        installExecution: 'Установка сертификата',
+        reload: 'Обновление сервиса',
+        verify: 'Проверка результата'
       },
       subtitle: {
-        completed: 'The task has completed.',
-        failed: 'The task ended with a failed result.',
-        failedChecks: '{total} checks, {failed} failed',
-        passedChecks: '{total} checks passed',
-        queued: 'The task has been created and is waiting to run.',
-        running: 'The task has started. Waiting for more results.',
-        runningChecks: '{total} checks returned',
-        warningChecks: '{total} checks, {warning} warnings'
+        completed: 'Задача завершена.',
+        failed: 'Задача завершена, но вернула ошибку.',
+        failedChecks: 'Проверок: {total}, ошибок: {failed}',
+        passedChecks: 'Проверок пройдено: {total}',
+        queued: 'Задача создана и ожидает выполнения.',
+        running: 'Задача запущена, ожидание результата.',
+        runningChecks: 'Получено проверок: {total}',
+        warningChecks: 'Проверок: {total}, предупреждений: {warning}'
       },
       time: {
-        waitingStart: 'Waiting to start'
+        waitingStart: 'Ожидание запуска'
       }
     },
     deploymentWizard: {
       actions: {
-        cancel: 'Cancel',
-        dryRun: 'Run dry-run first',
-        next: 'Next',
-        previous: 'Previous',
-        save: 'Save plan'
+        cancel: 'Отмена',
+        dryRun: 'Сначала Dry-run',
+        next: 'Далее',
+        previous: 'Назад',
+        save: 'Сохранить план'
       },
       aria: {
-        steps: 'Deployment steps',
-        wizard: 'Deployment wizard'
+        steps: 'Шаги развертывания',
+        wizard: 'Мастер развертывания'
       },
       capability: {
-        targetMissingDetail: 'No deployment target selected.',
-        targetSelectedDetail: 'Deployment target selected. Run a dry-run before submitting.',
-        targetSelection: 'Deployment target selection',
-        targetSource: 'Deployment target'
+        targetMissingDetail: 'Цель развертывания еще не выбрана.',
+        targetSelectedDetail: 'Цель развертывания выбрана; перед отправкой рекомендуется выполнить dry-run.',
+        targetSelection: 'Выбор цели развертывания',
+        targetSource: 'Цель развертывания'
       },
       checks: {
-        failed: 'Failed {count}',
-        passed: 'Passed {count}',
-        unknown: 'Unknown {count}',
-        unnamed: 'Unnamed check',
-        warning: 'Warning {count}'
+        failed: 'Ошибок {count}',
+        passed: 'Пройдено {count}',
+        unknown: 'Неизвестно {count}',
+        unnamed: 'Безымянная проверка',
+        warning: 'Предупреждений {count}'
       },
       empty: {
-        noTargets: 'No application asset targets available',
-        selectTarget: 'Select an application asset deployment target.'
+        noTargets: 'Нет доступных целей приложений',
+        selectTarget: 'Выберите цель развертывания приложения.'
       },
       fallback: {
-        generatedByApplicationEntry: 'Generated from application entry',
-        missingBinding: 'Binding information not provided',
-        unboundCertificateVariable: 'Certificate variable not bound',
-        unconfigured: 'Not configured',
-        unconfiguredRunner: 'Runner not configured',
-        unknownEnd: 'Unknown end',
-        unknownStart: 'Unknown start',
-        unnamedSite: 'Unnamed site',
-        unnamedVersion: 'Unnamed version',
-        unrecognizedManagedTarget: 'Unrecognized managed target',
-        unselected: 'Not selected',
-        unselectedVersion: 'Version not selected',
-        unselectedWorkflow: 'Workflow not selected'
+        generatedByApplicationEntry: 'Сформировано по входу приложения',
+        missingBinding: 'Сведения о привязке не предоставлены',
+        unboundCertificateVariable: 'Переменная сертификата не привязана',
+        unconfigured: 'Не настроено',
+        unconfiguredRunner: 'Место запуска не настроено',
+        unknownEnd: 'Неизвестное окончание',
+        unknownStart: 'Неизвестное начало',
+        unnamedSite: 'Безымянный сайт',
+        unnamedVersion: 'Безымянная версия',
+        unrecognizedManagedTarget: 'Нераспознанная управляемая цель',
+        unselected: 'Не выбрано',
+        unselectedVersion: 'Версия не выбрана',
+        unselectedWorkflow: 'Рабочий процесс не выбран'
       },
       fields: {
-        applicationTarget: 'Application asset deployment target',
-        artifactConfig: 'Artifact config',
-        binding: 'Binding',
-        certificateAsset: 'Certificate asset',
-        certificateVariable: 'Certificate variable',
-        certificateVersion: 'Certificate version',
-        deploymentTarget: 'Deployment target',
-        keyword: 'Keyword search',
-        managedTarget: 'Managed target',
-        runner: 'Runner',
-        site: 'Site',
-        verifyUrl: 'Verify URL',
-        version: 'Version',
-        workflow: 'Workflow'
+        applicationTarget: 'Цель развертывания приложения',
+        artifactConfig: 'Конфигурация артефакта',
+        binding: 'Привязка',
+        certificateAsset: 'Сертификатный актив',
+        certificateVariable: 'Переменная сертификата',
+        certificateVersion: 'Версия сертификата',
+        deploymentTarget: 'Цель развертывания',
+        keyword: 'Поиск по ключевым словам',
+        managedTarget: 'Управляемая цель',
+        runner: 'Место запуска',
+        site: 'Сайт',
+        verifyUrl: 'URL проверки',
+        version: 'Версия',
+        workflow: 'Рабочий процесс'
       },
       panels: {
-        certificateTitle: '1. Certificate material',
-        submitTitle: '3. Precheck and submit',
-        targetTitle: '2. Deployment target'
+        certificateTitle: '1. Материалы сертификата',
+        submitTitle: '3. Предпроверка и отправка',
+        targetTitle: '2. Цель развертывания'
       },
       panelState: {
-        needPrerequisites: 'Prerequisites required',
-        operable: 'Ready',
-        pending: 'Pending',
-        readyNext: 'Ready for next step'
+        needPrerequisites: 'Нужно завершить предварительный выбор',
+        operable: 'Доступно',
+        pending: 'Ожидает завершения',
+        readyNext: 'Можно перейти дальше'
       },
       placeholders: {
-        selectTarget: 'Select application asset target',
-        targetKeyword: 'Search by domain, site, or binding information'
+        selectTarget: 'Выберите цель приложения',
+        targetKeyword: 'Поиск по домену, сайту или сведениям о привязке'
       },
       plan: {
-        dryRunCompleted: 'The latest dry-run has completed.',
-        submitCompleted: 'The latest submit has completed.'
+        dryRunCompleted: 'Последний dry-run завершен.',
+        submitCompleted: 'Последняя отправка завершена.'
       },
       preview: {
-        needCertificate: 'Select certificate material first.',
-        needTarget: 'After selecting certificate material, choose application asset targets.',
-        ready: 'The selected certificate version will be deployed to {count} application asset targets.'
+        needCertificate: 'Сначала выберите материалы сертификата.',
+        needTarget: 'После выбора материалов сертификата укажите цели приложения для доставки.',
+        ready: 'Выбранная версия сертификата будет развернута на целях приложения: {count}.'
       },
       status: {
-        checksReturned: 'Precheck results returned. Decide whether to save, submit, or execute.',
-        current: 'Current status',
-        default: 'Run a dry-run before deciding whether to submit.',
-        dryRunStarted: 'Dry-run started. Check progress in the execution result panel.',
-        submitted: 'Plan submitted.'
+        checksReturned: 'Результаты предпроверки получены; по ним можно сохранить, отправить или выполнить план.',
+        current: 'Текущий статус',
+        default: 'Рекомендуется сначала выполнить dry-run, затем решать, отправлять ли выполнение.',
+        dryRunStarted: 'Предпроверка запущена, ход выполнения смотрите в области результата.',
+        submitted: 'План отправлен.'
       },
       steps: {
         certificate: {
-          description: 'Certificate asset and version',
-          title: 'Select certificate material'
+          description: 'Сертификатный актив и версия',
+          title: 'Выберите материалы сертификата'
         },
         submit: {
-          description: 'Dry-run, save, submit, execute',
-          title: 'Precheck and submit'
+          description: 'Dry-run, сохранение, отправка, выполнение',
+          title: 'Предпроверка и отправка'
         },
         target: {
-          description: 'Application asset, site, and binding',
-          title: 'Select deployment target'
+          description: 'Актив приложения, сайт и привязка',
+          title: 'Выберите цель развертывания'
         }
       },
       stepState: {
-        active: 'In progress',
-        done: 'Done',
-        pending: 'Pending'
+        active: 'В процессе',
+        done: 'Завершено',
+        pending: 'Ожидает начала'
       },
       target: {
-        workflowMode: 'Workflow mode'
+        workflowMode: 'Режим рабочего процесса'
       },
       version: {
-        autoLatest: 'Always select the latest deployable certificate automatically (current: {current})',
-        noDeployableVersion: 'No deployable certificate version available',
+        autoLatest: 'Автоматически выбирать последнюю доступную для развертывания версию (текущая: {current})',
+        noDeployableVersion: 'Сейчас нет версии сертификата, доступной для развертывания',
         range: '{id} ({notBefore} ~ {notAfter})'
       },
-      currentStep: 'Step {current} / {total}',
-      selectedTargetCount: '{count} targets selected',
-      subtitle: 'Configure the deployment plan step by step',
-      title: 'Deployment wizard'
+      currentStep: 'Шаг {current} / {total}',
+      selectedTargetCount: 'Выбрано целей: {count}',
+      subtitle: 'Пошаговая настройка плана развертывания',
+      title: 'Мастер развертывания'
     }
   },
   shell: {
-    currentLocation: 'Current location',
-    breadcrumb: 'Breadcrumb',
-    currentGroupNavigation: 'Current group navigation',
-    backDashboard: 'Back to dashboard'
+    currentLocation: 'Текущее местоположение',
+    breadcrumb: 'Навигационная цепочка',
+    currentGroupNavigation: 'Навигация текущей группы',
+    backDashboard: 'Вернуться на панель мониторинга'
   },
   preferences: {
     theme: 'Тема',
     language: 'Язык',
-    themeLight: 'Светлая',
-    themeDark: 'Темная',
-    themeToggle: 'Switch theme',
-    languageSelect: 'Select language',
-    title: 'Настройки отображения',
-    description: 'Theme and language are saved to your backend user preferences.',
+    themeLight: 'Светлый режим',
+    themeDark: 'Темный режим',
+    themeToggle: 'Переключить тему',
+    languageSelect: 'Выбрать язык интерфейса',
+    title: 'Параметры отображения',
+    description: 'Тема и язык сохраняются в серверных предпочтениях текущего пользователя.',
     errors: {
-      loadFailed: 'Failed to load preferences',
-      saveFailed: 'Failed to save preferences'
+      loadFailed: 'Не удалось загрузить предпочтения',
+      saveFailed: 'Не удалось сохранить предпочтения'
     }
   },
   userMenu: {
     currentUser: 'Текущий пользователь',
-    changePassword: 'Сменить пароль',
+    changePassword: 'Изменить пароль',
     logout: 'Выйти'
   },
   password: {
-    title: 'Сменить пароль',
-    description: 'Change the local password for the signed-in user.',
+    title: 'Изменить пароль',
+    description: 'Изменение локального пароля текущего вошедшего пользователя.',
     current: 'Текущий пароль',
     new: 'Новый пароль',
-    confirm: 'Подтвердите пароль',
+    confirm: 'Подтвердите новый пароль',
     cancel: 'Отмена',
-    submit: 'Сохранить',
-    submitting: 'Saving…',
-    success: 'Password updated',
-    failed: 'Password change failed',
-    mismatch: 'The new passwords do not match',
-    tooShort: 'The new password must be at least 8 characters'
+    submit: 'Сохранить пароль',
+    submitting: 'Сохранение...',
+    success: 'Пароль обновлен',
+    failed: 'Не удалось изменить пароль',
+    mismatch: 'Введенные новые пароли не совпадают',
+    tooShort: 'Новый пароль должен быть не короче 8 символов'
   },
   nav: {
-    dashboard: 'Overview',
-    dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificates',
-    certificatesDesc: 'Certificate library, bindings, and expiry status',
-    certificateAssets: 'Certificate assets',
-    certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
-    certificateFormats: 'Certificate format config',
-    certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
-    assets: 'Application assets',
-    assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
-    agents: 'Agents',
-    agentsDesc: 'Online status, heartbeat, and capability set',
-    gateways: 'Gateways',
-    gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
-    deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
-    deploymentPlans: 'Deployment plans',
-    deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
-    executions: 'Execution records',
-    executionsDesc: 'Execution steps, logs, failures, and rollback',
-    workflows: 'Workflows',
-    workflowsDesc: 'Workflows and plugins',
-    workflowTemplates: 'Workflows',
-    workflowTemplatesDesc: 'Canvas drafts, variables, capability declarations, and publishing',
-    plugins: 'Plugins',
-    pluginsDesc: 'Provider, executor, and sandbox status',
-    monitoring: 'Monitoring',
-    monitoringDesc: 'Alerts, audit, and certificate status',
-    monitorAlerts: 'Monitor alerts',
-    monitorAlertsDesc: 'Expiry, drift, and execution failure events',
-    audits: 'Audit logs',
-    auditsDesc: 'Operation evidence and compliance exports',
-    reports: 'Reports',
-    reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
-    incidentWindowReport: 'Incident window',
-    incidentWindowReportDesc: 'Prioritize expiring and expired certificates',
-    riskResponseReport: 'Risk response',
-    riskResponseReportDesc: 'Acknowledgement, resolution time, and SLA',
-    automationEffectivenessReport: 'Automation effectiveness',
-    automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
-    settings: 'Settings',
-    settingsDesc: 'Tenants, users, permissions, and system configuration',
-    systemSettings: 'System settings',
-    systemSettingsDesc: 'System configuration and security metadata',
-    users: 'Users',
-    usersDesc: 'Console users, status, and roles',
-    roles: 'Roles',
-    rolesDesc: 'Roles, authorization object scopes, and member assignments',
-    identitySources: 'Identity sources',
-    identitySourcesDesc: 'AD/LDAP service configuration',
-    groupRoleMappings: 'Group role mappings'
+    dashboard: 'Обзор',
+    dashboardDesc: 'Обзор состояния приложений, сертификатов, Agent, шлюзов и аудита',
+    certificates: 'Сертификаты',
+    certificatesDesc: 'Хранилище сертификатов, привязки и срок действия',
+    certificateAssets: 'Сертификатные активы',
+    certificateAssetsDesc: 'Сертификаты, ссылки на закрытые ключи, отпечатки и сроки действия',
+    certificateFormats: 'Конфигурации форматов сертификатов',
+    certificateFormatsDesc: 'Правила форматов PFX, CER, CRT, PEM и других для сохраненных сертификатов',
+    assets: 'Активы приложений',
+    assetsDesc: 'Входы приложений и цели развертывания сертификатов по домену/IP',
+    agents: 'Agent',
+    agentsDesc: 'Онлайн-статус, heartbeat и набор возможностей',
+    gateways: 'Шлюзы',
+    gatewaysDesc: 'Шлюзы изолированных зон, протоколы и доступные цели',
+    deployments: 'Развертывание сертификатов',
+    deploymentsDesc: 'Планы развертывания и записи выполнения',
+    deploymentPlans: 'Планы развертывания',
+    deploymentPlansDesc: 'Планы развертывания сертификатов и входы согласования',
+    executions: 'Записи выполнения',
+    executionsDesc: 'Шаги выполнения, журналы, ошибки и откат',
+    workflows: 'Рабочие процессы',
+    workflowsDesc: 'Рабочие процессы и плагины',
+    workflowTemplates: 'Рабочие процессы',
+    workflowTemplatesDesc: 'Черновики canvas, переменные, декларации возможностей и публикация',
+    plugins: 'Плагины',
+    pluginsDesc: 'Provider, исполнители и состояние песочницы',
+    monitoring: 'Мониторинг',
+    monitoringDesc: 'Оповещения, аудит и состояние сертификатов',
+    monitorAlerts: 'Оповещения мониторинга',
+    monitorAlertsDesc: 'События истечения, дрейфа и ошибок выполнения',
+    audits: 'Журналы аудита',
+    auditsDesc: 'Доказательства операций и экспорт для соответствия',
+    settings: 'Настройки',
+    settingsDesc: 'Тенанты, пользователи, права и системная конфигурация',
+    systemSettings: 'Системные настройки',
+    systemSettingsDesc: 'Системная конфигурация и метаданные безопасности',
+    users: 'Управление пользователями',
+    usersDesc: 'Пользователи консоли, статус и роли',
+    roles: 'Управление правами',
+    rolesDesc: 'Роли, области объектов авторизации и назначение участников',
+    identitySources: 'Источники идентификации',
+    identitySourcesDesc: 'Конфигурация служб AD/LDAP',
+    groupRoleMappings: 'Сопоставления групп и ролей'
   },
   routes: {
-    certificateImport: 'Import certificate',
-    certificateDetail: 'Certificate detail',
-    certificateUsages: 'Usages',
-    certificateFormats: 'Format artifacts'
+    certificateImport: 'Импорт сертификата',
+    certificateDetail: 'Детали сертификата',
+    certificateUsages: 'Связи использования',
+    certificateFormats: 'Форматные артефакты'
   },
   businessPage: {
     request: {
-      notRequested: 'No request yet'
+      notRequested: 'Запрос еще не отправлялся'
     },
     error: {
-      unknown: 'Unknown error'
+      unknown: 'Неизвестная ошибка'
     },
-    primaryActionFailed: 'Primary action failed',
-    processing: 'Processing…',
-    metricsAria: 'Business metrics',
-    apiFailed: 'API request failed',
-    errorCode: 'Error code: {code}',
-    retry: 'Retry',
-    resourceList: '{resource} list',
-    total: 'Total {count}',
-    dangerConfirmRequired: 'High-risk action requires confirmation',
-    all: 'All',
-    clearFilters: 'Clear filters',
-    pagination: 'Page {page} / {pageSize} per page',
-    resourceDetailAria: 'Resource details',
-    resourceDetailTitle: '{resource} details',
-    contextAria: 'Context links',
-    resourceActionsAria: 'Resource actions',
-    resourceActionsTitle: 'Resource actions',
-    resourceActionsHint: 'High-risk actions require secondary confirmation; authorization is still enforced by the backend.'
+    primaryActionFailed: 'Основная операция не выполнена',
+    processing: 'Обработка...',
+    metricsAria: 'Бизнес-метрики',
+    apiFailed: 'Сервисный запрос не выполнен',
+    errorCode: 'Код ошибки: {code}',
+    retry: 'Повторить',
+    resourceList: 'Список {resource}',
+    total: 'Всего {count}',
+    dangerConfirmRequired: 'Операция высокого риска требует подтверждения',
+    all: 'Все',
+    clearFilters: 'Очистить фильтры',
+    pagination: 'Страница {page} / по {pageSize} на странице',
+    resourceDetailAria: 'Детали ресурса',
+    resourceDetailTitle: 'Детали {resource}',
+    contextAria: 'Контекстные входы',
+    resourceActionsAria: 'Операции с ресурсом',
+    resourceActionsTitle: 'Операции с ресурсом',
+    resourceActionsHint: 'Операции высокого риска требуют повторного подтверждения; окончательное решение принимает системная проверка авторизации.'
   },
   executionDetail: {
     error: {
-      loadStepsFailed: 'Failed to query execution steps',
-      streamConnectFailed: 'Failed to connect to the execution detail stream'
+      loadStepsFailed: 'Не удалось запросить шаги выполнения',
+      streamConnectFailed: 'Не удалось подключиться к обновлению деталей выполнения'
     },
     step: {
-      nameFallback: 'Step {index}',
-      dryRunCheckSummary: 'Precheck result: passed {passed} / warnings {warning} / failed {failed} / unknown {unknown}. {topChecks}',
+      nameFallback: 'Шаг {index}',
+      dryRunCheckSummary: 'Итог предпроверки: пройдено {passed} / предупреждений {warning} / ошибок {failed} / неизвестно {unknown}. {topChecks}',
       dryRunPending: {
-        queued: 'Still queued and not started yet.',
-        running: 'This step is running. Waiting for the agent to return a result.',
-        failed: 'This step failed and no structured precheck result has been received yet.',
-        finished: 'This step has ended, but no structured precheck result has been received yet.'
+        queued: 'Задача все еще в очереди и еще не началась.',
+        running: 'Текущий шаг выполняется, ожидание результатов предпроверки от Agent.',
+        failed: 'Текущий шаг завершился ошибкой, результат предпроверки еще не получен.',
+        finished: 'Текущий шаг завершен, результат предпроверки еще не получен.'
       },
-      dryRunDiscover: 'Read-only precheck: discovered deployment target and {providerLabel} site context. Site {siteName}, binding {binding}. {pendingText}',
-      dryRunVerify: 'Read-only precheck: validated certificate material, target binding, and domain match. Target {providerLabel} binding {binding}. {pendingText}',
-      dryRunCreated: 'Read-only precheck has been created. {pendingText}',
+      dryRunDiscover: 'Предпроверка только для чтения: распознаны цель развертывания и сведения сайта {providerLabel}. Сайт {siteName}, привязка {binding}. {pendingText}',
+      dryRunVerify: 'Предпроверка только для чтения: проверены материалы сертификата, целевая привязка и соответствие домена. Цель {providerLabel}, привязка {binding}. {pendingText}',
+      dryRunCreated: 'Предпроверка только для чтения создана. {pendingText}',
       failure: {
-        emptyMessage: 'The backend did not receive a concrete error message'
+        emptyMessage: 'Конкретное сообщение об ошибке не получено'
       },
       running: {
-        dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
-        waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
+        dispatched: 'Задача Agent отправлена ({taskId}), ожидание результата выполнения.',
+        waitingAgentResult: 'Шаг выполняется, ожидание результата от Agent...'
       },
       pending: {
-        waitingDependency: 'The step is waiting for previous steps to finish.'
+        waitingDependency: 'Шаг ожидает завершения предыдущего шага.'
       },
       verifyRecovered: {
-        detail: 'Agent-side remote TLS probing failed, but the control plane completed real TLS verification for {remoteTarget} and confirmed the target certificate matches. {originalError}',
-        originalSuffix: 'Original Agent error: {originalError}'
+        detail: 'Удаленная TLS-проверка на стороне Agent завершилась ошибкой, но система выполнила реальную TLS-проверку {remoteTarget} и подтвердила соответствие целевого сертификата. {originalError}',
+        originalSuffix: 'Исходная ошибка Agent: {originalError}'
       },
       resultReturned: {
-        withTask: '{executor} {mode} returned. Agent taskId={taskId}',
-        withoutTask: '{executor} {mode} returned.'
+        withTask: '{executor} {mode} вернул результат. Agent taskId={taskId}',
+        withoutTask: '{executor} {mode} вернул результат.'
       },
-      createdFallback: 'Step {index} has been created. Waiting for the backend to add details'
+      createdFallback: 'Шаг {index} создан, ожидание деталей выполнения...'
     },
     dryRun: {
       failedNoChecks: {
-        label: 'Dry-run failed',
-        detail: '{failedStepCount} precheck steps failed or timed out, and the agent did not return a structured conclusion.'
+        label: 'Dry-run завершился ошибкой',
+        detail: 'Шагов предпроверки с ошибкой или таймаутом: {failedStepCount}; структурированные итоги предпроверки не получены.'
       },
       queued: {
-        label: 'Dry-run queued',
-        detail: 'The precheck task has been created and is waiting to start.'
+        label: 'Dry-run в очереди',
+        detail: 'Задача предпроверки создана и ожидает запуска.'
       },
       running: {
-        label: 'Dry-run running',
-        detail: 'The precheck has started. Waiting for structured results.'
+        label: 'Dry-run выполняется',
+        detail: 'Предпроверка началась, ожидание результата.'
       },
       pending: {
-        label: 'Dry-run ended without conclusion',
-        detail: '{finishedWithoutChecks} steps have ended, but no dryRunChecks / dryRunSummary was returned.'
+        label: 'Dry-run завершен без заключения',
+        detail: 'Завершено шагов без заключения: {finishedWithoutChecks}; итоги предпроверки не получены.'
       },
       receiving: {
-        label: 'Dry-run receiving results',
-        detail: 'Partial conclusions received: passed {passed}, warnings {warning}, failed {failed}, unknown {unknown}.'
+        label: 'Dry-run принимает результаты',
+        detail: 'Получены частичные заключения: пройдено {passed}, предупреждений {warning}, ошибок {failed}, неизвестно {unknown}.'
       },
       failed: {
-        label: 'Dry-run failed',
-        detail: 'Precheck failed {failed} items, warning {warning} items, passed {passed} items.'
+        label: 'Dry-run не пройден',
+        detail: 'Предпроверка: ошибок {failed}, предупреждений {warning}, пройдено {passed}.'
       },
       warning: {
-        label: 'Dry-run has risk warnings',
-        detail: 'Precheck completed: passed {passed}, warnings {warning}, unknown {unknown}.'
+        label: 'Dry-run содержит предупреждения о рисках',
+        detail: 'Предпроверка завершена: пройдено {passed}, предупреждений {warning}, неизвестно {unknown}.'
       },
       passed: {
-        label: 'Dry-run passed',
-        detail: 'All prechecks passed, {passed} total.'
+        label: 'Dry-run успешен',
+        detail: 'Все предпроверки пройдены, всего {passed}.'
       }
     },
     agent: {
       taskSuffix: '(Agent taskId={taskId})'
     },
     log: {
-      verifyRecovered: '[ControlPlane] Agent-side remote TLS probing failed, but the control plane completed real TLS verification and confirmed the target certificate matches.'
+      verifyRecovered: '[ControlPlane] Удаленная TLS-проверка на стороне Agent завершилась ошибкой, но система выполнила реальную TLS-проверку и подтвердила соответствие целевого сертификата.'
     },
     workflowStep: {
-      failedDefault: 'Workflow node {index} failed',
-      skipped: 'Workflow node skipped because the condition was not met.',
-      successAssertions: 'Workflow node succeeded, assertions passed {passed}/{total}.',
-      success: 'Workflow node succeeded.'
+      failedDefault: 'Узел рабочего процесса {index} завершился ошибкой',
+      skipped: 'Узел рабочего процесса пропущен: условие не выполнено.',
+      successAssertions: 'Узел рабочего процесса выполнен успешно, утверждения пройдены {passed}/{total}.',
+      success: 'Узел рабочего процесса выполнен успешно.'
     },
     binding: {
-      hostMissing: 'host header not provided'
+      hostMissing: 'Host Header не предоставлен'
     },
     site: {
-      unnamed: 'Unnamed site'
+      unnamed: 'Безымянный сайт'
     },
     provider: {
-      target: 'Target'
+      target: 'Цель'
     }
   },
   executions: {
-    title: 'Execution records',
-    description: 'View deployment execution status, step logs, dry-run precheck results, failure reasons, and rollback entry points.',
-    resourceName: 'Execution run',
+    title: 'Записи выполнения',
+    description: 'Просмотр статуса выполнения развертывания, журналов шагов, итогов dry-run, причин ошибок и входов отката.',
+    resourceName: 'Запись выполнения',
     errors: {
-      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}',
-      loadFailed: 'Failed to load execution records'
+      streamConnectFailed: 'Не удалось подключиться к обновлению деталей выполнения: HTTP {status}',
+      loadFailed: 'Не удалось загрузить записи выполнения'
     },
     actions: {
-      refreshList: 'Refresh list',
-      refreshing: 'Refreshing',
-      viewDetail: 'View details',
-      rollback: 'Start rollback',
-      rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
+      refreshList: 'Обновить список',
+      refreshing: 'Обновление',
+      viewDetail: 'Детали',
+      rollback: 'Запустить откат',
+      rollbackRisk: 'Откат снова изменит конфигурацию сертификата целевого сервиса; нужно подтвердить ссылки на резервные копии и область влияния.'
     },
     columns: {
-      name: 'Execution ID',
-      status: 'Status',
-      risk: 'Risk',
-      planId: 'Deployment plan',
-      startedAt: 'Start time'
+      name: 'Номер выполнения',
+      status: 'Статус',
+      risk: 'Риск',
+      planId: 'План развертывания',
+      startedAt: 'Время начала'
     },
     metrics: {
       total: {
-        title: 'Total executions',
-        description: 'Currently traceable execution runs.'
+        title: 'Всего выполнений',
+        description: 'Текущие отслеживаемые записи выполнения.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Failed, partially successful, or rollback-needed executions.'
+        title: 'Высокий риск к обработке',
+        description: 'Выполнения с ошибкой, частичным успехом или требованием отката.'
       }
     },
     fields: {
-      executionId: 'Execution ID',
-      deploymentPlan: 'Deployment plan',
-      runType: 'Run type',
-      status: 'Execution status',
-      target: 'Execution target',
-      externalRunId: 'External run ID',
-      startedAt: 'Start time',
-      finishedAt: 'End time',
-      errorCode: 'Error code',
-      failureReason: 'Failure reason'
+      executionId: 'ID выполнения',
+      deploymentPlan: 'План развертывания',
+      runType: 'Тип запуска',
+      status: 'Статус выполнения',
+      target: 'Цель выполнения',
+      externalRunId: 'Внешний ID запуска',
+      startedAt: 'Время начала',
+      finishedAt: 'Время окончания',
+      errorCode: 'Код ошибки',
+      failureReason: 'Причина ошибки'
     },
     links: {
-      deploymentPlan: 'View deployment plan',
-      auditEvents: 'View audit events'
+      deploymentPlan: 'Посмотреть план развертывания',
+      auditEvents: 'Посмотреть события аудита'
     },
     empty: {
-      title: 'No execution records',
-      description: 'Logs, status, and audit links appear here after a deployment plan runs.'
+      title: 'Нет записей выполнения',
+      description: 'После выполнения плана развертывания здесь появятся журналы, статус и связи аудита.'
     },
     list: {
-      ariaLabel: 'Execution record list',
-      title: 'Execution records',
-      summary: '{total} execution records, newest first.',
-      range: 'Showing {start}-{end} of {total}',
-      assetsLabel: 'Assets',
-      logLabel: 'Log summary',
-      runNumber: 'Run {number}',
-      planUnknown: 'No deployment plan linked',
-      assetUnknown: 'No asset recorded',
-      timeUnknown: 'Start time not recorded',
-      logRunning: 'Execution is running and detail logs will keep updating.',
-      logPending: 'Execution is queued and waiting for scheduling.',
-      logFailed: 'Execution failed with error code {code}.',
-      logSuccess: 'Execution succeeded in {duration}.',
-      logCompleted: 'Execution finished. Open details for the full log.',
-      errorCodeUnknown: 'not recorded',
-      durationUnknown: 'unknown',
-      durationSeconds: '{count} seconds',
-      durationMinutes: '{count} minutes',
-      viewDetailHint: 'Open details',
-      openDetailAria: 'Open execution {id} for plan {plan}',
-      previousPage: 'Previous',
-      nextPage: 'Next',
-      pageSummary: 'Page {page} of {pages}'
+      ariaLabel: 'Список выполнений', title: 'Записи выполнения', summary: 'Всего записей: {total}, новые сверху.', range: 'Показано {start}-{end} из {total}',
+      assetsLabel: 'Ресурсы', logLabel: 'Сводка журнала', runNumber: 'Запуск {number}', planUnknown: 'План не связан', assetUnknown: 'Ресурс не указан', timeUnknown: 'Время начала не указано',
+      logRunning: 'Выполнение продолжается.', logPending: 'Выполнение ожидает запуска.', logFailed: 'Ошибка выполнения, код {code}.', logSuccess: 'Выполнение успешно за {duration}.', logCompleted: 'Выполнение завершено.',
+      errorCodeUnknown: 'не указан', durationUnknown: 'неизвестно', durationSeconds: '{count} сек.', durationMinutes: '{count} мин.', viewDetailHint: 'Открыть детали', openDetailAria: 'Открыть выполнение {id} плана {plan}', previousPage: 'Назад', nextPage: 'Вперед', pageSummary: 'Страница {page} из {pages}'
     },
-    types: {
-      dryRun: 'Precheck',
-      apply: 'Apply',
-      rollback: 'Rollback',
-      retry: 'Retry',
-      unknown: 'Other'
-    },
+    types: { dryRun: 'Проверка', apply: 'Выполнение', rollback: 'Откат', retry: 'Повтор', unknown: 'Другое' },
     summary: {
-      passed: 'Passed',
-      warning: 'Warnings',
-      failed: 'Failed',
-      unknown: 'Unknown'
+      passed: 'Пройдено',
+      warning: 'Предупреждение',
+      failed: 'Ошибка',
+      unknown: 'Неизвестно'
     },
     detail: {
-      title: 'Execution details',
-      titleWithId: 'Execution details {id}',
-      description: 'View basic information, step status, and logs for the execution run.',
-      eyebrow: 'Execution record',
-      planLabel: 'Deployment plan {plan}',
-      loadingSteps: 'Loading steps...',
-      loadingLogs: 'Loading logs...',
-      noStepDetail: 'No step details',
-      notStarted: 'Not started',
-      noSteps: 'No steps.',
-      noLogs: 'No logs.'
+      title: 'Детали выполнения',
+      titleWithId: 'Детали выполнения {id}',
+      description: 'Просмотр основной информации записи выполнения, статуса шагов и журналов.',
+      eyebrow: 'Запись выполнения',
+      planLabel: 'План развертывания {plan}',
+      loadingSteps: 'Загрузка шагов...',
+      loadingLogs: 'Загрузка журналов...',
+      noStepDetail: 'Описание шага отсутствует',
+      notStarted: 'Не начато',
+      noSteps: 'Шагов пока нет.',
+      noLogs: 'Журналов пока нет.'
     },
     tabs: {
-      summary: 'Summary',
-      steps: 'Steps',
-      logs: 'Logs'
+      summary: 'Обзор',
+      steps: 'Шаги',
+      logs: 'Журналы'
     }
   },
   plugins: {
-    title: 'Plugins',
-    description: 'Plugin packages, providers, permission declarations, signature validation, sandbox status, and isolation entry points.',
-    resourceName: 'Plugin',
+    title: 'Плагины',
+    description: 'Управление пакетами плагинов, исполнителями, декларациями прав и состоянием изоляции песочницы.',
+    resourceName: 'Плагин',
     actions: {
-      install: 'Install plugin',
-      detail: 'Details',
-      disable: 'Disable plugin',
-      disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
+      install: 'Установить плагин',
+      detail: 'Детали',
+      disable: 'Отключить плагин',
+      disableRisk: 'Отключение плагина повлияет на возможности Provider, шаблонов и исполнителей.'
     },
     columns: {
-      name: 'Plugin name',
-      status: 'Status',
-      risk: 'Risk',
-      version: 'Version',
-      signature: 'Signature'
+      name: 'Название плагина',
+      status: 'Статус',
+      risk: 'Риск',
+      version: 'Версия',
+      signature: 'Подпись'
     },
     metrics: {
       total: {
-        title: 'Total plugins',
-        description: 'Installed and upgradeable plugins.'
+        title: 'Всего плагинов',
+        description: 'Установленные и доступные к обновлению плагины.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plugins with high-risk permissions, signature errors, or sandbox isolation.'
+        title: 'Высокий риск к обработке',
+        description: 'Плагины с опасными правами, ошибками подписи или изоляцией песочницы.'
       }
     },
     empty: {
-      title: 'No plugins',
-      description: 'Review permission differences, signatures, and rollback strategy before installing plugins.'
+      title: 'Плагинов пока нет',
+      description: 'Перед установкой подтвердите права плагина, подпись и стратегию отката.'
     },
     detail: {
-      title: 'Plugin details',
-      titleWithName: 'Plugin {name}',
-      description: 'Plugin details are shown in a modal while the main page keeps a compact list.',
-      versionLabel: 'Version {version}'
+      title: 'Детали плагина',
+      titleWithName: 'Плагин {name}',
+      description: 'Просмотр деталей плагина, деклараций прав и сведений об изоляции песочницы.',
+      versionLabel: 'Версия {version}'
     },
     fields: {
-      pluginId: 'Plugin ID',
-      name: 'Plugin name',
-      currentStatus: 'Current status',
-      version: 'Version',
-      signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      pluginId: 'ID плагина',
+      name: 'Название плагина',
+      currentStatus: 'Текущий статус',
+      version: 'Версия',
+      signatureStatus: 'Статус подписи',
+      riskLevel: 'Уровень риска'
     }
   },
   deploymentPlans: {
-    title: 'Deployment plans',
-    description: 'Plan preview, impact scope, approval, execution batches, verification, and rollback entry points.',
-    resourceName: 'Deployment plan',
+    title: 'Планы развертывания',
+    description: 'Предпросмотр плана, область влияния, согласование, партии выполнения, проверка и входы отката.',
+    resourceName: 'План развертывания',
     apiActions: {
-      submit: 'Submit deployment plan',
-      execute: 'Execute deployment plan',
-      cancel: 'Cancel deployment plan',
-      delete: 'Delete deployment plan'
+      submit: 'Отправить план развертывания',
+      execute: 'Выполнить план развертывания',
+      cancel: 'Отменить план развертывания',
+      delete: 'Удалить план развертывания'
     },
     actions: {
-      create: 'Create deployment plan',
-      detail: 'Details',
-      edit: 'Edit plan',
-      dryRun: 'Dry-run impact preview',
-      dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
-      submit: 'Submit for approval',
-      submitRisk: 'After submission, the plan enters approval or pending execution status.',
-      execute: 'Execute deployment',
-      executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; run a dry-run impact preview first.',
-      cancel: 'Cancel plan',
-      cancelRisk: 'Only cancels unfinished deployment plans. Completed deployments are not rolled back.',
-      rollback: 'Rollback execution',
-      rollbackRisk: 'Rollback modifies the target service certificate configuration again and requires a real runId.',
-      delete: 'Delete plan',
-      deleteRisk: 'Hard-deletes the plan, deployment targets, execution records, and related audit history. This cannot be recovered.'
+      create: 'Создать план развертывания',
+      detail: 'Детали',
+      edit: 'Редактировать план',
+      dryRun: 'Dry-run предпросмотр влияния',
+      dryRunRisk: 'Формирует только предпросмотр влияния и не выполняет реальное развертывание.',
+      submit: 'Отправить на согласование',
+      submitRisk: 'После отправки план перейдет в состояние согласования или ожидания выполнения.',
+      execute: 'Выполнить развертывание',
+      executeRisk: 'Выполнение изменит целевую конфигурацию сертификатов. Уже завершенные или ошибочные планы также используют этот вход для повторного выполнения; перед выполнением нужен Dry-run предпросмотр влияния.',
+      cancel: 'Отменить план',
+      cancelRisk: 'Отменяет только незавершенные планы развертывания; уже завершенные развертывания не откатываются.',
+      rollback: 'Откатить выполнение',
+      rollbackRisk: 'Откат снова изменит конфигурацию сертификата целевого сервиса, требуется настоящий runId.',
+      delete: 'Удалить план',
+      deleteRisk: 'План, цели развертывания, записи выполнения и соответствующая история аудита будут удалены безвозвратно.'
     },
     columns: {
-      name: 'Plan name',
-      status: 'Status',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      scheduledAt: 'Scheduled time',
-      actions: 'Actions'
+      name: 'Название плана',
+      status: 'Статус',
+      currentAssetCertificateExpiresAt: 'Окончание текущего сертификата',
+      updateNeeded: 'Требует обновления',
+      scheduledAt: 'Плановое время',
+      actions: 'Операции'
     },
     metrics: {
       total: {
-        title: 'Total plans',
-        description: 'Plans waiting for approval, pending execution, or running.'
+        title: 'Всего планов',
+        description: 'Планы в ожидании согласования, выполнения или уже выполняющиеся.'
       },
       risky: {
-        title: 'High-risk pending',
-        description: 'Plans affecting production services or lacking rollback capability.'
+        title: 'Высокий риск к обработке',
+        description: 'Планы, влияющие на продуктивные сервисы или не имеющие возможности отката.'
       }
     },
     fields: {
-      planId: 'Plan ID',
-      name: 'Plan name',
-      status: 'Plan status',
-      approvalStatus: 'Approval status',
-      certificateVersionId: 'Certificate version ID',
-      certificateFormatId: 'Certificate format config ID',
-      currentAssetCertificateExpiresAt: 'Current certificate end time',
-      updateNeeded: 'Update needed',
-      targetSummary: 'Target binding summary',
-      latestRun: 'Latest execution batch',
-      approvalId: 'Approval ID',
-      snapshotHash: 'Snapshot hash',
-      failureReason: 'Failure reason',
-      createdAt: 'Created at',
-      updatedAt: 'Updated at'
+      planId: 'ID плана',
+      name: 'Название плана',
+      status: 'Статус плана',
+      approvalStatus: 'Статус согласования',
+      certificateVersionId: 'ID версии сертификата',
+      certificateFormatId: 'ID конфигурации формата сертификата',
+      currentAssetCertificateExpiresAt: 'Окончание текущего сертификата',
+      updateNeeded: 'Требует обновления',
+      targetSummary: 'Сводка целевых привязок',
+      latestRun: 'Последняя партия выполнения',
+      approvalId: 'ID согласования',
+      snapshotHash: 'Hash снимка',
+      failureReason: 'Причина ошибки',
+      createdAt: 'Время создания',
+      updatedAt: 'Время обновления'
     },
     links: {
-      executions: 'View execution records',
-      bindings: 'View related bindings'
+      executions: 'Посмотреть записи выполнения',
+      bindings: 'Посмотреть связанные привязки'
     },
     empty: {
-      title: 'No deployment plans',
-      description: 'Start from a certificate or binding, create an impact preview in the deployment wizard, then submit the plan.'
+      title: 'Планов развертывания пока нет',
+      description: 'Сначала перейдите из сертификата или привязки в мастер развертывания, сформируйте предпросмотр влияния и затем отправьте план.'
     },
     disabled: {
-      missingApproval: 'Approval information is missing, so execution is not allowed.',
-      needDryRun: 'A successful dry-run impact preview is required before real execution.',
-      missingRunId: 'runId is missing, so rollback is not allowed.',
-      missingSelection: 'Deployment plan selection is missing'
+      missingApproval: 'Нет сведений о пройденном согласовании, выполнение невозможно.',
+      needDryRun: 'Перед реальным выполнением нужно завершить успешный Dry-run предпросмотр влияния.',
+      missingRunId: 'Нет runId, откат невозможен.',
+      missingSelection: 'Не выбран план развертывания'
     },
     common: {
-      cancel: 'Cancel',
-      close: 'Close',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided'
+      cancel: 'Отмена',
+      close: 'Закрыть',
+      notConfigured: 'Не настроено',
+      notProvided: 'Не предоставлено'
     },
     detail: {
-      certificateVersionLabel: 'Certificate version',
-      description: 'View basic plan information, related records, and the latest execution result.',
-      emptyRelatedRecords: 'No related records.',
-      loadingRelatedRecords: 'Loading related records...',
-      noExecutionRecords: 'This plan has no execution records yet.',
-      noTargetSummary: 'Target summary not provided',
-      planIdLine: 'Plan ID {planId}',
+      certificateVersionLabel: 'Версия сертификата',
+      description: 'Просмотр базовой информации плана, связанных записей и результата последнего выполнения.',
+      emptyRelatedRecords: 'Связанных записей нет.',
+      loadingRelatedRecords: 'Загрузка связанных записей...',
+      noExecutionRecords: 'У этого плана пока нет записей выполнения.',
+      noTargetSummary: 'Сводка целей не предоставлена',
+      planIdLine: 'ID плана {planId}',
       recordKinds: {
-        certificateUpdate: 'Certificate update',
+        certificateUpdate: 'Обновление сертификата',
         dryRun: 'Dry-run'
       },
-      relatedPlan: 'Plan {planId}',
-      relatedRun: 'Run {runId}',
-      relatedSource: 'Source {source}',
+      relatedPlan: 'План {planId}',
+      relatedRun: 'Запуск {runId}',
+      relatedSource: 'Источник {source}',
       tabs: {
-        latestExecution: 'Latest execution',
-        relatedRecords: 'Related records',
-        summary: 'Summary'
+        latestExecution: 'Последнее выполнение',
+        relatedRecords: 'Связанные записи',
+        summary: 'Обзор'
       },
-      targetLabel: 'Target',
-      title: 'Deployment plan details',
-      titleWithName: 'Deployment plan {name}',
-      viewLogs: 'View logs'
+      targetLabel: 'Цель',
+      title: 'Детали плана развертывания',
+      titleWithName: 'План развертывания {name}',
+      viewLogs: 'Посмотреть журналы'
     },
     dryRunRequired: {
-      copy: 'Current action: {action}. Run a dry-run first, confirm impact scope and check results, then continue with real execution.',
-      description: 'A successful dry-run impact preview is required before real execution.',
-      primaryAction: 'Run dry-run first',
-      runningAction: 'Starting dry-run…',
-      title: 'Dry-run required first'
+      copy: 'Текущая операция: {action}. Сначала выполните Dry-run, подтвердите область влияния и итоги проверок, затем продолжайте реальное выполнение.',
+      description: 'Перед реальным выполнением нужен успешный Dry-run предпросмотр влияния.',
+      primaryAction: 'Сначала Dry-run',
+      runningAction: 'Запуск Dry-run...',
+      title: 'Сначала требуется Dry-run'
     },
     execution: {
-      applyName: 'Deployment execution {runId}',
-      applyTitle: 'Certificate update execution',
-      dryRunTitle: 'Dry-run result',
-      fallbackName: 'Execution {runId}',
-      rollbackTitle: 'Certificate rollback execution'
+      applyName: 'Выполнение развертывания {runId}',
+      applyTitle: 'Выполнение обновления сертификата',
+      dryRunTitle: 'Результат Dry-run',
+      fallbackName: 'Выполнение {runId}',
+      rollbackTitle: 'Выполнение отката сертификата'
     },
     feedback: {
-      cancelled: 'Deployment plan cancelled.',
-      cancelledWithPlanId: 'Deployment plan cancelled. planId: {planId}',
-      deleted: 'Deployment plan deleted.',
-      deletedWithPlanId: 'Deployment plan deleted. planId: {planId}',
-      dryRunStartedMissingRunId: 'dry-run started, but the response is missing runId.',
-      dryRunStartedWithRunId: 'dry-run started. Execution status is shown in the modal. runId: {runId}',
-      dryRunTriggered: 'dry-run triggered.',
-      dryRunTriggeredWithPlanId: 'dry-run triggered. planId: {planId}',
-      dryRunTriggeredWithRunId: 'dry-run triggered. Precheck progress is shown in the modal. runId: {runId}',
-      executeTriggered: 'Deployment execution triggered.',
-      executeTriggeredWithPlanId: 'Deployment execution triggered. planId: {planId}',
-      executeTriggeredWithRunId: 'Deployment execution triggered. Execution progress is shown in the modal. runId: {runId}',
-      loadedDraft: 'Draft plan loaded.',
-      loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
-      savedWithPlanId: 'Deployment plan saved. planId: {planId}',
-      submitted: 'Deployment plan submitted.',
-      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}'
+      cancelled: 'План развертывания отменен.',
+      cancelledWithPlanId: 'План развертывания отменен (план {planId}).',
+      deleted: 'План развертывания удален.',
+      deletedWithPlanId: 'План развертывания удален (план {planId}).',
+      dryRunStartedMissingRunId: 'Предпроверка запущена.',
+      dryRunStartedWithRunId: 'Предпроверка запущена ({runId}), ход выполнения смотрите в диалоговом окне.',
+      dryRunTriggered: 'Предпроверка запущена.',
+      dryRunTriggeredWithPlanId: 'Предпроверка запущена (план {planId}).',
+      dryRunTriggeredWithRunId: 'Предпроверка запущена ({runId}), ход выполнения смотрите в диалоговом окне.',
+      executeTriggered: 'Развертывание запущено.',
+      executeTriggeredWithPlanId: 'Развертывание запущено (план {planId}).',
+      executeTriggeredWithRunId: 'Развертывание запущено ({runId}), ход выполнения смотрите в диалоговом окне.',
+      loadedDraft: 'Черновик плана загружен.',
+      loadedDraftWithPlanId: 'Черновик загружен (план {planId}).',
+      savedWithPlanId: 'План сохранен ({planId}).',
+      submitted: 'План развертывания отправлен.',
+      submittedWithPlanId: 'План развертывания отправлен (план {planId}).'
     },
     target: {
-      controlPlane: 'Control plane',
-      noBindingInfo: 'Binding information not provided',
-      noCertificateVariables: 'Certificate variables not bound',
-      noHostHeader: 'host header not provided',
-      noOutputSelected: 'No output selected'
+      controlPlane: 'Платформа',
+      noBindingInfo: 'Сведения о привязке не предоставлены',
+      noCertificateVariables: 'Переменные сертификата не привязаны',
+      noHostHeader: 'Host Header не предоставлен',
+      noOutputSelected: 'Выходной элемент не выбран'
     },
     errors: {
-      actionFailed: '{action} failed',
-      createReturnedMissingPlanId: 'Deployment plan was created but no planId was returned',
-      loadCreateDataFailed: 'Failed to load deployment plan creation data',
-      loadRelatedRecordsFailed: 'Failed to load related records',
-      missingApplicationAssetIdForDryRun: 'Application asset ID is missing, so dry-run cannot start.',
-      missingApplicationAssetIdForSave: 'Application asset ID is missing, so the deployment plan cannot be saved.',
-      missingPlanId: 'Deployment plan ID is missing. Empty planId request blocked.',
-      missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
-      missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
-      saveFailed: 'Failed to save deployment plan',
-      startDryRunFailed: 'Failed to start dry-run'
+      actionFailed: '{action} не выполнено',
+      createReturnedMissingPlanId: 'План создан, но номер не получен; обновите список.',
+      loadCreateDataFailed: 'Не удалось загрузить данные для создания плана развертывания',
+      loadRelatedRecordsFailed: 'Не удалось загрузить связанные записи',
+      missingApplicationAssetIdForDryRun: 'Не хватает актива приложения, невозможно запустить предпроверку.',
+      missingApplicationAssetIdForSave: 'Не хватает актива приложения, невозможно сохранить план.',
+      missingPlanId: 'Номер плана отсутствует, выберите заново.',
+      missingPlanIdForAction: '{action} не выполнено: номер плана отсутствует, выберите заново.',
+      missingRunIdRequest: 'Номер выполнения отсутствует, выберите заново.',
+      saveFailed: 'Не удалось сохранить план развертывания',
+      startDryRunFailed: 'Не удалось запустить dry-run'
     }
   },
   agents: {
     actions: {
-      close: 'Close',
-      delete: 'Delete',
-      deleteRisk: 'Deleting removes the Agent record directly and cannot be undone.',
-      detail: 'Details',
-      disable: 'Disable',
-      disableRisk: 'After disabling, this Agent stops receiving new tasks.',
-      enable: 'Enable',
-      enableRisk: 'After enabling, this Agent becomes schedulable again.'
+      close: 'Закрыть',
+      delete: 'Удалить',
+      deleteRisk: 'Удаление напрямую удалит запись Agent; операция необратима.',
+      detail: 'Детали',
+      disable: 'Отключить',
+      disableRisk: 'После отключения этот Agent перестанет получать новые задачи.',
+      enable: 'Включить',
+      enableRisk: 'После включения этот Agent снова станет доступен для планирования.'
     },
     app: {
-      fallbackName: 'App {index}'
+      fallbackName: 'Приложение {index}'
     },
     certificate: {
-      boundCertificate: 'Bound certificate',
-      expiredDays: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      modalDescription: 'Shows key certificate information used by the current site binding.',
-      modalTitle: 'Certificate details',
-      overviewDescription: 'Shows certificate name, issuer, validity period, fingerprint, and other key details.',
-      overviewTitle: 'Certificate overview',
-      projectDetailDescription: 'Shows project certificate asset details and related usages in the current Agent context.',
-      projectDetailTitle: 'Project certificate details',
-      querying: 'Querying...',
-      remainingDays: '{days} days remaining',
-      remainingWithViewAction: '{remaining} / click to view certificate',
-      statusExpired: 'Expired',
-      statusExpiring: 'Expiring soon',
-      statusLabel: 'Certificate status',
-      statusUnknown: 'Validity unknown',
-      statusValid: 'Valid',
-      view: 'View certificate',
-      viewProjectDetail: 'View project certificate details'
+      boundCertificate: 'Сертификат, привязанный к сайту',
+      expiredDays: 'Истек {days} дн. назад',
+      expiresToday: 'Истекает сегодня',
+      modalDescription: 'Показывает ключевые сведения о сертификате, используемом текущей привязкой сайта.',
+      modalTitle: 'Детали сертификата',
+      overviewDescription: 'Показывает имя сертификата, издателя, время начала, время окончания, отпечаток и другие ключевые сведения.',
+      overviewTitle: 'Обзор сертификата',
+      projectDetailDescription: 'В контексте текущих деталей Agent показывает сведения о сертификатном активе проекта и связанные использования.',
+      projectDetailTitle: 'Детали сертификата проекта',
+      querying: 'Запрос...',
+      remainingDays: 'Осталось {days} дн.',
+      remainingWithViewAction: '{remaining} / нажмите, чтобы посмотреть сертификат',
+      statusExpired: 'Истек',
+      statusExpiring: 'Скоро истекает',
+      statusLabel: 'Статус сертификата',
+      statusUnknown: 'Срок действия неизвестен',
+      statusValid: 'Действителен',
+      view: 'Посмотреть сертификат',
+      viewProjectDetail: 'Посмотреть детали сертификата проекта'
     },
     certificateUsage: {
-      iisSite: 'Agent IIS site',
-      linuxSite: 'Agent Linux site',
-      tomcatConnector: 'Agent Tomcat connector'
+      iisSite: 'Сайт IIS Agent',
+      linuxSite: 'Сайт Linux Agent',
+      tomcatConnector: 'Коннектор Tomcat Agent'
     },
     columns: {
-      actions: 'Actions',
-      hostname: 'Hostname',
-      ipAddress: 'IP address',
-      lastHeartbeat: 'Last heartbeat',
-      onlineStatus: 'Online status',
-      osType: 'OS type',
-      version: 'Version'
+      actions: 'Операции',
+      hostname: 'Имя хоста',
+      ipAddress: 'IP-адрес',
+      lastHeartbeat: 'Последний heartbeat',
+      onlineStatus: 'Онлайн-статус',
+      osType: 'Тип системы',
+      version: 'Версия'
     },
     common: {
-      defaultAddress: 'Default address',
-      no: 'No',
-      noHostHeader: 'No Host Header',
-      noListenAddress: 'No listen address',
-      none: 'None',
-      notConfigured: 'Not configured',
-      notProvided: 'Not provided',
-      notWritable: 'Not writable',
-      unrecognized: 'Unrecognized',
-      writable: 'Writable',
-      yes: 'Yes'
+      defaultAddress: 'Адрес по умолчанию',
+      no: 'Нет',
+      noHostHeader: 'Нет Host Header',
+      noListenAddress: 'Нет адреса прослушивания',
+      none: 'Нет',
+      notConfigured: 'Не настроено',
+      notProvided: 'Не предоставлено',
+      notWritable: 'Нет прав записи',
+      unrecognized: 'Не распознано',
+      writable: 'Доступно для записи',
+      yes: 'Да'
     },
     detail: {
-      loading: 'Loading details...',
-      manualRescan: 'Manual rescan',
-      manualRescanCannotPullTasks: 'This Agent cannot pull tasks, so rescan cannot run',
-      manualRescanCreated: 'Manual rescan task created. Waiting for the Agent to pull it.',
-      manualRescanSubmitting: 'Submitting rescan...',
-      manualRescanUnsupportedType: 'This Agent type does not support manual rescan',
-      modalDescription: 'Shows the Agent summary, runtime environment, and IIS site data.',
-      modalTitle: 'Agent details',
-      nodeEyebrow: 'Agent node',
-      tabsAriaLabel: 'Agent detail tabs'
+      loading: 'Загрузка деталей...',
+      manualRescan: 'Ручное повторное сканирование',
+      manualRescanCannotPullTasks: 'Текущий Agent не может получать задачи, повторное сканирование невозможно',
+      manualRescanCreated: 'Задача ручного повторного сканирования создана, ожидание выполнения Agent.',
+      manualRescanSubmitting: 'Отправка повторного сканирования...',
+      manualRescanUnsupportedType: 'Текущий тип Agent не поддерживает ручное повторное сканирование',
+      modalDescription: 'Просмотр основных сведений Agent, среды выполнения и сведений о сайтах IIS.',
+      modalTitle: 'Детали Agent',
+      nodeEyebrow: 'Узел Agent',
+      tabsAriaLabel: 'Вкладки деталей Agent'
     },
     empty: {
-      description: 'Click Install Agent, choose a platform and version, then generate a one-time install command.',
-      noFrameworkSites: 'No {name} sites found',
-      noIisSites: 'No IIS sites found',
-      noRuntimeLogs: 'No runtime logs',
-      noTomcatApps: 'No Tomcat apps found',
-      noTomcatConnectors: 'No Tomcat connectors found',
-      title: 'No Agents'
+      description: 'Нажмите "Установить Agent" в правом верхнем углу, выберите платформу и версию, затем сформируйте одноразовую команду установки.',
+      noFrameworkSites: 'Сайты {name} не обнаружены',
+      noIisSites: 'Сайты IIS не обнаружены',
+      noRuntimeLogs: 'Журналов выполнения пока нет',
+      noTomcatApps: 'Приложения Tomcat не обнаружены',
+      noTomcatConnectors: 'Коннекторы Tomcat не обнаружены',
+      title: 'Agent пока нет'
     },
     errors: {
-      certificateAssetIncomplete: 'Certificate asset data is incomplete, so details cannot be opened.',
-      certificateAssetNotFound: 'No matching certificate asset was found in this project.',
-      certificateAssetQueryFailed: 'Failed to query certificate asset.',
-      detailDataMissing: 'The detail API returned no data.',
-      generateInstallCommandFailed: 'Failed to generate install command.',
-      installCommandMissing: 'The backend did not return an install command.',
-      loadDetailFailed: 'Failed to load details.',
-      manualRescanFailed: 'Failed to start manual rescan.'
+      certificateAssetIncomplete: 'Данные сертификатного актива неполные, перейти к деталям невозможно.',
+      certificateAssetNotFound: 'Соответствующий сертификатный актив в проекте не найден.',
+      certificateAssetQueryFailed: 'Не удалось запросить сертификатный актив.',
+      detailDataMissing: 'Не удалось получить сведения.',
+      generateInstallCommandFailed: 'Не удалось сформировать команду установки.',
+      installCommandMissing: 'Система не вернула команду установки.',
+      loadDetailFailed: 'Не удалось загрузить детали.',
+      manualRescanFailed: 'Не удалось запустить ручное повторное сканирование.'
     },
     fields: {
-      agentVersion: 'Agent version',
-      appCount: 'App count',
-      appList: 'App list',
-      appPool: 'App pool',
-      arch: 'Architecture',
-      binaryPath: 'Binary path',
-      certificateFile: 'Certificate file',
-      certificateName: 'Certificate name',
-      certificateStore: 'Certificate store',
-      certificateSubject: 'Certificate subject',
-      certificateThumbprint: 'Certificate thumbprint',
-      configFile: 'Config file',
-      configPath: 'Config path',
-      connectorCount: 'Connector count',
-      connectorList: 'Connector list',
-      domain: 'Domain',
-      frameworkVersion: '{name} version',
-      healthStatus: 'Health status',
-      healthSummary: 'Health summary',
-      hostname: 'Hostname',
-      httpsBinding: 'HTTPS binding',
-      httpsListen: 'HTTPS listen',
-      iisVersion: 'IIS version',
-      installPrefix: 'Install prefix',
-      installStatus: 'Install status',
-      ipAddress: 'IP address',
-      issuer: 'Issuer',
-      lastCapabilityReportAt: 'Last capability report time',
-      lastHeartbeat: 'Last heartbeat',
-      lastRecoveryAt: 'Last recovery time',
-      lastReportAt: 'Last report time',
-      linuxDistribution: 'Linux distribution',
-      listenAddress: 'Listen address',
-      notAfter: 'Not after',
-      notBefore: 'Not before',
-      offlineDetected: 'Offline detected',
-      osType: 'OS type',
-      osVersion: 'OS version',
-      patchVersion: 'Patch version',
-      privateKeyOrKeystore: 'Private key / Keystore',
-      proxyTarget: 'Proxy target',
-      remainingDays: 'Remaining days',
-      role: 'Role',
-      runningStatus: 'Running status',
-      runtimeLog: 'Runtime log',
-      serviceName: 'Service name',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      siteCount: 'Site count',
-      siteList: 'Site list',
-      tlsConnector: 'TLS connector',
-      tomcatVersion: 'Tomcat version',
-      zone: 'Zone'
+      agentVersion: 'Версия Agent',
+      appCount: 'Количество приложений',
+      appList: 'Список приложений',
+      appPool: 'Пул приложений',
+      arch: 'Архитектура системы',
+      binaryPath: 'Путь к бинарному файлу',
+      certificateFile: 'Файл сертификата',
+      certificateName: 'Имя сертификата',
+      certificateStore: 'Хранилище сертификатов',
+      certificateSubject: 'Субъект сертификата',
+      certificateThumbprint: 'Отпечаток сертификата',
+      configFile: 'Файл конфигурации',
+      configPath: 'Путь конфигурации',
+      connectorCount: 'Количество коннекторов',
+      connectorList: 'Список коннекторов',
+      domain: 'Домен',
+      frameworkVersion: 'Версия {name}',
+      healthStatus: 'Статус здоровья',
+      healthSummary: 'Сводка отклонений',
+      hostname: 'Имя хоста',
+      httpsBinding: 'HTTPS-привязка',
+      httpsListen: 'HTTPS-прослушивание',
+      iisVersion: 'Версия IIS',
+      installPrefix: 'Префикс установки',
+      installStatus: 'Статус установки',
+      ipAddress: 'IP-адрес',
+      issuer: 'Издатель',
+      lastCapabilityReportAt: 'Время последней отправки возможностей',
+      lastHeartbeat: 'Последний heartbeat',
+      lastRecoveryAt: 'Время последнего восстановления',
+      lastReportAt: 'Время последнего отчета',
+      linuxDistribution: 'Дистрибутив Linux',
+      listenAddress: 'Адрес прослушивания',
+      notAfter: 'Время окончания',
+      notBefore: 'Время начала',
+      offlineDetected: 'Определен как офлайн',
+      osType: 'Тип системы',
+      osVersion: 'Версия ОС',
+      patchVersion: 'Версия патча',
+      privateKeyOrKeystore: 'Закрытый ключ / Keystore',
+      proxyTarget: 'Цель прокси',
+      remainingDays: 'Оставшиеся дни',
+      role: 'Роль',
+      runningStatus: 'Статус выполнения',
+      runtimeLog: 'Журнал выполнения',
+      serviceName: 'Имя сервиса',
+      sha256Fingerprint: 'Отпечаток SHA-256',
+      siteCount: 'Количество сайтов',
+      siteList: 'Список сайтов',
+      tlsConnector: 'TLS-коннектор',
+      tomcatVersion: 'Версия Tomcat',
+      zone: 'Зона'
     },
     health: {
-      degraded: 'Degraded',
-      failed: 'Failed',
-      healthy: 'Healthy',
-      unknown: 'Unknown'
+      degraded: 'Деградировано',
+      failed: 'Ошибка',
+      healthy: 'Здоров',
+      unknown: 'Неизвестно'
     },
     install: {
-      bootstrapToken: 'Bootstrap token',
-      command: 'Install command',
-      commandCopied: 'Install command copied',
-      copyCommand: 'Copy install command',
-      copyToken: 'Copy token',
-      expired: 'Expired',
-      generateCommand: 'Generate install command',
-      generating: 'Generating...',
-      modalDescription: 'Choose platform and version to generate a one-time install command. The token is valid for 10 minutes and can only be used once.',
-      modalTitle: 'Install Agent',
-      platform: 'Platform',
-      platformLinuxDescription: 'For Ubuntu, Debian, CentOS, Rocky, AlmaLinux, and other Linux distributions.',
-      platformWindowsDescription: 'For Windows Server and Windows 10/11. Registers as a system service after installation.',
-      remainingTime: '{minutes}m {seconds}s',
-      remainingValidity: 'Remaining validity',
-      singleUseHint: 'Once the bootstrap script requests this token, it expires immediately and cannot be reused.',
-      tokenCopied: 'Token copied',
-      version: 'Version',
-      versionLatest: 'Latest stable',
-      zone: 'Zone'
+      bootstrapToken: 'Код установки',
+      command: 'Команда установки',
+      commandCopied: 'Команда установки скопирована',
+      copyCommand: 'Скопировать команду установки',
+      copyToken: 'Скопировать код установки',
+      expired: 'Истек',
+      generateCommand: 'Сформировать команду установки',
+      generating: 'Формирование...',
+      modalDescription: 'Выберите платформу и версию, чтобы сформировать одноразовую команду установки. Код установки действует 10 минут и может быть использован только один раз.',
+      modalTitle: 'Установка Agent',
+      platform: 'Платформа',
+      platformLinuxDescription: 'Подходит для Ubuntu, Debian, CentOS, Rocky, AlmaLinux и других дистрибутивов Linux.',
+      platformWindowsDescription: 'Подходит для Windows Server и Windows 10/11; после установки регистрируется как системная служба.',
+      remainingTime: '{minutes} мин {seconds} сек',
+      remainingValidity: 'Оставшийся срок действия',
+      singleUseHint: 'Как только bootstrap-скрипт запросит этот код установки, он сразу станет недействительным и не сможет быть использован повторно.',
+      tokenCopied: 'Код установки скопирован',
+      version: 'Версия',
+      versionLatest: 'Последняя стабильная версия',
+      zone: 'Зона'
     },
     labels: {
-      certificatePath: 'Certificate: {value}',
-      deployDirectory: 'Deploy directory: {value}',
-      directory: 'Directory: {value}',
+      certificatePath: 'Сертификат: {value}',
+      deployDirectory: 'Каталог развертывания: {value}',
+      directory: 'Каталог: {value}',
       keystorePath: 'Keystore: {value}',
-      listenAddress: 'Listen address: {value}',
-      path: 'Path: {value}',
-      privateKeyPath: 'Private key: {value}',
-      reloadCommand: 'Reload command: {value}',
-      siteName: 'Site name: {value}',
-      taskType: 'Task type: {value}',
-      testCommand: 'Test command: {value}',
-      thumbprint: 'Thumbprint: {value}'
+      listenAddress: 'Адрес прослушивания: {value}',
+      path: 'Путь: {value}',
+      privateKeyPath: 'Закрытый ключ: {value}',
+      reloadCommand: 'Команда Reload: {value}',
+      siteName: 'Имя сайта: {value}',
+      taskType: 'Тип задачи: {value}',
+      testCommand: 'Тестовая команда: {value}',
+      thumbprint: 'Отпечаток: {value}'
     },
     linux: {
-      certDirectoryWritable: 'Certificate directory: {status}',
-      helperRequired: 'Helper required',
-      keyDirectoryWritable: 'Private key directory: {status}',
-      permissionMode: 'Permission mode: {mode}'
+      certDirectoryWritable: 'Каталог сертификатов: {status}',
+      helperRequired: 'Требуется helper',
+      keyDirectoryWritable: 'Каталог закрытых ключей: {status}',
+      permissionMode: 'Режим прав: {mode}'
     },
     logs: {
-      collapse: 'Collapse',
-      expand: 'Expand',
-      listAriaLabel: 'Runtime log list'
+      collapse: 'Свернуть',
+      expand: 'Развернуть',
+      listAriaLabel: 'Список журналов выполнения'
     },
     metrics: {
-      abnormalDescription: 'Offline, failed, or drifted Agents need priority handling.',
-      abnormalTitle: 'Abnormal Agents',
-      totalDescription: 'Number of Agents currently registered with the control plane.',
-      totalTitle: 'Total Agents'
+      abnormalDescription: 'Agent в офлайн-, ошибочном или дрейфующем состоянии требуют приоритетной обработки.',
+      abnormalTitle: 'Проблемные Agent',
+      totalDescription: 'Количество Agent, зарегистрированных в системе.',
+      totalTitle: 'Всего Agent'
     },
     page: {
-      description: 'View Agents, generate install commands for different platforms, and inspect details in a dedicated modal.',
-      installAgent: 'Install Agent'
+      description: 'Просмотр списка Agent, формирование команд установки для разных платформ и просмотр деталей в диалоговом окне.',
+      installAgent: 'Установить Agent'
     },
     sections: {
-      frameworkOverviewDescription: 'Shows {name} installation status, running status, and config location on the host.',
-      frameworkOverviewTitle: '{name} overview',
-      frameworkSitesDescription: 'Shows sites, roots, domains, reverse proxy targets, and certificate paths discovered by {name}.',
-      frameworkSitesTitle: '{name} sites',
-      healthDescription: 'Shows control-plane offline detection, latest recovery time, pending result uploads, and health summary.',
-      healthTitle: 'Health and recovery',
-      iisOverviewDescription: 'Shows IIS installation status and version information on the host.',
-      iisOverviewTitle: 'IIS overview',
-      iisSitesDescription: 'Shows IIS websites, site paths, binding ports, and certificate subjects.',
-      iisSitesTitle: 'IIS sites',
-      logOverviewDescription: 'Shows the latest capability report time to help judge whether detail data is fresh.',
-      logOverviewTitle: 'Log overview',
-      mainInfoDescription: 'Shows Agent identity, role, and latest heartbeat.',
-      mainInfoTitle: 'Main information',
-      runtimeDescription: 'Shows runtime system and version information reported by the Agent.',
-      runtimeLogsDescription: 'Shows persisted runtime logs for manual rescans, heartbeat anomalies, and capability report interruptions.',
-      runtimeLogsTitle: 'Runtime logs',
-      runtimeTitle: 'Runtime environment',
-      tomcatAppsDescription: 'Shows application paths and deployment directories discovered in Tomcat Host/Context.',
-      tomcatAppsTitle: 'Tomcat apps',
-      tomcatConnectorsDescription: 'Shows Tomcat Connector listen address, protocol, TLS switch, and certificate path.',
-      tomcatConnectorsTitle: 'Tomcat connectors',
-      tomcatOverviewDescription: 'Shows Tomcat installation status, running status, and Catalina path on the host.',
-      tomcatOverviewTitle: 'Tomcat overview'
+      frameworkOverviewDescription: 'Состояние установки, выполнения и расположение конфигурации {name} на хосте.',
+      frameworkOverviewTitle: 'Обзор {name}',
+      frameworkSitesDescription: 'Сайты, корневые каталоги, домены, цели обратного прокси и пути сертификатов, распознанные {name}.',
+      frameworkSitesTitle: 'Сайты {name}',
+      healthDescription: 'Офлайн-определение Agent, время восстановления и сводка здоровья.',
+      healthTitle: 'Здоровье и восстановление',
+      iisOverviewDescription: 'Состояние установки IIS и сведения о версии на хосте.',
+      iisOverviewTitle: 'Обзор IIS',
+      iisSitesDescription: 'Список сайтов IIS, пути сайтов, порты привязок и имена субъектов сертификатов.',
+      iisSitesTitle: 'Сайты IIS',
+      logOverviewDescription: 'Время последней отправки возможностей для оценки актуальности сведений.',
+      logOverviewTitle: 'Обзор журналов',
+      mainInfoDescription: 'Идентификатор Agent, роль и статус heartbeat.',
+      mainInfoTitle: 'Основная информация',
+      runtimeDescription: 'Система выполнения и сведения о версии, отправленные Agent.',
+      runtimeLogsDescription: 'Журналы ручного повторного сканирования, аномалий heartbeat и прерываний отправки возможностей.',
+      runtimeLogsTitle: 'Журналы выполнения',
+      runtimeTitle: 'Среда выполнения',
+      tomcatAppsDescription: 'Пути приложений и каталоги развертывания, распознанные в Tomcat Host/Context.',
+      tomcatAppsTitle: 'Приложения Tomcat',
+      tomcatConnectorsDescription: 'Адреса прослушивания, протоколы, переключатель TLS и пути сертификатов Tomcat Connector.',
+      tomcatConnectorsTitle: 'Коннекторы Tomcat',
+      tomcatOverviewDescription: 'Состояние установки и выполнения Tomcat, а также путь Catalina на хосте.',
+      tomcatOverviewTitle: 'Обзор Tomcat'
     },
     site: {
-      domainCount: '{count} domains',
-      fallbackName: 'Site {index}'
+      domainCount: 'Доменов: {count}',
+      fallbackName: 'Сайт {index}'
     },
     siteMode: {
-      reverseProxy: 'Reverse proxy',
-      staticRoot: 'Static site'
+      reverseProxy: 'Обратный прокси',
+      staticRoot: 'Статический сайт'
     },
     status: {
-      installed: 'Installed',
-      notInstalled: 'Not installed',
-      notRunning: 'Not running',
-      running: 'Running'
+      installed: 'Установлено',
+      notInstalled: 'Не установлено',
+      notRunning: 'Не запущено',
+      running: 'Работает'
     },
     tabs: {
-      logs: 'Logs',
-      overview: 'Overview'
+      logs: 'Журналы',
+      overview: 'Обзор'
     }
   },
   dashboard: {
     aria: {
-      assetHeatmap: 'Application asset status heatmap',
-      certificateStatusList: 'Certificate status list',
-      metrics: 'Core metrics',
-      quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and application asset status',
-      statusLegend: 'Status legend'
+      assetHeatmap: 'Тепловая карта состояния активов приложений',
+      certificateStatusList: 'Список статусов сертификатов',
+      metrics: 'Ключевые метрики',
+      quickActions: 'Основные функциональные входы',
+      statusHeatmap: 'Состояние сертификатов, Agent, шлюзов и активов приложений',
+      statusLegend: 'Легенда статусов'
     },
     assets: {
-      groupCount: '{summary} · {total} items',
-      title: 'Application asset status',
-      updatedAt: 'Updated at {time}'
+      groupCount: '{summary} · {total} шт.',
+      title: 'Состояние активов приложений',
+      updatedAt: 'Обновлено {time}'
     },
     audit: {
-      description: 'Prioritizes failures, denials, high-risk events, and key business changes.',
-      title: 'Recent audit logs'
+      description: 'В первую очередь показываются ошибки, отказы, высокие риски и ключевые бизнес-изменения.',
+      title: 'Последние журналы аудита'
     },
     certificateState: {
-      critical: 'Near expiry',
-      expired: 'Expired',
-      expiring: 'Expiring soon',
-      unknown: 'Unknown',
-      valid: 'Normal'
+      critical: 'Близко к истечению',
+      expired: 'Истек',
+      expiring: 'Скоро истекает',
+      unknown: 'Неизвестно',
+      valid: 'Норма'
     },
     days: {
-      expired: 'Expired {days} days ago',
-      expiresToday: 'Expires today',
-      notRecorded: 'Not recorded',
-      remaining: '{days} days'
+      expired: 'Истек {days} дн. назад',
+      expiresToday: 'Истекает сегодня',
+      notRecorded: 'Не записано',
+      remaining: '{days} дн.'
     },
     empty: {
-      noAuditLogs: 'No audit logs',
-      noCertificateStatus: 'No certificate status data',
-      noObjects: 'No objects'
+      noAuditLogs: 'Журналов аудита пока нет',
+      noCertificateStatus: 'Нет данных о статусе сертификатов',
+      noObjects: 'Объектов пока нет'
     },
     errors: {
-      loadFailed: 'Failed to load overview data',
-      missingOverviewData: 'Overview API returned no data'
+      loadFailed: 'Не удалось загрузить обзорные данные',
+      missingOverviewData: 'Не удалось получить обзорные сведения.'
     },
     legend: {
-      disabled: 'Disabled',
-      error: 'Abnormal',
-      ok: 'Normal',
-      unknown: 'Unknown',
-      warning: 'Attention'
+      disabled: 'Отключено',
+      error: 'Ошибка',
+      ok: 'Норма',
+      unknown: 'Неизвестно',
+      warning: 'Требует внимания'
     },
     loading: {
-      description: 'Reading overview data.',
-      title: 'Loading'
+      description: 'Загрузка обзорной информации...',
+      title: 'Загрузка'
     },
     metrics: {
       activeAgents: {
-        title: 'Active Agents',
-        description: 'Agents currently online and schedulable.'
+        title: 'Активные Agent',
+        description: 'Agent, которые сейчас онлайн и доступны для планирования.'
       },
       activeGateways: {
-        title: 'Active gateways',
-        description: 'Isolation-zone gateways currently online.'
+        title: 'Активные шлюзы',
+        description: 'Шлюзы изолированных зон, которые сейчас онлайн.'
       },
       applications: {
-        title: 'Current applications',
-        description: 'Managed application entry assets.'
+        title: 'Текущее число приложений',
+        description: 'Управляемые активы входов приложений.'
       },
       expiringCertificates: {
-        title: 'Certificates expiring in 15 days',
-        description: 'Certificates that need renewal or replacement.'
+        title: 'Сертификаты, истекающие за 15 дней',
+        description: 'Сертификаты, которым нужно продление или замена.'
       },
       managedBindings: {
-        title: 'Managed bindings',
-        description: 'Certificate bindings already in managed status.'
+        title: 'Управляемые привязки',
+        description: 'Привязки сертификатов, уже переведенные в управляемое состояние.'
       },
       validCertificates: {
-        title: 'Active certificates',
-        description: 'Certificate versions that are active and not expired.'
+        title: 'Активные сертификаты',
+        description: 'Версии сертификатов, активные и еще не истекшие.'
       }
     },
     quickActions: {
       agents: {
         title: 'Agent',
-        description: 'View online status and task capabilities.'
+        description: 'Посмотреть онлайн-статус и возможности задач.'
       },
       assets: {
-        title: 'Application assets',
-        description: 'Maintain domains, ports, and deployment targets.'
+        title: 'Активы приложений',
+        description: 'Сопровождение доменов, портов и целей развертывания.'
       },
       audits: {
-        title: 'Audit logs',
-        description: 'Trace operators and execution results.'
+        title: 'Журналы аудита',
+        description: 'Отследить оператора и результат выполнения.'
       },
       certificates: {
-        title: 'Certificate management',
-        description: 'Import, view, and convert certificates.'
+        title: 'Управление сертификатами',
+        description: 'Импорт, просмотр и преобразование сертификатов.'
       },
       deploymentPlans: {
-        title: 'Deployment plans',
-        description: 'Create and execute certificate update plans.'
+        title: 'Планы развертывания',
+        description: 'Создание и выполнение планов обновления сертификатов.'
       },
       gateways: {
-        title: 'Gateway',
-        description: 'Manage isolation-zone execution entry points.'
+        title: 'Шлюзы',
+        description: 'Управление входами выполнения в изолированных зонах.'
       }
     },
     statusBlock: {
@@ -1263,22 +1229,22 @@ export default {
         certificateRemaining: '{name}, {days}'
       },
       status: {
-        active: 'Active',
-        critical: 'Near expiry',
-        deleted: 'Deleted',
-        disabled: 'Disabled',
-        expired: 'Expired',
-        expiring: 'Expiring soon',
-        inactive: 'Inactive',
-        offline: 'Offline',
-        online: 'Online',
-        retired: 'Retired',
-        revoked: 'Revoked',
-        stale: 'Stale',
-        unknown: 'Unknown',
-        unreachable: 'Unreachable',
-        upgrading: 'Upgrading',
-        valid: 'Normal'
+        active: 'Активно',
+        critical: 'Близко к истечению',
+        deleted: 'Удалено',
+        disabled: 'Отключено',
+        expired: 'Истекло',
+        expiring: 'Скоро истекает',
+        inactive: 'Неактивно',
+        offline: 'Не в сети',
+        online: 'В сети',
+        retired: 'Выведено',
+        revoked: 'Отозвано',
+        stale: 'Просрочено и не обновлено',
+        unknown: 'Неизвестно',
+        unreachable: 'Недоступно',
+        upgrading: 'Обновляется',
+        valid: 'Норма'
       }
     },
     statusGroups: {
@@ -1286,1397 +1252,1361 @@ export default {
         title: 'Agent'
       },
       applicationAssets: {
-        title: 'Application assets'
+        title: 'Активы приложений'
       },
       certificates: {
-        title: 'Certificates'
+        title: 'Сертификаты'
       },
       gateways: {
-        title: 'Gateways'
+        title: 'Шлюзы'
       },
       summary: {
-        allNormal: 'All normal',
-        needsAttention: '{count} need attention'
+        allNormal: 'Все в норме',
+        needsAttention: 'Требуют внимания: {count}'
       }
     },
     table: {
-      bindings: 'Bindings',
-      certificate: 'Certificate',
-      domain: 'Domain',
-      notAfterMissing: 'Expiry time not recorded',
-      remainingTime: 'Remaining time',
-      status: 'Status'
+      bindings: 'Привязки',
+      certificate: 'Сертификат',
+      domain: 'Домен',
+      notAfterMissing: 'Время истечения не записано',
+      remainingTime: 'Оставшееся время',
+      status: 'Статус'
     }
   },
   gateways: {
     actions: {
-      addGatewayAgent: 'Add Gateway Agent',
-      close: 'Close',
-      copied: 'Copied',
-      copyEnableCommand: 'Copy enable command',
-      copyInstallCommand: 'Copy install command',
-      detail: 'Details',
-      enableExistingAgent: 'Enable Gateway on existing Agent',
-      generateEnableCommand: 'Generate enable command',
-      generateInstallCommand: 'Generate install command',
-      generating: 'Generating...',
-      probe: 'Probe',
-      probeRisk: 'Starts a reachability probe from this Gateway region.'
+      addGatewayAgent: 'Добавить Gateway Agent',
+      close: 'Закрыть',
+      copied: 'Скопировано',
+      copyEnableCommand: 'Скопировать команду включения',
+      copyInstallCommand: 'Скопировать команду установки',
+      detail: 'Детали',
+      enableExistingAgent: 'Включить Gateway на существующем Agent',
+      generateEnableCommand: 'Сформировать команду включения',
+      generateInstallCommand: 'Сформировать команду установки',
+      generating: 'Формирование...',
+      probe: 'Проверить',
+      probeRisk: 'Из зоны этого Gateway будет запущена проверка доступности.'
     },
     columns: {
-      actions: 'Actions',
-      gateway: 'Gateway',
-      lastHeartbeat: 'Last heartbeat',
-      load: 'Load',
-      region: 'Region',
-      status: 'Status'
+      actions: 'Операции',
+      gateway: 'Шлюз',
+      lastHeartbeat: 'Последний heartbeat',
+      load: 'Нагрузка',
+      region: 'Регион',
+      status: 'Статус'
     },
     detail: {
       abilities: {
         agentTask: {
-          description: 'Forward deployment, check, and other tasks to Agents in this region.',
-          title: 'Task forwarding'
+          description: 'Передает задачи развертывания, проверки и другие задачи Agent внутри региона.',
+          title: 'Пересылка задач'
         },
         directControl: {
-          description: 'Forward controlled operations to Agents in this region without direct control-plane access to internal ports.',
-          title: 'Remote control forwarding'
+          description: 'Передает управляемые операции Agent внутри региона, чтобы системе не требовалось прямое подключение к внутренним портам.',
+          title: 'Пересылка удаленного управления'
         },
         probe: {
-          description: 'Check whether hosts, websites, or Agents are reachable from this region.',
-          title: 'Connectivity check'
+          description: 'Проверяет из этого региона доступность хоста, сайта или Agent.',
+          title: 'Проверка связности'
         }
       },
-      eyebrow: 'Regional gateway',
-      heroDescription: 'Handles probing and forwarding in region {region}',
+      eyebrow: 'Региональный шлюз',
+      heroDescription: 'Отвечает за проверки и пересылку в регионе {region}',
       overview: {
-        availableCapacity: 'Available capacity',
-        connectionStatus: 'Connection status',
-        lastContact: 'Last contact',
-        processing: 'Processing',
-        serviceRegion: 'Service region',
-        successRate: 'Success rate'
+        availableCapacity: 'Доступная емкость',
+        connectionStatus: 'Статус соединения',
+        lastContact: 'Последний контакт',
+        processing: 'Обработка',
+        serviceRegion: 'Регион обслуживания',
+        successRate: 'Доля успеха'
       },
       sections: {
-        overview: 'Runtime overview',
-        services: 'Available services'
+        overview: 'Обзор выполнения',
+        services: 'Доступные сервисы'
       }
     },
     empty: {
-      description: 'Add a Gateway Agent, or enable the Gateway role on an existing Agent.',
-      title: 'No gateways'
+      description: 'Добавьте Gateway Agent или включите роль Gateway на существующем Agent.',
+      title: 'Шлюзов пока нет'
     },
     errors: {
-      generateEnableCommandFailed: 'Failed to generate Gateway enable command.',
-      generateInstallCommandFailed: 'Failed to generate Gateway Agent install command.',
-      missingEnableCommand: 'The backend did not return a Gateway enable command.',
-      missingInstallCommand: 'The backend did not return a Gateway Agent install command.'
+      generateEnableCommandFailed: 'Не удалось сформировать команду включения Gateway.',
+      generateInstallCommandFailed: 'Не удалось сформировать команду установки Gateway Agent.',
+      missingEnableCommand: 'Система не вернула команду включения Gateway.',
+      missingInstallCommand: 'Система не вернула команду установки Gateway Agent.'
     },
     fields: {
-      config: 'Config',
-      enableCommand: 'Enable command',
-      expiresAt: 'Expires at',
-      installCode: 'Install code',
-      installCommand: 'Install command',
-      platform: 'Platform',
-      region: 'Region',
-      service: 'Service',
-      unboundAgent: 'Do not bind a specific Agent'
+      config: 'Конфигурация',
+      enableCommand: 'Команда включения',
+      expiresAt: 'Время истечения',
+      installCode: 'Код установки',
+      installCommand: 'Команда установки',
+      platform: 'Платформа',
+      region: 'Регион',
+      service: 'Сервис',
+      unboundAgent: 'Не привязывать конкретный Agent'
     },
     links: {
-      assets: 'View assets',
-      executions: 'View execution records'
+      assets: 'Посмотреть активы',
+      executions: 'Посмотреть записи выполнения'
     },
     modals: {
       detail: {
-        title: 'Gateway details'
+        title: 'Детали шлюза'
       },
       enable: {
-        title: 'Enable Gateway on existing Agent'
+        title: 'Включить Gateway на существующем Agent'
       },
       install: {
-        title: 'Add Gateway Agent'
+        title: 'Добавить Gateway Agent'
       }
     },
     page: {
-      description: 'Manage regional routing Gateway Agents.',
-      title: 'Gateways'
+      description: 'Управление Gateway Agent региональной маршрутизации.',
+      title: 'Шлюзы'
     },
     platforms: {
       linuxSystemd: {
-        description: 'Install Gateway Agent service on a Linux host'
+        description: 'Установить сервис Gateway Agent на Linux-хост'
       },
       windowsService: {
-        description: 'Install Gateway Agent service on a Windows host'
+        description: 'Установить сервис Gateway Agent на Windows-хост'
       }
     },
-    resourceName: 'Gateway',
+    resourceName: 'Шлюз',
     status: {
-      disabled: 'Disabled',
-      offline: 'Offline',
-      online: 'Online',
-      revoked: 'Revoked',
-      upgrading: 'Upgrading'
+      disabled: 'Остановлен',
+      offline: 'Не в сети',
+      online: 'В сети',
+      revoked: 'Отозван',
+      upgrading: 'Обновляется'
     },
     values: {
-      availableCapacity: 'Can accept {count} tasks',
-      defaultRegion: 'Default region',
-      regionGatewayName: '{region} gateway',
-      taskCount: '{count} tasks'
+      availableCapacity: 'Может принять задач: {count}',
+      defaultRegion: 'Регион по умолчанию',
+      regionGatewayName: 'Шлюз {region}',
+      taskCount: 'Задач: {count}'
     }
   },
   auditFormat: {
     actions: {
-      secretResolveService: 'Service reads Secret',
-      secretResolve: 'Executor reads Secret',
-      secretCreate: 'Create Secret',
-      secretVersionCreate: 'Create Secret version',
-      secretRotate: 'Rotate Secret',
-      certificateImport: 'Import certificate',
-      certificateFormatUpdate: 'Update certificate artifact',
-      certificateFormatDelete: 'Delete certificate artifact',
-      deploymentCreate: 'Create deployment plan',
-      deploymentExecute: 'Execute deployment plan',
-      deploymentRollback: 'Request rollback',
-      approvalCreate: 'Create approval',
-      approvalApprove: 'Approve request',
-      approvalReject: 'Reject request',
-      authLogin: 'User login',
-      authLogout: 'User logout'
+      secretResolveService: 'Сервис читает Secret',
+      secretResolve: 'Исполнитель читает Secret',
+      secretCreate: 'Создать Secret',
+      secretVersionCreate: 'Создать версию Secret',
+      secretRotate: 'Ротировать Secret',
+      certificateImport: 'Импортировать сертификат',
+      certificateFormatUpdate: 'Обновить артефакт сертификата',
+      certificateFormatDelete: 'Удалить артефакт сертификата',
+      deploymentCreate: 'Создать план развертывания',
+      deploymentExecute: 'Выполнить план развертывания',
+      deploymentRollback: 'Запросить откат',
+      approvalCreate: 'Создать согласование',
+      approvalApprove: 'Утвердить согласование',
+      approvalReject: 'Отклонить согласование',
+      authLogin: 'Вход пользователя',
+      authLogout: 'Выход пользователя'
     },
     events: {
-      authLoginSuccess: 'Login succeeded',
-      authLoginFailure: 'Login failed',
-      authLoginFailed: 'Login failed',
-      authLogout: 'Logged out',
-      authExternalLoginSuccess: 'External identity login succeeded',
-      authExternalLoginFailed: 'External identity login failed',
-      secretCreated: 'Created Secret',
-      secretVersionCreated: 'Created Secret version',
-      secretUsed: 'Read Secret',
-      secretRotated: 'Rotated Secret',
-      permissionDenied: 'Permission denied',
-      approvalCreated: 'Created approval',
-      approvalApproved: 'Approval approved',
-      approvalRejected: 'Approval rejected',
-      certificateImported: 'Certificate changed',
-      deploymentCreated: 'Created deployment',
-      deploymentExecuted: 'Executed deployment',
-      deploymentRollbackRequested: 'Requested deployment rollback',
-      pluginInstalled: 'Installed plugin',
-      pluginPermissionDenied: 'Plugin permission denied',
-      workflowTemplateExecuted: 'Executed workflow template'
+      authLoginSuccess: 'Вход успешен',
+      authLoginFailure: 'Вход не выполнен',
+      authLoginFailed: 'Вход не выполнен',
+      authLogout: 'Выход из системы',
+      authExternalLoginSuccess: 'Вход через внешний источник идентификации успешен',
+      authExternalLoginFailed: 'Вход через внешний источник идентификации не выполнен',
+      secretCreated: 'Создан Secret',
+      secretVersionCreated: 'Создана версия Secret',
+      secretUsed: 'Secret прочитан',
+      secretRotated: 'Secret ротирован',
+      permissionDenied: 'Доступ запрещен',
+      approvalCreated: 'Создано согласование',
+      approvalApproved: 'Согласование утверждено',
+      approvalRejected: 'Согласование отклонено',
+      certificateImported: 'Изменение сертификата',
+      deploymentCreated: 'Создано развертывание',
+      deploymentExecuted: 'Развертывание выполнено',
+      deploymentRollbackRequested: 'Запрошен откат развертывания',
+      pluginInstalled: 'Плагин установлен',
+      pluginPermissionDenied: 'Права плагина отклонены',
+      workflowTemplateExecuted: 'Шаблон рабочего процесса выполнен'
     },
     types: {
-      audit: 'Audit',
-      auth: 'Authentication',
-      security: 'Security',
+      audit: 'Аудит',
+      auth: 'Аутентификация',
+      security: 'Безопасность',
       secret: 'Secret',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution',
-      approval: 'Approval',
-      permission: 'Permission',
-      plugin: 'Plugin',
-      workflowTemplate: 'Workflow',
-      gateway: 'Gateway',
+      certificate: 'Сертификат',
+      certificateVersion: 'Сертификат',
+      certificateVersionFormat: 'Артефакт сертификата',
+      deployment: 'Развертывание',
+      deploymentPlan: 'План развертывания',
+      execution: 'Выполнение',
+      approval: 'Согласование',
+      permission: 'Права',
+      plugin: 'Плагин',
+      workflowTemplate: 'Рабочий процесс',
+      gateway: 'Шлюз',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Binding'
+      serviceAsset: 'Актив приложения',
+      binding: 'Привязка'
     },
     actors: {
-      user: 'User',
-      system: 'System',
+      user: 'Пользователь',
+      system: 'Система',
       agent: 'Agent',
-      plugin: 'Plugin',
-      executor: 'Executor'
+      plugin: 'Плагин',
+      executor: 'Исполнитель'
     },
     resources: {
       secret: 'Secret',
-      secretVersion: 'Secret version',
-      certificate: 'Certificate',
-      certificateVersion: 'Certificate version',
-      certificateVersionFormat: 'Certificate artifact',
-      deployment: 'Deployment',
-      deploymentPlan: 'Deployment plan',
-      execution: 'Execution task',
-      executionRun: 'Execution task',
-      approval: 'Approval',
-      plugin: 'Plugin',
-      workflowTemplate: 'Workflow template',
-      gateway: 'Gateway',
+      secretVersion: 'Версия Secret',
+      certificate: 'Сертификат',
+      certificateVersion: 'Версия сертификата',
+      certificateVersionFormat: 'Артефакт сертификата',
+      deployment: 'Развертывание',
+      deploymentPlan: 'План развертывания',
+      execution: 'Задача выполнения',
+      executionRun: 'Задача выполнения',
+      approval: 'Заявка согласования',
+      plugin: 'Плагин',
+      workflowTemplate: 'Шаблон рабочего процесса',
+      gateway: 'Шлюз',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
-      binding: 'Certificate binding',
-      auditLog: 'Audit log'
+      serviceAsset: 'Актив приложения',
+      binding: 'Привязка сертификата',
+      auditLog: 'Журнал аудита'
     },
     results: {
-      success: 'Success',
-      failure: 'Failed',
-      denied: 'Denied'
+      success: 'Успех',
+      failure: 'Ошибка',
+      denied: 'Отказ'
     },
     verbs: {
-      success: ' completed ',
-      failure: ' failed ',
-      denied: ' denied '
+      success: 'завершил',
+      failure: 'завершил с ошибкой',
+      denied: 'отклонил'
     },
     tokens: {
-      auth: 'authentication',
-      login: 'login',
-      logout: 'logout',
-      external: 'external',
+      auth: 'аутентификация',
+      login: 'вход',
+      logout: 'выход',
+      external: 'внешний',
       secret: 'Secret',
-      resolve: 'read',
-      service: 'service',
-      used: 'used',
-      created: 'created',
-      create: 'create',
-      updated: 'updated',
-      update: 'update',
-      deleted: 'deleted',
-      delete: 'delete',
-      version: 'version',
-      certificate: 'certificate',
-      imported: 'imported',
-      import: 'import',
-      format: 'artifact',
-      deployment: 'deployment',
-      executed: 'executed',
-      execute: 'execute',
-      rollback: 'rollback',
-      requested: 'requested',
-      approval: 'approval',
-      approved: 'approved',
-      rejected: 'rejected',
-      permission: 'permission',
-      denied: 'denied',
-      gateway: 'gateway',
-      credential: 'credential',
-      issued: 'issued',
-      revoked: 'revoked',
-      task: 'task',
-      evidence: 'evidence',
-      recorded: 'recorded',
-      result: 'result',
-      plugin: 'plugin',
-      workflow: 'workflow',
-      template: 'template',
-      synced: 'synced',
-      tested: 'tested',
-      source: 'source',
-      identity: 'identity source',
-      group: 'group',
-      mapping: 'mapping'
+      resolve: 'чтение',
+      service: 'сервис',
+      used: 'использовано',
+      created: 'создано',
+      create: 'создать',
+      updated: 'обновлено',
+      update: 'обновить',
+      deleted: 'удалено',
+      delete: 'удалить',
+      version: 'версия',
+      certificate: 'сертификат',
+      imported: 'импортировано',
+      import: 'импорт',
+      format: 'артефакт',
+      deployment: 'развертывание',
+      executed: 'выполнено',
+      execute: 'выполнить',
+      rollback: 'откат',
+      requested: 'запрошено',
+      approval: 'согласование',
+      approved: 'утверждено',
+      rejected: 'отклонено',
+      permission: 'права',
+      denied: 'отказано',
+      gateway: 'шлюз',
+      credential: 'учетные данные',
+      issued: 'выдано',
+      revoked: 'отозвано',
+      task: 'задача',
+      evidence: 'доказательство',
+      recorded: 'записано',
+      result: 'результат',
+      plugin: 'плагин',
+      workflow: 'рабочий процесс',
+      template: 'шаблон',
+      synced: 'синхронизировано',
+      tested: 'проверено',
+      source: 'источник',
+      identity: 'источник идентификации',
+      group: 'группа',
+      mapping: 'сопоставление'
     },
     actorWithId: '{actorType} {actorId}',
-    summary: '{actor}{verb}"{title}", resource: {resource}.',
+    summary: '{actor}{verb} "{title}", объект: {resource}.',
     fallbacks: {
-      unknown: 'Unknown'
+      unknown: 'Неизвестно'
     }
   },
   audit: {
     page: {
-      title: 'Audit logs',
-      description: 'Organizes logs by user actions, failures/denials, and key business changes while keeping readable summaries.'
+      title: 'Журналы аудита',
+      description: 'Журналы организованы по действиям пользователей, ошибкам/отказам и ключевым бизнес-изменениям, с читаемыми сводками.'
     },
     actions: {
-      exportEvidence: 'Export audit evidence',
-      exporting: 'Exporting…',
-      refreshing: 'Refreshing…'
+      exportEvidence: 'Экспортировать доказательства аудита',
+      exporting: 'Экспорт...',
+      refreshing: 'Обновление...'
     },
     errors: {
-      exportFailed: 'Failed to export audit evidence',
-      loadFailed: 'Failed to load audit logs',
+      exportFailed: 'Не удалось экспортировать доказательства аудита',
+      loadFailed: 'Не удалось загрузить журналы аудита',
       withRequestId: '{message} ({requestId})'
     },
     metrics: {
-      ariaLabel: 'Audit overview',
+      ariaLabel: 'Обзор аудита',
       total: {
-        title: 'Total audits',
-        description: 'Traceable operation records in the current filter scope.'
+        title: 'Всего записей аудита',
+        description: 'Отслеживаемые записи операций в текущей области фильтрации.'
       },
       failed: {
-        title: 'Failed / denied',
-        description: 'Failed executions and denied access that need priority review.'
+        title: 'Ошибки / отказы',
+        description: 'Ошибочные выполнения и отказы доступа, требующие приоритетной проверки.'
       },
       userActions: {
-        title: 'User actions',
-        description: 'Business changes and access actions directly initiated by users.'
+        title: 'Действия пользователей',
+        description: 'Бизнес-изменения и действия доступа, напрямую инициированные пользователями.'
       }
     },
     list: {
-      ariaLabel: 'Audit log list',
-      title: 'Log list',
-      summary: '{total} total, sorted by newest first.',
-      timeNotRecorded: 'Time not recorded'
+      ariaLabel: 'Список журналов аудита',
+      title: 'Список журналов',
+      summary: 'Всего {total}, по умолчанию сортировка от новых к старым.',
+      timeNotRecorded: 'Время не записано'
     },
     empty: {
-      title: 'No audit events',
-      description: 'Key operations should be traceable to operation records and task records.'
+      title: 'Событий аудита пока нет',
+      description: 'Ключевые операции должны прослеживаться до соответствующих записей операций и задач.'
     }
   },
   securityAdmin: {
     emptyValue: '—',
     errors: {
-      loadFailed: 'Load failed',
-      submitFailed: 'Submit failed'
+      loadFailed: 'Не удалось загрузить',
+      submitFailed: 'Не удалось отправить'
     },
     actions: {
-      createResource: 'Add {resource}',
-      submitting: 'Submitting…'
+      createResource: 'Добавить {resource}',
+      submitting: 'Отправка...'
     },
     modal: {
-      createDescription: 'Fill in the fields below to create {resource}'
+      createDescription: 'Заполните поля ниже, чтобы создать {resource}'
     },
     placeholders: {
-      selectField: 'Select {field}'
+      selectField: 'Выберите {field}'
     },
     table: {
-      ariaLabel: 'Management list',
-      resourceList: '{resource} list',
-      total: '{count} total'
-    }
-  },
-  notifications: {
-    title: 'Управление уведомлениями',
-    description: 'Управление каналами, маршрутами, шаблонами, периодами тишины и доставками.',
-    tabs: { channels: 'Каналы', deliveries: 'Доставки', rules: 'Правила и шаблоны' },
-    sections: { channels: 'Записи каналов', deliveries: 'Записи доставки' },
-    channels: { createTitle: 'Создать канал уведомлений' },
-    settings: { privateOriginsTitle: 'Адреса частного развертывания', privateOriginsDescription: 'Настройте разрешенные частные HTTPS Origin для WeCom, Feishu и DingTalk.' },
-    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Универсальный Webhook' },
-    deploymentModes: { public: 'Публичное облако', private: 'Частное развертывание' },
-    fields: {
-      name: 'Имя канала', type: 'Тип канала', deploymentMode: 'Режим развертывания', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
-      smtpSecurity: 'Шифрование соединения', smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', secretValuePlaceholder: 'Введите секретное значение',
-      optionalSecretValuePlaceholder: 'Необязательно; введите секретное значение', wecomWebhookUrl: 'Webhook URL группового робота WeCom', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      feishuWebhookUrl: 'Webhook URL пользовательского робота Feishu', dingtalkWebhookUrl: 'Webhook URL пользовательского робота DingTalk', feishuSigningSecret: 'Секрет подписи Feishu',
-      dingtalkSigningSecret: 'Секрет подписи DingTalk', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (необязательно)',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Введите полный Webhook URL', webhookMethod: 'Метод HTTP', webhookHeaders: 'Фиксированные Header (JSON)',
-      webhookHeadersPlaceholder: 'Пример: x-source = gcac', signingSecret: 'Ключ подписи HMAC-SHA256', testTarget: 'Тестовый получатель',
-      testTargetPlaceholder: 'Email-адреса можно разделить запятыми', lastSuccess: 'Последний успех', latency: 'Задержка (мс)',
-      createdAt: 'Создано', updatedAt: 'Обновлено', failureCategory: 'Категория ошибки', channel: 'Канал уведомлений', selectChannel: 'Выберите канал',
-      source: 'Источник события', priority: 'Приоритет маршрута', dedupeWindow: 'Окно дедупликации (секунды)', templateKey: 'Ключ шаблона', locale: 'Язык',
-      titleTemplate: 'Шаблон заголовка', bodyTemplate: 'Шаблон текста', reason: 'Причина тишины', startsAt: 'Начало', endsAt: 'Окончание',
-      wecomPrivateOrigins: 'Частные Origin WeCom', feishuPrivateOrigins: 'Частные Origin Feishu', dingtalkPrivateOrigins: 'Частные Origin DingTalk', privateOriginsPlaceholder: 'По одному в строке, например https://notify.example.internal'
-    },
-    actions: {
-      createChannel: 'Новый канал', createRoute: 'Новый маршрут', createTemplate: 'Новый шаблон', createSilence: 'Новое правило тишины',
-      confirmCreate: 'Создать', cancel: 'Отмена', saveSettings: 'Сохранить настройки', test: 'Тестовая отправка', testChannel: 'Проверить канал: {name}', retry: 'Повторить доставку', enable: 'Включить', disable: 'Отключить'
-    },
-    rules: { createRoute: 'Создать маршрут уведомлений', createTemplate: 'Создать шаблон уведомлений', createSilence: 'Создать правило тишины' },
-    summary: { routes: 'Маршруты уведомлений', templates: 'Шаблоны уведомлений', silences: 'Правила тишины', recordCount: 'Записей: {count}' },
-    empty: { channels: 'Нет каналов уведомлений', deliveries: 'Нет записей доставки', routes: 'Нет маршрутов уведомлений', templates: 'Нет шаблонов уведомлений', silences: 'Нет правил тишины' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', webhookUrl: 'Webhook URL', signingSecret: 'Ключ подписи', botToken: 'Bot Token' } },
-    messages: {
-      loadFailed: 'Не удалось загрузить данные управления уведомлениями', operationFailed: 'Операция управления уведомлениями не выполнена', testUsesChannelTarget: 'Тестовое уведомление будет отправлено на настроенный адрес канала.',
-      secretStoredHint: 'Значение будет сохранено в зашифрованном виде и больше не отобразится открытым текстом.', createSecretFailed: 'Не удалось сохранить секретное значение', invalidHeaders: 'Фиксированные Header должны быть корректным объектом JSON',
-      smtpCredentialsPairRequired: 'Имя пользователя и пароль SMTP необходимо указывать вместе', webhookUrlRequired: 'Webhook URL обязателен', botTokenRequired: 'Telegram Bot Token обязателен',
-      chatIdRequired: 'Telegram Chat ID обязателен', feishuWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота Feishu', dingtalkWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота DingTalk',
-      wecomWebhookUrlInvalid: 'Введите корректный HTTPS Webhook URL робота WeCom', telegramBotTokenInvalid: 'Неверный формат Telegram Bot Token', telegramMessageThreadIdInvalid: 'Telegram Topic ID должен быть положительным целым числом',
-      privateDeploymentAllowlistHint: 'Частные адреса сначала должны быть добавлены в список доверенных HTTPS Origin выше.', privateOriginInvalid: 'Частный адрес должен быть точным HTTPS Origin без пути, запроса, данных пользователя и фрагмента.', privateOriginsSecurityHint: 'Указывайте только схему, хост и необязательный порт. Полные Webhook URL, токены и ключи подписи остаются зашифрованными в сервисе Secret.', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
+      ariaLabel: 'Список управления',
+      resourceList: 'Список {resource}',
+      total: 'Всего {count}'
     }
   },
   settings: {
-    securityLabel: 'Security settings entry',
+    securityLabel: 'Вход в настройки безопасности',
     permissionPolicies: {
-      resourceName: 'Permission policy',
+      resourceName: 'Политика прав',
       actions: {
-        create: 'Create policy'
+        create: 'Создать политику'
       },
       columns: {
-        id: 'Policy ID',
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        scope: 'Scope'
+        id: 'ID политики',
+        subjectType: 'Тип субъекта',
+        subjectId: 'ID субъекта',
+        effect: 'Эффект',
+        actions: 'Действия',
+        resourceTypes: 'Типы ресурсов',
+        scope: 'Область'
       },
       fields: {
-        subjectType: 'Subject type',
-        subjectId: 'Subject ID',
-        effect: 'Effect',
-        actions: 'Actions',
-        resourceTypes: 'Resource types',
-        tenantId: 'Tenant scope'
+        subjectType: 'Тип субъекта',
+        subjectId: 'ID субъекта',
+        effect: 'Эффект',
+        actions: 'Действия',
+        resourceTypes: 'Типы ресурсов',
+        tenantId: 'Область тенанта'
       },
       subjectTypes: {
-        role: 'Role',
-        user: 'User',
-        plugin: 'Plugin',
-        executor: 'Executor'
+        role: 'Роль',
+        user: 'Пользователь',
+        plugin: 'Плагин',
+        executor: 'Исполнитель'
       },
       effects: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: 'Разрешить',
+        deny: 'Запретить'
       }
     },
     groupRoleMappings: {
-      resourceName: 'Group mapping',
+      resourceName: 'Сопоставление групп',
       actions: {
-        create: 'Create mapping'
+        create: 'Создать сопоставление'
       },
       columns: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role',
-        enabled: 'Enabled',
-        updatedAt: 'Updated at'
+        sourceId: 'ID источника идентификации',
+        externalGroup: 'Внешняя группа',
+        roleId: 'Локальная роль',
+        enabled: 'Включено',
+        updatedAt: 'Время обновления'
       },
       fields: {
-        sourceId: 'Identity source ID',
-        externalGroup: 'External group',
-        roleId: 'Local role ID'
+        sourceId: 'ID источника идентификации',
+        externalGroup: 'Внешняя группа',
+        roleId: 'ID локальной роли'
       }
     },
     users: {
-      title: 'Account principals',
+      title: 'Список учетных субъектов',
       summary: {
-        groups: '{count} total',
-        users: '{total} total, {selected} selected'
+        groups: 'Всего {count}',
+        users: 'Всего {total}, выбрано {selected}'
       },
       actions: {
-        createUser: 'Create user',
-        addGroup: 'Add group',
-        bulkDelete: 'Bulk delete',
-        edit: 'Edit',
-        delete: 'Delete',
-        lookupLoading: 'Looking up...',
-        lookupUser: 'Look up user',
-        lookupGroup: 'Look up group',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        adding: 'Adding...'
+        createUser: 'Создать пользователя',
+        addGroup: 'Добавить группу',
+        bulkDelete: 'Массовое удаление',
+        edit: 'Редактировать',
+        delete: 'Удалить',
+        lookupLoading: 'Поиск...',
+        lookupUser: 'Найти пользователя',
+        lookupGroup: 'Найти группу',
+        creating: 'Создание...',
+        saving: 'Сохранение...',
+        saveChanges: 'Сохранить изменения',
+        adding: 'Добавление...'
       },
       risks: {
-        bulkDelete: 'Bulk delete removes local credentials and role bindings for selected users.',
-        deleteUser: 'Deleting the user removes this account\'s local credentials and role bindings.'
+        bulkDelete: 'Массовое удаление удалит локальные учетные данные и связи ролей выбранных пользователей.',
+        deleteUser: 'Удаление пользователя удалит локальные учетные данные и связи ролей этой учетной записи.'
       },
       tabs: {
-        users: 'Users',
-        groups: 'Groups'
+        users: 'Пользователи',
+        groups: 'Группы'
       },
       empty: {
-        users: 'No users',
-        groups: 'No groups'
+        users: 'Пользователей пока нет',
+        groups: 'Групп пользователей пока нет'
       },
       columns: {
-        username: 'User name',
-        displayName: 'Display name',
+        username: 'Имя пользователя',
+        displayName: 'Отображаемое имя',
         email: 'Email',
-        source: 'Source',
-        identitySourceName: 'Identity source name',
-        status: 'Status',
-        tenant: 'Tenant',
-        roles: 'Roles',
-        lastSyncedAt: 'Last synced',
-        updatedAt: 'Updated at',
-        actions: 'Actions',
-        groupName: 'Group name',
-        code: 'Code',
-        externalRef: 'External reference'
+        source: 'Источник',
+        identitySourceName: 'Имя источника идентификации',
+        status: 'Статус',
+        tenant: 'Тенант',
+        roles: 'Роли',
+        lastSyncedAt: 'Последняя синхронизация',
+        updatedAt: 'Время обновления',
+        actions: 'Операции',
+        groupName: 'Имя группы',
+        code: 'Код',
+        externalRef: 'Внешний идентификатор'
       },
       dialog: {
-        userCreateTitle: 'Create user',
-        userEditTitle: 'Edit user',
-        userCreateDescription: 'Create a local user, or look up an identity-source user by user name and create a bound user.',
-        userEditDescription: 'Edit display name, email, status, and roles.',
-        groupCreateTitle: 'Add group',
-        groupCreateDescription: 'Create a local group, or look up an external group from an identity source.'
+        userCreateTitle: 'Создать пользователя',
+        userEditTitle: 'Редактировать пользователя',
+        userCreateDescription: 'Создайте локального пользователя или найдите пользователя по имени в источнике идентификации и создайте связанную учетную запись.',
+        userEditDescription: 'Редактирование отображаемого имени, email, статуса и ролей пользователя.',
+        groupCreateTitle: 'Добавить группу',
+        groupCreateDescription: 'Создайте локальную группу или найдите группу в источнике идентификации и добавьте внешнюю группу.'
       },
       aria: {
-        principalType: 'Principal type',
-        createMode: 'Creation mode',
-        externalUserProfile: 'External identity user profile',
-        groupCreateMode: 'Group creation mode',
-        externalGroupProfile: 'External identity group profile'
+        principalType: 'Тип субъекта',
+        createMode: 'Способ создания',
+        externalUserProfile: 'Профиль пользователя источника идентификации',
+        groupCreateMode: 'Способ создания группы',
+        externalGroupProfile: 'Профиль группы источника идентификации'
       },
       modes: {
-        localUser: 'Local user',
-        externalUser: 'Identity source user',
-        localGroup: 'Local group',
-        externalGroup: 'Identity source group'
+        localUser: 'Локальный пользователь',
+        externalUser: 'Пользователь источника идентификации',
+        localGroup: 'Локальная группа',
+        externalGroup: 'Группа источника идентификации'
       },
       fields: {
-        identitySource: 'Identity source',
-        directoryUsername: 'Directory user name',
-        username: 'User name',
-        displayName: 'Display name',
+        identitySource: 'Источник идентификации',
+        directoryUsername: 'Имя пользователя каталога',
+        username: 'Имя пользователя',
+        displayName: 'Отображаемое имя',
         email: 'Email',
-        role: 'Role',
-        initialPassword: 'Initial password',
-        status: 'Status',
-        directoryGroupName: 'Directory group name',
-        groupName: 'Group name',
-        groupCode: 'Group code',
-        directoryDn: 'Directory DN'
+        role: 'Роль',
+        initialPassword: 'Начальный пароль',
+        status: 'Статус',
+        directoryGroupName: 'Имя группы каталога',
+        groupName: 'Имя группы',
+        groupCode: 'Код группы',
+        directoryDn: 'DN каталога'
       },
       placeholders: {
-        selectIdentitySource: 'Select an identity source',
-        directoryUsername: 'For example jackson',
-        displayName: 'Certificate operator',
-        initialPassword: 'Enter an initial password',
-        directoryGroupName: 'For example GCAC-Ops',
-        groupName: 'Certificate operations group'
+        selectIdentitySource: 'Выберите источник идентификации',
+        directoryUsername: 'Например, jackson',
+        displayName: 'Оператор сертификатов',
+        initialPassword: 'Введите начальный пароль',
+        directoryGroupName: 'Например, GCAC-Ops',
+        groupName: 'Группа эксплуатации сертификатов'
       },
       options: {
-        unset: 'Not set'
+        unset: 'Не задавать'
       },
       status: {
-        active: 'Enabled',
-        disabled: 'Disabled'
+        active: 'Включен',
+        disabled: 'Отключен'
       },
       labels: {
         identitySourceOption: '{name} ({type})'
       },
       errors: {
-        loadUsersFailed: 'Failed to load users',
-        loadGroupsFailed: 'Failed to load groups',
-        createUserFailed: 'Failed to create user',
-        updateUserFailed: 'Failed to update user',
-        externalUserEmpty: 'The identity source did not return a user profile',
-        lookupExternalUserFailed: 'Failed to look up identity-source user',
-        externalGroupEmpty: 'The identity source did not return a group profile',
-        lookupExternalGroupFailed: 'Failed to look up identity-source group',
-        createGroupFailed: 'Failed to create group',
-        deleteUsersFailed: 'Failed to delete users'
+        loadUsersFailed: 'Не удалось загрузить пользователей',
+        loadGroupsFailed: 'Не удалось загрузить группы пользователей',
+        createUserFailed: 'Не удалось создать пользователя',
+        updateUserFailed: 'Не удалось обновить пользователя',
+        externalUserEmpty: 'Источник идентификации не вернул профиль пользователя',
+        lookupExternalUserFailed: 'Не удалось найти пользователя в источнике идентификации',
+        externalGroupEmpty: 'Источник идентификации не вернул профиль группы',
+        lookupExternalGroupFailed: 'Не удалось найти группу в источнике идентификации',
+        createGroupFailed: 'Не удалось создать группу пользователей',
+        deleteUsersFailed: 'Не удалось удалить пользователей'
       }
     },
     roles: {
       page: {
-        title: 'Role permissions',
-        description: 'Manage authorization object scopes by role, and assign users or groups to roles.'
+        title: 'Управление правами',
+        description: 'Поддержка областей объектов авторизации вокруг ролей и назначение пользователей или групп на роли.'
       },
       actions: {
-        createRole: 'Create role',
-        refreshObjects: 'Refresh objects',
-        loading: 'Loading...',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        detail: 'Details',
-        authorize: 'Authorize',
-        grantPermission: 'Grant permission',
-        assignMembers: 'Assign members',
-        delete: 'Delete',
-        deleteRole: 'Delete role',
-        deleting: 'Deleting...',
-        clearSelection: 'Clear selection'
+        createRole: 'Создать роль',
+        refreshObjects: 'Обновить объекты',
+        loading: 'Загрузка...',
+        creating: 'Создание...',
+        saving: 'Сохранение...',
+        detail: 'Детали',
+        authorize: 'Авторизовать',
+        grantPermission: 'Выдать права',
+        assignMembers: 'Назначить участников',
+        delete: 'Удалить',
+        deleteRole: 'Удалить роль',
+        deleting: 'Удаление...',
+        clearSelection: 'Очистить выбор'
       },
       columns: {
-        roleId: 'Role ID',
-        code: 'Code',
-        name: 'Name',
-        builtin: 'Built-in',
-        policyCount: 'Policy count',
-        permissions: 'Permissions',
-        actions: 'Actions',
-        objectScope: 'Object scope',
-        accessLevel: 'Access level',
-        effect: 'Effect',
-        memberType: 'Member type',
-        member: 'Member'
+        roleId: 'ID роли',
+        code: 'Код',
+        name: 'Имя',
+        builtin: 'Встроенная',
+        policyCount: 'Число политик',
+        permissions: 'Точки прав',
+        actions: 'Операции',
+        objectScope: 'Область объектов',
+        accessLevel: 'Уровень доступа',
+        effect: 'Эффект',
+        memberType: 'Тип участника',
+        member: 'Участник'
       },
       table: {
-        emptyRoles: 'No roles',
-        roleRecords: 'Role records',
-        emptyGrants: 'This role has no object permissions',
-        currentPermissions: 'Current role permissions',
-        emptyMembers: 'This role has no member assignments',
-        assignedMembers: 'Assigned members'
+        emptyRoles: 'Ролей пока нет',
+        roleRecords: 'Записи ролей',
+        emptyGrants: 'У текущей роли пока нет объектных прав',
+        currentPermissions: 'Текущие права роли',
+        emptyMembers: 'У текущей роли пока нет назначенных участников',
+        assignedMembers: 'Назначенные участники'
       },
       categories: {
-        certificate: 'Certificate',
-        gateway: 'Gateway',
+        certificate: 'Сертификат',
+        gateway: 'Шлюз',
         agent: 'Agent',
-        serviceAsset: 'Application asset',
-        deploymentPlan: 'Deployment plan',
-        workflow: 'Workflow',
-        auditLog: 'Log',
-        systemSetting: 'System setting'
+        serviceAsset: 'Актив приложения',
+        deploymentPlan: 'План обновления',
+        workflow: 'Рабочий процесс',
+        auditLog: 'Журнал',
+        systemSetting: 'Системные настройки'
       },
       accessLevel: {
-        read: 'Read only',
-        edit: 'Edit',
-        control: 'Full control'
+        read: 'Только чтение',
+        edit: 'Редактирование',
+        control: 'Полный контроль'
       },
       effect: {
-        allow: 'Allow',
-        deny: 'Deny'
+        allow: 'Разрешить',
+        deny: 'Запретить'
       },
       principal: {
-        user: 'User',
-        group: 'Group',
-        externalGroup: 'Identity source group'
+        user: 'Пользователь',
+        group: 'Группа',
+        externalGroup: 'Группа источника идентификации'
       },
       summary: {
-        selectedMembers: '{count} members selected',
-        chooseMembers: 'Select users or groups',
-        selectedScopes: '{count} scopes selected',
-        chooseObjectNode: 'Select an object tree node',
-        selectedScopeLabel: 'Selected scopes',
-        selectedMemberLabel: 'Selected members'
+        selectedMembers: 'Выбрано участников: {count}',
+        chooseMembers: 'Выберите пользователей или группы',
+        selectedScopes: 'Выбрано областей: {count}',
+        chooseObjectNode: 'Выберите узел дерева объектов',
+        selectedScopeLabel: 'Выбранные области',
+        selectedMemberLabel: 'Выбранные участники'
       },
       tree: {
-        rootLabel: 'All objects',
-        rootDescription: 'All authorizable business objects',
-        typeDescription: 'All {category} records',
-        allBusinessObjects: 'All business objects',
-        selectedScopeAria: 'Selected authorization scopes',
-        objectTreeAria: 'Authorizable object tree',
-        authorizableObjects: 'Authorizable objects',
-        loading: 'Loading object tree...',
+        rootLabel: 'Все объекты',
+        rootDescription: 'Все бизнес-объекты, доступные для авторизации',
+        typeDescription: 'Все записи категории {category}',
+        allBusinessObjects: 'Все бизнес-объекты',
+        selectedScopeAria: 'Выбранная область авторизации',
+        objectTreeAria: 'Дерево авторизуемых объектов',
+        authorizableObjects: 'Авторизуемые объекты',
+        loading: 'Загрузка дерева объектов...',
         kind: {
-          all: 'All',
-          category: 'Category',
-          record: 'Record'
+          all: 'Все',
+          category: 'Категория',
+          record: 'Запись'
         }
       },
       format: {
         labelWithId: '{label} ({id})',
         recordFallback: '{category} {value}',
-        unnamedRecord: 'Unnamed record'
+        unnamedRecord: 'Безымянная запись'
       },
       detail: {
-        title: 'Role details',
-        titleWithName: 'Role {name}',
-        description: 'Maintain object scopes, concrete objects, access levels, and member assignments here.'
+        title: 'Детали роли',
+        titleWithName: 'Роль {name}',
+        description: 'Здесь поддерживаются области объектов, конкретные объекты, уровни доступа и назначения участников.'
       },
       create: {
-        title: 'Create role',
-        description: 'Describe the role responsibilities and optionally grant object scopes directly.',
-        nameLabel: 'Role name',
-        namePlaceholder: 'Certificate operator',
-        descriptionLabel: 'Description',
-        descriptionPlaceholder: 'Responsible for daily certificate operations',
-        authorizedRole: 'Authorized role',
-        newRole: 'New role'
+        title: 'Создать роль',
+        description: 'Заполните обязанности роли и при необходимости сразу выдайте ей область объектов.',
+        nameLabel: 'Имя роли',
+        namePlaceholder: 'Оператор сертификатов',
+        descriptionLabel: 'Описание',
+        descriptionPlaceholder: 'Отвечает за ежедневные операции с сертификатами',
+        authorizedRole: 'Авторизуемая роль',
+        newRole: 'Новая роль'
       },
       grant: {
-        title: 'Grant role permission',
-        description: 'Select scopes from the object tree and set the access level for them.',
-        roleLabel: 'Role'
+        title: 'Выдать права роли',
+        description: 'Выберите область из дерева объектов и задайте уровень доступа для этой области.',
+        roleLabel: 'Роль'
       },
       member: {
-        title: 'Assign members',
-        titleWithName: 'Assign members: {name}',
-        description: 'Select users or groups. The system assigns them to the role’s existing authorized object scopes.',
-        targetRole: 'Target role',
-        authorizedScope: 'Authorized scopes',
-        objectScopeCount: '{count} object scopes',
-        selectedMembersAria: 'Selected members',
-        assignableMembersAria: 'Assignable members',
-        emptyAssignable: 'No assignable {type}'
+        title: 'Назначить участников',
+        titleWithName: 'Назначить участников: {name}',
+        description: 'Выберите пользователей или группы; система назначит их на уже авторизованные области объектов этой роли.',
+        targetRole: 'Целевая роль',
+        authorizedScope: 'Область авторизации',
+        objectScopeCount: 'Областей объектов: {count}',
+        selectedMembersAria: 'Выбранные участники',
+        assignableMembersAria: 'Доступные для назначения участники',
+        emptyAssignable: 'Нет доступных для назначения {type}'
       },
       errors: {
-        loadObjectTreeFailed: 'Failed to load object tree',
-        loadDataFailed: 'Failed to load permission management data',
-        missingRoleId: 'The backend did not return a role ID',
-        createRoleFailed: 'Failed to create role',
-        grantRoleFailed: 'Failed to grant role permission',
-        roleNoObjectScopes: 'This role has no authorized object scopes yet. Grant permissions to the role first.',
-        assignMembersFailed: 'Failed to assign members',
-        deleteRoleFailed: 'Failed to delete role',
-        missingObjectSetId: 'The backend did not return an object scope ID'
+        loadObjectTreeFailed: 'Не удалось загрузить дерево объектов',
+        loadDataFailed: 'Не удалось загрузить данные управления правами',
+        missingRoleId: 'Не получен ID роли',
+        createRoleFailed: 'Не удалось создать роль',
+        grantRoleFailed: 'Не удалось выдать права роли',
+        roleNoObjectScopes: 'У этой роли пока нет авторизованных областей объектов; сначала выдайте права роли.',
+        assignMembersFailed: 'Не удалось назначить участников',
+        deleteRoleFailed: 'Не удалось удалить роль',
+        missingObjectSetId: 'Не получен ID области объектов'
       },
       confirm: {
-        deleteRole: 'Delete role "{name}"? This also removes its user assignments and object authorizations.'
+        deleteRole: 'Подтвердить удаление роли "{name}"? После удаления будут также удалены назначения пользователей и объектные авторизации этой роли.'
       },
       auditLogs: {
         auth: {
-          name: 'Authentication login logs',
-          description: 'Login, logout, and external identity source login'
+          name: 'Журналы входа аутентификации',
+          description: 'Вход, выход и вход через внешний источник идентификации'
         },
         security: {
-          name: 'Security management logs',
-          description: 'User, role, permission, and identity source changes'
+          name: 'Журналы управления безопасностью',
+          description: 'Изменения пользователей, ролей, прав и источников идентификации'
         },
         certificate: {
-          name: 'Certificate logs',
-          description: 'Certificate import, version, format, and binding operations'
+          name: 'Журналы сертификатов',
+          description: 'Импорт сертификатов, версии, артефакты и операции привязки'
         },
         asset: {
-          name: 'Asset logs',
-          description: 'Application asset, host, service instance, and site asset operations'
+          name: 'Журналы активов',
+          description: 'Операции с активами приложений, хостами, экземплярами сервисов и сайтами'
         },
         gateway: {
-          name: 'Gateway logs',
-          description: 'Gateway route, probe, and status changes'
+          name: 'Журналы шлюзов',
+          description: 'Маршрутизация шлюзов, проверки и изменения статуса'
         },
         agent: {
-          name: 'Agent logs',
-          description: 'Agent registration, heartbeat, task, and upgrade operations'
+          name: 'Журналы Agent',
+          description: 'Регистрация Agent, heartbeat, задачи и операции обновления'
         },
         deployment: {
-          name: 'Deployment plan logs',
-          description: 'Deployment plans, execution, rollback, and approval'
+          name: 'Журналы планов обновления',
+          description: 'Планы развертывания, выполнение, откат и согласование'
         },
         workflow: {
-          name: 'Workflow logs',
-          description: 'Workflow template and execution operations'
+          name: 'Журналы рабочих процессов',
+          description: 'Операции шаблонов рабочих процессов и выполнения'
         },
         secret: {
-          name: 'Secret logs',
-          description: 'Secret creation, use, and rotation'
+          name: 'Журналы секретов',
+          description: 'Создание, использование и ротация Secret'
         },
         system: {
-          name: 'System logs',
-          description: 'System settings and platform-level events'
+          name: 'Системные журналы',
+          description: 'Системные настройки и события уровня платформы'
         }
       }
     },
     identitySources: {
       actions: {
-        create: 'Create identity source',
-        edit: 'Edit',
-        delete: 'Delete',
-        creating: 'Creating...',
-        saving: 'Saving...',
-        saveChanges: 'Save changes',
-        expandAdvanced: 'Expand advanced settings',
-        collapseAdvanced: 'Collapse advanced settings'
+        create: 'Создать источник идентификации',
+        edit: 'Редактировать',
+        delete: 'Удалить',
+        creating: 'Создание...',
+        saving: 'Сохранение...',
+        saveChanges: 'Сохранить изменения',
+        expandAdvanced: 'Развернуть расширенные настройки',
+        collapseAdvanced: 'Свернуть расширенные настройки'
       },
       columns: {
-        name: 'Name',
-        type: 'Directory type',
-        server: 'Server',
-        status: 'Status',
-        actions: 'Actions'
+        name: 'Имя',
+        type: 'Тип каталога',
+        server: 'Сервер',
+        status: 'Статус',
+        actions: 'Операции'
       },
       table: {
-        title: 'Identity source list',
-        total: '{count} total'
+        title: 'Список источников идентификации',
+        total: 'Всего {count}'
       },
-      empty: 'No identity sources',
+      empty: 'Источников идентификации пока нет',
       dialog: {
-        createTitle: 'Create identity source',
-        editTitle: 'Edit identity source',
-        createDescription: 'Fill in basic connection information first; filters and directory type are in advanced settings.',
-        editDescription: 'Update identity source configuration. To update the service account password, enter a new password.'
+        createTitle: 'Создать источник идентификации',
+        editTitle: 'Редактировать источник идентификации',
+        createDescription: 'Сначала заполните базовые сведения подключения; фильтры и тип каталога находятся в расширенных настройках.',
+        editDescription: 'Измените конфигурацию источника идентификации; чтобы обновить пароль сервисной учетной записи, введите пароль заново.'
       },
       fields: {
-        name: 'Name',
-        domain: 'Domain',
-        protocol: 'Protocol',
-        serverAddress: 'Server address',
-        bindDn: 'Service account DN',
-        bindPassword: 'Service account password',
-        directoryType: 'Directory type',
-        defaultRole: 'Default role',
-        enabled: 'Enabled status',
-        userDnTemplate: 'User DN/UPN template',
-        userFilter: 'User filter',
-        groupFilter: 'Group filter',
-        syncUserFilter: 'Sync user filter',
-        requireGroupMapping: 'Require login users to match a group mapping'
+        name: 'Имя',
+        domain: 'Домен',
+        protocol: 'Протокол',
+        serverAddress: 'Адрес сервера',
+        bindDn: 'DN сервисной учетной записи',
+        bindPassword: 'Пароль сервисной учетной записи',
+        directoryType: 'Тип каталога',
+        defaultRole: 'Роль по умолчанию',
+        enabled: 'Статус включения',
+        userDnTemplate: 'Шаблон DN/UPN пользователя',
+        userFilter: 'Фильтр пользователей',
+        groupFilter: 'Фильтр групп',
+        syncUserFilter: 'Фильтр синхронизации пользователей',
+        requireGroupMapping: 'Требовать попадания входящего пользователя в сопоставление групп'
       },
       placeholders: {
-        name: 'For example: Enterprise AD',
-        bindPasswordCreate: 'Enter the service account password',
-        bindPasswordEdit: 'Leave empty to keep the existing password',
-        autoByDirectoryType: 'Leave empty to derive from directory type',
-        userFilter: 'For example: (uid={{username}})',
-        groupFilter: 'For example: (member={{userDn}})'
+        name: 'Например: корпоративный AD',
+        bindPasswordCreate: 'Введите пароль сервисной учетной записи',
+        bindPasswordEdit: 'Оставьте пустым, чтобы сохранить текущий пароль',
+        autoByDirectoryType: 'Оставьте пустым для автоматического вывода по типу каталога',
+        userFilter: 'Например: (uid={{username}})',
+        groupFilter: 'Например: (member={{userDn}})'
       },
       labels: {
-        finalUrl: 'Final URL: {url}'
+        finalUrl: 'Итоговый адрес: {url}'
       },
       options: {
-        unset: 'Not set'
+        unset: 'Не задавать'
       },
       status: {
-        enabled: 'Enabled',
-        disabled: 'Disabled',
-        disabledShort: 'Disabled'
+        enabled: 'Включен',
+        disabled: 'Остановлен',
+        disabledShort: 'Отключен'
       },
       types: {
-        ldap: 'Standard LDAP'
+        ldap: 'Стандартный LDAP'
       },
       risks: {
-        delete: 'Deleting the identity source invalidates login, sync, and group mappings for this directory.'
+        delete: 'После удаления источника идентификации вход, синхронизация и сопоставление групп этого каталога станут недействительными.'
       },
       secret: {
-        bindPasswordName: '{name} LDAP service account password'
+        bindPasswordName: 'Пароль сервисной учетной записи LDAP {name}'
       },
       messages: {
-        createSuccess: 'Identity source created',
-        updateSuccess: 'Identity source updated'
+        createSuccess: 'Источник идентификации создан',
+        updateSuccess: 'Источник идентификации обновлен'
       },
       errors: {
-        loadFailed: 'Failed to load identity sources',
-        createBindPasswordSecretFailed: 'Failed to create service account password Secret',
-        createFailed: 'Failed to create identity source',
-        updateFailed: 'Failed to update identity source',
-        deleteFailed: 'Failed to delete identity source'
+        loadFailed: 'Не удалось загрузить источники идентификации',
+        createBindPasswordSecretFailed: 'Не удалось создать Secret пароля сервисной учетной записи',
+        createFailed: 'Не удалось создать источник идентификации',
+        updateFailed: 'Не удалось обновить источник идентификации',
+        deleteFailed: 'Не удалось удалить источник идентификации'
       }
     }
   },
   bindings: {
     actions: {
-      create: 'New config file',
-      edit: 'Edit',
-      delete: 'Delete',
-      deleting: 'Deleting...',
-      applyTemplate: 'Apply built-in template',
-      saving: 'Saving...',
-      confirmSave: 'Save'
+      create: 'Создать конфигурационный файл',
+      edit: 'Редактировать',
+      delete: 'Удалить',
+      deleting: 'Удаление...',
+      applyTemplate: 'Применить встроенный шаблон',
+      saving: 'Сохранение...',
+      confirmSave: 'Подтвердить сохранение'
     },
     columns: {
-      configName: 'Config name',
-      targetSummary: 'Target environment',
-      displayFormat: 'Content format',
-      extension: 'Extension',
-      encodingSummary: 'Encoding',
-      exportSummary: 'Contents / export options',
-      actions: 'Actions'
+      configName: 'Имя конфигурации',
+      targetSummary: 'Целевая среда',
+      displayFormat: 'Формат содержимого',
+      extension: 'Расширение',
+      encodingSummary: 'Кодировка',
+      exportSummary: 'Содержимое / параметры экспорта',
+      actions: 'Операции'
     },
     dialog: {
-      createTitle: 'Create certificate format config',
-      editTitle: 'Edit certificate format config',
-      description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
+      createTitle: 'Создать конфигурацию формата сертификата',
+      editTitle: 'Редактировать конфигурацию формата сертификата',
+      description: 'После выбора системной и целевой платформы можно применить встроенный шаблон и по пунктам настроить экспорт.'
     },
     list: {
-      title: 'Certificate format config list',
-      descriptionWithCount: 'Reusable certificate format templates are saved here. {count} currently.'
+      title: 'Список конфигураций форматов сертификатов',
+      descriptionWithCount: 'Переиспользуемые шаблоны форматов сертификатов. Сейчас: {count}'
     },
     empty: {
-      text: 'No certificate format configs'
+      text: 'Конфигураций форматов сертификатов пока нет'
     },
     fields: {
-      contentFormat: 'Content format',
-      systemPlatform: 'System platform',
-      runtimePlatform: 'Target platform',
-      configName: 'Config name',
-      backendFormat: 'Backend format',
-      outputExtension: 'Output extension',
-      expiresAt: 'Config expiry time (optional)',
-      certificateEncoding: 'Certificate encoding',
-      certificateContentEncoding: 'Certificate content encoding',
-      privateKeyEncoding: 'Private key encoding',
-      includeLeafCertificate: 'Include leaf certificate',
-      includeCertificateChain: 'Include certificate chain',
-      includePrivateKey: 'Include private key',
-      mainArtifactIncludesChain: 'Main artifact includes certificate chain',
-      generateChainFile: 'Generate extra chain file',
-      generatePrivateKeyFile: 'Generate extra private key file',
-      exportPassword: 'Export password'
+      contentFormat: 'Формат содержимого',
+      systemPlatform: 'Системная платформа',
+      runtimePlatform: 'Целевая платформа',
+      configName: 'Имя конфигурации',
+      backendFormat: 'Нижележащий формат',
+      outputExtension: 'Расширение вывода',
+      expiresAt: 'Время истечения конфигурации (необязательно)',
+      certificateEncoding: 'Кодировка сертификата',
+      certificateContentEncoding: 'Кодировка содержимого сертификата',
+      privateKeyEncoding: 'Кодировка закрытого ключа',
+      includeLeafCertificate: 'Включить публичный сертификат',
+      includeCertificateChain: 'Включить цепочку сертификатов',
+      includePrivateKey: 'Включить закрытый ключ',
+      mainArtifactIncludesChain: 'Основной артефакт содержит цепочку сертификатов',
+      generateChainFile: 'Дополнительно создать файл цепочки сертификатов',
+      generatePrivateKeyFile: 'Дополнительно создать файл закрытого ключа',
+      exportPassword: 'Пароль экспорта'
     },
     formats: {
-      pfx: 'PKCS#12 / PFX container',
-      jks: 'JKS container',
-      pemBundle: 'PEM single-file bundle',
-      pemCert: 'PEM certificate file',
-      pemKey: 'Private key file',
-      cer: 'Certificate file (.cer)',
-      crt: 'Certificate file (.crt)',
-      p7b: 'PKCS#7 / P7B certificate chain',
-      custom: 'Custom'
+      pfx: 'Контейнер PKCS#12 / PFX',
+      jks: 'Контейнер JKS',
+      pemBundle: 'PEM Bundle в одном файле',
+      pemCert: 'Файл сертификата PEM',
+      pemKey: 'Файл закрытого ключа',
+      cer: 'Файл сертификата (.cer)',
+      crt: 'Файл сертификата (.crt)',
+      p7b: 'Цепочка сертификатов PKCS#7 / P7B',
+      custom: 'Пользовательский'
     },
     sections: {
       templates: {
-        title: 'Built-in templates',
-        description: 'Templates prefill format, contents, and export rules based on common TLS deployment patterns and can still be edited.'
+        title: 'Встроенные шаблоны',
+        description: 'Шаблоны предварительно заполняют формат содержимого, состав и правила экспорта по типовым способам размещения TLS на платформах; после применения их можно изменять.'
       },
       basic: {
-        title: 'Basic information',
-        description: 'Define the config identity, real content format, and final extension.'
+        title: 'Основная информация',
+        description: 'Сначала задайте идентичность конфигурации, фактический формат содержимого и итоговое расширение.'
       },
       encoding: {
-        title: 'Encoding',
-        description: 'Only encoding options valid for the current content format are shown.'
+        title: 'Выбор кодировки',
+        description: 'Показываются только варианты кодировки, поддерживаемые текущим форматом содержимого.'
       },
       content: {
-        title: 'Contents',
-        description: 'Defines what the main artifact contains: public certificate, certificate chain, and private key.'
+        title: 'Содержимое',
+        description: 'Определяет, что входит в основной файл артефакта: публичный сертификат, цепочка сертификатов, закрытый ключ.'
       },
       export: {
-        title: 'Export options',
-        description: 'Define whether to generate extra chain/private-key files and container password options.'
+        title: 'Параметры экспорта',
+        description: 'Определяет, создавать ли дополнительные файлы цепочки и закрытого ключа, а также параметры пароля контейнера.'
       }
     },
     filters: {
-      keywordPlaceholder: 'Config name / target environment / Alias / content format'
+      keywordPlaceholder: 'Имя конфигурации / целевая среда / Alias / формат содержимого'
     },
     placeholders: {
-      configName: 'For example: device-compatible single-file PEM',
-      exportPassword: 'Enter the PFX/JKS export password'
+      configName: 'Например: совместимый с устройством PEM в одном файле',
+      exportPassword: 'Введите пароль экспорта PFX/JKS'
     },
     validation: {
-      selectPlatformsFirst: 'Select the system platform and target platform first.',
-      configNameRequired: 'Config name is required',
-      passwordRequired: 'PFX/JKS configs require an export password'
+      selectPlatformsFirst: 'Сначала выберите системную и целевую платформу.',
+      configNameRequired: 'Имя конфигурации обязательно',
+      passwordRequired: 'Для конфигурации PFX/JKS обязателен пароль экспорта'
     },
     errors: {
-      loadFailed: 'Failed to load certificate format configs',
-      saveFailed: 'Failed to save certificate format config',
-      deleteFailed: 'Failed to delete certificate format config',
-      createExportSecretFailed: 'Failed to create export password Secret',
+      loadFailed: 'Не удалось загрузить конфигурации форматов сертификатов',
+      saveFailed: 'Не удалось сохранить конфигурацию формата сертификата',
+      deleteFailed: 'Не удалось удалить конфигурацию формата сертификата',
+      createExportSecretFailed: 'Не удалось создать Secret пароля экспорта',
       withCode: '{message} ({code})'
     },
     fallbacks: {
-      unnamedConfig: 'Unnamed config-{index}',
-      unspecified: 'Unspecified',
-      aliasUnset: 'Alias not set'
+      unnamedConfig: 'Безымянная конфигурация-{index}',
+      unspecified: 'Не указано',
+      aliasUnset: 'Alias не задан'
     },
     labels: {
       aliasWithValue: 'Alias: {alias}',
-      requestId: 'Request ID: {requestId}'
+      requestId: 'ID запроса: {requestId}'
     },
     encoding: {
-      pkcs12Container: 'PKCS#12 container',
-      jksContainer: 'JKS container',
-      privateKeyWithEncoding: 'Private key {encoding}',
-      pkcs7Chain: 'PKCS#7 certificate chain',
-      certificateWithEncoding: 'Certificate {encoding}',
-      default: 'Default'
+      pkcs12Container: 'Контейнер PKCS#12',
+      jksContainer: 'Контейнер JKS',
+      privateKeyWithEncoding: 'Закрытый ключ {encoding}',
+      pkcs7Chain: 'Цепочка сертификатов PKCS#7',
+      certificateWithEncoding: 'Сертификат {encoding}',
+      default: 'По умолчанию'
     },
     export: {
-      leafCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      extraChainFile: 'Extra chain file',
-      extraPrivateKeyFile: 'Extra private key file'
+      leafCertificate: 'Публичный сертификат',
+      certificateChain: 'Цепочка сертификатов',
+      privateKey: 'Закрытый ключ',
+      extraChainFile: 'Дополнительный файл цепочки',
+      extraPrivateKeyFile: 'Дополнительный файл закрытого ключа'
     },
     secret: {
-      defaultConfigName: 'Certificate format config',
-      exportPasswordName: '{name} export password'
+      defaultConfigName: 'Конфигурация формата сертификата',
+      exportPasswordName: 'Пароль экспорта {name}'
     },
     select: {
-      placeholder: 'Select'
+      placeholder: 'Выберите'
     },
     separators: {
       export: ' · '
     },
     hints: {
-      savedPassword: 'An export password is already configured. Enter a new password to replace it.'
+      savedPassword: 'Пароль экспорта уже настроен; чтобы заменить его, введите новый пароль.'
     },
     templates: {
       windowsIis: {
-        configName: 'Windows-IIS-PKCS12 standard template',
-        description: 'IIS most commonly uses PKCS#12/PFX containers. The main artifact directly carries the server certificate, certificate chain, and private key.'
+        configName: 'Стандартный шаблон Windows-IIS-PKCS12',
+        description: 'IIS чаще всего использует контейнер PKCS#12/PFX; основной артефакт сразу содержит серверный сертификат, цепочку и закрытый ключ.'
       },
       windowsNginx: {
-        configName: 'Windows-NGINX-PEM standard template',
-        description: 'NGINX commonly uses a PEM single file for the server certificate and chain, plus a separate private key file.'
+        configName: 'Стандартный шаблон Windows-NGINX-PEM',
+        description: 'NGINX обычно использует один PEM-файл для серверного сертификата и цепочки, плюс отдельный файл закрытого ключа.'
       },
       windowsApache: {
-        configName: 'Windows-Apache-PEM standard template',
-        description: 'Apache is usually delivered as a PEM certificate file plus a separate private key, with an extra chain file for operational compatibility.'
+        configName: 'Стандартный шаблон Windows-Apache-PEM',
+        description: 'Apache обычно получает PEM-файл сертификата и отдельный закрытый ключ; цепочка дополнительно экспортируется для совместимости с разными практиками эксплуатации.'
       },
       windowsTomcat: {
-        configName: 'Windows-Tomcat-PKCS12 standard template',
-        description: 'Tomcat mainly uses JKS/PKCS#12 keystores. This template defaults to the more portable PKCS#12 format.'
+        configName: 'Стандартный шаблон Windows-Tomcat-PKCS12',
+        description: 'Tomcat в основном использует JKS/PKCS#12 keystore; здесь по умолчанию выбран более универсальный PKCS#12.'
       },
       windowsOther: {
-        configName: 'Windows device-compatible single-file PEM template',
-        description: 'For devices that require a single file containing the public certificate, certificate chain, and private key. The extension can be adjusted to .crt/.cer.'
+        configName: 'Windows-шаблон PEM одним файлом для совместимости с устройствами',
+        description: 'Для устройств, требующих один файл с публичным сертификатом, цепочкой и закрытым ключом; расширение можно изменить на .crt/.cer.'
       },
       linuxIis: {
-        configName: 'Linux-IIS compatibility template',
-        description: 'If the final target is still IIS, PKCS#12/PFX remains the most reasonable delivery artifact.'
+        configName: 'Шаблон совместимости Linux-IIS',
+        description: 'Если конечная цель все равно IIS, наиболее разумным артефактом остается контейнер PKCS#12/PFX.'
       },
       linuxNginx: {
-        configName: 'Linux-NGINX-PEM standard template',
-        description: 'Official NGINX configuration revolves around a PEM single-file certificate chain and a separate private key.'
+        configName: 'Стандартный шаблон Linux-NGINX-PEM',
+        description: 'Официальная конфигурация NGINX строится вокруг PEM-файла цепочки сертификатов и отдельного закрытого ключа.'
       },
       linuxApache: {
-        configName: 'Linux-Apache-PEM standard template',
-        description: 'Apache commonly uses a PEM certificate file plus a separate private key, with an extra chain file for split deployment.'
+        configName: 'Стандартный шаблон Linux-Apache-PEM',
+        description: 'Apache обычно использует PEM-файл сертификата с отдельным закрытым ключом; файл цепочки дополнительно экспортируется для раздельного развертывания.'
       },
       linuxTomcat: {
-        configName: 'Linux-Tomcat-PKCS12 standard template',
-        description: 'Tomcat defaults to keystore delivery. This template uses the more portable PKCS#12 format.'
+        configName: 'Стандартный шаблон Linux-Tomcat-PKCS12',
+        description: 'Tomcat обычно требует контейнер keystore; здесь используется более универсальный PKCS#12.'
       },
       linuxOther: {
-        configName: 'Linux device-compatible single-file PEM template',
-        description: 'For generic Linux devices that accept a single PEM file, start with a bundle and adjust extension and contents for the target device.'
+        configName: 'Linux-шаблон PEM одним файлом для совместимости с устройствами',
+        description: 'Для универсальных Linux-устройств, принимающих один PEM-файл: сначала используйте bundle, затем настройте расширение и состав под целевое устройство.'
       }
     }
   },
   assets: {
-    title: 'Application assets',
-    description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
-    resourceName: 'Application asset',
+    title: 'Активы приложений',
+    description: 'Управление входами приложений по домену или IP с фокусом на адрес, порт, протокол, сайт и позиционирование выполнения.',
+    resourceName: 'Актив приложения',
     actions: {
-      add: 'Add asset',
-      edit: 'Edit',
-      detail: 'Details',
-      addVariable: 'Add variable',
-      delete: 'Delete',
-      rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
-      rollingBack: 'Rolling back...',
-      saving: 'Saving...',
-      creating: 'Creating...',
-      saveChanges: 'Save changes',
-      confirmCreate: 'Create'
+      add: 'Добавить актив',
+      edit: 'Редактировать',
+      detail: 'Детали',
+      addVariable: 'Добавить переменную',
+      delete: 'Удалить',
+      rollbackFromLatestSnapshot: 'Запустить откат из последнего снимка',
+      rollingBack: 'Откат...',
+      saving: 'Сохранение...',
+      creating: 'Создание...',
+      saveChanges: 'Сохранить изменения',
+      confirmCreate: 'Подтвердить создание'
     },
     columns: {
-      domain: 'Domain',
-      port: 'Port',
-      protocol: 'Protocol',
-      platform: 'Platform',
-      framework: 'Framework',
-      site: 'Site',
-      status: 'Status',
-      actions: 'Actions'
+      domain: 'Домен доступа',
+      port: 'Порт',
+      protocol: 'Протокол',
+      platform: 'Платформа',
+      framework: 'Фреймворк',
+      site: 'Сайт',
+      status: 'Статус',
+      actions: 'Операции'
     },
     fields: {
-      assetId: 'Application asset ID',
-      domain: 'Domain',
-      addressType: 'Address type',
-      port: 'Port',
-      protocol: 'Protocol',
-      verifyUrl: 'Verify URL',
-      platform: 'Platform',
-      frameworkType: 'Framework type',
-      serviceInstanceId: 'Service instance ID',
-      siteId: 'Site ID',
-      managedTargetId: 'Managed target ID',
-      bindingKey: 'Binding key',
-      hostId: 'Host ID',
-      environment: 'Environment',
-      discoverySource: 'Discovery source',
-      lastDiscoveredAt: 'Last discovered at',
-      tags: 'Tags',
-      managedTarget: 'Managed target',
-      siteName: 'Site name',
-      bindingInformation: 'Binding information',
+      assetId: 'ID актива приложения',
+      domain: 'Домен доступа',
+      addressType: 'Тип адреса',
+      port: 'Порт',
+      protocol: 'Протокол',
+      verifyUrl: 'URL проверки',
+      platform: 'Платформа',
+      frameworkType: 'Тип фреймворка',
+      serviceInstanceId: 'ID экземпляра сервиса',
+      siteId: 'ID сайта',
+      managedTargetId: 'ID управляемой цели',
+      bindingKey: 'Ключ привязки',
+      hostId: 'ID хоста',
+      environment: 'Среда',
+      discoverySource: 'Источник обнаружения',
+      lastDiscoveredAt: 'Последнее обнаружение',
+      tags: 'Теги',
+      managedTarget: 'Управляемая цель',
+      siteName: 'Имя сайта',
+      bindingInformation: 'Сведения о привязке',
       hostHeader: 'Host Header',
-      sniName: 'SNI name',
-      currentCertificate: 'Current certificate',
-      targetCertificate: 'Target certificate',
-      expectedFingerprint: 'Expected fingerprint',
-      certificateStore: 'Certificate store',
-      snapshotType: 'Snapshot type',
-      time: 'Time',
-      executionRun: 'Execution run',
-      displayName: 'Display name',
-      siteInstance: 'Site instance',
-      certificateFormat: 'Certificate artifact format',
-      workflow: 'Workflow',
-      publishedVersion: 'Published version',
-      runner: 'Runner',
-      artifactFormat: 'Artifact format'
+      sniName: 'Имя SNI',
+      currentCertificate: 'Текущий сертификат',
+      targetCertificate: 'Целевой сертификат',
+      expectedFingerprint: 'Ожидаемый отпечаток',
+      certificateStore: 'Хранилище сертификатов',
+      snapshotType: 'Тип снимка',
+      time: 'Время',
+      executionRun: 'Запись выполнения',
+      displayName: 'Отображаемое имя',
+      siteInstance: 'Экземпляр сайта',
+      certificateFormat: 'Конфигурация артефакта сертификата',
+      workflow: 'Рабочий процесс',
+      workflowVersionSelection: 'Политика версии рабочего процесса',
+      publishedVersion: 'Опубликованная версия',
+      runner: 'Место запуска',
+      artifactFormat: 'Конфигурация формата артефакта'
     },
     links: {
-      certificateBindings: 'View certificate bindings',
-      executions: 'View execution records'
+      certificateBindings: 'Посмотреть привязки сертификатов',
+      executions: 'Посмотреть записи выполнения'
     },
     empty: {
-      title: 'No application assets',
-      description: 'Waiting for discovery to write ServiceAsset records, or add entry points through backend APIs.',
-      noBindingInformation: 'No binding information',
-      notSet: 'Not set',
-      notSelected: 'Not selected',
-      noVariablePreset: 'No variables can be added',
-      basicEntryIncomplete: 'Basic entry incomplete'
+      title: 'Активов приложений пока нет',
+      description: 'Ожидание автоматического обнаружения системой или ручного добавления входа приложения.',
+      noBindingInformation: 'Сведения о привязке не предоставлены',
+      notSet: 'Не задано',
+      notSelected: 'Не выбрано',
+      noVariablePreset: 'Нет переменных для добавления',
+      basicEntryIncomplete: 'Базовый вход не заполнен'
     },
     detail: {
-      title: 'Application details',
-      description: 'Keep asset details, bindings, deployment entry, and snapshots in one modal.',
-      tabsAriaLabel: 'Application detail tabs',
+      title: 'Детали приложения',
+      description: 'Просмотр деталей актива, связей привязки, входа развертывания и записей снимков.',
+      tabsAriaLabel: 'Вкладки деталей приложения',
       tabs: {
-        overview: 'Overview',
-        snapshots: 'Snapshots'
+        overview: 'Основная информация',
+        snapshots: 'Снимки'
       },
-      loadingTargetBinding: 'Loading target binding details...',
-      loadingSnapshots: 'Loading snapshots...',
-      emptyCertificateBindings: 'No certificate bindings.',
-      emptySnapshots: 'No snapshots.',
-      rollbackSubmitted: 'Rollback request submitted. Check executions for the rollback run.',
+      loadingTargetBinding: 'Загрузка деталей целевой привязки...',
+      loadingSnapshots: 'Загрузка снимков...',
+      emptyCertificateBindings: 'Привязок сертификатов пока нет.',
+      emptySnapshots: 'Снимков пока нет.',
+      rollbackSubmitted: 'Запрос отката отправлен; смотрите запуск отката в "Записях выполнения".',
       sections: {
         overview: {
-          title: 'Overview',
-          description: 'The application asset is the primary object. Hosts and sites only provide execution targeting information.'
+          title: 'Основная информация',
+          description: 'Актив приложения является основным объектом; хост и сайт используются только как сведения для позиционирования выполнения.'
         },
         targetBinding: {
-          title: 'Target binding',
-          description: 'Bindings must point to a site and managed target instead of guessing by domain.'
+          title: 'Целевая привязка',
+          description: 'Привязка должна явно указывать сайт и управляемую цель, а не продолжать угадывать по домену.'
         },
         certificateBindings: {
-          title: 'Certificate bindings',
-          description: 'Certificate relationships are tied to bindings instead of only relying on domains.'
+          title: 'Связи привязки сертификатов',
+          description: 'Связь сертификата фиксируется на binding, а не только по домену.'
         },
         snapshots: {
-          title: 'Snapshots',
-          description: 'Pre-deploy, post-deploy, and rollback state must be visible directly, not only as task records.'
+          title: 'Снимки',
+          description: 'Состояние до развертывания, после развертывания и после отката должно быть видно напрямую, а не только через записи задач.'
         }
       }
     },
     managementModes: {
-      agent: 'Agent mode',
-      agentDescription: 'Bind Agent, site instance, and managed target',
-      workflow: 'Workflow mode',
-      workflowDescription: 'Select workflow version and runtime variables'
+      agent: 'Режим Agent',
+      agentDescription: 'Привязать Agent, экземпляр сайта и управляемую цель',
+      workflow: 'Режим рабочего процесса',
+      workflowDescription: 'Выбрать версию рабочего процесса и переменные запуска'
+    },
+    workflowVersionSelection: {
+      pinned: 'Закрепить выбранную версию',
+      latestPublished: 'Всегда использовать последнюю опубликованную версию'
     },
     loading: {
-      agents: 'Loading Agents...',
-      sites: 'Loading sites...',
-      managedTargets: 'Loading targets...',
-      certificateFormats: 'Loading format configs...',
-      workflows: 'Loading workflows...',
-      versions: 'Loading versions...',
-      gateways: 'Loading Gateways...',
-      credentials: 'Loading credentials...'
+      agents: 'Загрузка Agent...',
+      sites: 'Загрузка сайтов...',
+      managedTargets: 'Загрузка целей...',
+      certificateFormats: 'Загрузка конфигураций форматов...',
+      workflows: 'Загрузка рабочих процессов...',
+      versions: 'Загрузка версий...',
+      gateways: 'Загрузка Gateway...',
+      credentials: 'Загрузка учетных данных...'
     },
     select: {
-      agent: 'Select Agent',
-      siteInstance: 'Select site instance',
-      managedTarget: 'Select managed target',
-      certificateFormat: 'Select certificate artifact format',
-      workflow: 'Select workflow',
-      publishedVersion: 'Select published version',
-      gateway: 'Select Gateway',
-      variablePreset: 'Select preset variable',
-      credential: 'Select credential',
-      generic: 'Select',
-      artifactFormat: 'Select format config',
-      output: 'Select output',
-      optionalOutput: 'Optional'
+      agent: 'Выберите Agent',
+      siteInstance: 'Выберите экземпляр сайта',
+      managedTarget: 'Выберите управляемую цель',
+      certificateFormat: 'Выберите конфигурацию артефакта сертификата',
+      workflow: 'Выберите рабочий процесс',
+      publishedVersion: 'Выберите опубликованную версию',
+      gateway: 'Выберите Gateway',
+      variablePreset: 'Выберите предустановленную переменную',
+      credential: 'Выберите учетные данные',
+      generic: 'Выберите',
+      artifactFormat: 'Выберите конфигурацию формата',
+      output: 'Выберите выход',
+      optionalOutput: 'Можно не выбирать'
     },
     validation: {
-      variableNameRequired: 'Variable name is required',
-      variableNameInvalid: 'Variable {name} has an invalid name',
-      variableDuplicated: 'Variable {name} is duplicated',
-      variableRequired: 'Variable {name} is required',
-      variableMustBeNumber: 'Variable {name} must be a number',
-      variableMustBeJsonObject: 'Variable {name} must be a JSON object',
-      variableInvalidJson: 'Variable {name} is not valid JSON',
-      variableCredentialInvalid: 'Variable {name} must select a valid credential',
-      certificateFormatRequired: 'Certificate variable {name} must select a certificate format config',
-      certificateOutputRequired: 'Certificate variable {name}.{slot} must select an output',
-      certificateOutputMissing: 'Selected output for certificate variable {name}.{slot} does not exist'
+      variableNameRequired: 'Имя переменной не может быть пустым',
+      variableNameInvalid: 'Имя переменной {name} недопустимо',
+      variableDuplicated: 'Переменная {name} повторяется',
+      variableRequired: 'Переменная {name} обязательна',
+      variableMustBeNumber: 'Переменная {name} должна быть числом',
+      variableMustBeJsonObject: 'Переменная {name} должна быть JSON-объектом',
+      variableInvalidJson: 'Переменная {name} не является допустимым JSON',
+      variableCredentialInvalid: 'Для переменной {name} нужно выбрать действительные учетные данные',
+      certificateFormatRequired: 'Для переменной сертификата {name} нужно выбрать конфигурацию формата сертификата',
+      certificateOutputRequired: 'Для переменной сертификата {name}.{slot} нужно выбрать выход',
+      certificateOutputMissing: 'Выбранный выход переменной сертификата {name}.{slot} не существует'
     },
     workflowVariableTypes: {
-      string: 'String',
-      number: 'Number',
-      boolean: 'Boolean',
-      enum: 'Enum',
-      object: 'Object',
-      file: 'File',
-      credential: 'Credential',
-      certificate: 'Certificate'
+      string: 'Строка',
+      number: 'Число',
+      boolean: 'Булево',
+      enum: 'Перечисление',
+      object: 'Объект',
+      file: 'Файл',
+      credential: 'Учетные данные',
+      certificate: 'Сертификат'
     },
     wizard: {
-      ariaLabel: 'Application asset creation steps',
+      ariaLabel: 'Шаги создания актива приложения',
       steps: {
-        basicEntry: 'Basic entry',
-        deploymentMode: 'Deployment mode',
-        confirmSave: 'Confirm and save'
+        basicEntry: 'Базовый вход',
+        deploymentMode: 'Режим развертывания',
+        confirmSave: 'Подтвердить сохранение'
       },
       stepState: {
-        active: 'In progress',
-        done: 'Completed',
-        pending: 'Not started',
-        incomplete: 'Incomplete',
-        readyNext: 'Ready for next step',
-        pendingSubmit: 'Ready to submit'
+        active: 'В процессе',
+        done: 'Завершено',
+        pending: 'Ожидает начала',
+        incomplete: 'Нужно завершить',
+        readyNext: 'Можно перейти дальше',
+        pendingSubmit: 'Ожидает отправки'
       },
       panels: {
-        basicEntryTitle: 'Basic entry',
-        basicEntryDescription: 'Fill in domain, port, protocol, and platform first to define the application entry identity.',
-        agentTitle: 'Agent target binding',
-        agentDescription: 'Select Agent, site instance, managed target, and certificate artifact format.',
-        workflowTitle: 'Workflow runtime config',
-        workflowDescription: 'Select workflow version, runner, and variables. Certificate variables are injected at runtime.',
-        confirmTitle: 'Confirm and save',
-        confirmDescription: 'Review application entry, deployment mode, and runtime parameters before saving the asset.'
+        basicEntryTitle: 'Базовый вход',
+        basicEntryDescription: 'Сначала заполните домен, порт, протокол и платформу; они определяют идентичность входа приложения.',
+        agentTitle: 'Целевая привязка Agent',
+        agentDescription: 'Выберите Agent, экземпляр сайта, управляемую цель и конфигурацию артефакта сертификата.',
+        workflowTitle: 'Конфигурация запуска рабочего процесса',
+        workflowDescription: 'Выберите версию рабочего процесса, место запуска и переменные; переменные сертификата будут внедрены во время выполнения.',
+        confirmTitle: 'Подтвердить сохранение',
+        confirmDescription: 'Проверьте вход приложения, режим развертывания и параметры запуска; после подтверждения актив приложения будет записан.'
       }
     },
     form: {
-      createTitle: 'Add application asset manually',
-      editTitle: 'Edit application asset',
-      createDescription: 'Create an application entry and bind target information required for later deployment.',
-      editDescription: 'Update the application entry and deployment target binding.',
-      createRequestCompleted: 'Create request completed.',
-      editRequestCompleted: 'Save request completed.',
-      agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      createTitle: 'Ручное добавление актива приложения',
+      editTitle: 'Редактирование актива приложения',
+      createDescription: 'Создайте вход приложения и привяжите целевые сведения, необходимые для последующего развертывания.',
+      editDescription: 'Измените вход приложения и целевую привязку развертывания.',
+      createRequestCompleted: 'Запрос создания завершен.',
+      editRequestCompleted: 'Запрос сохранения завершен.',
+      agentCertificateFormatHint: 'В режиме Agent эта конфигурация артефакта сертификата будет использоваться для формирования материалов развертывания.',
       placeholders: {
-        displayName: 'For example: production site entry',
-        verifyUrl: 'For example: https://example.com/health',
-        siteName: 'For example: production site',
-        bindingInformation: 'For example: *:443:example.com',
-        hostHeader: 'For example: example.com',
-        sniName: 'For example: example.com'
+        displayName: 'Например: вход продуктивного сайта',
+        verifyUrl: 'Например: https://example.com/health',
+        siteName: 'Например: продуктивный сайт',
+        bindingInformation: 'Например: *:443:example.com',
+        hostHeader: 'Например: example.com',
+        sniName: 'Например: example.com'
       }
     },
     review: {
-      accessEntry: 'Access entry',
-      deploymentMode: 'Deployment mode',
-      agentSiteTarget: 'Agent / site / target',
-      workflowVersion: 'Workflow version',
+      accessEntry: 'Вход доступа',
+      deploymentMode: 'Режим развертывания',
+      agentSiteTarget: 'Agent / сайт / цель',
+      workflowVersion: 'Версия рабочего процесса',
       gatewayRunner: 'Gateway: {gateway}',
-      variableCount: '{count} variables',
-      onlyBasicEntry: 'Basic entry only',
-      autoGeneratedByEntry: 'Generated from application entry'
+      variableCount: 'Переменных: {count}',
+      onlyBasicEntry: 'Только базовый вход',
+      autoGeneratedByEntry: 'Сформировано по входу приложения'
     },
     workflowTarget: {
-      title: 'Workflow target information',
-      description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
-      dslSyncHint: 'Synced to DSL target variables'
+      title: 'Сведения о цели рабочего процесса',
+      description: 'Используются для отображения актива рабочего процесса, проверки после развертывания и синхронизации целевых переменных DSL.',
+      dslSyncHint: 'Синхронизировано с целевыми переменными DSL'
     },
     workflowVariables: {
-      title: 'Workflow variables',
-      configuredCount: '{configured}/{total} configured',
-      name: 'Variable name',
-      type: 'Type',
-      value: 'Value',
-      manual: 'Manual',
-      empty: 'No workflow variables.',
-      noPublishedVersion: 'Select a published workflow version before configuring variables.',
-      certificateAutoInjected: 'The certificate version is selected by the deployment plan and injected automatically at runtime.',
-      certificateDescription: 'The certificate version is selected by the deployment plan. Bind format config and outputs below; {name}.outputs.*.content is injected at runtime.',
+      title: 'Переменные рабочего процесса',
+      configuredCount: 'Настроено {configured}/{total}',
+      name: 'Имя переменной',
+      type: 'Тип',
+      value: 'Значение',
+      manual: 'Вручную',
+      empty: 'Переменных рабочего процесса пока нет.',
+      noPublishedVersion: 'Выберите опубликованную версию рабочего процесса, затем настройте переменные.',
+      certificateAutoInjected: 'Версия сертификата выбирается планом развертывания и автоматически внедряется во время выполнения.',
+      certificateDescription: 'Версия сертификата выбирается планом развертывания; ниже актив приложения привязывает конфигурацию формата и выходы, а во время выполнения внедряется {name}.outputs.*.content.',
       presets: {
-        deviceHost: 'Target host or device address',
-        sshUsername: 'SSH user name',
-        credential: 'Workflow credential',
-        certificate: 'Certificate artifact',
-        targetPlatform: 'Target platform',
-        verifyHost: 'Verification host',
-        verifyPort: 'Verification port',
-        verifyPath: 'Verification path',
-        apacheServiceName: 'Apache systemd service name',
-        apacheSiteConfigPath: 'Apache site config path',
-        certificateFilePath: 'Certificate destination path',
-        certificateKeyFilePath: 'Private key destination path',
-        backupRoot: 'Certificate backup root',
-        expectedResponseContains: 'Expected response contains text',
-        virtualHostServerName: 'VirtualHost ServerName'
+        deviceHost: 'Адрес целевого хоста или устройства',
+        sshUsername: 'Имя пользователя SSH',
+        credential: 'Учетные данные рабочего процесса',
+        certificate: 'Артефакт сертификата',
+        targetPlatform: 'Целевая платформа',
+        verifyHost: 'Хост проверки',
+        verifyPort: 'Порт проверки',
+        verifyPath: 'Путь проверки',
+        apacheServiceName: 'Имя службы Apache systemd',
+        apacheSiteConfigPath: 'Путь конфигурации сайта Apache',
+        certificateFilePath: 'Целевой путь сертификата',
+        certificateKeyFilePath: 'Целевой путь закрытого ключа',
+        backupRoot: 'Корневой каталог резервных копий сертификатов',
+        expectedResponseContains: 'Ожидаемый текст в ответе',
+        virtualHostServerName: 'ServerName виртуального хоста'
       }
     },
     certificateBindings: {
-      title: 'Certificate variable bindings',
-      description: 'Select certificate artifact format and outputs for certificate variables in the workflow.',
-      variableCount: '{count} certificate variables',
-      defaultVariableDescription: 'Certificate artifact variable',
-      noArtifactOutputs: 'No selectable outputs for the current format config.'
+      title: 'Привязки переменных сертификата',
+      description: 'Выберите конфигурацию артефакта сертификата и выходы для переменных сертификата в рабочем процессе.',
+      variableCount: 'Переменных сертификата: {count}',
+      defaultVariableDescription: 'Переменная артефакта сертификата',
+      noArtifactOutputs: 'В текущей конфигурации формата нет доступных выходов.'
     },
     certificateOutputs: {
-      publicCertificateWithChain: 'Public certificate + certificate chain',
-      publicCertificate: 'Public certificate',
-      certificateChain: 'Certificate chain',
-      privateKey: 'Private key',
-      pemBundle: 'PEM bundle artifact',
-      container: '{format} container',
+      publicCertificateWithChain: 'Публичный сертификат + цепочка сертификатов',
+      publicCertificate: 'Публичный сертификат',
+      certificateChain: 'Цепочка сертификатов',
+      privateKey: 'Закрытый ключ',
+      pemBundle: 'PEM-артефакт Bundle',
+      container: 'Контейнер {format}',
       bundle: 'Bundle'
     },
     certificateFormats: {
-      savedConfigMissingWithId: '{id} (saved config, not returned by current list)',
-      withPrivateKey: 'With private key',
-      withoutPrivateKey: 'Without private key'
+      savedConfigMissingWithId: '{id} (сохраненная конфигурация, текущий список ее не вернул)',
+      withPrivateKey: 'С закрытым ключом',
+      withoutPrivateKey: 'Без закрытого ключа'
     },
     snapshotTypes: {
-      preDeploy: 'Pre-deploy',
-      postDeploy: 'Post-deploy',
-      postRollback: 'Post-rollback',
-      errorState: 'Error state',
-      rollbackPoint: 'Rollback point'
+      preDeploy: 'До развертывания',
+      postDeploy: 'После развертывания',
+      postRollback: 'После отката',
+      errorState: 'Состояние ошибки',
+      rollbackPoint: 'Точка отката'
     },
     errors: {
-      loadWorkflowListFailed: 'Failed to load workflow list',
-      loadWorkflowVersionsFailed: 'Failed to load workflow versions',
-      loadGatewayListFailed: 'Failed to load gateway list',
-      loadCertificateFormatsFailed: 'Failed to load certificate format configs',
-      loadAssetDetailFailed: 'Failed to load application asset details',
-      rollbackFailed: 'Failed to start rollback',
-      loadTargetsFailed: 'Failed to load sites and managed targets',
-      createAssetFailed: 'Failed to create application asset',
-      loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
-      noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
+      loadWorkflowListFailed: 'Не удалось загрузить список рабочих процессов',
+      loadWorkflowVersionsFailed: 'Не удалось загрузить версии рабочих процессов',
+      loadGatewayListFailed: 'Не удалось загрузить список шлюзов',
+      loadCertificateFormatsFailed: 'Не удалось загрузить конфигурации форматов сертификатов',
+      loadAssetDetailFailed: 'Не удалось загрузить детали актива приложения',
+      rollbackFailed: 'Не удалось запустить откат',
+      loadTargetsFailed: 'Не удалось загрузить сайты и управляемые цели',
+      createAssetFailed: 'Не удалось создать актив приложения',
+      loadWorkflowCredentialsFailed: 'Не удалось загрузить учетные данные рабочего процесса',
+      noAvailableSiteInstance: 'Доступный экземпляр сайта не найден; сначала убедитесь, что сайты фреймворка успешно отправлены в деталях Agent.'
     },
     platforms: {
-      appliance: 'Appliance'
+      appliance: 'Устройство'
     },
     runners: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Платформа'
     },
     status: {
-      archived: 'Archived',
-      unknownStatus: 'Unknown status'
+      archived: 'Архивировано',
+      unknownStatus: 'Неизвестный статус'
     },
     common: {
-      required: 'Required',
-      optional: 'Optional'
+      required: 'Обязательно',
+      optional: 'Необязательно'
     }
   },
   certificates: {
     errors: {
-      requestFailed: 'Request failed'
+      requestFailed: 'Запрос не выполнен'
     },
     detail: {
-      backList: 'Back to list',
-      description: 'Shows certificate version details, format artifacts, and related assets.',
-      title: 'Certificate details'
+      backList: 'Вернуться к списку',
+      description: 'Показывает детали версии сертификата, форматные артефакты и связанные активы.',
+      title: 'Детали сертификата'
     },
     detailPanel: {
       sources: {
-        agentContext: 'Agent context',
-        platformBinding: 'Platform binding record'
+        agentContext: 'Контекст Agent',
+        platformBinding: 'Запись привязки платформы'
       },
       usage: {
         columns: {
-          domainName: 'Domain / target',
-          agentName: 'Agent name',
-          siteName: 'Site name',
-          bindingType: 'Binding type',
-          usageSource: 'Source',
-          status: 'Status'
+          domainName: 'Домен/цель',
+          agentName: 'Имя Agent',
+          siteName: 'Имя сайта',
+          bindingType: 'Тип привязки',
+          usageSource: 'Источник',
+          status: 'Статус'
         },
-        empty: 'No related assets',
-        toolbar: 'Related assets'
+        empty: 'Связанных активов пока нет',
+        toolbar: 'Связанные активы'
       },
       summary: {
-        certificateName: 'Certificate name',
-        logicalDomain: 'Logical domain',
-        issuer: 'Issuer',
-        subject: 'Subject',
-        serialNumber: 'Serial number',
-        chainStatus: 'Chain status'
+        certificateName: 'Имя сертификата',
+        logicalDomain: 'Логический домен',
+        issuer: 'Издатель',
+        subject: 'Субъект',
+        serialNumber: 'Серийный номер',
+        chainStatus: 'Статус цепочки'
       },
       sections: {
-        subjectInfo: 'Subject information',
-        issuerInfo: 'Issuer information',
-        certificateFields: 'Certificate fields',
-        extensionFields: 'Extension fields'
+        subjectInfo: 'Сведения о субъекте',
+        issuerInfo: 'Сведения об издателе',
+        certificateFields: 'Поля сертификата',
+        extensionFields: 'Поля расширений'
       },
       fields: {
-        commonName: 'Common name (CN)',
-        organization: 'Organization (O)',
-        organizationalUnit: 'Organizational unit (OU)',
-        countryRegion: 'Country / region (C)',
-        stateProvince: 'State / province (ST)',
-        locality: 'Locality (L)',
-        version: 'Version',
-        signatureAlgorithm: 'Signature algorithm',
-        publicKeyAlgorithm: 'Public key algorithm',
-        fingerprintSha256: 'SHA-256 fingerprint',
+        commonName: 'Common Name (CN)',
+        organization: 'Организация (O)',
+        organizationalUnit: 'Подразделение (OU)',
+        countryRegion: 'Страна/регион (C)',
+        stateProvince: 'Штат/провинция (ST)',
+        locality: 'Город (L)',
+        version: 'Версия',
+        signatureAlgorithm: 'Алгоритм подписи',
+        publicKeyAlgorithm: 'Алгоритм публичного ключа',
+        fingerprintSha256: 'Отпечаток SHA-256',
         san: 'SAN',
-        deployable: 'Deployable',
-        leafStorageRef: 'Leaf certificate reference',
-        chainCertificateCount: 'Chain certificate count',
-        chainDiagnostics: 'Chain diagnostics'
+        deployable: 'Можно развернуть',
+        leafStorageRef: 'Ссылка на leaf-сертификат',
+        chainCertificateCount: 'Количество сертификатов в цепочке',
+        chainDiagnostics: 'Диагностика цепочки'
       },
       fallbacks: {
-        unknownCertificate: 'Unknown certificate',
-        unknownIssuer: 'Unknown issuer',
-        unnamedCertificate: 'Unnamed certificate',
-        unknownDomain: 'Unknown domain',
-        unknownSubject: 'Unknown subject',
-        unknown: 'Unknown',
-        notPartOfCertificate: 'Not part of the certificate',
-        none: 'None',
+        unknownCertificate: 'Неизвестный сертификат',
+        unknownIssuer: 'Неизвестный издатель',
+        unnamedCertificate: 'Безымянный сертификат',
+        unknownDomain: 'Неизвестный домен',
+        unknownSubject: 'Неизвестный субъект',
+        unknown: 'Неизвестно',
+        notPartOfCertificate: 'Не является частью сертификата',
+        none: 'Нет',
         emptyValue: '—',
-        unknownType: 'Unknown type',
-        unknownResource: 'Unknown resource',
-        unknownTarget: 'Unknown target'
+        unknownType: 'Неизвестный тип',
+        unknownResource: 'Неизвестный ресурс',
+        unknownTarget: 'Неизвестная цель'
       },
       values: {
-        yes: 'Yes',
-        no: 'No'
+        yes: 'Да',
+        no: 'Нет'
       },
       separators: {
         diagnostic: '; ',
@@ -2684,262 +2614,262 @@ export default {
       },
       chain: {
         roles: {
-          leaf: 'Leaf certificate',
-          root: 'Root certificate',
-          intermediate: 'Intermediate certificate'
+          leaf: 'Leaf-сертификат',
+          root: 'Корневой сертификат',
+          intermediate: 'Промежуточный сертификат'
         },
-        title: 'Certificate chain',
-        empty: 'No certificate chain information',
-        subject: 'Subject: {value}',
-        issuer: 'Issuer: {value}'
+        title: 'Цепочка сертификатов',
+        empty: 'Сведения о цепочке сертификатов отсутствуют',
+        subject: 'Субъект: {value}',
+        issuer: 'Издатель: {value}'
       },
       errors: {
-        loadFailedTitle: 'Failed to load certificate details',
-        code: 'Error code: {code}'
+        loadFailedTitle: 'Не удалось загрузить детали сертификата',
+        code: 'Код ошибки: {code}'
       },
       actions: {
-        retry: 'Retry'
+        retry: 'Повторить'
       },
       states: {
-        loading: 'Loading...'
+        loading: 'Загрузка...'
       },
       tabs: {
-        ariaLabel: 'Certificate detail tabs',
-        detail: 'Details',
-        usage: 'Related assets'
+        ariaLabel: 'Вкладки деталей сертификата',
+        detail: 'Детали',
+        usage: 'Связанные активы'
       },
       validity: {
-        title: 'Certificate validity',
-        notBefore: 'Valid from: {value}',
-        notAfter: 'Expires at: {value}'
+        title: 'Срок действия сертификата',
+        notBefore: 'Действует с: {value}',
+        notAfter: 'Истекает: {value}'
       }
     },
     formats: {
       columns: {
-        certificateVersionId: 'Version ID',
-        createdAt: 'Created at',
-        format: 'Format',
-        secretRef: 'Secret reference',
-        status: 'Status'
+        certificateVersionId: 'ID версии',
+        createdAt: 'Время создания',
+        format: 'Формат',
+        secretRef: 'Ссылка Secret',
+        status: 'Статус'
       },
-      create: 'Create format config',
-      createFailed: 'Failed to create format',
-      description: 'PEM/DER/PFX/JKS/P7B format configuration entry for certificate {id}.',
-      empty: 'No format configs',
+      create: 'Создать конфигурацию формата',
+      createFailed: 'Не удалось создать формат',
+      description: 'Вход конфигураций форматов PEM/DER/PFX/JKS/P7B для сертификата {id}.',
+      empty: 'Конфигураций форматов пока нет',
       fields: {
-        alias: 'Alias (optional)',
-        containsPrivateKey: 'Contains private key (PEM)',
+        alias: 'Alias (необязательно)',
+        containsPrivateKey: 'Содержит закрытый ключ (PEM)',
         passwordSecretRef: 'passwordSecretRef (PFX/JKS)',
-        targetFormat: 'Target format',
-        versionId: 'Version ID'
+        targetFormat: 'Целевой формат',
+        versionId: 'ID версии'
       },
-      hint: 'PFX/JKS must use an existing backend passwordSecretRef. Deployment materials are generated on demand from the certificate version and format config.',
-      loadFailed: 'Failed to load format configs',
-      optionAvailable: '{label} - available',
+      hint: 'PFX/JKS должны использовать существующий в системе passwordSecretRef; при реальном развертывании материалы создаются на лету из версии сертификата и конфигурации формата.',
+      loadFailed: 'Не удалось загрузить конфигурации форматов',
+      optionAvailable: '{label} - доступно',
       placeholders: {
-        alias: 'For example gcac-cert'
+        alias: 'Например gcac-cert'
       },
-      title: 'Certificate format config',
-      toolbar: 'Format config list',
-      unsupported: '{format} cannot be created with the current capability declaration.'
+      title: 'Конфигурация формата сертификата',
+      toolbar: 'Список конфигураций форматов',
+      unsupported: '{format} нельзя создать при текущей декларации возможностей.'
     },
     import: {
-      backList: 'Back to certificate list',
-      description: 'Currently only PEM + KEY and PFX are supported; PFX only supports file import. Imported material must include the server certificate, full intermediate chain, and private key. Root certificates are optional.',
+      backList: 'Вернуться к списку сертификатов',
+      description: 'Сейчас поддерживаются только PEM + KEY и PFX; PFX поддерживает только импорт файла. Импортируемые материалы должны содержать серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ; корневой сертификат не обязателен.',
       errors: {
-        importFailed: 'Import failed',
-        materialRequiredBeforeValidate: 'Complete the import material before starting validation.',
-        needPassedValidation: 'Complete step 3 validation and make sure it passed before importing.',
-        validateFailed: 'Validation failed'
+        importFailed: 'Импорт не выполнен',
+        materialRequiredBeforeValidate: 'Сначала заполните материалы импорта, затем запускайте проверку.',
+        needPassedValidation: 'Сначала завершите проверку на шаге 3 и убедитесь, что она пройдена, затем импортируйте.',
+        validateFailed: 'Проверка не выполнена'
       },
       formats: {
         pem: {
-          hint: 'Server certificate, full intermediate chain, and private key must all be provided. Root certificates are optional and only produce a warning when missing.'
+          hint: 'Нужно одновременно предоставить серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ. Корневой сертификат не обязателен; при отсутствии будет предупреждение.'
         },
         pfx: {
-          hint: 'Only file import is supported. The container must include the server certificate, full intermediate chain, and private key. Root certificates are optional and only produce a warning when missing.'
+          hint: 'Поддерживается только импорт файла, контейнер должен содержать серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ. Корневой сертификат не обязателен; при отсутствии будет предупреждение.'
         }
       },
       methods: {
         file: {
-          hint: 'Use this when you already have cert / key or .pfx files.',
-          label: 'Select file'
+          hint: 'Подходит для уже имеющихся файлов cert / key или .pfx.',
+          label: 'Выбрать файл'
         },
         text: {
-          hint: 'Paste PEM text directly to avoid uploading temporary files.',
-          label: 'Paste text'
+          hint: 'Подходит для прямой вставки PEM-текста без загрузки временного файла.',
+          label: 'Вставить текст'
         }
       },
-      title: 'Import certificate'
+      title: 'Импорт сертификата'
     },
     importForm: {
       hints: {
-        pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
-        pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
-        pfxFileOnly: 'PFX only supports file import.'
+        pemChainCheck: 'Загрузите или вставьте серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ; система проверит цепочку сертификатов и соответствие закрытого ключа.',
+        pfxChainCheck: 'Загрузите файл PFX/P12 и введите пароль; система разберет из контейнера серверный сертификат, цепочку и закрытый ключ.',
+        pfxFileOnly: 'PFX поддерживает только импорт файла.'
       },
       roles: {
-        leaf: 'Leaf certificate',
-        root: 'Root certificate',
-        intermediate: 'Intermediate certificate'
+        leaf: 'Leaf-сертификат',
+        root: 'Корневой сертификат',
+        intermediate: 'Промежуточный сертификат'
       },
       steps: {
-        ariaLabel: 'Certificate import steps',
-        formatAndMethod: 'Format and method',
-        materials: 'Import materials',
-        validateAndImport: 'Validate and import'
+        ariaLabel: 'Шаги импорта сертификата',
+        formatAndMethod: 'Формат и способ',
+        materials: 'Материалы импорта',
+        validateAndImport: 'Проверка и импорт'
       },
       formatIntro: {
-        title: 'Choose import format and method',
-        description: 'Confirm the material format first, then upload files or paste text. PFX currently only supports file import.'
+        title: 'Выберите формат и способ импорта',
+        description: 'Сначала подтвердите формат материалов, затем выберите загрузку файла или вставку текста. PFX сейчас поддерживает только импорт файла.'
       },
       labels: {
-        importType: 'Import type',
-        importMethod: 'Import method',
-        materialStatus: 'Material status'
+        importType: 'Тип импорта',
+        importMethod: 'Способ импорта',
+        materialStatus: 'Статус материалов'
       },
       status: {
-        supported: 'Supported',
-        unsupported: 'Unsupported',
-        completed: 'Completed',
-        incomplete: 'Incomplete',
-        matched: 'Matched',
-        unmatched: 'Unmatched'
+        supported: 'Поддерживается',
+        unsupported: 'Пока не поддерживается',
+        completed: 'Завершено',
+        incomplete: 'Не завершено',
+        matched: 'Совпадает',
+        unmatched: 'Не совпадает'
       },
       fields: {
-        certificateChainFile: 'Certificate chain file',
-        certificatePemText: 'Certificate PEM text',
-        privateKey: 'Private key ({kind})',
-        file: 'file',
-        pemText: 'PEM text',
-        pfxFile: 'PFX/P12 file',
-        certificateName: 'Certificate name',
-        pfxPassword: 'PFX password'
+        certificateChainFile: 'Файл цепочки сертификатов',
+        certificatePemText: 'PEM-текст сертификата',
+        privateKey: 'Закрытый ключ ({kind})',
+        file: 'Файл',
+        pemText: 'PEM-текст',
+        pfxFile: 'Файл PFX/P12',
+        certificateName: 'Имя сертификата',
+        pfxPassword: 'Пароль PFX'
       },
       placeholders: {
         certificatePem: '-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----',
-        certificateName: 'For example example.com production certificate',
-        required: 'Required'
+        certificateName: 'Например: продуктивный сертификат example.com',
+        required: 'Обязательно'
       },
       validation: {
-        title: 'Validate import materials',
-        description: 'Validate the certificate chain, validity period, private key match, and material completeness before importing.',
-        passed: 'Validation passed. Ready to import.',
-        failed: 'Validation failed'
+        title: 'Проверить материалы импорта',
+        description: 'Перед отправкой импорта проверьте цепочку сертификатов, срок действия, соответствие закрытого ключа и полноту материалов.',
+        passed: 'Проверка пройдена, можно импортировать',
+        failed: 'Проверка не пройдена'
       },
       report: {
-        certificateSummary: 'Certificate summary',
-        serialNumber: 'Serial number',
-        validity: 'Validity',
-        validityRange: '{start} to {end}',
-        issuer: 'Issuer',
-        issuerWithValue: 'Issuer: {value}',
-        subject: 'Subject',
-        chainValidation: 'Chain validation',
-        chainStatus: 'Chain status',
-        certificateCount: 'Certificate count',
-        privateKeyMatch: 'Private key match',
-        provided: 'Provided',
-        matchResult: 'Match result',
-        privateKeySource: 'Private key source',
-        blockers: 'Blockers',
-        warnings: 'Warnings'
+        certificateSummary: 'Сводка сертификата',
+        serialNumber: 'Серийный номер',
+        validity: 'Срок действия',
+        validityRange: '{start} до {end}',
+        issuer: 'Издатель',
+        issuerWithValue: 'Издатель: {value}',
+        subject: 'Субъект',
+        chainValidation: 'Проверка цепочки сертификатов',
+        chainStatus: 'Статус цепочки',
+        certificateCount: 'Количество сертификатов',
+        privateKeyMatch: 'Соответствие закрытого ключа',
+        provided: 'Предоставлено',
+        matchResult: 'Результат совпадения',
+        privateKeySource: 'Источник закрытого ключа',
+        blockers: 'Блокирующие проблемы',
+        warnings: 'Предупреждения'
       },
-      selectedFile: 'Selected: {name}',
-      importSuccess: 'Imported successfully. Certificate version ID: {id}',
+      selectedFile: 'Выбрано: {name}',
+      importSuccess: 'Импорт успешен, ID версии сертификата: {id}',
       actions: {
-        validating: 'Validating...',
-        validate: 'Validate',
-        cancel: 'Cancel',
-        previous: 'Previous',
-        next: 'Next',
-        importing: 'Importing...',
-        import: 'Import certificate'
+        validating: 'Проверка...',
+        validate: 'Начать проверку',
+        cancel: 'Отмена',
+        previous: 'Назад',
+        next: 'Далее',
+        importing: 'Импорт...',
+        import: 'Импортировать сертификат'
       }
     },
     list: {
       filters: {
-        keyword: 'Keyword',
-        domain: 'Domain',
-        status: 'Status'
+        keyword: 'Ключевое слово',
+        domain: 'Домен',
+        status: 'Статус'
       },
       placeholders: {
-        assetKeyword: 'Domain / SAN / fingerprint',
-        versionKeyword: 'Name / issuer / subject / version ID'
+        assetKeyword: 'Домен / SAN / отпечаток',
+        versionKeyword: 'Имя / издатель / субъект / ID версии'
       },
       columns: {
-        notBefore: 'Start date',
-        notAfter: 'End date',
-        associatedAsset: 'Related asset',
-        status: 'Status',
-        certificateVersionId: 'Certificate version ID'
+        notBefore: 'Дата начала',
+        notAfter: 'Дата окончания',
+        associatedAsset: 'Связанный актив',
+        status: 'Статус',
+        certificateVersionId: 'ID версии сертификата'
       },
       lifecycle: {
-        unknown: 'Unknown',
-        expired: 'Expired',
-        expiringSoon: 'Expiring soon',
-        valid: 'Valid'
+        unknown: 'Неизвестно',
+        expired: 'Истек',
+        expiringSoon: 'Скоро истекает',
+        valid: 'Действителен'
       },
       fallbacks: {
-        unselectedDomain: 'No domain selected',
-        unnamedDomain: 'Unnamed domain',
-        noSupplement: 'No additional information'
+        unselectedDomain: 'Домен не выбран',
+        unnamedDomain: 'Безымянный домен',
+        noSupplement: 'Дополнительных сведений нет'
       },
       assets: {
-        title: 'Domain list',
-        loadFailed: 'Failed to load domain list',
-        empty: 'No domains',
-        unselectedTitle: 'No domain selected',
-        unselectedDescription: 'Select a logical certificate domain on the left first.'
+        title: 'Список доменов',
+        loadFailed: 'Не удалось загрузить список доменов',
+        empty: 'Список доменов пуст',
+        unselectedTitle: 'Домен не выбран',
+        unselectedDescription: 'Сначала выберите логический домен сертификата слева.'
       },
       versions: {
-        title: 'SSL certificate list',
-        titleWithDomain: 'SSL certificates for {domain}',
-        description: 'Shows SSL certificates under the current domain, including certificate name, start date, end date, issuer, and subject.',
-        loadFailed: 'Failed to load SSL certificate list',
-        emptyForDomain: 'No SSL certificates under this domain',
-        emptyForDomainDescription: 'Use the import certificate button on the right of the filters to add certificate versions for this domain.',
-        empty: 'No SSL certificates',
-        toolbar: 'Certificate version list',
-        currentCount: '{count} currently'
+        title: 'Список SSL-сертификатов',
+        titleWithDomain: 'Список SSL-сертификатов для {domain}',
+        description: 'Справа отображается список SSL-сертификатов текущего домена, включая имя сертификата, даты начала и окончания, издателя и субъекта.',
+        loadFailed: 'Не удалось загрузить список SSL-сертификатов',
+        emptyForDomain: 'В этом домене нет SSL-сертификатов',
+        emptyForDomainDescription: 'Можно добавить версию сертификата этого домена кнопкой импорта справа от фильтров.',
+        empty: 'SSL-сертификатов пока нет',
+        toolbar: 'Список версий сертификатов',
+        currentCount: 'Сейчас {count}'
       },
       actions: {
-        clear: 'Clear',
-        deleteRisk: 'Deleting removes the current certificate version directly. If it is still referenced by a binding or deployment, the backend will reject the operation.'
+        clear: 'Очистить',
+        deleteRisk: 'Удаление напрямую удалит текущую версию сертификата; если она еще используется привязкой или развертыванием, система отклонит операцию.'
       },
       errors: {
-        deleteFailed: 'Delete failed',
-        materialRequiredForFormat: 'Certificate material for the current format is required.',
-        importFailedWithCheck: 'Import failed. Check the input material.',
-        validateFailedWithCheck: 'Validation failed. Check the input material.'
+        deleteFailed: 'Удаление не выполнено',
+        materialRequiredForFormat: 'Необходимо предоставить материалы сертификата для текущего формата.',
+        importFailedWithCheck: 'Импорт не выполнен, проверьте введенные материалы.',
+        validateFailedWithCheck: 'Проверка не выполнена, проверьте введенные материалы.'
       },
       import: {
-        description: 'Currently only PEM + KEY and PFX are supported; each import must include the server certificate, full intermediate chain, and private key. Root certificates are optional and show a warning when missing. The private key is stored only as a backend Secret and is never echoed in responses.'
+        description: 'Сейчас поддерживаются только PEM + KEY и PFX; каждый импорт должен включать серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ. Корневой сертификат не обязателен, при отсутствии будет предупреждение. Закрытый ключ сохраняется только в системном хранилище Secret и не возвращается в API-ответах.'
       }
     },
     usages: {
-      backDetail: 'Back to details',
+      backDetail: 'Вернуться к деталям',
       columns: {
-        domainName: 'Domain / target',
-        resourceId: 'Resource ID',
-        resourceType: 'Resource type',
-        status: 'Status',
-        updatedAt: 'Updated at'
+        domainName: 'Домен/цель',
+        resourceId: 'ID ресурса',
+        resourceType: 'Тип ресурса',
+        status: 'Статус',
+        updatedAt: 'Время обновления'
       },
-      description: 'Bindings, deployment targets, and resource references for certificate {id}.',
-      empty: 'No usages',
-      loadFailed: 'Failed to load usages',
-      title: 'Certificate usages',
-      toolbar: 'Usages'
+      description: 'Привязки, цели развертывания и ссылки ресурсов сертификата {id}.',
+      empty: 'Связей использования пока нет',
+      loadFailed: 'Не удалось загрузить связи использования',
+      title: 'Связи использования сертификата',
+      toolbar: 'Связи использования'
     }
   },
   workflows: {
     credentials: {
       summary: {
-        usernamePassword: 'Username + password',
-        usernamePasswordWithUsername: 'Username + password / {username}',
-        sshKey: 'SSH private key',
-        sshKeyWithUsername: 'SSH private key / {username}',
+        usernamePassword: 'Имя пользователя + пароль',
+        usernamePasswordWithUsername: 'Имя пользователя + пароль / {username}',
+        sshKey: 'Закрытый ключ SSH',
+        sshKeyWithUsername: 'Закрытый ключ SSH / {username}',
         apiKey: 'API Key / {name} / {location}',
         bearerToken: 'Bearer Token'
       }
@@ -2947,858 +2877,667 @@ export default {
     canvasModel: {
       nodeTypes: {
         http: {
-          description: 'Call a structured HTTP API instead of scattered curl strings.'
+          description: 'Вызов структурированного HTTP API вместо разрозненных curl-команд.'
         },
         ssh: {
-          displayName: 'SSH command',
-          description: 'Declare the SSH command to run while storing only connection and credential references.'
+          displayName: 'Команда SSH',
+          description: 'Объявляет выполняемую SSH-команду, сохраняя только ссылки на подключение и учетные данные.'
         },
         sftp: {
-          displayName: 'SFTP upload/download',
-          description: 'Upload or download files through a formal SFTP step, suitable for certificate and config installation.'
+          displayName: 'Загрузка/скачивание SFTP',
+          description: 'Загрузка или скачивание файлов через официальный SFTP step, подходит для установки сертификатов и конфигураций.'
         },
         scp: {
-          displayName: 'SCP upload/download',
-          description: 'Copy files through SCP, suitable for simple host file distribution.'
+          displayName: 'Загрузка/скачивание SCP',
+          description: 'Копирование файлов через SCP, подходит для простой доставки файлов на хост.'
         },
         verify: {
-          displayName: 'Verify',
-          description: 'Assert HTTP status, text, regex, or certificate fingerprint.'
+          displayName: 'Проверка',
+          description: 'Проверяет HTTP-статус, текст, регулярное выражение или отпечаток сертификата.'
         },
         condition: {
-          displayName: 'Condition',
-          description: 'Choose the next path based on variable existence or value.'
+          displayName: 'Ветвление',
+          description: 'Выбирает дальнейший путь по наличию переменной или ее значению.'
         },
         transform: {
-          displayName: 'Transform',
-          description: 'Use JSONata to convert upstream output into new workflow context variables.'
+          displayName: 'Преобразование',
+          description: 'Использует JSONata, чтобы преобразовать выходные данные в новые переменные контекста workflow.'
         },
         wait: {
-          displayName: 'Wait',
-          description: 'Wait for a fixed number of seconds before continuing.'
+          displayName: 'Ожидание',
+          description: 'Ожидает фиксированное число секунд и продолжает выполнение.'
         },
         manual: {
-          displayName: 'Manual approval',
-          description: 'Pause the workflow until manual confirmation.'
+          displayName: 'Ручное подтверждение',
+          description: 'Приостанавливает рабочий процесс до ручного подтверждения.'
         }
       },
       fields: {
-        command: 'Command',
-        connectionRef: 'Connection variable',
-        contentRef: 'Content variable',
-        credential: 'Credential',
-        description: 'Description',
-        direction: 'Direction',
-        expected: 'Expected value',
-        expectedHostKeyFingerprint: 'Host Key fingerprint',
-        hostKeyPolicy: 'Host Key policy',
-        hostRef: 'Host variable',
-        inputRef: 'Input variable',
-        instruction: 'Approval instruction',
-        localPath: 'Local path',
-        mode: 'File mode',
-        operator: 'Operator',
-        remotePath: 'Remote path',
-        seconds: 'Wait seconds',
-        temporaryPath: 'Temporary path',
-        timeoutMs: 'Timeout ms',
-        timeoutSeconds: 'Timeout seconds',
-        transformInput: 'Transform input',
-        outputFormat: 'Output format',
-        usernameVariable: 'Username variable',
-        variable: 'Variable',
-        verifyType: 'Verify type'
+        command: 'Команда',
+        connectionRef: 'Переменная подключения',
+        contentRef: 'Переменная содержимого',
+        credential: 'Учетные данные',
+        description: 'Описание',
+        direction: 'Направление',
+        expected: 'Ожидаемое значение',
+        expectedHostKeyFingerprint: 'Отпечаток Host Key',
+        hostKeyPolicy: 'Политика Host Key',
+        hostRef: 'Переменная хоста',
+        inputRef: 'Входная переменная',
+        instruction: 'Инструкция подтверждения',
+        localPath: 'Локальный путь',
+        mode: 'Права файла',
+        operator: 'Оператор',
+        remotePath: 'Удаленный путь',
+        seconds: 'Секунды ожидания',
+        temporaryPath: 'Временный путь',
+        timeoutMs: 'Таймаут, мс',
+        timeoutSeconds: 'Таймаут, секунд',
+        transformInput: 'Вход преобразования',
+        outputFormat: 'Формат вывода',
+        usernameVariable: 'Переменная имени пользователя',
+        variable: 'Переменная',
+        verifyType: 'Тип проверки'
       },
       options: {
         direction: {
-          download: 'Download',
-          upload: 'Upload'
+          download: 'Скачать',
+          upload: 'Загрузить'
         },
         hostKeyPolicy: {
-          manualApproval: 'Manual approval',
-          strict: 'Strict verification',
-          trustOnFirstUse: 'Trust on first use'
+          manualApproval: 'Ручное согласование',
+          strict: 'Строгая проверка',
+          trustOnFirstUse: 'Доверять при первом использовании'
         },
         operator: {
-          equals: 'Equals',
-          exists: 'Exists',
-          notEquals: 'Not equals',
-          notExists: 'Does not exist'
+          equals: 'Равно',
+          exists: 'Существует',
+          notEquals: 'Не равно',
+          notExists: 'Не существует'
         },
         transformFormat: {
-          raw: 'Raw value',
-          jsonString: 'JSON string'
+          raw: 'Исходное значение',
+          jsonString: 'JSON-строка'
         },
         verifyType: {
-          certificateFingerprint: 'Certificate fingerprint',
-          httpStatus: 'HTTP status',
-          regex: 'Regex match',
-          textContains: 'Text contains'
+          certificateFingerprint: 'Отпечаток сертификата',
+          httpStatus: 'HTTP-статус',
+          regex: 'Регулярное выражение',
+          textContains: 'Текст содержит'
         }
       },
       stages: {
         backup: {
-          title: 'Backup',
-          description: 'Keep rollback material.'
+          title: 'Резервное копирование',
+          description: 'Сохраняет материалы для отката.'
         },
         install: {
-          title: 'Install',
-          description: 'Write certificates or configuration.'
+          title: 'Установка',
+          description: 'Развертывает сертификаты или конфигурацию.'
         },
         prepare: {
-          title: 'Prepare',
-          description: 'Prepare connections, variables, and material.'
+          title: 'Подготовка',
+          description: 'Готовит подключения, переменные и материалы.'
         },
         refresh: {
-          title: 'Refresh',
-          description: 'Reload services or refresh targets.'
+          title: 'Обновление',
+          description: 'Перезагружает сервис или обновляет цель.'
         },
         verify: {
-          title: 'Verify',
-          description: 'Confirm the result matches expectations.'
+          title: 'Проверка',
+          description: 'Подтверждает соответствие результата ожиданиям.'
         }
       },
       defaults: {
-        displayName: '{name} workflow',
+        displayName: 'Рабочий процесс {name}',
         nodes: {
-          backupExistingCertificate: 'Back up existing certificate',
-          reloadService: 'Reload service'
+          backupExistingCertificate: 'Резервное копирование текущего сертификата',
+          reloadService: 'Перезагрузка сервиса'
         },
         variables: {
           certificatePaths: {
-            description: 'Target certificate path configuration'
+            description: 'Конфигурация путей целевого сертификата'
           },
           credential: {
-            description: 'Connection credential'
+            description: 'Учетные данные подключения'
           },
           deviceHost: {
-            description: 'Target host'
+            description: 'Целевой хост'
           },
           serverCert: {
-            description: 'Server certificate material to deploy',
+            description: 'Материалы серверного сертификата для развертывания',
             outputs: {
               certFile: {
-                description: 'Server certificate file'
+                description: 'Файл серверного сертификата'
               },
               keyFile: {
-                description: 'Private key file'
+                description: 'Файл закрытого ключа'
               }
             }
           },
           sshUsername: {
-            description: 'SSH login username'
+            description: 'Имя пользователя для входа по SSH'
           },
           verifyUrl: {
-            description: 'Post-deployment verification URL'
+            description: 'Адрес проверки после развертывания'
           }
         },
         config: {
-          conditionDescription: 'Check whether the target host variable exists',
-          manualInstruction: 'Please confirm the target device certificate has switched to the new version.'
+          conditionDescription: 'Проверить наличие переменной целевого хоста',
+          manualInstruction: 'Подтвердите, что сертификат целевого устройства переключен на новую версию.'
         }
       },
       variableFlow: {
-        system: 'System',
-        variable: 'Variable'
+        system: 'Система',
+        variable: 'Переменная'
       },
       errors: {
-        unknownNodeType: 'Unknown node type: {type}'
+        unknownNodeType: 'Неизвестный тип узла: {type}'
       }
     },
     canvasEditor: {
-      summary: '{nodes} nodes, {edges} edges, {variables} variables',
-      stageNodeCount: '{count} nodes',
-      copyLabel: '{label} copy',
+      summary: 'Узлов {nodes}, связей {edges}, переменных {variables}',
+      stageNodeCount: 'Узлов: {count}',
+      copyLabel: 'Копия {label}',
       actions: {
-        addVariable: 'Add variable',
-        collapseBottomPanelAria: 'Collapse bottom control panel',
-        collapseDown: 'Collapse down',
-        copy: 'Copy',
-        copyNode: 'Copy node',
-        delete: 'Delete',
-        deleteNode: 'Delete node',
-        expandBottomPanelAria: 'Expand bottom control panel',
-        expandPanel: 'Expand panel',
-        layout: 'Arrange layout',
-        mockCurrentNode: 'Simulate current node only',
-        mockRunning: 'Simulating...',
-        paste: 'Paste',
-        pasteNode: 'Paste node',
-        realRun: 'Run current node for real',
-        realRunHttp: 'Run current HTTP node',
-        realRunRunning: 'Running...',
-        realRunSsh: 'Run current SSH node',
-        realRunTransfer: 'Run real file transfer',
-        redo: 'Redo',
-        saveDraft: 'Save draft',
-        saving: 'Saving...',
-        undo: 'Undo',
-        zoomIn: 'Zoom in',
-        zoomOut: 'Zoom out'
+        addVariable: 'Добавить переменную',
+        collapseBottomPanelAria: 'Свернуть нижнюю панель управления',
+        collapseDown: 'Свернуть вниз',
+        copy: 'Копировать',
+        copyNode: 'Копировать узел',
+        delete: 'Удалить',
+        deleteNode: 'Удалить узел',
+        expandBottomPanelAria: 'Развернуть нижнюю панель управления',
+        expandPanel: 'Развернуть панель',
+        layout: 'Упорядочить макет',
+        mockCurrentNode: 'Симулировать только текущий узел',
+        mockRunning: 'Симуляция...',
+        paste: 'Вставить',
+        pasteNode: 'Вставить узел',
+        realRun: 'Реальный пробный запуск текущего узла',
+        realRunHttp: 'Реальный пробный запуск текущего HTTP-узла',
+        realRunRunning: 'Пробный запуск...',
+        realRunSsh: 'Реальное выполнение текущего SSH-узла',
+        realRunTransfer: 'Реальный пробный запуск передачи файлов',
+        redo: 'Повторить',
+        saveDraft: 'Сохранить черновик',
+        saving: 'Сохранение...',
+        undo: 'Отменить',
+        zoomIn: 'Увеличить',
+        zoomOut: 'Уменьшить'
       },
       aria: {
-        bottomPanel: 'Bottom panel',
-        canvasArea: 'Canvas area',
-        dslPanel: 'DSL panel',
-        nodePalette: 'Node palette',
-        propertiesPanel: 'Properties panel',
-        runtimePanel: 'Runtime panel',
-        toolbar: 'Workflow canvas toolbar',
-        validationPanel: 'Validation panel',
-        variablesPanel: 'Variables panel'
+        bottomPanel: 'Нижняя панель',
+        canvasArea: 'Область canvas',
+        dslPanel: 'Панель DSL',
+        nodePalette: 'Библиотека узлов',
+        propertiesPanel: 'Панель свойств',
+        runtimePanel: 'Панель выполнения',
+        toolbar: 'Панель инструментов canvas рабочего процесса',
+        validationPanel: 'Панель проверки',
+        variablesPanel: 'Панель переменных'
       },
       credentialHints: {
-        savedApiKey: 'Saved API key',
-        savedBearerToken: 'Saved Bearer token',
-        savedSshSftp: 'Saved SSH / SFTP credentials',
-        savedUsernamePassword: 'Saved username + password'
+        savedApiKey: 'Сохраненный API Key',
+        savedBearerToken: 'Сохраненный Bearer Token',
+        savedSshSftp: 'Сохраненные учетные данные SSH / SFTP',
+        savedUsernamePassword: 'Сохраненные имя пользователя + пароль'
       },
       credentials: {
-        emptyCreateHint: 'No available credentials. Create one from Credential Management on the list page.',
-        loading: 'Loading credentials from backend...'
+        emptyCreateHint: 'Доступных учетных данных пока нет. Сначала создайте их в управлении учетными данными на странице списка.',
+        loading: 'Загрузка списка учетных данных...'
       },
       dsl: {
-        title: 'DSL import and overwrite',
-        hint: 'Paste external DSL JSON or choose a local DSL file. Import only overwrites the current canvas in the browser; a new workflow version is created only after saving the draft.',
-        selectFile: 'Select DSL file',
+        title: 'Импорт и перезапись DSL',
+        hint: 'Можно вставить внешний DSL JSON напрямую или выбрать локальный файл DSL. Импорт перезаписывает только текущий canvas в браузере; новая версия рабочего процесса появится только после нажатия "Сохранить черновик".',
+        selectFile: 'Выбрать DSL-файл',
         actions: {
-          importOverwrite: 'Import DSL and overwrite canvas',
-          resetToCanvas: 'Refill current canvas DSL'
+          importOverwrite: 'Импортировать DSL и перезаписать canvas',
+          resetToCanvas: 'Вернуть DSL текущего canvas'
         },
         messages: {
-          fileLoaded: 'Loaded file: {fileName}',
-          imported: 'DSL imported and current canvas overwritten, {count} nodes total.',
-          resetToCompiled: 'Refilled backend-compiled DSL.'
+          fileLoaded: 'Файл загружен: {fileName}',
+          imported: 'DSL импортирован и перезаписал текущий canvas, узлов: {count}.',
+          resetToCompiled: 'Скомпилированный DSL возвращен.'
         },
         errors: {
-          importFailed: 'DSL import failed',
-          invalidTopLevel: 'Invalid DSL top-level structure. It must be an object.'
+          importFailed: 'Импорт DSL не выполнен',
+          invalidTopLevel: 'Неверная верхнеуровневая структура DSL, должен быть объект.'
         }
       },
       empty: {
-        selectNodeToEdit: 'Select a node to edit properties.'
+        selectNodeToEdit: 'Выберите узел, чтобы редактировать свойства.'
       },
       errors: {
-        backendValidationFailed: 'Backend validation failed',
-        credentialsLoadFailed: 'Failed to load workflow credentials',
-        missingStepName: 'Step name is missing',
-        missingWorkflowDsl: 'Backend did not return workflow DSL'
+        backendValidationFailed: 'Проверка не пройдена',
+        credentialsLoadFailed: 'Не удалось загрузить учетные данные рабочего процесса',
+        missingStepName: 'Отсутствует имя шага',
+        missingWorkflowDsl: 'Не удалось получить DSL рабочего процесса'
       },
       fields: {
-        authType: 'Auth type',
-        clientCertificate: 'Client certificate',
-        clientPrivateKey: 'Client private key',
-        command: 'Command',
-        connectionVariable: 'Connection variable',
-        contentRef: 'Content reference',
-        cookieName: 'Cookie name',
-        credential: 'Credential',
-        credentialSelector: 'Credential selector',
-        defaultValue: 'Default value',
-        deliveryLocation: 'Delivery location',
-        description: 'Description',
-        direction: 'Direction',
-        fileMode: 'File mode',
-        headerName: 'Header name',
-        hostRefOrHostname: 'Host variable / hostname',
-        hostVariable: 'Host variable',
-        keyName: 'Key name',
-        localPath: 'Local path',
-        newNodeStage: 'New node stage',
-        nodeName: 'Node name',
-        remotePath: 'Remote path',
-        required: 'Required',
-        secretValue: 'Secret value',
-        sensitive: 'Sensitive',
-        stage: 'Stage',
-        temporaryPath: 'Temporary path',
-        timeoutSeconds: 'Timeout seconds',
-        type: 'Type',
-        username: 'Username',
-        variableName: 'Variable name'
+        authType: 'Тип аутентификации',
+        clientCertificate: 'Клиентский сертификат',
+        clientPrivateKey: 'Клиентский закрытый ключ',
+        command: 'Команда',
+        connectionVariable: 'Переменная подключения',
+        contentRef: 'Ссылка на содержимое',
+        cookieName: 'Имя Cookie',
+        credential: 'Учетные данные',
+        credentialSelector: 'Выбор учетных данных',
+        defaultValue: 'Значение по умолчанию',
+        deliveryLocation: 'Место передачи',
+        description: 'Описание',
+        direction: 'Направление',
+        fileMode: 'Права файла',
+        headerName: 'Имя Header',
+        hostRefOrHostname: 'Переменная хоста / имя хоста',
+        hostVariable: 'Переменная хоста',
+        keyName: 'Имя Key',
+        localPath: 'Локальный путь',
+        newNodeStage: 'Этап нового узла',
+        nodeName: 'Имя узла',
+        remotePath: 'Удаленный путь',
+        required: 'Обязательно',
+        secretValue: 'Секретное значение',
+        sensitive: 'Чувствительное',
+        stage: 'Этап',
+        temporaryPath: 'Временный путь',
+        timeoutSeconds: 'Таймаут, секунд',
+        type: 'Тип',
+        username: 'Имя пользователя',
+        variableName: 'Имя переменной'
       },
       options: {
-        download: 'Download',
-        manualInput: 'Manual input',
-        notSelected: 'Not selected',
-        upload: 'Upload'
+        download: 'Скачать',
+        manualInput: 'Ввести вручную',
+        notSelected: 'Не выбрано',
+        upload: 'Загрузить'
       },
       runtime: {
-        noCredentialVariables: 'This workflow has no credential variables.',
-        noExtraVariables: 'The current node has no extra runtime variables.'
+        noCredentialVariables: 'В текущем рабочем процессе нет переменных учетных данных.',
+        noExtraVariables: 'У текущего узла нет дополнительных переменных выполнения.'
       },
       sections: {
-        httpAuth: 'HTTP authentication',
-        nodePalette: 'Node palette',
-        properties: 'Properties',
-        referenceFlow: 'Reference flow',
-        runtimeCredentialVariables: 'Runtime credential variables',
-        runtimeVariables: 'Runtime variables',
-        singleNodeTest: 'Single-node test run',
-        variableConfig: 'Variable configuration'
+        httpAuth: 'HTTP-аутентификация',
+        nodePalette: 'Библиотека узлов',
+        properties: 'Панель свойств',
+        referenceFlow: 'Поток ссылок',
+        runtimeCredentialVariables: 'Переменные учетных данных выполнения',
+        runtimeVariables: 'Переменные выполнения',
+        singleNodeTest: 'Тестовый запуск одного узла',
+        variableConfig: 'Конфигурация переменных'
       },
       tabs: {
-        runtime: 'Runtime',
-        validation: 'Validation',
-        variables: 'Variables'
+        runtime: 'Выполнение',
+        validation: 'Проверка',
+        variables: 'Переменные'
       },
       test: {
-        cause: 'Cause',
-        code: 'Code',
-        emptyHint: 'Select a node to run a simulation or real test.',
-        error: 'Error',
-        executionPlan: 'Execution plan',
-        exitCode: 'Exit code',
-        failureDetails: 'Failure details',
-        hint: 'Test hint',
-        logs: 'Logs',
-        nodeOutput: 'Node output',
-        running: 'Running',
-        stage: 'Stage',
-        stderr: 'Standard error',
-        stdout: 'Standard output',
-        suggestion: 'Suggestion',
-        target: 'Target',
+        cause: 'Причина',
+        code: 'Код',
+        emptyHint: 'Выберите узел, затем можно выполнить симуляцию или реальный пробный запуск.',
+        error: 'Ошибка',
+        executionPlan: 'План выполнения',
+        exitCode: 'Код выхода',
+        failureDetails: 'Детали ошибки',
+        hint: 'Подсказка теста',
+        logs: 'Журналы',
+        nodeOutput: 'Вывод узла',
+        running: 'Выполняется',
+        stage: 'Этап',
+        stderr: 'Стандартная ошибка',
+        stdout: 'Стандартный вывод',
+        suggestion: 'Рекомендация',
+        target: 'Цель',
         errors: {
-          mockRunFailed: 'Simulation failed',
-          realRunFailed: 'Real test run failed'
+          mockRunFailed: 'Симуляция не выполнена',
+          realRunFailed: 'Реальный пробный запуск не выполнен'
         },
         messages: {
-          mockCompleted: 'Simulation completed.',
-          mockFailed: 'Simulation failed.',
-          realCompleted: 'Real test run completed.',
-          realFailed: 'Real test run failed.'
+          mockCompleted: 'Симуляция завершена.',
+          mockFailed: 'Симуляция не выполнена.',
+          realCompleted: 'Реальный пробный запуск завершен.',
+          realFailed: 'Реальный пробный запуск не выполнен.'
         }
       },
       validation: {
         levels: {
-          error: 'Error',
-          risk: 'Risk',
-          warning: 'Warning'
+          error: 'Ошибка',
+          risk: 'Риск',
+          warning: 'Предупреждение'
         },
         location: {
           canvas: 'Canvas',
-          edge: 'Edge',
-          fieldSuffix: 'field',
-          node: 'Node'
+          edge: 'Связь',
+          fieldSuffix: 'поле',
+          node: 'Узел'
         },
-        noBlockingErrors: 'No blocking errors.'
+        noBlockingErrors: 'Блокирующих ошибок нет.'
       },
       variables: {
-        customRuntimeDescription: 'Custom runtime variable',
-        notUsed: 'Not used',
-        usedBy: 'Used by: {nodes}'
+        customRuntimeDescription: 'Пользовательская переменная выполнения',
+        notUsed: 'Не используется',
+        usedBy: 'Используется в: {nodes}'
       }
     },
     templates: {
-      title: 'Workflows',
-      resourceName: 'Workflow',
-      description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
+      title: 'Рабочие процессы',
+      resourceName: 'Рабочий процесс',
+      description: 'Управление версиями CURL/SSH/SFTP рабочих процессов, статусом публикации и историей изменений по черновикам canvas.',
       actions: {
-        addVersion: 'Add version',
-        applyTemplate: 'Apply template',
-        cancel: 'Cancel',
-        close: 'Close',
-        createBlank: 'Create blank',
-        credentialManagement: 'Credential management',
-        delete: 'Delete',
-        detail: 'Details',
-        edit: 'Edit',
-        publishVersion: 'Publish version',
-        saveNote: 'Save note',
-        switchVersion: 'Switch version',
-        templateManagement: 'Template management',
-        versionManagement: 'Version management'
+        addVersion: 'Добавить версию',
+        applyTemplate: 'Применить шаблон',
+        cancel: 'Отмена',
+        close: 'Закрыть',
+        createBlank: 'Создать пустой',
+        credentialManagement: 'Управление учетными данными',
+        delete: 'Удалить',
+        detail: 'Детали',
+        edit: 'Редактировать',
+        publishVersion: 'Опубликовать версию',
+        saveNote: 'Сохранить примечание',
+        switchVersion: 'Переключить версию',
+        templateManagement: 'Управление шаблонами',
+        versionManagement: 'Управление версиями'
       },
       states: {
-        creating: 'Creating...',
-        loading: 'Loading...',
-        processing: 'Processing...',
-        saving: 'Saving...'
+        creating: 'Создание...',
+        loading: 'Загрузка...',
+        processing: 'Обработка...',
+        saving: 'Сохранение...'
       },
       fields: {
-        actions: 'Actions',
-        createdAt: 'Created at',
-        currentStatus: 'Current status',
-        currentVersion: 'Current version',
-        currentVersionId: 'Current version ID',
-        id: 'Workflow ID',
-        name: 'Workflow name',
-        note: 'Note',
-        status: 'Status',
-        updatedAt: 'Updated at'
+        actions: 'Операции',
+        createdAt: 'Время создания',
+        currentStatus: 'Текущий статус',
+        currentVersion: 'Текущая версия',
+        currentVersionId: 'ID текущей версии',
+        id: 'ID рабочего процесса',
+        name: 'Имя рабочего процесса',
+        note: 'Примечание',
+        status: 'Статус',
+        updatedAt: 'Время обновления'
       },
       empty: {
-        description: 'Create a canvas draft first, then publish versions to the production flow.',
-        noChangeSummary: 'No change summary.',
-        noChangeSummaryShort: 'No change summary',
-        noVersions: 'No versions.',
-        title: 'No workflows'
+        description: 'Сначала создайте черновик canvas, затем публикуйте версии в рабочий контур.',
+        noChangeSummary: 'Описание изменений отсутствует.',
+        noChangeSummaryShort: 'Нет описания изменений',
+        noVersions: 'Версий пока нет.',
+        title: 'Рабочих процессов пока нет'
       },
       tabs: {
-        summary: 'Overview',
-        versions: 'Versions'
+        summary: 'Обзор',
+        versions: 'Версии'
       },
       versionStatuses: {
-        disabled: 'Disabled',
-        draft: 'Draft',
-        published: 'Published'
+        disabled: 'Отключено',
+        draft: 'Черновик',
+        published: 'Опубликовано'
       },
       detail: {
-        description: 'Workflow details, canvas drafts, and versions are kept in this modal; the main page stays compact.',
-        publishedVersion: 'Published version {version}',
-        title: 'Workflow details',
-        titleWithName: 'Workflow {name}'
+        description: 'Просмотр деталей рабочего процесса, черновика canvas и списка версий.',
+        publishedVersion: 'Текущая опубликованная версия {version}',
+        title: 'Детали рабочего процесса',
+        titleWithName: 'Рабочий процесс {name}'
       },
       versionManager: {
-        description: 'Manage only workflow version creation and publishing here; workflow canvas content is not changed.',
-        titleWithName: 'Version management: {name}'
+        description: 'Управление созданием и публикацией версий рабочего процесса без изменения содержимого canvas.',
+        titleWithName: 'Управление версиями: {name}'
       },
       changeSummaries: {
-        applyFromFileTemplate: 'Apply file template to workflow draft',
-        createCanvasDraft: 'Create workflow draft from frontend canvas',
-        createFromFileTemplate: 'Create workflow draft from file template',
-        createVersionDraft: 'Create new draft version from version management',
-        saveCanvasDraft: 'Save draft version from canvas editor'
+        applyFromFileTemplate: 'Черновик рабочего процесса перезаписан из файлового шаблона',
+        createCanvasDraft: 'Черновик рабочего процесса создан из frontend canvas',
+        createFromFileTemplate: 'Черновик рабочего процесса создан из файлового шаблона',
+        createVersionDraft: 'Новая черновая версия создана из управления версиями',
+        saveCanvasDraft: 'Черновая версия сохранена из редактора canvas'
       },
       messages: {
-        canvasDraftUpdated: 'Current draft version updated.',
-        switchedVersion: 'Switched to {version}.',
-        versionDraftCreated: 'New draft version created.',
-        versionNoteUpdated: 'Version note updated.'
+        canvasDraftUpdated: 'Текущая черновая версия обновлена.',
+        switchedVersion: 'Переключено на {version}.',
+        versionDraftCreated: 'Новая черновая версия создана.',
+        versionNoteUpdated: 'Примечание версии обновлено.'
       },
       errors: {
-        createVersionFailed: 'Failed to create workflow version',
-        loadVersionsFailed: 'Failed to load workflow versions',
-        missingWorkflowDsl: 'Backend did not return workflow DSL',
-        publishVersionFailed: 'Failed to publish workflow version',
-        saveCanvasDraftFailed: 'Failed to save canvas draft',
-        updateVersionNoteFailed: 'Failed to update version note'
+        createVersionFailed: 'Не удалось создать версию рабочего процесса',
+        loadVersionsFailed: 'Не удалось загрузить версии рабочего процесса',
+        missingWorkflowDsl: 'Не удалось получить DSL рабочего процесса',
+        publishVersionFailed: 'Не удалось опубликовать версию рабочего процесса',
+        saveCanvasDraftFailed: 'Не удалось сохранить черновик canvas',
+        updateVersionNoteFailed: 'Не удалось обновить примечание версии'
       },
       delete: {
-        riskText: 'Deleting disables this workflow and all versions, hiding them from the list; historical execution records will not be rewritten.'
+        riskText: 'Удаление отключит этот рабочий процесс и все его версии, они больше не будут отображаться в списке; исторические записи выполнения не изменяются.'
       },
       loading: {
-        versions: 'Loading versions...'
+        versions: 'Загрузка версий...'
       },
       fileTemplates: {
-        applyAction: 'Apply template to current workflow',
-        applyTitle: 'Apply file template to workflow',
-        createAction: 'Create workflow from template',
-        createTitle: 'Create workflow from file template',
-        currentTarget: 'Current target: {name}',
-        description: 'Template files come from the built-in template library or user import directory. Applying one to an existing workflow creates a new draft version and does not rewrite history.',
-        empty: 'No recognizable workflow template files.',
-        identifier: 'Identifier {name}',
-        invalid: 'Invalid',
-        invalidFile: 'Invalid file',
-        loading: 'Scanning file templates...',
-        valid: 'Available',
+        applyAction: 'Перезаписать текущий рабочий процесс шаблоном',
+        applyTitle: 'Перезаписать рабочий процесс файловым шаблоном',
+        createAction: 'Создать рабочий процесс по шаблону',
+        createTitle: 'Создать рабочий процесс из файлового шаблона',
+        currentTarget: 'Текущая цель: {name}',
+        description: 'Файлы шаблонов берутся из встроенной библиотеки шаблонов или каталога пользовательского импорта. При перезаписи существующего рабочего процесса создается новая черновая версия, история не переписывается.',
+        empty: 'Распознаваемых файлов шаблонов рабочих процессов пока нет.',
+        identifier: 'Идентификатор {name}',
+        invalid: 'Недействителен',
+        invalidFile: 'Файл недействителен',
+        loading: 'Сканирование файловых шаблонов...',
+        valid: 'Доступен',
         sources: {
-          builtin: 'Built-in',
-          userImported: 'User imported'
+          builtin: 'Встроенный',
+          userImported: 'Импортирован пользователем'
         },
         errors: {
-          actionFailed: 'Failed to run file template action',
-          loadFailed: 'Failed to load workflow file templates',
-          missingApplyTarget: 'Missing workflow target to apply'
+          actionFailed: 'Не удалось выполнить действие файлового шаблона',
+          loadFailed: 'Не удалось загрузить файловые шаблоны рабочих процессов',
+          missingApplyTarget: 'Не указана цель рабочего процесса для перезаписи'
         }
       },
       credentials: {
         actions: {
-          create: 'Create credential'
+          create: 'Создать учетные данные'
         },
-        addTitle: 'Add credential',
-        count: '{count} item(s)',
-        description: 'Create reusable login and API credentials for workflows in one place. The frontend only selects and reuses them, without requiring manual internal reference strings.',
-        empty: 'No backend credential records. After creation, they can be selected directly in variables, SSH nodes, and HTTP nodes.',
-        loading: 'Loading credential metadata from backend...',
-        registeredTitle: 'Registered credentials',
-        title: 'Credential management',
+        addTitle: 'Добавить учетные данные',
+        count: '{count} шт.',
+        description: 'Централизованное управление логинными и API-учетными данными для рабочих процессов с возможностью выбора и переиспользования в canvas и узлах.',
+        empty: 'Записей учетных данных пока нет. После создания их можно выбирать в переменных, SSH-узлах и HTTP-узлах.',
+        loading: 'Загрузка сведений учетных данных...',
+        registeredTitle: 'Зарегистрированные учетные данные',
+        title: 'Управление учетными данными',
         fields: {
-          deliveryLocation: 'Delivery location',
-          headerOrParam: 'Header / parameter name',
-          name: 'Credential name',
-          referenceLocation: 'Reference location',
-          storageType: 'Storage type',
-          type: 'Credential type',
-          username: 'Username'
+          deliveryLocation: 'Место передачи',
+          headerOrParam: 'Header / имя параметра',
+          name: 'Имя учетных данных',
+          referenceLocation: 'Место ссылки',
+          storageType: 'Тип хранения',
+          type: 'Тип учетных данных',
+          username: 'Имя пользователя'
         },
         kinds: {
           common: {
-            family: 'General'
+            family: 'Общие'
           },
           sshKey: {
-            title: 'SSH private key'
+            title: 'Закрытый ключ SSH'
           },
           usernamePassword: {
-            title: 'Username + password'
+            title: 'Имя пользователя + пароль'
           }
         },
         secretLabels: {
-          password: 'Password',
-          sshKey: 'SSH private key'
+          password: 'Пароль',
+          sshKey: 'Закрытый ключ SSH'
         },
         placeholders: {
-          apiKey: 'Enter API Key',
-          bearer: 'Enter Bearer Token',
-          password: 'Enter login password',
-          sshKey: 'Paste PEM private key'
+          apiKey: 'Введите API Key',
+          bearer: 'Введите Bearer Token',
+          password: 'Введите пароль входа',
+          sshKey: 'Вставьте закрытый ключ в формате PEM'
         },
         messages: {
-          created: 'Credential created. It can now be selected in workflow variables, SSH nodes, and HTTP nodes.'
+          created: 'Учетные данные созданы; их можно выбирать в переменных рабочего процесса, SSH-узлах и HTTP-узлах.'
         },
         errors: {
-          createFailed: 'Failed to create credential',
-          loadFailed: 'Failed to load backend credentials',
-          missingCreatedId: 'Credential creation did not return a valid ID'
+          createFailed: 'Не удалось создать учетные данные',
+          loadFailed: 'Не удалось загрузить учетные данные',
+          missingCreatedId: 'Создание учетных данных не вернуло действительный номер'
         }
       }
     }
   },
   monitoring: {
     actions: {
-      add: 'Add monitor',
-      probe: 'Probe sites',
-      probing: 'Probing...',
-      refresh: 'Refresh data',
-      refreshing: 'Refreshing...',
-      remove: 'Remove'
+      add: 'Добавить мониторинг',
+      probe: 'Проверить сайт',
+      probing: 'Проверка...',
+      refresh: 'Обновить данные',
+      refreshing: 'Обновление...',
+      remove: 'Удалить'
     },
     errors: {
-      addFailed: 'Failed to add monitor target',
-      deleteFailed: 'Failed to delete monitor target',
-      invalidTarget: 'The backend returned an invalid monitor target',
-      loadFailed: 'Failed to load monitoring data',
-      probeFailed: 'Probe request failed',
-      updateIntervalFailed: 'Failed to update probe interval'
+      addFailed: 'Не удалось добавить цель мониторинга',
+      deleteFailed: 'Не удалось удалить цель мониторинга',
+      invalidTarget: 'Данные цели мониторинга недействительны',
+      loadFailed: 'Не удалось загрузить данные мониторинга',
+      probeFailed: 'Запрос проверки не выполнен',
+      updateIntervalFailed: 'Не удалось обновить частоту проверки'
     },
     empty: {
-      actualCertificate: 'No observed TLS certificate yet. HTTPS targets collect certificate information automatically during site probes.',
-      description: 'Add a monitor from the top right. The system will probe the site on schedule and collect certificate information.',
-      noAddableAssets: 'No application assets can be added. Adjust existing target probe intervals in the detail view.',
-      observedCertificateHistory: 'No bound certificate versions yet. The first certificate collected by a site probe will be retained automatically.',
-      probeHistory: 'No probe history.',
-      riskEvents: 'No related events.',
-      title: 'No monitor targets'
+      actualCertificate: 'Фактически измеренного TLS-сертификата пока нет. HTTPS-цели автоматически собирают сведения о сертификате при проверке сайта.',
+      description: 'Нажмите "Добавить мониторинг" справа вверху; система будет проверять сайт с заданной частотой и синхронно собирать сведения о сертификате.',
+      noAddableAssets: 'Нет доступных для добавления активов приложений; для существующих целей измените частоту проверки в деталях.',
+      observedCertificateHistory: 'Привязанных версий сертификатов пока нет. После получения первого сертификата проверкой сайта он будет сохранен автоматически.',
+      probeHistory: 'Истории проверок пока нет.',
+      riskEvents: 'Связанных событий пока нет.',
+      title: 'Целей мониторинга пока нет'
     },
     sections: {
-      actualCertificate: 'Current observed site certificate',
-      actualCertificateHint: 'Collected automatically during site probes',
-      observedCertificateHistory: 'Bound certificate versions',
-      observedCertificateHistoryHint: 'Keeps version records as observed TLS certificates change',
-      probeHistory: 'Probe history',
-      probeHistoryHint: 'Latest 20 backend probe results',
-      riskEvents: 'Risk events',
-      riskEventsHint: 'Certificate chain, domain, fingerprint, and execution status',
-      targets: 'Monitor targets'
+      actualCertificate: 'Текущий фактически измеренный сертификат сайта',
+      actualCertificateHint: 'Автоматически собирается при проверке сайта',
+      observedCertificateHistory: 'Привязанные версии сертификатов',
+      observedCertificateHistoryHint: 'Хранит версии по изменениям фактически измеренных TLS-сертификатов',
+      probeHistory: 'История проверок',
+      probeHistoryHint: 'Последние 20 результатов системных проверок',
+      riskEvents: 'События риска',
+      riskEventsHint: 'Цепочка сертификатов, домен, отпечаток и статус выполнения',
+      targets: 'Цели мониторинга'
     },
     labels: {
-      applicationAsset: 'Application asset',
-      currentTarget: 'Current target',
-      probeInterval: 'Probe interval'
+      applicationAsset: 'Актив приложения',
+      currentTarget: 'Текущая цель',
+      probeInterval: 'Частота проверки'
     },
     metrics: {
-      availability: 'Availability',
-      certificateStatus: 'Certificate status',
-      latency: 'Latency',
-      observedCertificateChanges: 'Observed certificate changes'
+      availability: 'Доступность',
+      certificateStatus: 'Статус сертификата',
+      latency: 'Задержка доступа',
+      observedCertificateChanges: 'Изменения измеренного сертификата'
     },
     probe: {
-      completed: 'Probe completed',
-      emptyHistoryBlock: 'Probe {index}: no probe yet',
-      latencyNotCollected: 'Latency not collected',
-      recentAria: 'Latest 10 probe results',
-      waiting: 'Waiting for site probe'
+      completed: 'Проверка завершена',
+      emptyHistoryBlock: 'Проверка {index}: пока нет данных',
+      latencyNotCollected: 'Задержка не собрана',
+      recentAria: 'Последние 10 результатов проверки',
+      waiting: 'Ожидание проверки сайта'
     },
     status: {
-      error: 'Error',
-      none: 'Pending',
-      ready: 'Healthy',
-      warning: 'Warning'
+      error: 'Ошибка',
+      none: 'Ожидает выполнения',
+      ready: 'Норма',
+      warning: 'Предупреждение'
     },
     fallback: {
-      noEndpoint: 'No endpoint configured',
-      noFingerprint: 'No fingerprint',
-      noSummary: 'No summary',
-      notCollected: 'Not collected',
-      notSelected: 'Not selected',
-      unknownAsset: 'Unknown asset',
-      unknownCertificate: 'Unknown certificate',
-      unknownIssuer: 'Unknown issuer',
-      unnamedEvent: 'Unnamed event'
+      noEndpoint: 'Адрес доступа не настроен',
+      noFingerprint: 'Нет отпечатка',
+      noSummary: 'Нет сводки',
+      notCollected: 'Не собрано',
+      notSelected: 'Не выбрано',
+      unknownAsset: 'Неизвестный актив',
+      unknownCertificate: 'Неизвестный сертификат',
+      unknownIssuer: 'Неизвестный издатель',
+      unnamedEvent: 'Безымянное событие'
     },
     certificate: {
-      actualCertificate: 'Observed certificate',
-      chainUntrusted: 'Not trusted by the system trust chain',
-      chainVerification: 'Chain verification',
-      chainVerified: 'Chain verified',
-      chainVerifyFailedWithReason: 'Chain verification failed: {reason}',
-      collectedAt: 'Collected at',
-      issuer: 'Issuer',
-      serialNumber: 'Serial number',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      subject: 'Subject',
-      validity: 'Validity',
-      validityRange: '{start} to {end}'
+      actualCertificate: 'Фактически измеренный сертификат',
+      chainUntrusted: 'Не прошел проверку системной цепочкой доверия',
+      chainVerification: 'Проверка цепочки',
+      chainVerified: 'Цепочка проверена',
+      chainVerifyFailedWithReason: 'Проверка цепочки не пройдена: {reason}',
+      collectedAt: 'Время сбора',
+      issuer: 'Издатель',
+      serialNumber: 'Серийный номер',
+      sha256Fingerprint: 'Отпечаток SHA-256',
+      subject: 'Субъект',
+      validity: 'Срок действия',
+      validityRange: '{start} до {end}'
     },
     columns: {
-      certificateName: 'Certificate name',
-      changedAt: 'Changed at',
-      expiresAt: 'Expires at',
-      issuerName: 'Issuer name',
-      latency: 'Latency',
-      result: 'Result',
-      source: 'Source',
-      status: 'Status',
-      time: 'Time'
+      certificateName: 'Имя сертификата',
+      changedAt: 'Время замены',
+      expiresAt: 'Время истечения',
+      issuerName: 'Имя издателя',
+      latency: 'Задержка',
+      result: 'Результат',
+      source: 'Источник',
+      status: 'Статус',
+      time: 'Время'
     },
     dialog: {
-      defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
-      description: 'Select a target from application assets. The system will collect availability, latency, certificate information, and certificate history.',
-      loadingAssets: 'Loading assets...',
-      selectAsset: 'Select application asset',
-      title: 'Add monitor'
+      defaultMetricsHint: 'По умолчанию мониторятся доступность, задержка доступа, сведения о сертификате и история сертификатов.',
+      description: 'Выберите цель из списка активов приложений; система будет фиксированно собирать доступность, задержку, сведения о сертификате и историю сертификатов.',
+      loadingAssets: 'Загрузка активов...',
+      selectAsset: 'Выберите актив приложения',
+      title: 'Добавить мониторинг'
     },
     source: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Платформа'
     },
     targets: {
-      assetCount: '{count} assets'
+      assetCount: 'Активов: {count}'
     }
   },
   login: {
-    visualLabel: '产品说明',
-    brand: 'GCAC 证书控制台',
-    brandSecondary: '证书集中管理平台',
-    headlinePrefix: '让证书管理',
-    headlineHighlight: '更智能',
-    headlineSuffix: '、更安全',
-    intro: '一站式管理证书资产，自动化部署编排，全链路审计追踪，将证书运维从繁琐的人工操作转变为可验证、可回溯的标准化流程，为企业数字基础设施保驾护航。',
-    capabilitiesLabel: '平台能力',
-    featureLifecycle: '全生命周期管理',
-    featureLifecycleDesc: '从导入、续签、版本追踪到到期预警，覆盖证书资产的每一个环节。',
-    featureAutomation: '自动化部署编排',
-    featureAutomationDesc: '面向 Nginx、Tomcat、IIS 等主流环境，一键生成可审计的部署计划。',
-    featureRollback: '安全执行与回滚',
-    featureRollbackDesc: '部署前自动校验，执行全程留痕，失败即回滚，确保生产环境稳定无忧。',
-    formLabel: '登录表单',
-    secure: '安全连接',
-    welcome: '登录控制台',
-    hint: '使用企业账号进入 GCAC 管理工作台',
-    username: '用户名',
-    usernamePlaceholder: '请输入用户名',
-    password: '密码',
-    passwordPlaceholder: '请输入密码',
-    failed: '登录失败，请稍后重试',
-    submitting: '正在验证身份…',
-    submit: '登 录',
-    policy: 'RBAC 权限保护',
-    audit: '操作全程审计'
+    visualLabel: 'Описание продукта',
+    brand: 'Консоль сертификатов GCAC',
+    brandSecondary: 'Платформа централизованного управления сертификатами',
+    headlinePrefix: 'Сделайте управление сертификатами',
+    headlineHighlight: 'умнее',
+    headlineSuffix: ' и безопаснее',
+    intro: 'Единое управление сертификатными активами, автоматизированная оркестрация развертывания и сквозной аудит превращают эксплуатацию сертификатов из ручной рутины в проверяемый и прослеживаемый стандартизованный процесс, защищающий цифровую инфраструктуру предприятия.',
+    capabilitiesLabel: 'Возможности платформы',
+    featureLifecycle: 'Управление полным жизненным циклом',
+    featureLifecycleDesc: 'От импорта, продления и отслеживания версий до предупреждений об истечении: покрыт каждый этап работы с сертификатными активами.',
+    featureAutomation: 'Автоматизированная оркестрация развертывания',
+    featureAutomationDesc: 'Для Nginx, Tomcat, IIS и других распространенных сред одним действием формируются аудируемые планы развертывания.',
+    featureRollback: 'Безопасное выполнение и откат',
+    featureRollbackDesc: 'Автоматическая проверка перед развертыванием, полный след выполнения и откат при ошибке обеспечивают стабильность продуктивной среды.',
+    formLabel: 'Форма входа',
+    secure: 'Защищенное соединение',
+    welcome: 'Вход в консоль',
+    hint: 'Используйте корпоративную учетную запись для входа в рабочую область GCAC',
+    username: 'Имя пользователя',
+    usernamePlaceholder: 'Введите имя пользователя',
+    password: 'Пароль',
+    passwordPlaceholder: 'Введите пароль',
+    failed: 'Вход не выполнен, повторите позже',
+    submitting: 'Проверка личности...',
+    submit: 'Войти',
+    policy: 'Защита прав RBAC',
+    audit: 'Полный аудит операций'
   },
-  reports: {
-    common: {
-      loadFailed: '报表加载失败，请稍后重试',
-      dataAsOf: '数据截止时间：{time}',
-      rangeDays: '最近 {days} 天',
-      samples: '样本数：{count}',
-      secondsValue: '{value} 秒',
-      emptyValue: '—',
-      trend: '历史趋势',
-      date: '日期',
-      snapshotMetrics: '快照指标数',
-      completeness: '完整性',
-      complete: '完整',
-      incomplete: '不完整',
-      noTrend: '当前时间范围暂无历史快照',
-      groupBreakdown: '分组对比',
-      dimension: '维度',
-      groupValue: '分组值',
-      count: '数量',
-      noGroups: '暂无分组数据',
-      drilldown: '对象下钻',
-      selectedMetric: '当前指标：{metric}',
-      noItems: '暂无符合条件的对象'
-    },
-    incidentWindow: {
-      title: '证书事故窗口报表',
-      description: '识别正在进入事故窗口的证书，并定位缺少替换证书、计划或执行通道的对象。'
-    },
-    riskResponse: {
-      title: '风险处置报表',
-      description: '查看风险确认与解决是否及时，定位未完成样本、重新打开和 SLA 逾期。'
-    },
-    automationEffectiveness: {
-      title: '自动化成效报表',
-      description: '分别查看运行级和目标级成功率，并定位重试、回滚、人工介入和失败阶段。'
-    },
-    export: {
-      csv: '导出 CSV',
-      generating: '正在生成…',
-      failed: 'CSV 生成失败',
-      history: '导出记录',
-      download: '下载',
-      noHistory: '暂无导出记录',
-      status: {
-        queued: '排队中',
-        running: '生成中',
-        succeeded: '已完成',
-        failed: '失败',
-        expired: '已过期'
-      }
-    },
-    aria: {
-      reportPage: '运营报表页面',
-      rangeFilter: '报表时间范围',
-      metrics: '报表核心指标',
-      filters: '报表筛选条件'
-    },
-    filters: {
-      environment: '环境',
-      ownerId: '负责人 ID',
-      assetId: '对象 ID',
-      tag: '标签',
-      severity: '风险等级',
-      riskType: '风险类型',
-      automationId: '自动化 ID',
-      failureStage: '失败阶段',
-      all: '全部',
-      apply: '应用筛选',
-      reset: '重置筛选'
-    },
-    groups: {
-      dimensions: {
-        usage_status: '使用状态',
-        readiness_stage: '准备阶段',
-        environment: '环境',
-        owner_id: '负责人',
-        severity: '风险等级',
-        risk_type: '风险类型',
-        action_type: '动作类型',
-        failure_stage: '失败阶段'
-      },
-      values: {
-        in_use: '在用',
-        idle: '闲置',
-        unknown: '未知',
-        missing_replacement: '缺少替换证书',
-        plan_missing: '尚未创建计划',
-        waiting_approval: '等待审批',
-        blocked: '执行通道阻塞',
-        ready: '已准备',
-        critical: '严重',
-        high: '高',
-        medium: '中',
-        low: '低',
-        create_deployment_plan: '创建部署计划',
-        execute_deployment_plan: '执行部署计划',
-        send_notification: '发送通知',
-        selection: '目标选择',
-        plan_creation: '计划创建',
-        dry_run: '预检',
-        approval: '审批',
-        execution: '执行',
-        verification: '验证',
-        rollback: '回滚',
-        notification: '通知',
-        none: '无失败阶段'
-      }
-    },
-    columns: {
-      certificateAssetId: '证书资产 ID',
-      certificateVersionId: '证书版本 ID',
-      name: '名称',
-      primaryDomain: '主域名',
-      notAfter: '到期时间',
-      usageStatus: '使用状态',
-      readinessStage: '准备阶段',
-      environment: '环境',
-      ownerId: '负责人',
-      tags: '标签',
-      publicExposure: '公网暴露',
-      bindingIds: '绑定 ID',
-      risk: '风险',
-      history: '状态历史',
-      slaPolicy: 'SLA 策略',
-      timing: '处置时长',
-      id: 'ID',
-      automationId: '自动化 ID',
-      automationVersion: '自动化版本',
-      automationNameSnapshot: '自动化名称',
-      triggerType: '触发类型',
-      status: '状态',
-      failureStage: '失败阶段',
-      startedAt: '开始时间',
-      finishedAt: '完成时间',
-      createdAt: '创建时间',
-      runId: '运行 ID',
-      targetSnapshot: '目标快照',
-      actionType: '动作类型',
-      deploymentPlanId: '部署计划 ID',
-      executionRunId: '执行记录 ID',
-      notificationRequestIds: '通知请求 ID',
-      attemptCount: '尝试次数',
-      rollbackStatus: '回滚状态',
-      manualIntervention: '人工介入',
-      unknown: '{name}'
-    },
-    metrics: {
-      certificates: {
-        expiring: {
-          '30d': '16–30 天到期',
-          '15d': '8–15 天到期',
-          '7d': '4–7 天到期',
-          '3d': '2–3 天到期',
-          '1d': '0–1 天到期'
-        },
-        expired: {
-          in_use: '已过期且在用'
-        },
-        missing_replacement: '缺少替换证书',
-        missing_deployment_plan: '尚未创建计划',
-        waiting_approval: '等待审批',
-        execution_channel_blocked: '执行通道阻塞'
-      },
-      risks: {
-        created: '新增风险',
-        resolved: '已解决风险',
-        reopened: '重新打开',
-        open_end_of_period: '期末未解决',
-        overdue_acknowledgement: '确认 SLA 逾期',
-        overdue_resolution: '解决 SLA 逾期',
-        tta: {
-          average_seconds: '平均确认时长'
-        },
-        ttr: {
-          average_seconds: '平均解决时长'
-        },
-        ack_sla_rate: '确认 SLA 达标率',
-        resolve_sla_rate: '解决 SLA 达标率'
-      },
-      automations: {
-        runs: {
-          total: '自动化运行数',
-          success_rate: '运行级成功率'
-        },
-        targets: {
-          total: '自动化目标数',
-          success_rate: '目标级成功率',
-          failed: '失败目标',
-          retried: '重试目标',
-          rollback_succeeded: '回滚成功',
-          rollback_failed: '回滚失败',
-          manual_intervention: '需要人工介入',
-          waiting_approval: '等待审批目标'
-        }
-      }
-    }
+  compatibility: {
+    title: 'Каталог совместимости', description: 'Поддержка, ограничения и доказательства берутся из профилей совместимости.', generatedAt: 'Сформировано: {time}', loading: 'Загрузка каталога…', loadFailed: 'Не удалось загрузить каталог', none: 'Нет',
+    columns: { profile: 'Профиль', version: 'Версия', status: 'Статус', automation: 'Автоматизация', evidence: 'Доказательство', verifiedAt: 'Последняя проверка', limitations: 'Ограничения' },
+    status: { certified: 'Сертифицировано', supported: 'Поддерживается', compatible: 'Совместимо', experimental: 'Экспериментально', legacy: 'Устаревшее', unsupported: 'Не поддерживается' },
+    evidence: { current: 'Актуально', expired: 'Просрочено', failed: 'Ошибка' }
   },
   errors: {
-    forbiddenTitle: '403 Нет доступа',
-    forbiddenMessage: 'You do not have permission to access this page.',
-    missingPermission: 'Missing permission: {permission}',
+    forbiddenTitle: '403 Нет прав',
+    forbiddenMessage: 'У вас нет прав, необходимых для доступа к этой странице.',
+    missingPermission: 'Отсутствует право: {permission}',
     notFoundTitle: '404 Страница не найдена',
-    notFoundMessage: 'This route is not registered.',
-    backDashboard: 'Вернуться на панель'
+    notFoundMessage: 'Эта страница не существует, проверьте адрес.',
+    backDashboard: 'Вернуться на панель мониторинга'
   }
 } as const

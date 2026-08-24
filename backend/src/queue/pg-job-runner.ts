@@ -3,7 +3,7 @@ import { AppError } from '../common/errors/app-error.js';
 import { getRequestContext } from '../common/tracing/request-context.js';
 import type { DatabasePort } from '../database/database-port.js';
 import { PgliteDatabase } from '../database/pglite-database.js';
-import type { JobPayload, JobResult, JobType } from './job.types.js';
+import type { JobPayload, JobResult } from './job.types.js';
 import type { EnqueueJobInput, QueuePort } from './queue-port.js';
 
 export type JobWorker = (job: JobPayload) => Promise<JobResult>;
@@ -22,7 +22,6 @@ export class PgJobRunner implements QueuePort {
   constructor(
     private readonly worker: JobWorker = async (job) => ({ jobId: job.jobId, success: true }),
     private readonly db: DatabasePort = new PgliteDatabase(),
-    private readonly acceptedJobTypes?: readonly JobType[],
   ) {}
 
   async enqueue<TPayload extends Record<string, unknown>>(input: EnqueueJobInput<TPayload>): Promise<JobPayload<TPayload>> {
@@ -69,16 +68,12 @@ export class PgJobRunner implements QueuePort {
   async runNext(): Promise<JobResult | null> {
     await this.ensureTable();
     const leased = await this.db.transaction(async (tx) => {
-      const typeFilter = this.acceptedJobTypes?.length
-        ? ` and payload->>'jobType' = any($1::text[])`
-        : '';
       const selected = await tx.query<JobQueueRow>(
         `select job_id, status, payload, result
            from job_queue
-          where status in ('queued', 'retrying')${typeFilter}
+          where status in ('queued', 'retrying')
           order by created_at asc
           limit 1`,
-        this.acceptedJobTypes?.length ? [[...this.acceptedJobTypes]] : undefined,
       );
       const row = selected.rows[0];
       if (!row) return null;

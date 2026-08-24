@@ -14,12 +14,9 @@ import type {
   RiskEventScope,
   RiskEventType,
   RiskSeverity,
-  RiskStatusAction,
-  RiskStatusHistory,
 } from '../schema/monitors.schema.js';
 
 export interface RiskEventDto extends RiskEvent {}
-export interface RiskStatusHistoryDto extends RiskStatusHistory {}
 
 export interface AlertRuleDto extends AlertRule {}
 
@@ -122,17 +119,6 @@ export interface UpsertRiskEventInput {
   scope: RiskEventScope;
   metadata?: Record<string, unknown>;
   detectedAt: string;
-}
-
-export interface ChangeRiskStatusInput {
-  tenantId: string;
-  riskEventId: string;
-  action: Exclude<RiskStatusAction, 'created'>;
-  reason?: string;
-  actorType: 'user' | 'system';
-  actorId?: string;
-  occurredAt?: string;
-  metadata?: Record<string, unknown>;
 }
 
 export interface MonitorDashboardDto extends MonitorDashboardSnapshot {}

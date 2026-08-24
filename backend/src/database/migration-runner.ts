@@ -23,54 +23,28 @@ export async function runMigrations(
   const files = (await readdir(migrationsDir))
     .filter((file) => file.endsWith('.sql'))
     .sort();
-  const migrationFiles = files.map((file) => {
-    const [version, ...nameParts] = file.replace(/\.sql$/, '').split('_');
-    return { file, version, name: nameParts.join('_') };
-  });
-  const versionCounts = new Map<string, number>();
-  for (const migration of migrationFiles) {
-    versionCounts.set(migration.version, (versionCounts.get(migration.version) ?? 0) + 1);
-  }
 
   const applied: AppliedMigration[] = [];
-  for (const migration of migrationFiles) {
-    const { file, version, name } = migration;
+  for (const file of files) {
     const sql = await readFile(join(migrationsDir, file), 'utf8');
     const checksum = options.checksum ? options.checksum(sql) : file;
-    const duplicateVersion = (versionCounts.get(version) ?? 0) > 1;
-    const ordinal = migrationFiles.filter((candidate) => candidate.version === version).indexOf(migration) + 1;
-    const legacy = await db.query<{ version: string; name: string; checksum: string; status: string }>(
-      'select version, name, checksum, status from schema_migrations where version = $1',
+    const [version, ...nameParts] = file.replace(/\.sql$/, '').split('_');
+    const name = nameParts.join('_');
+    const existing = await db.query<{ version: string; checksum: string; status: string }>(
+      'select version, checksum, status from schema_migrations where version = $1',
       [version],
     );
-    let migrationVersion = version;
-    let record = legacy.rows[0];
-
-    if (duplicateVersion && record && record.name !== name) {
-      migrationVersion = `${version}_${ordinal}`;
-      const disambiguated = await db.query<{ version: string; name: string; checksum: string; status: string }>(
-        'select version, name, checksum, status from schema_migrations where version = $1',
-        [migrationVersion],
-      );
-      record = disambiguated.rows[0];
-    } else if (duplicateVersion && !record && ordinal > 1) {
-      migrationVersion = `${version}_${ordinal}`;
-      const disambiguated = await db.query<{ version: string; name: string; checksum: string; status: string }>(
-        'select version, name, checksum, status from schema_migrations where version = $1',
-        [migrationVersion],
-      );
-      record = disambiguated.rows[0];
-    }
+    const record = existing.rows[0];
 
     if (record) {
       if (record.checksum !== checksum) {
-        throw new Error(`迁移 ${migrationVersion} checksum 不一致，现有=${record.checksum}，当前=${checksum}`);
+        throw new Error(`迁移 ${version} checksum 不一致，现有=${record.checksum}，当前=${checksum}`);
       }
       if (record.status === 'APPLIED') {
-        applied.push({ version: migrationVersion, name, checksum, status: 'APPLIED' });
+        applied.push({ version, name, checksum, status: 'APPLIED' });
         continue;
       }
-      throw new Error(`迁移 ${migrationVersion} 之前执行失败，必须先处理失败记录`);
+      throw new Error(`迁移 ${version} 之前执行失败，必须先处理失败记录`);
     }
 
     try {
@@ -79,15 +53,15 @@ export async function runMigrations(
         await tx.query(
           `insert into schema_migrations (version, name, checksum, applied_at, applied_by, status)
            values ($1, $2, $3, now(), $4, 'APPLIED')`,
-          [migrationVersion, name, checksum, options.appliedBy ?? 'system'],
+          [version, name, checksum, options.appliedBy ?? 'system'],
         );
-        await upsertSchemaVersion(tx, migrationVersion);
+        await upsertSchemaVersion(tx, version);
       });
-      applied.push({ version: migrationVersion, name, checksum, status: 'APPLIED' });
+      applied.push({ version, name, checksum, status: 'APPLIED' });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      await recordMigrationFailure(db, migrationVersion, name, checksum, options.appliedBy ?? 'system', errorMessage);
-      applied.push({ version: migrationVersion, name, checksum, status: 'FAILED' });
+      await recordMigrationFailure(db, version, name, checksum, options.appliedBy ?? 'system', errorMessage);
+      applied.push({ version, name, checksum, status: 'FAILED' });
       throw error;
     }
   }

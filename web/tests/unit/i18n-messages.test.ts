@@ -28,15 +28,4 @@ describe('i18n 消息字典', () => {
       expect(messages[locale].password.submit).toBeTruthy()
     }
   })
-
-  it('三个报表页面和导出文案覆盖全部目标语言', () => {
-    for (const locale of supportedLocales) {
-      expect(messages[locale].nav.reports).toBeTruthy()
-      expect(messages[locale].reports.incidentWindow.title).toBeTruthy()
-      expect(messages[locale].reports.riskResponse.title).toBeTruthy()
-      expect(messages[locale].reports.automationEffectiveness.title).toBeTruthy()
-      expect(messages[locale].reports.export.csv).toBeTruthy()
-      expect(messages[locale].reports.aria.reportPage).toBeTruthy()
-    }
-  })
 })

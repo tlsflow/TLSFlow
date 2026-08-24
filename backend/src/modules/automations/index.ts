@@ -1,0 +1,7 @@
+export * from './application/automation-action-registry.js';
+export * from './application/automations.application-service.js';
+export * from './controller/automations.controller.js';
+export * from './domain/automations.domain-service.js';
+export * from './dto/automations.dto.js';
+export * from './repository/automations.repository.js';
+export * from './schema/automations.schema.js';

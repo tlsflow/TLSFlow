@@ -2,9 +2,8 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
-import type { AlertRule, RiskEvent, RiskStatusHistory } from '../schema/monitors.schema.js';
+import type { AlertRule, RiskEvent } from '../schema/monitors.schema.js';
 import type {
-  ChangeRiskStatusInput,
   CertificateObservationDto,
   CreateAlertRuleInput,
   CreateMonitorTargetInput,
@@ -21,8 +20,6 @@ import type {
   UpsertRiskEventInput,
 } from '../dto/monitors.dto.js';
 
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
-
 export interface MonitorsRepository {
   readonly moduleName: 'monitors';
   createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
@@ -37,9 +34,6 @@ export interface MonitorsRepository {
   upsertRiskEvent(input: UpsertRiskEventInput): Promise<RiskEvent>;
   listRiskEvents(query?: ListRiskEventsQuery): Promise<RiskEvent[]>;
   getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined>;
-  getRiskEvent(tenantId: string, riskEventId: string): Promise<RiskEvent | undefined>;
-  changeRiskStatus(input: ChangeRiskStatusInput): Promise<{ risk: RiskEvent; history: RiskStatusHistory }>;
-  listRiskStatusHistory(tenantId: string, riskEventId: string): Promise<RiskStatusHistory[]>;
   createAlertRule(input: CreateAlertRuleInput): Promise<AlertRule>;
   listAlertRules(tenantId?: string): Promise<AlertRule[]>;
   saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto>;
@@ -248,7 +242,6 @@ export class PgMonitorsRepository implements MonitorsRepository {
     const existing = await this.getRiskEventByDedupKey(input.dedupKey);
     if (existing) {
       const now = new Date().toISOString();
-      const reopened = existing.status === 'RESOLVED';
       const updated: RiskEvent = {
         ...existing,
         type: input.type,
@@ -260,11 +253,10 @@ export class PgMonitorsRepository implements MonitorsRepository {
         metadata: { ...existing.metadata, ...(input.metadata ?? {}) },
         lastDetectedAt: input.detectedAt,
         occurrenceCount: existing.occurrenceCount + 1,
-        resolvedAt: reopened ? undefined : existing.resolvedAt,
-        status: reopened ? 'OPEN' : existing.status,
+        resolvedAt: undefined,
+        status: 'OPEN',
       };
-      await this.db.transaction(async (tx) => {
-        await tx.query(`update pg_monitor_risk_events
+      await this.db.query(`update pg_monitor_risk_events
         set risk_type = $2,
             source = $3,
             severity = $4,
@@ -290,20 +282,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
         updated.lastDetectedAt,
         updated.occurrenceCount,
         now,
-        ]);
-        if (reopened) {
-          await insertRiskHistory(tx, {
-            tenantId: updated.scope.tenantId ?? tenantFallback,
-            riskEventId: updated.id,
-            action: 'reopened',
-            fromStatus: 'RESOLVED',
-            toStatus: 'OPEN',
-            actorType: 'system',
-            occurredAt: input.detectedAt,
-            metadata: { trigger: 'risk_recurrence' },
-          });
-        }
-      });
+      ]);
       return updated;
     }
 
@@ -323,8 +302,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
       lastDetectedAt: input.detectedAt,
       occurrenceCount: 1,
     };
-    await this.db.transaction(async (tx) => {
-      await tx.query(`insert into pg_monitor_risk_events (
+    await this.db.query(`insert into pg_monitor_risk_events (
       id, tenant_id, dedup_key, risk_type, source, severity, status, title, summary,
       scope, metadata, first_detected_at, last_detected_at, resolved_at, occurrence_count, created_at, updated_at
     ) values (
@@ -347,17 +325,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
       created.occurrenceCount,
       now,
       now,
-      ]);
-      await insertRiskHistory(tx, {
-        tenantId: created.scope.tenantId ?? tenantFallback,
-        riskEventId: created.id,
-        action: 'created',
-        toStatus: 'OPEN',
-        actorType: 'system',
-        occurredAt: created.firstDetectedAt,
-        metadata: { source: created.source },
-      });
-    });
+    ]);
     return created;
   }
 
@@ -375,61 +343,6 @@ export class PgMonitorsRepository implements MonitorsRepository {
   async getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined> {
     const row = (await this.db.query<RiskEventRow>(`select * from pg_monitor_risk_events where dedup_key = $1 limit 1`, [dedupKey])).rows[0];
     return row ? toRiskEvent(row) : undefined;
-  }
-
-  async getRiskEvent(tenantId: string, riskEventId: string): Promise<RiskEvent | undefined> {
-    const row = (await this.db.query<RiskEventRow>(
-      `select * from pg_monitor_risk_events where id = $1 and coalesce(tenant_id, $2) = $2 limit 1`,
-      [riskEventId, tenantId],
-    )).rows[0];
-    return row ? toRiskEvent(row) : undefined;
-  }
-
-  async changeRiskStatus(input: ChangeRiskStatusInput): Promise<{ risk: RiskEvent; history: RiskStatusHistory }> {
-    const current = await this.getRiskEvent(input.tenantId, input.riskEventId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '风险事件不存在', { riskEventId: input.riskEventId });
-    const toStatus = riskActionTargetStatus(input.action);
-    if (current.status === toStatus && input.action !== 'suppressed') {
-      throw new AppError('VALIDATION_FAILED', '风险已经处于目标状态', { riskEventId: input.riskEventId, status: toStatus });
-    }
-    if (input.action === 'reopened' && current.status !== 'RESOLVED') {
-      throw new AppError('VALIDATION_FAILED', '只有已解决风险可以重新打开', { riskEventId: input.riskEventId, status: current.status });
-    }
-    const occurredAt = input.occurredAt ?? new Date().toISOString();
-    const history = await this.db.transaction(async (tx) => {
-      await tx.query(`update pg_monitor_risk_events
-        set status = $2, resolved_at = $3::timestamptz, updated_at = $4::timestamptz
-        where id = $1`, [
-        current.id,
-        toStatus,
-        toStatus === 'RESOLVED' ? occurredAt : null,
-        occurredAt,
-      ]);
-      return insertRiskHistory(tx, {
-        tenantId: input.tenantId,
-        riskEventId: current.id,
-        action: input.action,
-        fromStatus: current.status,
-        toStatus,
-        reason: input.reason,
-        actorType: input.actorType,
-        actorId: input.actorId,
-        occurredAt,
-        metadata: input.metadata ?? {},
-      });
-    });
-    return {
-      risk: { ...current, status: toStatus, resolvedAt: toStatus === 'RESOLVED' ? occurredAt : undefined },
-      history,
-    };
-  }
-
-  async listRiskStatusHistory(tenantId: string, riskEventId: string): Promise<RiskStatusHistory[]> {
-    const rows = (await this.db.query<RiskStatusHistoryRow>(
-      `select * from risk_status_history where tenant_id = $1 and risk_event_id = $2 order by occurred_at, id`,
-      [tenantId, riskEventId],
-    )).rows;
-    return rows.map(toRiskStatusHistory);
   }
 
   async createAlertRule(input: CreateAlertRuleInput): Promise<AlertRule> {
@@ -559,20 +472,6 @@ type RiskEventRow = {
   created_at: string | Date;
   updated_at: string | Date;
   occurrence_count: number;
-};
-
-type RiskStatusHistoryRow = {
-  id: string;
-  tenant_id: string;
-  risk_event_id: string;
-  action: string;
-  from_status?: string | null;
-  to_status: string;
-  reason?: string | null;
-  actor_type: string;
-  actor_id?: string | null;
-  occurred_at: string | Date;
-  metadata: unknown;
 };
 
 type MonitorTargetRow = {
@@ -714,55 +613,6 @@ function toRiskEvent(row: RiskEventRow): RiskEvent {
     resolvedAt: row.resolved_at === null || row.resolved_at === undefined ? undefined : toIsoText(row.resolved_at),
     occurrenceCount: Number(row.occurrence_count ?? 1),
   };
-}
-
-function toRiskStatusHistory(row: RiskStatusHistoryRow): RiskStatusHistory {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    riskEventId: row.risk_event_id,
-    action: row.action as RiskStatusHistory['action'],
-    fromStatus: row.from_status ? row.from_status as RiskStatusHistory['fromStatus'] : undefined,
-    toStatus: row.to_status as RiskStatusHistory['toStatus'],
-    reason: row.reason ?? undefined,
-    actorType: row.actor_type as RiskStatusHistory['actorType'],
-    actorId: row.actor_id ?? undefined,
-    occurredAt: toIsoText(row.occurred_at),
-    metadata: asObject(row.metadata),
-  };
-}
-
-function riskActionTargetStatus(action: ChangeRiskStatusInput['action']): RiskEvent['status'] {
-  if (action === 'acknowledged' || action === 'suppressed') return 'ACKED';
-  if (action === 'ignored') return 'IGNORED';
-  if (action === 'resolved') return 'RESOLVED';
-  return 'OPEN';
-}
-
-async function insertRiskHistory(
-  db: DatabasePort,
-  input: Omit<RiskStatusHistory, 'id'>,
-): Promise<RiskStatusHistory> {
-  const history: RiskStatusHistory = { id: newId('riskhist'), ...input };
-  await db.query(`insert into risk_status_history (
-    id, tenant_id, risk_event_id, action, from_status, to_status, reason,
-    actor_type, actor_id, occurred_at, metadata
-  ) values (
-    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz,$11::jsonb
-  )`, [
-    history.id,
-    history.tenantId,
-    history.riskEventId,
-    history.action,
-    history.fromStatus ?? null,
-    history.toStatus,
-    history.reason ?? null,
-    history.actorType,
-    history.actorId ?? null,
-    history.occurredAt,
-    JSON.stringify(history.metadata),
-  ]);
-  return history;
 }
 
 type AlertRuleRow = {
