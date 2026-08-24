@@ -1,10 +1,25 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { createConnection, isIP } from 'node:net';
 import { Client, type SearchOptions } from 'ldapts';
 import { AppError } from '../../common/errors/app-error.js';
 import { securityErrors } from '../../shared/security-error.js';
 import { escapeLdapDnValue, escapeLdapFilterValue, renderLdapTemplate } from './ldap-filter-escape.js';
-import type { ExternalGroupProfile, ExternalIdentityProfile, IdentitySource, LdapConnector, LdapConnectionTestResult, LdapServiceCredentials } from './external-identity.service.js';
+import type {
+  ExternalGroupProfile,
+  ExternalIdentityProfile,
+  IdentitySource,
+  LdapConnectionCheck,
+  LdapConnectionTestResult,
+  LdapConnector,
+  LdapServiceCredentials,
+} from './external-identity.service.js';
 
 type LdapSearchEntry = Record<string, unknown> & { dn?: string };
+type LdapEndpoint = {
+  protocol: 'ldap' | 'ldaps';
+  hostname: string;
+  port: number;
+};
 
 export class RealLdapConnector implements LdapConnector {
   async authenticate(source: IdentitySource, username: string, password: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile> {
@@ -80,18 +95,102 @@ export class RealLdapConnector implements LdapConnector {
   }
 
   async testConnection(source: IdentitySource, credentials?: LdapServiceCredentials): Promise<LdapConnectionTestResult> {
-    const client = this.createClient(source);
+    const checks: LdapConnectionCheck[] = [];
+    let endpoint: LdapEndpoint;
     try {
+      endpoint = parseLdapEndpoint(source.url);
+    } catch (error) {
+      const failure = connectionFailure('LDAP_URL_INVALID', toErrorMessage(error));
+      checks.push({
+        key: 'dns',
+        status: 'failed',
+        code: failure.code,
+        message: failure.message,
+        details: { url: source.url },
+      });
+      checks.push(skippedConnectionCheck('port', 'SKIPPED_INVALID_URL'));
+      checks.push(skippedConnectionCheck('bind', 'SKIPPED_INVALID_URL'));
+      return buildConnectionTestResult(checks);
+    }
+
+    let addresses: string[];
+    try {
+      addresses = await resolveLdapHost(endpoint.hostname);
+      checks.push({
+        key: 'dns',
+        status: 'passed',
+        code: 'DNS_RESOLVED',
+        message: isIP(endpoint.hostname)
+          ? 'Host is an IP address; DNS lookup was not required'
+          : `DNS resolved successfully: ${addresses.join(', ')}`,
+        details: { host: endpoint.hostname, addresses, lookupRequired: !isIP(endpoint.hostname) },
+      });
+    } catch (error) {
+      const failure = connectionFailure('LDAP_DNS_FAILED', toErrorMessage(error));
+      checks.push({
+        key: 'dns',
+        status: 'failed',
+        code: failure.code,
+        message: failure.message,
+        details: { host: endpoint.hostname },
+      });
+      checks.push(skippedConnectionCheck('port', 'SKIPPED_DNS_FAILED'));
+      checks.push(skippedConnectionCheck('bind', 'SKIPPED_DNS_FAILED'));
+      return buildConnectionTestResult(checks);
+    }
+
+    const portProbe = await probeLdapPort(endpoint.hostname, endpoint.port, 10000);
+    if (!portProbe.success) {
+      checks.push({
+        key: 'port',
+        status: 'failed',
+        code: portProbe.reasonCode ?? 'LDAP_PORT_UNREACHABLE',
+        message: portProbe.reasonDetail ?? 'LDAP authentication port is unreachable',
+        details: { host: endpoint.hostname, port: endpoint.port, protocol: endpoint.protocol },
+      });
+      checks.push(skippedConnectionCheck('bind', 'SKIPPED_PORT_UNREACHABLE'));
+      return buildConnectionTestResult(checks);
+    }
+    checks.push({
+      key: 'port',
+      status: 'passed',
+      code: 'LDAP_PORT_REACHABLE',
+      message: `${endpoint.protocol.toUpperCase()} authentication port ${endpoint.port} is reachable`,
+      details: { host: endpoint.hostname, port: endpoint.port, protocol: endpoint.protocol },
+    });
+
+    let client: Client | undefined;
+    try {
+      client = this.createClient(source);
       await this.bindAsServiceIfNeeded(client, source, credentials);
+      if (!source.bindDn) {
+        await client.bind('', '');
+      }
       if (source.baseDn) {
         await client.search(source.baseDn, { scope: 'base', filter: '(objectClass=*)', attributes: ['dn'] });
       }
-      return { ok: true, code: 'OK', message: 'ldap connection ok' };
+      checks.push({
+        key: 'bind',
+        status: 'passed',
+        code: 'LDAP_BIND_OK',
+        message: source.bindDn
+          ? 'LDAP service account BIND and Base DN query succeeded'
+          : 'Anonymous LDAP BIND and Base DN query succeeded',
+        details: { bindDnConfigured: Boolean(source.bindDn), baseDn: source.baseDn },
+      });
     } catch (error) {
-      throw this.mapLdapError(error, { sourceId: source.id, phase: 'testConnection' });
+      const mapped = this.mapLdapError(error, { sourceId: source.id, phase: 'testConnection' });
+      checks.push({
+        key: 'bind',
+        status: 'failed',
+        code: errorCodeOf(mapped, 'LDAP_BIND_FAILED'),
+        message: mapped.message,
+        details: { bindDnConfigured: Boolean(source.bindDn) },
+      });
     } finally {
-      await safeUnbind(client);
+      if (client) await safeUnbind(client);
     }
+    return buildConnectionTestResult(checks);
   }
 
   async syncUsers(source: IdentitySource, credentials?: LdapServiceCredentials, options: { pageSize?: number; usernamePrefix?: string } = {}): Promise<ExternalIdentityProfile[]> {
@@ -292,6 +391,49 @@ export class RealLdapConnector implements LdapConnector {
   }
 }
 
+export function parseLdapEndpoint(value: string): LdapEndpoint {
+  const url = new URL(value);
+  if (url.protocol !== 'ldap:' && url.protocol !== 'ldaps:') {
+    throw new Error(`unsupported LDAP protocol: ${url.protocol || 'missing'}`);
+  }
+  if (!url.hostname) throw new Error('LDAP hostname is missing');
+  return {
+    protocol: url.protocol === 'ldaps:' ? 'ldaps' : 'ldap',
+    hostname: url.hostname,
+    port: Number(url.port) || (url.protocol === 'ldaps:' ? 636 : 389),
+  };
+}
+
+export async function resolveLdapHost(hostname: string): Promise<string[]> {
+  if (isIP(hostname)) return [hostname];
+  const addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  return addresses.map((entry) => entry.address);
+}
+
+export function probeLdapPort(host: string, port: number, timeoutMs: number): Promise<{ success: boolean; reasonCode?: string; reasonDetail?: string }> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    let settled = false;
+    const finish = (result: { success: boolean; reasonCode?: string; reasonDetail?: string }) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeoutMs, () => finish({
+      success: false,
+      reasonCode: 'LDAP_PORT_CONNECT_TIMEOUT',
+      reasonDetail: `LDAP port connection timed out after ${timeoutMs}ms`,
+    }));
+    socket.once('connect', () => finish({ success: true }));
+    socket.once('error', (error: NodeJS.ErrnoException) => finish({
+      success: false,
+      reasonCode: ldapPortReasonCode(error.code),
+      reasonDetail: error.message,
+    }));
+  });
+}
+
 function requestedUserAttributes(source: IdentitySource): string[] {
   return source.userAttributes?.length
     ? source.userAttributes
@@ -399,4 +541,34 @@ async function safeUnbind(client: Client): Promise<void> {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function skippedConnectionCheck(key: 'port' | 'bind', code: string): LdapConnectionCheck {
+  return { key, status: 'skipped', code, message: code };
+}
+
+function connectionFailure(code: string, reason: string): { code: string; message: string } {
+  return { code, message: reason };
+}
+
+function buildConnectionTestResult(checks: LdapConnectionCheck[]): LdapConnectionTestResult {
+  const failed = checks.find((check) => check.status === 'failed');
+  return {
+    ok: !failed,
+    code: failed?.code ?? 'OK',
+    message: failed?.message ?? 'LDAP connection checks passed',
+    checks,
+  };
+}
+
+function errorCodeOf(error: Error, fallback: string): string {
+  if (error instanceof AppError) return error.errorCode;
+  return fallback;
+}
+
+function ldapPortReasonCode(code?: string): string {
+  if (code === 'ECONNREFUSED') return 'LDAP_PORT_CONNECTION_REFUSED';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'LDAP_PORT_DNS_FAILED';
+  if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH') return 'LDAP_PORT_NO_ROUTE';
+  return 'LDAP_PORT_CONNECT_FAILED';
 }

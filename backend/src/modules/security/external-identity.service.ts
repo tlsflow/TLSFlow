@@ -70,10 +70,22 @@ export interface LdapServiceCredentials {
   bindPassword?: string;
 }
 
+export type LdapConnectionCheckKey = 'dns' | 'port' | 'bind';
+export type LdapConnectionCheckStatus = 'passed' | 'failed' | 'skipped';
+
+export interface LdapConnectionCheck {
+  key: LdapConnectionCheckKey;
+  status: LdapConnectionCheckStatus;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 export interface LdapConnectionTestResult {
   ok: boolean;
   code: string;
   message: string;
+  checks: LdapConnectionCheck[];
 }
 
 export interface ExternalIdentitySyncResult {
@@ -136,9 +148,18 @@ export class MockDirectoryConnector implements LdapConnector {
   }
 
   async testConnection(source: IdentitySource): Promise<LdapConnectionTestResult> {
-    return source.enabled
-      ? { ok: true, code: 'OK', message: 'mock directory reachable' }
-      : { ok: false, code: 'DISABLED', message: 'identity source disabled' };
+    const status = source.enabled ? 'passed' : 'failed';
+    const message = source.enabled ? 'mock directory reachable' : 'identity source disabled';
+    return {
+      ok: source.enabled,
+      code: source.enabled ? 'OK' : 'DISABLED',
+      message,
+      checks: [
+        { key: 'dns', status, code: source.enabled ? 'OK' : 'DISABLED', message },
+        { key: 'port', status, code: source.enabled ? 'OK' : 'DISABLED', message },
+        { key: 'bind', status, code: source.enabled ? 'OK' : 'DISABLED', message },
+      ],
+    };
   }
 
   async syncUsers(source: IdentitySource): Promise<ExternalIdentityProfile[]> {
@@ -276,6 +297,14 @@ export class ExternalIdentityService {
   async deleteSource(sourceId: string, actor: SecuritySubject, context: RequestContext): Promise<{ id: string; deleted: true }> {
     const source = await this.sources.get(sourceId);
     if (!source) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    const linkedUsers = await this.rbac.listUsers();
+    const linkedUserCount = linkedUsers.filter((user) => user.externalSourceId === sourceId).length;
+    if (linkedUserCount > 0) {
+      throw new AppError('VALIDATION_FAILED', '身份源仍被本地影子用户引用，不能删除', {
+        sourceId,
+        linkedUserCount,
+      });
+    }
     const relatedMappings = await this.mappings.list((mapping) => mapping.sourceId === sourceId);
     for (const mapping of relatedMappings) {
       await this.mappings.delete(mapping.id);
@@ -311,7 +340,7 @@ export class ExternalIdentityService {
       result: result.ok ? 'success' : 'failure',
       riskLevel: result.ok ? 'low' : 'medium',
       context,
-      detail: { sourceType: source.type, code: result.code, message: result.message },
+      detail: { sourceType: source.type, code: result.code, message: result.message, checks: result.checks },
     });
     return { ...result, requestId: context.requestId };
   }

@@ -68,4 +68,84 @@ describe('IdentitySource 生命周期', () => {
     const items = (list.body as { items: Array<{ id: string }> }).items;
     assert.equal(items.some((item) => item.id === sourceId), false);
   });
+
+  it('存在外部影子用户引用时拒绝删除且保留身份源和组映射', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const role = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/roles',
+      headers: { authorization: `Bearer ${token}` },
+      body: { code: 'identity_source_user', name: '身份源用户角色' },
+    });
+    const roleId = (role.body as { id: string }).id;
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '被引用 LDAP',
+        type: 'ldap',
+        url: 'ldap://ldap.example.test:389',
+        baseDn: 'dc=example,dc=test',
+        requireGroupMapping: false,
+        tlsMode: 'none',
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const sourceId = (created.body as { id: string }).id;
+
+    const mapping = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/group-role-mappings',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        sourceId,
+        externalGroup: 'cn=operators,dc=example,dc=test',
+        roleId,
+      },
+    });
+    assert.equal(mapping.statusCode, 201);
+
+    await security.rbac.createUser({
+      id: 'external_shadow_user',
+      username: 'shadow-user',
+      displayName: '影子用户',
+      tenantId: 'tenant_default',
+      tenantName: '默认租户',
+      identityProvider: 'ldap',
+      externalId: 'external-shadow-001',
+      externalSourceId: sourceId,
+      status: 'active',
+    });
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      path: '/api/v1/security/identity-sources/delete',
+      headers: { authorization: `Bearer ${token}` },
+      body: { id: sourceId },
+    });
+    assert.equal(deleted.statusCode, 400);
+    assert.equal((deleted.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
+
+    const sourceList = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(sourceList.statusCode, 200);
+    assert.equal((sourceList.body as { items: Array<{ id: string }> }).items.some((item) => item.id === sourceId), true);
+
+    const mappings = await security.externalIdentity.listMappings();
+    assert.equal(mappings.some((item) => item.sourceId === sourceId), true);
+  });
 });
