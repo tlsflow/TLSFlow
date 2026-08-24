@@ -34,21 +34,22 @@ export class PluginsController {
     return this.service;
   }
 
-  private listPackages(request: HttpRequest) {
-    return { items: this.service.listPackages(tenantId(request)), page: 1, pageSize: 100, total: this.service.listPackages(tenantId(request)).length };
+  private async listPackages(request: HttpRequest) {
+    const items = await this.service.listPackages(tenantId(request));
+    return { items, page: 1, pageSize: 100, total: items.length };
   }
 
-  private uploadPackage(request: HttpRequest) {
+  private async uploadPackage(request: HttpRequest) {
     const body = validateObject(request.body, {
       manifest: { type: 'object', required: true },
       packageContent: { type: 'string', required: true },
       expectedHash: { type: 'string' },
       signature: { type: 'string' },
     }) as unknown as PluginPackageUploadInput;
-    return { statusCode: 201, body: this.service.uploadPackage(body, tenantId(request)) };
+    return { statusCode: 201, body: await this.service.uploadPackage(body, tenantId(request)) };
   }
 
-  private approvePermissions(request: HttpRequest) {
+  private async approvePermissions(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginPackageId: { type: 'string', required: true },
       approvedBy: { type: 'string', required: true },
@@ -57,17 +58,17 @@ export class PluginsController {
     return this.service.approvePermissions(body);
   }
 
-  private enablePlugin(request: HttpRequest) {
+  private async enablePlugin(request: HttpRequest) {
     const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } }) as unknown as PluginEnableInput;
     return this.service.enablePlugin(body);
   }
 
-  private disablePlugin(request: HttpRequest) {
+  private async disablePlugin(request: HttpRequest) {
     const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } }) as unknown as PluginEnableInput;
     return this.service.disablePlugin(body);
   }
 
-  private execute(request: HttpRequest) {
+  private async execute(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginPackageId: { type: 'string', required: true },
       action: { type: 'string', required: true },
@@ -82,13 +83,13 @@ export class PluginsController {
     return this.service.execute(body);
   }
 
-  private listExecutions(request: HttpRequest) {
+  private async listExecutions(request: HttpRequest) {
     const pluginPackageId = typeof request.query.pluginPackageId === 'string' ? request.query.pluginPackageId : undefined;
-    const items = this.service.listExecutions(pluginPackageId);
+    const items = await this.service.listExecutions(pluginPackageId);
     return { items, page: 1, pageSize: 100, total: items.length };
   }
 
-  private getStepDraft(request: HttpRequest) {
+  private async getStepDraft(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginPackageId: { type: 'string', required: true },
       action: { type: 'string', required: true },
@@ -96,12 +97,12 @@ export class PluginsController {
     return this.service.getStepDraft(String(body.pluginPackageId), String(body.action));
   }
 
-  private getPermissionSummary(request: HttpRequest) {
+  private async getPermissionSummary(request: HttpRequest) {
     const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } });
     return this.service.getPermissionSummary(String(body.pluginPackageId));
   }
 
-  private publishCapabilities(request: HttpRequest) {
+  private async publishCapabilities(request: HttpRequest) {
     const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } });
     return this.service.publishCapabilities(String(body.pluginPackageId));
   }

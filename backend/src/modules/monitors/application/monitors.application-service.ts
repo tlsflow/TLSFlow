@@ -11,10 +11,10 @@ import type {
   RiskEventDto,
 } from '../dto/monitors.dto.js';
 import { MonitorsDomainService } from '../domain/monitors.domain-service.js';
-import { InMemoryMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
 import type { AlertRule, RiskEvent } from '../schema/monitors.schema.js';
 import { AlertDispatcher } from './alert-dispatcher.js';
 import { MonitoringScheduler } from './monitoring-scheduler.js';
+import { PgMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
 
 export interface MonitorsApplicationDependencies {
   repository?: MonitorsRepository;
@@ -31,45 +31,45 @@ export class MonitorsApplicationService {
   private readonly alertDispatcher = new AlertDispatcher();
 
   constructor(private readonly dependencies: MonitorsApplicationDependencies) {
-    this.repository = dependencies.repository ?? new InMemoryMonitorsRepository();
+    this.repository = dependencies.repository ?? new PgMonitorsRepository();
     this.domain = dependencies.domain ?? new MonitorsDomainService();
   }
 
-  collectRisks(input: CollectMonitorRisksInput = {}): { risks: RiskEventDto[]; dashboard: MonitorDashboardDto; matchedRuleIds: string[]; alertDispatches: ReturnType<AlertDispatcher['buildDispatches']> } {
+  async collectRisks(input: CollectMonitorRisksInput = {}): Promise<{ risks: RiskEventDto[]; dashboard: MonitorDashboardDto; matchedRuleIds: string[]; alertDispatches: ReturnType<AlertDispatcher['buildDispatches']> }> {
     const detectedAt = input.scanStartedAt ?? new Date().toISOString();
     const thresholdDays = input.certificateExpiringThresholdDays ?? 30;
     const createdOrUpdated: RiskEvent[] = [];
 
-    const certificates = this.dependencies.certificates.listVersions(allRowsQuery());
+    const certificates = await this.dependencies.certificates.listVersions(allRowsQuery());
     for (const version of certificates.items) {
-      const asset = this.dependencies.certificates.getAsset(version.certificateAssetId);
+      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
       if (!asset || asset.status !== 'active' || version.status !== 'active') continue;
       const risk = this.domain.buildCertificateRiskEvent(asset, version, detectedAt, thresholdDays);
       if (!risk) continue;
       risk.scope.tenantId = input.tenantId;
-      createdOrUpdated.push(this.repository.upsertRiskEvent(risk));
+      createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const bindings = this.dependencies.bindings.listCertificateBindings(input.tenantId ?? tenantFallback, allRowsQuery());
+    const bindings = await this.dependencies.bindings.listCertificateBindings(input.tenantId ?? tenantFallback, allRowsQuery());
     for (const binding of bindings.items) {
       const risk = this.domain.buildBindingRiskEvent(binding);
       if (!risk) continue;
       risk.detectedAt = detectedAt;
       risk.scope.tenantId = binding.tenantId;
-      createdOrUpdated.push(this.repository.upsertRiskEvent(risk));
+      createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const runs = this.dependencies.executions.listRuns(input.tenantId);
+    const runs = await this.dependencies.executions.listRuns(input.tenantId);
     for (const run of runs) {
       const risk = this.domain.buildExecutionRiskEvent(run);
       if (!risk) continue;
       risk.detectedAt = detectedAt;
       risk.scope.tenantId = run.tenantId ?? input.tenantId;
-      createdOrUpdated.push(this.repository.upsertRiskEvent(risk));
+      createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const allRisks = this.listRiskEvents({ tenantId: input.tenantId });
-    const matchedRuleIds = this.listAlertRules(input.tenantId)
+    const allRisks = await this.listRiskEvents({ tenantId: input.tenantId });
+    const matchedRuleIds = (await this.listAlertRules(input.tenantId))
       .filter((rule) => this.domain.evaluateRule(rule, allRisks, detectedAt))
       .map((rule) => rule.id);
     return {
@@ -84,29 +84,29 @@ export class MonitorsApplicationService {
     return this.scheduler.createJobs(input);
   }
 
-  ingestRemoteTlsObservation(input: import('../dto/monitors.dto.js').RemoteTlsObservationInput): RiskEventDto[] {
-    return this.domain.buildRemoteTlsRiskEvents(input).map((event) => this.repository.upsertRiskEvent(event));
+  async ingestRemoteTlsObservation(input: import('../dto/monitors.dto.js').RemoteTlsObservationInput): Promise<RiskEventDto[]> {
+    return Promise.all(this.domain.buildRemoteTlsRiskEvents(input).map((event) => this.repository.upsertRiskEvent(event)));
   }
 
-  ingestAutomationHealth(input: import('../dto/monitors.dto.js').AutomationHealthInput): RiskEventDto | undefined {
+  async ingestAutomationHealth(input: import('../dto/monitors.dto.js').AutomationHealthInput): Promise<RiskEventDto | undefined> {
     const event = this.domain.buildAutomationHealthRiskEvent(input);
     return event ? this.repository.upsertRiskEvent(event) : undefined;
   }
 
-  listRiskEvents(query: ListRiskEventsQuery = {}): RiskEventDto[] {
+  async listRiskEvents(query: ListRiskEventsQuery = {}): Promise<RiskEventDto[]> {
     return this.repository.listRiskEvents(query);
   }
 
-  createAlertRule(input: CreateAlertRuleInput): AlertRuleDto {
+  async createAlertRule(input: CreateAlertRuleInput): Promise<AlertRuleDto> {
     return this.repository.createAlertRule(this.domain.normalizeCreateAlertRule(input));
   }
 
-  listAlertRules(tenantId?: string): AlertRuleDto[] {
+  async listAlertRules(tenantId?: string): Promise<AlertRuleDto[]> {
     return this.repository.listAlertRules(tenantId);
   }
 
-  getDashboard(tenantId?: string): MonitorDashboardDto {
-    return this.domain.aggregateDashboard(this.listRiskEvents({ tenantId }));
+  async getDashboard(tenantId?: string): Promise<MonitorDashboardDto> {
+    return this.domain.aggregateDashboard(await this.listRiskEvents({ tenantId }));
   }
 
   getRepository(): MonitorsRepository {

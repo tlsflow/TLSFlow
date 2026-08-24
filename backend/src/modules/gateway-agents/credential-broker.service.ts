@@ -50,13 +50,13 @@ export class GatewayCredentialBroker {
     private readonly audit: AuditService,
   ) {}
 
-  issue(input: GatewayCredentialIssueInput): CredentialSession {
+  async issue(input: GatewayCredentialIssueInput): Promise<CredentialSession> {
     const now = input.now ?? new Date();
     const requestedActions = this.normalizeRequestedActions(input.requestedActions);
     this.assertSecretRef(input.secretRef);
 
     try {
-      const grant = this.permissionBroker.createExecutorGrant({
+      const grant = await this.permissionBroker.createExecutorGrant({
         subject: input.subject,
         action: 'gateway.credential.issue',
         resource: input.resource ?? this.defaultResource(input),
@@ -94,10 +94,10 @@ export class GatewayCredentialBroker {
       };
 
       this.sessions.set(session.id, session);
-      this.recordAudit(session, 'issued', now, { auditRef: input.auditRef, result: 'success' });
+      await this.recordAudit(session, 'issued', now, { auditRef: input.auditRef, result: 'success' });
       return session;
     } catch (error) {
-      this.recordDenied(input, now, this.errorCode(error));
+      await this.recordDenied(input, now, this.errorCode(error));
       throw error;
     }
   }
@@ -114,7 +114,7 @@ export class GatewayCredentialBroker {
     return session;
   }
 
-  use(sessionId: string, action: string, now = new Date()): CredentialSession {
+  async use(sessionId: string, action: string, now = new Date()): Promise<CredentialSession> {
     const session = this.get(sessionId, now);
     if (!session) {
       throw securityErrors.executorGrantDenied({ reason: 'credential session not found' });
@@ -126,7 +126,7 @@ export class GatewayCredentialBroker {
       throw securityErrors.executorGrantDenied({ reason: 'credential action not allowed', action });
     }
 
-    this.grants.validate({
+    await this.grants.validate({
       grantId: session.grantRef.ref,
       runId: session.executionRunId ?? session.taskId,
       stepId: session.stepId ?? session.taskId,
@@ -143,11 +143,11 @@ export class GatewayCredentialBroker {
       usedAt: now.toISOString(),
     };
     this.sessions.set(sessionId, updated);
-    this.recordAudit(updated, 'used', now, { action, result: 'success' });
+    await this.recordAudit(updated, 'used', now, { action, result: 'success' });
     return updated;
   }
 
-  revoke(sessionId: string, now = new Date(), auditRef?: string): CredentialSession {
+  async revoke(sessionId: string, now = new Date(), auditRef?: string): Promise<CredentialSession> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw securityErrors.executorGrantDenied({ reason: 'credential session not found' });
@@ -159,8 +159,8 @@ export class GatewayCredentialBroker {
       revokedAt: now.toISOString(),
     };
     this.sessions.set(sessionId, revoked);
-    this.grants.revoke(session.grantRef.ref);
-    this.recordAudit(revoked, 'revoked', now, { auditRef, result: 'success' });
+    await this.grants.revoke(session.grantRef.ref);
+    await this.recordAudit(revoked, 'revoked', now, { auditRef, result: 'success' });
     return revoked;
   }
 
@@ -210,12 +210,12 @@ export class GatewayCredentialBroker {
     };
   }
 
-  private recordAudit(
+  private async recordAudit(
     session: CredentialSession,
     event: Exclude<GatewayCredentialAuditEvent, 'denied'>,
     now: Date,
     extra: { auditRef?: string; action?: string; result: 'success' } = { result: 'success' },
-  ): void {
+  ): Promise<void> {
     const record: GatewayCredentialBrokerAuditRecord = {
       id: newId('cred_audit'),
       sessionId: session.id,
@@ -234,10 +234,10 @@ export class GatewayCredentialBroker {
       createdAt: now.toISOString(),
     };
     this.audits.push(record);
-    this.writeSystemAudit(record);
+    await this.writeSystemAudit(record);
   }
 
-  private recordDenied(input: GatewayCredentialIssueInput, now: Date, reason: string): void {
+  private async recordDenied(input: GatewayCredentialIssueInput, now: Date, reason: string): Promise<void> {
     const record: GatewayCredentialBrokerAuditRecord = {
       id: newId('cred_audit'),
       event: 'denied',
@@ -254,11 +254,11 @@ export class GatewayCredentialBroker {
       createdAt: now.toISOString(),
     };
     this.audits.push(record);
-    this.writeSystemAudit(record);
+    await this.writeSystemAudit(record);
   }
 
-  private writeSystemAudit(record: GatewayCredentialBrokerAuditRecord): void {
-    this.audit.write({
+  private async writeSystemAudit(record: GatewayCredentialBrokerAuditRecord): Promise<void> {
+    await this.audit.write({
       eventType: `gateway.credential.${record.event}`,
       actorType: 'executor',
       actorId: record.operatorId ?? 'gateway-credential-broker',

@@ -32,8 +32,9 @@ export class DeploymentPlansController {
     router.post('/api/v1/deployment-plans/capabilities/reevaluate', '重算部署计划能力匹配', ['DeploymentPlans'], (request) => this.reevaluateCapabilities(request));
   }
 
-  private list(request: HttpRequest) {
-    return { items: this.service.list({ tenantId: request.context.tenantId }), page: 1, pageSize: 200, total: this.service.list({ tenantId: request.context.tenantId }).length };
+  private async list(request: HttpRequest) {
+    const items = await this.service.list({ tenantId: request.context.tenantId });
+    return { items, page: 1, pageSize: 200, total: items.length };
   }
 
   private create(request: HttpRequest) {

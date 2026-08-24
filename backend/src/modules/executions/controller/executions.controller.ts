@@ -15,15 +15,15 @@ export class ExecutionsController {
     router.post('/api/v1/execution-runs/rollback', '回滚执行运行', ['Executions'], (request) => this.rollback(request));
   }
 
-  private listRuns(request: HttpRequest) {
+  private async listRuns(request: HttpRequest) {
     const deploymentPlanId = this.readOptionalQueryString(request, 'deploymentPlanId');
-    const items = this.service.listRuns({ tenantId: request.context.tenantId, deploymentPlanId });
+    const items = await this.service.listRuns({ tenantId: request.context.tenantId, deploymentPlanId });
     return { items, page: 1, pageSize: 200, total: items.length };
   }
 
-  private listSteps(request: HttpRequest) {
+  private async listSteps(request: HttpRequest) {
     const executionRunId = this.readOptionalQueryString(request, 'executionRunId');
-    const items = this.service.listSteps({ tenantId: request.context.tenantId, executionRunId });
+    const items = await this.service.listSteps({ tenantId: request.context.tenantId, executionRunId });
     return { items, page: 1, pageSize: 200, total: items.length };
   }
 

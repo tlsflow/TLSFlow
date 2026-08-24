@@ -158,11 +158,11 @@ describe('spec018 providers 基础框架', () => {
     assert.equal(detail.statusCode, 200);
     assert.equal((detail.body as { snapshotId: string }).snapshotId, record.snapshotId);
 
-    const snapshots = assetsService.listDiscoverySnapshots('tenant_spec018', { page: 1, pageSize: 20, filter: { normalizedHash: record.normalizedHash }, sort: undefined });
+    const snapshots = await assetsService.listDiscoverySnapshots('tenant_spec018', { page: 1, pageSize: 20, filter: { normalizedHash: record.normalizedHash }, sort: undefined });
     assert.equal(snapshots.total, 1);
-    const hosts = assetsService.listHosts('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
-    const services = assetsService.listServiceInstances('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
-    const endpoints = assetsService.listServiceEndpoints('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
+    const hosts = await assetsService.listHosts('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
+    const services = await assetsService.listServiceInstances('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
+    const endpoints = await assetsService.listServiceEndpoints('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
     assert.equal(hosts.total, 0);
     assert.equal(services.total, 0);
     assert.equal(endpoints.total, 0);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { REDACTED_VALUE, redactSensitive } from '../logging/redact.js';
-import { StructuredLogger, type LogEvent } from '../logging/structured-logger.js';
+import { structuredLogger, StructuredLogger, type LogEvent } from '../logging/structured-logger.js';
 import { runWithRequestContext } from '../tracing/request-context.js';
 import { AppError } from './app-error.js';
 import { toErrorResponse } from './error-handler.js';
@@ -18,7 +18,7 @@ describe('错误响应和日志脱敏', () => {
     assert.deepEqual(result.nested, { authorization: REDACTED_VALUE, privateKey: REDACTED_VALUE });
   });
 
-  it('业务错误响应包含 requestId 且不裸露敏感字段', () => {
+  it('业务错误响应包含 requestId 且不会泄露敏感字段', () => {
     const handled = runWithRequestContext(
       { requestId: 'req_test', traceId: 'trace_test' },
       () => toErrorResponse(new AppError('VALIDATION_FAILED', '请求参数不合法', { token: 'abc', field: 'name' })),
@@ -40,5 +40,38 @@ describe('错误响应和日志脱敏', () => {
     assert.equal(events[0].requestId, 'req_log');
     assert.equal(events[0].tenantId, 'tenant_1');
     assert.deepEqual(events[0].details, { cookie: REDACTED_VALUE, normal: 'ok' });
+  });
+
+  it('未知异常会记录结构化日志并返回 SYSTEM_INTERNAL_ERROR', () => {
+    const events: LogEvent[] = [];
+    const logger = structuredLogger as unknown as { sink: (event: LogEvent) => void };
+    const originalSink = logger.sink;
+    logger.sink = (event) => events.push(event);
+    try {
+      const error = new Error('boom') as Error & { cause?: unknown };
+      error.cause = { token: 'secret-token', reason: 'db query failed' };
+      const handled = runWithRequestContext(
+        { requestId: 'req_internal', traceId: 'trace_internal', tenantId: 'tenant_1' },
+        () => toErrorResponse(error),
+      );
+      assert.equal(handled.statusCode, 500);
+      assert.equal(handled.body.errorCode, 'SYSTEM_INTERNAL_ERROR');
+      assert.equal(handled.body.message, '系统内部错误');
+      assert.equal(handled.body.requestId, 'req_internal');
+      assert.equal(events.length, 1);
+      assert.equal(events[0].level, 'error');
+      assert.equal(events[0].module, 'error-handler');
+      assert.equal(events[0].requestId, 'req_internal');
+      assert.equal(events[0].traceId, 'trace_internal');
+      assert.equal(events[0].tenantId, 'tenant_1');
+      assert.equal(events[0].message, '未处理异常，已降级为 SYSTEM_INTERNAL_ERROR');
+      const details = events[0].details as Record<string, unknown>;
+      assert.equal(details.errorName, 'Error');
+      assert.equal(details.message, 'boom');
+      assert.equal(typeof details.stack, 'string');
+      assert.deepEqual(details.cause, { token: REDACTED_VALUE, reason: 'db query failed' });
+    } finally {
+      logger.sink = originalSink;
+    }
   });
 });

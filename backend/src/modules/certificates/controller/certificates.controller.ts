@@ -4,6 +4,7 @@ import type { Router } from '../../../common/http/router.js';
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { DatabasePort } from '../../../database/database-port.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { certificateFormats, certificateSourceTypes } from '../schema/certificates.schema.js';
@@ -15,8 +16,12 @@ export interface CertificateServices {
   bindings?: BindingsApplicationService;
 }
 
-export function createCertificateServices(security: SecurityServices): CertificateServices {
-  return { certificates: new CertificatesApplicationService({ secrets: security.secrets, audit: security.audit }) };
+export interface CreateCertificateServicesOptions {
+  db?: DatabasePort;
+}
+
+export function createCertificateServices(security: SecurityServices, options: CreateCertificateServicesOptions = {}): CertificateServices {
+  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit }) };
 }
 
 export class CertificatesController {
@@ -37,58 +42,58 @@ export class CertificatesController {
     router.get('/api/v1/certificate-versions/:id/formats', '查询证书版本格式产物', ['Certificates'], (request) => this.getVersionFormats(request));
     router.post('/api/v1/certificate-versions/archive', '归档证书版本', ['Certificates'], (request) => this.archiveVersion(request));
     router.post('/api/v1/certificate-versions/revoke', '吊销证书版本', ['Certificates'], (request) => this.revokeVersion(request));
-    router.delete('/api/v1/certificate-versions/delete', '删除证书版本', ['Certificates'], (request) => this.deleteVersion(request));
-    router.post('/api/v1/certificate-versions/import', '导入证书版本', ['Certificates'], (request) => this.importVersion(request));
+    router.post('/api/v1/certificate-versions/import', 'Import certificate material', ['Certificates'], (request) => this.importVersion(request));
+    router.post('/api/v1/certificate-versions/validate-import', '校验证书导入材料', ['Certificates'], (request) => this.validateImportVersion(request));
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
     router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.requestFormatExport(request));
     router.post('/api/v1/certificate-version-formats/export', '生成证书格式产物', ['Certificates'], (request) => this.generateFormatExport(request));
-    router.post('/api/v1/certificate-sources/mock-sync', 'Mock 来源同步证书', ['Certificates'], (request) => this.syncFromSource(request));
+    router.post('/api/v1/certificate-sources/mock-sync', 'Mock 源同步证书', ['Certificates'], (request) => this.syncFromSource(request));
   }
 
-  private getFormatCapabilities(request: HttpRequest) {
+  private async getFormatCapabilities(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version_format', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version_format', request);
     return this.services.certificates.getFormatCapabilities();
   }
 
-  private listAssets(request: HttpRequest) {
+  private async listAssets(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
     return this.services.certificates.listAssets(parsePageQuery(request.query, {
       allowedSortFields: ['name', 'primaryDomain', 'sourceType', 'status', 'createdAt', 'updatedAt'],
       allowedFilterFields: ['name', 'primaryDomain', 'sourceType', 'status', 'tags'],
     }));
   }
 
-  private getAssetDetail(request: HttpRequest) {
+  private async getAssetDetail(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
     return this.services.certificates.getAssetDetail(readRequiredId(request));
   }
 
-  private getAssetUsage(request: HttpRequest) {
+  private async getAssetUsage(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
     const assetId = readRequiredId(request);
-    const usages = this.findUsages(request, { certificateAssetId: assetId });
+    const usages = await this.findUsages(request, { certificateAssetId: assetId });
     return { items: usages, total: usages.length, blockedDeletion: usages.length > 0 };
   }
 
-  private archiveAsset(request: HttpRequest) {
+  private async archiveAsset(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
     return this.services.certificates.archiveAsset({ id: readRequiredId(request), status: 'archived', actorId: subject.id }, this.securityContext(request, subject));
   }
 
-  private deleteAsset(request: HttpRequest) {
+  private async deleteAsset(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
-    const usages = this.findUsages(request, { certificateAssetId: readRequiredId(request) });
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
+    const usages = await this.findUsages(request, { certificateAssetId: readRequiredId(request) });
     return this.services.certificates.deleteAsset({ id: readRequiredId(request), status: 'deleted', actorId: subject.id }, usages, this.securityContext(request, subject));
   }
 
-  private createAsset(request: HttpRequest) {
+  private async createAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
       primaryDomain: { type: 'string', required: true },
@@ -97,10 +102,10 @@ export class CertificatesController {
       tags: { type: 'array' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.create', 'certificate_asset', request);
+    await this.assertCan(subject, 'certificate.create', 'certificate_asset', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.createAsset({
+      body: await this.services.certificates.createAsset({
         name: String(body.name),
         primaryDomain: String(body.primaryDomain),
         sans: readStringArray(body.sans, 'sans'),
@@ -111,89 +116,77 @@ export class CertificatesController {
     };
   }
 
-  private listVersions(request: HttpRequest) {
+  private async listVersions(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
     return this.services.certificates.listVersions(parsePageQuery(request.query, {
       allowedSortFields: ['certificateAssetId', 'versionNo', 'commonName', 'fingerprintSha256', 'serialNumber', 'notBefore', 'notAfter', 'status', 'createdAt'],
       allowedFilterFields: ['certificateAssetId', 'primaryDomain', 'commonName', 'sans', 'san', 'fingerprintSha256', 'fingerprint', 'serialNumber', 'notAfter', 'status', 'sourceType', 'chainStatus'],
     }));
   }
 
-  private getVersionDetail(request: HttpRequest) {
+  private async getVersionDetail(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
     return this.services.certificates.getVersionDetail(readRequiredId(request));
   }
 
-  private getVersionUsage(request: HttpRequest) {
+  private async getVersionUsage(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
-    const version = this.services.certificates.getVersionDetail(readRequiredId(request));
-    return this.services.certificates.getUsage({ certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 }, this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 }));
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    const version = await this.services.certificates.getVersionDetail(readRequiredId(request));
+    return this.services.certificates.getUsage({ certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 }, await this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 }));
   }
 
-  private getVersionFormats(request: HttpRequest) {
+  private async getVersionFormats(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version_format', request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version_format', request);
     const versionId = readRequiredId(request);
     return this.services.certificates.listFormats({ page: 1, pageSize: 100, filter: { certificateVersionId: versionId } });
   }
 
-  private archiveVersion(request: HttpRequest) {
+  private async archiveVersion(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
     return this.services.certificates.archiveVersion({ id: readRequiredId(request), status: 'archived', actorId: subject.id }, this.securityContext(request, subject));
   }
 
-  private revokeVersion(request: HttpRequest) {
+  private async revokeVersion(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
     return this.services.certificates.revokeVersion({ id: readRequiredId(request), status: 'revoked', actorId: subject.id }, this.securityContext(request, subject));
   }
 
-  private deleteVersion(request: HttpRequest) {
+  private async deleteVersion(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
-    const version = this.services.certificates.getVersionDetail(readRequiredId(request));
-    const usages = this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 });
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
+    const version = await this.services.certificates.getVersionDetail(readRequiredId(request));
+    const usages = await this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 });
     return this.services.certificates.deleteVersion({ id: version.id, status: 'deleted', actorId: subject.id }, usages, this.securityContext(request, subject));
   }
 
-  private importVersion(request: HttpRequest) {
+  private async importVersion(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateAssetId: { type: 'string' },
       certificatePem: { type: 'string' },
-      certificateDerBase64: { type: 'string' },
       privateKeyPem: { type: 'string' },
       pfxBase64: { type: 'string' },
       pfxPassword: { type: 'string' },
-      jksBase64: { type: 'string' },
-      jksPassword: { type: 'string' },
-      jksKeyPassword: { type: 'string' },
-      jksAlias: { type: 'string' },
-      p7bBase64: { type: 'string' },
       declaredFormat: { type: 'string', enum: certificateFormats },
       sourceType: { type: 'string', enum: certificateSourceTypes },
       name: { type: 'string' },
       tags: { type: 'array' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.importVersion({
+      body: await this.services.certificates.importVersion({
         certificateAssetId: body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId),
         certificatePem: body.certificatePem === undefined ? undefined : String(body.certificatePem),
-        certificateDerBase64: body.certificateDerBase64 === undefined ? undefined : String(body.certificateDerBase64),
         privateKeyPem: body.privateKeyPem === undefined ? undefined : String(body.privateKeyPem),
         pfxBase64: body.pfxBase64 === undefined ? undefined : String(body.pfxBase64),
         pfxPassword: body.pfxPassword === undefined ? undefined : String(body.pfxPassword),
-        jksBase64: body.jksBase64 === undefined ? undefined : String(body.jksBase64),
-        jksPassword: body.jksPassword === undefined ? undefined : String(body.jksPassword),
-        jksKeyPassword: body.jksKeyPassword === undefined ? undefined : String(body.jksKeyPassword),
-        jksAlias: body.jksAlias === undefined ? undefined : String(body.jksAlias),
-        p7bBase64: body.p7bBase64 === undefined ? undefined : String(body.p7bBase64),
         declaredFormat: body.declaredFormat as any,
         sourceType: body.sourceType as any,
         name: body.name === undefined ? undefined : String(body.name),
@@ -203,16 +196,47 @@ export class CertificatesController {
     };
   }
 
-  private listFormats(request: HttpRequest) {
+  private async validateImportVersion(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      certificateAssetId: { type: 'string' },
+      certificatePem: { type: 'string' },
+      privateKeyPem: { type: 'string' },
+      pfxBase64: { type: 'string' },
+      pfxPassword: { type: 'string' },
+      declaredFormat: { type: 'string', enum: certificateFormats },
+      sourceType: { type: 'string', enum: certificateSourceTypes },
+      name: { type: 'string' },
+      tags: { type: 'array' },
+    });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    return {
+      statusCode: 200,
+      body: this.services.certificates.validateImportVersion({
+        certificateAssetId: body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId),
+        certificatePem: body.certificatePem === undefined ? undefined : String(body.certificatePem),
+        privateKeyPem: body.privateKeyPem === undefined ? undefined : String(body.privateKeyPem),
+        pfxBase64: body.pfxBase64 === undefined ? undefined : String(body.pfxBase64),
+        pfxPassword: body.pfxPassword === undefined ? undefined : String(body.pfxPassword),
+        declaredFormat: body.declaredFormat as any,
+        sourceType: body.sourceType as any,
+        name: body.name === undefined ? undefined : String(body.name),
+        tags: readStringArray(body.tags, 'tags'),
+        createdBy: subject.id,
+      }),
+    };
+  }
+
+  private async listFormats(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
     return this.services.certificates.listFormats(parsePageQuery(request.query, {
       allowedSortFields: ['certificateVersionId', 'format', 'createdAt', 'expiresAt'],
       allowedFilterFields: ['certificateVersionId', 'format', 'containsPrivateKey'],
     }));
   }
 
-  private createFormat(request: HttpRequest) {
+  private async createFormat(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string', required: true },
       format: { type: 'string', required: true, enum: certificateFormats },
@@ -223,10 +247,10 @@ export class CertificatesController {
       expiresAt: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.createFormat({
+      body: await this.services.certificates.createFormat({
         certificateVersionId: String(body.certificateVersionId),
         format: body.format as any,
         artifactRef: String(body.artifactRef),
@@ -239,7 +263,7 @@ export class CertificatesController {
     };
   }
 
-  private requestFormatExport(request: HttpRequest) {
+  private async requestFormatExport(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string', required: true },
       format: { type: 'string', required: true, enum: certificateFormats },
@@ -249,10 +273,10 @@ export class CertificatesController {
       expiresAt: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.requestFormatExport({
+      body: await this.services.certificates.requestFormatExport({
         certificateVersionId: String(body.certificateVersionId),
         format: body.format as any,
         containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
@@ -264,7 +288,7 @@ export class CertificatesController {
     };
   }
 
-  private generateFormatExport(request: HttpRequest) {
+  private async generateFormatExport(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string', required: true },
       format: { type: 'string', required: true, enum: certificateFormats },
@@ -274,10 +298,10 @@ export class CertificatesController {
       expiresAt: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.generateFormatExport({
+      body: await this.services.certificates.generateFormatExport({
         certificateVersionId: String(body.certificateVersionId),
         format: body.format as any,
         containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
@@ -289,41 +313,29 @@ export class CertificatesController {
     };
   }
 
-  private syncFromSource(request: HttpRequest) {
+  private async syncFromSource(request: HttpRequest) {
     const body = validateObject(request.body, {
       sourceType: { type: 'string', required: true, enum: certificateSourceTypes },
       externalId: { type: 'string', required: true },
       certificatePem: { type: 'string' },
-      certificateDerBase64: { type: 'string' },
       privateKeyPem: { type: 'string' },
       pfxBase64: { type: 'string' },
       pfxPassword: { type: 'string' },
-      jksBase64: { type: 'string' },
-      jksPassword: { type: 'string' },
-      jksKeyPassword: { type: 'string' },
-      jksAlias: { type: 'string' },
-      p7bBase64: { type: 'string' },
       declaredFormat: { type: 'string', enum: certificateFormats },
       name: { type: 'string' },
       tags: { type: 'array' },
     });
     const subject = this.subjectFromRequest(request);
-    this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
     return {
       statusCode: 201,
-      body: this.services.certificates.syncFromSource({
+      body: await this.services.certificates.syncFromSource({
         sourceType: body.sourceType as any,
         externalId: String(body.externalId),
         certificatePem: body.certificatePem === undefined ? undefined : String(body.certificatePem),
-        certificateDerBase64: body.certificateDerBase64 === undefined ? undefined : String(body.certificateDerBase64),
         privateKeyPem: body.privateKeyPem === undefined ? undefined : String(body.privateKeyPem),
         pfxBase64: body.pfxBase64 === undefined ? undefined : String(body.pfxBase64),
         pfxPassword: body.pfxPassword === undefined ? undefined : String(body.pfxPassword),
-        jksBase64: body.jksBase64 === undefined ? undefined : String(body.jksBase64),
-        jksPassword: body.jksPassword === undefined ? undefined : String(body.jksPassword),
-        jksKeyPassword: body.jksKeyPassword === undefined ? undefined : String(body.jksKeyPassword),
-        jksAlias: body.jksAlias === undefined ? undefined : String(body.jksAlias),
-        p7bBase64: body.p7bBase64 === undefined ? undefined : String(body.p7bBase64),
         declaredFormat: body.declaredFormat as any,
         name: body.name === undefined ? undefined : String(body.name),
         tags: readStringArray(body.tags, 'tags'),
@@ -332,10 +344,10 @@ export class CertificatesController {
     };
   }
 
-  private findUsages(request: HttpRequest, query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string }): unknown[] {
+  private async findUsages(request: HttpRequest, query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string }): Promise<unknown[]> {
     if (!this.services.bindings) return [];
     if (query.certificateAssetId) {
-      const detail = this.services.certificates.getAssetDetail(query.certificateAssetId);
+      const detail = await this.services.certificates.getAssetDetail(query.certificateAssetId);
       return detail.versions.flatMap((version) => this.services.bindings!.findCertificateBindingUsages(request.context.tenantId ?? '', { certificateVersionId: version.id, fingerprint: version.fingerprintSha256 }));
     }
     return this.services.bindings.findCertificateBindingUsages(request.context.tenantId ?? '', { certificateVersionId: query.certificateVersionId, fingerprint: query.fingerprintSha256 });
@@ -343,23 +355,23 @@ export class CertificatesController {
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
     if (!request.context.actorId) {
-      throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
+      throw new AppError('AUTH_UNAUTHENTICATED', 'Missing actor context');
     }
     return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
   }
 
-  private assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest): void {
-    this.security.rbac.assertCan(subject, action, {
+  private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest): Promise<void> {
+    await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
       scope: { tenantId: request.context.tenantId, ownerId: subject.id },
     }, this.securityContext(request, subject));
   }
 
-  private assertCanAny(subject: SecuritySubject, actions: string[], resourceType: string, request: HttpRequest): void {
+  private async assertCanAny(subject: SecuritySubject, actions: string[], resourceType: string, request: HttpRequest): Promise<void> {
     let lastError: unknown;
     for (const action of actions) {
       try {
-        this.assertCan(subject, action, resourceType, request);
+        await this.assertCan(subject, action, resourceType, request);
         return;
       } catch (error) {
         lastError = error;
@@ -385,21 +397,9 @@ function readStringArray(value: unknown, field: string): string[] | undefined {
   return value;
 }
 
-const certificateAssetSchema = {
-  type: 'object',
-  additionalProperties: true,
-};
-
-const certificateVersionSchema = {
-  type: 'object',
-  additionalProperties: true,
-};
-
-const certificateVersionFormatSchema = {
-  type: 'object',
-  additionalProperties: true,
-};
-
+const certificateAssetSchema = { type: 'object', additionalProperties: true };
+const certificateVersionSchema = { type: 'object', additionalProperties: true };
+const certificateVersionFormatSchema = { type: 'object', additionalProperties: true };
 const pageSchema = {
   type: 'object',
   required: ['items', 'page', 'pageSize', 'total'],
@@ -417,15 +417,9 @@ const importCertificateVersionRequestSchema = {
   properties: {
     certificateAssetId: { type: 'string' },
     certificatePem: { type: 'string' },
-    certificateDerBase64: { type: 'string' },
     privateKeyPem: { type: 'string', writeOnly: true, 'x-sensitive': true },
     pfxBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
     pfxPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
-    jksBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
-    jksPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
-    jksKeyPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
-    jksAlias: { type: 'string' },
-    p7bBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
     declaredFormat: { type: 'string', enum: [...certificateFormats] },
     sourceType: { type: 'string', enum: [...certificateSourceTypes] },
     name: { type: 'string' },
@@ -446,16 +440,17 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/certificate-versions', operationId: 'listCertificateVersions', summary: '查询证书版本列表', tags: ['Certificates'], responseSchema: pageSchema },
     { method: 'GET', path: '/api/v1/certificate-versions/detail', operationId: 'getCertificateVersionDetail', summary: '查询证书版本详情', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'GET', path: '/api/v1/certificate-versions/usage', operationId: 'getCertificateVersionUsage', summary: '查询证书版本使用位置', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/certificate-versions/:id/formats', operationId: 'listCertificateVersionFormatsByVersionId', summary: '按版本查询证书格式产物', tags: ['Certificates'], responseSchema: pageSchema },
+    { method: 'GET', path: '/api/v1/certificate-versions/:id/formats', operationId: 'listCertificateVersionFormatsByVersionId', summary: 'List certificate version formats by version id', tags: ['Certificates'], responseSchema: pageSchema },
+    { method: 'POST', path: '/api/v1/certificate-versions/import', operationId: 'importCertificateVersion', summary: 'Import certificate material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/archive', operationId: 'archiveCertificateVersion', summary: '归档证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/revoke', operationId: 'revokeCertificateVersion', summary: '吊销证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'DELETE', path: '/api/v1/certificate-versions/delete', operationId: 'deleteCertificateVersion', summary: '删除证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
-    { method: 'POST', path: '/api/v1/certificate-versions/import', operationId: 'importCertificateVersion', summary: '导入证书版本', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/certificate-versions/validate-import', operationId: 'validateImportCertificateVersion', summary: 'Validate certificate import material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-version-formats', operationId: 'listCertificateVersionFormats', summary: '查询证书格式产物列表', tags: ['Certificates'], responseSchema: pageSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats', operationId: 'createCertificateVersionFormat', summary: '创建证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/export-plan', operationId: 'requestCertificateFormatExport', summary: '规划证书格式导出', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/export', operationId: 'generateCertificateFormatExport', summary: '生成证书格式产物', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
-    { method: 'POST', path: '/api/v1/certificate-sources/mock-sync', operationId: 'mockSyncCertificateSource', summary: 'Mock 来源同步证书', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/certificate-sources/mock-sync', operationId: 'mockSyncCertificateSource', summary: 'Mock 源同步证书', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }
 

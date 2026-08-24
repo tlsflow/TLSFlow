@@ -1,303 +1,80 @@
-import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
+import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { PageResponse } from '../../../shared/dto/page-response.js';
 import { createPageResponse } from '../../../shared/dto/page-response.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentHeartbeat, AgentRegistration, AgentSession, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type {
+  AgentCapabilitySnapshot,
+  AgentCertificate,
+  AgentCertificateAuthority,
+  AgentCertificateSigningRequest,
+  AgentHeartbeat,
+  AgentRegistration,
+  AgentSession,
+  AgentTaskEnvelope,
+  AgentTaskLogCursor,
+  AgentTaskLogEntry,
+  AgentUpgradePlan,
+  AgentVersionRelease,
+  EnrollmentToken,
+} from '../schema/agents.schema.js';
 
 export interface AgentsRepository {
   readonly moduleName: 'agents';
-  createEnrollmentToken(token: EnrollmentToken): EnrollmentToken;
-  updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): EnrollmentToken;
-  findEnrollmentTokenByHash(tenantId: string, tokenHash: string): EnrollmentToken | undefined;
-  upsertRegistration(agent: AgentRegistration): AgentRegistration;
-  updateRegistration(agentId: string, patch: Partial<AgentRegistration>): AgentRegistration;
-  getRegistration(tenantId: string, agentId: string): AgentRegistration | undefined;
-  findByAgentKey(tenantId: string, agentKey: string): AgentRegistration | undefined;
-  listRegistrations(tenantId: string, query: PageQuery): PageResponse<AgentRegistration>;
-  createSession(session: AgentSession): AgentSession;
-  getSession(tenantId: string, sessionId: string): AgentSession | undefined;
-  saveCertificateAuthority(ca: AgentCertificateAuthority): AgentCertificateAuthority;
-  getCertificateAuthority(): AgentCertificateAuthority | undefined;
-  createCertificateSigningRequest(csr: AgentCertificateSigningRequest): AgentCertificateSigningRequest;
-  updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): AgentCertificateSigningRequest;
-  getCertificateSigningRequest(tenantId: string, csrId: string): AgentCertificateSigningRequest | undefined;
-  createCertificate(certificate: AgentCertificate): AgentCertificate;
-  updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): AgentCertificate;
-  getCertificate(tenantId: string, certificateId: string): AgentCertificate | undefined;
-  findActiveCertificate(tenantId: string, agentId: string): AgentCertificate | undefined;
-  listCertificates(tenantId: string, agentId: string): AgentCertificate[];
-  saveHeartbeat(heartbeat: AgentHeartbeat): AgentHeartbeat;
-  getLatestHeartbeat(tenantId: string, agentId: string): AgentHeartbeat | undefined;
-  saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): AgentCapabilitySnapshot;
-  getLatestCapabilitySnapshot(tenantId: string, agentId: string): AgentCapabilitySnapshot | undefined;
-  createTask(task: AgentTaskEnvelope): AgentTaskEnvelope;
-  updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): AgentTaskEnvelope;
-  getTask(tenantId: string, taskId: string): AgentTaskEnvelope | undefined;
-  findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): AgentTaskEnvelope | undefined;
-  listTasks(tenantId: string, agentId: string, statuses?: string[]): AgentTaskEnvelope[];
-  saveTaskLog(entry: AgentTaskLogEntry): AgentTaskLogEntry;
-  saveTaskLogCursor(cursor: AgentTaskLogCursor): AgentTaskLogCursor;
-  getTaskLogCursor(tenantId: string, agentId: string, taskId: string): AgentTaskLogCursor | undefined;
-  listTaskLogs(tenantId: string, taskId: string): AgentTaskLogEntry[];
-  listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): AgentTaskLogEntry[];
-  publishVersion(release: AgentVersionRelease): AgentVersionRelease;
-  listActiveVersions(tenantId: string): AgentVersionRelease[];
-  createUpgradePlan(plan: AgentUpgradePlan): AgentUpgradePlan;
-  updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): AgentUpgradePlan;
-  getUpgradePlan(tenantId: string, planId: string): AgentUpgradePlan | undefined;
-  findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): AgentUpgradePlan | undefined;
-  listUpgradePlansForAgent(tenantId: string, agentId: string): AgentUpgradePlan[];
+  createEnrollmentToken(token: EnrollmentToken): Promise<EnrollmentToken>;
+  updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): Promise<EnrollmentToken>;
+  findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined>;
+  upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration>;
+  updateRegistration(agentId: string, patch: Partial<AgentRegistration>): Promise<AgentRegistration>;
+  getRegistration(tenantId: string, agentId: string): Promise<AgentRegistration | undefined>;
+  findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined>;
+  listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>>;
+  createSession(session: AgentSession): Promise<AgentSession>;
+  getSession(tenantId: string, sessionId: string): Promise<AgentSession | undefined>;
+  saveCertificateAuthority(ca: AgentCertificateAuthority): Promise<AgentCertificateAuthority>;
+  getCertificateAuthority(): Promise<AgentCertificateAuthority | undefined>;
+  createCertificateSigningRequest(csr: AgentCertificateSigningRequest): Promise<AgentCertificateSigningRequest>;
+  updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): Promise<AgentCertificateSigningRequest>;
+  getCertificateSigningRequest(tenantId: string, csrId: string): Promise<AgentCertificateSigningRequest | undefined>;
+  createCertificate(certificate: AgentCertificate): Promise<AgentCertificate>;
+  updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): Promise<AgentCertificate>;
+  getCertificate(tenantId: string, certificateId: string): Promise<AgentCertificate | undefined>;
+  findActiveCertificate(tenantId: string, agentId: string): Promise<AgentCertificate | undefined>;
+  listCertificates(tenantId: string, agentId: string): Promise<AgentCertificate[]>;
+  saveHeartbeat(heartbeat: AgentHeartbeat): Promise<AgentHeartbeat>;
+  getLatestHeartbeat(tenantId: string, agentId: string): Promise<AgentHeartbeat | undefined>;
+  saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): Promise<AgentCapabilitySnapshot>;
+  getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
+  createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope>;
+  updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope>;
+  getTask(tenantId: string, taskId: string): Promise<AgentTaskEnvelope | undefined>;
+  findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined>;
+  listTasks(tenantId: string, agentId: string, statuses?: string[]): Promise<AgentTaskEnvelope[]>;
+  saveTaskLog(entry: AgentTaskLogEntry): Promise<AgentTaskLogEntry>;
+  saveTaskLogCursor(cursor: AgentTaskLogCursor): Promise<AgentTaskLogCursor>;
+  getTaskLogCursor(tenantId: string, agentId: string, taskId: string): Promise<AgentTaskLogCursor | undefined>;
+  listTaskLogs(tenantId: string, taskId: string): Promise<AgentTaskLogEntry[]>;
+  listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]>;
+  publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease>;
+  listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]>;
+  createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan>;
+  updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): Promise<AgentUpgradePlan>;
+  getUpgradePlan(tenantId: string, planId: string): Promise<AgentUpgradePlan | undefined>;
+  findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined>;
+  listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]>;
 }
 
-export class InMemoryAgentsRepository implements AgentsRepository {
-  readonly moduleName = 'agents' as const;
-  private readonly enrollmentTokens = new Map<string, EnrollmentToken>();
-  private readonly registrations = new Map<string, AgentRegistration>();
-  private readonly sessions = new Map<string, AgentSession>();
-  private certificateAuthority?: AgentCertificateAuthority;
-  private readonly certificateSigningRequests = new Map<string, AgentCertificateSigningRequest>();
-  private readonly certificates = new Map<string, AgentCertificate>();
-  private readonly heartbeats: AgentHeartbeat[] = [];
-  private readonly snapshots = new Map<string, AgentCapabilitySnapshot>();
-  private readonly tasks = new Map<string, AgentTaskEnvelope>();
-  private readonly taskLogs: AgentTaskLogEntry[] = [];
-  private readonly taskLogCursors = new Map<string, AgentTaskLogCursor>();
-  private readonly releases = new Map<string, AgentVersionRelease>();
-  private readonly upgradePlans = new Map<string, AgentUpgradePlan>();
-
-  createEnrollmentToken(token: EnrollmentToken): EnrollmentToken {
-    this.enrollmentTokens.set(token.id, token);
-    return token;
-  }
-
-  updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): EnrollmentToken {
-    const current = this.enrollmentTokens.get(tokenId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '注册令牌不存在', { tokenId });
-    const updated = { ...current, ...patch };
-    this.enrollmentTokens.set(updated.id, updated);
-    return updated;
-  }
-
-  findEnrollmentTokenByHash(tenantId: string, tokenHash: string): EnrollmentToken | undefined {
-    return [...this.enrollmentTokens.values()].find((item) => item.tenantId === tenantId && item.tokenHash === tokenHash);
-  }
-
-  upsertRegistration(agent: AgentRegistration): AgentRegistration {
-    this.registrations.set(agent.id, agent);
-    return agent;
-  }
-
-  updateRegistration(agentId: string, patch: Partial<AgentRegistration>): AgentRegistration {
-    const current = this.registrations.get(agentId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
-    const updated = { ...current, ...patch, version: current.version + 1 };
-    this.registrations.set(updated.id, updated);
-    return updated;
-  }
-
-  getRegistration(tenantId: string, agentId: string): AgentRegistration | undefined {
-    const item = this.registrations.get(agentId);
-    return item?.tenantId === tenantId ? item : undefined;
-  }
-
-  findByAgentKey(tenantId: string, agentKey: string): AgentRegistration | undefined {
-    return [...this.registrations.values()].find((item) => item.tenantId === tenantId && item.agentKey === agentKey);
-  }
-
-  listRegistrations(tenantId: string, query: PageQuery): PageResponse<AgentRegistration> {
-    let rows = [...this.registrations.values()].filter((item) => item.tenantId === tenantId);
-    for (const [field, expected] of Object.entries(query.filter)) {
-      rows = rows.filter((item) => String((item as unknown as Record<string, unknown>)[field] ?? '').toLowerCase().includes(expected.toLowerCase()));
-    }
-    const start = (query.page - 1) * query.pageSize;
-    return createPageResponse(rows.slice(start, start + query.pageSize), query.page, query.pageSize, rows.length);
-  }
-
-  createSession(session: AgentSession): AgentSession {
-    this.sessions.set(session.id, session);
-    return session;
-  }
-
-  getSession(tenantId: string, sessionId: string): AgentSession | undefined {
-    const session = this.sessions.get(sessionId);
-    return session?.tenantId === tenantId ? session : undefined;
-  }
-
-  saveCertificateAuthority(ca: AgentCertificateAuthority): AgentCertificateAuthority {
-    this.certificateAuthority = ca;
-    return ca;
-  }
-
-  getCertificateAuthority(): AgentCertificateAuthority | undefined {
-    return this.certificateAuthority;
-  }
-
-  createCertificateSigningRequest(csr: AgentCertificateSigningRequest): AgentCertificateSigningRequest {
-    this.certificateSigningRequests.set(csr.id, csr);
-    return csr;
-  }
-
-  updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): AgentCertificateSigningRequest {
-    const current = this.certificateSigningRequests.get(csrId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent CSR 不存在', { csrId });
-    const updated = { ...current, ...patch };
-    this.certificateSigningRequests.set(updated.id, updated);
-    return updated;
-  }
-
-  getCertificateSigningRequest(tenantId: string, csrId: string): AgentCertificateSigningRequest | undefined {
-    const csr = this.certificateSigningRequests.get(csrId);
-    return csr?.tenantId === tenantId ? csr : undefined;
-  }
-
-  createCertificate(certificate: AgentCertificate): AgentCertificate {
-    this.certificates.set(certificate.id, certificate);
-    return certificate;
-  }
-
-  updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): AgentCertificate {
-    const current = this.certificates.get(certificateId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 证书不存在', { certificateId });
-    const updated = { ...current, ...patch };
-    this.certificates.set(updated.id, updated);
-    return updated;
-  }
-
-  getCertificate(tenantId: string, certificateId: string): AgentCertificate | undefined {
-    const certificate = this.certificates.get(certificateId);
-    return certificate?.tenantId === tenantId ? certificate : undefined;
-  }
-
-  findActiveCertificate(tenantId: string, agentId: string): AgentCertificate | undefined {
-    return this.listCertificates(tenantId, agentId).find((item) => item.status === 'active');
-  }
-
-  listCertificates(tenantId: string, agentId: string): AgentCertificate[] {
-    return [...this.certificates.values()]
-      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
-      .sort((left, right) => right.issuedAt.localeCompare(left.issuedAt));
-  }
-
-  saveHeartbeat(heartbeat: AgentHeartbeat): AgentHeartbeat {
-    this.heartbeats.push(heartbeat);
-    return heartbeat;
-  }
-
-  getLatestHeartbeat(tenantId: string, agentId: string): AgentHeartbeat | undefined {
-    return this.heartbeats
-      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
-      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))[0];
-  }
-
-  saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): AgentCapabilitySnapshot {
-    this.snapshots.set(snapshot.id, snapshot);
-    return snapshot;
-  }
-
-  getLatestCapabilitySnapshot(tenantId: string, agentId: string): AgentCapabilitySnapshot | undefined {
-    return [...this.snapshots.values()]
-      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
-      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
-  }
-
-  createTask(task: AgentTaskEnvelope): AgentTaskEnvelope {
-    this.tasks.set(task.id, task);
-    return task;
-  }
-
-  updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): AgentTaskEnvelope {
-    const current = this.tasks.get(taskId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
-    const updated = { ...current, ...patch, updatedAt: new Date().toISOString() };
-    this.tasks.set(updated.id, updated);
-    return updated;
-  }
-
-  getTask(tenantId: string, taskId: string): AgentTaskEnvelope | undefined {
-    const task = this.tasks.get(taskId);
-    return task?.tenantId === tenantId ? task : undefined;
-  }
-
-  findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): AgentTaskEnvelope | undefined {
-    return [...this.tasks.values()].find((task) => task.tenantId === tenantId && task.agentId === agentId && task.idempotencyKey === idempotencyKey);
-  }
-
-  listTasks(tenantId: string, agentId: string, statuses?: string[]): AgentTaskEnvelope[] {
-    return [...this.tasks.values()]
-      .filter((task) => task.tenantId === tenantId && task.agentId === agentId && (!statuses?.length || statuses.includes(task.status)))
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  }
-
-  saveTaskLog(entry: AgentTaskLogEntry): AgentTaskLogEntry {
-    const duplicated = this.taskLogs.find((item) => item.tenantId === entry.tenantId && item.taskId === entry.taskId && item.sequence === entry.sequence);
-    if (duplicated) return duplicated;
-    this.taskLogs.push(entry);
-    return entry;
-  }
-
-  saveTaskLogCursor(cursor: AgentTaskLogCursor): AgentTaskLogCursor {
-    this.taskLogCursors.set(logCursorKey(cursor.tenantId, cursor.agentId, cursor.taskId), cursor);
-    return cursor;
-  }
-
-  getTaskLogCursor(tenantId: string, agentId: string, taskId: string): AgentTaskLogCursor | undefined {
-    return this.taskLogCursors.get(logCursorKey(tenantId, agentId, taskId));
-  }
-
-  listTaskLogs(tenantId: string, taskId: string): AgentTaskLogEntry[] {
-    return this.taskLogs
-      .filter((item) => item.tenantId === tenantId && item.taskId === taskId)
-      .sort((left, right) => left.sequence - right.sequence);
-  }
-
-  listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): AgentTaskLogEntry[] {
-    return this.taskLogs
-      .filter((item) => item.tenantId === tenantId && item.agentId === agentId && (!levels?.length || levels.includes(item.level)))
-      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt) || right.sequence - left.sequence);
-  }
-
-  publishVersion(release: AgentVersionRelease): AgentVersionRelease {
-    this.releases.set(release.id, release);
-    return release;
-  }
-
-  listActiveVersions(tenantId: string): AgentVersionRelease[] {
-    return [...this.releases.values()]
-      .filter((item) => item.tenantId === tenantId && item.status === 'active')
-      .sort((left, right) => compareVersions(right.version, left.version));
-  }
-
-  createUpgradePlan(plan: AgentUpgradePlan): AgentUpgradePlan {
-    this.upgradePlans.set(plan.id, plan);
-    return plan;
-  }
-
-  updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): AgentUpgradePlan {
-    const current = this.upgradePlans.get(planId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId });
-    const updated = { ...current, ...patch, updatedAt: new Date().toISOString() };
-    this.upgradePlans.set(updated.id, updated);
-    return updated;
-  }
-
-  getUpgradePlan(tenantId: string, planId: string): AgentUpgradePlan | undefined {
-    const plan = this.upgradePlans.get(planId);
-    return plan?.tenantId === tenantId ? plan : undefined;
-  }
-
-  findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): AgentUpgradePlan | undefined {
-    return [...this.upgradePlans.values()].find((item) => item.tenantId === tenantId && item.agentId === agentId && item.releaseId === releaseId);
-  }
-
-  listUpgradePlansForAgent(tenantId: string, agentId: string): AgentUpgradePlan[] {
-    return [...this.upgradePlans.values()]
-      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  }
-}
+type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
+type AgentTaskLogCursorRecord = AgentTaskLogCursor & IdentifiedEntity;
 
 function logCursorKey(tenantId: string, agentId: string, taskId: string): string {
   return `${tenantId}:${agentId}:${taskId}`;
+}
+
+function heartbeatKey(tenantId: string, agentId: string): string {
+  return `${tenantId}:${agentId}`;
 }
 
 function compareVersions(left: string, right: string): number {
@@ -308,4 +85,226 @@ function compareVersions(left: string, right: string): number {
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+export class PgAgentsRepository implements AgentsRepository {
+  readonly moduleName = 'agents' as const;
+
+  private readonly enrollmentTokens: PgDocumentRepository<EnrollmentToken>;
+  private readonly registrations: PgDocumentRepository<AgentRegistration>;
+  private readonly sessions: PgDocumentRepository<AgentSession>;
+  private readonly certificateAuthorities: PgDocumentRepository<AgentCertificateAuthority>;
+  private readonly certificateSigningRequests: PgDocumentRepository<AgentCertificateSigningRequest>;
+  private readonly certificates: PgDocumentRepository<AgentCertificate>;
+  private readonly heartbeats: PgDocumentRepository<AgentHeartbeatRecord>;
+  private readonly snapshots: PgDocumentRepository<AgentCapabilitySnapshot>;
+  private readonly tasks: PgDocumentRepository<AgentTaskEnvelope>;
+  private readonly taskLogs: PgDocumentRepository<AgentTaskLogEntry>;
+  private readonly taskLogCursors: PgDocumentRepository<AgentTaskLogCursorRecord>;
+  private readonly releases: PgDocumentRepository<AgentVersionRelease>;
+  private readonly upgradePlans: PgDocumentRepository<AgentUpgradePlan>;
+
+  constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.enrollmentTokens = new PgDocumentRepository(db, 'agents:enrollmentTokens');
+    this.registrations = new PgDocumentRepository(db, 'agents:registrations');
+    this.sessions = new PgDocumentRepository(db, 'agents:sessions');
+    this.certificateAuthorities = new PgDocumentRepository(db, 'agents:certificateAuthorities');
+    this.certificateSigningRequests = new PgDocumentRepository(db, 'agents:certificateSigningRequests');
+    this.certificates = new PgDocumentRepository(db, 'agents:certificates');
+    this.heartbeats = new PgDocumentRepository(db, 'agents:heartbeats');
+    this.snapshots = new PgDocumentRepository(db, 'agents:snapshots');
+    this.tasks = new PgDocumentRepository(db, 'agents:tasks');
+    this.taskLogs = new PgDocumentRepository(db, 'agents:taskLogs');
+    this.taskLogCursors = new PgDocumentRepository(db, 'agents:taskLogCursors');
+    this.releases = new PgDocumentRepository(db, 'agents:releases');
+    this.upgradePlans = new PgDocumentRepository(db, 'agents:upgradePlans');
+  }
+
+  async createEnrollmentToken(token: EnrollmentToken): Promise<EnrollmentToken> {
+    return this.enrollmentTokens.upsert(token);
+  }
+
+  async updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): Promise<EnrollmentToken> {
+    return this.enrollmentTokens.update(tokenId, patch);
+  }
+
+  async findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined> {
+    return (await this.enrollmentTokens.list((item) => item.tenantId === tenantId && item.tokenHash === tokenHash))[0];
+  }
+
+  async upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration> {
+    return this.registrations.upsert(agent);
+  }
+
+  async updateRegistration(agentId: string, patch: Partial<AgentRegistration>): Promise<AgentRegistration> {
+    return this.registrations.update(agentId, patch);
+  }
+
+  async getRegistration(tenantId: string, agentId: string): Promise<AgentRegistration | undefined> {
+    const row = await this.registrations.get(agentId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined> {
+    return (await this.registrations.list((item) => item.tenantId === tenantId && item.agentKey === agentKey))[0];
+  }
+
+  async listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>> {
+    const rows = await this.registrations.list((item) => item.tenantId === tenantId);
+    return createPageResponse(rows, query.page, query.pageSize, rows.length);
+  }
+
+  async createSession(session: AgentSession): Promise<AgentSession> {
+    return this.sessions.upsert(session);
+  }
+
+  async getSession(tenantId: string, sessionId: string): Promise<AgentSession | undefined> {
+    const row = await this.sessions.get(sessionId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async saveCertificateAuthority(ca: AgentCertificateAuthority): Promise<AgentCertificateAuthority> {
+    return this.certificateAuthorities.upsert({ ...ca, id: 'default' });
+  }
+
+  async getCertificateAuthority(): Promise<AgentCertificateAuthority | undefined> {
+    return this.certificateAuthorities.get('default');
+  }
+
+  async createCertificateSigningRequest(csr: AgentCertificateSigningRequest): Promise<AgentCertificateSigningRequest> {
+    return this.certificateSigningRequests.upsert(csr);
+  }
+
+  async updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): Promise<AgentCertificateSigningRequest> {
+    return this.certificateSigningRequests.update(csrId, patch);
+  }
+
+  async getCertificateSigningRequest(tenantId: string, csrId: string): Promise<AgentCertificateSigningRequest | undefined> {
+    const row = await this.certificateSigningRequests.get(csrId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async createCertificate(certificate: AgentCertificate): Promise<AgentCertificate> {
+    return this.certificates.upsert(certificate);
+  }
+
+  async updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): Promise<AgentCertificate> {
+    return this.certificates.update(certificateId, patch);
+  }
+
+  async getCertificate(tenantId: string, certificateId: string): Promise<AgentCertificate | undefined> {
+    const row = await this.certificates.get(certificateId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async findActiveCertificate(tenantId: string, agentId: string): Promise<AgentCertificate | undefined> {
+    return (await this.listCertificates(tenantId, agentId)).find((item) => item.status === 'active');
+  }
+
+  async listCertificates(tenantId: string, agentId: string): Promise<AgentCertificate[]> {
+    return this.certificates
+      .list((item) => item.tenantId === tenantId && item.agentId === agentId)
+      .then((rows) => rows.sort((left, right) => right.issuedAt.localeCompare(left.issuedAt)));
+  }
+
+  async saveHeartbeat(heartbeat: AgentHeartbeat): Promise<AgentHeartbeat> {
+    return this.heartbeats.upsert({
+      ...heartbeat,
+      id: heartbeatKey(heartbeat.tenantId, heartbeat.agentId),
+      tenantId: heartbeat.tenantId,
+      agentId: heartbeat.agentId,
+    });
+  }
+
+  async getLatestHeartbeat(tenantId: string, agentId: string): Promise<AgentHeartbeat | undefined> {
+    return (await this.heartbeats.list((item) => item.tenantId === tenantId && item.agentId === agentId))
+      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))[0];
+  }
+
+  async saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): Promise<AgentCapabilitySnapshot> {
+    return this.snapshots.upsert(snapshot);
+  }
+
+  async getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined> {
+    return (await this.snapshots.list((item) => item.tenantId === tenantId && item.agentId === agentId))
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
+  }
+
+  async createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope> {
+    return this.tasks.upsert(task);
+  }
+
+  async updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope> {
+    return this.tasks.update(taskId, patch);
+  }
+
+  async getTask(tenantId: string, taskId: string): Promise<AgentTaskEnvelope | undefined> {
+    const row = await this.tasks.get(taskId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined> {
+    return (await this.tasks.list((item) => item.tenantId === tenantId && item.agentId === agentId && item.idempotencyKey === idempotencyKey))[0];
+  }
+
+  async listTasks(tenantId: string, agentId: string, statuses?: string[]): Promise<AgentTaskEnvelope[]> {
+    return (await this.tasks.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!statuses?.length || statuses.includes(item.status))))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async saveTaskLog(entry: AgentTaskLogEntry): Promise<AgentTaskLogEntry> {
+    const existing = await this.taskLogs.get(entry.id);
+    if (existing) return existing;
+    return this.taskLogs.upsert(entry);
+  }
+
+  async saveTaskLogCursor(cursor: AgentTaskLogCursor): Promise<AgentTaskLogCursor> {
+    return this.taskLogCursors.upsert({ ...cursor, id: logCursorKey(cursor.tenantId, cursor.agentId, cursor.taskId) });
+  }
+
+  async getTaskLogCursor(tenantId: string, agentId: string, taskId: string): Promise<AgentTaskLogCursor | undefined> {
+    const row = await this.taskLogCursors.get(logCursorKey(tenantId, agentId, taskId));
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async listTaskLogs(tenantId: string, taskId: string): Promise<AgentTaskLogEntry[]> {
+    return (await this.taskLogs.list((item) => item.tenantId === tenantId && item.taskId === taskId))
+      .sort((left, right) => left.sequence - right.sequence);
+  }
+
+  async listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]> {
+    return (await this.taskLogs.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!levels?.length || levels.includes(item.level))))
+      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt) || right.sequence - left.sequence);
+  }
+
+  async publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease> {
+    return this.releases.upsert(release);
+  }
+
+  async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
+    return (await this.releases.list((item) => item.tenantId === tenantId && item.status === 'active'))
+      .sort((left, right) => compareVersions(right.version, left.version));
+  }
+
+  async createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan> {
+    return this.upgradePlans.upsert(plan);
+  }
+
+  async updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): Promise<AgentUpgradePlan> {
+    return this.upgradePlans.update(planId, patch);
+  }
+
+  async getUpgradePlan(tenantId: string, planId: string): Promise<AgentUpgradePlan | undefined> {
+    const row = await this.upgradePlans.get(planId);
+    return row?.tenantId === tenantId ? row : undefined;
+  }
+
+  async findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined> {
+    return (await this.upgradePlans.list((item) => item.tenantId === tenantId && item.agentId === agentId && item.releaseId === releaseId))[0];
+  }
+
+  async listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]> {
+    return (await this.upgradePlans.list((item) => item.tenantId === tenantId && item.agentId === agentId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
 }

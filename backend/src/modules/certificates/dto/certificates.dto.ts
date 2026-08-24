@@ -78,6 +78,14 @@ export interface CertificateAssetDetailDto extends CertificateAssetDto {
 export interface CertificateVersionDetailDto extends CertificateVersionDto {
   asset: CertificateAssetDto;
   formats: CertificateVersionFormatDto[];
+  chainCertificates: Array<{
+    fingerprintSha256: string;
+    displayName: string;
+    commonName?: string;
+    subject: CertificateVersionEntity['subject'];
+    issuer: CertificateVersionEntity['issuer'];
+    role: 'leaf' | 'intermediate' | 'root';
+  }>;
 }
 
 export interface CertificateUsageDto {
@@ -117,14 +125,8 @@ export interface ChangeCertificateVersionStatusInput {
 export interface ImportCertificateVersionInput {
   certificateAssetId?: string;
   certificatePem?: string;
-  certificateDerBase64?: string;
   pfxBase64?: string;
   pfxPassword?: string;
-  jksBase64?: string;
-  jksPassword?: string;
-  jksKeyPassword?: string;
-  jksAlias?: string;
-  p7bBase64?: string;
   declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
   sourceType?: CertificateSourceType;
@@ -163,14 +165,8 @@ export interface CertificateSourceSyncInput {
   sourceType: CertificateSourceType;
   externalId: string;
   certificatePem?: string;
-  certificateDerBase64?: string;
   pfxBase64?: string;
   pfxPassword?: string;
-  jksBase64?: string;
-  jksPassword?: string;
-  jksKeyPassword?: string;
-  jksAlias?: string;
-  p7bBase64?: string;
   declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
   name?: string;
@@ -196,6 +192,44 @@ export interface ImportCertificateVersionResult {
     chainStatus: string;
     chainOrder: string[];
     chainDiagnostics: string[];
+  };
+}
+
+export interface ValidateCertificateImportResult {
+  sourceFormat: CertificateFormat;
+  importable: boolean;
+  blockers: string[];
+  warnings: string[];
+  certificate: {
+    commonName?: string;
+    sans: string[];
+    issuer: CertificateVersionEntity['issuer'];
+    subject: CertificateVersionEntity['subject'];
+    serialNumber: string;
+    notBefore: string;
+    notAfter: string;
+    fingerprintSha256: string;
+    publicKeyAlgorithm: string;
+    signatureAlgorithm: string;
+  };
+  privateKey: {
+    provided: boolean;
+    matched: boolean;
+    source: 'input' | 'container' | 'none';
+  };
+  chain: {
+    status: string;
+    order: string[];
+    diagnostics: string[];
+    certificateCount: number;
+    certificates: Array<{
+      fingerprintSha256: string;
+      displayName: string;
+      commonName?: string;
+      subject: CertificateVersionEntity['subject'];
+      issuer: CertificateVersionEntity['issuer'];
+      role: 'leaf' | 'intermediate' | 'root';
+    }>;
   };
 }
 

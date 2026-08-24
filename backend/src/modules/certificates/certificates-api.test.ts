@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { CertificatesApplicationService } from './application/certificates.application-service.js';
-import { InMemoryCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
+import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
 import { generateJksKeystore } from './codecs/jks-keystore.js';
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
@@ -464,13 +466,13 @@ describe('证书资产 API', () => {
     });
     assert.equal(imported.statusCode, 201);
     const versionId = (imported.body as any).version.id;
-    const password = security.secrets.create({
+    const password = (await security.secrets.create({
       name: '导出密码',
       type: 'pfx_password',
       scopeType: 'global',
       plainText: 'export-password-123',
       createdBy: 'user_export_real',
-    }).secretRef;
+    })).secretRef;
 
     const exportCases = [
       { format: 'pem', containsPrivateKey: true, passwordSecretRef: undefined },
@@ -489,7 +491,7 @@ describe('证书资产 API', () => {
       assert.equal(response.statusCode, 201, `${item.format} 应导出成功：${JSON.stringify(response.body)}`);
       const body = response.body as any;
       assert.equal(body.exportMode, 'generated');
-      const artifact = artifacts.get(body.artifactRef);
+      const artifact = await artifacts.get(body.artifactRef);
       assert.ok(artifact, `${item.format} 必须写入真实 artifact`);
       assert.ok(artifact!.content.length > 0, `${item.format} artifact 不能是空文件`);
       assert.equal(JSON.stringify(body).includes('export-password-123'), false);
@@ -524,10 +526,11 @@ function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
       scope: { tenantId: 'tenant_1' },
     });
   }
-  if (!exposeArtifacts) return { app: createApp({ security }), security, artifacts: undefined as unknown as InMemoryCertificateArtifactStore };
-  const artifacts = new InMemoryCertificateArtifactStore();
-  const certificates = new CertificatesApplicationService({ secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: createApp({ security, certificates: { certificates } }), security, artifacts };
+  if (!exposeArtifacts) return { app: createApp({ security }), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
+  const db = new PgliteDatabase();
+  const artifacts = new PgCertificateArtifactStore(db);
+  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };
 }
 
 function headers(actorId: string) {

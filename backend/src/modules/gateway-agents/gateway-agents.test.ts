@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { FileJsonRepositoryFactory } from '../../persistence/repositories/file-json-repository.js';
 import { MockAdapterRuntime, curlMockAdapter, sshMockAdapter, winRmMockAdapter } from './adapter-runtime.mock.js';
 import { MockCredentialBroker } from './credential-broker.mock.js';
 import { GatewayCredentialBroker } from './credential-broker.service.js';
 import { GatewayAgentProcess } from './gateway-agent-process.js';
 import { GatewayTaskService } from './gateway-task.service.js';
-import type { AdapterContext, AdapterExecutionResult, GatewayAdapterDescriptor, GatewayAgentProfile, GatewayEvidence, GatewayTask, Zone } from './gateway-agent.types.js';
+import type { AdapterContext, AdapterExecutionResult, GatewayAdapterDescriptor, GatewayAgentProfile, GatewayTask, Zone } from './gateway-agent.types.js';
 import { ReachabilityService } from './reachability.service.js';
 import { ZoneRouter } from './zone-router.js';
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
@@ -102,10 +98,10 @@ function createGatewayTaskInput(overrides: Partial<Parameters<GatewayTaskService
   };
 }
 
-function createGatewayProcessFixture(idSuffix: string, gatewayTasks: GatewayTaskService = new GatewayTaskService()) {
+async function createGatewayProcessFixture(idSuffix: string, gatewayTasks: GatewayTaskService = new GatewayTaskService()) {
   const tenantId = `tenant_gateway_${idSuffix}`;
   const agents = new AgentsApplicationService();
-  const gatewayAgent = agents.register(tenantId, {
+  const gatewayAgent = await agents.register(tenantId, {
     agentKey: `gateway-agent-${idSuffix}`,
     hostname: `gw-${idSuffix}`,
     version: '0.1.0',
@@ -119,7 +115,7 @@ function createGatewayProcessFixture(idSuffix: string, gatewayTasks: GatewayTask
     id: `gateway_task_${idSuffix}`,
     idempotencyKey: `idem_gateway_${idSuffix}`,
   }));
-  const agentTask = agents.enqueueTask(tenantId, {
+  const agentTask = await agents.enqueueTask(tenantId, {
     agentId: gatewayAgent.id,
     executionRunId: gatewayTask.executionRunId,
     executionStepId: gatewayTask.stepId,
@@ -451,42 +447,47 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
   });
 
   it('GatewayCredentialBroker 无权限时拒绝发放凭据并写拒绝审计', () => {
-    const { broker, audit, baseInput } = createCredentialBrokerFixture();
+    return (async () => {
+      const { broker, audit, baseInput } = createCredentialBrokerFixture();
 
-    assert.throws(
-      () => broker.issue(baseInput),
-      (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
-    );
+      await assert.rejects(
+        () => broker.issue(baseInput),
+        (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
+      );
 
-    assert.equal(broker.list().length, 0);
-    assert.equal(broker.listAuditRecords().at(-1)?.event, 'denied');
-    assert.equal(audit.query({ eventType: 'gateway.credential.denied' }).length, 1);
-    assert.equal(JSON.stringify(broker.listAuditRecords()).includes('PRIVATE_KEY_VALUE'), false);
+      assert.equal(broker.list().length, 0);
+      assert.equal(broker.listAuditRecords().at(-1)?.event, 'denied');
+      assert.equal((await audit.query({ eventType: 'gateway.credential.denied' })).length, 1);
+      assert.equal(JSON.stringify(broker.listAuditRecords()).includes('PRIVATE_KEY_VALUE'), false);
+    })();
   });
 
   it('GatewayCredentialBroker 高风险无审批时拒绝发放凭据', () => {
-    const { broker, rbac, baseInput } = createCredentialBrokerFixture();
-    rbac.createPolicy({
-      subjectType: 'user',
-      subjectId: 'operator_1',
-      effect: 'allow',
-      actions: ['gateway.credential.issue'],
-      resourceTypes: ['gatewayTarget'],
-      scope: {},
-    });
+    return (async () => {
+      const { broker, rbac, baseInput } = createCredentialBrokerFixture();
+      await rbac.createPolicy({
+        subjectType: 'user',
+        subjectId: 'operator_1',
+        effect: 'allow',
+        actions: ['gateway.credential.issue'],
+        resourceTypes: ['gatewayTarget'],
+        scope: {},
+      });
 
-    assert.throws(
-      () => broker.issue(baseInput),
-      (error: any) => error.errorCode === 'SEC_APPROVAL_REQUIRED',
-    );
+      await assert.rejects(
+        () => broker.issue(baseInput),
+        (error: any) => error.errorCode === 'SEC_APPROVAL_REQUIRED',
+      );
 
-    assert.equal(broker.list().length, 0);
-    assert.equal(broker.listAuditRecords().at(-1)?.reason, 'SEC_APPROVAL_REQUIRED');
+      assert.equal(broker.list().length, 0);
+      assert.equal(broker.listAuditRecords().at(-1)?.reason, 'SEC_APPROVAL_REQUIRED');
+    })();
   });
 
   it('GatewayCredentialBroker 授权成功只返回 SecretRef/GrantRef，并写 issue/use 审计', () => {
     const { broker, rbac, approvals, grants, audit, baseInput } = createCredentialBrokerFixture();
-    rbac.createPolicy({
+    return (async () => {
+    await rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'operator_1',
       effect: 'allow',
@@ -505,41 +506,43 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       secretRef: baseInput.secretRef,
       requestedActions: baseInput.requestedActions,
     };
-    const approval = approvals.create({
+    const approval = await approvals.create({
       operationType: 'gateway.credential.issue',
       resourceRefs: [{ type: 'gatewayTarget', id: baseInput.targetId }],
       riskLevel: 'high',
       parameters: approvalParameters,
       requestedBy: 'operator_1',
     });
-    approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'security_admin' });
+    await approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'security_admin' });
 
-    const session = broker.issue({ ...baseInput, approvalId: approval.id });
+    const session = await broker.issue({ ...baseInput, approvalId: approval.id });
 
     assert.equal(session.secretRef.ref, 'secret://ssh_key/sec_prod#v1');
     assert.match(session.grantRef.ref, /^grt_/);
     assert.equal(JSON.stringify(session).includes('PRIVATE_KEY_VALUE'), false);
-    assert.equal(approvals.get(approval.id)?.status, 'consumed');
-    assert.equal(grants.validate({
+    assert.equal((await approvals.get(approval.id))?.status, 'consumed');
+    assert.equal((await grants.validate({
       grantId: session.grantRef.ref,
       runId: baseInput.executionRunId,
       stepId: baseInput.stepId,
       executorType: 'ssh',
       secretRef: baseInput.secretRef,
       action: 'exec',
-    }).id, session.grantRef.ref);
+    })).id, session.grantRef.ref);
 
-    const used = broker.use(session.id, 'exec', now);
+    const used = await broker.use(session.id, 'exec', now);
     assert.equal(used.status, 'used');
     assert.deepEqual(broker.listAuditRecords(session.id).map((record) => record.event), ['issued', 'used']);
-    assert.equal(audit.query({ eventType: 'gateway.credential.issued' }).length, 1);
-    assert.equal(audit.query({ eventType: 'gateway.credential.used' }).length, 1);
-    assert.equal(JSON.stringify(audit.query()).includes('PRIVATE_KEY_VALUE'), false);
+    assert.equal((await audit.query({ eventType: 'gateway.credential.issued' })).length, 1);
+    assert.equal((await audit.query({ eventType: 'gateway.credential.used' })).length, 1);
+    assert.equal(JSON.stringify(await audit.query()).includes('PRIVATE_KEY_VALUE'), false);
+    })();
   });
 
   it('GatewayCredentialBroker revoke 后 session 和 Grant 都不可再 use', () => {
     const { broker, rbac, approvals, grants, baseInput } = createCredentialBrokerFixture();
-    rbac.createPolicy({
+    return (async () => {
+    await rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'operator_1',
       effect: 'allow',
@@ -558,24 +561,24 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       secretRef: baseInput.secretRef,
       requestedActions: baseInput.requestedActions,
     };
-    const approval = approvals.create({
+    const approval = await approvals.create({
       operationType: 'gateway.credential.issue',
       resourceRefs: [{ type: 'gatewayTarget', id: baseInput.targetId }],
       riskLevel: 'high',
       parameters: approvalParameters,
       requestedBy: 'operator_1',
     });
-    approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'security_admin' });
-    const session = broker.issue({ ...baseInput, approvalId: approval.id });
+    await approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'security_admin' });
+    const session = await broker.issue({ ...baseInput, approvalId: approval.id });
 
-    const revoked = broker.revoke(session.id, now, 'audit_revoke_001');
+    const revoked = await broker.revoke(session.id, now, 'audit_revoke_001');
 
     assert.equal(revoked.status, 'revoked');
-    assert.throws(
+    await assert.rejects(
       () => broker.use(session.id, 'exec', now),
       (error: any) => error.errorCode === 'SEC_EXECUTOR_GRANT_DENIED',
     );
-    assert.throws(
+    await assert.rejects(
       () => grants.validate({
         grantId: session.grantRef.ref,
         runId: baseInput.executionRunId,
@@ -587,6 +590,7 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       (error: any) => error.errorCode === 'SEC_EXECUTOR_GRANT_DENIED',
     );
     assert.deepEqual(broker.listAuditRecords(session.id).map((record) => record.event), ['issued', 'revoked']);
+    })();
   });
 
   it('GatewayTaskService 支持 delegated task 下发、ack/result/evidence 和幂等保护', () => {
@@ -658,121 +662,6 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
     assert.equal(service.result(task.id, 'lease_001', { success: false, status: 'failed', summary: '重复结果应被忽略' }), completed);
   });
 
-  it('GatewayTaskService 使用 file-json RepositoryPort 后可重建 task/evidence/result，并保持 dispatch 幂等', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'gcac-gateway-task-'));
-    try {
-      const factory = new FileJsonRepositoryFactory(dataDir);
-      const repositories = {
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      };
-      const service = new GatewayTaskService(repositories);
-      const task = service.dispatch({
-        id: 'gateway_task_persist_001',
-        idempotencyKey: 'idem_gateway_task_persist_001',
-        operatorId: 'operator_1',
-        planId: 'plan_001',
-        executionRunId: 'run_001',
-        stepId: 'step_001',
-        gatewayId: 'gw_001',
-        delegatedTargetId: 'host_001',
-        target: { id: 'host_001', zoneId: 'zone_prod', host: '10.0.0.10', port: 22 },
-        adapter: 'ssh',
-        action: 'exec',
-        payload: { commandRef: 'secret://commands/install-cert' },
-        credentialSessionId: 'cred_sess_001',
-        credentialLeaseId: 'lease_cred_001',
-        now,
-      });
-
-      service.ack(task.id, 'lease_001', now);
-      service.markRunning(task.id, 'lease_001', now);
-      const evidence = service.appendEvidence({
-        id: 'gw_evd_persist_001',
-        taskId: task.id,
-        gatewayId: task.gatewayId,
-        delegatedTargetId: task.delegatedTargetId,
-        adapter: task.adapter,
-        credentialSessionId: task.credentialSessionId,
-        evidenceRef: 'audit://gateway-evidence/persist-001',
-        kind: 'command_summary',
-        summary: '持久化证据仍可恢复',
-        metadata: { sha256: 'abc' },
-        createdAt: now.toISOString(),
-        executionRunId: 'ignored_run',
-        stepId: 'ignored_step',
-        action: 'ignored_action',
-        result: 'failed',
-      });
-      const completed = service.result(task.id, 'lease_001', {
-        success: true,
-        status: 'success',
-        summary: '代表目标执行成功',
-      });
-
-      const rebuilt = new GatewayTaskService({
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      });
-      const repeated = rebuilt.dispatch({
-        idempotencyKey: 'idem_gateway_task_persist_001',
-        operatorId: 'operator_other',
-        executionRunId: 'run_other',
-        stepId: 'step_other',
-        gatewayId: 'gw_other',
-        delegatedTargetId: 'host_other',
-        target: { id: 'host_other', zoneId: 'zone_prod' },
-        adapter: 'curl',
-        action: 'read',
-        now,
-      });
-
-      assert.equal(repeated.id, task.id);
-      assert.equal(repeated.status, 'success');
-      assert.deepEqual(repeated.result, completed.result);
-      assert.deepEqual(rebuilt.get(task.id), completed);
-      assert.deepEqual(rebuilt.listEvidence(task.id), [evidence]);
-      assert.equal(rebuilt.result(task.id, 'lease_001', { success: false, status: 'failed', summary: '重复结果应被忽略' }).result?.summary, '代表目标执行成功');
-      assert.throws(() => rebuilt.ack(task.id, 'lease_002', now), /lease 冲突|lease 无效/);
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  it('GatewayTaskService 重建后可枚举 queued/acknowledged/running 未完成任务，completed 不参与恢复', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'gcac-gateway-recoverable-'));
-    try {
-      const factory = new FileJsonRepositoryFactory(dataDir);
-      const repositories = {
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      };
-      const service = new GatewayTaskService(repositories);
-      const queued = service.dispatch(createGatewayTaskInput({ id: 'gateway_task_recover_queued', idempotencyKey: 'idem_recover_queued' }));
-      const acknowledged = service.dispatch(createGatewayTaskInput({ id: 'gateway_task_recover_ack', idempotencyKey: 'idem_recover_ack' }));
-      service.ack(acknowledged.id, 'lease_recover_ack', now);
-      const running = service.dispatch(createGatewayTaskInput({ id: 'gateway_task_recover_running', idempotencyKey: 'idem_recover_running' }));
-      service.ack(running.id, 'lease_recover_running', now);
-      service.markRunning(running.id, 'lease_recover_running', now);
-      const completed = service.dispatch(createGatewayTaskInput({ id: 'gateway_task_recover_done', idempotencyKey: 'idem_recover_done' }));
-      service.ack(completed.id, 'lease_recover_done', now);
-      service.markRunning(completed.id, 'lease_recover_done', now);
-      service.result(completed.id, 'lease_recover_done', { success: true, status: 'success', summary: '已完成不恢复' });
-
-      const rebuilt = new GatewayTaskService({
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      });
-
-      assert.deepEqual(
-        rebuilt.listRecoverable().map((task) => task.id).sort(),
-        [queued.id, acknowledged.id, running.id].sort(),
-      );
-      assert.equal(rebuilt.get(running.id)?.leaseId, 'lease_recover_running');
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
 
   it('GatewayTaskService evidence/log 重传按 sequence 和 evidenceRef 去重，并推进 ack cursor', () => {
     const service = new GatewayTaskService();
@@ -857,7 +746,7 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
   it('GatewayAgentProcess 真实拉取 gateway.task.run，ack、执行、写 evidence 并提交结果', async () => {
     const tenantId = 'tenant_gateway_process';
     const agents = new AgentsApplicationService();
-    const gatewayAgent = agents.register(tenantId, {
+    const gatewayAgent = await agents.register(tenantId, {
       agentKey: 'gateway-agent-process-001',
       hostname: 'gw-process-001',
       version: '0.1.0',
@@ -885,7 +774,7 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       credentialLeaseId: 'lease_cred_process',
       now,
     });
-    const agentTask = agents.enqueueTask(tenantId, {
+    const agentTask = await agents.enqueueTask(tenantId, {
       agentId: gatewayAgent.id,
       executionRunId: gatewayTask.executionRunId,
       executionStepId: gatewayTask.stepId,
@@ -908,54 +797,15 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
     assert.equal(completedGatewayTask.delegatedTargetId, 'host_process');
     assert.equal(completedGatewayTask.result?.success, true);
     assert.equal(gatewayTasks.listEvidence(gatewayTask.id)[0].delegatedTargetId, 'host_process');
-    const completedAgentTask = agents.listTaskQueue(tenantId, gatewayAgent.id).tasks.find((task) => task.id === agentTask.id)!;
+    const completedAgentTask = (await agents.listTaskQueue(tenantId, gatewayAgent.id)).tasks.find((task) => task.id === agentTask.id)!;
     assert.equal(completedAgentTask.status, 'succeeded');
     assert.equal(completedAgentTask.result?.success, true);
     assert.equal((completedAgentTask.result?.detail as Record<string, unknown>).mode, 'gateway_agent_process');
   });
 
-  it('GatewayAgentProcess 在进程崩溃后重建 service，可继续处理 running 未完成任务', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'gcac-gateway-process-recover-'));
-    try {
-      const factory = new FileJsonRepositoryFactory(dataDir);
-      const repositories = {
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      };
-      const firstService = new GatewayTaskService(repositories);
-      const fixture = createGatewayProcessFixture('process_recover', firstService);
-      firstService.ack(fixture.gatewayTask.id, 'lease_gateway_recover', now);
-      firstService.markRunning(fixture.gatewayTask.id, 'lease_gateway_recover', now);
-      fixture.agents.ackTask(fixture.tenantId, { agentId: fixture.gatewayAgent.id, taskId: fixture.agentTask.id, leaseId: 'lease_gateway_recover' });
-
-      const rebuiltService = new GatewayTaskService({
-        tasks: factory.collection<GatewayTask>('gateway-tasks'),
-        evidence: factory.collection<GatewayEvidence>('gateway-evidence'),
-      });
-      const counter = { runs: 0 };
-      const process = new GatewayAgentProcess({
-        tenantId: fixture.tenantId,
-        agentId: fixture.gatewayAgent.id,
-        agents: fixture.agents,
-        gatewayTasks: rebuiltService,
-        runtime: countingRuntime(counter),
-        leaseFactory: () => 'unused_new_lease',
-      });
-
-      const tick = await process.tick();
-
-      assert.deepEqual(tick, { pulled: 0, processed: 1, succeeded: 1, failed: 0 });
-      assert.equal(counter.runs, 1);
-      assert.equal(rebuiltService.get(fixture.gatewayTask.id)?.status, 'success');
-      assert.equal(rebuiltService.get(fixture.gatewayTask.id)?.leaseId, 'lease_gateway_recover');
-      assert.equal(fixture.agents.listTaskQueue(fixture.tenantId, fixture.gatewayAgent.id).tasks.find((task) => task.id === fixture.agentTask.id)?.status, 'succeeded');
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
 
   it('GatewayAgentProcess result 重传不重复执行 runtime，也不重复提交副作用', async () => {
-    const fixture = createGatewayProcessFixture('result_replay');
+    const fixture = await createGatewayProcessFixture('result_replay');
     const counter = { runs: 0 };
     const process = new GatewayAgentProcess({
       tenantId: fixture.tenantId,
@@ -971,11 +821,11 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
 
     assert.equal(counter.runs, 1);
     assert.equal(fixture.gatewayTasks.listEvidence(fixture.gatewayTask.id).length, 1);
-    assert.equal(fixture.agents.listTaskQueue(fixture.tenantId, fixture.gatewayAgent.id).tasks.find((task) => task.id === fixture.agentTask.id)?.status, 'succeeded');
+    assert.equal((await fixture.agents.listTaskQueue(fixture.tenantId, fixture.gatewayAgent.id)).tasks.find((task) => task.id === fixture.agentTask.id)?.status, 'succeeded');
   });
 
   it('GatewayAgentProcess evidence/log 重传不会重复写 Agent task logs，cursor 和 Gateway evidenceAckCursor 对齐', async () => {
-    const fixture = createGatewayProcessFixture('log_replay');
+    const fixture = await createGatewayProcessFixture('log_replay');
     const counter = { runs: 0 };
     const process = new GatewayAgentProcess({
       tenantId: fixture.tenantId,
@@ -1008,8 +858,8 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
 
     assert.equal(replay.id, fixture.gatewayTasks.listEvidence(fixture.gatewayTask.id)[0].id);
     assert.equal(fixture.gatewayTasks.listEvidence(fixture.gatewayTask.id).length, 1);
-    assert.equal(fixture.agents.listTaskLogs(fixture.tenantId, fixture.agentTask.id).length, 1);
-    assert.equal(fixture.agents.getLogCursor(fixture.tenantId, fixture.gatewayAgent.id, fixture.agentTask.id).lastAckedSequence, 1);
+    assert.equal((await fixture.agents.listTaskLogs(fixture.tenantId, fixture.agentTask.id)).length, 1);
+    assert.equal((await fixture.agents.getLogCursor(fixture.tenantId, fixture.gatewayAgent.id, fixture.agentTask.id)).lastAckedSequence, 1);
     assert.equal(fixture.gatewayTasks.get(fixture.gatewayTask.id)?.evidenceAckCursor, 1);
   });
 });

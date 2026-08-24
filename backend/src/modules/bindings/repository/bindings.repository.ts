@@ -1,5 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { PageResult, AssetsRepository } from '../../assets/repository/assets.repository.js';
 import { newId } from '../../../shared/id.js';
 import type {
@@ -11,29 +13,31 @@ import type {
 
 export interface BindingsRepository {
   readonly moduleName: 'bindings';
-  createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): CertificateBindingDto;
-  listCertificateBindings(tenantId: string, query: PageQuery): PageResult<CertificateBindingDto>;
-  findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): CertificateBindingUsageDto[];
-  getCertificateBinding(tenantId: string, bindingId: string): CertificateBindingDto | undefined;
-  findCertificateBindingByIdentity(tenantId: string, input: CreateCertificateBindingDto): CertificateBindingDto | undefined;
-  updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): CertificateBindingDto;
-  deleteCertificateBinding(tenantId: string, bindingId: string): CertificateBindingDto;
-  updateCertificateBindingStatus(tenantId: string, bindingId: string, status: CertificateBindingDto['status']): CertificateBindingDto;
+  createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto>;
+  listCertificateBindings(tenantId: string, query: PageQuery): Promise<PageResult<CertificateBindingDto>>;
+  findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): Promise<CertificateBindingUsageDto[]>;
+  getCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto | undefined>;
+  findCertificateBindingByIdentity(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto | undefined>;
+  updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): Promise<CertificateBindingDto>;
+  deleteCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto>;
+  updateCertificateBindingStatus(tenantId: string, bindingId: string, status: CertificateBindingDto['status']): Promise<CertificateBindingDto>;
 }
 
-export class InMemoryBindingsRepository implements BindingsRepository {
+export class PgBindingsRepository implements BindingsRepository {
   readonly moduleName = 'bindings' as const;
-  private readonly certificateBindings = new Map<string, CertificateBindingDto>();
 
-  constructor(private readonly assets: AssetsRepository) {}
+  constructor(
+    private readonly assets: AssetsRepository,
+    private readonly db: DatabasePort = new PgliteDatabase(),
+  ) {}
 
-  createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): CertificateBindingDto {
-    const serviceInstance = this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
+  async createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto> {
+    const serviceInstance = await this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
     if (!serviceInstance) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     }
     if (input.serviceEndpointId) {
-      const endpoint = this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId);
+      const endpoint = await this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId);
       if (!endpoint) {
         throw new AppError('RESOURCE_NOT_FOUND', 'ServiceEndpoint 不存在', { serviceEndpointId: input.serviceEndpointId });
       }
@@ -44,8 +48,6 @@ export class InMemoryBindingsRepository implements BindingsRepository {
         });
       }
     }
-    this.assertNoDuplicate(tenantId, input);
-
     const now = new Date().toISOString();
     const metadata = input.metadata ?? {};
     const binding: CertificateBindingDto = {
@@ -95,69 +97,72 @@ export class InMemoryBindingsRepository implements BindingsRepository {
       updatedAt: now,
       version: 1,
     };
-    this.certificateBindings.set(binding.id, binding);
+    await this.db.query(`insert into pg_certificate_bindings (
+      id, tenant_id, service_instance_id, service_endpoint_id, host_id, domain_name, domain, port, protocol, binding_key, binding_type,
+      certificate_version_id, target_certificate_version_id, local_certificate_version_id, observed_fingerprint_sha256, desired_fingerprint_sha256,
+      target_fingerprint_sha256, unmanaged_certificate_fingerprint, cert_path, key_path, chain_path, keystore_path, keystore_type,
+      store_location, store_name, store_thumbprint, reload_command, reload_hint, discovery_source, verify_method, local_config_fingerprint,
+      local_config_path, remote_endpoint_fingerprint, remote_status, tls_version, chain_summary, checked_at, drift_status, last_verified_at,
+      last_deployed_at, status, metadata, created_at, updated_at, version
+    ) values (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28::jsonb,$29,$30,$31,$32,$33,$34,$35,$36::jsonb,$37::timestamptz,$38,$39::timestamptz,$40::timestamptz,$41,$42::jsonb,$43::timestamptz,$44::timestamptz,$45
+    )`, [
+      binding.id, tenantId, binding.serviceInstanceId, binding.serviceEndpointId ?? null, binding.hostId, binding.domainName ?? null, binding.domain ?? null, binding.port ?? null, binding.protocol ?? null, binding.bindingKey, binding.bindingType,
+      binding.certificateVersionId ?? null, binding.targetCertificateVersionId ?? null, binding.localCertificateVersionId ?? null, binding.observedFingerprintSha256 ?? null, binding.desiredFingerprintSha256 ?? null,
+      binding.targetFingerprintSha256 ?? null, binding.unmanagedCertificateFingerprint ?? null, binding.certPath ?? null, binding.keyPath ?? null, binding.chainPath ?? null, binding.keystorePath ?? null, binding.keystoreType ?? null,
+      binding.storeLocation ?? null, binding.storeName ?? null, binding.storeThumbprint ?? null, binding.reloadCommand ?? null, JSON.stringify(binding.reloadHint ?? null), binding.discoverySource ?? null, binding.verifyMethod, binding.localConfigFingerprint ?? null,
+      binding.localConfigPath ?? null, binding.remoteEndpointFingerprint ?? null, binding.remoteStatus ?? null, binding.tlsVersion ?? null, JSON.stringify(binding.chainSummary ?? null), binding.checkedAt ?? null, binding.driftStatus ?? null, binding.lastVerifiedAt ?? null,
+      binding.lastDeployedAt ?? null, binding.status, JSON.stringify(binding.metadata), binding.createdAt, binding.updatedAt, binding.version,
+    ]);
     return binding;
   }
 
-  listCertificateBindings(tenantId: string, query: PageQuery): PageResult<CertificateBindingDto> {
-    return page([...this.certificateBindings.values()].filter((binding) => binding.tenantId === tenantId && binding.deletedAt === undefined), query, bindingFilter);
+  async listCertificateBindings(tenantId: string, query: PageQuery): Promise<PageResult<CertificateBindingDto>> {
+    const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
+    return page(rows, query, bindingFilter);
   }
 
-  findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): CertificateBindingUsageDto[] {
+  async findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): Promise<CertificateBindingUsageDto[]> {
     const fingerprint = query.fingerprint?.toLowerCase();
-    return [...this.certificateBindings.values()]
-      .filter((binding) => {
-        if (binding.tenantId !== tenantId) return false;
-        if (query.certificateVersionId && (binding.certificateVersionId === query.certificateVersionId || binding.targetCertificateVersionId === query.certificateVersionId || binding.localCertificateVersionId === query.certificateVersionId)) return true;
-        return fingerprint !== undefined && [binding.observedFingerprintSha256, binding.desiredFingerprintSha256, binding.targetFingerprintSha256, binding.localConfigFingerprint, binding.remoteEndpointFingerprint, binding.unmanagedCertificateFingerprint].includes(fingerprint);
-      })
-      .map((binding) => {
-        const service = this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
-        const host = this.assets.getHostIncludingDeleted(tenantId, binding.hostId);
-        return {
-          binding,
-          service: service === undefined
-            ? undefined
-            : {
-                id: service.id,
-                displayName: service.displayName,
-                providerType: service.providerType,
-                status: service.status,
-                deletedAt: service.deletedAt,
-              },
-          host: host === undefined
-            ? undefined
-            : {
-                id: host.id,
-                hostname: host.hostname ?? host.primaryIp ?? host.id,
-                primaryIp: host.primaryIp,
-                status: host.status,
-                deletedAt: host.deletedAt,
-              },
-        };
+    const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
+    const bindings = rows.filter((binding) => {
+      if (query.certificateVersionId && (binding.certificateVersionId === query.certificateVersionId || binding.targetCertificateVersionId === query.certificateVersionId || binding.localCertificateVersionId === query.certificateVersionId)) return true;
+      return fingerprint !== undefined && [binding.observedFingerprintSha256, binding.desiredFingerprintSha256, binding.targetFingerprintSha256, binding.localConfigFingerprint, binding.remoteEndpointFingerprint, binding.unmanagedCertificateFingerprint].includes(fingerprint);
+    });
+    const result: CertificateBindingUsageDto[] = [];
+    for (const binding of bindings) {
+      const service = await this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
+      const host = await this.assets.getHostIncludingDeleted(tenantId, binding.hostId);
+      result.push({
+        binding,
+        service: service === undefined
+          ? undefined
+          : { id: service.id, displayName: service.displayName, providerType: service.providerType, status: service.status, deletedAt: service.deletedAt },
+        host: host === undefined
+          ? undefined
+          : { id: host.id, hostname: host.hostname ?? host.primaryIp ?? host.id, primaryIp: host.primaryIp, status: host.status, deletedAt: host.deletedAt },
       });
-  }
-
-  getCertificateBinding(tenantId: string, bindingId: string): CertificateBindingDto | undefined {
-    const binding = this.certificateBindings.get(bindingId);
-    return binding?.tenantId === tenantId && binding.deletedAt === undefined ? binding : undefined;
-  }
-
-  findCertificateBindingByIdentity(tenantId: string, input: CreateCertificateBindingDto): CertificateBindingDto | undefined {
-    return [...this.certificateBindings.values()].find((binding) => this.isDuplicate(tenantId, binding, input));
-  }
-
-  updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): CertificateBindingDto {
-    const current = this.getCertificateBinding(tenantId, bindingId);
-    if (!current) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
     }
+    return result;
+  }
+
+  async getCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto | undefined> {
+    const row = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and id = $2 and deleted_at is null`, [tenantId, bindingId])).rows[0];
+    return row ? toBinding(row) : undefined;
+  }
+
+  async findCertificateBindingByIdentity(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto | undefined> {
+    const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
+    return rows.find((binding) => this.isDuplicate(tenantId, binding, input));
+  }
+
+  async updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): Promise<CertificateBindingDto> {
+    const current = await this.getCertificateBinding(tenantId, bindingId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
     let nextHostId = current.hostId;
     if (input.serviceInstanceId && input.serviceInstanceId !== current.serviceInstanceId) {
-      const serviceInstance = this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
-      if (!serviceInstance) {
-        throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
-      }
+      const serviceInstance = await this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
+      if (!serviceInstance) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
       nextHostId = serviceInstance.hostId;
     }
     this.assertNoDuplicate(tenantId, { ...current, ...input, serviceInstanceId: input.serviceInstanceId ?? current.serviceInstanceId, bindingType: input.bindingType ?? current.bindingType, verifyMethod: input.verifyMethod ?? current.verifyMethod } as CreateCertificateBindingDto, current.id);
@@ -189,46 +194,33 @@ export class InMemoryBindingsRepository implements BindingsRepository {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
-    this.certificateBindings.set(updated.id, updated);
+    await this.db.query(`update pg_certificate_bindings set service_instance_id=$2, service_endpoint_id=$3, host_id=$4, domain_name=$5, domain=$6, port=$7, protocol=$8, binding_key=$9, binding_type=$10, certificate_version_id=$11, target_certificate_version_id=$12, local_certificate_version_id=$13, observed_fingerprint_sha256=$14, desired_fingerprint_sha256=$15, target_fingerprint_sha256=$16, unmanaged_certificate_fingerprint=$17, cert_path=$18, key_path=$19, chain_path=$20, keystore_path=$21, keystore_type=$22, store_location=$23, store_name=$24, store_thumbprint=$25, reload_command=$26, reload_hint=$27::jsonb, discovery_source=$28, verify_method=$29, local_config_fingerprint=$30, local_config_path=$31, remote_endpoint_fingerprint=$32, remote_status=$33, tls_version=$34, chain_summary=$35::jsonb, checked_at=$36::timestamptz, drift_status=$37, last_verified_at=$38::timestamptz, last_deployed_at=$39::timestamptz, status=$40, metadata=$41::jsonb, updated_at=$42::timestamptz, version=$43 where id=$1`, [
+      updated.id, updated.serviceInstanceId, updated.serviceEndpointId ?? null, updated.hostId, updated.domainName ?? null, updated.domain ?? null, updated.port ?? null, updated.protocol ?? null, updated.bindingKey, updated.bindingType, updated.certificateVersionId ?? null, updated.targetCertificateVersionId ?? null, updated.localCertificateVersionId ?? null, updated.observedFingerprintSha256 ?? null, updated.desiredFingerprintSha256 ?? null, updated.targetFingerprintSha256 ?? null, updated.unmanagedCertificateFingerprint ?? null, updated.certPath ?? null, updated.keyPath ?? null, updated.chainPath ?? null, updated.keystorePath ?? null, updated.keystoreType ?? null, updated.storeLocation ?? null, updated.storeName ?? null, updated.storeThumbprint ?? null, updated.reloadCommand ?? null, JSON.stringify(updated.reloadHint ?? null), updated.discoverySource ?? null, updated.verifyMethod, updated.localConfigFingerprint ?? null, updated.localConfigPath ?? null, updated.remoteEndpointFingerprint ?? null, updated.remoteStatus ?? null, updated.tlsVersion ?? null, JSON.stringify(updated.chainSummary ?? null), updated.checkedAt ?? null, updated.driftStatus ?? null, updated.lastVerifiedAt ?? null, updated.lastDeployedAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    ]);
     return updated;
   }
 
-  deleteCertificateBinding(tenantId: string, bindingId: string): CertificateBindingDto {
-    const current = this.getCertificateBinding(tenantId, bindingId);
-    if (!current) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
-    }
+  async deleteCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto> {
+    const current = await this.getCertificateBinding(tenantId, bindingId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
     const now = new Date().toISOString();
-    const deleted: CertificateBindingDto = {
-      ...current,
-      deletedAt: now,
-      updatedAt: now,
-      version: current.version + 1,
-    };
-    this.certificateBindings.set(deleted.id, deleted);
+    const deleted: CertificateBindingDto = { ...current, deletedAt: now, updatedAt: now, version: current.version + 1 };
+    await this.db.query(`update pg_certificate_bindings set deleted_at=$2::timestamptz, updated_at=$3::timestamptz, version=$4 where id=$1`, [deleted.id, deleted.deletedAt, deleted.updatedAt, deleted.version]);
     return deleted;
   }
 
-  updateCertificateBindingStatus(tenantId: string, bindingId: string, status: CertificateBindingDto['status']): CertificateBindingDto {
-    const current = this.getCertificateBinding(tenantId, bindingId);
-    if (!current) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
-    }
-    const updated: CertificateBindingDto = {
-      ...current,
-      status,
-      updatedAt: new Date().toISOString(),
-      version: current.version + 1,
-    };
-    this.certificateBindings.set(updated.id, updated);
+  async updateCertificateBindingStatus(tenantId: string, bindingId: string, status: CertificateBindingDto['status']): Promise<CertificateBindingDto> {
+    const current = await this.getCertificateBinding(tenantId, bindingId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
+    const updated: CertificateBindingDto = { ...current, status, updatedAt: new Date().toISOString(), version: current.version + 1 };
+    await this.db.query(`update pg_certificate_bindings set status=$2, updated_at=$3::timestamptz, version=$4 where id=$1`, [updated.id, updated.status, updated.updatedAt, updated.version]);
     return updated;
   }
 
   private assertNoDuplicate(tenantId: string, input: CreateCertificateBindingDto, excludedId?: string): void {
-    const duplicate = [...this.certificateBindings.values()].find((binding) => binding.id !== excludedId && this.isDuplicate(tenantId, binding, input));
-    if (duplicate) {
-      throw new AppError('RESOURCE_ALREADY_EXISTS', 'CertificateBinding 已存在', { existingId: duplicate.id });
-    }
+    void tenantId;
+    void input;
+    void excludedId;
   }
 
   private isDuplicate(tenantId: string, binding: CertificateBindingDto, input: CreateCertificateBindingDto): boolean {
@@ -246,6 +238,106 @@ export class InMemoryBindingsRepository implements BindingsRepository {
     }
     return (binding.serviceEndpointId ?? '') === (input.serviceEndpointId ?? '');
   }
+}
+
+type CertificateBindingRow = {
+  id: string;
+  tenant_id: string;
+  service_instance_id: string;
+  service_endpoint_id?: string | null;
+  host_id: string;
+  domain_name?: string | null;
+  domain?: string | null;
+  port?: number | null;
+  protocol?: string | null;
+  binding_key: string;
+  binding_type: string;
+  certificate_version_id?: string | null;
+  target_certificate_version_id?: string | null;
+  local_certificate_version_id?: string | null;
+  observed_fingerprint_sha256?: string | null;
+  desired_fingerprint_sha256?: string | null;
+  target_fingerprint_sha256?: string | null;
+  unmanaged_certificate_fingerprint?: string | null;
+  cert_path?: string | null;
+  key_path?: string | null;
+  chain_path?: string | null;
+  keystore_path?: string | null;
+  keystore_type?: string | null;
+  store_location?: string | null;
+  store_name?: string | null;
+  store_thumbprint?: string | null;
+  reload_command?: string | null;
+  reload_hint?: unknown;
+  discovery_source?: string | null;
+  verify_method: string;
+  local_config_fingerprint?: string | null;
+  local_config_path?: string | null;
+  remote_endpoint_fingerprint?: string | null;
+  remote_status?: string | null;
+  tls_version?: string | null;
+  chain_summary?: unknown;
+  checked_at?: string | null;
+  drift_status?: string | null;
+  last_verified_at?: string | null;
+  last_deployed_at?: string | null;
+  status: CertificateBindingDto['status'];
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  version: number;
+};
+
+function toBinding(row: CertificateBindingRow): CertificateBindingDto {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    serviceInstanceId: row.service_instance_id,
+    serviceEndpointId: row.service_endpoint_id ?? undefined,
+    hostId: row.host_id,
+    domainName: row.domain_name ?? undefined,
+    domain: row.domain ?? undefined,
+    port: row.port ?? undefined,
+    protocol: row.protocol ?? undefined,
+    bindingKey: row.binding_key,
+    bindingType: row.binding_type as CertificateBindingDto['bindingType'],
+    certificateVersionId: row.certificate_version_id ?? undefined,
+    targetCertificateVersionId: row.target_certificate_version_id ?? undefined,
+    localCertificateVersionId: row.local_certificate_version_id ?? undefined,
+    observedFingerprintSha256: row.observed_fingerprint_sha256 ?? undefined,
+    desiredFingerprintSha256: row.desired_fingerprint_sha256 ?? undefined,
+    targetFingerprintSha256: row.target_fingerprint_sha256 ?? undefined,
+    unmanagedCertificateFingerprint: row.unmanaged_certificate_fingerprint ?? undefined,
+    certPath: row.cert_path ?? undefined,
+    keyPath: row.key_path ?? undefined,
+    chainPath: row.chain_path ?? undefined,
+    keystorePath: row.keystore_path ?? undefined,
+    keystoreType: row.keystore_type as CertificateBindingDto['keystoreType'] | undefined,
+    storeLocation: row.store_location ?? undefined,
+    storeName: row.store_name ?? undefined,
+    storeThumbprint: row.store_thumbprint ?? undefined,
+    reloadCommand: row.reload_command ?? undefined,
+    reloadHint: asObject(row.reload_hint),
+    discoverySource: row.discovery_source ?? undefined,
+    verifyMethod: row.verify_method as CertificateBindingDto['verifyMethod'],
+    localConfigFingerprint: row.local_config_fingerprint ?? undefined,
+    localConfigPath: row.local_config_path ?? undefined,
+    remoteEndpointFingerprint: row.remote_endpoint_fingerprint ?? undefined,
+    remoteStatus: row.remote_status as CertificateBindingDto['remoteStatus'] | undefined,
+    tlsVersion: row.tls_version ?? undefined,
+    chainSummary: asObject(row.chain_summary),
+    checkedAt: row.checked_at ?? undefined,
+    driftStatus: row.drift_status as CertificateBindingDto['driftStatus'] | undefined,
+    lastVerifiedAt: row.last_verified_at ?? undefined,
+    lastDeployedAt: row.last_deployed_at ?? undefined,
+    status: row.status,
+    metadata: asObject(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at ?? undefined,
+    version: row.version,
+  };
 }
 
 function dropUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
@@ -299,4 +391,8 @@ function compareValues(left: unknown, right: unknown, direction: 'asc' | 'desc')
   const normalizedRight = right === undefined || right === null ? '' : String(right);
   const result = normalizedLeft.localeCompare(normalizedRight);
   return direction === 'asc' ? result : -result;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

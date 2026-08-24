@@ -22,34 +22,34 @@ export class FullAgentCoreService {
     private readonly upgradeManager = new MockUpgradeManager(config),
   ) {}
 
-  register(fixture?: CapabilityDetectorFixture): FullAgentIdentity {
+  async register(fixture?: CapabilityDetectorFixture): Promise<FullAgentIdentity> {
     const detected = this.detector.detect(this.config, fixture);
     this.detected = detected;
-    this.identity = this.controlPlane.register(this.config, detected);
+    this.identity = await this.controlPlane.register(this.config, detected);
     return this.identity;
   }
 
-  heartbeat() {
+  async heartbeat() {
     const identity = this.requireIdentity();
     const recoverable = this.ledger.recoverable().length;
     return this.controlPlane.heartbeat(identity, 0, recoverable);
   }
 
-  runOnce(): FullAgentRunOnceResult {
+  async runOnce(): Promise<FullAgentRunOnceResult> {
     const identity = this.requireIdentity();
-    const heartbeat = this.heartbeat();
-    const task = this.controlPlane.pullTask(identity);
+    const heartbeat = await this.heartbeat();
+    const task = await this.controlPlane.pullTask(identity);
     if (!task) return { identity, heartbeat, logs: [] };
 
     const localTask = this.ledger.accept(task);
     if (localTask.result) {
-      return { identity, heartbeat, task: localTask, execution: localTask.result, logs: this.controlPlane.listLogs(identity, task.id) };
+      return { identity, heartbeat, task: localTask, execution: localTask.result, logs: await this.controlPlane.listLogs(identity, task.id) };
     }
 
     const leaseId = newId('lease');
-    this.controlPlane.ack(identity, task, leaseId);
+    await this.controlPlane.ack(identity, task, leaseId);
     this.ledger.markRunning(task.id, leaseId);
-    this.controlPlane.log(identity, { taskId: task.id, sequence: 1, message: `开始执行 Full Agent mock task ${task.id}` });
+    await this.controlPlane.log(identity, { taskId: task.id, sequence: 1, message: `开始执行 Full Agent mock task ${task.id}` });
 
     const runtimeExecution = this.providerRuntime.execute({
       task,
@@ -57,7 +57,7 @@ export class FullAgentCoreService {
       capabilities: this.requireCapabilities(),
     });
     for (const [index, log] of runtimeExecution.logs.entries()) {
-      this.controlPlane.log(identity, {
+      await this.controlPlane.log(identity, {
         taskId: task.id,
         sequence: index + 2,
         level: log.level,
@@ -65,14 +65,14 @@ export class FullAgentCoreService {
       });
     }
     const execution = runtimeExecution.result;
-    this.controlPlane.log(identity, {
+    await this.controlPlane.log(identity, {
       taskId: task.id,
       sequence: runtimeExecution.logs.length + 2,
       level: execution.success ? 'info' : 'error',
       message: JSON.stringify(redactSensitive({ status: execution.status, detail: execution.detail })),
     });
     const completed = this.ledger.complete(task.id, execution);
-    const submittedResult = this.controlPlane.result(identity, task, leaseId, execution);
+    const submittedResult = await this.controlPlane.result(identity, task, leaseId, execution);
 
     return {
       identity,
@@ -80,7 +80,7 @@ export class FullAgentCoreService {
       task: completed,
       execution,
       submittedResult,
-      logs: this.controlPlane.listLogs(identity, task.id),
+      logs: await this.controlPlane.listLogs(identity, task.id),
     };
   }
 

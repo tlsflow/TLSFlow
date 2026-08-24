@@ -24,11 +24,11 @@ import type {
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
 } from '../dto/assets.dto.js';
-import { InMemoryAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
+import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 
 export class AssetsApplicationService {
   constructor(
-    private readonly repository: AssetsRepository = new InMemoryAssetsRepository(),
+    private readonly repository: AssetsRepository = new PgAssetsRepository(),
     private readonly domain = new AssetsDomainService(),
     private bindingsRepository?: BindingsRepository,
   ) {}
@@ -37,65 +37,65 @@ export class AssetsApplicationService {
     this.bindingsRepository = bindingsRepository;
   }
 
-  createHost(tenantId: string, input: CreateHostDto) {
+  async createHost(tenantId: string, input: CreateHostDto) {
     return this.repository.createHost(tenantId, this.domain.normalizeHost(input));
   }
 
-  updateHost(tenantId: string, hostId: string, input: UpdateHostDto) {
+  async updateHost(tenantId: string, hostId: string, input: UpdateHostDto) {
     return this.repository.updateHost(tenantId, hostId, this.domain.normalizeHostPatch(input));
   }
 
-  deleteHost(tenantId: string, hostId: string) {
+  async deleteHost(tenantId: string, hostId: string) {
     return this.repository.deleteHost(tenantId, hostId);
   }
 
-  listHosts(tenantId: string, query: PageQuery) {
+  async listHosts(tenantId: string, query: PageQuery) {
     return this.repository.listHosts(tenantId, query);
   }
 
-  createServiceInstance(tenantId: string, input: CreateServiceInstanceDto) {
+  async createServiceInstance(tenantId: string, input: CreateServiceInstanceDto) {
     return this.repository.createServiceInstance(tenantId, this.domain.normalizeServiceInstance(input));
   }
 
-  updateServiceInstance(tenantId: string, serviceInstanceId: string, input: UpdateServiceInstanceDto) {
+  async updateServiceInstance(tenantId: string, serviceInstanceId: string, input: UpdateServiceInstanceDto) {
     return this.repository.updateServiceInstance(tenantId, serviceInstanceId, this.domain.normalizeServiceInstancePatch(input));
   }
 
-  deleteServiceInstance(tenantId: string, serviceInstanceId: string) {
+  async deleteServiceInstance(tenantId: string, serviceInstanceId: string) {
     return this.repository.deleteServiceInstance(tenantId, serviceInstanceId);
   }
 
-  listServiceInstances(tenantId: string, query: PageQuery) {
+  async listServiceInstances(tenantId: string, query: PageQuery) {
     return this.repository.listServiceInstances(tenantId, query);
   }
 
-  createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto) {
+  async createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto) {
     return this.repository.createServiceEndpoint(tenantId, this.domain.normalizeServiceEndpoint(input));
   }
 
-  updateServiceEndpoint(tenantId: string, serviceEndpointId: string, input: UpdateServiceEndpointDto) {
+  async updateServiceEndpoint(tenantId: string, serviceEndpointId: string, input: UpdateServiceEndpointDto) {
     return this.repository.updateServiceEndpoint(tenantId, serviceEndpointId, this.domain.normalizeServiceEndpointPatch(input));
   }
 
-  deleteServiceEndpoint(tenantId: string, serviceEndpointId: string) {
+  async deleteServiceEndpoint(tenantId: string, serviceEndpointId: string) {
     return this.repository.deleteServiceEndpoint(tenantId, serviceEndpointId);
   }
 
-  listServiceEndpoints(tenantId: string, query: PageQuery) {
+  async listServiceEndpoints(tenantId: string, query: PageQuery) {
     return this.repository.listServiceEndpoints(tenantId, query);
   }
 
-  upsertDiscoverySnapshot(tenantId: string, input: CreateDiscoverySnapshotDto) {
+  async upsertDiscoverySnapshot(tenantId: string, input: CreateDiscoverySnapshotDto) {
     return this.repository.upsertDiscoverySnapshot(tenantId, this.domain.normalizeDiscoverySnapshot(input));
   }
 
-  previewDiscoveryMerge(tenantId: string, input: PreviewDiscoveryMergeDto): DiscoveryMergePreviewDto {
-    const snapshot = this.upsertDiscoverySnapshot(tenantId, input);
+  async previewDiscoveryMerge(tenantId: string, input: PreviewDiscoveryMergeDto): Promise<DiscoveryMergePreviewDto> {
+    const snapshot = await this.upsertDiscoverySnapshot(tenantId, input);
     const payload = snapshot.normalizedPayload;
     const hosts = Array.isArray(payload.hosts) ? payload.hosts : [];
     const actions: DiscoveryMergePreviewDto['actions'] = [];
     const conflicts: DiscoveryMergePreviewDto['conflicts'] = [];
-    const existingHosts = this.listHosts(tenantId, { page: 1, pageSize: 500, filter: {}, sort: undefined }).items;
+    const existingHosts = (await this.listHosts(tenantId, { page: 1, pageSize: 500, filter: {}, sort: undefined })).items;
     for (const raw of hosts) {
       if (!raw || typeof raw !== 'object') continue;
       const discovered = raw as Record<string, unknown>;
@@ -108,7 +108,7 @@ export class AssetsApplicationService {
       const identityKey = `host:${hostname}`;
       const current = existingHosts.find((host) => host.hostname === hostname);
       if (!current) {
-        actions.push({ kind: 'host', action: 'create', identityKey, reason: '未找到现有 Host，可创建新资产' });
+        actions.push({ kind: 'host', action: 'create', identityKey, reason: '未找到现有 Host，可创建新资源' });
         continue;
       }
       if (current.displayName && discovered.displayName && current.displayName !== discovered.displayName) {
@@ -121,8 +121,8 @@ export class AssetsApplicationService {
     return { snapshot, actions, conflicts, businessTableMutated: false };
   }
 
-  ingestDiscovery(tenantId: string, input: IngestDiscoveryDto): DiscoveryIngestResultDto {
-    const snapshot = this.upsertDiscoverySnapshot(tenantId, input);
+  async ingestDiscovery(tenantId: string, input: IngestDiscoveryDto): Promise<DiscoveryIngestResultDto> {
+    const snapshot = await this.upsertDiscoverySnapshot(tenantId, input);
     const apply = input.apply === true;
     const payload = normalizeDiscoveryPayload(snapshot.normalizedPayload);
     const result: DiscoveryIngestResultDto = {
@@ -145,80 +145,80 @@ export class AssetsApplicationService {
         result.actions.push({ kind: 'host', action: 'conflict', identityKey: 'host:missing-hostname', reason: '发现 Host 缺少 hostname，拒绝合并' });
         continue;
       }
-      const current = this.repository.findHostByHostname(tenantId, hostname);
+      const current = await this.repository.findHostByHostname(tenantId, hostname);
       if (!current) {
         if (!apply) {
-          result.actions.push({ kind: 'host', action: 'create', identityKey, reason: '未找到现有 Host，可创建新资产' });
+          result.actions.push({ kind: 'host', action: 'create', identityKey, reason: '未找到现有 Host，可创建新资源' });
           continue;
         }
-        const created = this.createHost(tenantId, hostToCreateDto(host, snapshot.source));
+        const created = await this.createHost(tenantId, hostToCreateDto(host, snapshot.source));
         hostIds.set(identityKey, created.id);
         result.businessTableMutated = true;
-        result.actions.push({ kind: 'host', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 Host，已创建新资产' });
+        result.actions.push({ kind: 'host', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 Host，已创建新资源' });
         continue;
       }
       hostIds.set(identityKey, current.id);
       const conflicts = collectManualConflicts('host', current.id, snapshot.id, toRecord(current), toRecord(host), ['displayName']);
-      result.conflicts.push(...this.persistConflicts(tenantId, apply, conflicts));
+      result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
       const patch = pickChangedAutoFields(toRecord(current), toRecord(host), ['primaryIp', 'ipAddresses', 'osType', 'osName', 'osVersion', 'arch', 'environment', 'zoneId', 'compatibilityLevel', 'managementMode', 'status', 'tags']);
       if (Object.keys(patch).length === 0) {
-        result.actions.push({ kind: 'host', action: conflicts.length > 0 ? 'conflict' : 'skip', identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，已保留当前值' : '发现值与当前资产一致' });
+        result.actions.push({ kind: 'host', action: conflicts.length > 0 ? 'conflict' : 'skip', identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，保留当前值' : '发现值与当前资源一致' });
         continue;
       }
       if (apply) {
-        this.updateHost(tenantId, current.id, patch as UpdateHostDto);
+        await this.updateHost(tenantId, current.id, patch as UpdateHostDto);
         result.businessTableMutated = true;
       }
       result.actions.push({ kind: 'host', action: conflicts.length > 0 ? 'conflict' : 'update', identityKey, existingId: current.id, resourceId: current.id, reason: '身份键匹配，自动字段可更新' });
     }
 
     for (const service of payload.services) {
-      const hostId = resolveHostId(service.hostname ?? service.hostRef, hostIds, tenantId, this.repository);
+      const hostId = await resolveHostId(service.hostname ?? service.hostRef, hostIds, tenantId, this.repository);
       if (!hostId) {
         result.actions.push({ kind: 'service', action: 'conflict', identityKey: serviceIdentityKey(service, 'missing-host'), reason: '发现 Service 缺少可匹配 Host，拒绝合并' });
         continue;
       }
       const identityKey = serviceIdentityKey(service, hostId);
-      const current = this.repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: service.providerType, serviceName: service.serviceName, configPath: service.configPath });
+      const current = await this.repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: service.providerType, serviceName: service.serviceName, configPath: service.configPath });
       if (!current) {
         if (!apply) {
-          result.actions.push({ kind: 'service', action: 'create', identityKey, reason: '未找到现有 ServiceInstance，可创建新服务' });
+          result.actions.push({ kind: 'service', action: 'create', identityKey, reason: '未找到现有 ServiceInstance，可创建新资源' });
           continue;
         }
-        const created = this.createServiceInstance(tenantId, serviceToCreateDto(service, hostId, snapshot.source));
+        const created = await this.createServiceInstance(tenantId, serviceToCreateDto(service, hostId, snapshot.source));
         serviceIds.set(identityKey, created.id);
         result.businessTableMutated = true;
-        result.actions.push({ kind: 'service', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 ServiceInstance，已创建新服务' });
+        result.actions.push({ kind: 'service', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 ServiceInstance，已创建新资源' });
         continue;
       }
       serviceIds.set(identityKey, current.id);
       const conflicts = collectManualConflicts('service', current.id, snapshot.id, toRecord(current), toRecord(service), ['displayName']);
-      result.conflicts.push(...this.persistConflicts(tenantId, apply, conflicts));
+      result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
       const patch = pickChangedAutoFields(toRecord(current), { ...toRecord(service), lastDiscoveredAt: service.lastDiscoveredAt ?? snapshot.createdAt, discoverySource: service.discoverySource ?? snapshot.source }, ['versionText', 'installPath', 'configPath', 'runtimeUser', 'discoverySource', 'lastDiscoveredAt', 'status', 'rawFacts']);
       if (Object.keys(patch).length > 0 && apply) {
-        this.updateServiceInstance(tenantId, current.id, patch as UpdateServiceInstanceDto);
+        await this.updateServiceInstance(tenantId, current.id, patch as UpdateServiceInstanceDto);
         result.businessTableMutated = true;
       }
-      result.actions.push({ kind: 'service', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，已保留当前值' : '身份键匹配，可按自动字段合并' });
+      result.actions.push({ kind: 'service', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，保留当前值' : '身份键匹配，可按自动字段合并' });
     }
 
     for (const binding of payload.bindings) {
-      const resolvedServiceId = resolveServiceId(binding, serviceIds, tenantId, this.repository);
+      const resolvedServiceId = await resolveServiceId(binding, serviceIds, tenantId, this.repository);
       if (!resolvedServiceId) {
         result.actions.push({ kind: 'binding', action: 'conflict', identityKey: bindingIdentityKey(binding, 'missing-service'), reason: '发现 Binding 缺少可匹配 ServiceInstance，拒绝合并' });
         continue;
       }
       const createInput = bindingToCreateDto(binding, resolvedServiceId);
       const identityKey = bindingIdentityKey(binding, resolvedServiceId);
-      const current = this.requireBindingsRepository().findCertificateBindingByIdentity(tenantId, createInput);
+      const current = await this.requireBindingsRepository().findCertificateBindingByIdentity(tenantId, createInput);
       if (!current) {
         if (!apply) {
-          result.actions.push({ kind: 'binding', action: 'create', identityKey, reason: '未找到现有 CertificateBinding，可创建新绑定' });
+          result.actions.push({ kind: 'binding', action: 'create', identityKey, reason: '未找到现有 CertificateBinding，可创建新资源' });
           continue;
         }
-        const created = this.requireBindingsRepository().createCertificateBinding(tenantId, createInput);
+        const created = await this.requireBindingsRepository().createCertificateBinding(tenantId, createInput);
         result.businessTableMutated = true;
-        result.actions.push({ kind: 'binding', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 CertificateBinding，已创建新绑定' });
+        result.actions.push({ kind: 'binding', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 CertificateBinding，已创建新资源' });
         continue;
       }
       const conflicts = collectManualConflicts('binding', current.id, snapshot.id, toRecord(current), toRecord(createInput), ['reloadCommand']);
@@ -227,24 +227,24 @@ export class AssetsApplicationService {
       if (currentReloadHint !== undefined && discoveredReloadHint !== undefined && !sameValue(currentReloadHint, discoveredReloadHint)) {
         conflicts.push({ resourceType: 'binding', resourceId: current.id, field: 'metadata.reloadHint', currentValue: currentReloadHint, discoveredValue: discoveredReloadHint, sourceSnapshotId: snapshot.id });
       }
-      result.conflicts.push(...this.persistConflicts(tenantId, apply, conflicts));
+      result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
       const patch = pickChangedAutoFields(toRecord(current), toRecord(createInput), ['certificateVersionId', 'observedFingerprintSha256', 'desiredFingerprintSha256', 'certPath', 'keyPath', 'chainPath', 'keystorePath', 'keystoreType', 'storeLocation', 'storeName', 'storeThumbprint', 'verifyMethod', 'lastVerifiedAt', 'lastDeployedAt', 'status', 'metadata']);
       if (Object.keys(patch).length > 0 && apply) {
-        this.requireBindingsRepository().updateCertificateBinding(tenantId, current.id, patch as UpdateCertificateBindingDto);
+        await this.requireBindingsRepository().updateCertificateBinding(tenantId, current.id, patch as UpdateCertificateBindingDto);
         result.businessTableMutated = true;
       }
-      result.actions.push({ kind: 'binding', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，已保留当前值' : '身份键匹配，可按自动字段合并' });
+      result.actions.push({ kind: 'binding', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，保留当前值' : '身份键匹配，可按自动字段合并' });
     }
 
     return result;
   }
 
-  listAssetConflicts(tenantId: string, query: PageQuery) {
+  async listAssetConflicts(tenantId: string, query: PageQuery) {
     return this.repository.listAssetConflicts(tenantId, query);
   }
 
-  resolveAssetConflict(tenantId: string, input: ResolveAssetConflictDto): ResolvedAssetConflictDto {
-    const current = this.repository.getAssetConflict(tenantId, input.id);
+  async resolveAssetConflict(tenantId: string, input: ResolveAssetConflictDto): Promise<ResolvedAssetConflictDto> {
+    const current = await this.repository.getAssetConflict(tenantId, input.id);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'AssetConflict 不存在', { conflictId: input.id });
     }
@@ -254,17 +254,17 @@ export class AssetsApplicationService {
     let resource: ResolvedAssetConflictDto['resource'];
     if (input.resolution === 'use_discovered' || input.resolution === 'custom') {
       const value = input.resolution === 'custom' ? input.customValue : current.discoveredValue;
-      resource = this.applyConflictValue(tenantId, current, value);
+      resource = await this.applyConflictValue(tenantId, current, value);
     } else if (input.resolution !== 'keep_current') {
       throw new AppError('VALIDATION_FAILED', 'resolution 不合法', { resolution: input.resolution });
     }
-    const conflict = this.repository.resolveAssetConflict(tenantId, input);
+    const conflict = await this.repository.resolveAssetConflict(tenantId, input);
     return { conflict, resource };
   }
 
-  persistBindingDrift(tenantId: string, input: BindingDriftPersistenceDto): BindingDriftPersistenceResultDto {
+  async persistBindingDrift(tenantId: string, input: BindingDriftPersistenceDto): Promise<BindingDriftPersistenceResultDto> {
     const repository = this.requireBindingsRepository();
-    const current = repository.getCertificateBinding(tenantId, input.bindingId);
+    const current = await repository.getCertificateBinding(tenantId, input.bindingId);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId: input.bindingId });
     }
@@ -289,11 +289,11 @@ export class AssetsApplicationService {
     const drift = this.bindingsDriftState(local, remote, desired, patch.remoteStatus);
     patch.driftStatus = drift;
     patch.status = drift === 'mismatch' ? 'DRIFTED' : current.status;
-    const binding = repository.updateCertificateBinding(tenantId, input.bindingId, patch);
+    const binding = await repository.updateCertificateBinding(tenantId, input.bindingId, patch);
     return { binding, driftStatus: drift };
   }
 
-  listDiscoverySnapshots(tenantId: string, query: PageQuery) {
+  async listDiscoverySnapshots(tenantId: string, query: PageQuery) {
     return this.repository.listDiscoverySnapshots(tenantId, query);
   }
 
@@ -301,9 +301,9 @@ export class AssetsApplicationService {
     return this.repository;
   }
 
-  private persistConflicts(tenantId: string, apply: boolean, conflicts: Array<Omit<AssetConflictDto, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt' | 'version'>>): AssetConflictDto[] {
+  private async persistConflicts(tenantId: string, apply: boolean, conflicts: Array<Omit<AssetConflictDto, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt' | 'version'>>): Promise<AssetConflictDto[]> {
     if (!apply) return [];
-    return conflicts.map((conflict) => this.repository.createAssetConflict(tenantId, conflict));
+    return Promise.all(conflicts.map((conflict) => this.repository.createAssetConflict(tenantId, conflict)));
   }
 
   private requireBindingsRepository(): BindingsRepository {
@@ -313,7 +313,7 @@ export class AssetsApplicationService {
     return this.bindingsRepository;
   }
 
-  private applyConflictValue(tenantId: string, conflict: AssetConflictDto, value: unknown): ResolvedAssetConflictDto['resource'] {
+  private async applyConflictValue(tenantId: string, conflict: AssetConflictDto, value: unknown): Promise<ResolvedAssetConflictDto['resource']> {
     if (conflict.resourceType === 'host') {
       return this.updateHost(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateHostDto);
     }
@@ -321,9 +321,7 @@ export class AssetsApplicationService {
       return this.updateServiceInstance(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateServiceInstanceDto);
     }
     if (conflict.resourceType === 'binding') {
-      const patch = conflict.field === 'metadata.reloadHint'
-        ? { metadata: { reloadHint: value } }
-        : { [conflict.field]: value };
+      const patch = conflict.field === 'metadata.reloadHint' ? { metadata: { reloadHint: value } } : { [conflict.field]: value };
       return this.requireBindingsRepository().updateCertificateBinding(tenantId, conflict.resourceId, patch as UpdateCertificateBindingDto);
     }
     throw new AppError('VALIDATION_FAILED', 'resourceType 不合法', { resourceType: conflict.resourceType });
@@ -424,20 +422,20 @@ function bindingToCreateDto(binding: NormalizedDiscoveredBindingDto, serviceInst
   };
 }
 
-function resolveHostId(hostRef: string | undefined, hostIds: Map<string, string>, tenantId: string, repository: AssetsRepository): string | undefined {
+async function resolveHostId(hostRef: string | undefined, hostIds: Map<string, string>, tenantId: string, repository: AssetsRepository): Promise<string | undefined> {
   const normalized = normalizeOptionalString(hostRef)?.toLowerCase();
   if (!normalized) return undefined;
-  if (repository.getHost(tenantId, normalized)) return normalized;
-  return hostIds.get(`host:${normalized}`) ?? repository.findHostByHostname(tenantId, normalized)?.id;
+  if (await repository.getHost(tenantId, normalized)) return normalized;
+  return hostIds.get(`host:${normalized}`) ?? (await repository.findHostByHostname(tenantId, normalized))?.id;
 }
 
-function resolveServiceId(binding: NormalizedDiscoveredBindingDto, serviceIds: Map<string, string>, tenantId: string, repository: AssetsRepository): string | undefined {
+async function resolveServiceId(binding: NormalizedDiscoveredBindingDto, serviceIds: Map<string, string>, tenantId: string, repository: AssetsRepository): Promise<string | undefined> {
   const direct = normalizeOptionalString(binding.serviceRef);
-  if (direct && repository.getServiceInstance(tenantId, direct)) return direct;
-  const hostId = resolveHostId(binding.hostname, new Map(), tenantId, repository);
+  if (direct && await repository.getServiceInstance(tenantId, direct)) return direct;
+  const hostId = await resolveHostId(binding.hostname, new Map(), tenantId, repository);
   if (!hostId || !binding.providerType) return undefined;
   const key = serviceIdentityKey({ providerType: binding.providerType, serviceName: binding.serviceName }, hostId);
-  return serviceIds.get(key) ?? repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: binding.providerType, serviceName: binding.serviceName })?.id;
+  return serviceIds.get(key) ?? (await repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: binding.providerType, serviceName: binding.serviceName }))?.id;
 }
 
 function collectManualConflicts(resourceType: 'host' | 'service' | 'binding', resourceId: string, sourceSnapshotId: string, current: Record<string, unknown>, discovered: Record<string, unknown>, fields: string[]) {
@@ -490,8 +488,4 @@ function readStringMetadata(binding: CertificateBindingDto, field: string): stri
 
 function toRecord(value: object): Record<string, unknown> {
   return value as Record<string, unknown>;
-}
-
-function conflictValue(value: unknown): {} | null {
-  return value === undefined ? null : value as {};
 }

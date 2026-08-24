@@ -10,39 +10,39 @@ import type {
 export class WorkflowTemplatesApplicationService {
   constructor(private readonly domain = new WorkflowTemplatesDomainService()) {}
 
-  createTemplate(input: CreateWorkflowTemplateInput) {
+  async createTemplate(input: CreateWorkflowTemplateInput) {
     return this.domain.createTemplate(input);
   }
 
-  createDraftVersion(input: UpdateWorkflowTemplateInput): WorkflowTemplateVersion {
+  async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     return this.domain.createDraftVersion(input);
   }
 
-  publishVersion(versionId: string): WorkflowTemplateVersion {
+  async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
     return this.domain.publishVersion(versionId);
   }
 
-  disableTemplate(templateId: string): WorkflowTemplate {
+  async disableTemplate(templateId: string): Promise<WorkflowTemplate> {
     return this.domain.disableTemplate(templateId);
   }
 
-  listTemplates(): WorkflowTemplate[] {
+  async listTemplates(): Promise<WorkflowTemplate[]> {
     return this.domain.listTemplates();
   }
 
-  listVersions(templateId: string): WorkflowTemplateVersion[] {
+  async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {
     return this.domain.listVersions(templateId);
   }
 
-  getVersion(versionId: string): WorkflowTemplateVersion {
+  async getVersion(versionId: string): Promise<WorkflowTemplateVersion> {
     return this.domain.getVersion(versionId);
   }
 
-  preview(input: WorkflowRuntimeInput) {
+  async preview(input: WorkflowRuntimeInput) {
     return this.domain.preview(input);
   }
 
-  testRun(input: WorkflowRuntimeInput) {
+  async testRun(input: WorkflowRuntimeInput) {
     return this.domain.testRun(input);
   }
 }

@@ -20,14 +20,14 @@ export class MonitorsController {
     router.get('/api/v1/monitors/alert-rules', '查询监控告警规则', tags, (request) => this.listAlertRules(request));
   }
 
-  private scan(request: HttpRequest) {
+  private async scan(request: HttpRequest) {
     const body = validateObject(request.body ?? {}, {
       certificateExpiringThresholdDays: { type: 'number' },
       scanStartedAt: { type: 'string' },
     });
     return {
       statusCode: 201,
-      body: this.service.collectRisks({
+      body: await this.service.collectRisks({
         tenantId: tenantId(request),
         certificateExpiringThresholdDays: body.certificateExpiringThresholdDays === undefined ? undefined : Number(body.certificateExpiringThresholdDays),
         scanStartedAt: body.scanStartedAt === undefined ? undefined : String(body.scanStartedAt),
@@ -35,25 +35,26 @@ export class MonitorsController {
     };
   }
 
-  private listRisks(request: HttpRequest) {
+  private async listRisks(request: HttpRequest) {
+    const items = await this.service.listRiskEvents({
+      tenantId: tenantId(request),
+      status: readOptionalQueryString(request, 'status') as typeof RiskStatuses[number] | undefined,
+      severity: readOptionalQueryString(request, 'severity') as typeof severity[number] | undefined,
+      type: readOptionalQueryString(request, 'type') as typeof riskEventTypes[number] | undefined,
+    });
     return {
-      items: this.service.listRiskEvents({
-        tenantId: tenantId(request),
-        status: readOptionalQueryString(request, 'status') as typeof RiskStatuses[number] | undefined,
-        severity: readOptionalQueryString(request, 'severity') as typeof severity[number] | undefined,
-        type: readOptionalQueryString(request, 'type') as typeof riskEventTypes[number] | undefined,
-      }),
+      items,
       page: 1,
       pageSize: 200,
-      total: this.service.listRiskEvents({ tenantId: tenantId(request) }).length,
+      total: items.length,
     };
   }
 
-  private getDashboard(request: HttpRequest) {
+  private async getDashboard(request: HttpRequest) {
     return this.service.getDashboard(tenantId(request));
   }
 
-  private createAlertRule(request: HttpRequest) {
+  private async createAlertRule(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
       threshold: { type: 'object', required: true },
@@ -65,7 +66,7 @@ export class MonitorsController {
     if (!actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     return {
       statusCode: 201,
-      body: this.service.createAlertRule({
+      body: await this.service.createAlertRule({
         name: String(body.name),
         threshold: body.threshold as { metric: 'count'; operator: 'gte'; value: number },
         scope: body.scope as any,
@@ -76,12 +77,13 @@ export class MonitorsController {
     };
   }
 
-  private listAlertRules(request: HttpRequest) {
+  private async listAlertRules(request: HttpRequest) {
+    const items = await this.service.listAlertRules(tenantId(request));
     return {
-      items: this.service.listAlertRules(tenantId(request)),
+      items,
       page: 1,
       pageSize: 200,
-      total: this.service.listAlertRules(tenantId(request)).length,
+      total: items.length,
     };
   }
 }

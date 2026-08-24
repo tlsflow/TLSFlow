@@ -1,6 +1,9 @@
-import type { AuditService } from '../audits/audit.service.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import type { DatabasePort } from '../../database/database-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
+import type { IdentifiedEntity } from '../../persistence/repositories/repository-port.js';
 import type { GatewayEvidence, GatewayTask } from './gateway-agent.types.js';
+import type { AuditService } from '../audits/audit.service.js';
 
 export interface GatewayTargetHistoryRecord {
   id: string;
@@ -28,50 +31,52 @@ export interface GatewayTargetHistoryRecord {
 }
 
 export interface GatewayTargetHistoryRepositoryPort {
-  append(record: GatewayTargetHistoryRecord): GatewayTargetHistoryRecord;
-  listByTarget(delegatedTargetId: string, tenantId?: string): GatewayTargetHistoryRecord[];
-  listByTask(taskId: string): GatewayTargetHistoryRecord[];
+  append(record: GatewayTargetHistoryRecord): Promise<GatewayTargetHistoryRecord>;
+  listByTarget(delegatedTargetId: string, tenantId?: string): Promise<GatewayTargetHistoryRecord[]>;
+  listByTask(taskId: string): Promise<GatewayTargetHistoryRecord[]>;
 }
 
-export class InMemoryGatewayTargetHistoryRepository implements GatewayTargetHistoryRepositoryPort {
-  private readonly records = new Map<string, GatewayTargetHistoryRecord>();
+type GatewayTargetHistoryEntity = GatewayTargetHistoryRecord & IdentifiedEntity;
 
-  append(record: GatewayTargetHistoryRecord): GatewayTargetHistoryRecord {
-    const existing = this.records.get(record.id);
+export class PgGatewayTargetHistoryRepository implements GatewayTargetHistoryRepositoryPort {
+  private readonly repository: PgDocumentRepository<GatewayTargetHistoryEntity>;
+
+  constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.repository = new PgDocumentRepository(db, 'gateway-target-history');
+  }
+
+  async append(record: GatewayTargetHistoryRecord): Promise<GatewayTargetHistoryRecord> {
+    const existing = await this.repository.get(record.id);
     if (existing) return existing;
-    this.records.set(record.id, record);
-    return record;
+    return this.repository.upsert(record as GatewayTargetHistoryEntity);
   }
 
-  listByTarget(delegatedTargetId: string, tenantId?: string): GatewayTargetHistoryRecord[] {
-    return [...this.records.values()]
-      .filter((record) => record.delegatedTargetId === delegatedTargetId && (!tenantId || record.tenantId === tenantId))
-      .sort(sortByCreatedAt);
+  async listByTarget(delegatedTargetId: string, tenantId?: string): Promise<GatewayTargetHistoryRecord[]> {
+    return this.repository
+      .list((record) => record.delegatedTargetId === delegatedTargetId && (!tenantId || record.tenantId === tenantId))
+      .then((rows) => rows.sort(sortByCreatedAt));
   }
 
-  listByTask(taskId: string): GatewayTargetHistoryRecord[] {
-    return [...this.records.values()].filter((record) => record.taskId === taskId).sort(sortByCreatedAt);
+  async listByTask(taskId: string): Promise<GatewayTargetHistoryRecord[]> {
+    return this.repository.list((record) => record.taskId === taskId).then((rows) => rows.sort(sortByCreatedAt));
   }
 }
 
 export class RepositoryGatewayTargetHistoryRepository implements GatewayTargetHistoryRepositoryPort {
-  constructor(private readonly repository: RepositoryPort<GatewayTargetHistoryRecord>) {}
+  constructor(private readonly repository: PgDocumentRepository<GatewayTargetHistoryEntity>) {}
 
-  append(record: GatewayTargetHistoryRecord): GatewayTargetHistoryRecord {
-    const existing = this.repository.get(record.id);
+  async append(record: GatewayTargetHistoryRecord): Promise<GatewayTargetHistoryRecord> {
+    const existing = await this.repository.get(record.id);
     if (existing) return existing;
-    this.repository.upsert(record);
-    return this.repository.getOrThrow(record.id);
+    return this.repository.upsert(record as GatewayTargetHistoryEntity);
   }
 
-  listByTarget(delegatedTargetId: string, tenantId?: string): GatewayTargetHistoryRecord[] {
-    return this.repository
-      .list((record) => record.delegatedTargetId === delegatedTargetId && (!tenantId || record.tenantId === tenantId))
-      .sort(sortByCreatedAt);
+  async listByTarget(delegatedTargetId: string, tenantId?: string): Promise<GatewayTargetHistoryRecord[]> {
+    return this.repository.list((record) => record.delegatedTargetId === delegatedTargetId && (!tenantId || record.tenantId === tenantId)).then((rows) => rows.sort(sortByCreatedAt));
   }
 
-  listByTask(taskId: string): GatewayTargetHistoryRecord[] {
-    return this.repository.list((record) => record.taskId === taskId).sort(sortByCreatedAt);
+  async listByTask(taskId: string): Promise<GatewayTargetHistoryRecord[]> {
+    return this.repository.list((record) => record.taskId === taskId).then((rows) => rows.sort(sortByCreatedAt));
   }
 }
 
@@ -96,7 +101,7 @@ export class GatewayTaskAuditWriter {
       riskLevel: riskFor(task.action),
       detail,
     });
-    this.options.history?.append(toHistoryRecord(task, evidence.summary, evidence, evidence.result, evidence.createdAt));
+    void this.options.history?.append(toHistoryRecord(task, evidence.summary, evidence, evidence.result, evidence.createdAt));
   }
 
   recordResult(task: GatewayTask): void {
@@ -113,14 +118,14 @@ export class GatewayTaskAuditWriter {
       riskLevel: riskFor(task.action),
       detail,
     });
-    this.options.history?.append(toHistoryRecord(task, task.result.summary, undefined, task.result.status, task.result.finishedAt));
+    void this.options.history?.append(toHistoryRecord(task, task.result.summary, undefined, task.result.status, task.result.finishedAt));
   }
 
-  listTargetHistory(delegatedTargetId: string): GatewayTargetHistoryRecord[] {
+  async listTargetHistory(delegatedTargetId: string): Promise<GatewayTargetHistoryRecord[]> {
     return this.options.history?.listByTarget(delegatedTargetId) ?? [];
   }
 
-  listTenantTargetHistory(tenantId: string, delegatedTargetId: string): GatewayTargetHistoryRecord[] {
+  async listTenantTargetHistory(tenantId: string, delegatedTargetId: string): Promise<GatewayTargetHistoryRecord[]> {
     return this.options.history?.listByTarget(delegatedTargetId, tenantId) ?? [];
   }
 }

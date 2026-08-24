@@ -39,7 +39,7 @@ export class DiscoveryService {
     const draftBundle = provider.toDeploymentDraft(normalizedResult);
     const normalizedHash = this.domain.buildNormalizedHash(normalizedResult);
     const snapshotPayload = this.domain.buildSnapshotPayload(normalizedResult, draftBundle);
-    const snapshot = this.assetsService.upsertDiscoverySnapshot(context.tenantId, {
+    const snapshot = await this.assetsService.upsertDiscoverySnapshot(context.tenantId, {
       normalizedHash,
       source: normalizedResult.source,
       normalizedPayload: snapshotPayload,

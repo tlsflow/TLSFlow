@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import type {
   CreateWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
@@ -24,10 +27,29 @@ interface RuntimeContext {
 }
 
 export class WorkflowTemplatesDomainService {
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultTemplatesRepository(): AsyncRepositoryPort<WorkflowTemplate> {
+    return new PgDocumentRepository<WorkflowTemplate>(WorkflowTemplatesDomainService.defaultDb, 'workflow.templates');
+  }
+
+  private static createDefaultVersionsRepository(): AsyncRepositoryPort<WorkflowTemplateVersion> {
+    return new PgDocumentRepository<WorkflowTemplateVersion>(WorkflowTemplatesDomainService.defaultDb, 'workflow.template_versions');
+  }
+
   private readonly templates = new Map<string, WorkflowTemplate>();
   private readonly versions = new Map<string, WorkflowTemplateVersion[]>();
+  private readonly ready: Promise<void>;
 
-  createTemplate(input: CreateWorkflowTemplateInput): { template: WorkflowTemplate; version: WorkflowTemplateVersion } {
+  constructor(
+    private readonly templatesRepository: AsyncRepositoryPort<WorkflowTemplate> = WorkflowTemplatesDomainService.createDefaultTemplatesRepository(),
+    private readonly versionsRepository: AsyncRepositoryPort<WorkflowTemplateVersion> = WorkflowTemplatesDomainService.createDefaultVersionsRepository(),
+  ) {
+    this.ready = this.rehydrate();
+  }
+
+  async createTemplate(input: CreateWorkflowTemplateInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
+    await this.ready;
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const now = new Date().toISOString();
     const template: WorkflowTemplate = {
@@ -41,65 +63,89 @@ export class WorkflowTemplatesDomainService {
     template.currentVersionId = version.id;
     this.templates.set(template.id, template);
     this.versions.set(template.id, [version]);
+    await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
     return { template: { ...template }, version: clone(version) };
   }
 
-  createDraftVersion(input: UpdateWorkflowTemplateInput): WorkflowTemplateVersion {
-    const template = this.getTemplateOrThrow(input.templateId);
-    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'disabled 模板不能创建新版本');
+  async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const list = this.versions.get(template.id) ?? [];
     const hash = digest(content);
-    if (list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', '相同内容不会生成重复版本');
-    const version = this.createVersion(template.id, list.length + 1, content, 'draft', input.changeSummary);
+    if (list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
+    const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
+    const version = this.createVersion(template.id, versionNumber, content, 'draft', input.changeSummary);
     this.versions.set(template.id, [...list, version]);
     template.currentVersionId = version.id;
     template.updatedAt = new Date().toISOString();
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
     return clone(version);
   }
 
-  publishVersion(versionId: string): WorkflowTemplateVersion {
-    const { template, version } = this.findVersion(versionId);
-    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'disabled 模板不能发布');
-    if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'disabled 版本不能发布');
+  async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const { template, version } = await this.findVersion(versionId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
     const list = this.versions.get(template.id) ?? [];
     for (const item of list) {
-      if (item.status === 'published') item.status = 'disabled';
+      if (item.status === 'published') {
+        item.status = 'disabled';
+        await this.versionsRepository.upsert(item);
+      }
     }
     version.status = 'published';
     template.status = 'published';
     template.currentVersionId = version.id;
     template.updatedAt = new Date().toISOString();
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
     return clone(version);
   }
 
-  disableTemplate(templateId: string): WorkflowTemplate {
-    const template = this.getTemplateOrThrow(templateId);
+  async disableTemplate(templateId: string): Promise<WorkflowTemplate> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(templateId);
     template.status = 'disabled';
     template.updatedAt = new Date().toISOString();
-    for (const version of this.versions.get(templateId) ?? []) version.status = 'disabled';
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    for (const version of this.versions.get(templateId) ?? []) {
+      version.status = 'disabled';
+      await this.versionsRepository.upsert(version);
+    }
     return { ...template };
   }
 
-  listTemplates(): WorkflowTemplate[] {
+  async listTemplates(): Promise<WorkflowTemplate[]> {
+    await this.ready;
     return [...this.templates.values()].map((item) => ({ ...item }));
   }
 
-  listVersions(templateId: string): WorkflowTemplateVersion[] {
-    this.getTemplateOrThrow(templateId);
+  async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {
+    await this.ready;
+    await this.getTemplateOrThrow(templateId);
     return (this.versions.get(templateId) ?? []).map(clone);
   }
 
-  getVersion(versionId: string): WorkflowTemplateVersion {
-    return clone(this.findVersion(versionId).version);
+  async getVersion(versionId: string): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    return clone((await this.findVersion(versionId)).version);
   }
 
-  preview(input: WorkflowRuntimeInput): WorkflowRunResult {
+  async preview(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
     return this.testRun({ ...input, mode: 'render_only' });
   }
 
-  testRun(input: WorkflowRuntimeInput): WorkflowRunResult {
-    const version = this.getVersion(input.templateVersionId);
+  async testRun(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
+    await this.ready;
+    const version = await this.getVersion(input.templateVersionId);
     const context = resolveRuntimeContext(version.content, input);
     const renderedSteps: WorkflowRenderedStep[] = [];
     const stepResults: WorkflowStepRunResult[] = [];
@@ -179,21 +225,21 @@ export class WorkflowTemplatesDomainService {
         };
       }
     }
-    throw new AppError('SYSTEM_INTERNAL_ERROR', 'retry 状态机异常');
+    throw new AppError('SYSTEM_INTERNAL_ERROR', 'retry execution failed unexpectedly');
   }
 
-  private getTemplateOrThrow(templateId: string): WorkflowTemplate {
+  private async getTemplateOrThrow(templateId: string): Promise<WorkflowTemplate> {
     const template = this.templates.get(templateId);
-    if (!template) throw new AppError('RESOURCE_NOT_FOUND', '模板不存在', { templateId });
+    if (!template) throw new AppError('RESOURCE_NOT_FOUND', 'workflow template not found', { templateId });
     return template;
   }
 
-  private findVersion(versionId: string): { template: WorkflowTemplate; version: WorkflowTemplateVersion } {
+  private async findVersion(versionId: string): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
     for (const [templateId, list] of this.versions.entries()) {
       const version = list.find((item) => item.id === versionId);
-      if (version) return { template: this.getTemplateOrThrow(templateId), version };
+      if (version) return { template: await this.getTemplateOrThrow(templateId), version };
     }
-    throw new AppError('RESOURCE_NOT_FOUND', '模板版本不存在', { versionId });
+    throw new AppError('RESOURCE_NOT_FOUND', 'workflow template version not found', { versionId });
   }
 
   private createVersion(templateId: string, versionNumber: number, content: WorkflowDslV1, status: WorkflowTemplateVersion['status'], changeSummary?: string): WorkflowTemplateVersion {
@@ -209,6 +255,26 @@ export class WorkflowTemplatesDomainService {
       createdAt: new Date().toISOString(),
     };
   }
+
+  private async rehydrate(): Promise<void> {
+    const templates = await this.templatesRepository.list();
+    const versions = await this.versionsRepository.list();
+    this.templates.clear();
+    this.versions.clear();
+    for (const template of templates) {
+      this.templates.set(template.id, template);
+    }
+    const byTemplate = new Map<string, WorkflowTemplateVersion[]>();
+    for (const version of versions) {
+      const list = byTemplate.get(version.templateId) ?? [];
+      list.push(version);
+      byTemplate.set(version.templateId, list);
+    }
+    for (const [templateId, list] of byTemplate.entries()) {
+      list.sort((a, b) => a.version - b.version);
+      this.versions.set(templateId, list);
+    }
+  }
 }
 
 function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput): RuntimeContext {
@@ -220,7 +286,7 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
     if (definition.type === 'certificate') value = input.certificateMaterials?.[name] ?? value;
     if (definition.type === 'secret') value = resolveSecretValue(name, value, input.secretRefs);
     if (value === undefined) {
-      if (definition.required) throw new AppError('VALIDATION_FAILED', '变量缺失', { name });
+      if (definition.required) throw new AppError('VALIDATION_FAILED', '鍙橀噺缂哄け', { name });
       continue;
     }
     validateVariableValue(definition, value, `variables.${name}`);
@@ -300,7 +366,7 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput): Reco
     if (extractor.type === 'jsonPath') value = readJsonPath(output.body, extractor.path ?? '');
     if (extractor.type === 'regex') value = String(output.stdout ?? output.body ?? '').match(new RegExp(extractor.pattern ?? ''))?.[1];
     if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(extractor.value ?? '');
-    if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '提取变量失败', { step: step.name, extractor: extractor.name });
+    if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '鎻愬彇鍙橀噺澶辫触', { step: step.name, extractor: extractor.name });
     if (value !== undefined && value !== null) extracted[extractor.name] = extractor.sensitive ? '[SECRET_CAPTURED]' : value;
   }
   return extracted;
@@ -355,7 +421,7 @@ function renderString(template: string, variables: Record<string, unknown>, keep
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g, (_match, key: string) => {
     const value = readPath(variables, key);
     if (value === undefined && keepMissing) return `{{${key}}}`;
-    if (value === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key });
+    if (value === undefined) throw new AppError('VALIDATION_FAILED', '鍙橀噺缂哄け', { key });
     if (isRecord(value) || Array.isArray(value)) return JSON.stringify(value);
     return String(value);
   });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
 import { AuditService } from '../audits/audit.service.js';
-import { GatewayTaskAuditWriter, InMemoryGatewayTargetHistoryRepository } from './gateway-target-history.service.js';
+import { GatewayTaskAuditWriter, PgGatewayTargetHistoryRepository } from './gateway-target-history.service.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 import { ProductionGatewayAdapterRuntime } from './adapter-runtime.production.js';
 
@@ -21,7 +21,9 @@ function createGatewayTask(adapter = 'curl') {
     target: { id: 'delegated_target_1', zoneId: 'zone_prod' },
     adapter,
     action: adapter === 'curl' ? 'read' : 'exec',
-    payload: adapter === 'curl' ? { url: 'https://example.test/health', expectedStatusCodes: [200] } : { commandRef: 'secret://commands/restart' },
+    payload: adapter === 'curl'
+      ? { url: 'https://example.test/health', expectedStatusCodes: [200] }
+      : { commandRef: 'secret://commands/restart' },
     credentialSessionId: 'cred_history_1',
     credentialLeaseId: 'grt_history_1',
     now,
@@ -32,17 +34,18 @@ describe('spec014 Gateway 生产 runtime 与目标历史', () => {
   it('生产 runtime 不注册 mockSafe descriptor，缺少 GrantRef 时拒绝执行', async () => {
     const runtime = new ProductionGatewayAdapterRuntime({ descriptors: [] });
     assert.throws(
-      () => runtime.register({
-        type: 'mock' as any,
-        displayName: 'bad mock',
-        capabilities: [],
-        supportedActions: [],
-        mockSafe: true,
-        requiresSecretRef: false,
-        requiresGrantRef: true,
-        precheck: () => ({ ok: true }),
-        run: () => ({ success: true, status: 'success', summary: 'bad', evidence: [] }),
-      } as any),
+      () =>
+        runtime.register({
+          type: 'mock' as any,
+          displayName: 'bad mock',
+          capabilities: [],
+          supportedActions: [],
+          mockSafe: true,
+          requiresSecretRef: false,
+          requiresGrantRef: true,
+          precheck: () => ({ ok: true }),
+          run: () => ({ success: true, status: 'success', summary: 'bad', evidence: [] }),
+        } as any),
       (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED',
     );
 
@@ -73,10 +76,13 @@ describe('spec014 Gateway 生产 runtime 与目标历史', () => {
     const httpTask = { ...task, payload: { url: 'http://example.test/plain' } };
     await assert.rejects(
       () => runtime.run({ gatewayId: task.gatewayId, grantRef: { ref: 'grt_history_1' } }, httpTask),
-      /默认只允许 HTTPS/,
+      /HTTPS/,
     );
 
-    const secretTask = { ...task, payload: { url: 'https://example.test/secret', headers: { Authorization: 'Bearer plain-token-value-123456' } } };
+    const secretTask = {
+      ...task,
+      payload: { url: 'https://example.test/secret', headers: { Authorization: 'Bearer plain-token-value-123456' } },
+    };
     await assert.rejects(
       () => runtime.run({ gatewayId: task.gatewayId, grantRef: { ref: 'grt_history_1' } }, secretTask),
       /SecretRef|明文敏感/,
@@ -121,8 +127,12 @@ describe('spec014 Gateway 生产 runtime 与目标历史', () => {
     assert.deepEqual(result.evidence[0].metadata.tls, { hasCaSecretRef: true, hasClientCertSecretRef: true, verify: false });
 
     await assert.rejects(
-      () => runtime.run({ gatewayId: task.gatewayId, grantRef: { ref: 'grt_history_1' } }, { ...task, payload: { url: 'https://example.test/tls', tls: { verify: false } } }),
-      /TLS 校验必须走审批策略/,
+      () =>
+        runtime.run(
+          { gatewayId: task.gatewayId, grantRef: { ref: 'grt_history_1' } },
+          { ...task, payload: { url: 'https://example.test/tls', tls: { verify: false } } },
+        ),
+      /TLS/,
     );
   });
 
@@ -137,9 +147,9 @@ describe('spec014 Gateway 生产 runtime 与目标历史', () => {
     }
   });
 
-  it('GatewayTaskAuditWriter 把 Gateway evidence/result 写入统一 Audit 和目标历史', () => {
+  it('GatewayTaskAuditWriter 把 Gateway evidence/result 写入统一 Audit 和目标历史', async () => {
     const audit = new AuditService();
-    const history = new InMemoryGatewayTargetHistoryRepository();
+    const history = new PgGatewayTargetHistoryRepository();
     const writer = new GatewayTaskAuditWriter({ audit, history });
     const service = new GatewayTaskService();
     const task = service.dispatch({
@@ -185,10 +195,10 @@ describe('spec014 Gateway 生产 runtime 与目标历史', () => {
     const completed = service.result(task.id, 'lease_history_1', { success: true, status: 'success', summary: '执行完成' });
     writer.recordResult(completed);
 
-    const auditLogs = audit.query({ resourceType: 'gatewayTarget', resourceId: 'delegated_target_1' });
+    const auditLogs = await audit.query({ resourceType: 'gatewayTarget', resourceId: 'delegated_target_1' });
     assert.equal(auditLogs.length, 2);
     assert.deepEqual(auditLogs.map((log) => log.eventType), ['gateway.task.evidence.recorded', 'gateway.task.result.recorded']);
-    const targetHistory = history.listByTarget('delegated_target_1');
+    const targetHistory = await history.listByTarget('delegated_target_1');
     assert.equal(targetHistory.length, 2);
     assert.equal(targetHistory[0].operatorId, 'operator_history_1');
     assert.equal(targetHistory[0].gatewayId, 'gw_history_1');

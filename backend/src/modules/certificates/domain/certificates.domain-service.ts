@@ -1,6 +1,12 @@
 import { X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
-import { DerCodec, FormatCodecRegistry, JksCodec, P7bCodec, PemCodec, PfxCodec, type CertificateImportMaterial, type DecodedCertificateMaterial } from '../codecs/index.js';
 import { AppError } from '../../../common/errors/app-error.js';
+import {
+  FormatCodecRegistry,
+  PemCodec,
+  PfxCodec,
+  type CertificateImportMaterial,
+  type DecodedCertificateMaterial,
+} from '../codecs/index.js';
 import type { CertificateChainStatus, CertificateDistinguishedName } from '../schema/certificates.schema.js';
 
 export interface ParsedCertificate {
@@ -35,17 +41,38 @@ export interface ParsedMaterialBundle extends ParsedCertificateBundle {
   formatDiagnostics: string[];
 }
 
+export interface CertificateImportValidationResult extends ParsedMaterialBundle {
+  importable: boolean;
+  blockers: string[];
+  warnings: string[];
+  privateKeyMatched: boolean;
+  privateKeySource: 'input' | 'container' | 'none';
+}
+
 export class CertificatesDomainService {
-  constructor(private readonly codecs = new FormatCodecRegistry([new PemCodec(), new DerCodec(), new PfxCodec(), new JksCodec(), new P7bCodec()])) {}
+  constructor(
+    private readonly codecs = new FormatCodecRegistry([new PemCodec(), new PfxCodec()]),
+  ) {}
 
   getFormatCapabilities() {
     return {
       formats: [
-        { format: 'pem', importSupported: true, exportSupported: true, containsPrivateKey: 'optional', implementation: 'node_crypto', limitations: [] },
-        { format: 'der', importSupported: true, exportSupported: true, containsPrivateKey: 'never', implementation: 'node_crypto', limitations: ['DER 只表示单张证书，不包含私钥或链'] },
-        { format: 'pfx', importSupported: true, exportSupported: true, containsPrivateKey: 'required', implementation: 'openssl', limitations: ['PFX 解析/导出依赖运行时 openssl；导出包含私钥必须提供 passwordSecretRef'] },
-        { format: 'jks', importSupported: true, exportSupported: true, containsPrivateKey: 'required', implementation: 'keytool', limitations: ['JKS 导入/导出依赖运行时 keytool；导入必须提供 jksPassword，导出必须提供 passwordSecretRef'] },
-        { format: 'p7b', importSupported: true, exportSupported: true, containsPrivateKey: 'never', implementation: 'openssl', limitations: ['P7B 不包含私钥；导出产物只包含 leaf 和 chain'] },
+        {
+          format: 'pem',
+          importSupported: true,
+          exportSupported: true,
+          containsPrivateKey: 'required',
+          implementation: 'node_crypto',
+          limitations: ['导入时必须提供服务器证书、完整中间证书链和私钥。'],
+        },
+        {
+          format: 'pfx',
+          importSupported: true,
+          exportSupported: true,
+          containsPrivateKey: 'required',
+          implementation: 'openssl',
+          limitations: ['导入时必须能从容器中解析出服务器证书、完整中间证书链和私钥。'],
+        },
       ],
     } as const;
   }
@@ -53,32 +80,60 @@ export class CertificatesDomainService {
   parseCertificateMaterial(input: CertificateImportMaterial): ParsedMaterialBundle {
     const decoded = this.codecs.decode(input);
     const parsedBundle = this.parseDecodedCertificateMaterial(decoded);
-    return { ...parsedBundle, sourceFormat: decoded.sourceFormat, decodedPrivateKeyPem: decoded.privateKeyPem, formatDiagnostics: decoded.diagnostics };
+    return {
+      ...parsedBundle,
+      sourceFormat: decoded.sourceFormat,
+      decodedPrivateKeyPem: decoded.privateKeyPem,
+      formatDiagnostics: decoded.diagnostics,
+    };
+  }
+
+  validateCertificateMaterial(input: CertificateImportMaterial, privateKeyPem?: string): CertificateImportValidationResult {
+    const bundle = this.parseCertificateMaterial(input);
+    const extractedPrivateKeyPem = this.extractPrivateKeyPem(privateKeyPem ?? bundle.decodedPrivateKeyPem);
+    const blockers: string[] = [];
+    const warnings: string[] = [...bundle.formatDiagnostics];
+    let privateKeyMatched = false;
+    let privateKeySource: 'input' | 'container' | 'none' = 'none';
+
+    if (bundle.chainStatus !== 'valid') {
+      blockers.push(...bundle.chainDiagnostics);
+    }
+
+    if (bundle.certificates.length < 2) {
+      blockers.push('证书链不完整：至少必须包含服务器证书和中间证书。');
+    }
+
+    if (!extractedPrivateKeyPem) {
+      blockers.push('缺少私钥，不能导入。');
+    } else {
+      try {
+        this.assertPrivateKeyMatchesCertificate(extractedPrivateKeyPem, bundle.leaf);
+        privateKeyMatched = true;
+        privateKeySource = privateKeyPem ? 'input' : 'container';
+      } catch (error) {
+        if (error instanceof AppError) {
+          blockers.push(error.message);
+        } else {
+          blockers.push('私钥校验失败');
+        }
+      }
+    }
+
+    return {
+      ...bundle,
+      importable: blockers.length === 0,
+      blockers,
+      warnings,
+      privateKeyMatched,
+      privateKeySource,
+    };
   }
 
   private parseDecodedCertificateMaterial(input: DecodedCertificateMaterial): ParsedCertificateBundle {
     const pemBlocks = input.certificatePem?.match(CERT_BLOCK_PATTERN) ?? [];
     if (pemBlocks.length > 0) return this.parsePemCertificates(pemBlocks);
-
-    if (input.certificateDerBase64) {
-      try {
-        const der = Buffer.from(input.certificateDerBase64, 'base64');
-        if (der.length === 0) throw new Error('empty der');
-        const x509 = new X509Certificate(der);
-        const leaf = this.toParsed(x509);
-        return {
-          leaf,
-          certificates: [leaf],
-          chainStatus: 'unknown',
-          chainOrder: [leaf.fingerprintSha256],
-          chainDiagnostics: ['DER 输入只包含单张证书，无法判断完整证书链'],
-        };
-      } catch (error) {
-        throw new AppError('CERT_PARSE_FAILED', 'DER 证书解析失败', { reason: error instanceof Error ? error.message : String(error) });
-      }
-    }
-
-    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 PEM、DER、PFX、JKS 或 P7B 证书材料');
+    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 PEM 或 PFX 证书材料');
   }
 
   extractPrivateKeyPem(input?: string): string | undefined {
@@ -147,7 +202,10 @@ function findLeafCertificate(certificates: ParsedCertificate[]): ParsedCertifica
     ?? certificates[0]!;
 }
 
-function validateCertificateChain(leaf: ParsedCertificate, certificates: ParsedCertificate[]): Pick<ParsedCertificateBundle, 'chainStatus' | 'chainOrder' | 'chainDiagnostics'> {
+function validateCertificateChain(
+  leaf: ParsedCertificate,
+  certificates: ParsedCertificate[],
+): Pick<ParsedCertificateBundle, 'chainStatus' | 'chainOrder' | 'chainDiagnostics'> {
   const bySubject = new Map(certificates.map((certificate) => [certificate.subject.raw, certificate]));
   const diagnostics: string[] = [];
   const order: string[] = [];
@@ -164,7 +222,7 @@ function validateCertificateChain(leaf: ParsedCertificate, certificates: ParsedC
 
     if (current.subject.raw === current.issuer.raw) {
       const validSelfSignature = current.x509.verify(current.x509.publicKey);
-      diagnostics.push(validSelfSignature ? '证书链已到达可信自签根证书' : '自签根证书签名校验失败');
+      diagnostics.push(validSelfSignature ? '证书链已到达自签根证书' : '自签根证书签名校验失败');
       return { chainStatus: validSelfSignature ? 'valid' : 'invalid', chainOrder: order, chainDiagnostics: diagnostics };
     }
 
@@ -185,10 +243,14 @@ function validateCertificateChain(leaf: ParsedCertificate, certificates: ParsedC
 
 function parseSubjectAltNames(value: string | undefined): string[] {
   if (!value) return [];
-  return value.split(',').map((item) => item.trim()).map((item) => {
-    const matched = item.match(/^(DNS|IP Address|URI|email):(.+)$/i);
-    return matched ? matched[2].trim() : item;
-  }).filter(Boolean);
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .map((item) => {
+      const matched = item.match(/^(DNS|IP Address|URI|email):(.+)$/i);
+      return matched ? matched[2].trim() : item;
+    })
+    .filter(Boolean);
 }
 
 function parseDistinguishedName(value: string): CertificateDistinguishedName {

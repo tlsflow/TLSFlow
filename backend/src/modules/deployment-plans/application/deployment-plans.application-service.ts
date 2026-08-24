@@ -6,7 +6,17 @@ import { newId } from '../../../shared/id.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput } from '../dto/deployment-plans.dto.js';
+import type {
+  CreateDeploymentPlanInput,
+  DeploymentGatewayRouteDto,
+  DeploymentPlanDto,
+  DeploymentPlanTargetDto,
+  ExecuteDeploymentPlanInput,
+  CancelDeploymentPlanInput,
+  SubmitDeploymentPlanInput,
+  DryRunDeploymentPlanInput,
+  ReevaluateDeploymentPlanCapabilitiesInput,
+} from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
@@ -47,18 +57,18 @@ export class DeploymentPlansApplicationService {
     return this.executions;
   }
 
-  list(input: { tenantId?: string } = {}): DeploymentPlanDto[] {
-    return this.repository.listPlans(input.tenantId).map((plan) => this.toDto(plan));
+  async list(input: { tenantId?: string } = {}): Promise<DeploymentPlanDto[]> {
+    return Promise.all((await this.repository.listPlans(input.tenantId)).map((plan) => this.toDto(plan)));
   }
 
-  get(id: string, tenantId?: string): DeploymentPlanDto {
-    return this.toDto(this.repository.getPlanOrThrow(id, tenantId));
+  async get(id: string, tenantId?: string): Promise<DeploymentPlanDto> {
+    return this.toDto(await this.repository.getPlanOrThrow(id, tenantId));
   }
 
-  create(input: CreateDeploymentPlanInput, context: RequestContext = {}): DeploymentPlanDto {
+  async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     this.domain.assertCreateInput(input);
     const requestHash = this.domain.buildRequestHash(input);
-    const existing = this.repository.findPlanByIdempotencyKey(input.tenantId, input.actorId, input.idempotencyKey);
+    const existing = await this.repository.findPlanByIdempotencyKey(input.tenantId, input.actorId, input.idempotencyKey);
     if (existing) {
       if (existing.requestHash !== requestHash) throw new AppError('IDEMPOTENCY_CONFLICT', '部署计划幂等键冲突', { idempotencyKey: input.idempotencyKey });
       return this.toDto(existing);
@@ -66,8 +76,8 @@ export class DeploymentPlansApplicationService {
 
     const now = new Date().toISOString();
     const policy = this.domain.normalizePolicy(input.policy);
-    const targetDrafts = input.targets.map((target) => {
-      const gatewayRoute = this.normalizeGatewayRoute(target, input.tenantId, policy);
+    const targetDrafts = await Promise.all(input.targets.map(async (target) => {
+      const gatewayRoute = await this.normalizeGatewayRoute(target, input.tenantId, policy);
       return {
         certificateBindingId: target.certificateBindingId,
         executionTargetId: target.executionTargetId,
@@ -76,7 +86,7 @@ export class DeploymentPlansApplicationService {
         matchResult: this.normalizeRouteMatchResult(target.matchResult, gatewayRoute),
         gatewayRoute,
       };
-    });
+    }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
@@ -96,7 +106,7 @@ export class DeploymentPlansApplicationService {
       createdBy: input.actorId,
     }, targetDrafts);
 
-    const plan = this.repository.createPlan({
+    const plan = await this.repository.createPlan({
       id: newId('pln'),
       tenantId: input.tenantId,
       name: input.name,
@@ -114,10 +124,10 @@ export class DeploymentPlansApplicationService {
       createdBy: input.actorId,
       version: 1,
     });
-    this.recordTransition('deploymentPlan', plan.id, undefined, 'DRAFT', 'plan.created', input.actorId, input.tenantId);
+    await this.recordTransition('deploymentPlan', plan.id, undefined, 'DRAFT', 'plan.created', input.actorId, input.tenantId);
 
     for (const target of targetDrafts) {
-      this.repository.createTarget({
+      await this.repository.createTarget({
         id: newId('dpt'),
         tenantId: input.tenantId,
         deploymentPlanId: plan.id,
@@ -135,7 +145,7 @@ export class DeploymentPlansApplicationService {
       });
     }
 
-    this.audit.write({
+    void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -151,14 +161,14 @@ export class DeploymentPlansApplicationService {
     return this.toDto(plan);
   }
 
-  submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): DeploymentPlanDto {
-    const plan = this.repository.getPlanOrThrow(input.planId, input.tenantId);
+  async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
 
     if (plan.status === 'PENDING_APPROVAL') {
       if (!input.approvalId) return this.toDto(plan);
-      this.approval.consume(input.approvalId, this.approvalParameters(plan));
-      const ready = this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
+      await this.approval.consume(input.approvalId, this.approvalParameters(plan));
+      const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
       return this.toDto(ready);
     }
 
@@ -168,19 +178,19 @@ export class DeploymentPlansApplicationService {
 
     if (this.requiresApproval(plan)) {
       if (input.approvalId) {
-        this.approval.consume(input.approvalId, this.approvalParameters(plan));
-        const ready = this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
+        await this.approval.consume(input.approvalId, this.approvalParameters(plan));
+        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
         return this.toDto(ready);
       }
-      const approval = this.approval.create({
+      const approval = await this.approval.create({
         operationType: 'deployment.execute',
         resourceRefs: [{ type: 'deploymentPlan', id: plan.id }],
         riskLevel: this.approvalRiskLevel(plan.policy.riskLevel),
         parameters: this.approvalParameters(plan),
         requestedBy: input.actorId,
       }, context);
-      const pending = this.transitionPlan(plan, 'PENDING_APPROVAL', input.actorId, 'approval.requested', { approvalStatus: 'PENDING', approvalId: approval.id });
-      this.audit.write({
+      const pending = await this.transitionPlan(plan, 'PENDING_APPROVAL', input.actorId, 'approval.requested', { approvalStatus: 'PENDING', approvalId: approval.id });
+      await this.audit.write({
         eventType: AUDIT_EVENT_TYPES.APPROVAL_CREATED,
         actorType: 'user',
         actorId: input.actorId,
@@ -195,8 +205,8 @@ export class DeploymentPlansApplicationService {
       return this.toDto(pending);
     }
 
-    const ready = this.transitionPlan(plan, 'READY', input.actorId, 'plan.ready', { approvalStatus: 'NOT_REQUIRED' });
-    this.audit.write({
+    const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'plan.ready', { approvalStatus: 'NOT_REQUIRED' });
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -212,23 +222,21 @@ export class DeploymentPlansApplicationService {
   }
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    let plan = this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    let plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (this.requiresApproval(plan)) {
       const approvalId = input.approvalId ?? plan.approvalId;
       if (!approvalId) {
-        this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
+        await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
         throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '高风险部署执行必须提供已批准审批单', { planId: plan.id });
       }
       try {
-        this.approval.consume(approvalId, this.approvalParameters(plan));
+        await this.approval.consume(approvalId, this.approvalParameters(plan));
       } catch (error) {
-        this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'approval invalid');
+        await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'approval invalid');
         throw error;
       }
-      if (plan.status === 'DRAFT') {
-        plan = this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId });
-      } else if (plan.status === 'PENDING_APPROVAL') {
-        plan = this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId });
+      if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
+        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId });
       }
     }
 
@@ -236,9 +244,9 @@ export class DeploymentPlansApplicationService {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 READY 计划允许执行', { planId: plan.id, status: plan.status });
     }
 
-    const targets = this.repository.listTargetsByPlan(plan.id, input.tenantId).filter((target) => target.status === 'READY');
+    const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => target.status === 'READY');
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
-    const running = this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
+    const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -254,16 +262,16 @@ export class DeploymentPlansApplicationService {
       failurePolicy: plan.policy.failurePolicy,
     }, context);
 
-    return { plan: this.toDto(running), ...created };
+    return { plan: await this.toDto(running), ...created };
   }
 
   async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    const plan = this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未正式执行的计划允许 dry-run', { planId: plan.id, status: plan.status });
     }
 
-    const targets = this.repository.listTargetsByPlan(plan.id, input.tenantId).filter((target) => target.status === 'READY');
+    const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => target.status === 'READY');
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
@@ -280,18 +288,18 @@ export class DeploymentPlansApplicationService {
       failurePolicy: plan.policy.failurePolicy,
     }, context);
 
-    return { plan: this.toDto(plan), ...created };
+    return { plan: await this.toDto(plan), ...created };
   }
 
-  cancel(input: CancelDeploymentPlanInput, context: RequestContext = {}): DeploymentPlanDto {
-    const plan = this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    for (const run of this.executions.listRuns({ tenantId: input.tenantId, deploymentPlanId: plan.id })) {
+  async cancel(input: CancelDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    for (const run of await this.executions.listRuns({ tenantId: input.tenantId, deploymentPlanId: plan.id })) {
       if (['PENDING', 'DISPATCHED', 'RUNNING'].includes(run.status)) {
-        this.executions.cancelRun(run.id, input.actorId, input.tenantId);
+        await this.executions.cancelRun(run.id, input.actorId, input.tenantId);
       }
     }
-    const cancelled = this.transitionPlan(plan, 'CANCELLED', input.actorId, 'plan.cancelled');
-    this.audit.write({
+    const cancelled = await this.transitionPlan(plan, 'CANCELLED', input.actorId, 'plan.cancelled');
+    void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -306,12 +314,12 @@ export class DeploymentPlansApplicationService {
     return this.toDto(cancelled);
   }
 
-  reevaluateCapabilities(input: ReevaluateDeploymentPlanCapabilitiesInput, context: RequestContext = {}): DeploymentPlanDto {
-    const plan = this.repository.getPlanOrThrow(input.planId, input.tenantId);
+  async reevaluateCapabilities(input: ReevaluateDeploymentPlanCapabilitiesInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未正式执行的计划允许重算能力匹配', { planId: plan.id, status: plan.status });
     }
-    const targets = new Map(this.repository.listTargetsByPlan(plan.id, input.tenantId).map((target) => [target.id, target]));
+    const targets = new Map((await this.repository.listTargetsByPlan(plan.id, input.tenantId)).map((target) => [target.id, target]));
     let blockedCount = 0;
     let approvalRequired = false;
     for (const result of input.targetResults) {
@@ -320,7 +328,7 @@ export class DeploymentPlansApplicationService {
       const status = String(result.matchResult.status ?? '');
       if (status === 'blocked') blockedCount += 1;
       if (status === 'manual_required' || status === 'degraded') approvalRequired = true;
-      this.repository.updateTarget(target.id, {
+      await this.repository.updateTarget(target.id, {
         matchResult: result.matchResult,
         status: status === 'blocked' ? 'FAILED' : 'READY',
         updatedAt: new Date().toISOString(),
@@ -335,8 +343,8 @@ export class DeploymentPlansApplicationService {
         riskLevel: plan.policy.riskLevel === 'low' || plan.policy.riskLevel === 'medium' ? 'high' : plan.policy.riskLevel,
       };
     }
-    const updated = this.repository.updatePlan(plan.id, patch);
-    this.audit.write({
+    const updated = await this.repository.updatePlan(plan.id, patch);
+    void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -351,19 +359,25 @@ export class DeploymentPlansApplicationService {
     return this.toDto(updated);
   }
 
-  markRunFailedForTest(runId: string, actorId: string, tenantId?: string): ExecutionRunDto {
+  async markRunFailedForTest(runId: string, actorId: string, tenantId?: string): Promise<ExecutionRunDto> {
     return this.executions.markFailedForTest(runId, actorId, tenantId);
   }
 
-  private transitionPlan(plan: DeploymentPlanEntity, nextStatus: DeploymentPlanEntity['status'], actorId: string, event: string, patch: Partial<DeploymentPlanEntity> = {}): DeploymentPlanEntity {
+  private async transitionPlan(
+    plan: DeploymentPlanEntity,
+    nextStatus: DeploymentPlanEntity['status'],
+    actorId: string,
+    event: string,
+    patch: Partial<DeploymentPlanEntity> = {},
+  ): Promise<DeploymentPlanEntity> {
     this.domain.transitionPlan(plan.status, nextStatus);
-    const updated = this.repository.updatePlan(plan.id, {
+    const updated = await this.repository.updatePlan(plan.id, {
       ...patch,
       status: nextStatus,
       updatedAt: new Date().toISOString(),
       updatedBy: actorId,
     });
-    this.recordTransition('deploymentPlan', plan.id, plan.status, nextStatus, event, actorId, plan.tenantId);
+    await this.recordTransition('deploymentPlan', plan.id, plan.status, nextStatus, event, actorId, plan.tenantId);
     return updated;
   }
 
@@ -379,8 +393,8 @@ export class DeploymentPlansApplicationService {
     return { planId: plan.id, snapshotHash: plan.snapshotHash, action: 'deployment.execute' };
   }
 
-  private auditDenied(plan: DeploymentPlanEntity, actorId: string, action: string, context: RequestContext, reason: string): void {
-    this.audit.write({
+  private async auditDenied(plan: DeploymentPlanEntity, actorId: string, action: string, context: RequestContext, reason: string): Promise<void> {
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId,
@@ -395,8 +409,16 @@ export class DeploymentPlansApplicationService {
     });
   }
 
-  private recordTransition(entityType: StateTransitionEventEntity['entityType'], entityId: string, fromStatus: string | undefined, toStatus: string, event: string, actorId: string, tenantId?: string): void {
-    this.repository.createTransition({
+  private async recordTransition(
+    entityType: StateTransitionEventEntity['entityType'],
+    entityId: string,
+    fromStatus: string | undefined,
+    toStatus: string,
+    event: string,
+    actorId: string,
+    tenantId?: string,
+  ): Promise<void> {
+    await this.repository.createTransition({
       id: newId('ste'),
       tenantId,
       entityType,
@@ -414,7 +436,10 @@ export class DeploymentPlansApplicationService {
     return ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'];
   }
 
-  private normalizeRouteMatchResult(matchResult: Record<string, unknown> | undefined, route: DeploymentPlanTargetEntity['gatewayRoute']): Record<string, unknown> | undefined {
+  private normalizeRouteMatchResult(
+    matchResult: Record<string, unknown> | undefined,
+    route: DeploymentPlanTargetEntity['gatewayRoute'],
+  ): Record<string, unknown> | undefined {
     if (!route?.blockedReason && !route?.approvalRequired) return matchResult;
     return {
       ...(matchResult ?? {}),
@@ -426,7 +451,11 @@ export class DeploymentPlansApplicationService {
     };
   }
 
-  private normalizeGatewayRoute(target: CreateDeploymentPlanInput['targets'][number], tenantId: string | undefined, policy: DeploymentPlanEntity['policy']): DeploymentPlanTargetEntity['gatewayRoute'] {
+  private async normalizeGatewayRoute(
+    target: CreateDeploymentPlanInput['targets'][number],
+    tenantId: string | undefined,
+    policy: DeploymentPlanEntity['policy'],
+  ): Promise<DeploymentPlanTargetEntity['gatewayRoute']> {
     const explicitRoute = this.normalizeExplicitGatewayRoute(target);
     if (explicitRoute?.gatewayId || explicitRoute?.agentId || explicitRoute?.gatewayAgentId || target.gatewayRoute) return explicitRoute;
 
@@ -437,7 +466,7 @@ export class DeploymentPlansApplicationService {
     const protocols = this.routeProtocols(target);
     if (protocols.length === 0) return explicitRoute;
 
-    const routeResult = this.gateways.route(tenantId ?? '', {
+    const routeResult = await this.gateways.route(tenantId ?? '', {
       zoneId,
       targetId,
       protocols,
@@ -474,7 +503,13 @@ export class DeploymentPlansApplicationService {
     return this.compactGatewayRoute(route);
   }
 
-  private gatewayRouteFromRouteResult(target: CreateDeploymentPlanInput['targets'][number], zoneId: string, delegatedTargetId: string, result: ZoneRouteResult, fallbackAdapter: GatewayAdapterType): DeploymentGatewayRouteDto {
+  private gatewayRouteFromRouteResult(
+    target: CreateDeploymentPlanInput['targets'][number],
+    zoneId: string,
+    delegatedTargetId: string,
+    result: ZoneRouteResult,
+    fallbackAdapter: GatewayAdapterType,
+  ): DeploymentGatewayRouteDto {
     const selected = result.selectedGateway;
     return this.compactGatewayRoute({
       gatewayId: selected?.id,
@@ -524,14 +559,16 @@ export class DeploymentPlansApplicationService {
   }
 
   private compactGatewayRoute(route: DeploymentGatewayRouteDto): DeploymentGatewayRouteDto | undefined {
-    const compact = Object.fromEntries(Object.entries(route).filter(([, value]) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '')) as DeploymentGatewayRouteDto;
+    const compact = Object.fromEntries(
+      Object.entries(route).filter(([, value]) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== ''),
+    ) as DeploymentGatewayRouteDto;
     return Object.keys(compact).length > 0 ? compact : undefined;
   }
 
-  private toDto(plan: DeploymentPlanEntity): DeploymentPlanDto {
+  private async toDto(plan: DeploymentPlanEntity): Promise<DeploymentPlanDto> {
     return {
       ...plan,
-      targets: this.repository.listTargetsByPlan(plan.id, plan.tenantId).map((target) => this.toTargetDto(target)),
+      targets: (await this.repository.listTargetsByPlan(plan.id, plan.tenantId)).map((target) => this.toTargetDto(target)),
     };
   }
 

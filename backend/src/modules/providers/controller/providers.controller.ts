@@ -36,7 +36,7 @@ export class ProvidersController {
     return { statusCode: 201, body: result };
   }
 
-  private listDiscoveryResults(request: HttpRequest) {
+  private async listDiscoveryResults(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'providerId', 'providerType', 'status', 'normalizedHash'],
       allowedFilterFields: ['providerId', 'providerType', 'status', 'normalizedHash', 'snapshotId'],
@@ -44,9 +44,9 @@ export class ProvidersController {
     return this.service.listDiscoveryResults(tenantId(request), query);
   }
 
-  private getDiscoveryResult(request: HttpRequest) {
+  private async getDiscoveryResult(request: HttpRequest) {
     const resultId = readQueryString(request, 'id');
-    const item = this.service.getDiscoveryResult(tenantId(request), resultId);
+    const item = await this.service.getDiscoveryResult(tenantId(request), resultId);
     if (!item) {
       throw new AppError('RESOURCE_NOT_FOUND', 'discovery result 不存在', { resultId });
     }

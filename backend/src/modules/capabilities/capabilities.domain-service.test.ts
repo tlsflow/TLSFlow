@@ -4,7 +4,7 @@ import { CapabilitiesApplicationService } from './application/capabilities.appli
 import { CapabilitiesDomainService } from './domain/capabilities.domain-service.js';
 import type { CapabilityDeclaration, CapabilityRequirement } from '../../shared/contracts/capability-contracts.js';
 
-test('能力字典包含内置能力和兼容别名定义', () => {
+test('能力字典包含内置能力和兼容别名定义', async () => {
   const service = new CapabilitiesApplicationService();
   const definitions = service.listDefinitions();
 
@@ -17,9 +17,9 @@ test('能力字典包含内置能力和兼容别名定义', () => {
   assert.equal(deprecated?.replacedBy, 'process.exec');
 });
 
-test('人工能力声明必须带风险证据来源和审计引用', () => {
+test('人工能力声明必须带风险证据来源和审计引用', async () => {
   const service = new CapabilitiesApplicationService();
-  const manual = service.createManualDeclaration({
+  const manual = await await service.createManualDeclaration({
     tenantId: 'tenant_a',
     targetType: 'host',
     targetId: 'host_1',
@@ -42,7 +42,7 @@ test('人工能力声明必须带风险证据来源和审计引用', () => {
   assert.equal(manual.riskLevel, 'high');
   assert.equal(manual.evidence?.summary, '值班管理员在变更窗口现场验证目录可写');
 
-  assert.throws(
+  await assert.rejects(
     () => service.createManualDeclaration({
       tenantId: 'tenant_a',
       targetType: 'host',
@@ -59,10 +59,10 @@ test('人工能力声明必须带风险证据来源和审计引用', () => {
   );
 });
 
-test('匹配算法输出 satisfied missing unknown manualRisk', () => {
+test('匹配算法输出 satisfied missing unknown manualRisk', async () => {
   const service = new CapabilitiesApplicationService();
   const declarations: CapabilityDeclaration[] = [
-    service.createDeclaration({
+    await service.createDeclaration({
       tenantId: 'tenant_a',
       targetType: 'execution_target',
       targetId: 'target_1',
@@ -72,7 +72,7 @@ test('匹配算法输出 satisfied missing unknown manualRisk', () => {
       confidence: 95,
       detectedAt: new Date().toISOString(),
     }),
-    service.createDeclaration({
+    await service.createDeclaration({
       tenantId: 'tenant_a',
       targetType: 'execution_target',
       targetId: 'target_1',
@@ -82,7 +82,7 @@ test('匹配算法输出 satisfied missing unknown manualRisk', () => {
       confidence: 60,
       detectedAt: new Date().toISOString(),
     }),
-    service.createManualDeclaration({
+    await service.createManualDeclaration({
       tenantId: 'tenant_a',
       targetType: 'execution_target',
       targetId: 'target_1',
@@ -101,7 +101,7 @@ test('匹配算法输出 satisfied missing unknown manualRisk', () => {
     }),
   ];
 
-  const requirement: CapabilityRequirement = service.registerRequirement({
+  const requirement: CapabilityRequirement = await service.registerRequirement({
     ownerType: 'provider_action',
     ownerId: 'nginx.install_certificate',
     requiredAll: [
@@ -148,12 +148,12 @@ test('匹配算法输出 satisfied missing unknown manualRisk', () => {
   assert.equal(result.requiresApproval, true);
 });
 
-test('L1-L5 兼容等级按能力集合而不是按 OS 标签计算', () => {
+test('L1-L5 兼容等级按能力集合而不是按 OS 标签计算', async () => {
   const service = new CapabilitiesApplicationService();
   const domain = new CapabilitiesDomainService();
   const now = new Date().toISOString();
 
-  const l1 = service.evaluateCompatibility({
+  const l1 = await service.evaluateCompatibility({
     tenantId: 'tenant_a',
     targetType: 'agent',
     targetId: 'agent_1',
@@ -194,7 +194,7 @@ test('L1-L5 兼容等级按能力集合而不是按 OS 标签计算', () => {
   assert.ok(l5.reasonCodes.includes('monitor_only'));
 });
 
-test('契约校验入口拒绝非法能力键，供 Provider Executor Agent 插件复用', () => {
+test('契约校验入口拒绝非法能力键，供 Provider Executor Agent 插件复用', async () => {
   const service = new CapabilitiesApplicationService();
   assert.throws(() => service.validateCapabilityContract({
     ownerType: 'provider_action',

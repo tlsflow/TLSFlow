@@ -1,4 +1,6 @@
 import { sha256Fingerprint } from '../../../common/crypto/fingerprint.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
 
 export interface CertificateArtifactRecord {
   artifactRef: string;
@@ -19,19 +21,18 @@ export interface PutCertificateArtifactInput {
 }
 
 export interface CertificateArtifactStore {
-  put(input: PutCertificateArtifactInput): CertificateArtifactRecord;
-  get(artifactRef: string): CertificateArtifactRecord | undefined;
-  has(artifactRef: string): boolean;
+  put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord>;
+  get(artifactRef: string): Promise<CertificateArtifactRecord | undefined>;
+  has(artifactRef: string): Promise<boolean>;
 }
 
-export class InMemoryCertificateArtifactStore implements CertificateArtifactStore {
-  private readonly records = new Map<string, CertificateArtifactRecord>();
+export class PgCertificateArtifactStore implements CertificateArtifactStore {
+  constructor(private readonly db: DatabasePort) {}
 
-  put(input: PutCertificateArtifactInput): CertificateArtifactRecord {
+  async put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord> {
     const content = Buffer.isBuffer(input.content) ? Buffer.from(input.content) : Buffer.from(input.content, 'utf8');
-    const existing = this.records.get(input.artifactRef);
-    if (existing) return { ...existing, content: Buffer.from(existing.content) };
-
+    const existing = await this.get(input.artifactRef);
+    if (existing) return existing;
     const record: CertificateArtifactRecord = {
       artifactRef: input.artifactRef,
       content,
@@ -41,16 +42,55 @@ export class InMemoryCertificateArtifactStore implements CertificateArtifactStor
       createdAt: new Date().toISOString(),
       expiresAt: input.expiresAt,
     };
-    this.records.set(input.artifactRef, record);
+    await this.db.query(
+      `insert into pg_certificate_artifacts (
+         artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
+       ) values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
+       on conflict (artifact_ref) do nothing`,
+      [
+        record.artifactRef,
+        record.content,
+        record.contentType,
+        record.sha256,
+        record.createdBy,
+        record.createdAt,
+        record.expiresAt ?? null,
+      ],
+    );
     return { ...record, content: Buffer.from(record.content) };
   }
 
-  get(artifactRef: string): CertificateArtifactRecord | undefined {
-    const record = this.records.get(artifactRef);
-    return record ? { ...record, content: Buffer.from(record.content) } : undefined;
+  async get(artifactRef: string): Promise<CertificateArtifactRecord | undefined> {
+    const result = await this.db.query<CertificateArtifactRow>(
+      `select artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
+         from pg_certificate_artifacts
+        where artifact_ref = $1`,
+      [artifactRef],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      artifactRef: row.artifact_ref,
+      content: Buffer.from(row.content as Buffer),
+      contentType: row.content_type,
+      sha256: row.sha256,
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at ?? undefined,
+    };
   }
 
-  has(artifactRef: string): boolean {
-    return this.records.has(artifactRef);
+  async has(artifactRef: string): Promise<boolean> {
+    return Boolean(await this.get(artifactRef));
   }
 }
+
+type CertificateArtifactRow = {
+  artifact_ref: string;
+  content: Buffer | Uint8Array | string;
+  content_type: string;
+  sha256: string;
+  created_by: string;
+  created_at: string;
+  expires_at?: string | null;
+};

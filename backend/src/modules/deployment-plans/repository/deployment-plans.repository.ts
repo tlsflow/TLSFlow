@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { MemoryRepository } from '../../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../../persistence/repositories/repository-port.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
 
 function sameTenant(left?: string, right?: string): boolean {
@@ -10,73 +11,79 @@ function sameTenant(left?: string, right?: string): boolean {
 export class DeploymentPlansRepository {
   readonly moduleName = 'deployment-plans' as const;
 
-  constructor(
-    private readonly plans: RepositoryPort<DeploymentPlanEntity> = new MemoryRepository<DeploymentPlanEntity>(),
-    private readonly targets: RepositoryPort<DeploymentPlanTargetEntity> = new MemoryRepository<DeploymentPlanTargetEntity>(),
-    private readonly transitions: RepositoryPort<StateTransitionEventEntity> = new MemoryRepository<StateTransitionEventEntity>(),
-  ) {}
+  private readonly plans: PgDocumentRepository<DeploymentPlanEntity>;
+  private readonly targets: PgDocumentRepository<DeploymentPlanTargetEntity>;
+  private readonly transitions: PgDocumentRepository<StateTransitionEventEntity>;
 
-  createPlan(plan: DeploymentPlanEntity): DeploymentPlanEntity {
+  constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.plans = new PgDocumentRepository(db, 'deployment-plans:plans');
+    this.targets = new PgDocumentRepository(db, 'deployment-plans:targets');
+    this.transitions = new PgDocumentRepository(db, 'deployment-plans:transitions');
+  }
+
+  async createPlan(plan: DeploymentPlanEntity): Promise<DeploymentPlanEntity> {
     return this.plans.create(plan);
   }
 
-  updatePlan(id: string, patch: Partial<DeploymentPlanEntity>): DeploymentPlanEntity {
-    return this.plans.update(id, { ...patch, version: (this.plans.getOrThrow(id).version ?? 1) + 1 });
+  async updatePlan(id: string, patch: Partial<DeploymentPlanEntity>): Promise<DeploymentPlanEntity> {
+    const current = await this.plans.getOrThrow(id);
+    return this.plans.update(id, { ...patch, version: (current.version ?? 1) + 1 });
   }
 
-  getPlan(id: string, tenantId?: string): DeploymentPlanEntity | undefined {
-    const plan = this.plans.get(id);
+  async getPlan(id: string, tenantId?: string): Promise<DeploymentPlanEntity | undefined> {
+    const plan = await this.plans.get(id);
     return plan && sameTenant(plan.tenantId, tenantId) ? plan : undefined;
   }
 
-  getPlanOrThrow(id: string, tenantId?: string): DeploymentPlanEntity {
-    const plan = this.getPlan(id, tenantId);
+  async getPlanOrThrow(id: string, tenantId?: string): Promise<DeploymentPlanEntity> {
+    const plan = await this.getPlan(id, tenantId);
     if (!plan) throw new AppError('RESOURCE_NOT_FOUND', '部署计划不存在', { id });
     return plan;
   }
 
-  listPlans(tenantId?: string): DeploymentPlanEntity[] {
+  async listPlans(tenantId?: string): Promise<DeploymentPlanEntity[]> {
     return this.plans.list((plan) => sameTenant(plan.tenantId, tenantId));
   }
 
-  findPlanByIdempotencyKey(tenantId: string | undefined, actorId: string, idempotencyKey: string): DeploymentPlanEntity | undefined {
-    return this.plans.list((plan) => sameTenant(plan.tenantId, tenantId) && plan.createdBy === actorId && plan.idempotencyKey === idempotencyKey)[0];
+  async findPlanByIdempotencyKey(tenantId: string | undefined, actorId: string, idempotencyKey: string): Promise<DeploymentPlanEntity | undefined> {
+    return (await this.plans.list((plan) => sameTenant(plan.tenantId, tenantId) && plan.createdBy === actorId && plan.idempotencyKey === idempotencyKey))[0];
   }
 
-  createTarget(target: DeploymentPlanTargetEntity): DeploymentPlanTargetEntity {
-    const duplicated = this.targets.list((item) => sameTenant(item.tenantId, target.tenantId)
+  async createTarget(target: DeploymentPlanTargetEntity): Promise<DeploymentPlanTargetEntity> {
+    const duplicated = (await this.targets.list((item) => sameTenant(item.tenantId, target.tenantId)
       && item.deploymentPlanId === target.deploymentPlanId
-      && item.certificateBindingId === target.certificateBindingId)[0];
+      && item.certificateBindingId === target.certificateBindingId))[0];
     if (duplicated) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', '同一计划不能重复引用同一证书绑定', { certificateBindingId: target.certificateBindingId });
     }
     return this.targets.create(target);
   }
 
-  updateTarget(id: string, patch: Partial<DeploymentPlanTargetEntity>): DeploymentPlanTargetEntity {
-    return this.targets.update(id, { ...patch, version: (this.targets.getOrThrow(id).version ?? 1) + 1 });
+  async updateTarget(id: string, patch: Partial<DeploymentPlanTargetEntity>): Promise<DeploymentPlanTargetEntity> {
+    const current = await this.targets.getOrThrow(id);
+    return this.targets.update(id, { ...patch, version: (current.version ?? 1) + 1 });
   }
 
-  getTarget(id: string, tenantId?: string): DeploymentPlanTargetEntity | undefined {
-    const target = this.targets.get(id);
+  async getTarget(id: string, tenantId?: string): Promise<DeploymentPlanTargetEntity | undefined> {
+    const target = await this.targets.get(id);
     return target && sameTenant(target.tenantId, tenantId) ? target : undefined;
   }
 
-  listTargetsByPlan(planId: string, tenantId?: string): DeploymentPlanTargetEntity[] {
+  async listTargetsByPlan(planId: string, tenantId?: string): Promise<DeploymentPlanTargetEntity[]> {
     return this.targets.list((target) => target.deploymentPlanId === planId && sameTenant(target.tenantId, tenantId));
   }
 
-  createTransition(event: StateTransitionEventEntity): StateTransitionEventEntity {
+  async createTransition(event: StateTransitionEventEntity): Promise<StateTransitionEventEntity> {
     return this.transitions.create(event);
   }
 
-  listTransitions(entityId?: string): StateTransitionEventEntity[] {
+  async listTransitions(entityId?: string): Promise<StateTransitionEventEntity[]> {
     return this.transitions.list((event) => !entityId || event.entityId === entityId);
   }
 
-  clear(): void {
-    this.plans.clear();
-    this.targets.clear();
-    this.transitions.clear();
+  async clear(): Promise<void> {
+    await this.plans.clear();
+    await this.targets.clear();
+    await this.transitions.clear();
   }
 }

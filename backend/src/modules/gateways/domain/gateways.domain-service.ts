@@ -1,16 +1,16 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { GatewayFailoverService, type GatewayAdapterType, type ReachabilityRecord, ReachabilityService, ZoneRouter } from '../../gateway-agents/index.js';
+import { GatewayFailoverService, ReachabilityService, ZoneRouter } from '../../gateway-agents/index.js';
 import type { GatewaysRepository } from '../repository/gateways.repository.js';
 import type { ProbeGatewayInput, RegisterGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
 
 export class GatewaysDomainService {
   constructor(private readonly repository: GatewaysRepository) {}
 
-  register(tenantId: string, input: RegisterGatewayInput) {
+  async register(tenantId: string, input: RegisterGatewayInput) {
     return this.repository.registerGateway(tenantId, input);
   }
 
-  status(tenantId: string, input: UpdateGatewayStatusInput) {
+  async status(tenantId: string, input: UpdateGatewayStatusInput) {
     const action = input.action ?? 'status';
     if (action === 'register') {
       if (!input.agentId || !input.version || !input.zoneIds || !input.adapters) {
@@ -28,7 +28,7 @@ export class GatewaysDomainService {
       });
     }
 
-    const gatewayId = this.resolveGatewayId(tenantId, input);
+    const gatewayId = await this.resolveGatewayId(tenantId, input);
     if (action === 'disable') return this.repository.updateGatewayStatus(tenantId, gatewayId, { status: 'disabled' });
     if (action === 'revoke') return this.repository.updateGatewayStatus(tenantId, gatewayId, { status: 'revoked' });
 
@@ -44,14 +44,28 @@ export class GatewaysDomainService {
     });
   }
 
-  route(tenantId: string, input: RouteGatewayInput) {
-    const { zones, gateways } = this.repository.toZoneRouterInputs(tenantId);
-    const reachability = new RepositoryReachabilityView(this.repository, tenantId);
+  async route(tenantId: string, input: RouteGatewayInput) {
+    const { zones, gateways } = await this.repository.toZoneRouterInputs(tenantId);
+    const persistedReachability = await this.repository.listReachability(tenantId, undefined, input.targetId);
+    const reachability = new ReachabilityService();
+    for (const record of persistedReachability) {
+      const ttlSeconds = Math.max(1, Math.ceil((new Date(record.expiresAt).getTime() - new Date(record.checkedAt).getTime()) / 1000));
+      reachability.upsert({
+        gatewayId: record.gatewayId,
+        targetId: record.targetId,
+        protocol: record.protocol,
+        port: record.port,
+        status: record.status,
+        latencyMs: record.latencyMs,
+        ttlSeconds,
+        now: new Date(record.checkedAt),
+      });
+    }
     return new ZoneRouter(zones, gateways, reachability, new GatewayFailoverService()).route(input);
   }
 
-  probe(tenantId: string, input: ProbeGatewayInput) {
-    const gateway = this.repository.getGateway(tenantId, input.gatewayId);
+  async probe(tenantId: string, input: ProbeGatewayInput) {
+    const gateway = await this.repository.getGateway(tenantId, input.gatewayId);
     if (!gateway) throw new AppError('RESOURCE_NOT_FOUND', 'Gateway 不存在', { gatewayId: input.gatewayId });
     if (input.zoneId && !gateway.zoneIds.includes(input.zoneId)) {
       throw new AppError('VALIDATION_FAILED', 'Gateway 不属于目标 Zone', { gatewayId: input.gatewayId, zoneId: input.zoneId });
@@ -70,30 +84,12 @@ export class GatewaysDomainService {
     });
   }
 
-  private resolveGatewayId(tenantId: string, input: UpdateGatewayStatusInput): string {
+  private async resolveGatewayId(tenantId: string, input: UpdateGatewayStatusInput): Promise<string> {
     if (input.gatewayId) return input.gatewayId;
     if (input.agentId) {
-      const gateway = this.repository.findGatewayByAgentId(tenantId, input.agentId);
+      const gateway = await this.repository.findGatewayByAgentId(tenantId, input.agentId);
       if (gateway) return gateway.id;
     }
     throw new AppError('VALIDATION_FAILED', 'gatewayId 或 agentId 不能为空', { field: 'gatewayId' });
-  }
-}
-
-class RepositoryReachabilityView extends ReachabilityService {
-  constructor(private readonly repositoryView: GatewaysRepository, private readonly tenantId: string) {
-    super();
-  }
-
-  override find(gatewayId: string, targetId: string, protocol: GatewayAdapterType, now = new Date()): ReachabilityRecord | undefined {
-    return this.repositoryView.findReachability(this.tenantId, gatewayId, targetId, protocol, now);
-  }
-
-  override findAny(gatewayId: string, targetId: string, protocols: GatewayAdapterType[], now = new Date()): ReachabilityRecord | undefined {
-    return protocols.map((protocol) => this.find(gatewayId, targetId, protocol, now)).find((record) => record !== undefined);
-  }
-
-  override isExpired(record: ReachabilityRecord, now = new Date()): boolean {
-    return new Date(record.expiresAt).getTime() <= now.getTime();
   }
 }

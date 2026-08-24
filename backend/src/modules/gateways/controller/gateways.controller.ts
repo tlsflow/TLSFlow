@@ -5,8 +5,15 @@ import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { GatewaysApplicationService } from '../application/gateways.application-service.js';
-import type { ProbeGatewayInput, RegisterGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
-import { gatewayDetailSchema, gatewayPageSchema, gatewayReachabilitySchema, gatewayRouteResultSchema, gatewaySchema, gatewayTargetHistorySchema } from '../schema/gateways.schema.js';
+import type { ProbeGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
+import {
+  gatewayDetailSchema,
+  gatewayPageSchema,
+  gatewayReachabilitySchema,
+  gatewayRouteResultSchema,
+  gatewaySchema,
+  gatewayTargetHistorySchema,
+} from '../schema/gateways.schema.js';
 
 const tags = ['Gateways'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -18,38 +25,38 @@ export class GatewaysController {
   constructor(private readonly service = new GatewaysApplicationService()) {}
 
   register(router: Router): void {
-    router.get('/api/v1/gateways', '查询 Gateway 列表', tags, (request) => this.list(request));
-    router.get('/api/v1/gateways/detail', '查询 Gateway 详情', tags, (request) => this.detail(request));
-    router.get('/api/v1/gateways/target-history', '查询 Gateway 代表目标历史', tags, (request) => this.targetHistory(request));
-    router.post('/api/v1/gateways/route', '选择可用 Gateway 路由', tags, (request) => this.route(request));
-    router.post('/api/v1/gateways/probe', '记录 Gateway 可达性探测', tags, (request) => this.probe(request));
-    router.post('/api/v1/gateways/status', '注册或更新 Gateway 状态', tags, (request) => this.status(request));
+    router.get('/api/v1/gateways', '查询 Gateway 列表', tags, async (request) => this.list(request));
+    router.get('/api/v1/gateways/detail', '查询 Gateway 详情', tags, async (request) => this.detail(request));
+    router.get('/api/v1/gateways/target-history', '查询 Gateway 代理目标历史', tags, async (request) => this.targetHistory(request));
+    router.post('/api/v1/gateways/route', '选择可用 Gateway 路由', tags, async (request) => this.route(request));
+    router.post('/api/v1/gateways/probe', '记录 Gateway 可达性探测', tags, async (request) => this.probe(request));
+    router.post('/api/v1/gateways/status', '注册或更新 Gateway 状态', tags, async (request) => this.status(request));
   }
 
   getApplicationService(): GatewaysApplicationService {
     return this.service;
   }
 
-  private list(request: HttpRequest) {
+  private async list(request: HttpRequest) {
     return this.service.list(tenantId(request), parsePageQuery(request.query, {
       allowedSortFields: ['id', 'agentId', 'status', 'updatedAt', 'lastHeartbeatAt'],
       allowedFilterFields: ['zoneId', 'status'],
     }));
   }
 
-  private detail(request: HttpRequest) {
+  private async detail(request: HttpRequest) {
     const id = readQuery(request, 'id');
-    const detail = this.service.detail(tenantId(request), id);
+    const detail = await this.service.detail(tenantId(request), id);
     if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Gateway 不存在', { id });
     return detail;
   }
 
-  private targetHistory(request: HttpRequest) {
+  private async targetHistory(request: HttpRequest) {
     const delegatedTargetId = readQuery(request, 'delegatedTargetId');
     return this.service.targetHistory(tenantId(request), delegatedTargetId);
   }
 
-  private status(request: HttpRequest) {
+  private async status(request: HttpRequest) {
     const body = validateObject(request.body, {
       action: { type: 'string', enum: statusActions },
       gatewayId: { type: 'string' },
@@ -65,10 +72,10 @@ export class GatewaysController {
     });
     const input = normalizeStatusInput(body);
     const created = (input.action ?? 'status') === 'register';
-    return { statusCode: created ? 201 : 200, body: this.service.status(tenantId(request), input) };
+    return { statusCode: created ? 201 : 200, body: await this.service.status(tenantId(request), input) };
   }
 
-  private route(request: HttpRequest) {
+  private async route(request: HttpRequest) {
     const body = validateObject(request.body, {
       zoneId: { type: 'string', required: true },
       targetId: { type: 'string', required: true },
@@ -79,7 +86,7 @@ export class GatewaysController {
     return this.service.route(tenantId(request), normalizeRouteInput(body));
   }
 
-  private probe(request: HttpRequest) {
+  private async probe(request: HttpRequest) {
     const body = validateObject(request.body, {
       gatewayId: { type: 'string', required: true },
       targetId: { type: 'string', required: true },
@@ -90,7 +97,7 @@ export class GatewaysController {
       ttlSeconds: { type: 'number' },
       zoneId: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.probe(tenantId(request), body as unknown as ProbeGatewayInput) };
+    return { statusCode: 201, body: await this.service.probe(tenantId(request), body as unknown as ProbeGatewayInput) };
   }
 }
 
@@ -98,7 +105,7 @@ export function getGatewayRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/gateways', operationId: 'listGateways', summary: '查询 Gateway 列表', tags, responseSchema: gatewayPageSchema },
     { method: 'GET', path: '/api/v1/gateways/detail', operationId: 'getGatewayDetail', summary: '查询 Gateway 详情', tags, responseSchema: gatewayDetailSchema },
-    { method: 'GET', path: '/api/v1/gateways/target-history', operationId: 'listGatewayTargetHistory', summary: '查询 Gateway 代表目标历史', tags, responseSchema: gatewayTargetHistorySchema },
+    { method: 'GET', path: '/api/v1/gateways/target-history', operationId: 'listGatewayTargetHistory', summary: '查询 Gateway 代理目标历史', tags, responseSchema: gatewayTargetHistorySchema },
     { method: 'POST', path: '/api/v1/gateways/route', operationId: 'routeGateway', summary: '选择可用 Gateway 路由', tags, responseSchema: gatewayRouteResultSchema },
     { method: 'POST', path: '/api/v1/gateways/probe', operationId: 'probeGatewayReachability', summary: '记录 Gateway 可达性探测', tags, responseSchema: gatewayReachabilitySchema },
     { method: 'POST', path: '/api/v1/gateways/status', operationId: 'updateGatewayStatus', summary: '注册或更新 Gateway 状态', tags, responseSchema: gatewaySchema },
@@ -125,7 +132,7 @@ function normalizeStatusInput(body: Record<string, unknown>): UpdateGatewayStatu
     status: body.status as UpdateGatewayStatusInput['status'],
     version: body.version as string | undefined,
     zoneIds: stringArray(body.zoneIds, 'zoneIds'),
-    adapters: stringArray(body.adapters, 'adapters'),
+    adapters: stringArray(body.adapters, 'adapters') as UpdateGatewayStatusInput['adapters'],
     capabilities: stringArray(body.capabilities, 'capabilities'),
     currentLoad: body.currentLoad as number | undefined,
     maxConcurrentTasks: body.maxConcurrentTasks as number | undefined,
@@ -137,7 +144,7 @@ function normalizeRouteInput(body: Record<string, unknown>): RouteGatewayInput {
   return {
     zoneId: String(body.zoneId),
     targetId: String(body.targetId),
-    protocols: requiredStringArray(body.protocols, 'protocols'),
+    protocols: requiredStringArray(body.protocols, 'protocols') as RouteGatewayInput['protocols'],
     requiredCapabilities: stringArray(body.requiredCapabilities, 'requiredCapabilities'),
     destructive: body.destructive as boolean | undefined,
   };

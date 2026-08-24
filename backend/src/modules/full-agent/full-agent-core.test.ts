@@ -42,9 +42,9 @@ function task(overrides: Partial<Parameters<LocalTaskLedger['accept']>[0]> = {})
 }
 
 describe('spec012 Full Agent 最小骨架', () => {
-  it('注册后生成 FullAgentIdentity，并上报 fixture 能力', () => {
+  it('????????FullAgentIdentity?????? fixture ???', async () => {
     const agent = new FullAgentCoreService(config);
-    const identity = agent.register({ processExec: true, fileWrite: true, serviceControl: true });
+    const identity = await agent.register({ processExec: true, fileWrite: true, serviceControl: true });
 
     assert.equal(identity.role, 'full_agent');
     assert.equal(identity.agentKey, config.agentKey);
@@ -249,18 +249,18 @@ describe('spec012 Full Agent 最小骨架', () => {
     assert.equal(rolledBack.currentVersion, config.version);
   });
 
-  it('控制面 mock 主链路跑通注册、心跳、拉任务、ack、日志和 result', () => {
+  it('?????mock ????????????????????????ck?????? result', async () => {
     const agent = new FullAgentCoreService(config);
-    const identity = agent.register({ processExec: true, fileWrite: true, serviceControl: true });
+    const identity = await agent.register({ processExec: true, fileWrite: true, serviceControl: true });
     const controlPlane = agent.getControlPlaneClient();
-    const enqueued = controlPlane.enqueueTask(identity, {
+    const enqueued = await controlPlane.enqueueTask(identity, {
       executionRunId: 'run_chain',
       executionStepId: 'step_chain',
       idempotencyKey: 'idem_chain',
       payload: { providerName: 'mock.certificate', action: 'deploy', simulate: 'success', password: 'plain-secret', backupTargets: ['/mock/etc/service.conf'] },
     });
 
-    const result = agent.runOnce();
+    const result = await agent.runOnce();
 
     assert.equal(result.task?.taskId, enqueued.id);
     assert.equal(result.execution?.success, true);
@@ -270,18 +270,18 @@ describe('spec012 Full Agent 最小骨架', () => {
     assert.equal(agent.getLedger().get(enqueued.id)?.status, 'succeeded');
   });
 
-  it('FullAgentCore 对能力不足任务返回 rejected，不假装执行成功', () => {
+  it('FullAgentCore ??????????????rejected????????????', async () => {
     const agent = new FullAgentCoreService(config);
-    const identity = agent.register({ processExec: false, fileWrite: false, serviceControl: true });
+    const identity = await agent.register({ processExec: false, fileWrite: false, serviceControl: true });
     const controlPlane = agent.getControlPlaneClient();
-    const enqueued = controlPlane.enqueueTask(identity, {
+    const enqueued = await controlPlane.enqueueTask(identity, {
       executionRunId: 'run_missing_capability',
       executionStepId: 'step_missing_capability',
       idempotencyKey: 'idem_missing_capability',
       payload: { providerName: 'mock.certificate', action: 'deploy' },
     });
 
-    const result = agent.runOnce();
+    const result = await agent.runOnce();
 
     assert.equal(result.task?.taskId, enqueued.id);
     assert.equal(result.execution?.status, 'rejected');

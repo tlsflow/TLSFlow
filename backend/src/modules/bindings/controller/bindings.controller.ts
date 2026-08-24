@@ -74,9 +74,10 @@ export class BindingsController {
     });
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'binding.manage', 'certificate_binding', request);
-    const created = this.service.createCertificateBinding(tenantId(request), body as unknown as CreateCertificateBindingDto);
-    this.audit(request, subject, 'certificate_binding.created', 'binding.manage', 'certificate_binding', created.id, undefined, created);
-    return { statusCode: 201, body: created };
+    return this.service.createCertificateBinding(tenantId(request), body as unknown as CreateCertificateBindingDto).then((created) => {
+      this.audit(request, subject, 'certificate_binding.created', 'binding.manage', 'certificate_binding', created.id, undefined, created);
+      return { statusCode: 201, body: created };
+    });
   }
 
   private listCertificateBindings(request: HttpRequest) {
@@ -165,20 +166,24 @@ export class BindingsController {
     const { id, ...patch } = body as unknown as UpdateCertificateBindingDto & { id: string };
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'binding.manage', 'certificate_binding', request, id);
-    const before = this.service.getRepository().getCertificateBinding(tenantId(request), id);
-    const updated = this.service.updateCertificateBinding(tenantId(request), id, patch);
-    this.audit(request, subject, 'certificate_binding.updated', 'binding.manage', 'certificate_binding', id, before, updated);
-    return updated;
+    return this.service.getRepository().getCertificateBinding(tenantId(request), id).then((before) =>
+      this.service.updateCertificateBinding(tenantId(request), id, patch).then((updated) => {
+        this.audit(request, subject, 'certificate_binding.updated', 'binding.manage', 'certificate_binding', id, before, updated);
+        return updated;
+      }),
+    );
   }
 
   private deleteCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, { bindingId: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
-    const before = this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId));
-    const deleted = this.service.deleteCertificateBinding(tenantId(request), body as unknown as DeleteCertificateBindingDto);
-    this.audit(request, subject, 'certificate_binding.deleted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, deleted);
-    return deleted;
+    return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
+      this.service.deleteCertificateBinding(tenantId(request), body as unknown as DeleteCertificateBindingDto).then((deleted) => {
+        this.audit(request, subject, 'certificate_binding.deleted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, deleted);
+        return deleted;
+      }),
+    );
   }
 
   private detectDrift(request: HttpRequest) {
@@ -206,10 +211,12 @@ export class BindingsController {
     });
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
-    const before = this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId));
-    const result = this.service.persistDrift(tenantId(request), body as unknown as BindingDriftPersistenceDto);
-    this.audit(request, subject, 'certificate_binding.drift_persisted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, result.binding);
-    return result;
+    return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
+      this.service.persistDrift(tenantId(request), body as unknown as BindingDriftPersistenceDto).then((result) => {
+        this.audit(request, subject, 'certificate_binding.drift_persisted', 'binding.manage', 'certificate_binding', String(body.bindingId), before, result.binding);
+        return result;
+      }),
+    );
   }
 
   private patchCertificateBindingStatus(request: HttpRequest) {
@@ -219,17 +226,17 @@ export class BindingsController {
     });
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'binding.manage', 'certificate_binding', request, String(body.bindingId));
-    const before = this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId));
-    try {
-      const updated = this.service.patchCertificateBindingStatus(tenantId(request), body as unknown as PatchCertificateBindingStatusDto);
-      this.audit(request, subject, 'certificate_binding.status_updated', 'binding.manage', 'certificate_binding', String(body.bindingId), before, updated);
-      return updated;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'InvalidStateTransitionError') {
-        throw new AppError('VALIDATION_FAILED', error.message);
-      }
-      throw error;
-    }
+    return this.service.getRepository().getCertificateBinding(tenantId(request), String(body.bindingId)).then((before) =>
+      this.service.patchCertificateBindingStatus(tenantId(request), body as unknown as PatchCertificateBindingStatusDto).then((updated) => {
+        this.audit(request, subject, 'certificate_binding.status_updated', 'binding.manage', 'certificate_binding', String(body.bindingId), before, updated);
+        return updated;
+      }).catch((error) => {
+        if (error instanceof Error && error.name === 'InvalidStateTransitionError') {
+          throw new AppError('VALIDATION_FAILED', error.message);
+        }
+        throw error;
+      }),
+    );
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {

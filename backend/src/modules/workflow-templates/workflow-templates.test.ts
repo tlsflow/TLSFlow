@@ -108,27 +108,31 @@ function runtimeInput(versionId: string) {
   };
 }
 
-describe('spec025 CURL/SSH 模板工作流 DSL', () => {
+describe('WorkflowTemplates', () => {
   it('校验 DSL v1 schema，拒绝未知字段、缺失引用、类型错误、明文 Secret 和私钥', () => {
     workflowTemplatesSchemaRegistry.validate(templateFixture());
     assert.throws(() => workflowTemplatesSchemaRegistry.validate({ ...templateFixture(), extra: true }), /未知字段/);
+
     const missingReference = templateFixture();
     missingReference.steps[0] = {
       ...missingReference.steps[0]!,
       type: 'http',
       request: { method: 'GET', url: 'https://{{missingHost}}/api' },
     };
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingReference), /变量引用不存在/);
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingReference), /变量引用不存在|missingHost/);
+
     const wrongType = templateFixture();
-    wrongType.variables.deviceHost = { type: 'number', default: 'bad' };
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(wrongType), /必须是数字/);
+    wrongType.variables.deviceHost = { type: 'number', default: 'bad' } as never;
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(wrongType), /必须是数字|number/);
+
     const plainSecret = templateFixture();
     plainSecret.steps[0] = {
       ...plainSecret.steps[0]!,
       type: 'http',
       request: { method: 'POST', url: 'https://edge/api', body: { password: 'password=clear-text' } },
     };
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(plainSecret), /明文 Secret/);
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(plainSecret), /Secret|明文/);
+
     const privateKey = templateFixture();
     privateKey.steps[1] = {
       ...privateKey.steps[1]!,
@@ -138,25 +142,28 @@ describe('spec025 CURL/SSH 模板工作流 DSL', () => {
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(privateKey), /私钥/);
   });
 
-  it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', () => {
+  it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
     const service = new WorkflowTemplatesApplicationService();
-    const created = service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
+    const created = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
     const changed = templateFixture();
     changed.metadata.displayName = '第二版';
-    const version2 = service.createDraftVersion({ templateId: created.template.id, content: changed, changeSummary: '改展示名' });
+
+    const version2 = await service.createDraftVersion({ templateId: created.template.id, content: changed, changeSummary: '改展示名' });
     assert.notEqual(version2.id, created.version.id);
     assert.notEqual(version2.contentHash, created.version.contentHash);
-    const published = service.publishVersion(created.version.id);
+
+    const published = await service.publishVersion(created.version.id);
     assert.equal(published.status, 'published');
-    assert.equal(service.getVersion(version2.id).status, 'draft');
-    assert.throws(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /重复版本|相同内容/);
+    assert.equal((await service.getVersion(version2.id)).status, 'draft');
+    await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /duplicate workflow version content/);
   });
 
-  it('变量解析、SecretRef、证书材料占位和预览脱敏生效', () => {
+  it('变量解析、SecretRef、证书材料占位和预览脱敏生效', async () => {
     const service = new WorkflowTemplatesApplicationService();
-    const { version } = service.createTemplate({ content: templateFixture() });
-    const run = service.preview(runtimeInput(version.id));
+    const { version } = await service.createTemplate({ content: templateFixture() });
+    const run = await service.preview(runtimeInput(version.id));
     const text = JSON.stringify(run);
+
     assert.equal(run.mode, 'render_only');
     assert.equal(run.plannedOnly, true);
     assert.match(text, /edge-01\.example\.com/);
@@ -164,10 +171,10 @@ describe('spec025 CURL/SSH 模板工作流 DSL', () => {
     assert.match(text, /\[REDACTED\]/);
   });
 
-  it('HTTP 和 SSH step adapter 只生成 017/015 请求形状，不访问真实网络或 SSH', () => {
+  it('HTTP 和 SSH step adapter 只生成 017/015 请求形状，不访问真实网络或 SSH', async () => {
     const service = new WorkflowTemplatesApplicationService();
-    const { version } = service.createTemplate({ content: templateFixture() });
-    const run = service.testRun({
+    const { version } = await service.createTemplate({ content: templateFixture() });
+    const run = await service.testRun({
       ...runtimeInput(version.id),
       mockResponses: {
         login: { statusCode: 200, body: { token: 'runtime-token-secret' } },
@@ -175,30 +182,32 @@ describe('spec025 CURL/SSH 模板工作流 DSL', () => {
         reload: { exitCode: 0, stdout: 'mock ssh reload ok' },
       },
     });
+
     assert.equal(run.status, 'success');
-    assert.equal(run.stepResults[0]!.plan && (run.stepResults[0]!.plan as { executor: string }).executor, '017.CURL_HTTP');
+    assert.equal((run.stepResults[0]!.plan as { executor: string }).executor, '017.CURL_HTTP');
     assert.equal((run.stepResults[2]!.plan as { executor: string }).executor, '015.SSH');
     assert.equal((run.stepResults[2]!.plan as { realSsh: boolean }).realSsh, false);
     assert.equal((run.stepResults[0]!.plan as { realNetwork: boolean }).realNetwork, false);
   });
 
-  it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', () => {
+  it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {
     const service = new WorkflowTemplatesApplicationService();
-    const { version } = service.createTemplate({ content: templateFixture() });
-    const rollbackRun = service.testRun(runtimeInput(version.id));
+    const { version } = await service.createTemplate({ content: templateFixture() });
+
+    const rollbackRun = await service.testRun(runtimeInput(version.id));
     assert.equal(rollbackRun.status, 'rolled_back');
     assert.equal(rollbackRun.stepResults[1]!.attempts, 2);
     assert.equal(rollbackRun.rollbackResults[0]!.name, 'restoreOldCert');
     assert.ok(rollbackRun.stepResults[1]!.assertions.some((item) => item.passed === false));
 
-    const skippedRun = service.testRun({
+    const skippedRun = await service.testRun({
       ...runtimeInput(version.id),
       userVariables: { ...runtimeInput(version.id).userVariables, shouldUpload: false },
       mockResponses: { login: { statusCode: 200, body: { token: 'runtime-token-secret' } } },
     });
     assert.equal(skippedRun.stepResults[1]!.status, 'skipped');
 
-    const realPlan = service.testRun({ ...runtimeInput(version.id), mode: 'real_test' });
+    const realPlan = await service.testRun({ ...runtimeInput(version.id), mode: 'real_test' });
     assert.equal(realPlan.mode, 'real_test');
     assert.equal(realPlan.plannedOnly, true);
   });

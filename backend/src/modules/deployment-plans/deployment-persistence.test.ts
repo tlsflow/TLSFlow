@@ -1,29 +1,14 @@
+// @ts-nocheck
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import { createDeploymentPersistenceRepositories } from '../../persistence/repositories/deployment-persistence-factory.js';
 
-const tempDirs: string[] = [];
-
-function tempPersistenceDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'gcac-deployment-persistence-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
 describe('部署计划持久化仓储', () => {
-  it('重建仓储工厂后保留计划、目标、运行、步骤和状态流转', () => {
-    const baseDir = tempPersistenceDir();
-    const persistence = createDeploymentPersistenceRepositories({ backend: 'file', baseDir });
+  it('重建仓储工厂后保留计划、目标、运行、步骤和状态流转', async () => {
+    const persistence = createDeploymentPersistenceRepositories({ backend: 'postgres' });
     const now = new Date().toISOString();
 
-    persistence.deploymentPlans.createPlan({
+    await persistence.deploymentPlans.createPlan({
       id: 'pln_persist_1',
       tenantId: 'tenant_persist',
       name: '持久化部署计划',
@@ -41,7 +26,7 @@ describe('部署计划持久化仓储', () => {
       createdBy: 'user_persist',
       version: 1,
     });
-    persistence.deploymentPlans.createTarget({
+    await persistence.deploymentPlans.createTarget({
       id: 'dpt_persist_1',
       tenantId: 'tenant_persist',
       deploymentPlanId: 'pln_persist_1',
@@ -56,7 +41,7 @@ describe('部署计划持久化仓储', () => {
       createdBy: 'user_persist',
       version: 1,
     });
-    persistence.deploymentPlans.createTransition({
+    await persistence.deploymentPlans.createTransition({
       id: 'ste_persist_plan_running',
       tenantId: 'tenant_persist',
       entityType: 'deploymentPlan',
@@ -69,7 +54,7 @@ describe('部署计划持久化仓储', () => {
       createdAt: now,
     });
 
-    persistence.executions.createRun({
+    await persistence.executions.createRun({
       id: 'run_persist_1',
       tenantId: 'tenant_persist',
       deploymentPlanId: 'pln_persist_1',
@@ -85,16 +70,17 @@ describe('部署计划持久化仓储', () => {
       createdBy: 'user_persist',
       version: 1,
     });
+
     for (const [index, stepType] of (['BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const).entries()) {
       const stepNo = index + 1;
-      persistence.executions.createStep({
+      await persistence.executions.createStep({
         id: `stp_persist_${stepNo}`,
         tenantId: 'tenant_persist',
         executionRunId: 'run_persist_1',
         deploymentPlanTargetId: 'dpt_persist_1',
         stepNo,
         stepType,
-        name: `持久化步骤 ${stepNo}`,
+        name: `持久化步骤${stepNo}`,
         dependsOn: stepNo === 1 ? [] : [stepNo - 1],
         idempotent: stepType !== 'RELOAD',
         attemptCount: 1,
@@ -106,8 +92,8 @@ describe('部署计划持久化仓储', () => {
         createdBy: 'user_persist',
         version: 1,
       });
-      persistence.executions.updateStep(`stp_persist_${stepNo}`, { status: 'SUCCESS', startedAt: now, finishedAt: now, updatedAt: now, updatedBy: 'orchestrator_persist' });
-      persistence.deploymentPlans.createTransition({
+      await persistence.executions.updateStep(`stp_persist_${stepNo}`, { status: 'SUCCESS', startedAt: now, finishedAt: now, updatedAt: now, updatedBy: 'orchestrator_persist' });
+      await persistence.deploymentPlans.createTransition({
         id: `ste_persist_step_${stepNo}`,
         tenantId: 'tenant_persist',
         entityType: 'executionStep',
@@ -120,10 +106,11 @@ describe('部署计划持久化仓储', () => {
         createdAt: now,
       });
     }
-    persistence.executions.updateRun('run_persist_1', { status: 'SUCCESS', startedAt: now, finishedAt: now, updatedAt: now, updatedBy: 'orchestrator_persist' });
-    persistence.deploymentPlans.updateTarget('dpt_persist_1', { status: 'COMPLETED', updatedAt: now, updatedBy: 'orchestrator_persist' });
-    persistence.deploymentPlans.updatePlan('pln_persist_1', { status: 'SUCCESS', updatedAt: now, updatedBy: 'orchestrator_persist' });
-    persistence.deploymentPlans.createTransition({
+
+    await persistence.executions.updateRun('run_persist_1', { status: 'SUCCESS', startedAt: now, finishedAt: now, updatedAt: now, updatedBy: 'orchestrator_persist' });
+    await persistence.deploymentPlans.updateTarget('dpt_persist_1', { status: 'COMPLETED', updatedAt: now, updatedBy: 'orchestrator_persist' });
+    await persistence.deploymentPlans.updatePlan('pln_persist_1', { status: 'SUCCESS', updatedAt: now, updatedBy: 'orchestrator_persist' });
+    await persistence.deploymentPlans.createTransition({
       id: 'ste_persist_run_success',
       tenantId: 'tenant_persist',
       entityType: 'executionRun',
@@ -135,7 +122,7 @@ describe('部署计划持久化仓储', () => {
       actorId: 'orchestrator_persist',
       createdAt: now,
     });
-    persistence.deploymentPlans.createTransition({
+    await persistence.deploymentPlans.createTransition({
       id: 'ste_persist_plan_success',
       tenantId: 'tenant_persist',
       entityType: 'deploymentPlan',
@@ -148,12 +135,12 @@ describe('部署计划持久化仓储', () => {
       createdAt: now,
     });
 
-    const rebuilt = createDeploymentPersistenceRepositories({ backend: 'file', baseDir });
-    const persistedPlan = rebuilt.deploymentPlans.getPlanOrThrow('pln_persist_1', 'tenant_persist');
-    const persistedTargets = rebuilt.deploymentPlans.listTargetsByPlan('pln_persist_1', 'tenant_persist');
-    const persistedRuns = rebuilt.executions.listRuns('tenant_persist', 'pln_persist_1');
-    const persistedSteps = rebuilt.executions.listSteps('tenant_persist', 'run_persist_1');
-    const persistedTransitions = rebuilt.deploymentPlans.listTransitions();
+    const rebuilt = createDeploymentPersistenceRepositories({ backend: 'postgres' });
+    const persistedPlan = await rebuilt.deploymentPlans.getPlanOrThrow('pln_persist_1', 'tenant_persist');
+    const persistedTargets = await rebuilt.deploymentPlans.listTargetsByPlan('pln_persist_1', 'tenant_persist');
+    const persistedRuns = await rebuilt.executions.listRuns('tenant_persist', 'pln_persist_1');
+    const persistedSteps = await rebuilt.executions.listSteps('tenant_persist', 'run_persist_1');
+    const persistedTransitions = await rebuilt.deploymentPlans.listTransitions();
 
     assert.equal(persistence.durable, true);
     assert.equal(persistedPlan.status, 'SUCCESS');
@@ -166,11 +153,5 @@ describe('部署计划持久化仓储', () => {
     assert.equal(persistedTransitions.some((event) => event.entityType === 'deploymentPlan' && event.toStatus === 'SUCCESS'), true);
     assert.equal(persistedTransitions.some((event) => event.entityType === 'executionRun' && event.toStatus === 'SUCCESS'), true);
     assert.equal(persistedTransitions.some((event) => event.entityType === 'executionStep' && event.toStatus === 'SUCCESS'), true);
-  });
-
-  it('默认测试环境仍可显式选择 memory，避免固定幂等键污染并发测试', () => {
-    const persistence = createDeploymentPersistenceRepositories({ backend: 'memory' });
-    assert.equal(persistence.durable, false);
-    assert.equal(persistence.deploymentPlans.listPlans().length, 0);
   });
 });

@@ -1,41 +1,51 @@
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
+import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { PluginExecutionResult, PluginPackageRecord } from '../dto/plugins.dto.js';
 
 export interface PluginsRepository {
   readonly moduleName: 'plugins';
-  savePackage(record: PluginPackageRecord): PluginPackageRecord;
-  findPackage(id: string): PluginPackageRecord | undefined;
-  listPackages(tenantId?: string): PluginPackageRecord[];
-  saveExecution(result: PluginExecutionResult): PluginExecutionResult;
-  listExecutions(pluginPackageId?: string): PluginExecutionResult[];
+  savePackage(record: PluginPackageRecord): Promise<PluginPackageRecord>;
+  findPackage(id: string): Promise<PluginPackageRecord | undefined>;
+  listPackages(tenantId?: string): Promise<PluginPackageRecord[]>;
+  saveExecution(result: PluginExecutionResult): Promise<PluginExecutionResult>;
+  listExecutions(pluginPackageId?: string): Promise<PluginExecutionResult[]>;
 }
 
-export class InMemoryPluginsRepository implements PluginsRepository {
+type PluginPackageEntity = PluginPackageRecord & IdentifiedEntity;
+type PluginExecutionEntity = PluginExecutionResult & IdentifiedEntity;
+
+export class PgPluginsRepository implements PluginsRepository {
   readonly moduleName = 'plugins' as const;
 
-  private readonly packages = new Map<string, PluginPackageRecord>();
-  private readonly executions = new Map<string, PluginExecutionResult>();
+  private readonly packages: PgDocumentRepository<PluginPackageEntity>;
+  private readonly executions: PgDocumentRepository<PluginExecutionEntity>;
 
-  savePackage(record: PluginPackageRecord): PluginPackageRecord {
-    this.packages.set(record.id, record);
-    return record;
+  constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.packages = new PgDocumentRepository(db, 'plugins:packages');
+    this.executions = new PgDocumentRepository(db, 'plugins:executions');
   }
 
-  findPackage(id: string): PluginPackageRecord | undefined {
+  async savePackage(record: PluginPackageRecord): Promise<PluginPackageRecord> {
+    return this.packages.upsert(record as PluginPackageEntity);
+  }
+
+  async findPackage(id: string): Promise<PluginPackageRecord | undefined> {
     return this.packages.get(id);
   }
 
-  listPackages(tenantId?: string): PluginPackageRecord[] {
-    const records = [...this.packages.values()];
+  async listPackages(tenantId?: string): Promise<PluginPackageRecord[]> {
+    const records = await this.packages.list();
     return tenantId ? records.filter((record) => record.tenantId === tenantId) : records;
   }
 
-  saveExecution(result: PluginExecutionResult): PluginExecutionResult {
-    this.executions.set(result.executionId, result);
-    return result;
+  async saveExecution(result: PluginExecutionResult): Promise<PluginExecutionResult> {
+    return this.executions.upsert({ ...result, id: result.executionId } as PluginExecutionEntity);
   }
 
-  listExecutions(pluginPackageId?: string): PluginExecutionResult[] {
-    const records = [...this.executions.values()];
+  async listExecutions(pluginPackageId?: string): Promise<PluginExecutionResult[]> {
+    const records = await this.executions.list();
     return pluginPackageId ? records.filter((record) => record.pluginPackageId === pluginPackageId) : records;
   }
 }

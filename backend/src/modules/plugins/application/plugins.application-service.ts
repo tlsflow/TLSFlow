@@ -17,14 +17,14 @@ import type {
   PluginStepDraft,
 } from '../dto/plugins.dto.js';
 import { validatePluginManifest } from '../schema/plugins.schema.js';
-import { InMemoryPluginsRepository, type PluginsRepository } from '../repository/plugins.repository.js';
+import { PgPluginsRepository, type PluginsRepository } from '../repository/plugins.repository.js';
 
 const trustedMockSignaturePrefix = 'mock-trusted:';
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class PluginsApplicationService {
   constructor(
-    private readonly repository: PluginsRepository = new InMemoryPluginsRepository(),
+    private readonly repository: PluginsRepository = new PgPluginsRepository(),
     private readonly redaction = new RedactionService(),
   ) {}
 
@@ -37,7 +37,7 @@ export class PluginsApplicationService {
     };
   }
 
-  uploadPackage(input: PluginPackageUploadInput, tenantId = tenantFallback): PluginPackageRecord {
+  async uploadPackage(input: PluginPackageUploadInput, tenantId = tenantFallback): Promise<PluginPackageRecord> {
     const manifest = validatePluginManifest(input.manifest);
     const packageHash = this.calculateHash(input.packageContent);
     if (input.expectedHash && input.expectedHash !== packageHash) {
@@ -73,12 +73,12 @@ export class PluginsApplicationService {
     return this.repository.savePackage(record);
   }
 
-  listPackages(tenantId = tenantFallback): PluginPackageRecord[] {
+  async listPackages(tenantId = tenantFallback): Promise<PluginPackageRecord[]> {
     return this.repository.listPackages(tenantId);
   }
 
-  approvePermissions(input: PluginPermissionApprovalInput): PluginPackageRecord {
-    const record = this.requirePackage(input.pluginPackageId);
+  async approvePermissions(input: PluginPermissionApprovalInput): Promise<PluginPackageRecord> {
+    const record = await this.requirePackage(input.pluginPackageId);
     const declared = new Set(record.manifest.permissions.map((permission) => permission.name));
     const invalidPermissions = input.approvedPermissions.filter((permission) => !declared.has(permission));
     if (invalidPermissions.length > 0) {
@@ -92,9 +92,9 @@ export class PluginsApplicationService {
     });
   }
 
-  enablePlugin(input: PluginEnableInput): PluginPackageRecord {
-    const record = this.requirePackage(input.pluginPackageId);
-    const summary = this.getPermissionSummary(record.id);
+  async enablePlugin(input: PluginEnableInput): Promise<PluginPackageRecord> {
+    const record = await this.requirePackage(input.pluginPackageId);
+    const summary = await this.getPermissionSummary(record.id);
     if (!summary.canEnable) {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '插件存在未审批高风险权限，不能启用', summary);
     }
@@ -104,13 +104,13 @@ export class PluginsApplicationService {
     return this.updatePackage(record, { installStatus: 'enabled' });
   }
 
-  disablePlugin(input: PluginEnableInput): PluginPackageRecord {
-    const record = this.requirePackage(input.pluginPackageId);
+  async disablePlugin(input: PluginEnableInput): Promise<PluginPackageRecord> {
+    const record = await this.requirePackage(input.pluginPackageId);
     return this.updatePackage(record, { installStatus: 'disabled' });
   }
 
-  execute(request: PluginExecutionRequest): PluginExecutionResult {
-    const record = this.requirePackage(request.pluginPackageId);
+  async execute(request: PluginExecutionRequest): Promise<PluginExecutionResult> {
+    const record = await this.requirePackage(request.pluginPackageId);
     if (record.installStatus !== 'enabled') {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '插件未启用，不能执行', {
         pluginPackageId: record.id,
@@ -174,12 +174,12 @@ export class PluginsApplicationService {
     return this.repository.saveExecution(result);
   }
 
-  listExecutions(pluginPackageId?: string): PluginExecutionResult[] {
+  async listExecutions(pluginPackageId?: string): Promise<PluginExecutionResult[]> {
     return this.repository.listExecutions(pluginPackageId);
   }
 
-  getPermissionSummary(pluginPackageId: string): PluginPermissionSummary {
-    const record = this.requirePackage(pluginPackageId);
+  async getPermissionSummary(pluginPackageId: string): Promise<PluginPermissionSummary> {
+    const record = await this.requirePackage(pluginPackageId);
     const highRiskPermissions = record.manifest.permissions
       .filter((permission) => permission.risk === 'high')
       .map((permission) => permission.name);
@@ -194,8 +194,8 @@ export class PluginsApplicationService {
     };
   }
 
-  getStepDraft(pluginPackageId: string, actionName: string): PluginStepDraft {
-    const record = this.requirePackage(pluginPackageId);
+  async getStepDraft(pluginPackageId: string, actionName: string): Promise<PluginStepDraft> {
+    const record = await this.requirePackage(pluginPackageId);
     const action = record.manifest.actions.find((item) => item.name === actionName);
     if (!action) {
       throw new AppError('VALIDATION_FAILED', '插件动作不存在', { action: actionName });
@@ -211,8 +211,8 @@ export class PluginsApplicationService {
     };
   }
 
-  publishCapabilities(pluginPackageId: string): PluginCapabilityDeclaration[] {
-    const record = this.requirePackage(pluginPackageId);
+  async publishCapabilities(pluginPackageId: string): Promise<PluginCapabilityDeclaration[]> {
+    const record = await this.requirePackage(pluginPackageId);
     if (record.installStatus !== 'enabled') {
       return [];
     }
@@ -240,8 +240,8 @@ export class PluginsApplicationService {
     return permissions.some((permission) => permission.risk === 'high') ? 'pending' : 'not_required';
   }
 
-  private requirePackage(pluginPackageId: string): PluginPackageRecord {
-    const record = this.repository.findPackage(pluginPackageId);
+  private async requirePackage(pluginPackageId: string): Promise<PluginPackageRecord> {
+    const record = await this.repository.findPackage(pluginPackageId);
     if (!record) {
       throw new AppError('RESOURCE_NOT_FOUND', '插件包不存在', { pluginPackageId });
     }
@@ -251,7 +251,7 @@ export class PluginsApplicationService {
   private updatePackage(record: PluginPackageRecord, patch: Partial<Pick<
     PluginPackageRecord,
     'installStatus' | 'permissionApprovalStatus' | 'approvedPermissions'
-  >>): PluginPackageRecord {
+  >>): Promise<PluginPackageRecord> {
     const next: PluginPackageRecord = {
       ...record,
       ...patch,

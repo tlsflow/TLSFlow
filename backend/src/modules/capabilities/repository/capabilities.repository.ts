@@ -1,9 +1,11 @@
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
-import { newId } from '../../../shared/id.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
+import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type {
   CapabilityDeclaration,
-  CapabilityDefinition,
   CapabilityRequirement,
   CompatibilityEvaluation,
 } from '../../../shared/contracts/capability-contracts.js';
@@ -21,23 +23,35 @@ export interface CapabilitiesRepository {
   readonly moduleName: 'capabilities';
   listDefinitions(): CapabilityDefinition[];
   getDefinition(capabilityKey: string): CapabilityDefinition | undefined;
-  saveDeclaration(input: CapabilityDeclaration): CapabilityDeclaration;
-  listDeclarations(tenantId: string, query: PageQuery): PageResult<CapabilityDeclaration>;
-  findDeclarations(tenantId: string, targetType: CapabilityTargetType, targetId: string): CapabilityDeclaration[];
-  getDeclaration(tenantId: string, declarationId: string): CapabilityDeclaration | undefined;
-  saveRequirement(input: CapabilityRequirement): CapabilityRequirement;
-  listRequirements(query: PageQuery): PageResult<CapabilityRequirement>;
-  getRequirement(requirementId: string): CapabilityRequirement | undefined;
-  saveCompatibilityEvaluation(input: CompatibilityEvaluation): CompatibilityEvaluation;
-  getCompatibilityEvaluation(targetType: CapabilityTargetType, targetId: string): CompatibilityEvaluation | undefined;
+  saveDeclaration(input: CapabilityDeclaration): Promise<CapabilityDeclaration>;
+  listDeclarations(tenantId: string, query: PageQuery): Promise<PageResult<CapabilityDeclaration>>;
+  findDeclarations(tenantId: string, targetType: CapabilityTargetType, targetId: string): Promise<CapabilityDeclaration[]>;
+  getDeclaration(tenantId: string, declarationId: string): Promise<CapabilityDeclaration | undefined>;
+  saveRequirement(input: CapabilityRequirement): Promise<CapabilityRequirement>;
+  listRequirements(query: PageQuery): Promise<PageResult<CapabilityRequirement>>;
+  getRequirement(requirementId: string): Promise<CapabilityRequirement | undefined>;
+  saveCompatibilityEvaluation(input: CompatibilityEvaluation): Promise<CompatibilityEvaluation>;
+  getCompatibilityEvaluation(targetType: CapabilityTargetType, targetId: string): Promise<CompatibilityEvaluation | undefined>;
 }
 
-export class InMemoryCapabilitiesRepository implements CapabilitiesRepository {
+type CapabilityDefinition = (typeof builtInCapabilityDefinitions)[number];
+type CapabilityDeclarationRecord = CapabilityDeclaration & IdentifiedEntity;
+type CapabilityRequirementRecord = CapabilityRequirement & IdentifiedEntity;
+type CompatibilityEvaluationRecord = CompatibilityEvaluation & IdentifiedEntity;
+
+export class PgCapabilitiesRepository implements CapabilitiesRepository {
   readonly moduleName = 'capabilities' as const;
+
   private readonly definitions = [...builtInCapabilityDefinitions];
-  private readonly declarations = new Map<string, CapabilityDeclaration>();
-  private readonly requirements = new Map<string, CapabilityRequirement>();
-  private readonly compatibility = new Map<string, CompatibilityEvaluation>();
+  private readonly declarations: PgDocumentRepository<CapabilityDeclarationRecord>;
+  private readonly requirements: PgDocumentRepository<CapabilityRequirementRecord>;
+  private readonly compatibility: PgDocumentRepository<CompatibilityEvaluationRecord>;
+
+  constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.declarations = new PgDocumentRepository(db, 'capabilities:declarations');
+    this.requirements = new PgDocumentRepository(db, 'capabilities:requirements');
+    this.compatibility = new PgDocumentRepository(db, 'capabilities:compatibility');
+  }
 
   listDefinitions(): CapabilityDefinition[] {
     return [...this.definitions];
@@ -47,50 +61,48 @@ export class InMemoryCapabilitiesRepository implements CapabilitiesRepository {
     return this.definitions.find((item) => item.key === capabilityKey || item.aliases.includes(capabilityKey));
   }
 
-  saveDeclaration(input: CapabilityDeclaration): CapabilityDeclaration {
-    const existing = this.getDeclaration(input.tenantId, input.id);
-    const id = existing?.id ?? input.id ?? newId('capdecl');
-    const next = { ...input, id };
-    this.declarations.set(id, next);
-    return next;
+  async saveDeclaration(input: CapabilityDeclaration): Promise<CapabilityDeclaration> {
+    const existing = await this.getDeclaration(input.tenantId, input.id);
+    const id = existing?.id ?? input.id;
+    if (!id) throw new AppError('VALIDATION_FAILED', 'CapabilityDeclaration 缺少 id', { field: 'id' });
+    return this.declarations.upsert({ ...input, id } as CapabilityDeclarationRecord);
   }
 
-  listDeclarations(tenantId: string, query: PageQuery): PageResult<CapabilityDeclaration> {
-    const items = [...this.declarations.values()].filter((item) => item.tenantId === tenantId);
+  async listDeclarations(tenantId: string, query: PageQuery): Promise<PageResult<CapabilityDeclaration>> {
+    const items = await this.declarations.list((item) => item.tenantId === tenantId);
     return page(items, query, declarationFilter);
   }
 
-  findDeclarations(tenantId: string, targetType: CapabilityTargetType, targetId: string): CapabilityDeclaration[] {
-    return [...this.declarations.values()].filter((item) => item.tenantId === tenantId && item.targetType === targetType && item.targetId === targetId);
+  async findDeclarations(tenantId: string, targetType: CapabilityTargetType, targetId: string): Promise<CapabilityDeclaration[]> {
+    return (await this.declarations.list((item) => item.tenantId === tenantId && item.targetType === targetType && item.targetId === targetId));
   }
 
-  getDeclaration(tenantId: string, declarationId: string): CapabilityDeclaration | undefined {
-    const item = this.declarations.get(declarationId);
+  async getDeclaration(tenantId: string, declarationId: string): Promise<CapabilityDeclaration | undefined> {
+    const item = await this.declarations.get(declarationId);
     return item?.tenantId === tenantId ? item : undefined;
   }
 
-  saveRequirement(input: CapabilityRequirement): CapabilityRequirement {
-    if (this.requirements.has(input.id)) {
+  async saveRequirement(input: CapabilityRequirement): Promise<CapabilityRequirement> {
+    const existing = await this.requirements.get(input.id);
+    if (existing) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', '能力需求 ID 已存在', { requirementId: input.id });
     }
-    this.requirements.set(input.id, input);
-    return input;
+    return this.requirements.upsert(input as CapabilityRequirementRecord);
   }
 
-  listRequirements(query: PageQuery): PageResult<CapabilityRequirement> {
-    return page([...this.requirements.values()], query, requirementFilter);
+  async listRequirements(query: PageQuery): Promise<PageResult<CapabilityRequirement>> {
+    return page(await this.requirements.list(), query, requirementFilter);
   }
 
-  getRequirement(requirementId: string): CapabilityRequirement | undefined {
+  async getRequirement(requirementId: string): Promise<CapabilityRequirement | undefined> {
     return this.requirements.get(requirementId);
   }
 
-  saveCompatibilityEvaluation(input: CompatibilityEvaluation): CompatibilityEvaluation {
-    this.compatibility.set(compatibilityKey(input.targetType, input.targetId), input);
-    return input;
+  async saveCompatibilityEvaluation(input: CompatibilityEvaluation): Promise<CompatibilityEvaluation> {
+    return this.compatibility.upsert({ ...input, id: compatibilityKey(input.targetType, input.targetId) } as CompatibilityEvaluationRecord);
   }
 
-  getCompatibilityEvaluation(targetType: CapabilityTargetType, targetId: string): CompatibilityEvaluation | undefined {
+  async getCompatibilityEvaluation(targetType: CapabilityTargetType, targetId: string): Promise<CompatibilityEvaluation | undefined> {
     return this.compatibility.get(compatibilityKey(targetType, targetId));
   }
 }

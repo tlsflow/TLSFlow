@@ -10,15 +10,16 @@ export interface RecoveryCandidate {
 export class RunRecoveryWorker {
   constructor(private readonly repository: ExecutionsRepository) {}
 
-  recoverableRuns(tenantId?: string): RecoveryCandidate[] {
-    return this.repository.listRuns(tenantId)
-      .filter((run) => ['PENDING', 'DISPATCHED', 'RUNNING'].includes(run.status))
-      .map((run) => {
-        const steps = this.repository.listSteps(tenantId, run.id).sort((left, right) => left.stepNo - right.stepNo);
-        const stepsToResume = steps.filter((step) => this.canResume(step));
-        const skippedStepIds = steps.filter((step) => step.status === 'RUNNING' && step.idempotent === false).map((step) => step.id);
-        return { run, stepsToResume, skippedStepIds };
-      });
+  async recoverableRuns(tenantId?: string): Promise<RecoveryCandidate[]> {
+    const runs = await this.repository.listRuns(tenantId);
+    const candidates: RecoveryCandidate[] = [];
+    for (const run of runs.filter((item) => ['PENDING', 'DISPATCHED', 'RUNNING'].includes(item.status))) {
+      const steps = (await this.repository.listSteps(tenantId, run.id)).sort((left, right) => left.stepNo - right.stepNo);
+      const stepsToResume = steps.filter((step) => this.canResume(step));
+      const skippedStepIds = steps.filter((step) => step.status === 'RUNNING' && step.idempotent === false).map((step) => step.id);
+      candidates.push({ run, stepsToResume, skippedStepIds });
+    }
+    return candidates;
   }
 
   private canResume(step: ExecutionStepEntity): boolean {
