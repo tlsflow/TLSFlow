@@ -32,9 +32,9 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-gradient-surface); }
+.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .agent-detail-modal__framework-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-2); }
-.agent-detail-modal__framework-card { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-hover); }
+.agent-detail-modal__framework-card { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-glass); }
 .agent-detail-modal__framework-card header { display: grid; gap: var(--gc-space-1); }
 .agent-detail-modal__framework-card header span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; text-transform: uppercase; }
 .agent-detail-modal__framework-card h3 { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); }

@@ -877,9 +877,9 @@ function toErrorMessage(cause: unknown, fallback: string) {
   gap: var(--gc-space-3);
   align-items: end;
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-card);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -963,12 +963,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
   padding: var(--gc-space-5);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-card);
-  background: var(--gc-gradient-surface);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .artifact-form__section--template {
   border-color: var(--gc-color-primary-border);
-  background: var(--gc-gradient-surface-soft);
+  background: var(--gc-color-surface-glass);
 }
 
 .artifact-form__section-header {

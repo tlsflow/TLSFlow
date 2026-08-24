@@ -264,9 +264,10 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
 }
 
 .gc-plugin-workflow-source-selector__workflow {
-  border: var(--gc-border-width) solid var(--gc-color-border);
+  border: var(--gc-border-width) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
   overflow: hidden;
 }
 
@@ -341,9 +342,9 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--gc-space-3);
   padding: var(--gc-space-2) var(--gc-space-3);
-  border: var(--gc-border-width) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-sm);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .gc-plugin-workflow-source-selector__version[data-selected='true'] {

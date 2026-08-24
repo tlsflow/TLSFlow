@@ -119,10 +119,11 @@ const activeIndex = computed(() => Math.max(0, props.sections.findIndex((section
   gap: var(--gc-space-4);
   min-height: calc(var(--gc-space-12) + var(--gc-space-4));
   padding: var(--gc-space-4) var(--gc-space-5);
-  border: var(--gc-border-width-thick) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-xl);
   color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
   font: inherit;
   text-align: left;
   cursor: pointer;

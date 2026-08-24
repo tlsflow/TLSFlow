@@ -81,9 +81,9 @@ onMounted(() => { void loadRuns() })
 
 .runs-workspace {
   padding: var(--gc-space-5);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -131,9 +131,9 @@ onMounted(() => { void loadRuns() })
 .runs-table__row {
   width: 100%;
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   color: var(--gc-color-text);
   text-align: left;
   cursor: pointer;

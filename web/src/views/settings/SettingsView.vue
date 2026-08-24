@@ -37,8 +37,8 @@ const cards = [
   overflow: hidden;
   color: inherit;
   text-decoration: none;
-  border-color: var(--gc-color-border);
-  background: var(--gc-color-surface);
+  border-color: var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
   transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
 }
 .settings-overview__card::before {

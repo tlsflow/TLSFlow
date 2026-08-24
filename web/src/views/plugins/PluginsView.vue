@@ -733,9 +733,9 @@ function pluginStatusClass(plugin: PluginRecord): string {
   gap: var(--gc-space-2);
   min-width: 0;
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-gradient-surface);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }

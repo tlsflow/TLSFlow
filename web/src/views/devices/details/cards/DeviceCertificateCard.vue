@@ -58,7 +58,7 @@ const expiryCountdown = computed(() => {
 </template>
 
 <style scoped>
-.agent-detail-modal__certificate-card { display: grid; min-width: 0; gap: var(--gc-space-1); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-sm); background: var(--gc-gradient-surface-soft); cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease; }
+.agent-detail-modal__certificate-card { display: grid; min-width: 0; gap: var(--gc-space-1); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease; }
 .agent-detail-modal__certificate-card:hover,
 .agent-detail-modal__certificate-card:focus-visible { transform: translateY(calc(var(--gc-space-hairline) * -1)); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-md); outline: none; }
 .agent-detail-modal__certificate-card[data-variant='binding'] { border-color: transparent; background: var(--gc-color-text); color: var(--gc-color-surface-solid); }

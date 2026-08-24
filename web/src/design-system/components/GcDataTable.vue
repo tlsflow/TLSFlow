@@ -68,7 +68,7 @@ const { t } = useI18n()
 
 <style scoped>
 .gc-data-table { overflow: hidden; padding: 0; border-radius: var(--gc-radius-card); }
-.gc-data-table__toolbar { padding: var(--gc-space-panel) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-color-surface-raised); }
+.gc-data-table__toolbar { padding: var(--gc-space-panel) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-color-surface-glass); }
 .gc-data-table__scroll { min-width: 0; overflow-x: auto; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
 th, td { text-align: left; padding: var(--gc-space-control) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); vertical-align: middle; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); }
@@ -77,7 +77,7 @@ tbody tr { transition: background .16s ease; }
 tbody tr:hover { background: var(--gc-color-surface-hover); }
 tbody tr:last-child td { border-bottom: 0; }
 .gc-data-table__state { display: grid; justify-items: center; gap: var(--gc-space-2); padding: var(--gc-space-12) var(--gc-space-8); text-align: center; color: var(--gc-color-text); font-weight: 750; }
-.gc-data-table__footer { padding: var(--gc-space-control) var(--gc-space-5); color: var(--gc-color-text-muted); background: var(--gc-color-surface-raised); border-top: var(--gc-border-width-default) solid var(--gc-color-border); font-size: var(--gc-font-size-caption); font-weight: 650; }
+.gc-data-table__footer { padding: var(--gc-space-control) var(--gc-space-5); color: var(--gc-color-text-muted); background: var(--gc-color-surface-glass); border-top: var(--gc-border-width-default) solid var(--gc-color-border); font-size: var(--gc-font-size-caption); font-weight: 650; }
 .gc-data-table--dense .gc-data-table__toolbar { padding: var(--gc-space-panel) var(--gc-space-5); }
 .gc-data-table--dense th,
 .gc-data-table--dense td { padding: var(--gc-space-control) var(--gc-space-3); font-size: var(--gc-font-size-xs); }

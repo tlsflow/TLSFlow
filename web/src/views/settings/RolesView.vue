@@ -1318,10 +1318,10 @@ onMounted(() => void reloadAll())
   display: grid;
   max-height: calc(var(--gc-space-12) * 7);
   overflow: auto;
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
   padding: var(--gc-space-2);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 .roles-view__member-option {
   display: grid;

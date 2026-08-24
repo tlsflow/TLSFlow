@@ -86,9 +86,9 @@ function stepState(step: UserFlowStep, index: number): 'active' | 'complete' | '
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow: visible;
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -100,8 +100,8 @@ function stepState(step: UserFlowStep, index: number): 'active' | 'complete' | '
   min-width: 0;
   min-height: calc(var(--gc-space-10) + var(--gc-space-6));
   padding: var(--gc-space-3) var(--gc-space-4);
-  border-right: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  background: var(--gc-color-surface-solid);
+  border-right: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  background: transparent;
 }
 
 .gc-user-flow-wizard__step:last-child {

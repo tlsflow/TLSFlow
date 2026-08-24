@@ -353,7 +353,7 @@ function errorMessage(cause: unknown, fallback: string): string {
 .provider-wizard__step-button strong, .provider-wizard__panel-header h3, .provider-wizard__summary strong, .provider-wizard__preview strong { overflow-wrap: anywhere; }
 .provider-wizard__step-button strong { font-size: var(--gc-font-size-sm); line-height: 1.2; }
 .provider-wizard__step-button small, .provider-wizard__panel-header p, .provider-wizard__hint, .provider-field small { color: var(--gc-color-text-muted); line-height: 1.5; }
-.provider-wizard__panel { padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); }
+.provider-wizard__panel { padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .provider-wizard__panel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--gc-space-3); }
 .provider-wizard__panel-header h3, .provider-wizard__panel-header p { margin: 0; }
 .provider-wizard__panel-header h3 { color: var(--gc-color-text); font-size: var(--gc-font-size-lg); line-height: 1.2; }

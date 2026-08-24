@@ -29,9 +29,9 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-gradient-surface); }
+.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .agent-detail-modal__log-list { display: grid; grid-column: 1 / -1; gap: var(--gc-space-1); }
-.agent-detail-modal__log-item { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-sm); background: var(--gc-gradient-surface-soft); }
+.agent-detail-modal__log-item { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-glass); }
 .agent-detail-modal__log-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); }
 .agent-detail-modal__log-main { display: grid; min-width: 0; gap: var(--gc-space-1); }
 .agent-detail-modal__log-main strong,

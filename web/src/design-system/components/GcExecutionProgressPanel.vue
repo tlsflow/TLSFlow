@@ -542,10 +542,11 @@ function feedStatusText(status: TaskStatus): string {
   gap: var(--gc-space-3) var(--gc-space-5);
   padding: var(--gc-space-3) var(--gc-space-4);
   border-radius: var(--gc-radius-control);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   background:
     linear-gradient(135deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle)),
     linear-gradient(120deg, var(--gc-color-info-border), var(--gc-color-success-bg));
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-dry-run-modern__hero[data-state='failed'] {
@@ -676,8 +677,9 @@ function feedStatusText(status: TaskStatus): string {
   gap: var(--gc-border-width-thick);
   padding: var(--gc-space-control) var(--gc-space-3);
   border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface);
-  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  background: var(--gc-color-surface-glass);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-dry-run-modern__metrics dt {
@@ -766,9 +768,9 @@ function feedStatusText(status: TaskStatus): string {
   display: grid;
   gap: var(--gc-space-compact);
   padding: var(--gc-space-3) var(--gc-space-panel);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
   transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
@@ -858,17 +860,20 @@ function feedStatusText(status: TaskStatus): string {
   display: grid;
   gap: var(--gc-space-1);
   padding: var(--gc-space-3) var(--gc-space-panel);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-dry-run-modern__event-preview {
   display: grid;
   gap: var(--gc-space-1);
   padding: var(--gc-space-3) var(--gc-space-panel);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface-soft);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-dry-run-modern__event-request {
@@ -898,9 +903,9 @@ function feedStatusText(status: TaskStatus): string {
   gap: var(--gc-space-control);
   align-items: start;
   padding: var(--gc-space-3) var(--gc-space-panel);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .gc-dry-run-modern__feed-icon {

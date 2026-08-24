@@ -116,7 +116,7 @@ async function submit(): Promise<void> {
   min-height: 100vh;
   padding: var(--gc-space-6) var(--gc-space-8) var(--gc-space-10);
   color: var(--gc-color-text);
-  background: var(--gc-color-bg);
+  background: transparent;
 }
 
 .login-page__topbar {
@@ -229,9 +229,9 @@ async function submit(): Promise<void> {
   gap: var(--gc-space-3);
   min-width: 0;
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-card);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -273,9 +273,9 @@ async function submit(): Promise<void> {
   gap: var(--gc-space-4);
   width: 100%;
   padding: var(--gc-space-8);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-lg);
 }
 

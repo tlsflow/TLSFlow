@@ -67,7 +67,7 @@ function toggle(): void {
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-card);
   color: var(--gc-color-text);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   padding: var(--gc-space-4);
   text-align: left;
   cursor: pointer;

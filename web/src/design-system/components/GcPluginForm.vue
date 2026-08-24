@@ -198,7 +198,7 @@ function toggleArray(field: PluginFormField, value: string, checked: boolean): v
 
 <style scoped>
 .gc-plugin-form { display: grid; gap: var(--gc-space-4); }
-.gc-plugin-form__section { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
+.gc-plugin-form__section { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-space-hairline) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .gc-plugin-form__section-header { display: grid; gap: var(--gc-space-1); }
 .gc-plugin-form__section-header h3, .gc-plugin-form__section-header p { margin: 0; }
 .gc-plugin-form__section-header p, .gc-plugin-form__field small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }

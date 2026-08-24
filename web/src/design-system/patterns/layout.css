@@ -660,11 +660,10 @@
 }
 
 .gc-card {
-  background: var(--gc-color-surface-solid);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  background: var(--gc-color-surface-glass);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-card);
   box-shadow: var(--gc-shadow-sm);
-  backdrop-filter: blur(var(--gc-space-5)) saturate(130%);
   padding: var(--gc-space-panel);
 }
 
@@ -676,7 +675,15 @@ section.gc-card.gc-empty-state {
 .gc-page { display: flex; flex-direction: column; gap: var(--gc-space-4); min-width: 0; }
 .gc-page__toolbar { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: center; }
 .gc-error-page,
-.gc-blank-layout { display: grid; place-items: center; min-height: 100vh; padding: var(--gc-space-8); text-align: center; }
+.gc-blank-layout {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--gc-space-8);
+  background: var(--gc-gradient-workspace);
+  background-attachment: fixed;
+  text-align: center;
+}
 .gc-error-page__actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gc-space-3); }
 .gc-error-page__meta { color: var(--gc-color-danger); }
 .gc-form-panel {
@@ -889,7 +896,8 @@ select.gc-native-select:disabled,
 /* 中文说明：GC Shell 保留内容区和用户菜单的兼容基础规则。 */
 .gc-shell {
   min-height: 100vh;
-  background: var(--gc-color-bg);
+  background: var(--gc-gradient-workspace);
+  background-attachment: fixed;
 }
 
 .gc-shell__task-entry,
@@ -922,7 +930,8 @@ select.gc-native-select:disabled,
   min-height: 100vh;
   margin-left: var(--gc-size-shell-sidebar);
   padding: var(--gc-space-6) var(--gc-space-8) var(--gc-space-10);
-  background: var(--gc-color-bg);
+  background: var(--gc-gradient-workspace);
+  background-attachment: fixed;
 }
 
 .gc-shell__hero {
@@ -999,7 +1008,8 @@ select.gc-native-select:disabled,
   display: grid;
   grid-template-columns: var(--gc-size-shell-sidebar) minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--gc-color-bg);
+  background: var(--gc-gradient-workspace);
+  background-attachment: fixed;
   transition: grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -1445,7 +1455,8 @@ select.gc-native-select:disabled,
   min-width: 0;
   margin: 0;
   padding: var(--gc-space-6) var(--gc-space-8) var(--gc-space-10);
-  background: var(--gc-color-bg);
+  background: var(--gc-gradient-workspace);
+  background-attachment: fixed;
 }
 
 .gc-workbench__account-actions {

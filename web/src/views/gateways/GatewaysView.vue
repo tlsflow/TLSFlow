@@ -457,7 +457,7 @@ const config = computed<BusinessPageConfig>(() => ({
 .gateway-detail-modal__links { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 .gateway-detail-modal__hero-side { justify-content: flex-end; }
 .gateway-detail-modal__sections { display: grid; gap: var(--gc-space-3); }
-.gateway-detail-modal__section { display: grid; gap: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-4); background: var(--gc-gradient-surface); }
+.gateway-detail-modal__section { display: grid; gap: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); padding: var(--gc-space-4); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .gateway-detail-modal__section-head h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
 .gateway-detail-modal__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; }
 .gateway-detail-modal__summary-item { min-height: calc(var(--gc-space-10) * 2); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-control); padding: var(--gc-space-2) var(--gc-space-3); background: var(--gc-color-surface-solid); }

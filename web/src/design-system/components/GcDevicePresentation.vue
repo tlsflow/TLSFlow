@@ -72,7 +72,7 @@ function display(value: unknown, type: string, sensitive = false): string {
 
 <style scoped>
 .gc-device-presentation { display: grid; gap: var(--gc-space-4); }
-.gc-device-presentation__group { padding: var(--gc-space-4); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
+.gc-device-presentation__group { padding: var(--gc-space-4); border: var(--gc-space-hairline) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); }
 .gc-device-presentation__group h3 { margin: 0 0 var(--gc-space-3); }
 .gc-device-presentation__group dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-3); margin: 0; }
 .gc-device-presentation__group dl div { display: grid; gap: var(--gc-space-1); }

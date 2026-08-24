@@ -1106,9 +1106,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   display: grid;
   gap: var(--gc-space-2);
   padding: var(--gc-space-3) var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background: var(--gc-color-surface-raised);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .workflow-template-detail__facts {

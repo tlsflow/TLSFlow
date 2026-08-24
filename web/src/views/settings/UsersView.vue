@@ -712,7 +712,7 @@ onMounted(async () => {
   padding: var(--gc-space-3) var(--gc-space-4);
   border-top: var(--gc-border-width-default) solid var(--gc-color-border);
   color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-raised);
+  background: var(--gc-color-surface-glass);
   font-size: var(--gc-font-size-xs);
   font-weight: 650;
 }

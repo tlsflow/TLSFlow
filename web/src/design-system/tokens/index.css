@@ -6,6 +6,9 @@
   --gc-color-bg-glow: rgb(255 255 255 / 88%);
   --gc-color-bg-gradient-start: #ffffff;
   --gc-color-bg-gradient-end: #eef2f7;
+  --gc-color-workspace-primary: #d7e8ff;
+  --gc-color-workspace-accent: #d8f3ff;
+  --gc-color-workspace-soft: #edf6ff;
   --gc-color-surface: #ffffff;
   --gc-color-surface-muted: #f8fafc;
   --gc-color-surface-soft: #f8fafc;
@@ -16,7 +19,8 @@
   --gc-color-surface-selected: #eff6ff;
   --gc-color-surface-field: #f8fafc;
   --gc-color-surface-field-focus: #ffffff;
-  --gc-color-surface-glass: rgb(255 255 255 / 86%);
+  --gc-color-surface-glass: rgb(255 255 255 / 68%);
+  --gc-color-surface-workspace-glass: rgb(255 255 255 / 58%);
   --gc-color-surface-panel: #ffffff;
   --gc-color-surface-overlay: rgb(255 255 255 / 96%);
   --gc-color-text: #475569;
@@ -70,6 +74,7 @@
   --gc-gradient-primary: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
   --gc-gradient-brand: linear-gradient(90deg, var(--gc-color-primary-strong), var(--gc-color-success));
   --gc-gradient-hero: linear-gradient(140deg, var(--gc-color-bg) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-bg-gradient-end) 100%);
+  --gc-gradient-workspace: linear-gradient(118deg, var(--gc-color-workspace-primary) 0%, var(--gc-color-workspace-soft) 42%, var(--gc-color-workspace-accent) 100%);
   --gc-gradient-progress: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary-strong) 55%, var(--gc-color-success));
   --gc-gradient-risk-scale: linear-gradient(90deg, var(--gc-color-danger) 0%, var(--gc-color-danger) 18%, var(--gc-color-warning) 20%, var(--gc-color-warning) 58%, var(--gc-color-success) 60%, var(--gc-color-success) 100%);
   --gc-shadow-hover: 0 8px 20px rgb(15 23 42 / 8%);
@@ -212,6 +217,9 @@
   --gc-color-bg-glow: rgb(96 165 250 / 12%);
   --gc-color-bg-gradient-start: #111827;
   --gc-color-bg-gradient-end: #0b1120;
+  --gc-color-workspace-primary: #142a4a;
+  --gc-color-workspace-accent: #123746;
+  --gc-color-workspace-soft: #16243b;
   --gc-color-surface: #1e293b;
   --gc-color-surface-muted: #334155;
   --gc-color-surface-soft: #1e293b;
@@ -222,7 +230,8 @@
   --gc-color-surface-selected: rgb(74 163 255 / 14%);
   --gc-color-surface-field: #273449;
   --gc-color-surface-field-focus: #334155;
-  --gc-color-surface-glass: rgb(30 41 59 / 88%);
+  --gc-color-surface-glass: rgb(30 41 59 / 76%);
+  --gc-color-surface-workspace-glass: rgb(30 41 59 / 66%);
   --gc-color-surface-panel: #1e293b;
   --gc-color-surface-overlay: rgb(30 41 59 / 96%);
   --gc-color-text: #cbd5e1;
@@ -276,6 +285,7 @@
   --gc-gradient-primary: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
   --gc-gradient-brand: linear-gradient(90deg, var(--gc-color-primary), var(--gc-color-success));
   --gc-gradient-hero: linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
+  --gc-gradient-workspace: linear-gradient(118deg, var(--gc-color-workspace-primary) 0%, var(--gc-color-workspace-soft) 42%, var(--gc-color-workspace-accent) 100%);
   --gc-gradient-progress: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary) 55%, var(--gc-color-success));
   --gc-gradient-risk-scale: linear-gradient(90deg, var(--gc-color-danger) 0%, var(--gc-color-danger) 18%, var(--gc-color-warning) 20%, var(--gc-color-warning) 58%, var(--gc-color-success) 60%, var(--gc-color-success) 100%);
   --gc-shadow-hover: 0 8px 20px rgb(0 0 0 / 24%);

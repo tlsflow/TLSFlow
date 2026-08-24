@@ -429,8 +429,9 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   grid-template-columns: repeat(4, minmax(var(--gc-size-card-min), 1fr));
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border-color: var(--gc-color-border-muted);
-  background: var(--gc-gradient-surface);
+  border-color: var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .ca-operations__summary > div {
