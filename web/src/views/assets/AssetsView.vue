@@ -656,7 +656,7 @@ async function openEditDialog(row: ViewRow) {
   await loadDevices()
   await loadServiceInstances(assetDraft.deviceId)
   await refreshAssetTargets()
-  await loadManagedTargets(assetDraft.siteAssetId)
+  await loadManagedTargets(assetDraft.siteAssetId, contextManagedTarget ?? undefined)
   targetSelectionInitializing.value = false
   createDialogOpen.value = true
   createError.value = ''
@@ -968,7 +968,7 @@ async function refreshAssetTargets() {
   }
 }
 
-async function loadManagedTargets(siteAssetId: string) {
+async function loadManagedTargets(siteAssetId: string, currentTarget?: ApiRecord) {
   managedTargetListLoading.value = true
   managedTargetItems.value = []
   siteListError.value = ''
@@ -984,6 +984,11 @@ async function loadManagedTargets(siteAssetId: string) {
       filters: { siteId: siteAssetId, status: 'ACTIVE' },
     })
     managedTargetItems.value = [...(result.data?.items ?? [])]
+    if (currentTarget && assetDraft.managedTargetId && !managedTargetItems.value.some(
+      (item) => String(item.id ?? '') === assetDraft.managedTargetId,
+    )) {
+      managedTargetItems.value.push(currentTarget)
+    }
     if (assetDraft.managedTargetId && !managedTargetItems.value.some((item) => String(item.id ?? '') === assetDraft.managedTargetId)) {
       assetDraft.managedTargetId = ''
     }
@@ -1038,6 +1043,23 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
     const response = readRecord(compatibleResult.value.data) ?? {}
     const items = Array.isArray(response.items) ? response.items as ApiRecord[] : []
     compatibleManagedPlugins.value = items.filter((item) => item.compatible === true)
+    const effectivePlugin = readRecord(readNested(effectiveCapability.value, ['plugin']))
+    const effectivePluginVersionId = String(effectivePlugin?.pluginVersionId ?? '')
+    if (
+      effectivePluginVersionId
+      && effectiveCapability.value?.compatible !== false
+      && !compatibleManagedPlugins.value.some((item) => String(item.pluginVersionId ?? '') === effectivePluginVersionId)
+    ) {
+      const executionLocation = String(effectiveCapability.value?.executionLocation ?? '')
+      compatibleManagedPlugins.value.push({
+        ...effectivePlugin,
+        pluginVersionId: effectivePluginVersionId,
+        compatible: true,
+        executionLocations: executionLocation ? [executionLocation] : [],
+      })
+      compatibleManagedPlugins.value.sort((left, right) =>
+        String(left.pluginId ?? '').localeCompare(String(right.pluginId ?? '')))
+    }
     const selectedPluginVersionId = assetDraft.pluginOverrideVersionId.trim()
     if (selectedPluginVersionId && !compatibleManagedPlugins.value.some(
       (item) => String(item.pluginVersionId ?? '') === selectedPluginVersionId,
@@ -1243,13 +1265,14 @@ async function refreshManagedTargetSelection() {
   const previousFrameworkId = assetDraft.frameworkInstanceId
   const previousSiteId = assetDraft.siteAssetId
   const previousTargetId = assetDraft.managedTargetId
+  const previousTarget = managedTargetItems.value.find((item) => String(item.id ?? '') === previousTargetId)
   await loadServiceInstances(assetDraft.deviceId)
   const matchingFramework = serviceInstanceItems.value.find((item) => String(item.id ?? '') === previousFrameworkId)
     ?? serviceInstanceItems.value.find((item) => frameworkTypesMatch(item.frameworkType, assetDraft.frameworkType))
   assetDraft.frameworkInstanceId = String(matchingFramework?.id ?? '')
   await refreshAssetTargets()
   assetDraft.siteAssetId = siteItems.value.some((item) => String(item.id ?? '') === previousSiteId) ? previousSiteId : ''
-  await loadManagedTargets(assetDraft.siteAssetId)
+  await loadManagedTargets(assetDraft.siteAssetId, previousTarget)
   assetDraft.managedTargetId = managedTargetItems.value.some((item) => String(item.id ?? '') === previousTargetId) ? previousTargetId : ''
 }
 

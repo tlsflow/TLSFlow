@@ -571,14 +571,46 @@ describe('资产与证书产物视图', () => {
   })
 
   it('编辑 ADC 应用资产时加载并允许修改受管目标链路', async () => {
+    assetMocks.getManagedTargetEffectiveCapability.mockImplementation((
+      _managedTargetId: string,
+      _capabilityKey: string,
+      applicationAssetId?: string,
+    ) => applicationAssetId
+      ? okRecord({
+        capabilityKey: 'certificate.deploy',
+        source: { ownerType: 'MANAGED_TARGET', ownerId: 'target-adc-1', precedence: 'TARGET_OVERRIDE' },
+        plugin: {
+          pluginVersionId: 'plugin-version-adc-1',
+          pluginId: 'citrix.netscaler-adc',
+          version: '1.1.29',
+          runtime: 'WORKFLOW_DSL',
+          displayName: 'Citrix ADC 证书部署',
+        },
+        binding: { pluginBindingId: 'binding-adc-1', status: 'ACTIVE', version: 1 },
+        executionLocation: 'CONTROL_PLANE',
+        compatible: true,
+      })
+      : okRecord({
+        capabilityKey: 'certificate.deploy',
+        source: { ownerType: 'MANAGED_TARGET', ownerId: 'target-adc-1', precedence: 'TARGET_OVERRIDE' },
+        plugin: { pluginVersionId: 'plugin-version-default', pluginId: 'builtin.windows.iis.pfx', runtime: 'AGENT_ATOMIC' },
+        binding: { pluginBindingId: 'binding-default', status: 'ACTIVE', version: 1 },
+        executionLocation: 'AGENT',
+      }))
     assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({
       items: [{
-        pluginVersionId: 'plugin-version-adc-1',
-        pluginId: 'citrix.netscaler-adc',
-        version: '1.1.15',
+        pluginVersionId: 'plugin-version-apache-1',
+        pluginId: 'builtin.workflow.apache-8444-cert-switch',
+        version: '1.2.6',
         runtime: 'WORKFLOW_DSL',
-        displayNameKey: 'plugin.citrix.name',
-        displayName: 'Citrix ADC 证书部署',
+        displayName: 'Apache HTTPS 证书部署',
+        compatible: true,
+      }, {
+        pluginVersionId: 'plugin-version-synology-1',
+        pluginId: 'builtin.workflow.synology-dsm-cert-import',
+        version: '1.2.5',
+        runtime: 'WORKFLOW_DSL',
+        displayName: 'Synology DSM 证书部署',
         compatible: true,
       }],
     }))
@@ -606,6 +638,7 @@ describe('资产与证书产物视图', () => {
           targetType: 'tls.binding',
           targetKey: 'LB:test',
           bindingKey: 'LB:test',
+          status: 'UNREACHABLE',
         },
       },
       metadata: {
@@ -624,17 +657,7 @@ describe('资产与证书产物视图', () => {
     assetMocks.listSiteAssets.mockResolvedValue(okPage([
       { id: 'site-adc-1', frameworkInstanceId: 'svc-adc-1', deviceId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
     ]))
-    assetMocks.listManagedTargets.mockResolvedValue(okPage([
-      {
-        id: 'target-adc-1',
-        deviceId: 'host-adc-1',
-        frameworkInstanceId: 'svc-adc-1',
-        siteId: 'site-adc-1',
-        targetType: 'tls.binding',
-        targetKey: 'LB:test',
-        bindingKey: 'LB:test',
-      },
-    ]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([]))
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
