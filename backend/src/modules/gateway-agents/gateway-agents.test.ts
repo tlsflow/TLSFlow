@@ -132,6 +132,10 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
     const broker = new MockCredentialBroker();
     const session = broker.issue({
       taskId: 'task_cred',
+      operatorId: 'operator_1',
+      executionRunId: 'run_cred',
+      stepId: 'step_cred',
+      auditRef: 'audit_issue_001',
       gatewayId: 'gw_001',
       targetId: 'host_001',
       protocol: 'ssh',
@@ -144,6 +148,10 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
 
     assert.equal(session.secretRef.ref, 'secret://tenant/ssh-key');
     assert.match(session.grantRef.ref, /^grant_/);
+    assert.equal(session.operatorId, 'operator_1');
+    assert.equal(session.executionRunId, 'run_cred');
+    assert.equal(session.stepId, 'step_cred');
+    assert.deepEqual(session.auditRefs, ['audit_issue_001']);
     assert.equal(JSON.stringify(session).includes('plain-password'), false);
 
     const once = broker.use(session.id, 'exec', now);
@@ -152,8 +160,9 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
     assert.equal(twice.status, 'used');
     assert.throws(() => broker.use(session.id, 'exec', now), /不可用/);
 
-    const revoked = broker.revoke(session.id, now);
+    const revoked = broker.revoke(session.id, now, 'audit_revoke_001');
     assert.equal(revoked.status, 'revoked');
+    assert.deepEqual(revoked.auditRefs, ['audit_issue_001', 'audit_revoke_001']);
 
     const expiring = broker.issue({
       taskId: 'task_expire',
@@ -167,12 +176,22 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
     });
     assert.equal(broker.get(expiring.id, new Date('2026-06-08T00:00:02.000Z'))?.status, 'expired');
     assert.throws(() => broker.issue({ taskId: 'task_bad', gatewayId: 'gw_001', targetId: 'host_001', protocol: 'ssh', secretRef: 'secret://x', requestedActions: ['root'] }), /超范围/);
+
+    const auditEvents = broker.listAuditRecords(session.id).map((record) => record.event);
+    assert.deepEqual(auditEvents, ['issued', 'used', 'used', 'revoked']);
+    const issuedAudit = broker.listAuditRecords(session.id)[0];
+    assert.equal(issuedAudit.operatorId, 'operator_1');
+    assert.equal(issuedAudit.executionRunId, 'run_cred');
+    assert.equal(issuedAudit.stepId, 'step_cred');
+    assert.equal(JSON.stringify(broker.listAuditRecords()).includes('secret://tenant/ssh-key'), false);
   });
 
   it('GatewayTaskService 支持 delegated task 下发、ack/result/evidence 和幂等保护', () => {
     const service = new GatewayTaskService();
     const task = service.dispatch({
       idempotencyKey: 'idem_gateway_task_001',
+      operatorId: 'operator_1',
+      planId: 'plan_001',
       executionRunId: 'run_001',
       stepId: 'step_001',
       gatewayId: 'gw_001',
@@ -182,6 +201,7 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       action: 'exec',
       payload: { commandRef: 'secret://commands/install-cert' },
       credentialSessionId: 'cred_sess_001',
+      credentialLeaseId: 'lease_cred_001',
       now,
     });
     const repeated = service.dispatch({ ...task, idempotencyKey: 'idem_gateway_task_001', target: task.target });
@@ -200,6 +220,12 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
       delegatedTargetId: task.delegatedTargetId,
       adapter: task.adapter,
       credentialSessionId: task.credentialSessionId,
+      credentialLeaseId: task.credentialLeaseId,
+      executionRunId: task.executionRunId,
+      stepId: task.stepId,
+      action: task.action,
+      result: 'success',
+      evidenceRef: 'audit://gateway-evidence/001',
       kind: 'command_summary',
       summary: '已写入证书文件 hash=abc',
       metadata: { sha256: 'abc' },
@@ -213,7 +239,19 @@ describe('spec014 Gateway Agent 与隔离区执行 mock-safe 闭环', () => {
 
     assert.equal(completed.status, 'success');
     assert.deepEqual(completed.result?.evidenceIds, [evidence.id]);
+    assert.equal(completed.result?.evidenceRef, 'audit://gateway-evidence/001');
     assert.equal(service.listEvidence(task.id)[0].delegatedTargetId, 'host_001');
+    assert.deepEqual(service.listEvidence(task.id)[0], {
+      ...evidence,
+      operatorId: 'operator_1',
+      planId: 'plan_001',
+      executionRunId: 'run_001',
+      stepId: 'step_001',
+      credentialLeaseId: 'lease_cred_001',
+      action: 'exec',
+      result: 'success',
+      evidenceRef: 'audit://gateway-evidence/001',
+    });
     assert.equal(service.result(task.id, 'lease_001', { success: false, status: 'failed', summary: '重复结果应被忽略' }), completed);
   });
 

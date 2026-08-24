@@ -16,7 +16,7 @@ function createPlanBody(idempotencyKey = 'idem_plan_1', riskLevel: 'low' | 'high
     idempotencyKey,
     policy: { riskLevel, approvalRequired: riskLevel === 'high', failurePolicy: 'rollback' },
     targets: [
-      { certificateBindingId: 'binding_1', executionTargetId: 'target_1', executorType: 'AGENT' },
+      { certificateBindingId: 'binding_1', executionTargetId: 'target_1', executorType: 'GATEWAY_SSH', gatewayId: 'gw_1', adapter: 'ssh' },
     ],
   };
 }
@@ -56,6 +56,51 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets.length, 1);
     assert.equal(plan.targets[0].certificateBindingId, 'binding_1');
     assert.ok(plan.targets[0].deploymentPlanId);
+  });
+
+  it('部署计划创建、dry-run、execute 保留 Gateway 路由元数据到目标和步骤快照', async () => {
+    const app = createApp();
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans',
+      headers: userHeaders,
+      body: {
+        ...createPlanBody('idem_gateway_route_metadata', 'low'),
+        targets: [{
+          certificateBindingId: 'binding_gateway_route',
+          executionTargetId: 'target_gateway_route',
+          executorType: 'AGENT',
+          gatewayId: 'gw_001',
+          zoneId: 'zone_prod',
+          adapter: 'ssh',
+          delegatedTargetId: 'host_001',
+          fallbackSuggestions: ['script_package', 'manual'],
+        }],
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const plan = created.body as { id: string; targets: Array<{ gatewayRoute?: Record<string, unknown> }> };
+    assert.deepEqual(plan.targets[0].gatewayRoute, {
+      gatewayId: 'gw_001',
+      zoneId: 'zone_prod',
+      adapter: 'ssh',
+      delegatedTargetId: 'host_001',
+      fallbackSuggestions: ['script_package', 'manual'],
+    });
+
+    const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
+    assert.equal(submitted.statusCode, 200);
+    const dryRun = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/dry-run', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_gateway_route_dry' } });
+    assert.equal(dryRun.statusCode, 200);
+    const dryRunStep = (dryRun.body as { steps: Array<{ inputSnapshot: { gatewayRoute?: Record<string, unknown> } }> }).steps[0];
+    assert.equal(dryRunStep.inputSnapshot.gatewayRoute?.gatewayId, 'gw_001');
+    assert.equal(dryRunStep.inputSnapshot.gatewayRoute?.zoneId, 'zone_prod');
+    assert.equal(dryRunStep.inputSnapshot.gatewayRoute?.adapter, 'ssh');
+
+    const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_gateway_route_exec' } });
+    assert.equal(executed.statusCode, 200);
+    const executeStep = (executed.body as { steps: Array<{ inputSnapshot: { gatewayRoute?: Record<string, unknown> } }> }).steps[0];
+    assert.deepEqual(executeStep.inputSnapshot.gatewayRoute?.fallbackSuggestions, ['script_package', 'manual']);
   });
 
   it('部署目标必须引用 certificateBindingId，禁止直接部署到 Host', async () => {
@@ -121,19 +166,23 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
-  it('mock executor 成功时 run 和 step 从 DISPATCHED/RUNNING 走到 SUCCESS', async () => {
+  it('mock-safe gateway adapter 成功时 run 和 step 从 DISPATCHED/RUNNING 走到 SUCCESS', async () => {
     const deploymentService = new DeploymentPlansApplicationService();
     const app = createApp({ deploymentPlans: new DeploymentPlansController(deploymentService) });
-    const plan = await createReadyLowRiskPlan(app, 'idem_mock_success_plan');
-    const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_mock_success_run' } });
+    const plan = await createReadyLowRiskPlan(app, 'idem_gateway_success_plan');
+    const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId: plan.id, idempotencyKey: 'idem_gateway_success_run' } });
     const runId = (executed.body as { run: { id: string } }).run.id;
 
     const jobResult = await deploymentService.getExecutionsService().runNextJobForTest();
     const run = deploymentService.getExecutionsService().getRun(runId, 'tenant_1');
     const steps = deploymentService.getExecutionsService().listSteps({ tenantId: 'tenant_1', executionRunId: runId });
+    const finishedPlan = deploymentService.getRepository().getPlanOrThrow(plan.id, 'tenant_1');
+    const finishedTargets = deploymentService.getRepository().listTargetsByPlan(plan.id, 'tenant_1');
 
     assert.equal(jobResult?.success, true);
     assert.equal(run.status, 'SUCCESS');
+    assert.equal(finishedPlan.status, 'SUCCESS');
+    assert.equal(finishedTargets.every((target) => target.status === 'COMPLETED'), true);
     assert.equal(steps.every((step) => step.status === 'SUCCESS'), true);
   });
 
@@ -149,8 +198,9 @@ describe('部署计划与执行编排 API', () => {
       idempotencyKey: 'idem_mock_fail_run',
       actorId: 'user_1',
       tenantId: 'tenant_1',
-      executorTypeByTargetId: new Map([[targetId, 'AGENT']]),
+      executorTypeByTargetId: new Map([[targetId, 'MOCK']]),
       mockResultByTargetId: new Map([[targetId, 'fail']]),
+      allowMockExecutor: true,
     });
 
     const jobResult = await deploymentService.getExecutionsService().runNextJobForTest();
@@ -243,6 +293,31 @@ describe('部署计划与执行编排 API', () => {
     const second = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans', headers: userHeaders, body: conflictBody });
     assert.equal(second.statusCode, 409);
     assert.equal((second.body as { errorCode: string }).errorCode, 'IDEMPOTENCY_CONFLICT');
+  });
+
+  it('创建、dry-run 和 execute 支持 Header 幂等键', async () => {
+    const app = createApp();
+    const body = createPlanBody('body_ignored_by_header', 'low');
+    delete (body as Partial<typeof body>).idempotencyKey;
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans',
+      headers: { ...userHeaders, 'x-idempotency-key': 'idem_header_plan' },
+      body,
+    });
+    assert.equal(created.statusCode, 201);
+    const plan = created.body as { id: string; idempotencyKey: string };
+    assert.equal(plan.idempotencyKey, 'idem_header_plan');
+
+    const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
+    assert.equal(submitted.statusCode, 200);
+
+    const dryRun = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/dry-run', headers: { ...userHeaders, 'x-idempotency-key': 'idem_header_dry' }, body: { planId: plan.id } });
+    assert.equal(dryRun.statusCode, 200);
+
+    const executed = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: { ...userHeaders, 'x-idempotency-key': 'idem_header_exec' }, body: { planId: plan.id } });
+    assert.equal(executed.statusCode, 200);
   });
 
   it('能力匹配 blocked 的目标不能创建计划，manual_required 会强制进入审批', async () => {

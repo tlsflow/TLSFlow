@@ -1,6 +1,6 @@
 import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
-import type { DeploymentPlanApprovalStatus, DeploymentPlanPolicyDto, DeploymentPlanTargetStatus, DeploymentPlanType } from '../dto/deployment-plans.dto.js';
+import type { DeploymentGatewayRouteDto, DeploymentPlanApprovalStatus, DeploymentPlanPolicyDto, DeploymentPlanTargetStatus, DeploymentPlanType } from '../dto/deployment-plans.dto.js';
 
 export interface DeploymentPlanEntity extends IdentifiedEntity {
   tenantId?: string;
@@ -30,6 +30,7 @@ export interface DeploymentPlanTargetEntity extends IdentifiedEntity {
   executorType: ExecutionTargetKind;
   requiredCapabilities: string[];
   matchResult?: Record<string, unknown>;
+  gatewayRoute?: DeploymentGatewayRouteDto;
   status: DeploymentPlanTargetStatus;
   createdAt: string;
   updatedAt: string;

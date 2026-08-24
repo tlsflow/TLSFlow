@@ -6,6 +6,8 @@ import { validateObject } from '../../../common/validation/schema-validation.js'
 import type { ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel } from '../../../shared/security-types.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
+import type { FallbackSuggestion } from '../../gateway-agents/gateway-agent.types.js';
+import type { DeploymentGatewayRouteDto } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
 import type { DeploymentPlanPolicyDto } from '../dto/deployment-plans.dto.js';
 
@@ -39,7 +41,7 @@ export class DeploymentPlansController {
       name: { type: 'string', required: true },
       certificateVersionId: { type: 'string', required: true },
       targets: { type: 'array', required: true },
-      idempotencyKey: { type: 'string', required: true },
+      idempotencyKey: { type: 'string' },
       planType: { type: 'string' },
       policy: { type: 'object' },
     });
@@ -50,7 +52,7 @@ export class DeploymentPlansController {
         name: String(body.name),
         certificateVersionId: String(body.certificateVersionId),
         targets: this.parseTargets(body.targets),
-        idempotencyKey: String(body.idempotencyKey),
+        idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
         planType: body.planType === undefined ? undefined : body.planType as 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY',
         policy: this.parsePolicy(body.policy),
         actorId,
@@ -75,12 +77,12 @@ export class DeploymentPlansController {
   private async execute(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
-      idempotencyKey: { type: 'string', required: true },
+      idempotencyKey: { type: 'string' },
       approvalId: { type: 'string' },
     });
     return this.service.execute({
       planId: String(body.planId),
-      idempotencyKey: String(body.idempotencyKey),
+      idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
       approvalId: body.approvalId === undefined ? undefined : String(body.approvalId),
       actorId: this.actorId(request),
       tenantId: request.context.tenantId,
@@ -90,11 +92,11 @@ export class DeploymentPlansController {
   private async dryRun(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
-      idempotencyKey: { type: 'string', required: true },
+      idempotencyKey: { type: 'string' },
     });
     return this.service.dryRun({
       planId: String(body.planId),
-      idempotencyKey: String(body.idempotencyKey),
+      idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
       actorId: this.actorId(request),
       tenantId: request.context.tenantId,
     }, this.securityContext(request));
@@ -139,6 +141,12 @@ export class DeploymentPlansController {
     executorType?: ExecutionTargetKind;
     requiredCapabilities?: string[];
     matchResult?: Record<string, unknown>;
+    gatewayRoute?: DeploymentGatewayRouteDto;
+    gatewayId?: string;
+    zoneId?: string;
+    adapter?: string;
+    delegatedTargetId?: string;
+    fallbackSuggestions?: FallbackSuggestion[];
   }> {
     if (!Array.isArray(value)) throw new AppError('VALIDATION_FAILED', 'targets 必须是数组');
     return value.map((raw, index) => {
@@ -155,8 +163,26 @@ export class DeploymentPlansController {
         matchResult: target.matchResult && typeof target.matchResult === 'object' && !Array.isArray(target.matchResult)
           ? target.matchResult as Record<string, unknown>
           : undefined,
+        gatewayRoute: target.gatewayRoute && typeof target.gatewayRoute === 'object' && !Array.isArray(target.gatewayRoute)
+          ? this.parseGatewayRoute(target.gatewayRoute as Record<string, unknown>)
+          : undefined,
+        gatewayId: typeof target.gatewayId === 'string' ? target.gatewayId : undefined,
+        zoneId: typeof target.zoneId === 'string' ? target.zoneId : undefined,
+        adapter: typeof target.adapter === 'string' ? target.adapter : undefined,
+        delegatedTargetId: typeof target.delegatedTargetId === 'string' ? target.delegatedTargetId : undefined,
+        fallbackSuggestions: parseFallbackSuggestions(target.fallbackSuggestions),
       };
     });
+  }
+
+  private parseGatewayRoute(route: Record<string, unknown>): DeploymentGatewayRouteDto {
+    return {
+      gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
+      zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
+      adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
+      delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
+      fallbackSuggestions: parseFallbackSuggestions(route.fallbackSuggestions),
+    };
   }
 
   private parsePolicy(value: unknown): DeploymentPlanPolicyDto | undefined {
@@ -168,6 +194,19 @@ export class DeploymentPlansController {
       failurePolicy: typeof policy.failurePolicy === 'string' ? policy.failurePolicy as DeploymentPlanPolicyDto['failurePolicy'] : undefined,
       batchSize: typeof policy.batchSize === 'number' ? policy.batchSize : undefined,
     };
+  }
+
+
+  private idempotencyKey(request: HttpRequest, bodyValue?: unknown): string {
+    const headerValue = this.readHeader(request, 'x-idempotency-key');
+    const value = headerValue ?? (bodyValue === undefined ? undefined : String(bodyValue));
+    if (!value) throw new AppError('VALIDATION_FAILED', '缺少幂等键，请提供 X-Idempotency-Key', { field: 'idempotencyKey' });
+    return value;
+  }
+
+  private readHeader(request: HttpRequest, key: string): string | undefined {
+    const value = request.headers[key] ?? request.headers[key.toLowerCase()];
+    return Array.isArray(value) ? value[0] : value;
   }
 
   private actorId(request: HttpRequest): string {
@@ -182,6 +221,12 @@ export class DeploymentPlansController {
       actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId } },
     };
   }
+}
+
+function parseFallbackSuggestions(value: unknown): FallbackSuggestion[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const allowed = new Set<FallbackSuggestion>(['gateway_required', 'script_package', 'manual']);
+  return value.map(String).filter((item): item is FallbackSuggestion => allowed.has(item as FallbackSuggestion));
 }
 
 export function getDeploymentPlanRouteContracts(): RouteContract[] {

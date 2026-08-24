@@ -1,4 +1,5 @@
 import type { ExecutionRunStatus, ExecutionStepStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
+import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto } from '../../deployment-plans/dto/deployment-plans.dto.js';
 
 export type ExecutionRunType = 'apply' | 'dry_run' | 'rollback';
 export type ExecutionStepType = 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'RELOAD' | 'VERIFY' | 'ROLLBACK' | 'CUSTOM';
@@ -62,10 +63,14 @@ export interface CreateExecutionRunInput {
   idempotencyKey: string;
   actorId: string;
   tenantId?: string;
-  executorTypeByTargetId: Map<string, ExecutionTargetKind>;
+  executorTypeByTargetId: Map<string, ExecutionTargetKind | 'MOCK' | string>;
+  gatewayRouteByTargetId?: Map<string, DeploymentGatewayRouteDto | undefined>;
   mockResultByTargetId?: Map<string, 'success' | 'fail'>;
   concurrencyLimit?: number;
   stepMaxAttempts?: number;
+  failurePolicy?: NonNullable<DeploymentPlanPolicyDto['failurePolicy']>;
+  retry?: DeploymentPlanPolicyDto['retry'];
+  allowMockExecutor?: boolean;
 }
 
 export interface RetryExecutionRunInput {

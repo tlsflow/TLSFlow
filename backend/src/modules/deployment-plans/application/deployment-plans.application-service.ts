@@ -67,6 +67,7 @@ export class DeploymentPlansApplicationService {
       executorType: this.domain.defaultExecutorType(target.executorType),
       requiredCapabilities: [...new Set(target.requiredCapabilities ?? this.defaultCapabilities())],
       matchResult: target.matchResult,
+      gatewayRoute: this.normalizeGatewayRoute(target),
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
     if (hasCapabilityRisk) {
@@ -117,6 +118,7 @@ export class DeploymentPlansApplicationService {
         executorType: target.executorType,
         requiredCapabilities: target.requiredCapabilities,
         matchResult: target.matchResult ?? { status: 'assumed', reason: '编排壳只记录能力需求，不做真实探测' },
+        gatewayRoute: target.gatewayRoute,
         status: 'READY',
         createdAt: now,
         updatedAt: now,
@@ -237,6 +239,11 @@ export class DeploymentPlansApplicationService {
       actorId: input.actorId,
       tenantId: input.tenantId,
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
+      gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
+      concurrencyLimit: plan.policy.batchSize,
+      stepMaxAttempts: plan.policy.retry?.maxAttempts,
+      retry: plan.policy.retry,
+      failurePolicy: plan.policy.failurePolicy,
     }, context);
 
     return { plan: this.toDto(running), ...created };
@@ -258,6 +265,11 @@ export class DeploymentPlansApplicationService {
       actorId: input.actorId,
       tenantId: input.tenantId,
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
+      gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
+      concurrencyLimit: plan.policy.batchSize,
+      stepMaxAttempts: plan.policy.retry?.maxAttempts,
+      retry: plan.policy.retry,
+      failurePolicy: plan.policy.failurePolicy,
     }, context);
 
     return { plan: this.toDto(plan), ...created };
@@ -392,6 +404,26 @@ export class DeploymentPlansApplicationService {
 
   private defaultCapabilities(): string[] {
     return ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'];
+  }
+
+  private normalizeGatewayRoute(target: CreateDeploymentPlanInput['targets'][number]): DeploymentPlanTargetEntity['gatewayRoute'] {
+    const hasExplicitRoute = Boolean(target.gatewayRoute)
+      || target.gatewayId !== undefined
+      || target.zoneId !== undefined
+      || target.adapter !== undefined
+      || target.delegatedTargetId !== undefined
+      || target.fallbackSuggestions !== undefined;
+    if (!hasExplicitRoute) return undefined;
+    const route = {
+      ...(target.gatewayRoute ?? {}),
+      gatewayId: target.gatewayId ?? target.gatewayRoute?.gatewayId,
+      zoneId: target.zoneId ?? target.gatewayRoute?.zoneId,
+      adapter: target.adapter ?? target.gatewayRoute?.adapter,
+      delegatedTargetId: target.delegatedTargetId ?? target.gatewayRoute?.delegatedTargetId ?? target.executionTargetId,
+      fallbackSuggestions: target.fallbackSuggestions ?? target.gatewayRoute?.fallbackSuggestions,
+    };
+    const hasValue = Object.values(route).some((value) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '');
+    return hasValue ? route : undefined;
   }
 
   private toDto(plan: DeploymentPlanEntity): DeploymentPlanDto {

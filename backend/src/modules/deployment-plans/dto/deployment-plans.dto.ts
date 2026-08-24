@@ -1,5 +1,6 @@
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel } from '../../../shared/security-types.js';
+import type { FallbackSuggestion, GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 
 export type DeploymentPlanType = 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY';
 export type DeploymentPlanApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -13,6 +14,14 @@ export interface DeploymentPlanPolicyDto {
   retry?: { maxAttempts: number; backoffSeconds: number };
 }
 
+export interface DeploymentGatewayRouteDto {
+  gatewayId?: string;
+  zoneId?: string;
+  adapter?: GatewayAdapterType;
+  delegatedTargetId?: string;
+  fallbackSuggestions?: FallbackSuggestion[];
+}
+
 export interface DeploymentPlanTargetDto {
   id: string;
   tenantId?: string;
@@ -22,6 +31,7 @@ export interface DeploymentPlanTargetDto {
   executorType: ExecutionTargetKind;
   requiredCapabilities: string[];
   matchResult?: Record<string, unknown>;
+  gatewayRoute?: DeploymentGatewayRouteDto;
   status: DeploymentPlanTargetStatus;
   createdAt: string;
   updatedAt: string;
@@ -60,6 +70,12 @@ export interface CreateDeploymentPlanInput {
     executorType?: ExecutionTargetKind;
     requiredCapabilities?: string[];
     matchResult?: Record<string, unknown>;
+    gatewayRoute?: DeploymentGatewayRouteDto;
+    gatewayId?: string;
+    zoneId?: string;
+    adapter?: GatewayAdapterType;
+    delegatedTargetId?: string;
+    fallbackSuggestions?: FallbackSuggestion[];
   }>;
   planType?: DeploymentPlanType;
   policy?: DeploymentPlanPolicyDto;

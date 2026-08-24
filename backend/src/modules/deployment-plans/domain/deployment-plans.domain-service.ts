@@ -41,11 +41,18 @@ export class DeploymentPlansDomainService {
         executionTargetId: target.executionTargetId,
         executorType: target.executorType ?? 'AGENT',
         requiredCapabilities: [...new Set(target.requiredCapabilities ?? [])].sort(),
+        gatewayRoute: target.gatewayRoute ?? {
+          gatewayId: target.gatewayId,
+          zoneId: target.zoneId,
+          adapter: target.adapter,
+          delegatedTargetId: target.delegatedTargetId,
+          fallbackSuggestions: target.fallbackSuggestions,
+        },
       })).sort((a, b) => a.certificateBindingId.localeCompare(b.certificateBindingId)),
     });
   }
 
-  buildSnapshotHash(plan: Omit<DeploymentPlanEntity, 'snapshotHash' | 'requestHash' | 'createdAt' | 'updatedAt' | 'version'>, targets: Array<Pick<DeploymentPlanTargetEntity, 'certificateBindingId' | 'executionTargetId' | 'executorType' | 'requiredCapabilities'>>): string {
+  buildSnapshotHash(plan: Omit<DeploymentPlanEntity, 'snapshotHash' | 'requestHash' | 'createdAt' | 'updatedAt' | 'version'>, targets: Array<Pick<DeploymentPlanTargetEntity, 'certificateBindingId' | 'executionTargetId' | 'executorType' | 'requiredCapabilities' | 'gatewayRoute'>>): string {
     return this.hash({
       tenantId: plan.tenantId,
       name: plan.name,
@@ -57,6 +64,7 @@ export class DeploymentPlansDomainService {
         executionTargetId: target.executionTargetId,
         executorType: target.executorType,
         requiredCapabilities: [...target.requiredCapabilities].sort(),
+        gatewayRoute: target.gatewayRoute,
       })).sort((a, b) => a.certificateBindingId.localeCompare(b.certificateBindingId)),
     });
   }

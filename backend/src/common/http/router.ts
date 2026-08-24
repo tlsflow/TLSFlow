@@ -29,7 +29,10 @@ export class Router {
   }
 
   match(method: string, path: string): RouteDefinition | undefined {
-    return this.routes.get(this.createKey(method.toUpperCase(), path));
+    const normalizedMethod = method.toUpperCase();
+    const exact = this.routes.get(this.createKey(normalizedMethod, path));
+    if (exact) return exact;
+    return [...this.routes.values()].find((route) => route.method === normalizedMethod && matchesRoutePath(route.path, path));
   }
 
   listRoutes(): RouteDefinition[] {
@@ -39,4 +42,12 @@ export class Router {
   private createKey(method: string, path: string): string {
     return `${method.toUpperCase()} ${path}`;
   }
+}
+
+function matchesRoutePath(pattern: string, actual: string): boolean {
+  if (!pattern.includes('/:')) return false;
+  const patternParts = pattern.split('/').filter(Boolean);
+  const actualParts = actual.split('/').filter(Boolean);
+  if (patternParts.length !== actualParts.length) return false;
+  return patternParts.every((part, index) => part.startsWith(':') || part === actualParts[index]);
 }

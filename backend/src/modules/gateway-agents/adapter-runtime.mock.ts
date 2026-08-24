@@ -20,10 +20,18 @@ function mockDescriptor(type: 'ssh' | 'winrm' | 'curl', displayName: string, sup
         evidence: [
           {
             taskId: task.id,
+            operatorId: task.operatorId,
+            planId: task.planId,
+            executionRunId: task.executionRunId,
+            stepId: task.stepId,
             gatewayId: ctx.gatewayId,
             delegatedTargetId: task.delegatedTargetId,
             adapter: type,
             credentialSessionId: ctx.credentialSessionId,
+            credentialLeaseId: task.credentialLeaseId,
+            action: task.action,
+            result: supported ? 'success' : 'failed',
+            evidenceRef: `mock://${task.id}/${type}/${task.action}`,
             kind: type === 'curl' ? 'response_summary' : 'command_summary',
             summary: `${type} mock descriptor 未执行真实协议`,
             metadata: {

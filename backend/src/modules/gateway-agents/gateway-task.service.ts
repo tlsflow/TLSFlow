@@ -14,6 +14,8 @@ export class GatewayTaskService {
     const task: GatewayTask = {
       id: input.id ?? newId('gateway_task'),
       idempotencyKey: input.idempotencyKey,
+      operatorId: input.operatorId,
+      planId: input.planId,
       executionRunId: input.executionRunId,
       stepId: input.stepId,
       gatewayId: input.gatewayId,
@@ -23,6 +25,7 @@ export class GatewayTaskService {
       action: input.action,
       payload: input.payload ?? {},
       credentialSessionId: input.credentialSessionId,
+      credentialLeaseId: input.credentialLeaseId ?? input.credentialSessionId,
       status: 'queued',
       evidenceIds: [],
       createdAt: now.toISOString(),
@@ -50,8 +53,17 @@ export class GatewayTaskService {
 
   appendEvidence(input: Omit<GatewayEvidence, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): GatewayEvidence {
     const task = this.requireTask(input.taskId);
+    const { executionRunId: _executionRunId, stepId: _stepId, action: _action, result: _result, evidenceRef: _evidenceRef, ...safeInput } = input;
     const evidence: GatewayEvidence = {
-      ...input,
+      ...safeInput,
+      operatorId: task.operatorId,
+      planId: task.planId,
+      executionRunId: task.executionRunId,
+      stepId: task.stepId,
+      credentialLeaseId: task.credentialLeaseId,
+      action: task.action,
+      result: task.result?.status ?? (task.status === 'failed' || task.status === 'cancelled' || task.status === 'timeout' ? task.status : 'success'),
+      evidenceRef: _evidenceRef ?? input.id ?? newId('evidence_ref'),
       id: input.id ?? newId('gw_evd'),
       createdAt: input.createdAt ?? new Date().toISOString(),
     };
@@ -65,12 +77,15 @@ export class GatewayTaskService {
     const task = this.requireLease(taskId, leaseId);
     if (task.result) return task;
     const finishedAt = result.finishedAt ?? new Date().toISOString();
+    const evidenceIds = result.evidenceIds ?? task.evidenceIds;
+    const firstEvidenceRef = evidenceIds.map((id) => this.evidence.get(id)?.evidenceRef).find((ref): ref is string => Boolean(ref));
     return this.save({
       ...task,
       status: result.status,
       result: {
         ...result,
-        evidenceIds: result.evidenceIds ?? task.evidenceIds,
+        evidenceIds,
+        evidenceRef: result.evidenceRef ?? firstEvidenceRef ?? evidenceIds[0],
         finishedAt,
       },
       updatedAt: finishedAt,

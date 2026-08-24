@@ -61,6 +61,10 @@ export interface GrantRef {
 export interface CredentialSession {
   id: string;
   taskId: string;
+  operatorId?: string;
+  executionRunId?: string;
+  stepId?: string;
+  auditRefs: string[];
   secretRef: SecretRef;
   grantRef: GrantRef;
   gatewayId: string;
@@ -72,6 +76,8 @@ export interface CredentialSession {
   status: CredentialSessionStatus;
   createdAt: string;
   revokedAt?: string;
+  usedAt?: string;
+  expiredAt?: string;
 }
 
 export interface GatewayTaskTarget {
@@ -84,6 +90,8 @@ export interface GatewayTaskTarget {
 export interface GatewayTask {
   id: string;
   idempotencyKey: string;
+  operatorId?: string;
+  planId?: string;
   executionRunId: string;
   stepId: string;
   gatewayId: string;
@@ -93,6 +101,7 @@ export interface GatewayTask {
   action: string;
   payload: Record<string, unknown>;
   credentialSessionId?: string;
+  credentialLeaseId?: string;
   status: GatewayTaskStatus;
   leaseId?: string;
   result?: GatewayTaskResult;
@@ -110,16 +119,25 @@ export interface GatewayTaskResult {
   errorCode?: string;
   errorMessage?: string;
   evidenceIds: string[];
+  evidenceRef?: string;
   finishedAt: string;
 }
 
 export interface GatewayEvidence {
   id: string;
   taskId: string;
+  operatorId?: string;
+  planId?: string;
+  executionRunId: string;
+  stepId: string;
   gatewayId: string;
   delegatedTargetId: string;
   adapter: GatewayAdapterType;
   credentialSessionId?: string;
+  credentialLeaseId?: string;
+  action: string;
+  result: GatewayTaskResult['status'];
+  evidenceRef: string;
   kind: 'log' | 'command_summary' | 'response_summary' | 'file_hash' | 'certificate_fingerprint' | 'backup_ref';
   summary: string;
   metadata: Record<string, unknown>;
@@ -152,6 +170,10 @@ export interface ZoneRouteResult {
 
 export interface CredentialIssueRequest {
   taskId: string;
+  operatorId?: string;
+  executionRunId?: string;
+  stepId?: string;
+  auditRef?: string;
   gatewayId: string;
   targetId: string;
   protocol: GatewayAdapterType;
@@ -165,6 +187,8 @@ export interface CredentialIssueRequest {
 export interface GatewayDelegatedTaskInput {
   id?: string;
   idempotencyKey: string;
+  operatorId?: string;
+  planId?: string;
   executionRunId: string;
   stepId: string;
   gatewayId: string;
@@ -174,6 +198,7 @@ export interface GatewayDelegatedTaskInput {
   action: string;
   payload?: Record<string, unknown>;
   credentialSessionId?: string;
+  credentialLeaseId?: string;
   now?: Date;
 }
 
