@@ -8,7 +8,7 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
-import { projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
+import { projectApplicationAssetPluginInputs, projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
@@ -152,6 +152,7 @@ const effectiveCapabilityLoading = ref(false)
 const compatibleManagedPlugins = ref<ApiRecord[]>([])
 const compatibleManagedPluginsLoading = ref(false)
 let managedCapabilityRequestSequence = 0
+let workflowProjectionRequestSequence = 0
 
 const assetPlatformOptions: ReadonlyArray<{ value: AssetPlatform; labelKey: string }> = [
   { value: 'LINUX', labelKey: 'assets.platforms.linux' },
@@ -411,6 +412,13 @@ const pluginFallbackCapability = computed(() => {
   return effectiveCapability.value ?? inheritedEffectiveCapability.value
 })
 
+const pluginProjectionVersionId = computed(() =>
+  assetDraft.pluginOverrideVersionId.trim()
+  || String(readNested(pluginFallbackCapability.value, ['plugin', 'pluginVersionId']) ?? ''),
+)
+
+const deploymentInputBindingsFingerprint = computed(() => JSON.stringify(deploymentInputBindings.value))
+
 const pendingPluginCapability = computed<ApiRecord | null>(() => {
   const pluginVersionId = assetDraft.pluginOverrideVersionId.trim()
   if (!pluginVersionId) return null
@@ -474,8 +482,14 @@ const deploymentArtifactOptions = computed<Record<string, DeploymentArtifactOpti
 })
 
 const workflowProjectionReady = computed(() => {
-  if (!editingServiceAssetId.value) return true
-  return !workflowProjectionError.value
+  const requiresProjection = (assetDraft.managementMode === 'MANAGED_TARGET'
+    && assetDraft.managedExecutionMode === 'PLUGIN'
+    && Boolean(pluginProjectionVersionId.value))
+    || (workflowExecutionEnabled.value && Boolean(editingServiceAssetId.value))
+  if (!requiresProjection) return true
+  return !workflowProjectionLoading.value
+    && !workflowProjectionError.value
+    && Boolean(workflowBindingProjection.value?.saveable)
 })
 
 const workflowVariableConfiguredCount = computed(() => Object.values(deploymentInputBindings.value).slice(1)
@@ -509,11 +523,15 @@ const agentStepReady = computed(() => {
   if (assetDraft.managementMode !== 'MANAGED_TARGET') return true
   const pluginExecutionReady = assetDraft.managedExecutionMode !== 'PLUGIN'
     || Boolean(assetDraft.pluginOverrideVersionId.trim() || pluginFallbackCapability.value)
+  const pluginInputReady = assetDraft.managedExecutionMode !== 'PLUGIN'
+    || !pluginProjectionVersionId.value
+    || workflowProjectionReady.value
   return Boolean(
     assetDraft.siteAssetId.trim()
     && assetDraft.agentCertificateFormatId.trim()
     && assetDraft.managedTargetId.trim()
-    && pluginExecutionReady,
+    && pluginExecutionReady
+    && pluginInputReady,
   )
 })
 
@@ -782,23 +800,50 @@ async function loadServiceInstances(hostId: string) {
 }
 
 async function refreshWorkflowBindingProjection() {
+  const sequence = ++workflowProjectionRequestSequence
   workflowBindingProjection.value = null
   workflowProjectionError.value = ''
-  if (!editingServiceAssetId.value) {
+  const pluginVersionId = pluginProjectionVersionId.value
+  const shouldProjectPlugin = assetDraft.managementMode === 'MANAGED_TARGET'
+    && assetDraft.managedExecutionMode === 'PLUGIN'
+    && assetDraft.managedTargetId.trim()
+    && pluginVersionId
+  const shouldProjectWorkflow = workflowExecutionEnabled.value && editingServiceAssetId.value
+  if (!shouldProjectPlugin && !shouldProjectWorkflow) {
     workflowProjectionLoading.value = false
     return
   }
   workflowProjectionLoading.value = true
   try {
-    const result = await projectDeploymentInputs(editingServiceAssetId.value)
+    const result = shouldProjectPlugin
+      ? await projectApplicationAssetPluginInputs(assetDraft.managedTargetId, {
+        capabilityKey: 'certificate.deploy',
+        pluginVersionId,
+        certificateFormatId: assetDraft.agentCertificateFormatId.trim() || undefined,
+        applicationAsset: {
+          id: editingServiceAssetId.value || 'draft',
+          address: assetDraft.address.trim(),
+          sniName: assetDraft.workflowTargetSniName.trim() || undefined,
+          port: Number(assetDraft.port),
+          protocol: assetDraft.protocol,
+          displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
+        },
+        inputBindings: deploymentInputBindings.value,
+      })
+      : await projectDeploymentInputs(editingServiceAssetId.value)
+    if (sequence !== workflowProjectionRequestSequence) return
     workflowBindingProjection.value = result.data ?? null
     if (workflowBindingProjection.value) {
-      deploymentInputBindings.value = filterEditableInputBindings(workflowBindingProjection.value, deploymentInputBindings.value)
+      const filteredBindings = filterEditableInputBindings(workflowBindingProjection.value, deploymentInputBindings.value)
+      if (JSON.stringify(filteredBindings) !== deploymentInputBindingsFingerprint.value) {
+        deploymentInputBindings.value = filteredBindings
+      }
     }
   } catch (cause) {
+    if (sequence !== workflowProjectionRequestSequence) return
     workflowProjectionError.value = cause instanceof ApiClientError ? cause.message : cause instanceof Error ? cause.message : String(cause)
   } finally {
-    workflowProjectionLoading.value = false
+    if (sequence === workflowProjectionRequestSequence) workflowProjectionLoading.value = false
   }
 }
 
@@ -1145,6 +1190,9 @@ async function submitCreate() {
 }
 
 async function saveManagedTargetConfiguration(applicationAssetId: string): Promise<void> {
+  const explicitPluginVersionId = assetDraft.pluginOverrideVersionId.trim()
+  const hasPluginInputOverride = hasInputBindingValues(deploymentInputBindings.value)
+  const pluginVersionId = explicitPluginVersionId || (hasPluginInputOverride ? pluginProjectionVersionId.value : '')
   await saveApplicationAssetManagedTarget(applicationAssetId, {
     managedTargetId: assetDraft.managedTargetId,
     certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
@@ -1153,15 +1201,22 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
     ...(assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
       ? { workflowExecution: buildWorkflowExecutionInput() }
       : {}),
-    ...(assetDraft.managedExecutionMode === 'PLUGIN' && assetDraft.pluginOverrideVersionId ? {
+    ...(assetDraft.managedExecutionMode === 'PLUGIN' && pluginVersionId ? {
       pluginOverride: {
-        pluginVersionId: assetDraft.pluginOverrideVersionId,
+        pluginVersionId,
         pluginBindingId: pluginBindingId.value || undefined,
         expectedBindingVersion: pluginBindingId.value ? pluginBindingVersion.value : undefined,
         inputBindings: deploymentInputBindings.value,
       },
     } : {}),
   })
+}
+
+function hasInputBindingValues(bindings: DeploymentInputBindingsV1): boolean {
+  return Object.keys(bindings.variables).length > 0
+    || Object.keys(bindings.connections).length > 0
+    || Object.keys(bindings.credentials).length > 0
+    || Object.keys(bindings.artifacts).length > 0
 }
 
 async function saveStandaloneWorkflowConfiguration(applicationAssetId: string): Promise<void> {
@@ -1649,9 +1704,19 @@ watch(
 )
 
 watch(
-  () => assetDraft.pluginOverrideVersionId,
+  () => [
+    assetDraft.pluginOverrideVersionId,
+    pluginProjectionVersionId.value,
+    assetDraft.managedTargetId,
+    assetDraft.agentCertificateFormatId,
+    assetDraft.address,
+    assetDraft.port,
+    assetDraft.protocol,
+    assetDraft.workflowTargetSniName,
+    deploymentInputBindingsFingerprint.value,
+  ],
   async () => {
-    if (editingServiceAssetId.value) await refreshWorkflowBindingProjection()
+    await refreshWorkflowBindingProjection()
   },
 )
 
@@ -2181,9 +2246,8 @@ function managedTargetLabel(target: ApiRecord): string {
                 :loading="effectiveCapabilityLoading"
                 :labels="{ loading: t('common.loading'), missing: t('assets.errors.capabilityAssignmentMissing'), pending: t('assets.capability.pendingAssignment'), source: t('assets.capability.source'), plugin: t('assets.capability.plugin'), runtime: t('assets.capability.runtime'), executionLocation: t('assets.capability.executionLocation') }"
               />
-              <section v-if="assetDraft.pluginOverrideVersionId" class="asset-form__field--wide">
-                <p v-if="!editingServiceAssetId" class="asset-form__hint">{{ t('deploymentInputs.saveAssetFirst') }}</p>
-                <p v-else-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+              <section v-if="pluginProjectionVersionId" class="asset-form__field--wide">
+                <p v-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
                 <DeploymentInputForm
                   v-else-if="workflowBindingProjection"
                   v-model="deploymentInputBindings"

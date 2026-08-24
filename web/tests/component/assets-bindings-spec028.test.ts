@@ -67,6 +67,7 @@ const deviceMocks = vi.hoisted(() => ({
 
 const deploymentInputMocks = vi.hoisted(() => ({
   projectDeploymentInputs: vi.fn(),
+  projectApplicationAssetPluginInputs: vi.fn(),
 }))
 
 const pluginMocks = vi.hoisted(() => ({
@@ -168,6 +169,10 @@ describe('资产与证书产物视图', () => {
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
     deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
+      contractVersion: 'gcac.deployment-input-contract/v1',
+      requiredVariables: [], advancedVariables: [], connections: [], credentials: [], artifacts: [], fixedValues: [], runtimeValues: [], issues: [], saveable: true,
+    }))
+    deploymentInputMocks.projectApplicationAssetPluginInputs.mockResolvedValue(okRecord({
       contractVersion: 'gcac.deployment-input-contract/v1',
       requiredVariables: [], advancedVariables: [], connections: [], credentials: [], artifacts: [], fixedValues: [], runtimeValues: [], issues: [], saveable: true,
     }))
@@ -702,6 +707,90 @@ describe('资产与证书产物视图', () => {
       managedTargetId: 'target-adc-1',
       certificateFormatId: 'certfmt-1',
     }))
+  })
+
+  it('插件部署输入变更后重新投影，布尔值 true 不再保留旧的缺失错误', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1',
+      address: '10.255.0.41',
+      displayName: 'test',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'APPLIANCE',
+      targetBindingDetail: {
+        host: { id: 'host-adc-1', displayName: 'ADC 01' },
+        frameworkInstance: { id: 'svc-adc-1', deviceId: 'host-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer' },
+        siteAsset: { id: 'site-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+        managedTarget: { id: 'target-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteId: 'site-adc-1', targetType: 'tls.binding', targetKey: 'LB:test' },
+      },
+      deploymentStrategy: {
+        type: 'MANAGED_TARGET',
+        managedTarget: { managedTargetId: 'target-adc-1', certificateFormatId: 'certfmt-1', executionMode: 'PLUGIN' },
+      },
+    }))
+    assetMocks.listFrameworkInstances.mockResolvedValue(okPage([
+      { id: 'svc-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer', deviceId: 'host-adc-1' },
+    ]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([
+      { id: 'site-adc-1', frameworkInstanceId: 'svc-adc-1', deviceId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+    ]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([
+      { id: 'target-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteId: 'site-adc-1', targetType: 'tls.binding', targetKey: 'LB:test' },
+    ]))
+    deploymentInputMocks.projectApplicationAssetPluginInputs.mockImplementation(async (_managedTargetId: string, payload: { inputBindings?: { variables?: Record<string, unknown> } }) => {
+      const configured = payload.inputBindings?.variables?.allowInsecureTls === true
+      return okRecord({
+        contractVersion: 'gcac.deployment-input-contract/v1',
+        requiredVariables: [{
+          slot: 'allowInsecureTls',
+          type: 'boolean',
+          required: true,
+          configurationMode: 'required',
+          bindingPolicy: 'required_binding',
+          source: { kind: 'binding' },
+          descriptionKey: 'deploymentInputs.allowInsecureTls.description',
+          ui: { labelKey: 'deploymentInputs.allowInsecureTls.label', helpKey: 'deploymentInputs.allowInsecureTls.help' },
+          ...(configured ? { value: true } : {}),
+        }],
+        advancedVariables: [],
+        connections: [],
+        credentials: [],
+        artifacts: [],
+        fixedValues: [],
+        runtimeValues: [],
+        issues: configured ? [] : [{
+          category: 'VARIABLE',
+          code: 'DEPLOYMENT_INPUT_REQUIRED',
+          severity: 'ERROR',
+          slot: 'allowInsecureTls',
+          path: 'variables.allowInsecureTls',
+          messageKey: 'deploymentInputs.issues.DEPLOYMENT_INPUT_REQUIRED',
+        }],
+        saveable: configured,
+      })
+    })
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('缺少必填部署输入')
+    const field = wrapper.findAll('label').find((label) => label.text().includes('允许跳过 TLS 证书校验'))
+    expect(field).toBeTruthy()
+    await field!.find('select').setValue('true')
+    await flushPromises()
+
+    expect(deploymentInputMocks.projectApplicationAssetPluginInputs.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+      inputBindings: expect.objectContaining({
+        variables: expect.objectContaining({ allowInsecureTls: true }),
+      }),
+    }))
+    expect(wrapper.text()).not.toContain('缺少必填部署输入')
   })
 
   it('应用资产可以按工作流模式创建并保存部署策略', async () => {
