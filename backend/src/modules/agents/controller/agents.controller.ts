@@ -9,6 +9,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AgentsApplicationService, type AgentInstallMaterialRequest } from '../application/agents.application-service.js';
+import { AgentPlanPolicyProvisioningServiceV1, type AgentPlanPolicyProvisioningInputV1 } from '../security/policy-authority-provisioning.service.js';
 import type { AckAgentTaskInput, AgentCapabilitySnapshotInput, AgentHeartbeatInput, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, DispatchAgentUpgradeInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentRuntimeLogInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
@@ -19,6 +20,7 @@ export class AgentsController {
   constructor(
     private readonly service = new AgentsApplicationService(),
     private readonly security?: SecurityServices,
+    private readonly policyProvisioning?: AgentPlanPolicyProvisioningServiceV1,
   ) {}
 
   register(router: Router): void {
@@ -39,6 +41,7 @@ export class AgentsController {
     router.get('/api/v1/agents/:agentId/upgrades/:planId', '查询指定 Agent 升级事务状态', tags, (request) => this.getAgentUpgradeStatus(request));
     router.post('/api/v1/agents/:agentId/upgrades/:planId/retry', '重试指定 Agent 升级事务传输', tags, (request) => this.retryAgentUpgrade(request));
     router.post('/api/v1/agents/:agentId/rescan', '通过管理端点直接执行 Agent 手动能力重扫', tags, (request) => this.refreshDiscovery(request));
+    router.post('/api/v1/agents/:agentId/policy-provisioning', '为已编译 Agent Plan 生成 Policy Authority 和本地能力材料', tags, (request) => this.provisionAgentPlanPolicy(request));
     router.post('/api/v1/agents/:agentId/management-probe', '立即探测 Agent TCP 管理端口', tags, (request) => this.probeManagementEndpoint(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-materials', '创建固定版本 Agent 安装材料', tags, (request) => this.createAgentInstallMaterials(request));
@@ -227,6 +230,43 @@ export class AgentsController {
 
   private getAgentDetail(request: HttpRequest) {
     return this.service.getAgentDetail(tenantId(request), readQuery(request, 'agentId'));
+  }
+
+  private async provisionAgentPlanPolicy(request: HttpRequest) {
+    if (!this.policyProvisioning) {
+      throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Policy Authority provisioning 生产入口未装配', { fallback: false });
+    }
+    const agentId = readPathParam(request, 'agentId', 'policy-provisioning');
+    const body = validateExactObject(request.body, {
+      pluginId: { type: 'string', required: true },
+      pluginVersionId: { type: 'string', required: true },
+      capability: { type: 'string', required: true },
+      planDigest: { type: 'string', required: true },
+      policyRef: { type: 'string', required: true },
+      policyVersion: { type: 'string', required: true },
+      actions: { type: 'array', required: true },
+      allowedPaths: { type: 'array', required: true },
+      allowedServices: { type: 'array', required: true },
+      commandRules: { type: 'array', required: true },
+      artifactDigests: { type: 'array', required: true },
+      approvalRef: { type: 'string' },
+      lifetimeSeconds: { type: 'number', required: true },
+      compiledPlan: { type: 'object', required: true },
+    });
+    if (this.security) {
+      const subject = this.subjectFromRequest(request);
+      await this.security.rbac.assertCan(subject, 'deployment.plan.execute', {
+        type: 'deployment_plan',
+        id: String(body.planDigest),
+        scope: { tenantId: tenantId(request), tenantScope: request.context.tenantScope, ownerId: subject.id },
+      }, request.context);
+    }
+    const result = await this.policyProvisioning.provision({
+      tenantId: tenantId(request),
+      agentId,
+      ...body,
+    } as unknown as AgentPlanPolicyProvisioningInputV1);
+    return { statusCode: 201, body: result };
   }
 
   private getCapabilities(request: HttpRequest) {
@@ -767,6 +807,39 @@ export function getAgentsRouteContracts(): RouteContract[] {
       operationId: 'refreshAgentDiscovery',
       summary: '通过管理端点直接执行 Agent 手动能力重扫',
       tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/policy-provisioning',
+      operationId: 'provisionAgentPlanPolicy',
+      summary: '为已编译 Agent Plan 生成 Policy Authority 和本地能力材料',
+      tags,
+      requestSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'pluginId', 'pluginVersionId', 'capability', 'planDigest', 'policyRef', 'policyVersion',
+          'actions', 'allowedPaths', 'allowedServices', 'commandRules', 'artifactDigests',
+          'lifetimeSeconds', 'compiledPlan',
+        ],
+        properties: {
+          pluginId: { type: 'string' },
+          pluginVersionId: { type: 'string' },
+          capability: { type: 'string' },
+          planDigest: { type: 'string' },
+          policyRef: { type: 'string' },
+          policyVersion: { type: 'string' },
+          actions: { type: 'array', items: { type: 'string' } },
+          allowedPaths: { type: 'array', items: { type: 'string' } },
+          allowedServices: { type: 'array', items: { type: 'string' } },
+          commandRules: { type: 'array', items: { type: 'object' } },
+          artifactDigests: { type: 'array', items: { type: 'string' } },
+          approvalRef: { type: 'string' },
+          lifetimeSeconds: { type: 'integer' },
+          compiledPlan: { type: 'object', additionalProperties: true },
+        },
+      },
       responseSchema: schema,
     },
     {
@@ -1676,6 +1749,9 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  managementListenAddress: "0.0.0.0",',
     '  managementPort: isGateway ? 18935 : 18931,',
     '  authorizationTrustKeySet: manifest.authorizationTrustKeySet || {},',
+    '  receiptKeyId: "",',
+    '  receiptSigningKeyPath: `${manifest.dataDir}/policy/agent-receipt-signing-key.bin`,',
+    '  receiptKeySetPath: `${manifest.dataDir}/policy/agent-receipt-keyset.json`,',
     '  paths: { linux: { configPath: `${manifest.configDir}/agent.config.json`, dataDir: manifest.dataDir, logDir: manifest.logDir } },',
     '  service: { name: manifest.serviceName, displayName: manifest.displayName },',
     '};',

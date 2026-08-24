@@ -27,6 +27,7 @@ import {
 } from './agent-security.contract.js';
 import {
   FilePolicyAuthorityStateStoreV1,
+  InMemoryPolicyAuthorityProvisioningStoreV1,
   PolicyAuthorityServiceV1,
   policyAuthorityBootstrapVersion,
   policyAuthorityStateVersion,
@@ -47,6 +48,7 @@ import {
   WINDOWS_WEB_DISCOVERY_PATHS,
   isAllowedWebDiscoveryPathSet,
 } from '../agent-discovery-paths.js';
+import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from './policy-version.constants.js';
 
 const localAuthorityFileVersion = 'gcac.local-agent-authority/v1' as const;
 const agentTrustMaterialVersion = 'gcac.agent-trust-material/v1' as const;
@@ -159,6 +161,7 @@ export function createLocalAgentAuthorizationServicesV1(
   const bootstrap = signBootstrap(trustRoot, rootPrivateKey, material.createdAt);
   let executionPolicy = loadExecutionPolicy(resolve(directory));
   const state = ensureAuthorityState(resolve(directory, 'state.json'));
+  const provisioning = new InMemoryPolicyAuthorityProvisioningStoreV1();
   const authority = new PolicyAuthorityServiceV1({
     trustRoot,
     keySet: keySetEnvelope,
@@ -167,10 +170,11 @@ export function createLocalAgentAuthorizationServicesV1(
       getPrivateKey: (keyId) => keyId === material.signingKeyId ? signingPrivateKey : undefined,
     },
     evaluator: {
-      evaluate: (input) => evaluateRequest(input, executionPolicy),
+      evaluate: (input) => evaluateRequest(input, executionPolicy, provisioning),
     },
     revocations: state,
     nonceStore: state,
+    provisioning,
   });
   const policyAuthority: UnifiedAgentPlanPolicyAuthorityPortV1 = {
     assertReady: () => {
@@ -178,6 +182,7 @@ export function createLocalAgentAuthorizationServicesV1(
       authority.getBootstrap();
     },
     issueAuthorization: (request) => authority.issueAuthorization(request),
+    provisionAgentPlan: (request) => authority.provisionAgentPlan(request),
   };
   const localPolicy: UnifiedAgentPlanLocalPolicyPortV1 = {
     resolve: async ({ agentId, tenantId }) => createContextLocalPolicy(agentId, tenantId, material.signingKeyId, executionPolicy),
@@ -205,8 +210,8 @@ export function createLocalAgentAuthorizationServicesV1(
       if (!result.binding) return result;
       executionPolicy = persistExecutionPolicy(policyPath, executionPolicy, {
         ...result.binding,
-        policyRef: result.binding.policyRef ?? 'certificate-update-policy',
-        policyVersion: result.binding.policyVersion ?? '1',
+        policyRef: result.binding.policyRef ?? CERTIFICATE_UPDATE_POLICY_REF,
+        policyVersion: result.binding.policyVersion ?? CERTIFICATE_UPDATE_POLICY_VERSION,
         commandRules: result.binding.commandRules ?? [],
         tenantId: input.tenantId,
         agentId: input.agentId,
@@ -221,10 +226,12 @@ export function createLocalAgentAuthorizationServicesV1(
     authorization: {
       policyAuthority,
       grants: {
-        // 没有显式执行策略时，开发 Authority 仍然只允许发现；写操作保持失败关闭。
+        // Execution Grant 是独立的宿主安全边界；不能再用旧 execution-policy.json
+        // 是否存在作为额外开关。证书写操作仍必须通过 Grant、Policy Authority 和 Agent
+        // 本地能力上限三重校验。
         validate: async (input: Parameters<UnifiedAgentPlanGrantPortV1['validate']>[0]) => {
-          if (executionPolicy && options.grants) return options.grants.validate(input);
-          throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '本机 Agent Authority 不签发执行 Grant', { fallback: false });
+          if (options.grants) return options.grants.validate(input);
+          throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '本机 Agent Authority 缺少宿主 Execution Grant 服务', { fallback: false });
         },
       },
       localPolicy,
@@ -387,16 +394,28 @@ function evaluateDiscoveryRequest(input: PolicyAuthorityEvaluationInputV1): Poli
 function evaluateRequest(
   input: PolicyAuthorityEvaluationInputV1,
   executionPolicy: LocalExecutionPolicyFileV1 | undefined,
+  provisioning: InMemoryPolicyAuthorityProvisioningStoreV1,
 ): PolicyAuthorityEvaluationV1 {
   const discovery = evaluateDiscoveryRequest(input);
   if (discovery.allowed) return discovery;
-  const binding = executionPolicy?.bindings.find((candidate) => candidate.tenantId === input.tenantId
+  const staticBinding = executionPolicy?.bindings.find((candidate) => candidate.tenantId === input.tenantId
     && candidate.agentId === input.agentId
     && candidate.pluginId === input.pluginId
     && candidate.pluginVersionId === input.pluginVersionId
     && candidate.capability === input.capability
     && candidate.policyRef === input.policyRef
     && candidate.policyVersion === input.policyVersion);
+  const provisioned = provisioning.findMatching({
+    tenantId: input.tenantId,
+    agentId: input.agentId,
+    pluginId: input.pluginId,
+    pluginVersionId: input.pluginVersionId,
+    capability: input.capability,
+    policyRef: input.policyRef,
+    policyVersion: input.policyVersion,
+    planDigest: input.planDigest,
+  });
+  const binding = staticBinding ?? (provisioned?.rule.planDigest === input.planDigest ? provisioned.rule : undefined);
   const allowed = binding !== undefined
     && isSubset(input.actions, binding.actions)
     && input.allowedPaths.every((path) => isPathWithin(path, binding.allowedPaths))

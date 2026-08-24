@@ -49,6 +49,43 @@ test('AgentExecutorAdapter 将完整 Agent v2 授权材料接线到 plan.execute
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
 });
 
+test('AgentExecutorAdapter 只向 Linux Full Agent 发送 provisioning 材料，Windows 保持原载荷', async () => {
+  const materials = v2Materials();
+  const localPolicyMaterial = { materialVersion: 'gcac.policy-authority-provisioning/v1', agentId: materials.plan.agentId };
+  let linuxPayload: Record<string, unknown> | undefined;
+  const linuxAgents = agentsProbe(
+    async (_tenantId, input) => {
+      linuxPayload = input.payload;
+      return createTaskEnvelope('task_linux_provisioning_fixture', input.payload ?? {});
+    },
+    undefined,
+    undefined,
+    'LINUX',
+  );
+  const compiler = {
+    compile: async () => ({ actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const, ...materials, localPolicyMaterial }),
+  };
+
+  await new AgentExecutorAdapter(linuxAgents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.execute',
+  }));
+  assert.deepEqual(linuxPayload?.localPolicyMaterial, localPolicyMaterial);
+
+  let windowsPayload: Record<string, unknown> | undefined;
+  const windowsAgents = agentsProbe(
+    async (_tenantId, input) => {
+      windowsPayload = input.payload;
+      return createTaskEnvelope('task_windows_compatibility_fixture', input.payload ?? {});
+    },
+  );
+  await new AgentExecutorAdapter(windowsAgents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.execute',
+  }));
+  assert.equal(windowsPayload?.localPolicyMaterial, undefined);
+});
+
 test('AgentExecutorAdapter 将根信任安装送入通用 Plan 合同且不要求证书部署输入', async () => {
   let compilerInput: Record<string, unknown> | undefined;
   const materials = v2Materials();
@@ -365,9 +402,11 @@ function agentsProbe(
   enqueueTask: AgentsApplicationService['enqueueTask'],
   executeTaskDirect?: AgentsApplicationService['executeTaskDirect'],
   enqueueDirectTask?: (tenantId: string, input: Record<string, unknown>, requestId: string) => Promise<AgentTaskEnvelope>,
+  osType = 'WINDOWS',
 ): AgentsApplicationService {
   return {
     enqueueTask,
+    getAgentExecutionPlatform: async () => ({ osType, role: 'full_agent' }),
     ...(executeTaskDirect ? { executeTaskDirect } : {}),
     ...(enqueueDirectTask ? { enqueueDirectTask } : {}),
   } as unknown as AgentsApplicationService;

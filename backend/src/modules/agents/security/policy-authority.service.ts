@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, randomUUID, type KeyObject } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
 
 import { AppError } from '../../../common/errors/app-error.js';
@@ -8,6 +8,7 @@ import {
   authorizeAgentPlan,
   canonicalPluginIdPattern,
   maximumTokenLifetimeSeconds,
+  sha256Digest,
   signPolicyPayload,
   verifyPolicyPayload,
   validateAgentCapabilityToken,
@@ -19,6 +20,7 @@ import {
   validateNonceConsumptionRecord,
   validateTokenRevocationRecord,
   type AgentCapabilityTokenV1,
+  type AgentLocalCommandRuleV1,
   type AgentLocalPolicyV1,
   type AgentPlanV1,
   type DecisionRevocationRecordV1,
@@ -28,6 +30,8 @@ import {
   type PolicyAuthorityKeySetV1,
   type TokenRevocationRecordV1,
 } from './agent-security.contract.js';
+import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from './policy-version.constants.js';
+import { selectWebDiscoveryPaths } from '../agent-discovery-paths.js';
 
 export interface PolicyAuthorityTrustRootV1 {
   rootKeyId: string;
@@ -139,10 +143,16 @@ export interface PolicyAuthorityPolicyRuleV1 {
   pluginId: string;
   pluginVersionId: string;
   capability: string;
+  /** 生产动态规则必须精确绑定已编译 Agent Plan；历史静态策略可省略以保持读取兼容。 */
+  planDigest?: string;
   actions: string[];
   allowedPaths: string[];
   allowedServices: string[];
   artifactDigests: string[];
+  /** 动态命令白名单只保存在 Policy Authority 规则，不投影到本地策略摘要。 */
+  commandRules?: AgentLocalCommandRuleV1[];
+  approvalRef?: string;
+  validUntil?: string;
 }
 
 export interface SignedPolicyAuthorityPolicyBundleV1 {
@@ -151,6 +161,183 @@ export interface SignedPolicyAuthorityPolicyBundleV1 {
   issuedAt: string;
   rules: PolicyAuthorityPolicyRuleV1[];
   signature: string;
+}
+
+export const policyAuthorityProvisioningVersion = 'gcac.policy-authority-provisioning/v1' as const;
+export const policyAuthorityProvisioningReceiptVersion = 'gcac.policy-authority-provisioning-receipt/v1' as const;
+
+/** 已编译 Agent Plan 的正式 provisioning 输入。插件 runtime 不得自行拼装此对象。 */
+export interface PolicyAuthorityProvisioningRequestV1 {
+  tenantId: string;
+  agentId: string;
+  pluginId: string;
+  pluginVersionId: string;
+  capability: string;
+  planDigest: string;
+  policyRef: string;
+  policyVersion: string;
+  actions: string[];
+  allowedPaths: string[];
+  allowedServices: string[];
+  commandRules: AgentLocalCommandRuleV1[];
+  artifactDigests: string[];
+  approvalRef?: string;
+  lifetimeSeconds: number;
+  /** Agent 当前稳定能力上限；其中不得出现 Artifact 摘要。 */
+  currentLocalPolicy: AgentLocalPolicyV1;
+  /** 首次自动装配时由统一编译链生成的能力上限候选。 */
+  bootstrapLocalPolicy?: boolean;
+  /** provisioning 只能接收完整已编译计划，禁止插件 runtime 自行拼装授权字段。 */
+  compiledPlan: AgentPlanV1;
+}
+
+export interface SignedPolicyAuthorityProvisioningRuleV1 extends PolicyAuthorityPolicyRuleV1 {
+  provisioningVersion: typeof policyAuthorityProvisioningVersion;
+  authorityKeyId: string;
+  issuedAt: string;
+  validUntil: string;
+  signature: string;
+}
+
+export interface SignedAgentLocalPolicyMaterialV1 {
+  materialVersion: typeof policyAuthorityProvisioningVersion;
+  tenantId: string;
+  agentId: string;
+  localPolicy: AgentLocalPolicyV1;
+  authorityKeyId: string;
+  signature: string;
+}
+
+export interface PolicyAuthorityProvisioningReceiptV1 {
+  receiptVersion: typeof policyAuthorityProvisioningReceiptVersion;
+  revision: string;
+  requestDigest: string;
+  ruleDigest: string;
+  localPolicyDigest: string;
+  issuedAt: string;
+  signature: string;
+}
+
+export interface PolicyAuthorityProvisioningResultV1 {
+  provisioningVersion: typeof policyAuthorityProvisioningVersion;
+  revision: string;
+  requestDigest: string;
+  rule: SignedPolicyAuthorityProvisioningRuleV1;
+  localPolicyMaterial: SignedAgentLocalPolicyMaterialV1;
+  receipt: PolicyAuthorityProvisioningReceiptV1;
+}
+
+/**
+ * Agent 首次注册所需的基础信任材料。它只包含稳定的发现能力上限，
+ * 不包含任何证书 Artifact 或动态执行范围；由 Policy Authority 进程签发。
+ */
+export interface PolicyAuthorityAgentTrustMaterialRequestV1 {
+  tenantId: string;
+  agentId: string;
+  osType?: string;
+}
+
+export interface PolicyAuthorityAgentTrustMaterialV1 {
+  materialVersion: typeof agentSecurityContractVersion;
+  issuedAt: string;
+  validUntil: string;
+  capabilityKeySet: Record<string, string>;
+  policyAuthorityKeySet: Record<string, string>;
+  localPolicy: AgentLocalPolicyV1;
+  localPolicyAuthorityKeyId: string;
+  localPolicySignature: string;
+}
+
+export interface PolicyAuthorityProvisioningStoreV1 {
+  find(requestDigest: string): PolicyAuthorityProvisioningResultV1 | undefined;
+  findMatching(input: Pick<PolicyAuthorityProvisioningRequestV1, 'tenantId' | 'agentId' | 'pluginId' | 'pluginVersionId' | 'capability' | 'policyRef' | 'policyVersion' | 'planDigest'>): PolicyAuthorityProvisioningResultV1 | undefined;
+  commit(result: PolicyAuthorityProvisioningResultV1): void;
+}
+
+/** 单进程测试和受控管理入口使用的原子 provisioning 存储。 */
+export class InMemoryPolicyAuthorityProvisioningStoreV1 implements PolicyAuthorityProvisioningStoreV1 {
+  private readonly records = new Map<string, PolicyAuthorityProvisioningResultV1>();
+
+  find(requestDigest: string): PolicyAuthorityProvisioningResultV1 | undefined {
+    const value = this.records.get(requestDigest);
+    return value ? structuredClone(value) : undefined;
+  }
+
+  findMatching(input: Pick<PolicyAuthorityProvisioningRequestV1, 'tenantId' | 'agentId' | 'pluginId' | 'pluginVersionId' | 'capability' | 'policyRef' | 'policyVersion' | 'planDigest'>): PolicyAuthorityProvisioningResultV1 | undefined {
+    let identityMatch: PolicyAuthorityProvisioningResultV1 | undefined;
+    for (const value of this.records.values()) {
+      const rule = value.rule;
+      if (rule.tenantId === input.tenantId && rule.agentId === input.agentId && rule.pluginId === input.pluginId
+        && rule.pluginVersionId === input.pluginVersionId && rule.capability === input.capability
+        && rule.policyRef === input.policyRef && rule.policyVersion === input.policyVersion) {
+        identityMatch ??= value;
+        if (rule.planDigest === input.planDigest) return structuredClone(value);
+      }
+    }
+    return identityMatch ? structuredClone(identityMatch) : undefined;
+  }
+
+  commit(result: PolicyAuthorityProvisioningResultV1): void {
+    const existing = this.records.get(result.requestDigest);
+    if (existing && sha256Digest(existing) !== sha256Digest(result)) failClosed('重复 provisioning 输入产生了不同结果');
+    this.records.set(result.requestDigest, structuredClone(result));
+  }
+}
+
+/** 生产 Policy Authority 使用的单文件原子存储；不写 execution-policy.json，也不写 Agent 文件。 */
+export class FilePolicyAuthorityProvisioningStoreV1 implements PolicyAuthorityProvisioningStoreV1 {
+  private readonly records: Map<string, PolicyAuthorityProvisioningResultV1>;
+
+  constructor(private readonly filePath: string) {
+    if (!isAbsolute(filePath)) failClosed('Policy Authority provisioning 存储必须使用绝对路径');
+    this.records = new Map();
+    if (!existsSync(filePath)) return;
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(filePath, 'utf8')); } catch { failClosed('Policy Authority provisioning 存储无法读取'); }
+    if (!Array.isArray(parsed)) failClosed('Policy Authority provisioning 存储必须是数组');
+    for (const item of parsed) {
+      const result = validatePolicyAuthorityProvisioningResultV1(item);
+      this.records.set(result.requestDigest, result);
+    }
+  }
+
+  find(requestDigest: string): PolicyAuthorityProvisioningResultV1 | undefined {
+    const value = this.records.get(requestDigest);
+    return value ? structuredClone(value) : undefined;
+  }
+
+  findMatching(input: Pick<PolicyAuthorityProvisioningRequestV1, 'tenantId' | 'agentId' | 'pluginId' | 'pluginVersionId' | 'capability' | 'policyRef' | 'policyVersion' | 'planDigest'>): PolicyAuthorityProvisioningResultV1 | undefined {
+    let identityMatch: PolicyAuthorityProvisioningResultV1 | undefined;
+    for (const value of this.records.values()) {
+      const rule = value.rule;
+      if (rule.tenantId === input.tenantId && rule.agentId === input.agentId && rule.pluginId === input.pluginId
+        && rule.pluginVersionId === input.pluginVersionId && rule.capability === input.capability
+        && rule.policyRef === input.policyRef && rule.policyVersion === input.policyVersion) {
+        identityMatch ??= value;
+        if (rule.planDigest === input.planDigest) return structuredClone(value);
+      }
+    }
+    return identityMatch ? structuredClone(identityMatch) : undefined;
+  }
+
+  commit(result: PolicyAuthorityProvisioningResultV1): void {
+    const existing = this.records.get(result.requestDigest);
+    if (existing && sha256Digest(existing) !== sha256Digest(result)) failClosed('重复 provisioning 输入产生了不同结果');
+    const nextRecords = new Map(this.records);
+    nextRecords.set(result.requestDigest, structuredClone(result));
+    const temporary = `${this.filePath}.tmp-${process.pid}`;
+    try {
+      mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
+      const handle = openSync(temporary, 'wx', 0o600);
+      try { writeSync(handle, `${JSON.stringify([...nextRecords.values()])}\n`, undefined, 'utf8'); } finally { closeSync(handle); }
+      renameSync(temporary, this.filePath);
+      this.records.clear();
+      for (const [requestDigest, stored] of nextRecords) this.records.set(requestDigest, stored);
+    } catch (error) {
+      try { unlinkSync(temporary); } catch { /* 清理失败仍然由下方错误关闭 */ }
+      failClosed(`Policy Authority provisioning 持久化失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 /**
@@ -173,11 +360,12 @@ export class SignedPolicyAuthorityPolicyEvaluatorV1 implements PolicyAuthorityEv
       && candidate.tenantId === input.tenantId
       && candidate.pluginId === input.pluginId
       && candidate.pluginVersionId === input.pluginVersionId
-      && candidate.capability === input.capability,
+      && candidate.capability === input.capability
+      && (candidate.planDigest === undefined || candidate.planDigest === input.planDigest),
     );
     if (!rule) return deniedEvaluation(input, '生产策略未匹配当前租户、Agent、插件版本或 Capability');
     if (!isSubset(input.actions, rule.actions)
-      || !isSubset(input.allowedPaths, rule.allowedPaths)
+      || !input.allowedPaths.every((path) => isPathWithin(path, rule.allowedPaths))
       || !isSubset(input.allowedServices, rule.allowedServices)
       || !isSubset(input.artifactDigests, rule.artifactDigests)) {
       return deniedEvaluation(input, '请求范围超出已签名生产策略');
@@ -412,6 +600,8 @@ export interface PolicyAuthorityServiceOptionsV1 {
   evaluator: PolicyAuthorityEvaluatorV1;
   revocations: PolicyAuthorityRevocationStoreV1;
   nonceStore: NonceStoreV1Port;
+  /** 正式 provisioning 的原子存储；缺失时 provisioning 入口失败关闭。 */
+  provisioning?: PolicyAuthorityProvisioningStoreV1;
   now?: () => string;
 }
 
@@ -426,6 +616,7 @@ export class PolicyAuthorityServiceV1 {
   private readonly evaluator: PolicyAuthorityEvaluatorV1;
   private readonly revocations: PolicyAuthorityRevocationStoreV1;
   private readonly nonceStore: NonceStoreV1Port;
+  private readonly provisioning?: PolicyAuthorityProvisioningStoreV1;
   private readonly now: () => string;
   private readonly bootstrap?: PolicyAuthorityBootstrapV1;
   private currentKeySet: PolicyAuthorityKeySetV1;
@@ -438,6 +629,7 @@ export class PolicyAuthorityServiceV1 {
     this.evaluator = requireObject(options.evaluator, 'evaluator');
     this.revocations = requireObject(options.revocations, 'revocations');
     this.nonceStore = requireObject(options.nonceStore, 'nonceStore');
+    this.provisioning = options.provisioning;
     requireCallable(this.signingKeySource, 'getPrivateKey');
     requireCallable(this.evaluator, 'evaluate');
     requireCallable(this.revocations, 'isTokenRevoked');
@@ -447,6 +639,11 @@ export class PolicyAuthorityServiceV1 {
     requireCallable(this.revocations, 'revokeDecision');
     requireCallable(this.revocations, 'revokeKey');
     requireCallable(this.nonceStore, 'consume');
+    if (this.provisioning) {
+      requireCallable(this.provisioning, 'find');
+      requireCallable(this.provisioning, 'findMatching');
+      requireCallable(this.provisioning, 'commit');
+    }
     this.now = options.now ?? (() => new Date().toISOString());
     const configuredNow = this.currentTime();
     this.bootstrap = options.bootstrap === undefined
@@ -470,6 +667,126 @@ export class PolicyAuthorityServiceV1 {
 
   getBootstrap(): PolicyAuthorityBootstrapV1 | undefined {
     return this.bootstrap ? structuredClone(this.bootstrap) : undefined;
+  }
+
+  /**
+   * 自动签发 Agent 首次注册材料。宿主只能提交 Agent 身份，不能提交策略范围或签名内容；
+   * 证书执行所需的精确上限仍由后续已编译 Plan provisioning 生成并下发。
+   */
+  issueAgentTrustMaterial(request: PolicyAuthorityAgentTrustMaterialRequestV1): PolicyAuthorityAgentTrustMaterialV1 {
+    this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
+    validateAgentTrustMaterialRequest(request);
+    const issuedAt = this.currentTime();
+    const activeKey = this.getActiveSigningKey(issuedAt);
+    const keyMap = Object.fromEntries(this.currentKeySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)]));
+    const discoveryActions = ['filesystem.read', 'process.list', 'service.list'];
+    const allowedPaths = selectWebDiscoveryPaths(request.osType ?? 'linux');
+    const localPolicy = validateAgentLocalPolicy({
+      policyVersion: agentSecurityContractVersion,
+      agentId: request.agentId,
+      authorityKeyIds: [activeKey.keyId],
+      allowedActions: discoveryActions,
+      pathRules: allowedPaths.map((prefix) => ({ prefix, operations: ['filesystem.read'] })),
+      serviceRules: [],
+      commandRules: [],
+      disabled: false,
+      updatedAt: issuedAt,
+    });
+    const material: PolicyAuthorityAgentTrustMaterialV1 = {
+      materialVersion: agentSecurityContractVersion,
+      issuedAt,
+      validUntil: addSeconds(issuedAt, 365 * 24 * 60 * 60),
+      capabilityKeySet: keyMap,
+      policyAuthorityKeySet: keyMap,
+      localPolicy,
+      localPolicyAuthorityKeyId: activeKey.keyId,
+      localPolicySignature: signPolicyPayload(localPolicy, activeKey.privateKey),
+    };
+    validatePolicyAuthorityAgentTrustMaterial(material, this.currentKeySet);
+    return structuredClone(material);
+  }
+
+  /**
+   * 对已经编译的 Agent Plan 一次性生成动态 PA 规则和稳定本地能力上限材料。
+   * 所有校验、签名和持久化完成前不会提交任何一类材料。
+   */
+  provisionAgentPlan(request: PolicyAuthorityProvisioningRequestV1): PolicyAuthorityProvisioningResultV1 {
+    this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
+    if (!this.provisioning) failClosed('Policy Authority provisioning 存储不可用');
+    const validated = validateProvisioningRequest(request);
+    const requestDigest = provisioningRequestDigest(validated);
+    const existing = this.provisioning.find(requestDigest);
+    if (existing) {
+      const key = this.findKey(existing.rule.authorityKeyId, this.currentTime(), true);
+      assertProvisioningSignatures(existing, key.publicKeyPem);
+      return structuredClone(existing);
+    }
+
+    const issuedAt = this.currentTime();
+    // provisioning 与随后 issueAuthorization 是两个受控调用；预留极小编排时钟窗口，
+    // 避免规则在签发 Token 前因毫秒级时间推进而先过期。Token 本身仍严格使用请求生命周期。
+    const validUntil = addSeconds(issuedAt, validated.lifetimeSeconds + 5);
+    const activeKey = this.getActiveSigningKey(issuedAt);
+    const ruleUnsigned: Omit<SignedPolicyAuthorityProvisioningRuleV1, 'signature'> = {
+      provisioningVersion: policyAuthorityProvisioningVersion,
+      policyRef: validated.policyRef,
+      policyVersion: validated.policyVersion,
+      agentId: validated.agentId,
+      tenantId: validated.tenantId,
+      pluginId: validated.pluginId,
+      pluginVersionId: validated.pluginVersionId,
+      capability: validated.capability,
+      planDigest: validated.planDigest,
+      actions: [...validated.actions],
+      allowedPaths: [...validated.allowedPaths],
+      allowedServices: [...validated.allowedServices],
+      artifactDigests: [...validated.artifactDigests],
+      commandRules: structuredClone(validated.commandRules),
+      ...(validated.approvalRef ? { approvalRef: validated.approvalRef } : {}),
+      authorityKeyId: activeKey.keyId,
+      issuedAt,
+      validUntil,
+    };
+    const rule = { ...ruleUnsigned, signature: signPolicyPayload(ruleUnsigned, activeKey.privateKey) };
+    const localPolicy = projectLocalPolicyUpperBound(
+      validated.currentLocalPolicy,
+      validated.agentId,
+      activeKey.keyId,
+      validated.bootstrapLocalPolicy === true,
+      validated.commandRules,
+    );
+    const localUnsigned: Omit<SignedAgentLocalPolicyMaterialV1, 'signature'> = {
+      materialVersion: policyAuthorityProvisioningVersion,
+      tenantId: validated.tenantId,
+      agentId: validated.agentId,
+      localPolicy,
+      authorityKeyId: activeKey.keyId,
+    };
+    const localPolicyMaterial = { ...localUnsigned, signature: signPolicyPayload(localUnsigned, activeKey.privateKey) };
+    const revision = `provisioning-${requestDigest.slice(0, 32)}`;
+    const receiptUnsigned: Omit<PolicyAuthorityProvisioningReceiptV1, 'signature'> = {
+      receiptVersion: policyAuthorityProvisioningReceiptVersion,
+      revision,
+      requestDigest,
+      ruleDigest: sha256Digest(rule),
+      localPolicyDigest: sha256Digest(localUnsigned),
+      issuedAt,
+    };
+    const receipt = { ...receiptUnsigned, signature: signPolicyPayload(receiptUnsigned, activeKey.privateKey) };
+    const result: PolicyAuthorityProvisioningResultV1 = {
+      provisioningVersion: policyAuthorityProvisioningVersion,
+      revision,
+      requestDigest,
+      rule,
+      localPolicyMaterial,
+      receipt,
+    };
+    const validatedResult = validatePolicyAuthorityProvisioningResultV1(result);
+    // 只提交一次完整记录，文件存储内部使用临时文件 + rename，保证两类材料不会半写入。
+    this.provisioning.commit(validatedResult);
+    return structuredClone(validatedResult);
   }
 
   /** 轮换只替换已由信任根签名且具备可用 ACTIVE 私钥的新 KeySet。 */
@@ -497,7 +814,7 @@ export class PolicyAuthorityServiceV1 {
     const evaluationInput: PolicyAuthorityEvaluationInputV1 = { ...validatedRequest, issuedAt, validUntil };
     let evaluation: PolicyAuthorityEvaluationV1;
     try {
-      evaluation = this.evaluator.evaluate(structuredClone(evaluationInput));
+      evaluation = this.evaluateWithProvisionedRule(evaluationInput) ?? this.evaluator.evaluate(structuredClone(evaluationInput));
     } catch (error) {
       if (error instanceof AppError) throw error;
       failClosed('策略评估失败');
@@ -557,6 +874,35 @@ export class PolicyAuthorityServiceV1 {
     };
     const token = validateAgentCapabilityToken({ ...tokenValue, signature: signPolicyPayload(tokenValue, activeKey.privateKey) });
     return { decision, token };
+  }
+
+  private evaluateWithProvisionedRule(input: PolicyAuthorityEvaluationInputV1): PolicyAuthorityEvaluationV1 | undefined {
+    if (!this.provisioning) return undefined;
+    const candidate = this.provisioning.findMatching(input);
+    if (!candidate) return undefined;
+    const rule = candidate.rule;
+    const key = this.findKey(rule.authorityKeyId, input.issuedAt, true);
+    assertProvisioningSignatures(candidate, key.publicKeyPem);
+    if (rule.validUntil === undefined || rule.validUntil < input.validUntil
+      || rule.policyRef !== input.policyRef || rule.policyVersion !== input.policyVersion
+      || rule.agentId !== input.agentId || rule.tenantId !== input.tenantId
+      || rule.pluginId !== input.pluginId || rule.pluginVersionId !== input.pluginVersionId
+      || rule.capability !== input.capability || rule.planDigest !== input.planDigest
+      || !isSubset(input.actions, rule.actions)
+      || !input.allowedPaths.every((path) => isPathWithin(path, rule.allowedPaths))
+      || !isSubset(input.allowedServices, rule.allowedServices)
+      || !isSubset(input.artifactDigests, rule.artifactDigests)) {
+      return deniedEvaluation(input, 'provisioning 规则未精确匹配当前 Plan、范围或有效期');
+    }
+    return {
+      allowed: true,
+      actions: [...input.actions],
+      allowedPaths: [...input.allowedPaths],
+      allowedServices: [...input.allowedServices],
+      artifactDigests: [...input.artifactDigests],
+      policyRef: input.policyRef,
+      policyVersion: input.policyVersion,
+    };
   }
 
   /** Agent 侧最终授权入口：重新校验合同、签名、绑定、撤销、过期和一次性 Nonce。 */
@@ -828,18 +1174,20 @@ export class ProductionPolicyAuthorityPolicyServiceV1 {
 }
 
 /**
- * 生产签名私钥来源。环境变量必须是 keyId 到 PEM 的完整映射，保证 KeySet 轮换时不存在按位置猜测私钥的路径。
+ * 生产签名私钥来源。宿主只传递绝对路径，私钥内容仅由 standalone Policy Authority 进程读取。
  */
 export class ProductionPolicyAuthoritySigningKeySourceV1 implements PolicyAuthoritySigningKeySourceV1 {
-  private readonly environment: NodeJS.ProcessEnv;
+  private readonly filePath: string;
 
   constructor(environment: NodeJS.ProcessEnv = process.env) {
-    this.environment = environment;
-    parseSigningKeys(requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON'));
+    this.filePath = requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE');
+    if (!isAbsolute(this.filePath)) failClosed('Policy Authority signing key 文件必须是绝对路径');
+    assertSigningKeyFile(this.filePath);
+    parseSigningKeys(readFileSync(this.filePath, 'utf8'));
   }
 
   getPrivateKey(keyId: string): string | undefined {
-    return parseSigningKeys(requiredEnvironment(this.environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON')).get(keyId);
+    return parseSigningKeys(readSigningKeyFile(this.filePath)).get(keyId);
   }
 }
 
@@ -851,6 +1199,7 @@ export interface ProductionPolicyAuthorityServicesV1 {
   signingKeys: ProductionPolicyAuthoritySigningKeySourceV1;
   policy: ProductionPolicyAuthorityPolicyServiceV1;
   state: FilePolicyAuthorityStateStoreV1;
+  provisioning: FilePolicyAuthorityProvisioningStoreV1;
 }
 
 const productionPolicyAuthorityServices = new WeakSet<object>();
@@ -885,7 +1234,9 @@ export function createProductionPolicyAuthorityServicesV1(
   const trustRootValue = trustRoot.getTrustRoot();
   const bootstrapValue = bootstrap.load(trustRootValue);
   const policy = new ProductionPolicyAuthorityPolicyServiceV1(environment);
-  const state = new FilePolicyAuthorityStateStoreV1(requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_STATE_FILE'));
+  const statePath = requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_STATE_FILE');
+  const state = new FilePolicyAuthorityStateStoreV1(statePath);
+  const provisioning = new FilePolicyAuthorityProvisioningStoreV1(`${statePath}.provisioning.json`);
   const service = new PolicyAuthorityServiceV1({
     trustRoot: trustRootValue,
     keySet,
@@ -894,8 +1245,9 @@ export function createProductionPolicyAuthorityServicesV1(
     evaluator: new SignedPolicyAuthorityPolicyEvaluatorV1(policy.load(trustRootValue), trustRootValue),
     revocations: state,
     nonceStore: state,
+    provisioning,
   });
-  const services = Object.freeze({ service, trustRoot, bootstrap, keySet, signingKeys, policy, state });
+  const services = Object.freeze({ service, trustRoot, bootstrap, keySet, signingKeys, policy, state, provisioning });
   productionPolicyAuthorityServices.add(services);
   return services;
 }
@@ -910,7 +1262,7 @@ function resolveKeySet(value: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKey
 }
 function validatePolicyBundle(input: unknown, trustRoot: PolicyAuthorityTrustRootV1): SignedPolicyAuthorityPolicyBundleV1 {
   if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed('生产策略包必须是对象');
-  const value = input as Record<string, unknown>;
+  const value = input as unknown as Record<string, unknown>;
   exactRuntimeKeys(value, ['bundleVersion', 'authorityId', 'issuedAt', 'rules', 'signature'], '生产策略包');
   if (value.bundleVersion !== policyAuthorityPolicyBundleVersion
     || value.authorityId !== trustRoot.authorityId
@@ -932,17 +1284,21 @@ function validatePolicyBundle(input: unknown, trustRoot: PolicyAuthorityTrustRoo
 }
 function validatePolicyRule(input: unknown, path: string): PolicyAuthorityPolicyRuleV1 {
   if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed(`${path} 必须是对象`);
-  const value = input as Record<string, unknown>;
-  exactRuntimeKeys(value, ['policyRef', 'policyVersion', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests'], path);
+  const value = input as unknown as Record<string, unknown>;
+  exactRuntimeKeys(value, ['policyRef', 'policyVersion', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'planDigest', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests', 'commandRules', 'approvalRef', 'validUntil'], path);
   const fields = ['policyRef', 'policyVersion', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability'] as const;
   for (const field of fields) if (typeof value[field] !== 'string' || !value[field].trim()) failClosed(`${path}.${field} 缺失`);
   if (!new RegExp(canonicalPluginIdPattern).test(value.pluginId as string)) failClosed(`${path}.pluginId 不是 Canonical Plugin ID`);
+  if (value.planDigest !== undefined && (typeof value.planDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.planDigest))) failClosed(`${path}.planDigest 无效`);
   for (const field of ['actions', 'allowedPaths', 'allowedServices', 'artifactDigests'] as const) {
     if (!Array.isArray(value[field]) || !value[field].every((item) => typeof item === 'string' && item.trim())) failClosed(`${path}.${field} 无效`);
   }
   if ((value.actions as string[]).some((item) => !allowedPolicyActions.has(item))) failClosed(`${path}.actions 包含未授权操作`);
   if ((value.allowedPaths as string[]).some((item) => !isSafeAbsolutePath(item))) failClosed(`${path}.allowedPaths 包含非法路径`);
   if ((value.artifactDigests as string[]).some((item) => !/^[a-f0-9]{64}$/.test(item))) failClosed(`${path}.artifactDigests 包含非法摘要`);
+  if (value.commandRules !== undefined) validateProvisioningCommandRules(value.commandRules, `${path}.commandRules`);
+  if (value.approvalRef !== undefined && (typeof value.approvalRef !== 'string' || !value.approvalRef.trim())) failClosed(`${path}.approvalRef 无效`);
+  if (value.validUntil !== undefined && (typeof value.validUntil !== 'string' || Number.isNaN(Date.parse(value.validUntil)))) failClosed(`${path}.validUntil 无效`);
   return {
     policyRef: value.policyRef as string,
     policyVersion: value.policyVersion as string,
@@ -951,11 +1307,285 @@ function validatePolicyRule(input: unknown, path: string): PolicyAuthorityPolicy
     pluginId: value.pluginId as string,
     pluginVersionId: value.pluginVersionId as string,
     capability: value.capability as string,
+    ...(value.planDigest !== undefined ? { planDigest: value.planDigest as string } : {}),
     actions: [...value.actions as string[]],
     allowedPaths: [...value.allowedPaths as string[]],
     allowedServices: [...value.allowedServices as string[]],
     artifactDigests: [...value.artifactDigests as string[]],
+    ...(value.commandRules !== undefined ? { commandRules: structuredClone(value.commandRules as AgentLocalCommandRuleV1[]) } : {}),
+    ...(value.approvalRef !== undefined ? { approvalRef: value.approvalRef as string } : {}),
+    ...(value.validUntil !== undefined ? { validUntil: value.validUntil as string } : {}),
   };
+}
+
+function validateProvisioningRequest(input: PolicyAuthorityProvisioningRequestV1): PolicyAuthorityProvisioningRequestV1 {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed('provisioning 请求必须是对象');
+  const value = input as unknown as Record<string, unknown>;
+  exactRuntimeKeys(value, ['tenantId', 'agentId', 'pluginId', 'pluginVersionId', 'capability', 'planDigest', 'policyRef', 'policyVersion', 'actions', 'allowedPaths', 'allowedServices', 'commandRules', 'artifactDigests', 'approvalRef', 'lifetimeSeconds', 'currentLocalPolicy', 'bootstrapLocalPolicy', 'compiledPlan'], 'provisioning 请求');
+  const textFields = ['tenantId', 'agentId', 'pluginVersionId', 'capability', 'policyRef', 'policyVersion'] as const;
+  for (const field of textFields) if (typeof value[field] !== 'string' || !(value[field] as string).trim() || !isSafeIdentifier(value[field] as string)) failClosed(`provisioning ${field} 无效`);
+  if (typeof value.pluginId !== 'string' || !new RegExp(canonicalPluginIdPattern).test(value.pluginId)) failClosed('provisioning pluginId 无效');
+  if (value.policyRef === CERTIFICATE_UPDATE_POLICY_REF && value.policyVersion !== CERTIFICATE_UPDATE_POLICY_VERSION) failClosed('证书更新 policyVersion 必须统一为 v1');
+  if (typeof value.planDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.planDigest)) failClosed('provisioning planDigest 无效');
+  if (!Number.isInteger(value.lifetimeSeconds) || (value.lifetimeSeconds as number) < 1 || (value.lifetimeSeconds as number) > maximumTokenLifetimeSeconds) failClosed('provisioning 生命周期无效');
+  const strings = (field: string, digestValues = false): string[] => {
+    const values = value[field];
+    if (!Array.isArray(values) || values.some((item) => typeof item !== 'string' || !(item as string).trim())) failClosed(`provisioning ${field} 无效`);
+    if (digestValues && (values as string[]).some((item) => !/^[a-f0-9]{64}$/.test(item))) failClosed(`provisioning ${field} 摘要无效`);
+    if (field === 'actions' && (values as string[]).some((item) => !allowedPolicyActions.has(item))) failClosed('provisioning actions 包含未授权操作');
+    if (field === 'allowedPaths' && (values as string[]).some((item) => !isSafeAbsolutePath(item))) failClosed('provisioning allowedPaths 包含非法路径');
+    return [...new Set(values as string[])];
+  };
+  const currentLocalPolicy = validateAgentLocalPolicy(value.currentLocalPolicy);
+  if (currentLocalPolicy.agentId !== value.agentId || currentLocalPolicy.disabled) failClosed('当前 Agent 本地策略身份不匹配或已禁用');
+  const bootstrapLocalPolicy = value.bootstrapLocalPolicy === true;
+  if (!bootstrapLocalPolicy && currentLocalPolicy.authorityKeyIds.length === 0) failClosed('当前 Agent 本地策略缺少信任 Key');
+  if (bootstrapLocalPolicy
+    && (currentLocalPolicy.authorityKeyIds.length !== 1 || currentLocalPolicy.authorityKeyIds[0] !== 'bootstrap-pending')) {
+    failClosed('自动 bootstrap 本地策略只能携带 bootstrap-pending 标记');
+  }
+  const actions = strings('actions');
+  const allowedPaths = strings('allowedPaths');
+  const allowedServices = strings('allowedServices');
+  const artifactDigests = strings('artifactDigests', true);
+  const compiledPlan = validateAgentPlan(value.compiledPlan);
+  if (compiledPlan.agentId !== value.agentId || compiledPlan.tenantId !== value.tenantId || compiledPlan.pluginId !== value.pluginId
+    || compiledPlan.pluginVersionId !== value.pluginVersionId || compiledPlan.capability !== value.capability || compiledPlan.planDigest !== value.planDigest) failClosed('provisioning compiledPlan 身份或摘要不匹配');
+  const planActions = [...new Set(compiledPlan.operations.map((operation) => operation.operationType))];
+  if (!sameStringArray(planActions, actions)) failClosed('provisioning actions 与编译计划不匹配');
+  // 编译 Plan 是命令范围的唯一事实来源。调用方可能来自旧执行快照，不能把旧版
+  // commandRules 当成当前命令授权；从已验证 Plan 重新投影可兼容旧快照且不会扩大范围。
+  const commandRules = deriveProvisioningCommandRules(compiledPlan);
+  // 命令规则已经由同一份已验证 Plan 派生。这里只校验程序路径、工作目录和程序摘要的
+  // 动态范围；参数模板由计划摘要和 Agent 端本地 commandRules 共同固定，避免现场路径
+  // 规范化经过两套比较器后把同一条 Linux 命令误判为未覆盖。
+  assertCompiledPlanScope(compiledPlan, allowedPaths, allowedServices, artifactDigests);
+  if (actions.some((action) => !currentLocalPolicy.allowedActions.includes(action))) failClosed('provisioning 动作超出 Agent 本地能力上限');
+  if (allowedServices.some((service) => !currentLocalPolicy.serviceRules.includes(service))) failClosed('provisioning 服务超出 Agent 本地能力上限');
+  for (const path of allowedPaths) {
+    const covering = currentLocalPolicy.pathRules.filter((rule) => isPathWithin(path, [rule.prefix]));
+    if (covering.length === 0 || actions.some((action) => action.startsWith('filesystem.') && !covering.some((rule) => rule.operations.includes(action)))) failClosed('provisioning 路径超出 Agent 受控目录');
+  }
+  if (!bootstrapLocalPolicy) {
+    for (const command of commandRules) {
+      if (!currentLocalPolicy.commandRules.some((candidate) => sha256Digest(candidate) === sha256Digest(command))) failClosed('provisioning 命令规则超出 Agent 本地能力上限');
+    }
+  }
+  return {
+    tenantId: value.tenantId as string,
+    agentId: value.agentId as string,
+    pluginId: value.pluginId as string,
+    pluginVersionId: value.pluginVersionId as string,
+    capability: value.capability as string,
+    planDigest: value.planDigest as string,
+    policyRef: value.policyRef as string,
+    policyVersion: value.policyVersion as string,
+    actions,
+    allowedPaths,
+    allowedServices,
+    commandRules,
+    artifactDigests,
+    ...(value.approvalRef === undefined ? {} : { approvalRef: requireText(value.approvalRef as string, 'provisioning approvalRef') }),
+    lifetimeSeconds: value.lifetimeSeconds as number,
+    currentLocalPolicy,
+    ...(bootstrapLocalPolicy ? { bootstrapLocalPolicy: true } : {}),
+    compiledPlan,
+  };
+}
+
+function validateAgentTrustMaterialRequest(input: PolicyAuthorityAgentTrustMaterialRequestV1): void {
+  exactRuntimeKeys(input as unknown as Record<string, unknown>, ['tenantId', 'agentId', 'osType'], 'Agent 信任材料请求');
+  if (!isSafeIdentifier(input.tenantId) || !isSafeIdentifier(input.agentId)) failClosed('Agent 信任材料请求身份无效');
+  if (input.osType !== undefined && (typeof input.osType !== 'string' || input.osType.length > 128)) {
+    failClosed('Agent 信任材料请求 osType 无效');
+  }
+}
+
+function validatePolicyAuthorityAgentTrustMaterial(
+  material: PolicyAuthorityAgentTrustMaterialV1,
+  keySet: PolicyAuthorityKeySetV1,
+): void {
+  if (material.materialVersion !== agentSecurityContractVersion
+    || Number.isNaN(Date.parse(material.issuedAt))
+    || Number.isNaN(Date.parse(material.validUntil))
+    || Date.parse(material.validUntil) <= Date.parse(material.issuedAt)
+    || material.localPolicy.agentId === ''
+    || material.localPolicy.disabled
+    || material.localPolicyAuthorityKeyId === ''
+    || material.localPolicySignature === '') {
+    failClosed('Agent 信任材料字段无效');
+  }
+  const trusted = keySet.keys.find((key) => key.keyId === material.localPolicyAuthorityKeyId);
+  if (!trusted || material.localPolicy.authorityKeyIds.length !== 1 || material.localPolicy.authorityKeyIds[0] !== trusted.keyId) {
+    failClosed('Agent 信任材料签发 Key 不在当前 KeySet');
+  }
+  if (!verifyPolicyPayload(material.localPolicy, material.localPolicySignature, trusted.publicKeyPem)) {
+    failClosed('Agent 信任材料 localPolicy 签名无效');
+  }
+  if (!sameStringMap(material.capabilityKeySet, material.policyAuthorityKeySet)) {
+    failClosed('Agent 信任材料 KeySet 不一致');
+  }
+}
+
+function validateProvisioningCommandRules(value: unknown, path: string): AgentLocalCommandRuleV1[] {
+  if (!Array.isArray(value) || value.length > 100) failClosed(`${path} 必须是数组`);
+  const rules = value.map((item, index) => {
+    const base = validateAgentLocalPolicy({
+      policyVersion: agentSecurityContractVersion,
+      agentId: 'provisioning-agent',
+      authorityKeyIds: ['provisioning-authority'],
+      allowedActions: ['command.execute_allowlisted'],
+      pathRules: [],
+      serviceRules: [],
+      commandRules: [item],
+      disabled: false,
+      updatedAt: new Date(0).toISOString(),
+    });
+    return base.commandRules[0]!;
+  });
+  if (new Set(rules.map((rule) => sha256Digest(rule))).size !== rules.length) failClosed(`${path} 不能包含重复规则`);
+  return rules;
+}
+
+function deriveProvisioningCommandRules(plan: AgentPlanV1): AgentLocalCommandRuleV1[] {
+  const rules = plan.operations
+    .filter((operation) => operation.operationType === 'command.execute_allowlisted')
+    // Plan 命令 input 还包含执行时的 args 和 Artifact 摘要；这里只投影
+    // Agent 本地命令规则合同允许的稳定字段，避免把动态 Artifact 写入 localPolicy。
+    .map((operation) => projectCommandRuleFromPlanInput(operation.input));
+  const validated = validateProvisioningCommandRules(rules, 'compiledPlan commandRules');
+  const seen = new Set<string>();
+  return validated.filter((rule) => {
+    const digest = sha256Digest(rule);
+    if (seen.has(digest)) return false;
+    seen.add(digest);
+    return true;
+  });
+}
+
+function projectCommandRuleFromPlanInput(input: Record<string, unknown>): AgentLocalCommandRuleV1 {
+  const rule = {
+    executablePath: input.executablePath,
+    executableSha256: input.executableSha256,
+    argumentTemplate: input.argumentTemplate,
+    environmentAllowlist: input.environmentAllowlist,
+    workingDirectory: input.workingDirectory,
+    networkScopes: input.networkScopes,
+    childProcessPolicy: input.childProcessPolicy,
+    timeoutSeconds: input.timeoutSeconds,
+    outputLimitBytes: input.outputLimitBytes,
+  };
+  return rule as AgentLocalCommandRuleV1;
+}
+
+function assertCompiledPlanScope(
+  plan: AgentPlanV1,
+  allowedPaths: readonly string[],
+  allowedServices: readonly string[],
+  artifactDigests: readonly string[],
+): void {
+  for (const operation of plan.operations) {
+    const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
+    if (path && !isPathWithin(path, allowedPaths)) failClosed('provisioning allowedPaths 未覆盖编译计划路径');
+    const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
+    if (serviceName && !allowedServices.includes(serviceName)) failClosed('provisioning allowedServices 未覆盖编译计划服务');
+    const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;
+    if (artifactDigest && !artifactDigests.includes(artifactDigest)) failClosed('provisioning artifactDigests 未覆盖编译计划 Artifact');
+    if (operation.operationType !== 'command.execute_allowlisted') continue;
+    const executablePath = typeof operation.input.executablePath === 'string' ? operation.input.executablePath : undefined;
+    const workingDirectory = typeof operation.input.workingDirectory === 'string' ? operation.input.workingDirectory : undefined;
+    const executableSha256 = typeof operation.input.executableSha256 === 'string' ? operation.input.executableSha256 : undefined;
+    if (!executablePath || !isPathWithin(executablePath, allowedPaths)
+      || !workingDirectory || !isPathWithin(workingDirectory, allowedPaths)
+      || !executableSha256 || !artifactDigests.includes(executableSha256)) {
+      failClosed('provisioning 命令范围未被编译计划授权覆盖');
+    }
+  }
+}
+
+function projectLocalPolicyUpperBound(
+  policy: AgentLocalPolicyV1,
+  agentId: string,
+  authorityKeyId: string,
+  bootstrap = false,
+  bootstrapCommandRules: AgentLocalCommandRuleV1[] = [],
+): AgentLocalPolicyV1 {
+  if (!bootstrap && !policy.authorityKeyIds.includes(authorityKeyId)) failClosed('Agent 本地策略不信任当前 Policy Authority key');
+  return validateAgentLocalPolicy({
+    ...structuredClone(policy),
+    agentId,
+    authorityKeyIds: bootstrap ? [authorityKeyId] : [...policy.authorityKeyIds],
+    ...(bootstrap ? { commandRules: structuredClone(bootstrapCommandRules) } : {}),
+    // Artifact 摘要不在 AgentLocalPolicyV1 合同中，保证不会被投影到 Agent。
+  });
+}
+
+function provisioningRequestDigest(request: PolicyAuthorityProvisioningRequestV1): string {
+  const { updatedAt: _updatedAt, ...stableLocalPolicy } = request.currentLocalPolicy;
+  const value = {
+    tenantId: request.tenantId,
+    agentId: request.agentId,
+    pluginId: request.pluginId,
+    pluginVersionId: request.pluginVersionId,
+    capability: request.capability,
+    planDigest: request.planDigest,
+    policyRef: request.policyRef,
+    policyVersion: request.policyVersion,
+    actions: [...request.actions].sort(),
+    allowedPaths: [...request.allowedPaths].sort(),
+    allowedServices: [...request.allowedServices].sort(),
+    commandRules: request.commandRules.map((rule) => sha256Digest(rule)).sort(),
+    artifactDigests: [...request.artifactDigests].sort(),
+    lifetimeSeconds: request.lifetimeSeconds,
+    bootstrapLocalPolicy: request.bootstrapLocalPolicy === true,
+    currentLocalPolicy: {
+      ...stableLocalPolicy,
+      allowedActions: [...request.currentLocalPolicy.allowedActions].sort(),
+      pathRules: request.currentLocalPolicy.pathRules.map((rule) => ({ prefix: rule.prefix, operations: [...rule.operations].sort() })).sort((a, b) => a.prefix.localeCompare(b.prefix)),
+      serviceRules: [...request.currentLocalPolicy.serviceRules].sort(),
+      commandRules: request.currentLocalPolicy.commandRules.map((rule) => sha256Digest(rule)).sort(),
+    },
+    ...(request.approvalRef === undefined ? {} : { approvalRef: request.approvalRef }),
+  };
+  return sha256Digest(value);
+}
+
+export function validatePolicyAuthorityProvisioningResultV1(input: unknown): PolicyAuthorityProvisioningResultV1 {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed('provisioning 结果必须是对象');
+  const value = input as Record<string, unknown>;
+  exactRuntimeKeys(value, ['provisioningVersion', 'revision', 'requestDigest', 'rule', 'localPolicyMaterial', 'receipt'], 'provisioning 结果');
+  if (value.provisioningVersion !== policyAuthorityProvisioningVersion || typeof value.revision !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value.revision) || typeof value.requestDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.requestDigest)) failClosed('provisioning 结果头无效');
+  const rule = value.rule as Record<string, unknown>;
+  const local = value.localPolicyMaterial as Record<string, unknown>;
+  const receipt = value.receipt as Record<string, unknown>;
+  const ruleBase = { ...rule };
+  delete ruleBase.provisioningVersion;
+  delete ruleBase.authorityKeyId;
+  delete ruleBase.issuedAt;
+  delete ruleBase.validUntil;
+  delete ruleBase.signature;
+  validatePolicyRule(ruleBase, 'provisioning.rule');
+  if (rule.provisioningVersion !== policyAuthorityProvisioningVersion || typeof rule.authorityKeyId !== 'string' || typeof rule.issuedAt !== 'string' || typeof rule.validUntil !== 'string' || typeof rule.signature !== 'string' || typeof rule.planDigest !== 'string' || !/^[a-f0-9]{64}$/.test(rule.planDigest)) failClosed('provisioning.rule 签名材料无效');
+  exactRuntimeKeys(local, ['materialVersion', 'tenantId', 'agentId', 'localPolicy', 'authorityKeyId', 'signature'], 'provisioning.localPolicyMaterial');
+  if (local.materialVersion !== policyAuthorityProvisioningVersion || typeof local.tenantId !== 'string' || typeof local.agentId !== 'string' || typeof local.authorityKeyId !== 'string' || typeof local.signature !== 'string') failClosed('provisioning.localPolicyMaterial 无效');
+  const localPolicy = validateAgentLocalPolicy(local.localPolicy);
+  if (localPolicy.agentId !== local.agentId || local.tenantId !== rule.tenantId || local.agentId !== rule.agentId || local.authorityKeyId !== rule.authorityKeyId) failClosed('provisioning 本地策略身份不匹配');
+  exactRuntimeKeys(receipt, ['receiptVersion', 'revision', 'requestDigest', 'ruleDigest', 'localPolicyDigest', 'issuedAt', 'signature'], 'provisioning.receipt');
+  if (receipt.receiptVersion !== policyAuthorityProvisioningReceiptVersion || receipt.revision !== value.revision || receipt.requestDigest !== value.requestDigest || typeof receipt.ruleDigest !== 'string' || typeof receipt.localPolicyDigest !== 'string' || typeof receipt.issuedAt !== 'string' || typeof receipt.signature !== 'string') failClosed('provisioning.receipt 无效');
+  const { signature: _localSignature, ...localUnsigned } = local;
+  if (receipt.ruleDigest !== sha256Digest(rule) || receipt.localPolicyDigest !== sha256Digest(localUnsigned)) failClosed('provisioning 摘要与签名材料不匹配');
+  return structuredClone(input as PolicyAuthorityProvisioningResultV1);
+}
+
+function assertProvisioningSignatures(result: PolicyAuthorityProvisioningResultV1, publicKeyPem: string): void {
+  const { signature: _localSignature, ...localUnsigned } = result.localPolicyMaterial;
+  if (!verifyPolicyPayload(result.rule, result.rule.signature, publicKeyPem)
+    || !verifyPolicyPayload(result.localPolicyMaterial, result.localPolicyMaterial.signature, publicKeyPem)
+    || !verifyPolicyPayload(result.receipt, result.receipt.signature, publicKeyPem)
+    || result.receipt.ruleDigest !== sha256Digest(result.rule)
+    || result.receipt.localPolicyDigest !== sha256Digest(localUnsigned)
+    || result.receipt.revision !== result.revision
+    || result.receipt.requestDigest !== result.requestDigest) failClosed('provisioning 签名或摘要校验失败');
 }
 function deniedEvaluation(input: PolicyAuthorityEvaluationInputV1, reason: string): PolicyAuthorityEvaluationV1 {
   return {
@@ -971,6 +1601,16 @@ function deniedEvaluation(input: PolicyAuthorityEvaluationInputV1, reason: strin
 }
 function isSubset(values: readonly string[], allowed: readonly string[]): boolean {
   return values.every((value) => allowed.includes(value));
+}
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+function isPathWithin(value: string, prefixes: readonly string[]): boolean {
+  const normalized = value.replaceAll('\\', '/').replace(/\/+$/u, '').toLowerCase();
+  return prefixes.some((prefix) => {
+    const root = prefix.replaceAll('\\', '/').replace(/\/+$/u, '').toLowerCase();
+    return normalized === root || normalized.startsWith(`${root}/`);
+  });
 }
 const allowedPolicyActions = new Set([
   'process.list', 'service.list', 'service.status', 'filesystem.stat', 'filesystem.read', 'filesystem.backup',
@@ -1017,6 +1657,20 @@ function parseSigningKeys(raw: string): ReadonlyMap<string, string> {
   }
   for (const [keyId] of entries) rejectDevelopmentIdentifier(keyId, 'signingKeyId');
   return new Map(entries.map(([keyId, privateKey]) => [keyId, (privateKey as string).replaceAll('\\n', '\n')]));
+}
+function readSigningKeyFile(filePath: string): string {
+  try {
+    return readFileSync(filePath, 'utf8');
+  } catch (error) {
+    return failClosed(`Policy Authority signing key 文件无法读取：${filePath}`);
+  }
+}
+function assertSigningKeyFile(filePath: string): void {
+  try {
+    if (!statSync(filePath).isFile()) throw new Error('路径类型不匹配');
+  } catch (error) {
+    failClosed(`Policy Authority signing key 文件不存在：${filePath}`);
+  }
 }
 function requireText(value: string, path: string): string { if (typeof value !== 'string' || value.trim() === '') failClosed(`${path} 缺失`); return value; }
 function isDevelopmentIdentifier(value: string): boolean {
@@ -1082,6 +1736,24 @@ function validateTrustRoot(root: PolicyAuthorityTrustRootV1): PolicyAuthorityTru
   if (publicKeyFingerprint(root.publicKeyPem) !== root.fingerprintSha256) failClosed('独立信任根指纹不匹配');
   return structuredClone(root);
 }
+
+function rawEd25519PublicKey(publicKeyPem: string): string {
+  try {
+    const key = createPublicKey(publicKeyPem);
+    if (key.asymmetricKeyType !== 'ed25519') failClosed('Policy Authority 公钥必须使用 Ed25519');
+    const der = key.export({ type: 'spki', format: 'der' });
+    return Buffer.from(der).subarray(-32).toString('base64');
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    failClosed('Policy Authority 公钥无法转换为 Agent 信任材料');
+  }
+}
+
+function sameStringMap(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+}
 function validateKeySetEnvelope(value: SignedPolicyAuthorityKeySetV1): void {
   exactRuntimeKeys(value, ['envelopeVersion', 'rootKeyId', 'authorityId', 'keySet', 'signature'], 'KeySet Envelope');
   if (!value || value.envelopeVersion !== agentSecurityContractVersion || !value.rootKeyId || !value.authorityId || !value.keySet || !value.signature) failClosed('KeySet Envelope 不完整');
@@ -1090,6 +1762,7 @@ function validateKeySetEnvelope(value: SignedPolicyAuthorityKeySetV1): void {
 }
 function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, issuedAt: string): PolicyAuthorityAuthorizationRequestV1 {
   exactRuntimeKeys(request, ['agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests', 'policyRef', 'policyVersion', 'planDigest', 'approvalRef', 'lifetimeSeconds'], '授权请求');
+  if (request.policyRef === CERTIFICATE_UPDATE_POLICY_REF && request.policyVersion !== CERTIFICATE_UPDATE_POLICY_VERSION) failClosed('证书更新 policyVersion 必须统一为 v1');
   if (!Number.isInteger(request.lifetimeSeconds) || request.lifetimeSeconds < 1 || request.lifetimeSeconds > maximumTokenLifetimeSeconds) failClosed('Token 生命周期超出限制');
   const validUntil = addSeconds(issuedAt, request.lifetimeSeconds);
   const value = validateAgentCapabilityToken({
@@ -1183,4 +1856,4 @@ function exactRuntimeKeys(value: unknown, allowed: string[], path: string): asse
 function rejectDevelopmentIdentifier(value: string, path: string): void {
   if (isDevelopmentIdentifier(value)) failClosed(`${path} 禁止使用开发默认密钥`);
 }
-function failClosed(message: string): never { throw new AppError('SYSTEM_INTERNAL_ERROR', `Policy Authority 已失败关闭：${message}`, undefined, false); }
+function failClosed(message: string, details?: unknown): never { throw new AppError('SYSTEM_INTERNAL_ERROR', `Policy Authority 已失败关闭：${message}`, details, false); }

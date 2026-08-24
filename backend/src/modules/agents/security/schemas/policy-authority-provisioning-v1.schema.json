@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://policy-authority-provisioning/v1",
+  "title": "GCAC Policy Authority Agent Plan provisioning v1",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?:[A-Za-z]:[\\/]|[\\/]{1,2})" },
+    "strings": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 1 } },
+    "commandRule": { "type": "object", "additionalProperties": true },
+    "localPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyVersion", "agentId", "authorityKeyIds", "allowedActions", "pathRules", "serviceRules", "commandRules", "disabled", "updatedAt"],
+      "properties": {
+        "policyVersion": { "const": "gcac.agent-security/v1" },
+        "agentId": { "$ref": "#/$defs/id" },
+        "authorityKeyIds": { "$ref": "#/$defs/strings" },
+        "allowedActions": { "$ref": "#/$defs/strings" },
+        "pathRules": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": true } },
+        "serviceRules": { "$ref": "#/$defs/strings" },
+        "commandRules": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/commandRule" } },
+        "disabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "compiledPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planVersion", "planId", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "operations", "planDigest", "tokenId", "policyDecisionId", "nonce", "expiresAt", "writeEffect"],
+      "properties": {
+        "planVersion": { "const": "gcac.agent-security/v1" },
+        "planId": { "$ref": "#/$defs/id" },
+        "agentId": { "$ref": "#/$defs/id" },
+        "tenantId": { "$ref": "#/$defs/id" },
+        "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" },
+        "pluginVersionId": { "$ref": "#/$defs/id" },
+        "capability": { "$ref": "#/$defs/id" },
+        "operations": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "object" } },
+        "planDigest": { "$ref": "#/$defs/digest" },
+        "tokenId": { "$ref": "#/$defs/id" },
+        "policyDecisionId": { "$ref": "#/$defs/id" },
+        "nonce": { "$ref": "#/$defs/id" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "writeEffect": { "type": "boolean" },
+        "approvalRef": { "$ref": "#/$defs/id" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tenantId", "agentId", "pluginId", "pluginVersionId", "capability", "planDigest", "policyRef", "policyVersion", "actions", "allowedPaths", "allowedServices", "commandRules", "artifactDigests", "lifetimeSeconds", "currentLocalPolicy", "compiledPlan"],
+  "properties": {
+    "tenantId": { "$ref": "#/$defs/id" },
+    "agentId": { "$ref": "#/$defs/id" },
+    "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" },
+    "pluginVersionId": { "$ref": "#/$defs/id" },
+    "capability": { "$ref": "#/$defs/id" },
+    "planDigest": { "$ref": "#/$defs/digest" },
+    "policyRef": { "$ref": "#/$defs/id" },
+    "policyVersion": { "$ref": "#/$defs/id" },
+    "actions": { "$ref": "#/$defs/strings" },
+    "allowedPaths": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/path" } },
+    "allowedServices": { "$ref": "#/$defs/strings" },
+    "commandRules": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/commandRule" } },
+    "artifactDigests": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/digest" } },
+    "approvalRef": { "$ref": "#/$defs/id" },
+    "lifetimeSeconds": { "type": "integer", "minimum": 1, "maximum": 900 },
+    "currentLocalPolicy": { "$ref": "#/$defs/localPolicy" },
+    "bootstrapLocalPolicy": { "type": "boolean" },
+    "compiledPlan": { "$ref": "#/$defs/compiledPlan" }
+  }
+}

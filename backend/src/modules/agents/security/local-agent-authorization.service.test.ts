@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { WINDOWS_WEB_DISCOVERY_PATHS } from '../agent-discovery-paths.js';
+import { agentSecurityContractVersion, computeAgentPlanDigest, type AgentPlanV1 } from './agent-security.contract.js';
 import { createLocalAgentAuthorizationServicesV1 } from './local-agent-authorization.service.js';
 
 test('本机 Agent Authority 只签发 Agent Core 短期只读发现授权', async () => {
@@ -153,6 +154,123 @@ test('本机执行策略必须精确绑定后才允许证书根信任安装', as
     const repaired = services.executionPolicy.copyBinding({ tenantId: 'tenant-execution', agentId: 'agt-execution', pluginId: 'web.apache.windows', sourcePluginVersionId: 'plugin-version-apache', targetPluginVersionId: 'plugin-version-other', capability: 'certificate.deploy' });
     assert.equal(repaired.matchedIdentity, true);
     assert.equal(services.executionPolicy.inspect({ tenantId: 'tenant-execution', agentId: 'agt-execution', pluginId: 'web.apache.windows', pluginVersionId: 'plugin-version-other', capability: 'certificate.deploy' }).matchedIdentity, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('开发环境 provisioning 自动接入内存 Authority，不要求手工编辑 execution-policy.json', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'gcac-local-auto-provision-'));
+  try {
+    const services = createLocalAgentAuthorizationServicesV1({
+      NODE_ENV: 'development',
+      GCAC_LOCAL_AGENT_AUTHORITY_DIR: directory,
+    });
+    assert.ok(services);
+    const plan = {
+      planVersion: agentSecurityContractVersion,
+      planId: 'plan-auto-provision',
+      agentId: 'agt-auto-provision',
+      tenantId: 'tenant-auto-provision',
+      pluginId: 'web.apache.linux',
+      pluginVersionId: 'plugin-version-auto-provision',
+      capability: 'certificate.deploy',
+      operations: [{
+        operationId: 'op-auto-provision',
+        operationType: 'filesystem.read',
+        stage: 'prepare',
+        input: { path: '/var/lib/gcac/cert.pem' },
+        dependsOn: [],
+        idempotencyKey: 'idem-auto-provision',
+        timeoutSeconds: 30,
+      }],
+      planDigest: '',
+      tokenId: 'token-auto-provision',
+      policyDecisionId: 'decision-auto-provision',
+      nonce: 'nonce-auto-provision',
+      expiresAt: '2026-08-23T00:10:00.000Z',
+      writeEffect: false,
+    } satisfies AgentPlanV1;
+    plan.planDigest = computeAgentPlanDigest(plan);
+    const actions = ['filesystem.read'];
+    const provisioning = await services.authorization.policyAuthority.provisionAgentPlan!({
+      tenantId: plan.tenantId,
+      agentId: plan.agentId,
+      pluginId: plan.pluginId,
+      pluginVersionId: plan.pluginVersionId,
+      capability: plan.capability,
+      planDigest: plan.planDigest,
+      policyRef: 'certificate-update-policy',
+      policyVersion: 'v1',
+      actions,
+      allowedPaths: ['/var/lib/gcac'],
+      allowedServices: [],
+      commandRules: [],
+      artifactDigests: ['a'.repeat(64)],
+      lifetimeSeconds: 300,
+      bootstrapLocalPolicy: true,
+      currentLocalPolicy: {
+        policyVersion: agentSecurityContractVersion,
+        agentId: plan.agentId,
+        authorityKeyIds: ['bootstrap-pending'],
+        allowedActions: actions,
+        pathRules: [{ prefix: '/var/lib/gcac', operations: actions }],
+        serviceRules: [],
+        commandRules: [],
+        disabled: false,
+        updatedAt: plan.expiresAt,
+      },
+      compiledPlan: plan,
+    });
+    assert.equal(provisioning.rule.planDigest, plan.planDigest);
+    const authorization = await services.authorization.policyAuthority.issueAuthorization({
+      agentId: plan.agentId,
+      tenantId: plan.tenantId,
+      pluginId: plan.pluginId,
+      pluginVersionId: plan.pluginVersionId,
+      capability: plan.capability,
+      actions,
+      allowedPaths: ['/var/lib/gcac/cert.pem'],
+      allowedServices: [],
+      artifactDigests: ['a'.repeat(64)],
+      policyRef: 'certificate-update-policy',
+      policyVersion: 'v1',
+      planDigest: plan.planDigest,
+      lifetimeSeconds: 300,
+    });
+    assert.equal(authorization.decision.allowed, true, authorization.decision.reason);
+    assert.ok(authorization.token);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('开发环境缺少 execution-policy.json 时仍必须委托宿主 Execution Grant', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'gcac-local-grant-delegation-'));
+  try {
+    let calls = 0;
+    const services = createLocalAgentAuthorizationServicesV1(
+      { NODE_ENV: 'development', GCAC_LOCAL_AGENT_AUTHORITY_DIR: directory },
+      {
+        grants: {
+          validate: async () => {
+            calls += 1;
+            return { status: 'active' } as never;
+          },
+        },
+      },
+    );
+    assert.ok(services);
+    await services.authorization.grants.validate({
+      grantId: 'grant-development',
+      tenantId: 'tenant-development',
+      planId: 'plan-development',
+      runId: 'run-development',
+      stepId: 'step-development',
+      executorType: 'AGENT',
+      action: 'certificate.store.install',
+    });
+    assert.equal(calls, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

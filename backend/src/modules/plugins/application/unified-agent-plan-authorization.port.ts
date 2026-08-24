@@ -6,6 +6,8 @@ import {
   requireProductionPolicyAuthorityServicesV1,
   type PolicyAuthorityAuthorizationRequestV1,
   type PolicyAuthorityAuthorizationResultV1,
+  type PolicyAuthorityProvisioningRequestV1,
+  type PolicyAuthorityProvisioningResultV1,
   type ProductionPolicyAuthorityServicesV1,
 } from '../../agents/security/policy-authority.service.js';
 import type { PolicyAuthorityProcessClientV1 } from '../../agents/security/policy-authority-process.js';
@@ -16,6 +18,8 @@ export interface UnifiedAgentPlanPolicyAuthorityPortV1 {
   /** 读取并验证生产授权边界；任何安全依赖缺失都必须抛错。 */
   assertReady(): void;
   issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 | Promise<PolicyAuthorityAuthorizationResultV1>;
+  /** 管理面 provisioning 入口；执行编译路径不自行触发该管理操作。 */
+  provisionAgentPlan?(request: PolicyAuthorityProvisioningRequestV1): PolicyAuthorityProvisioningResultV1 | Promise<PolicyAuthorityProvisioningResultV1>;
 }
 
 export interface UnifiedAgentPlanGrantPortV1 {
@@ -37,7 +41,8 @@ export interface UnifiedAgentPlanLocalPolicyPortV1 {
 export interface UnifiedAgentPlanAuthorizationDependenciesV1 {
   policyAuthority: UnifiedAgentPlanPolicyAuthorityPortV1;
   grants: UnifiedAgentPlanGrantPortV1;
-  localPolicy: UnifiedAgentPlanLocalPolicyPortV1;
+  /** 宿主侧仅用于诊断；Agent 端仍会强制加载并校验本地策略。 */
+  localPolicy?: UnifiedAgentPlanLocalPolicyPortV1;
 }
 
 /**
@@ -54,6 +59,7 @@ export function createUnifiedAgentPlanPolicyAuthorityPortV1(
   return {
     assertReady: () => assertProductionPolicyAuthorityReady(production),
     issueAuthorization: (request) => production.service.issueAuthorization(request),
+    provisionAgentPlan: (request) => production.service.provisionAgentPlan(request),
   };
 }
 
@@ -67,6 +73,7 @@ export function createUnifiedAgentPlanPolicyAuthorityProcessPortV1(
   return {
     assertReady: () => client.assertReady(),
     issueAuthorization: (request) => client.issueAuthorization(request),
+    provisionAgentPlan: (request) => client.provisionAgentPlan(request),
   };
 }
 

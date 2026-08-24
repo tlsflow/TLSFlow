@@ -8,9 +8,10 @@ import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-
 import { ManagedTargetPluginQueryService } from './managed-target-plugin-query.service.js';
 import { UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
 import { PgUnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
+import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from '../../agents/security/policy-version.constants.js';
 
-const policyRef = 'certificate-update-policy';
-const policyVersion = '1';
+const policyRef = CERTIFICATE_UPDATE_POLICY_REF;
+const policyVersion = CERTIFICATE_UPDATE_POLICY_VERSION;
 
 export class PluginAgentLinkageService {
   private readonly assets: PgAssetsRepository;

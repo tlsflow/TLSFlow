@@ -10,6 +10,7 @@ import {
   agentV2ContractTypes,
   authorizeAgentPlan,
   computeAgentPlanDigest,
+  sha256Digest,
   NonceStoreV1,
   signPolicyPayload,
   validateAgentCapabilityToken,
@@ -83,6 +84,13 @@ test('Agent 安全合同的 TypeScript Schema、JSON Schema 和正例 Fixture �
 
 test('Agent v2 长期合同严格收敛为四个动作', () => {
   assert.deepEqual(agentV2ContractTypes, ['agent.fact.collect', 'agent.plan.validate', 'agent.plan.execute', 'agent.execution.receipt']);
+});
+
+test('兼容旧 Linux Agent 将空摘要字段纳入回执摘要的已落盘结果', () => {
+  const source = structuredClone(validFixture.contracts.AgentExecutionReceiptV1) as Record<string, unknown>;
+  const legacyPayload = { ...source, digest: '', signature: '' };
+  const legacy = { ...source, digest: sha256Digest(legacyPayload) };
+  assert.doesNotThrow(() => validateAgentExecutionReceipt(legacy));
 });
 
 test('Canonical Plugin ID 支持注册表中的连字符 ID', () => {

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createPublicKey } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +15,13 @@ import {
 } from './agent-security.contract.js';
 import {
   createProductionPolicyAuthorityServicesV1,
+  validatePolicyAuthorityProvisioningResultV1,
   type PolicyAuthorityAuthorizationRequestV1,
   type PolicyAuthorityAuthorizationResultV1,
+  type PolicyAuthorityAgentTrustMaterialRequestV1,
+  type PolicyAuthorityAgentTrustMaterialV1,
+  type PolicyAuthorityProvisioningRequestV1,
+  type PolicyAuthorityProvisioningResultV1,
   type ProductionPolicyAuthorityServicesV1,
 } from './policy-authority.service.js';
 
@@ -24,7 +30,7 @@ export const policyAuthorityIpcStartupTimeoutMs = 5_000;
 export const policyAuthorityIpcRequestTimeoutMs = 30_000;
 const maximumIpcLineBytes = 64 * 1024;
 
-type PolicyAuthorityIpcMethod = 'hello' | 'health' | 'issueAuthorization' | 'revokeToken' | 'revokeDecision' | 'revokeKey' | 'refreshKeySet' | 'shutdown';
+type PolicyAuthorityIpcMethod = 'hello' | 'health' | 'getTrustedKeySet' | 'issueAgentTrustMaterial' | 'issueAuthorization' | 'provisionAgentPlan' | 'revokeToken' | 'revokeDecision' | 'revokeKey' | 'refreshKeySet' | 'shutdown';
 
 interface PolicyAuthorityIpcRequestV1 {
   protocolVersion: typeof policyAuthorityIpcVersion;
@@ -71,7 +77,7 @@ const ipcRequestSchema: JsonSchema = {
   properties: {
     protocolVersion: { const: policyAuthorityIpcVersion },
     requestId: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' },
-    method: { enum: ['hello', 'health', 'issueAuthorization', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
+    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
     payload: { type: 'object', additionalProperties: true, maxProperties: 200 },
   },
 };
@@ -83,7 +89,7 @@ const ipcResponseSchema: JsonSchema = {
   properties: {
     protocolVersion: { const: policyAuthorityIpcVersion },
     requestId: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' },
-    method: { enum: ['hello', 'health', 'issueAuthorization', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
+    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
     ok: { type: 'boolean' },
     result: { type: 'object', additionalProperties: true, maxProperties: 200 },
     error: {
@@ -108,7 +114,7 @@ const authorityEnvironmentKeys = [
   'GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256',
   'GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON',
   'GCAC_POLICY_AUTHORITY_KEYSET_JSON',
-  'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON',
+  'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE',
   'GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON',
   'GCAC_POLICY_AUTHORITY_STATE_FILE',
 ] as const;
@@ -130,11 +136,17 @@ export function resolveProductionPolicyAuthorityProcessConfig(
   const executablePath = required(environment.GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH, 'GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH');
   const workingDirectory = required(environment.GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY, 'GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY');
   const args = parseArguments(required(environment.GCAC_POLICY_AUTHORITY_ARGS_JSON, 'GCAC_POLICY_AUTHORITY_ARGS_JSON'));
+  const signingKeysFile = required(environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE');
   if (!isAbsolute(executablePath) || !isAbsolute(workingDirectory)) {
     throw unavailable('Policy Authority 可执行文件和工作目录必须是绝对路径');
   }
+  if (!isAbsolute(signingKeysFile)) throw unavailable('Policy Authority signing key 文件必须是绝对路径');
+  if (environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON?.trim()) {
+    throw unavailable('宿主配置禁止携带 Policy Authority 签名私钥 JSON');
+  }
   assertPath(executablePath, false);
   assertPath(workingDirectory, true);
+  assertPath(signingKeysFile, false);
 
   const childEnvironment: NodeJS.ProcessEnv = {
     NODE_ENV: 'production',
@@ -196,6 +208,55 @@ export class PolicyAuthorityProcessClientV1 {
       return { decision, token };
     } catch (error) {
       const failure = error instanceof AppError ? error : unavailable('Policy Authority 授权响应无效', error);
+      if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
+      throw failure;
+    }
+  }
+
+  async getTrustedKeySet(): Promise<Record<string, string>> {
+    try {
+      const result = await this.request('getTrustedKeySet');
+      const keySet = result.keySet;
+      if (!keySet || typeof keySet !== 'object' || Array.isArray(keySet)) throw unavailable('Policy Authority 未返回 KeySet');
+      const keys = (keySet as Record<string, unknown>).keys;
+      if (!Array.isArray(keys) || keys.length === 0) throw unavailable('Policy Authority KeySet 为空');
+      const output: Record<string, string> = {};
+      for (const item of keys) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw unavailable('Policy Authority KeySet 条目无效');
+        const value = item as Record<string, unknown>;
+        if (typeof value.keyId !== 'string' || typeof value.publicKeyPem !== 'string' || value.status !== 'ACTIVE') {
+          throw unavailable('Policy Authority KeySet 条目字段无效');
+        }
+        const key = createPublicKey(value.publicKeyPem);
+        if (key.asymmetricKeyType !== 'ed25519') throw unavailable('Policy Authority KeySet 必须使用 Ed25519');
+        output[value.keyId] = Buffer.from(key.export({ type: 'spki', format: 'der' })).subarray(-32).toString('base64');
+      }
+      return output;
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority KeySet 响应无效', error);
+      if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
+      throw failure;
+    }
+  }
+
+  async issueAgentTrustMaterial(request: PolicyAuthorityAgentTrustMaterialRequestV1): Promise<PolicyAuthorityAgentTrustMaterialV1> {
+    try {
+      const result = await this.request('issueAgentTrustMaterial', request);
+      return result as unknown as PolicyAuthorityAgentTrustMaterialV1;
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority Agent 信任材料响应无效', error);
+      if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
+      throw failure;
+    }
+  }
+
+  async provisionAgentPlan(request: PolicyAuthorityProvisioningRequestV1): Promise<PolicyAuthorityProvisioningResultV1> {
+    try {
+      const result = await this.request('provisionAgentPlan', request);
+      if (!result.rule || !result.localPolicyMaterial || !result.receipt) throw unavailable('Policy Authority provisioning 响应不完整');
+      return validatePolicyAuthorityProvisioningResultV1(result);
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority provisioning 响应无效', error);
       if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
       throw failure;
     }
@@ -448,6 +509,18 @@ async function handleProcessLine(line: string, services: ProductionPolicyAuthori
     }
     if (request.method === 'issueAuthorization') {
       writeSuccess(request, services.service.issueAuthorization(request.payload as PolicyAuthorityAuthorizationRequestV1) as unknown as Record<string, unknown>);
+      return;
+    }
+    if (request.method === 'getTrustedKeySet') {
+      writeSuccess(request, { keySet: services.service.getTrustedKeySet() as unknown as Record<string, unknown> });
+      return;
+    }
+    if (request.method === 'issueAgentTrustMaterial') {
+      writeSuccess(request, services.service.issueAgentTrustMaterial(request.payload as PolicyAuthorityAgentTrustMaterialRequestV1) as unknown as Record<string, unknown>);
+      return;
+    }
+    if (request.method === 'provisionAgentPlan') {
+      writeSuccess(request, services.service.provisionAgentPlan(request.payload as PolicyAuthorityProvisioningRequestV1) as unknown as Record<string, unknown>);
       return;
     }
     if (request.method === 'revokeToken') {

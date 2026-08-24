@@ -78,7 +78,9 @@ import { DashboardApplicationService, DashboardController, getDashboardRouteCont
 import { DashboardReadRepository } from './modules/dashboard/repository/dashboard-read.repository.js';
 import { getReportRouteContracts, PgReportDataPort, ReportExportService, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
+import type { AgentTrustMaterialIssuer } from './modules/agents/application/agents.application-service.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
+import { AgentPlanPolicyProvisioningServiceV1 } from './modules/agents/security/policy-authority-provisioning.service.js';
 import {
   createProductionPolicyAuthorityServicesV1,
   requireProductionPolicyAuthorityServicesV1,
@@ -103,6 +105,7 @@ import {
   type UnifiedAgentPlanLocalPolicyPortV1,
 } from './modules/plugins/application/unified-agent-plan-authorization.port.js';
 import { createProductionAgentLocalPolicyAdapterV1 } from './modules/agents/security/production-agent-local-policy.adapter.js';
+import { createProductionAgentTrustMaterialIssuerV1 } from './modules/agents/security/production-agent-trust-material.adapter.js';
 import { createLocalAgentAuthorizationServicesV1 } from './modules/agents/security/local-agent-authorization.service.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { compareSemanticVersions, UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
@@ -508,6 +511,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization
     ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization);
+  const policyProvisioning = agentPlanAuthorization?.policyAuthority.provisionAgentPlan && agentPlanAuthorization.localPolicy
+    ? new AgentPlanPolicyProvisioningServiceV1(agentPlanAuthorization.policyAuthority, agentPlanAuthorization.localPolicy)
+    : undefined;
   const agentPlanCompiler = new UnifiedAgentPlanCompilerService(
     unifiedPluginsService,
     agentPlanAuthorization,
@@ -519,7 +525,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     })
     : undefined;
   agentsService.setDiscoveryRequestFactory(discoveryRequestFactory);
-  agentsService.setTrustMaterialIssuer(localAgentAuthorization?.trustMaterialIssuer);
+  const trustMaterialIssuer = localAgentAuthorization?.trustMaterialIssuer
+    ?? resolveProductionAgentTrustMaterialIssuer(policyAuthorityServices, process.env);
+  agentsService.setTrustMaterialIssuer(trustMaterialIssuer);
   if (discoveryRequestFactory) app.setResource('agentDiscoveryRequestFactory', discoveryRequestFactory);
   if (localAgentAuthorization) app.setResource('localAgentAuthorization', localAgentAuthorization);
   app.setResource('agentsService', agentsService);
@@ -1228,7 +1236,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
-  new AgentsController(agentsService, security).register(app.router);
+  new AgentsController(agentsService, security, policyProvisioning).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
   const builtinPluginRefreshPromises = new Map<string, Promise<PluginRefreshResult>>();
   const userPluginDirectoryImporter = new UserPluginDirectoryImporter(
@@ -1403,7 +1411,6 @@ function createAgentPlanAuthorizationDependencies(
   localPolicy: UnifiedAgentPlanLocalPolicyPortV1 | undefined,
 ): UnifiedAgentPlanAuthorizationDependenciesV1 | undefined {
   if (!policyAuthorityServices) return undefined;
-  if (!localPolicy) return undefined;
   const grants: UnifiedAgentPlanGrantPortV1 = {
     validate: (input) => security.grants.validate(input),
   };
@@ -1439,6 +1446,17 @@ function resolveInjectedAgentPlanAuthorization(
     throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '生产装配拒绝注入测试 Agent Plan 授权依赖', { fallback: false });
   }
   return injected;
+}
+
+function resolveProductionAgentTrustMaterialIssuer(
+  policyAuthorityServices: ProductionPolicyAuthorityServicesV1 | PolicyAuthorityProcessClientV1 | undefined,
+  environment: NodeJS.ProcessEnv,
+): AgentTrustMaterialIssuer | undefined {
+  if (environment.NODE_ENV !== 'production' || !policyAuthorityServices) return undefined;
+  const authority = 'service' in policyAuthorityServices
+    ? policyAuthorityServices.service
+    : policyAuthorityServices;
+  return createProductionAgentTrustMaterialIssuerV1(authority, environment);
 }
 
 export async function initializeBuiltinPlugins(

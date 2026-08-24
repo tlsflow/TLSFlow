@@ -17,6 +17,11 @@ import {
   isUnifiedPluginVersionAccessibleToTenant,
   type UnifiedPluginsApplicationService,
 } from './unified-plugins.application-service.js';
+import type { AgentLocalCommandRuleV1 } from '../../agents/security/agent-security.contract.js';
+import type {
+  PolicyAuthorityProvisioningRequestV1,
+  SignedAgentLocalPolicyMaterialV1,
+} from '../../agents/security/policy-authority.service.js';
 import type {
   UnifiedAgentPlanAuthorizationDependenciesV1,
 } from './unified-agent-plan-authorization.port.js';
@@ -32,6 +37,10 @@ export interface AgentV2PlanExecutionEnvelopeV1 {
   plan: AgentPlanV1;
   token: AgentCapabilityTokenV1;
   policyDecision: PolicyAuthorityDecisionV1;
+  /** Policy Authority 签发的稳定 Agent 能力材料；只含本地上限，不含 Artifact 摘要。 */
+  localPolicyMaterial?: SignedAgentLocalPolicyMaterialV1;
+  /** 宿主本地策略状态只作为诊断返回，不改变 Agent 端失败关闭边界。 */
+  diagnostics?: string[];
 }
 
 /**
@@ -147,6 +156,10 @@ export class UnifiedAgentPlanCompilerService {
       }
     }
     const authorization = readAuthorizationRequest(request.authorization, input);
+    // commandRules 的唯一事实来源是已验证的 Plan 操作。旧执行快照可能没有该字段，
+    // 或仍保留旧版参数模板；继续沿用它会让 PA 在 provisioning 阶段正确拒绝当前命令。
+    // 从 Plan 重新投影只会覆盖实际存在的 command.execute_allowlisted 操作，不会扩大权限。
+    authorization.commandRules = deriveCommandRulesFromPlan(plan, input);
     const cacheKey = sha256Digest({
       tenantId: input.tenantId,
       agentId: input.agentId,
@@ -213,10 +226,51 @@ export class UnifiedAgentPlanCompilerService {
         failClosed(input, 'Execution Grant 未覆盖全部 Agent Plan 操作');
       }
 
-      const localPolicy = validateAgentLocalPolicy(await dependencies.localPolicy.resolve({ agentId: input.agentId, tenantId: input.tenantId }));
-      if (localPolicy.agentId !== input.agentId || localPolicy.disabled
-        || authorization.actions.some((action) => !localPolicy.allowedActions.includes(action))) {
-        failClosed(input, 'Agent 本地策略缺失、禁用或未覆盖全部 Plan 操作');
+      const diagnostics: string[] = [];
+      let localPolicy: ReturnType<typeof validateAgentLocalPolicy> | undefined;
+      if (!dependencies.localPolicy) {
+        diagnostics.push('宿主未注入本地策略来源；交由 Agent 端失败关闭校验');
+      } else {
+        try {
+          localPolicy = validateAgentLocalPolicy(await dependencies.localPolicy.resolve({ agentId: input.agentId, tenantId: input.tenantId }));
+          if (localPolicy.agentId !== input.agentId) diagnostics.push('宿主本地策略 Agent 身份不匹配');
+          if (localPolicy.disabled) diagnostics.push('宿主本地策略已禁用');
+          if (authorization.actions.some((action) => !localPolicy!.allowedActions.includes(action))) diagnostics.push('宿主本地策略未覆盖全部 Plan 操作');
+        } catch (error) {
+          diagnostics.push(`宿主本地策略诊断失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // 生产 PA 已提供 provisioning 时，由统一编译链自动完成授权规则装配；
+      // 首次装配没有宿主 localPolicy 时，使用当前已编译 Plan 生成不含 Artifact 摘要的
+      // 能力上限候选，交给 PA 签名。已有 localPolicy 仍按严格上限校验。
+      let localPolicyMaterial: SignedAgentLocalPolicyMaterialV1 | undefined;
+      if (typeof dependencies.policyAuthority.provisionAgentPlan === 'function') {
+        const localPolicyCoversPlan = localPolicy !== undefined && localPolicyCoversAuthorization(localPolicy, authorization);
+        const provisioningLocalPolicy = localPolicyCoversPlan && localPolicy
+          ? localPolicy
+          : createBootstrapLocalPolicy(plan, authorization, input.agentId);
+        const provisioning = await dependencies.policyAuthority.provisionAgentPlan({
+          tenantId: input.tenantId,
+          agentId: input.agentId,
+          pluginId: plan.pluginId,
+          pluginVersionId: plan.pluginVersionId,
+          capability: plan.capability,
+          planDigest: plan.planDigest,
+          policyRef: authorization.policyRef,
+          policyVersion: authorization.policyVersion,
+          actions: [...authorization.actions],
+          allowedPaths: [...authorization.allowedPaths],
+          allowedServices: [...authorization.allowedServices],
+          commandRules: [...authorization.commandRules],
+          artifactDigests: [...authorization.artifactDigests],
+          ...(authorization.approvalRef ? { approvalRef: authorization.approvalRef } : {}),
+          lifetimeSeconds: authorization.lifetimeSeconds,
+          ...(!localPolicyCoversPlan ? { bootstrapLocalPolicy: true } : {}),
+          currentLocalPolicy: provisioningLocalPolicy,
+          compiledPlan: plan,
+        } satisfies PolicyAuthorityProvisioningRequestV1);
+        localPolicyMaterial = provisioning.localPolicyMaterial;
       }
 
       const result = await dependencies.policyAuthority.issueAuthorization({
@@ -251,7 +305,7 @@ export class UnifiedAgentPlanCompilerService {
       }
       if (!result.token) failClosed(input, 'Policy Authority 允许授权但未签发 Agent Capability Token');
       const token = validateAgentCapabilityToken(result.token);
-      assertAuthorizationResult(input, plan, authorization, token, policyDecision, localPolicy);
+      assertAuthorizationResult(input, plan, authorization, token, policyDecision);
       const boundPlan = validateAgentPlan({
         ...plan,
         tokenId: token.tokenId,
@@ -259,12 +313,53 @@ export class UnifiedAgentPlanCompilerService {
         nonce: token.nonce,
         expiresAt: earlierDate(plan.expiresAt, token.expiresAt, policyDecision.validUntil),
       });
-      return { actionType, actionSchemaVersion: '1.0', plan: boundPlan, token, policyDecision };
+      return {
+        actionType,
+        actionSchemaVersion: '1.0',
+        plan: boundPlan,
+        token,
+        policyDecision,
+        ...(localPolicyMaterial ? { localPolicyMaterial } : {}),
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      };
     } catch (error) {
       if (error instanceof AppError && error.errorCode === 'AGENT_AUTHORIZATION_UNAVAILABLE') throw error;
       failClosed(input, 'Agent v2 生产授权签发或绑定失败', error);
     }
   }
+}
+
+function localPolicyCoversAuthorization(
+  localPolicy: ReturnType<typeof validateAgentLocalPolicy>,
+  authorization: AuthorizationRequest,
+): boolean {
+  if (localPolicy.disabled || authorization.actions.some((action) => !localPolicy.allowedActions.includes(action))) return false;
+  if (authorization.allowedServices.some((service) => !localPolicy.serviceRules.includes(service))) return false;
+  for (const path of authorization.allowedPaths) {
+    const covering = localPolicy.pathRules.filter((rule) => isPathWithin(path, rule.prefix));
+    if (covering.length === 0 || authorization.actions.some((action) => action.startsWith('filesystem.')
+      && !covering.some((rule) => rule.operations.includes(action)))) return false;
+  }
+  return authorization.commandRules.every((command) => localPolicy.commandRules.some((candidate) => sha256Digest(candidate) === sha256Digest(command)));
+}
+
+function createBootstrapLocalPolicy(
+  plan: AgentPlanV1,
+  authorization: AuthorizationRequest,
+  agentId: string,
+): ReturnType<typeof validateAgentLocalPolicy> {
+  const operations = [...authorization.actions];
+  return validateAgentLocalPolicy({
+    policyVersion: 'gcac.agent-security/v1',
+    agentId,
+    authorityKeyIds: ['bootstrap-pending'],
+    allowedActions: [...authorization.actions],
+    pathRules: [...authorization.allowedPaths].map((prefix) => ({ prefix, operations })),
+    serviceRules: [...authorization.allowedServices],
+    commandRules: structuredClone(authorization.commandRules),
+    disabled: false,
+    updatedAt: plan.expiresAt,
+  });
 }
 
 interface AuthorizationRequest {
@@ -274,6 +369,7 @@ interface AuthorizationRequest {
   actions: string[];
   allowedPaths: string[];
   allowedServices: string[];
+  commandRules: AgentLocalCommandRuleV1[];
   artifactDigests: string[];
   approvalRef?: string;
   lifetimeSeconds: number;
@@ -288,11 +384,56 @@ function readAuthorizationRequest(value: unknown, input: { tenantId: string; age
   const actions = readStringArray(record.actions, 'actions', input, true);
   const allowedPaths = readStringArray(record.allowedPaths, 'allowedPaths', input);
   const allowedServices = readStringArray(record.allowedServices, 'allowedServices', input);
+  const commandRules = readCommandRules(record.commandRules, input);
   const artifactDigests = readStringArray(record.artifactDigests, 'artifactDigests', input);
   const lifetimeSeconds = record.lifetimeSeconds;
   if (!Number.isInteger(lifetimeSeconds) || (lifetimeSeconds as number) < 1) failClosed(input, '授权生命周期无效');
   const approvalRef = record.approvalRef === undefined ? undefined : readRequiredString(record.approvalRef, 'approvalRef', input);
-  return { grantId, policyRef, policyVersion, actions, allowedPaths, allowedServices, artifactDigests, ...(approvalRef ? { approvalRef } : {}), lifetimeSeconds: lifetimeSeconds as number };
+  return { grantId, policyRef, policyVersion, actions, allowedPaths, allowedServices, commandRules, artifactDigests, ...(approvalRef ? { approvalRef } : {}), lifetimeSeconds: lifetimeSeconds as number };
+}
+
+function readCommandRules(value: unknown, input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string }): AgentLocalCommandRuleV1[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) failClosed(input, '授权 commandRules 必须是数组');
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) failClosed(input, `授权 commandRules.${index} 必须是对象`);
+    const rule = item as Record<string, unknown>;
+    const strings = (field: string): string[] => {
+      const values = rule[field];
+      if (!Array.isArray(values) || values.some((entry) => typeof entry !== 'string')) failClosed(input, `授权 commandRules.${index}.${field} 无效`);
+      return [...values as string[]];
+    };
+    if (typeof rule.executablePath !== 'string' || typeof rule.executableSha256 !== 'string'
+      || typeof rule.workingDirectory !== 'string' || (rule.childProcessPolicy !== 'deny' && rule.childProcessPolicy !== 'allow-listed')
+      || !Number.isInteger(rule.timeoutSeconds) || !Number.isInteger(rule.outputLimitBytes)) {
+      failClosed(input, `授权 commandRules.${index} 字段无效`);
+    }
+    return {
+      executablePath: rule.executablePath,
+      executableSha256: rule.executableSha256,
+      argumentTemplate: strings('argumentTemplate'),
+      environmentAllowlist: strings('environmentAllowlist'),
+      workingDirectory: rule.workingDirectory,
+      networkScopes: strings('networkScopes'),
+      childProcessPolicy: rule.childProcessPolicy,
+      timeoutSeconds: rule.timeoutSeconds as number,
+      outputLimitBytes: rule.outputLimitBytes as number,
+    } satisfies AgentLocalCommandRuleV1;
+  });
+}
+
+function deriveCommandRulesFromPlan(
+  plan: AgentPlanV1,
+  input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string },
+): AgentLocalCommandRuleV1[] {
+  const commandInputs = plan.operations
+    .filter((operation) => operation.operationType === 'command.execute_allowlisted')
+    .map((operation) => operation.input);
+  // 复用同一套字段校验，确保派生规则与外部授权规则遵循完全相同的合同。
+  return readCommandRules(commandInputs, input).filter((rule, index, rules) => {
+    const digest = sha256Digest(rule);
+    return rules.findIndex((candidate) => sha256Digest(candidate) === digest) === index;
+  });
 }
 
 function assertAuthorizationResult(
@@ -301,7 +442,6 @@ function assertAuthorizationResult(
   request: AuthorizationRequest,
   token: AgentCapabilityTokenV1,
   decision: PolicyAuthorityDecisionV1,
-  localPolicy: { authorityKeyIds: string[] },
 ): void {
   assertBinding('agentId', input.agentId, plan.agentId, token.agentId, decision.agentId);
   assertBinding('tenantId', input.tenantId, plan.tenantId, token.tenantId, decision.tenantId);
@@ -315,8 +455,7 @@ function assertAuthorizationResult(
     || !samePathArray(token.allowedPaths, request.allowedPaths) || !samePathArray(decision.allowedPaths, request.allowedPaths)
     || !sameStringArray(token.allowedServices, request.allowedServices) || !sameStringArray(decision.allowedServices, request.allowedServices)
     || !sameStringArray(token.artifactDigests, request.artifactDigests) || !sameStringArray(decision.artifactDigests, request.artifactDigests)
-    || token.approvalRef !== request.approvalRef || decision.approvalRef !== request.approvalRef
-    || !localPolicy.authorityKeyIds.includes(token.authorityKeyId)) {
+    || token.approvalRef !== request.approvalRef || decision.approvalRef !== request.approvalRef) {
     failClosed(input, 'Policy Authority 授权范围、本地信任根或审批引用绑定不一致');
   }
 }

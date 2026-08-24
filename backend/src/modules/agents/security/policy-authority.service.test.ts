@@ -17,6 +17,8 @@ import {
 } from './agent-security.contract.js';
 import {
   InMemoryPolicyAuthorityRevocationStoreV1,
+  InMemoryPolicyAuthorityProvisioningStoreV1,
+  FilePolicyAuthorityProvisioningStoreV1,
   createProductionPolicyAuthorityServicesV1,
   isProductionPolicyAuthorityServicesV1,
   PolicyAuthorityServiceV1,
@@ -29,6 +31,7 @@ import {
 const fixtureRoot = resolve(process.cwd(), 'src/modules/agents/security/fixtures');
 const validFixture = readJson(resolve(fixtureRoot, 'agent-security.valid.json')) as { contracts: Record<string, unknown> };
 const serviceSchema = readJson(resolve(process.cwd(), 'src/modules/agents/security/schemas/policy-authority-service-v1.schema.json')) as JsonSchema;
+const provisioningSchema = readJson(resolve(process.cwd(), 'src/modules/agents/security/schemas/policy-authority-provisioning-v1.schema.json')) as JsonSchema;
 const now = '2026-08-08T00:05:00.000Z';
 
 test('生产服务验证独立信任根并签发绑定的 Decision 和 Token', () => {
@@ -40,6 +43,292 @@ test('生产服务验证独立信任根并签发绑定的 Decision 和 Token', (
   assert.equal(result.token?.tenantId, context.request.tenantId);
   assert.equal(result.token?.planDigest, context.request.planDigest);
   assert.doesNotThrow(() => context.service.authorize({ plan: createPlan(result), token: result.token, decision: result.decision, localPolicy: context.localPolicy }));
+});
+
+test('Policy Authority 自动签发 Agent 初始信任材料，不要求宿主提供 localPolicy 签名', () => {
+  const context = createContext();
+  const material = context.service.issueAgentTrustMaterial({ tenantId: context.request.tenantId, agentId: context.request.agentId, osType: 'linux' });
+  assert.equal(material.localPolicy.agentId, context.request.agentId);
+  assert.equal(material.localPolicy.disabled, false);
+  assert.deepEqual(material.localPolicy.authorityKeyIds, ['authority-key-1']);
+  assert.equal(material.localPolicySignature.length > 0, true);
+  assert.equal(JSON.stringify(material.localPolicy).includes(context.request.artifactDigests[0]!), false);
+});
+
+test('provisioning JSON Schema 要求完整 compiledPlan 且拒绝缺失', () => {
+  const context = createContext();
+  const request = {
+    ...context.request,
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1),
+  };
+  assert.equal(validateJsonSchema(request, provisioningSchema).valid, true);
+  const missing = { ...request } as Record<string, unknown>;
+  delete missing.compiledPlan;
+  assert.equal(validateJsonSchema(missing, provisioningSchema).valid, false);
+});
+
+test('同一编译计划 provisioning 幂等，并将 Artifact 摘要排除在 Agent 本地材料之外', () => {
+  const context = createContext();
+  const provisioning = new InMemoryPolicyAuthorityProvisioningStoreV1();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning });
+  const request = {
+    ...context.request,
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1,
+  };
+  const first = service.provisionAgentPlan(request);
+  const second = service.provisionAgentPlan(request);
+  assert.equal(first.revision, second.revision);
+  assert.equal(first.receipt.ruleDigest, second.receipt.ruleDigest);
+  assert.equal(first.rule.artifactDigests[0], context.request.artifactDigests[0]);
+  assert.equal(JSON.stringify(first.localPolicyMaterial).includes(context.request.artifactDigests[0]), false);
+  const issued = service.issueAuthorization(context.request);
+  assert.equal(issued.decision.allowed, true);
+});
+
+test('首次 provisioning 自动绑定 PA Key，不要求调用方预先填写本地信任 Key', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const result = service.provisionAgentPlan({
+    ...context.request,
+    commandRules: [],
+    bootstrapLocalPolicy: true,
+    currentLocalPolicy: { ...context.localPolicy, authorityKeyIds: ['bootstrap-pending'] },
+    compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1,
+  });
+  assert.deepEqual(result.localPolicyMaterial.localPolicy.authorityKeyIds, ['authority-key-1']);
+  assert.equal(JSON.stringify(result.localPolicyMaterial.localPolicy).includes(context.request.artifactDigests[0]), false);
+});
+
+test('provisioning 存在时错误 Plan 摘要不得回退到旧策略评估器', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  service.provisionAgentPlan({
+    ...context.request,
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1,
+  });
+  const result = service.issueAuthorization({ ...context.request, planDigest: 'f'.repeat(64) });
+  assert.equal(result.decision.allowed, false);
+  assert.match(result.decision.reason ?? '', /provisioning|Plan/);
+  const artifactMismatch = service.issueAuthorization({ ...context.request, artifactDigests: ['b'.repeat(64)] });
+  assert.equal(artifactMismatch.decision.allowed, false);
+  assert.match(artifactMismatch.decision.reason ?? '', /provisioning|范围/);
+});
+
+test('provisioning 超出本地动作、路径或命令能力时整体失败', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const restartPlan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  restartPlan.operations[0] = { ...restartPlan.operations[0]!, operationType: 'service.restart', input: { serviceName: 'gcac-test' } };
+  restartPlan.planDigest = computeAgentPlanDigest({ ...restartPlan, planDigest: '' });
+  assert.throws(() => service.provisionAgentPlan({
+    ...context.request,
+    actions: ['service.restart'],
+    allowedServices: ['gcac-test'],
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    planDigest: restartPlan.planDigest,
+    compiledPlan: restartPlan,
+  }), /超出 Agent 本地能力上限/);
+  const pathPlan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  pathPlan.operations[0] = { ...pathPlan.operations[0]!, input: { path: '/etc/shadow' } };
+  pathPlan.planDigest = computeAgentPlanDigest({ ...pathPlan, planDigest: '' });
+  assert.throws(() => service.provisionAgentPlan({
+    ...context.request,
+    allowedPaths: ['/etc/shadow'],
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    planDigest: pathPlan.planDigest,
+    compiledPlan: pathPlan,
+  }), /受控目录/);
+});
+
+test('provisioning 从已编译 Plan 派生命令规则，兼容旧快照中的过期规则', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const executableSha256 = 'b'.repeat(64);
+  const commandRule = {
+    executablePath: '/usr/sbin/apache2',
+    executableSha256,
+    argumentTemplate: ['-t', '-f', '{configPath}'],
+    environmentAllowlist: [],
+    workingDirectory: '/etc/apache2',
+    networkScopes: [],
+    childProcessPolicy: 'deny' as const,
+    timeoutSeconds: 60,
+    outputLimitBytes: 65536,
+  };
+  const plan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  plan.capability = 'certificate.deploy';
+  plan.operations[0] = {
+    ...plan.operations[0]!,
+    operationType: 'command.execute_allowlisted',
+    input: {
+      executablePath: commandRule.executablePath,
+      executableSha256,
+      args: ['-t', '-f', '/etc/apache2/httpd.conf'],
+      argumentTemplate: commandRule.argumentTemplate,
+      environmentAllowlist: [],
+      workingDirectory: commandRule.workingDirectory,
+      networkScopes: [],
+      childProcessPolicy: 'deny',
+      timeoutSeconds: 60,
+      outputLimitBytes: 65536,
+      artifactDigest: executableSha256,
+    },
+  };
+  plan.planDigest = computeAgentPlanDigest({ ...plan, planDigest: '' });
+  const staleRule = { ...commandRule, executablePath: '/usr/sbin/old-apache', executableSha256: 'c'.repeat(64) };
+  const result = service.provisionAgentPlan({
+    ...context.request,
+    capability: plan.capability,
+    actions: ['command.execute_allowlisted'],
+    allowedPaths: ['/usr/sbin', '/etc/apache2'],
+    artifactDigests: [context.request.artifactDigests[0]!, executableSha256],
+    planDigest: plan.planDigest,
+    commandRules: [staleRule],
+    currentLocalPolicy: {
+      ...context.localPolicy,
+      allowedActions: ['command.execute_allowlisted'],
+      pathRules: [{ prefix: '/usr/sbin', operations: ['command.execute_allowlisted'] }, { prefix: '/etc/apache2', operations: ['command.execute_allowlisted'] }],
+      serviceRules: [],
+      commandRules: [commandRule],
+    },
+    compiledPlan: plan,
+  });
+  assert.deepEqual(result.rule.commandRules, [commandRule]);
+});
+
+test('首次 bootstrap 从编译计划生成 Apache 命令上限，不被 discovery-only localPolicy 阻断', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const executableSha256 = 'b'.repeat(64);
+  const commandRule = {
+    executablePath: '/usr/sbin/apache2',
+    executableSha256,
+    argumentTemplate: ['-t', '-f', '{configPath}'],
+    environmentAllowlist: [],
+    workingDirectory: '/etc/apache2',
+    networkScopes: [],
+    childProcessPolicy: 'deny' as const,
+    timeoutSeconds: 60,
+    outputLimitBytes: 65536,
+  };
+  const plan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  plan.capability = 'certificate.deploy';
+  plan.operations[0] = {
+    ...plan.operations[0]!,
+    operationType: 'command.execute_allowlisted',
+    input: { ...commandRule, args: ['-t', '-f', '/etc/apache2/httpd.conf'], artifactDigest: executableSha256 },
+  };
+  plan.planDigest = computeAgentPlanDigest({ ...plan, planDigest: '' });
+  const result = service.provisionAgentPlan({
+    ...context.request,
+    capability: plan.capability,
+    actions: ['command.execute_allowlisted'],
+    allowedPaths: ['/usr/sbin', '/etc/apache2'],
+    artifactDigests: [context.request.artifactDigests[0]!, executableSha256],
+    planDigest: plan.planDigest,
+    commandRules: [],
+    bootstrapLocalPolicy: true,
+    currentLocalPolicy: {
+      ...context.localPolicy,
+      authorityKeyIds: ['bootstrap-pending'],
+      allowedActions: ['command.execute_allowlisted'],
+      pathRules: [{ prefix: '/usr/sbin', operations: ['command.execute_allowlisted'] }, { prefix: '/etc/apache2', operations: ['command.execute_allowlisted'] }],
+      serviceRules: [],
+      commandRules: [],
+    },
+    compiledPlan: plan,
+  });
+  assert.deepEqual(result.rule.commandRules, [commandRule]);
+  assert.deepEqual(result.localPolicyMaterial.localPolicy.commandRules, [commandRule]);
+});
+
+test('Windows 计划使用正斜杠路径时 provisioning 仍按 Agent 合同规范化后匹配命令', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const executableSha256 = 'b'.repeat(64);
+  const commandRule = {
+    executablePath: 'C:/GCAC-Lab/Apache24/bin/httpd.exe',
+    executableSha256,
+    argumentTemplate: ['-t', '-d', 'C:/GCAC-Lab/Apache24', '-f', 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf'],
+    environmentAllowlist: [],
+    workingDirectory: 'C:/GCAC-Lab/Apache24',
+    networkScopes: [],
+    childProcessPolicy: 'deny' as const,
+    timeoutSeconds: 60,
+    outputLimitBytes: 65536,
+  };
+  const plan = structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1;
+  plan.capability = 'certificate.deploy';
+  plan.operations[0] = {
+    ...plan.operations[0]!,
+    operationType: 'command.execute_allowlisted',
+    input: {
+      ...commandRule,
+      args: ['-t', '-d', 'C:/GCAC-Lab/Apache24', '-f', 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf'],
+      artifactDigest: executableSha256,
+    },
+  };
+  plan.planDigest = computeAgentPlanDigest({ ...plan, planDigest: '' });
+  assert.doesNotThrow(() => service.provisionAgentPlan({
+    ...context.request,
+    capability: plan.capability,
+    actions: ['command.execute_allowlisted'],
+    allowedPaths: ['C:/GCAC-Lab/Apache24'],
+    artifactDigests: [context.request.artifactDigests[0]!, executableSha256],
+    planDigest: plan.planDigest,
+    commandRules: [],
+    currentLocalPolicy: {
+      ...context.localPolicy,
+      allowedActions: ['command.execute_allowlisted'],
+      pathRules: [{ prefix: 'C:/GCAC-Lab/Apache24', operations: ['command.execute_allowlisted'] }],
+      serviceRules: [],
+      commandRules: [commandRule],
+    },
+    compiledPlan: plan,
+  }));
+});
+
+test('provisioning 签名或持久化失败不会留下半份材料', () => {
+  const context = createContext();
+  const store = {
+    find: (_requestDigest: string) => undefined,
+    findMatching: (_input: unknown) => undefined,
+    commit: () => { throw new Error('storage failed'); },
+  };
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: store });
+  assert.throws(() => service.provisionAgentPlan({ ...context.request, commandRules: [], currentLocalPolicy: context.localPolicy, compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1 }), /持久化|storage failed/);
+  assert.equal(store.find('missing'), undefined);
+});
+
+test('文件 provisioning 持久化失败后内存索引不提前提交', () => {
+  const context = createContext();
+  const store = new FilePolicyAuthorityProvisioningStoreV1('/dev/null/gcac-provisioning.json');
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: store });
+  const request = { ...context.request, commandRules: [], currentLocalPolicy: context.localPolicy, compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1 };
+  assert.throws(() => service.provisionAgentPlan(request), /持久化失败/);
+  assert.equal(store.find('missing'), undefined);
+});
+
+test('证书更新策略拒绝旧的数字 policyVersion', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  assert.throws(() => service.issueAuthorization({ ...context.request, policyRef: 'certificate-update-policy', policyVersion: '1' }), /policyVersion.*v1/);
+  assert.throws(() => service.provisionAgentPlan({
+    ...context.request,
+    policyRef: 'certificate-update-policy',
+    policyVersion: '1',
+    commandRules: [],
+    currentLocalPolicy: context.localPolicy,
+    compiledPlan: structuredClone(validFixture.contracts.AgentPlanV1) as AgentPlanV1,
+  }), /policyVersion.*v1/);
 });
 
 test('生产签发结果的 allowed 必须来自根签名策略，宿主请求不能自行放行', () => {
@@ -157,14 +446,23 @@ test('生产 KeySet 或签名密钥配置缺失时装配失败关闭', () => {
   try {
     delete environment.GCAC_POLICY_AUTHORITY_KEYSET_JSON;
     assert.throws(() => createProductionPolicyAuthorityServicesV1(environment), /失败关闭/);
-    const invalidKeys = { ...createProductionEnvironment(context), GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: '{}' };
+    const missingSigningKeyFile = createProductionEnvironment(context);
     try {
+      delete missingSigningKeyFile.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE;
+      assert.throws(() => createProductionPolicyAuthorityServicesV1(missingSigningKeyFile), /失败关闭/);
+    } finally {
+      cleanupProductionEnvironment(missingSigningKeyFile);
+    }
+    const invalidKeys = createProductionEnvironment(context);
+    try {
+      writeFileSync(invalidKeys.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE!, '{}');
       assert.throws(() => createProductionPolicyAuthorityServicesV1(invalidKeys), /失败关闭/);
     } finally {
       cleanupProductionEnvironment(invalidKeys);
     }
-    const hostHmac = { ...createProductionEnvironment(context), GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: JSON.stringify({ 'authority-key-1': 'ordinary-host-hmac-secret' }) };
+    const hostHmac = createProductionEnvironment(context);
     try {
+      writeFileSync(hostHmac.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE!, JSON.stringify({ 'authority-key-1': 'ordinary-host-hmac-secret' }));
       assert.throws(() => createProductionPolicyAuthorityServicesV1(hostHmac), /失败关闭/);
     } finally {
       cleanupProductionEnvironment(hostHmac);
@@ -290,10 +588,10 @@ test('生产 KeySet 与签名私钥来源在轮换后自动重新装载', () => 
     environment.GCAC_POLICY_AUTHORITY_KEYSET_JSON = JSON.stringify(createEnvelope(context.rootPrivateKey, rotated));
     const oldSigningKey = context.signingKeySource.keys.get('authority-key-1');
     if (!oldSigningKey || typeof oldSigningKey === 'string') throw new Error('测试上下文缺少旧签名私钥');
-    environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON = JSON.stringify({
+    writeFileSync(environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE!, JSON.stringify({
       'authority-key-1': oldSigningKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
       'authority-key-2': next.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-    });
+    }));
 
     const result = production.service.issueAuthorization(context.request);
     assert.equal(result.token?.authorityKeyId, 'authority-key-2');
@@ -472,6 +770,10 @@ function createProductionEnvironment(context: ReturnType<typeof createContext>):
     validUntil: '2099-01-01T00:00:00.000Z',
   };
   const bootstrap = { ...bootstrapValue, signature: signPolicyPayload(bootstrapValue, context.rootPrivateKey) };
+  const signingKeysFile = join(stateDir, 'signing-keys.json');
+  writeFileSync(signingKeysFile, JSON.stringify({
+    'authority-key-1': signingKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+  }), { encoding: 'utf8', mode: 0o600 });
   return {
     NODE_ENV: 'production',
     GCAC_POLICY_AUTHORITY_PROCESS_ROLE: 'standalone',
@@ -483,9 +785,7 @@ function createProductionEnvironment(context: ReturnType<typeof createContext>):
     GCAC_POLICY_AUTHORITY_KEYSET_JSON: JSON.stringify(productionEnvelope),
     GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON: JSON.stringify(policy),
     GCAC_POLICY_AUTHORITY_STATE_FILE: stateFile,
-    GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: JSON.stringify({
-      'authority-key-1': signingKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-    }),
+    GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE: signingKeysFile,
   };
 }
 

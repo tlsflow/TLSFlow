@@ -4,7 +4,7 @@
   "title": "GCAC Policy Authority 独立进程 IPC v1",
   "$defs": {
     "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
-    "method": { "enum": ["hello", "health", "issueAuthorization", "revokeToken", "revokeDecision", "revokeKey", "refreshKeySet", "shutdown"] },
+    "method": { "enum": ["hello", "health", "getTrustedKeySet", "issueAgentTrustMaterial", "issueAuthorization", "provisionAgentPlan", "revokeToken", "revokeDecision", "revokeKey", "refreshKeySet", "shutdown"] },
     "payload": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
     "error": {
       "type": "object",

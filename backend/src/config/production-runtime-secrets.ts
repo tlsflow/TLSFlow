@@ -29,6 +29,7 @@ const runtimeSecretsVersion = 'gcac.production-runtime-secrets/v1' as const;
 const securityContractVersion = 'gcac.agent-security/v1' as const;
 const defaultRuntimeSecretsFile = '/app/data/runtime/runtime-secrets.enc';
 const defaultPolicyAuthorityStateFile = '/app/data/runtime/policy-authority-state.json';
+const defaultPolicyAuthoritySigningKeysFile = '/app/data/runtime/policy-authority-signing-keys.json';
 const fixedPluginRunnerEnvironment = {
   GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: '/app/dist/modules/plugins/runner/runner-server.js',
   GCAC_PLUGIN_RUNNER_VERSION: 'gcac-plugin-runner-v1',
@@ -82,6 +83,8 @@ export function ensureProductionRuntimeSecurityEnvironment(
   }
 
   const secretsFile = resolveSecretsFile(environment);
+  const signingKeysFile = resolveSigningKeysFile(environment, secretsFile);
+  environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE = signingKeysFile;
   const encryptionSecret = requiredEncryptionSecret(environment);
   const configured = readConfiguredEnvironment(environment);
   const generated = existsSync(secretsFile)
@@ -100,6 +103,16 @@ export function ensureProductionRuntimeSecurityEnvironment(
     || defaultPolicyAuthorityStateFile;
   ensurePolicyAuthorityState(environment.GCAC_POLICY_AUTHORITY_STATE_FILE);
 
+  let signingKeys: unknown;
+  try {
+    signingKeys = JSON.parse(generated.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON);
+  } catch {
+    throw new Error('生产 Policy Authority 签名密钥材料不是有效 JSON');
+  }
+  writePrivateJson(signingKeysFile, signingKeys);
+  // 私钥只落在独立文件中，宿主进程环境不保留 JSON 副本。
+  delete environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON;
+
   if (!existsSync(secretsFile)) {
     encryptRuntimeSecrets(secretsFile, encryptionSecret, generated);
     process.stdout.write(`已生成并加密保存生产运行时安全材料：${secretsFile}\n`);
@@ -111,6 +124,13 @@ function resolveSecretsFile(environment: NodeJS.ProcessEnv): string {
   return configured ? resolve(configured) : defaultRuntimeSecretsFile;
 }
 
+function resolveSigningKeysFile(environment: NodeJS.ProcessEnv, secretsFile: string): string {
+  const configured = environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE?.trim();
+  return configured ? resolve(configured) : (secretsFile === defaultRuntimeSecretsFile
+    ? defaultPolicyAuthoritySigningKeysFile
+    : resolve(dirname(secretsFile), 'policy-authority-signing-keys.json'));
+}
+
 function requiredEncryptionSecret(environment: NodeJS.ProcessEnv): string {
   const value = environment.GCAC_SECRET_KEK?.trim();
   if (!value || value === 'CHANGE_ME') {
@@ -120,13 +140,27 @@ function requiredEncryptionSecret(environment: NodeJS.ProcessEnv): string {
 }
 
 function readConfiguredEnvironment(environment: NodeJS.ProcessEnv): RuntimeEnvironment | undefined {
-  const present = generatedEnvironmentKeys.filter((key) => Boolean(environment[key]?.trim()));
+  const publicAndBundleKeys = generatedEnvironmentKeys.filter((key) => key !== 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON');
+  const present = publicAndBundleKeys.filter((key) => Boolean(environment[key]?.trim()));
   if (present.length === 0) return undefined;
-  if (present.length !== generatedEnvironmentKeys.length) {
-    const missing = generatedEnvironmentKeys.filter((key) => !environment[key]?.trim());
+  if (present.length !== publicAndBundleKeys.length) {
+    const missing = publicAndBundleKeys.filter((key) => !environment[key]?.trim());
     throw new Error(`生产安全材料配置不完整，缺少：${missing.join(', ')}`);
   }
-  return Object.fromEntries(generatedEnvironmentKeys.map((key) => [key, environment[key]!])) as RuntimeEnvironment;
+  const signingKeysJson = environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON?.trim()
+    || readSigningKeysFile(environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE!);
+  return {
+    ...Object.fromEntries(publicAndBundleKeys.map((key) => [key, environment[key]!])),
+    GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: signingKeysJson,
+  } as RuntimeEnvironment;
+}
+
+function readSigningKeysFile(filePath: string): string {
+  try {
+    return readFileSync(resolve(filePath), 'utf8');
+  } catch {
+    throw new Error(`生产 Policy Authority 签名密钥文件无法读取：${filePath}`);
+  }
 }
 
 function generateRuntimeEnvironment(): RuntimeEnvironment {

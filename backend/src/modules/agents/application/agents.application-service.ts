@@ -2030,6 +2030,15 @@ export class AgentsApplicationService {
     return agent;
   }
 
+  /** 执行载荷编排只需要平台身份，避免触发详情页的 Release、健康和日志投影。 */
+  async getAgentExecutionPlatform(tenantId: string, agentId: string): Promise<{ osType: string; role?: string }> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    return {
+      osType: agent.descriptor.osType,
+      ...(agent.role === undefined ? {} : { role: agent.role }),
+    };
+  }
+
   /** Gateway 只提供 relay.tcp，不得进入 Agent Task 队列或提交业务结果。 */
   private async requireFullAgentForTask(tenantId: string, agentId: string) {
     const agent = await this.requireAgent(tenantId, agentId);

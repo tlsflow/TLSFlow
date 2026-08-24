@@ -300,13 +300,18 @@ export class AgentExecutorAdapter implements Executor {
     if (plan.actionType !== actionType) {
       return { error: { success: false, errorCode: 'AGENT_V2_ACTION_MODE_MISMATCH', errorMessage: 'Agent v2 编译结果与执行模式不匹配' } };
     }
+    const tenantId = requireExecutionTenantId(input.step, 'agent v2 task queue');
+    const includeProvisionedLocalPolicy = await shouldDeliverProvisionedLocalPolicy(this.agents, tenantId, agentId);
     return { payload: buildAgentV2ControlPayload({
       actionType: plan.actionType,
       actionSchemaVersion: '1.0',
       plan: plan.plan,
       token: plan.token,
       policyDecision: plan.policyDecision,
-    }, input) };
+      ...(includeProvisionedLocalPolicy && plan.localPolicyMaterial
+        ? { localPolicyMaterial: plan.localPolicyMaterial }
+        : {}),
+    }, input, { includeProvisionedLocalPolicy }) };
   }
 }
 
@@ -338,7 +343,11 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
  * 控制面入队的唯一 Agent v2 载荷形状。
  * Go Agent 不应猜测宿主上下文；所有授权绑定字段在入队时一次性固定。
  */
-function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
+function buildAgentV2ControlPayload(
+  snapshot: Record<string, unknown>,
+  input: StepExecutionInput,
+  options: { includeProvisionedLocalPolicy?: boolean } = {},
+): Record<string, unknown> {
   const actionType = requireAgentActionType(snapshot.actionType);
   const token = requireRecord(snapshot.token, 'AgentCapabilityTokenV1');
   const policyDecision = requireRecord(snapshot.policyDecision, 'PolicyAuthorityDecisionV1');
@@ -374,9 +383,22 @@ function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: St
     planDigest,
     token,
     policyDecision,
+    ...(options.includeProvisionedLocalPolicy && readRecord(snapshot.localPolicyMaterial)
+      ? { localPolicyMaterial: readRecord(snapshot.localPolicyMaterial) }
+      : {}),
     ...(plan ? { plan } : {}),
     ...(receipt ? { receipt } : {}),
   };
+}
+
+/** 只有 Linux Go Full Agent 的新协议接收 Plan provisioning 材料；Windows 保持既有成功载荷。 */
+async function shouldDeliverProvisionedLocalPolicy(
+  agents: AgentsApplicationService,
+  tenantId: string,
+  agentId: string,
+): Promise<boolean> {
+  const platform = await agents.getAgentExecutionPlatform(tenantId, agentId);
+  return platform.osType.trim().toLowerCase() === 'linux' && platform.role !== 'gateway';
 }
 
 type AgentPlanAuthorizationInput = NonNullable<NonNullable<Parameters<UnifiedAgentPlanCompilerService['compile']>[0]['v2Request']>['authorization']>;

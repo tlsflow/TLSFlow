@@ -35,7 +35,7 @@ test('生产部署 Schema 要求 Bootstrap，且区分宿主与 standalone 角�
     GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256: 'a'.repeat(64),
     GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON: '{}',
     GCAC_POLICY_AUTHORITY_KEYSET_JSON: '{}',
-    GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: '{}',
+    GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE: 'C:/runtime/policy-authority-signing-keys.json',
     GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON: '{}',
     GCAC_POLICY_AUTHORITY_STATE_FILE: 'C:/state.json',
   };
