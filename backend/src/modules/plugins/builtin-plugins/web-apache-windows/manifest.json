@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache.windows",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "displayNameKey": "plugin.webApacheWindows.name",
   "descriptionKey": "plugin.webApacheWindows.description",
   "defaultLocale": "zh-CN",
@@ -67,6 +67,10 @@
     ]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "inputContracts": {
       "certificate.deploy": "contracts/deploy.json",
       "certificate.verify": "contracts/verify.json",

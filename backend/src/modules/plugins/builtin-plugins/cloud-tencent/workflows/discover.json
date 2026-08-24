@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "cloud-tencent-discover", "category": "cloud", "version": "2.0.5", "platforms": ["cloud"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "cloud-tencent-discover", "category": "cloud", "version": "2.0.6", "platforms": ["cloud"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {

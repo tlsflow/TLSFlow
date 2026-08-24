@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.nginx-proxy-manager",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "displayNameKey": "plugin.nginxProxyManager.name",
   "descriptionKey": "plugin.nginxProxyManager.description",
   "defaultLocale": "zh-CN",
@@ -35,6 +35,10 @@
     "artifactContracts": ["certificate.deploy.v1"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "device.connection.test": "workflows/connection-test.json",

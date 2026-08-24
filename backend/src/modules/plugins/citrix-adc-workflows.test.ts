@@ -369,8 +369,8 @@ test('Citrix ADC 连接测试真实执行：设备关闭 TLS 校验时按 Execut
     authorization: { approved: true, approvalId: 'approval-citrix-tls' },
   }, deniedDispatcher);
   assert.equal(denied.status, 'failed');
-  assert.equal(denied.stepResults[0]?.errorCode, 'VALIDATION_FAILED');
-  assert.match(denied.stepResults[0]?.errorMessage ?? '', /allowInsecureTls/);
+  assert.equal(denied.stepResults[0]?.errorCode, 'AUTH_FORBIDDEN');
+  assert.match(denied.stepResults[0]?.errorMessage ?? '', /ExecutionGrant/);
 });
 
 test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {

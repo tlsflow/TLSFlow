@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 72 48" role="img" aria-label="Apache">
+  <svg x="2" y="4" width="68" height="40" viewBox="0 0 320 96" preserveAspectRatio="xMidYMid meet">
+
+  <title id="title">Apache</title>
+  <desc id="desc">Apache wordmark</desc>
+  <path fill="#d22128" d="M36 8c-7 14-13 29-18 45-3 10-5 21-6 35 9-10 16-21 21-34 6-15 9-30 10-46z"/>
+  <path fill="#f49a22" d="M46 8c-2 13-1 25 3 35 4 10 10 18 18 25-1-11-4-22-9-32-4-10-8-19-12-28z"/>
+  <text x="78" y="65" fill="#d22128" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="700" letter-spacing="1">APACHE</text>
+
+  </svg>
+</svg>

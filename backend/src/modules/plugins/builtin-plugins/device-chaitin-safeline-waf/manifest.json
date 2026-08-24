@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.chaitin-safeline-waf",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "displayNameKey": "plugin.chaitinSafelineWaf.name",
   "descriptionKey": "plugin.chaitinSafelineWaf.description",
   "defaultLocale": "zh-CN",
@@ -103,6 +103,10 @@
     ]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "device.connection.test": "workflows/connection-test.json",

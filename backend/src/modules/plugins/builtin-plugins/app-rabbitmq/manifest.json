@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "app.rabbitmq",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "displayNameKey": "plugin.appRabbitmq.name",
   "descriptionKey": "plugin.appRabbitmq.description",
   "defaultLocale": "zh-CN",
@@ -28,6 +28,10 @@
     "artifactContracts": ["certificate.deploy.v1"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "application.discover": "workflows/discover.json",

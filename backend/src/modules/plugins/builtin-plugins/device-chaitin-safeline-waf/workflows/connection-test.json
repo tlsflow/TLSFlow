@@ -5,7 +5,7 @@
     "name": "chaitin-safeline-waf-connection-test",
     "displayName": "SafeLine connection test",
     "category": "device",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "platforms": [
       "waf"
     ],

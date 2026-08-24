@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.nginx",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "displayNameKey": "plugin.webNginx.name",
   "descriptionKey": "plugin.webNginx.description",
   "defaultLocale": "zh-CN",
@@ -34,6 +34,10 @@
     "executionLocations": ["AGENT"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "actionContracts": {
       "application.discover.v1": "action-contracts/application-discover.json"

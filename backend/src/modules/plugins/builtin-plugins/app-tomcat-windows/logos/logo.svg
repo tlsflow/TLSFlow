@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 72 48" role="img" aria-label="Tomcat">
+  <svg x="2" y="4" width="68" height="40" viewBox="0 0 240 88" preserveAspectRatio="xMidYMid meet">
+
+  <title id="title">Java</title>
+  <path d="M24 53h40c0 10-7 17-18 17h-4c-11 0-18-7-18-17z" fill="#2474B5"/>
+  <path d="M63 56h6c7 0 7 10 0 10h-8" fill="none" stroke="#2474B5" stroke-width="5" stroke-linecap="round"/>
+  <path d="M25 76h43" fill="none" stroke="#2474B5" stroke-width="5" stroke-linecap="round"/>
+  <path d="M39 48C25 35 57 34 43 17c22 11-8 21 11 31" fill="none" stroke="#E8442E" stroke-width="5" stroke-linecap="round"/>
+  <path d="M51 40c-7-8 12-9 4-19" fill="none" stroke="#F28C28" stroke-width="4" stroke-linecap="round"/>
+  <text x="91" y="59" fill="#2474B5" font-family="Arial, sans-serif" font-size="40" font-weight="700">Java</text>
+
+  </svg>
+</svg>

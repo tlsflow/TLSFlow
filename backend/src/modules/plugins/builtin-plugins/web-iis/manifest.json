@@ -2,10 +2,9 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.iis",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "displayNameKey": "plugin.webIis.name",
   "descriptionKey": "plugin.webIis.description",
-  "logoUrl": "/plugin-logos/iis.svg",
   "defaultLocale": "zh-CN",
   "publisher": "GCAC",
   "runtime": "WORKFLOW_DSL",
@@ -37,6 +36,10 @@
     "artifactContracts": ["certificate.deploy.v1"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "actionContracts": {
       "application.discover.v1": "action-contracts/application-discover.json",

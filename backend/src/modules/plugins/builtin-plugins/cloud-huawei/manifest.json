@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.huawei",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "displayNameKey": "plugin.cloud.huawei.name",
   "descriptionKey": "plugin.cloud.huawei.description",
   "defaultLocale": "zh-CN",
@@ -28,6 +28,10 @@
     "executionLocations": ["CONTROL_PLANE"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "cloud.service.connection-test": "workflows/connection-test.json",

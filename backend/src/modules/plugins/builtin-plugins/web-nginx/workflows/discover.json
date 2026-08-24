@@ -7,7 +7,7 @@
     "description": "只读取 Agent 已确认的运行时事实，并把目标交给统一 ManagedTarget 接入流程。",
     "category": "application",
     "tags": ["plugin", "web-nginx", "discover", "agent"],
-    "version": "1.0.15",
+    "version": "1.0.16",
     "platforms": ["linux", "windows"],
     "maintainer": "GCAC"
   },

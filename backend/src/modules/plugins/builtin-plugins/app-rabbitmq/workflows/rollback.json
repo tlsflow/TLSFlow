@@ -12,7 +12,7 @@
       "certificate",
       "rollback"
     ],
-    "version": "1.0.4",
+    "version": "1.0.5",
     "platforms": [
       "linux"
     ],

@@ -5,7 +5,7 @@
     "name": "chaitin-safeline-waf-certificate-deploy",
     "displayName": "SafeLine certificate deployment",
     "category": "certificate",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "platforms": [
       "waf"
     ],

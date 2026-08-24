@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "ca.microsoft-adcs",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "displayNameKey": "plugin.ca.microsoftAdcs.name",
   "descriptionKey": "plugin.ca.microsoftAdcs.description",
   "defaultLocale": "zh-CN",
@@ -27,6 +27,10 @@
     "executionLocations": ["CONTROL_PLANE", "AGENT"]
   },
   "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "ca.certificate.issue": "workflows/issue.json",

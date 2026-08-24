@@ -81,7 +81,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId.endsWith('.windows') ? '1.0.2' : '1.0.1');
+  assert.equal(manifest.version, pluginId.endsWith('.windows') ? '1.0.3' : '1.0.2');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
