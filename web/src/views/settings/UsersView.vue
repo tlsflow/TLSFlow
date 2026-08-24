@@ -19,14 +19,13 @@ import {
   updateUser,
   type ExternalUserLookupResponse,
 } from '@/api/modules/security.api'
-import { GcConfirmAction, GcModal, GcPageToolbar, GcTabs } from '@/design-system/components'
+import { GcConfirmAction, GcModal, GcPagination, GcPageToolbar, GcTabs } from '@/design-system/components'
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import IdentitySourcesView from './IdentitySourcesView.vue'
 
 const { t } = useI18n()
 const permissionStore = usePermissionStore()
-const SETTINGS_PAGE_SIZE = 20
 
 interface UserDraft {
   createMode: 'local' | 'external'
@@ -57,6 +56,48 @@ const activeDirectoryTab = ref<'users' | 'groups'>('users')
 const selectedUserIds = ref<string[]>([])
 const pageLoading = ref(false)
 const pageError = ref('')
+
+const userPage = ref(1)
+const userPageSize = ref(20)
+const groupPage = ref(1)
+const groupPageSize = ref(20)
+
+const visibleUserItems = computed<ApiRecord[]>(() => {
+  const count = Math.max(1, Math.ceil(userItems.value.length / userPageSize.value))
+  const page = Math.min(userPage.value, count)
+  const start = (page - 1) * userPageSize.value
+  return userItems.value.slice(start, start + userPageSize.value)
+})
+
+const visibleGroupItems = computed<ApiRecord[]>(() => {
+  const count = Math.max(1, Math.ceil(groupItems.value.length / groupPageSize.value))
+  const page = Math.min(groupPage.value, count)
+  const start = (page - 1) * groupPageSize.value
+  return groupItems.value.slice(start, start + groupPageSize.value)
+})
+
+const activeDirectoryTotal = computed(() => (activeDirectoryTab.value === 'users' ? userItems.value.length : groupItems.value.length))
+const activeDirectoryPage = computed(() => (activeDirectoryTab.value === 'users' ? userPage.value : groupPage.value))
+const activeDirectoryPageSize = computed(() => (activeDirectoryTab.value === 'users' ? userPageSize.value : groupPageSize.value))
+
+function changeActiveDirectoryPage(nextPage: number): void {
+  const target = Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(activeDirectoryTotal.value / activeDirectoryPageSize.value)))
+  if (activeDirectoryTab.value === 'users') userPage.value = target
+  else groupPage.value = target
+}
+
+function changeActiveDirectoryPageSize(nextPageSize: number): void {
+  if (nextPageSize <= 0) return
+  if (activeDirectoryTab.value === 'users') {
+    if (nextPageSize === userPageSize.value) return
+    userPageSize.value = nextPageSize
+    userPage.value = 1
+  } else {
+    if (nextPageSize === groupPageSize.value) return
+    groupPageSize.value = nextPageSize
+    groupPage.value = 1
+  }
+}
 
 const editorOpen = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
@@ -460,7 +501,7 @@ onMounted(async () => {
             <tr v-else-if="userItems.length === 0">
               <td colspan="12">{{ t('settings.users.empty.users') }}</td>
             </tr>
-            <tr v-for="item in userItems" v-else :key="String(item.id)">
+            <tr v-for="item in visibleUserItems" v-else :key="String(item.id)">
               <td class="users-view__checkbox-col">
                 <input
                   type="checkbox"
@@ -514,7 +555,7 @@ onMounted(async () => {
             <tr v-else-if="groupItems.length === 0">
               <td colspan="7">{{ t('settings.users.empty.groups') }}</td>
             </tr>
-            <tr v-for="item in groupItems" v-else :key="String(item.id)">
+            <tr v-for="item in visibleGroupItems" v-else :key="String(item.id)">
               <td>{{ displayValue(item.name) }}</td>
               <td>{{ displayValue(item.code) }}</td>
               <td>{{ displayValue(item.source) }}</td>
@@ -526,8 +567,14 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
-      <footer class="gc-data-table__footer users-view__table-footer">
-        {{ t('businessPage.pagination', { page: 1, pageSize: SETTINGS_PAGE_SIZE }) }}
+      <footer v-if="activeDirectoryTotal > 0" class="gc-data-table__footer users-view__table-footer">
+        <GcPagination
+          :total="activeDirectoryTotal"
+          :page="activeDirectoryPage"
+          :page-size="activeDirectoryPageSize"
+          @update:page="changeActiveDirectoryPage"
+          @update:page-size="changeActiveDirectoryPageSize"
+        />
       </footer>
     </section>
 

@@ -15,7 +15,7 @@ import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
@@ -187,9 +187,6 @@ const assetListColumns = computed<DataTableColumn<AssetListRow>[]>(() => [
   { key: 'status', title: t('assets.columns.status'), width: '9%' },
   { key: 'actions', title: t('assets.columns.actions'), width: '10%' },
 ])
-const assetOverviewPageCount = computed(() =>
-  Math.max(1, Math.ceil(assetOverviewTotal.value / assetOverviewPageSize.value)),
-)
 const selectedAssetIds = ref<Set<string>>(new Set())
 const selectedAssetRecords = ref<Map<string, ApiRecord>>(new Map())
 const selectedAssetCount = computed(() => selectedAssetIds.value.size)
@@ -205,8 +202,6 @@ const selectedCertificateDomain = computed(() => {
 })
 const canBatchUpdateCertificates = computed(() => Boolean(selectedCertificateDomain.value))
 const canExecuteDeployments = computed(() => permissionStore.hasPermission('deployment.plan.execute'))
-const canLoadPreviousAssetOverviewPage = computed(() => assetOverviewPage.value > 1)
-const canLoadNextAssetOverviewPage = computed(() => assetOverviewPage.value < assetOverviewPageCount.value)
 const canManageAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
 const assetOverviewStatusOptions = computed(() => [
   { value: 'ACTIVE', label: t('dashboard.statusBlock.status.active') },
@@ -2638,7 +2633,7 @@ async function loadAssetOverviewPage(page: number): Promise<void> {
   try {
     let result = await requestAssetsWithDisplayNames({
       page: requestedPage,
-      pageSize: ASSET_WORKSPACE_PAGE_SIZE,
+      pageSize: assetOverviewPageSize.value,
       sort: 'address:asc',
       filters: assetOverviewQueryFilters(),
     })
@@ -2647,7 +2642,7 @@ async function loadAssetOverviewPage(page: number): Promise<void> {
     if ((result.data?.items.length ?? 0) === 0 && (result.data?.total ?? 0) > 0 && requestedPage > 1) {
       result = await requestAssetsWithDisplayNames({
         page: requestedPage - 1,
-        pageSize: ASSET_WORKSPACE_PAGE_SIZE,
+        pageSize: assetOverviewPageSize.value,
         sort: 'address:asc',
         filters: assetOverviewQueryFilters(),
       })
@@ -2656,14 +2651,13 @@ async function loadAssetOverviewPage(page: number): Promise<void> {
     const resultPage = result.data
     if (!resultPage) {
       assetOverviewPage.value = requestedPage
-      assetOverviewPageSize.value = ASSET_WORKSPACE_PAGE_SIZE
       assetOverviewTotal.value = 0
       assetOverviewItems.value = []
       return
     }
 
     assetOverviewPage.value = resultPage.page > 0 ? resultPage.page : requestedPage
-    assetOverviewPageSize.value = resultPage.pageSize > 0 ? resultPage.pageSize : ASSET_WORKSPACE_PAGE_SIZE
+    assetOverviewPageSize.value = resultPage.pageSize > 0 ? resultPage.pageSize : assetOverviewPageSize.value
     assetOverviewTotal.value = resultPage.total
     assetOverviewItems.value = [...resultPage.items]
     const nextSelectedRecords = new Map(selectedAssetRecords.value)
@@ -2677,6 +2671,13 @@ async function loadAssetOverviewPage(page: number): Promise<void> {
   } finally {
     assetOverviewLoading.value = false
   }
+}
+
+async function changeAssetOverviewPageSize(pageSize: number): Promise<void> {
+  const target = Math.trunc(pageSize)
+  if (!Number.isFinite(target) || target <= 0 || target === assetOverviewPageSize.value) return
+  assetOverviewPageSize.value = target
+  await loadAssetOverviewPage(1)
 }
 
 async function refreshAssetsAfterMutation(resetPage = false): Promise<void> {
@@ -3502,30 +3503,16 @@ function managedTargetLabel(target: ApiRecord): string {
             </template>
           </GcDataTable>
 
-          <nav
-            v-if="assetOverviewPageCount > 1 && !assetOverviewLoading && !assetOverviewError"
+          <GcPagination
+            v-if="!assetOverviewLoading && !assetOverviewError"
             class="asset-page__pagination"
-            :aria-label="t('businessPage.pagination', { page: assetOverviewPage, pageSize: assetOverviewPageSize })"
+            :total="assetOverviewTotal"
+            :page="assetOverviewPage"
+            :page-size="assetOverviewPageSize"
             data-testid="asset-overview-pagination"
-          >
-            <GcButton
-              variant="secondary"
-              :disabled="!canLoadPreviousAssetOverviewPage"
-              data-testid="asset-overview-previous-page"
-              @click="loadAssetOverviewPage(assetOverviewPage - 1)"
-            >
-              {{ t('tasks.actions.previousPage') }}
-            </GcButton>
-            <span>{{ t('businessPage.pagination', { page: assetOverviewPage, pageSize: assetOverviewPageSize }) }}</span>
-            <GcButton
-              variant="secondary"
-              :disabled="!canLoadNextAssetOverviewPage"
-              data-testid="asset-overview-next-page"
-              @click="loadAssetOverviewPage(assetOverviewPage + 1)"
-            >
-              {{ t('tasks.actions.nextPage') }}
-            </GcButton>
-          </nav>
+            @update:page="loadAssetOverviewPage"
+            @update:page-size="changeAssetOverviewPageSize"
+          />
         </section>
       </section>
     </template>
@@ -4875,7 +4862,7 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-page__pagination {
-  justify-content: space-between;
+  justify-content: flex-end;
   padding-top: var(--gc-space-4);
   border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
   flex-wrap: wrap;

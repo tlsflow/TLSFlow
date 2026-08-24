@@ -20,7 +20,7 @@ import {
   type CredentialUsage,
   type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
-import { GcModal, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcPagination, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { PluginCatalogItem } from '@/api/generated/schemas'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
@@ -82,6 +82,23 @@ const loadingSelection = ref(false)
 const saving = ref(false)
 const error = ref('')
 const items = ref<CredentialProfileSummary[]>([])
+const page = ref(1)
+const pageSize = ref(20)
+const visibleItems = computed<CredentialProfileSummary[]>(() => {
+  const start = (page.value - 1) * pageSize.value
+  return items.value.slice(start, start + pageSize.value)
+})
+
+function changePage(nextPage: number): void {
+  const target = Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(items.value.length / pageSize.value)))
+  if (target !== page.value) page.value = target
+}
+
+function changePageSize(nextPageSize: number): void {
+  if (nextPageSize <= 0 || nextPageSize === pageSize.value) return
+  pageSize.value = nextPageSize
+  page.value = 1
+}
 const editorOpen = ref(false)
 const deleteOpen = ref(false)
 const editorMode = ref<EditorMode>('create')
@@ -848,7 +865,7 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in items" :key="item.id">
+            <tr v-for="item in visibleItems" :key="item.id">
               <td>
                 <div class="credential-name">
                   <span class="credential-name__mark" aria-hidden="true">{{ item.name.slice(0, 1).toUpperCase() }}</span>
@@ -879,8 +896,14 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
-      <footer class="gc-data-table__footer credentials-list__footer">
-        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+      <footer v-if="items.length > 0" class="gc-data-table__footer credentials-list__footer">
+        <GcPagination
+          :total="items.length"
+          :page="page"
+          :page-size="pageSize"
+          @update:page="changePage"
+          @update:page-size="changePageSize"
+        />
       </footer>
     </section>
 

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
-import { GcModal, GcPageToolbar } from '@/design-system/components'
+import { GcModal, GcPagination, GcPageToolbar } from '@/design-system/components'
 
 let securityAdminFormSeed = 0
 
@@ -33,10 +33,28 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const rows = ref<ApiRecord[]>([])
+const page = ref(1)
+const pageSize = ref(20)
 const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
 const formId = `security-admin-create-form-${++securityAdminFormSeed}`
 const { t } = useI18n()
+
+const visibleRows = computed<ApiRecord[]>(() => {
+  const start = (page.value - 1) * pageSize.value
+  return rows.value.slice(start, start + pageSize.value)
+})
+
+function changePage(nextPage: number): void {
+  const target = Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(rows.value.length / pageSize.value)))
+  if (target !== page.value) page.value = target
+}
+
+function changePageSize(nextPageSize: number): void {
+  if (nextPageSize <= 0 || nextPageSize === pageSize.value) return
+  pageSize.value = nextPageSize
+  page.value = 1
+}
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -145,14 +163,20 @@ onMounted(load)
           <tbody>
             <tr v-if="loading"><td :colspan="config.columns.length">{{ t('designSystem.dataTable.loading') }}</td></tr>
             <tr v-else-if="rows.length === 0"><td :colspan="config.columns.length">{{ t('designSystem.dataTable.empty') }}</td></tr>
-            <tr v-for="row in rows" v-else :key="String(row.id ?? JSON.stringify(row))">
+            <tr v-for="row in visibleRows" v-else :key="String(row.id ?? JSON.stringify(row))">
               <td v-for="column in config.columns" :key="column.key">{{ valueOf(row, column.key) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <footer class="gc-data-table__footer security-admin__table-footer">
-        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+      <footer v-if="rows.length > 0" class="gc-data-table__footer security-admin__table-footer">
+        <GcPagination
+          :total="rows.length"
+          :page="page"
+          :page-size="pageSize"
+          @update:page="changePage"
+          @update:page-size="changePageSize"
+        />
       </footer>
     </section>
   </section>

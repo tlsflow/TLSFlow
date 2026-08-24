@@ -14,7 +14,7 @@ import {
 } from '@/api/modules/plugins.api'
 import { getTask } from '@/api/modules/tasks.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, GcPluginLogo, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
+import { GcDevicePresentation, GcEmptyState, GcModal, GcPagination, GcPluginForm, GcPluginLogo, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
 import { toCatalogPluginRecord, type PluginRecord } from './plugin-record'
@@ -39,7 +39,7 @@ const keyword = ref('')
 const sourceFilter = ref<SourceFilter>('all')
 const validityFilter = ref<ValidityFilter>('all')
 const pluginPage = ref(1)
-const pluginPageSize = 20
+const pluginPageSize = ref(20)
 const selectedPlugin = ref<PluginRecord | null>(null)
 const detailOpen = ref(false)
 const changingPluginId = ref('')
@@ -92,10 +92,10 @@ const filteredPlugins = computed(() => {
   })
 })
 
-const pluginPageCount = computed(() => Math.max(1, Math.ceil(filteredPlugins.value.length / pluginPageSize)))
+const pluginPageCount = computed(() => Math.max(1, Math.ceil(filteredPlugins.value.length / pluginPageSize.value)))
 const pagedPlugins = computed(() => {
-  const start = (pluginPage.value - 1) * pluginPageSize
-  return filteredPlugins.value.slice(start, start + pluginPageSize)
+  const start = (pluginPage.value - 1) * pluginPageSize.value
+  return filteredPlugins.value.slice(start, start + pluginPageSize.value)
 })
 
 const builtinCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'builtin').length)
@@ -603,15 +603,15 @@ function pluginStatusClass(plugin: PluginRecord): string {
       :description="t('plugins.empty.description')"
     />
 
-    <nav v-if="filteredPlugins.length > pluginPageSize" class="plugin-pagination" :aria-label="t('businessPage.pagination', { page: pluginPage, pageSize: pluginPageSize })">
-      <button class="gc-button" type="button" :disabled="pluginPage <= 1" @click="pluginPage -= 1">
-        {{ t('tasks.actions.previousPage') }}
-      </button>
-      <span>{{ t('businessPage.pagination', { page: pluginPage, pageSize: pluginPageSize }) }}</span>
-      <button class="gc-button" type="button" :disabled="pluginPage >= pluginPageCount" @click="pluginPage += 1">
-        {{ t('tasks.actions.nextPage') }}
-      </button>
-    </nav>
+    <GcPagination
+      v-if="filteredPlugins.length > 0 && !loading && !loadError"
+      class="plugin-pagination"
+      :total="filteredPlugins.length"
+      :page="pluginPage"
+      :page-size="pluginPageSize"
+      @update:page="pluginPage = $event"
+      @update:page-size="(pageSize) => { pluginPageSize = pageSize; pluginPage = 1 }"
+    />
 
     <GcModal
       :open="detailOpen"
@@ -1020,12 +1020,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 }
 
 .plugin-pagination {
-  display: flex;
-  align-items: center;
   justify-content: center;
-  gap: var(--gc-space-3);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
 }
 
 .plugin-grid {

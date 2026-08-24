@@ -16,7 +16,7 @@ import {
   type IdentitySourceConnectionCheckStatus,
   type IdentitySourceConnectionTestResult,
 } from '@/api/modules/security.api'
-import { GcConfirmAction, GcModal, GcPageToolbar } from '@/design-system/components'
+import { GcConfirmAction, GcModal, GcPagination, GcPageToolbar } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
 
@@ -46,6 +46,23 @@ const pageLoading = ref(false)
 const pageError = ref('')
 const sourceItems = ref<ApiRecord[]>([])
 const roleItems = ref<ApiRecord[]>([])
+const sourcePage = ref(1)
+const sourcePageSize = ref(20)
+const visibleSourceItems = computed<ApiRecord[]>(() => {
+  const start = (sourcePage.value - 1) * sourcePageSize.value
+  return sourceItems.value.slice(start, start + sourcePageSize.value)
+})
+
+function changeSourcePage(nextPage: number): void {
+  const target = Math.min(Math.max(1, nextPage), Math.max(1, Math.ceil(sourceItems.value.length / sourcePageSize.value)))
+  if (target !== sourcePage.value) sourcePage.value = target
+}
+
+function changeSourcePageSize(nextPageSize: number): void {
+  if (nextPageSize <= 0 || nextPageSize === sourcePageSize.value) return
+  sourcePageSize.value = nextPageSize
+  sourcePage.value = 1
+}
 
 const editorOpen = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
@@ -54,7 +71,6 @@ const editorError = ref('')
 const editorMessage = ref('')
 const advancedOpen = ref(false)
 const { t, te } = useI18n()
-const SETTINGS_PAGE_SIZE = 20
 
 const deletingId = ref('')
 const testingSourceId = ref('')
@@ -438,7 +454,7 @@ onMounted(async () => {
             <tr v-else-if="sourceItems.length === 0">
               <td colspan="5">{{ t('settings.identitySources.empty') }}</td>
             </tr>
-            <tr v-for="item in sourceItems" v-else :key="String(item.id)">
+            <tr v-for="item in visibleSourceItems" v-else :key="String(item.id)">
               <td>
                 <div class="identity-sources__name-cell">
                   <strong>{{ displayValue(item.name) }}</strong>
@@ -480,8 +496,14 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
-      <footer class="gc-data-table__footer identity-sources__table-footer">
-        {{ t('businessPage.pagination', { page: 1, pageSize: SETTINGS_PAGE_SIZE }) }}
+      <footer v-if="sourceItems.length > 0" class="gc-data-table__footer identity-sources__table-footer">
+        <GcPagination
+          :total="sourceItems.length"
+          :page="sourcePage"
+          :page-size="sourcePageSize"
+          @update:page="changeSourcePage"
+          @update:page-size="changeSourcePageSize"
+        />
       </footer>
     </section>
 
