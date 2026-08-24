@@ -184,7 +184,7 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 				"capturedAt":         time.Now().Format(time.RFC3339),
 			},
 		}
-		execution.submitLog("info", "IIS Binding ????? site=%s binding=%s thumbprint=%s", site.Name, binding.BindingInformation, normalizeThumbprint(binding.CertificateThumbprint))
+		execution.submitLog("info", "已备份 IIS Binding 证书 site=%s binding=%s thumbprint=%s", site.Name, binding.BindingInformation, normalizeThumbprint(binding.CertificateThumbprint))
 		return true, "", "", detail
 	case "RELOAD":
 		detail := map[string]any{
@@ -199,7 +199,7 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 				"currentThumbprint":  normalizeThumbprint(binding.CertificateThumbprint),
 			},
 		}
-		execution.submitLog("info", "IIS Binding ??????????????? RELOAD ??")
+		execution.submitLog("info", "IIS Binding 当前不需要额外的 RELOAD 操作")
 		return true, "", "", detail
 	case "VERIFY":
 		detail := map[string]any{
@@ -224,13 +224,13 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 		}
 		currentThumbprint := normalizeThumbprint(binding.CertificateThumbprint)
 		if currentThumbprint == "" {
-			execution.submitLog("error", "IIS Binding ??????????????????")
-			return false, "IIS_BINDING_CERTIFICATE_MISSING", "IIS Binding ??????????????????", detail
+			execution.submitLog("error", "IIS Binding 当前未配置证书 thumbprint")
+			return false, "IIS_BINDING_CERTIFICATE_MISSING", "IIS Binding 当前未配置证书 thumbprint", detail
 		}
-		execution.submitLog("info", "IIS Binding ???????? thumbprint=%s", currentThumbprint)
+		execution.submitLog("info", "IIS Binding 校验通过 thumbprint=%s", currentThumbprint)
 		return true, "", "", detail
 	case "", "INSTALL":
-		// ??????? payload ???? stepType???? INSTALL ???
+		// 兼容旧 payload 未显式携带 stepType 的情况，默认按 INSTALL 处理。
 	default:
 		detail := map[string]any{
 			"executor": "windows-iis-provider",
@@ -239,8 +239,8 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 			"siteName": site.Name,
 			"stepType": input.StepType,
 		}
-		execution.submitLog("error", "Windows IIS Provider ????? stepType=%s", input.StepType)
-		return false, "UNSUPPORTED_STEP_TYPE", fmt.Sprintf("Windows IIS Provider ????? stepType=%q", input.StepType), detail
+		execution.submitLog("error", "Windows IIS Provider 不支持的 stepType=%s", input.StepType)
+		return false, "UNSUPPORTED_STEP_TYPE", fmt.Sprintf("Windows IIS Provider 不支持的 stepType=%q", input.StepType), detail
 	}
 
 	checkpoint := windowsIISDeploymentCheckpoint{
@@ -253,7 +253,7 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 	if err := stageDeploymentCheckpoint(execution, checkpoint, "iis.checkpoint_created"); err != nil {
 		return false, "RECOVERY_LEDGER_WRITE_FAILED", err.Error(), baseExecutionDetail(execution, input, checkpoint)
 	}
-	execution.submitLog("info", "??? IIS Binding ?? site=%s binding=%s", site.Name, binding.BindingInformation)
+	execution.submitLog("info", "开始更新 IIS Binding 证书 site=%s binding=%s", site.Name, binding.BindingInformation)
 
 	importResult, err := host.importPFX(input)
 	if err != nil {
@@ -264,13 +264,13 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 	if err := stageDeploymentCheckpoint(execution, checkpoint, "iis.pfx_imported"); err != nil {
 		return false, "RECOVERY_LEDGER_WRITE_FAILED", err.Error(), baseExecutionDetail(execution, input, checkpoint)
 	}
-	execution.submitLog("info", "PFX ??? LocalMachine\\My thumbprint=%s", checkpoint.NewThumbprint)
+	execution.submitLog("info", "PFX 已导入 LocalMachine\\My thumbprint=%s", checkpoint.NewThumbprint)
 
 	appPoolName := strings.TrimSpace(input.AppPoolName)
 	if appPoolName == "" {
 		appPoolName = resolveAppPoolName(input, site)
 	}
-	execution.submitLog("info", "IIS HTTPS Binding ????????????????????????? ACL ??? TLS ???")
+	execution.submitLog("info", "开始更新 IIS HTTPS Binding 证书，并准备后续 ACL 与 TLS 校验")
 
 	if err := host.updateBindingCertificate(site.Name, binding, checkpoint.NewThumbprint); err != nil {
 		return false, "IIS_BINDING_UPDATE_FAILED", err.Error(), baseExecutionDetail(execution, input, checkpoint)
@@ -279,7 +279,7 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 	if err := stageDeploymentCheckpoint(execution, checkpoint, "iis.binding_updated"); err != nil {
 		return false, "RECOVERY_LEDGER_WRITE_FAILED", err.Error(), baseExecutionDetail(execution, input, checkpoint)
 	}
-	execution.submitLog("info", "IIS HTTPS Binding ???????")
+	execution.submitLog("info", "IIS HTTPS Binding 证书更新完成")
 	detail := baseExecutionDetail(execution, input, checkpoint)
 	detail["executor"] = "windows-iis-provider"
 	detail["mode"] = "iis_install_completed"
@@ -304,12 +304,12 @@ func runWindowsIISDryRunPreflight(
 		"port":               binding.Port,
 	})
 	checks := []map[string]any{
-		dryRunCheck("site_exists", "IIS ????", "passed", fmt.Sprintf("??? IIS ?? %s", site.Name), map[string]any{
+		dryRunCheck("site_exists", "IIS 站点存在", "passed", fmt.Sprintf("已命中 IIS 站点 %s", site.Name), map[string]any{
 			"siteName": site.Name,
 			"appPool":  site.AppPool,
 			"state":    site.State,
 		}),
-		dryRunCheck("https_binding_matched", "HTTPS Binding ???", "passed", "????? HTTPS Binding", map[string]any{
+		dryRunCheck("https_binding_matched", "HTTPS Binding 匹配", "passed", "已定位目标 HTTPS Binding", map[string]any{
 			"bindingInformation": binding.BindingInformation,
 			"hostHeader":         binding.HostHeader,
 			"port":               binding.Port,
@@ -322,9 +322,9 @@ func runWindowsIISDryRunPreflight(
 		appPoolName = resolveAppPoolName(input, site)
 	}
 	if appPoolName == "" {
-		checks = append(checks, dryRunCheck("app_pool_context", "??????", "passed", "??????????????? ACL??????????????", nil))
+		checks = append(checks, dryRunCheck("app_pool_context", "应用程序池上下文", "passed", "未提供应用程序池名称，预检阶段跳过 ACL 目标确认", nil))
 	} else {
-		checks = append(checks, dryRunCheck("app_pool_context", "??????", "passed", fmt.Sprintf("?????? %s??????????", appPoolName), map[string]any{
+		checks = append(checks, dryRunCheck("app_pool_context", "应用程序池上下文", "passed", fmt.Sprintf("已识别应用程序池 %s，可用于后续 ACL 校验", appPoolName), map[string]any{
 			"appPoolName": appPoolName,
 		}))
 	}
@@ -388,15 +388,15 @@ func runWindowsIISDryRunPreflight(
 
 func parseWindowsIISDeploymentInput(payload map[string]any) (windowsIISDeploymentInput, error) {
 	if payload == nil {
-		return windowsIISDeploymentInput{}, errors.New("payload ????")
+		return windowsIISDeploymentInput{}, errors.New("payload 不能为空")
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return windowsIISDeploymentInput{}, fmt.Errorf("??? payload ??: %w", err)
+		return windowsIISDeploymentInput{}, fmt.Errorf("序列化 payload 失败: %w", err)
 	}
 	var input windowsIISDeploymentInput
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return windowsIISDeploymentInput{}, fmt.Errorf("?? payload ??: %w", err)
+		return windowsIISDeploymentInput{}, fmt.Errorf("解析 payload 失败: %w", err)
 	}
 	input.SiteName = strings.TrimSpace(input.SiteName)
 	input.StepType = strings.TrimSpace(input.StepType)
@@ -414,16 +414,16 @@ func parseWindowsIISDeploymentInput(payload map[string]any) (windowsIISDeploymen
 		input.BindingSelector.Port = 443
 	}
 	if input.SiteName == "" {
-		return windowsIISDeploymentInput{}, errors.New("siteName ????")
+		return windowsIISDeploymentInput{}, errors.New("siteName 不能为空")
 	}
 	if input.BindingSelector.Port <= 0 {
-		return windowsIISDeploymentInput{}, errors.New("bindingSelector.port ??")
+		return windowsIISDeploymentInput{}, errors.New("bindingSelector.port 必须大于 0")
 	}
 	if input.PFXPath == "" && input.PFXBase64 == "" {
-		return windowsIISDeploymentInput{}, errors.New("???? pfxPath ? pfxBase64")
+		return windowsIISDeploymentInput{}, errors.New("必须提供 pfxPath 或 pfxBase64")
 	}
 	if input.PFXPassword == "" {
-		return windowsIISDeploymentInput{}, errors.New("pfxPassword ????")
+		return windowsIISDeploymentInput{}, errors.New("pfxPassword 不能为空")
 	}
 	return input, nil
 }
@@ -445,9 +445,9 @@ func findTargetBinding(host windowsExecutionHost, input windowsIISDeploymentInpu
 				return site, binding, nil
 			}
 		}
-		return windowsIISSite{}, windowsIISBinding{}, fmt.Errorf("?? %s ?????????? HTTPS Binding", input.SiteName)
+		return windowsIISSite{}, windowsIISBinding{}, fmt.Errorf("站点 %s 未找到匹配的 HTTPS Binding", input.SiteName)
 	}
-	return windowsIISSite{}, windowsIISBinding{}, fmt.Errorf("??? IIS ?? %s", input.SiteName)
+	return windowsIISSite{}, windowsIISBinding{}, fmt.Errorf("未找到 IIS 站点 %s", input.SiteName)
 }
 
 func bindingMatchesSelector(binding windowsIISBinding, selector bindingSelector) bool {

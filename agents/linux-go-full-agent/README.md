@@ -80,6 +80,12 @@ sudo bash ./linux/uninstall-systemd.sh
 ./service-control.sh service-info
 ```
 
+## 直连监听默认值
+
+- Linux Go Agent 默认直连监听端口：`18931`
+- 默认监听地址：`0.0.0.0`
+- 默认 `directControlAdvertiseHost` 留空，Agent 启动时会优先按 `controlPlaneUrl` 的实际出站源地址选择主 IP 对外声明；如果探测失败，再回退到“默认网关优先、非虚拟网卡优先、IPv4 优先”的评分逻辑；最后才回退到监听地址
+
 ## 兼容性边界
 
 - 主支持路径：带 `systemd` 的主流 Linux

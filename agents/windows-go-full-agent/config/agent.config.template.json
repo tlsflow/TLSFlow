@@ -8,6 +8,10 @@
   "taskPollIntervalSeconds": 60,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
+  "directControlEnabled": true,
+  "directControlListenHost": "0.0.0.0",
+  "directControlListenPort": 18930,
+  "directControlAdvertiseHost": "",
   "paths": {
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",

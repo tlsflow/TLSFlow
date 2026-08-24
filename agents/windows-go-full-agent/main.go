@@ -12,11 +12,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -43,6 +46,10 @@ type AgentConfig struct {
 	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
 	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
 	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
+	DirectControlEnabled       bool   `json:"directControlEnabled"`
+	DirectControlListenHost    string `json:"directControlListenHost"`
+	DirectControlListenPort    int    `json:"directControlListenPort"`
+	DirectControlAdvertiseHost string `json:"directControlAdvertiseHost"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -120,6 +127,7 @@ type heartbeatRequest struct {
 	AgentID       string                  `json:"agentId"`
 	Version       string                  `json:"version"`
 	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	DirectControl *directControlState     `json:"directControl,omitempty"`
 	TaskSummary   struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
@@ -140,12 +148,23 @@ type heartbeatRuntimeHealth struct {
 	LastError            string               `json:"lastError,omitempty"`
 	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
 	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
+	DirectControl        *directControlState  `json:"directControl,omitempty"`
 }
 
 type runtimeFailureCounts struct {
 	Heartbeat int `json:"heartbeat,omitempty"`
 	TaskPoll  int `json:"taskPoll,omitempty"`
 	Recovery  int `json:"recovery,omitempty"`
+}
+
+type directControlState struct {
+	Enabled          bool     `json:"enabled"`
+	Reachable        bool     `json:"reachable"`
+	ListenAddress    string   `json:"listenAddress,omitempty"`
+	ProtocolVersion  string   `json:"protocolVersion,omitempty"`
+	SupportedActions []string `json:"supportedActions"`
+	LastReadyAt      string   `json:"lastReadyAt,omitempty"`
+	LastDirectError  string   `json:"lastDirectError,omitempty"`
 }
 
 type capabilityReportRequest struct {
@@ -228,25 +247,45 @@ type runtimeDependencies struct {
 }
 
 type runtimeStatusSnapshot struct {
-	SchemaVersion                string          `json:"schemaVersion"`
-	UpdatedAt                    string          `json:"updatedAt"`
-	State                        string          `json:"state"`
-	StartedAt                    string          `json:"startedAt,omitempty"`
-	StoppedAt                    string          `json:"stoppedAt,omitempty"`
-	AgentID                      string          `json:"agentId,omitempty"`
-	ServiceName                  string          `json:"serviceName,omitempty"`
-	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
-	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
-	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
-	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
-	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
-	LastError                    string          `json:"lastError,omitempty"`
-	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
-	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
-	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
-	PendingResultCount           int             `json:"pendingResultCount"`
-	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
-	TaskCounters                 runtimeCounters `json:"taskCounters"`
+	SchemaVersion                string              `json:"schemaVersion"`
+	UpdatedAt                    string              `json:"updatedAt"`
+	State                        string              `json:"state"`
+	StartedAt                    string              `json:"startedAt,omitempty"`
+	StoppedAt                    string              `json:"stoppedAt,omitempty"`
+	AgentID                      string              `json:"agentId,omitempty"`
+	ServiceName                  string              `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string              `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string              `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string              `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string              `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string              `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string              `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int                 `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int                 `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int                 `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int                 `json:"pendingResultCount"`
+	RecoverableTaskCount         int                 `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters     `json:"taskCounters"`
+	DirectControl                *directControlState `json:"directControl,omitempty"`
+}
+
+type directControlServer struct {
+	state   *directControlState
+	server  *http.Server
+	started bool
+}
+
+type directDiscoveryRequest struct {
+	ProviderTypes   []string `json:"providerTypes"`
+	Scope           string   `json:"scope,omitempty"`
+	IncludeBindings bool     `json:"includeBindings"`
+	RequestID       string   `json:"requestId,omitempty"`
+}
+
+type directActionExecuteRequest struct {
+	ActionType string         `json:"actionType"`
+	Inputs     map[string]any `json:"inputs"`
+	RequestID  string         `json:"requestId,omitempty"`
 }
 
 type NetworkInterfaceInfo struct {
@@ -257,6 +296,7 @@ type NetworkInterfaceInfo struct {
 	IsUp              bool     `json:"isUp"`
 	IsLoopback        bool     `json:"isLoopback"`
 	HasDefaultGateway bool     `json:"hasDefaultGateway,omitempty"`
+	LikelyVirtual     bool     `json:"likelyVirtual,omitempty"`
 }
 
 type serviceProgram struct {
@@ -379,7 +419,7 @@ func runCLI(args []string) error {
 }
 
 func handleInspect() error {
-	return writeJSON(collectRuntimeState())
+	return writeJSON(collectRuntimeState(""))
 }
 
 func handleInspectAdapter() error {
@@ -409,6 +449,7 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+		checkItem("direct.control.listen", !config.DirectControlEnabled || effectiveDirectControlListenPort(config) > 0, map[string]any{"enabled": config.DirectControlEnabled, "host": effectiveDirectControlListenHost(config), "port": effectiveDirectControlListenPort(config)}),
 	}
 
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
@@ -464,7 +505,7 @@ func handleRegisterOnce(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	identity := collectRuntimeIdentity()
+	identity := collectRuntimeIdentity(config.ControlPlane)
 	client := &http.Client{Timeout: 20 * time.Second}
 	registration, err := registerAgent(ctx, client, config, identity)
 	if err != nil {
@@ -527,7 +568,7 @@ func handleServiceInfo(args []string) error {
 			"agentKey":        config.AgentKey,
 			"zone":            config.Zone,
 		},
-		"runtime": collectRuntimeState(),
+		"runtime": collectRuntimeState(config.ControlPlane),
 		"metadata": map[string]any{
 			"path":   metadataPath,
 			"exists": fileExists(metadataPath),
@@ -571,7 +612,7 @@ func runForeground(ctx context.Context, configPath string) error {
 		return errors.New("agentKey 不能为空，Windows Go Agent 无法完成注册")
 	}
 
-	identity := collectRuntimeIdentity()
+	identity := collectRuntimeIdentity(config.ControlPlane)
 	client := &http.Client{Timeout: 20 * time.Second}
 	registration, err := registerAgent(ctx, client, config, identity)
 	if err != nil {
@@ -592,6 +633,21 @@ func runForeground(ctx context.Context, configPath string) error {
 	status.StoppedAt = ""
 	status.ServiceName = config.Service.Name
 	status.AgentID = registration.AgentID
+	status.DirectControl = newDirectControlState(config)
+
+	if firewallErr := syncWindowsDirectControlFirewallRule(config, logger); firewallErr != nil {
+		logger.Warn("direct control firewall rule sync failed: %v", firewallErr)
+	}
+
+	directServer, directErr := startDirectControlServer(config, &status)
+	if directErr != nil {
+		logger.Warn("direct control listener failed: %v", directErr)
+		status.DirectControl = newDirectControlState(config)
+		status.DirectControl.LastDirectError = directErr.Error()
+	} else if directServer != nil {
+		defer directServer.shutdown(context.Background())
+		status.DirectControl = directServer.snapshot()
+	}
 
 	if err := reportCapabilities(ctx, client, config, registration, identity); err != nil {
 		logger.Warn("capability report failed: %v", err)
@@ -862,6 +918,9 @@ func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot,
 			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
 			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
 			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
+			"directControlEnabled":       config.DirectControlEnabled,
+			"directControlListenHost":    effectiveDirectControlListenHost(config),
+			"directControlListenPort":    effectiveDirectControlListenPort(config),
 		},
 		"runtime": status,
 		"health": map[string]any{
@@ -902,6 +961,7 @@ func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapsh
 		LastSelfCheckAt:      status.LastSelfCheckAt,
 		LastError:            status.LastError,
 		DegradedReasons:      filteredReasons,
+		DirectControl:        status.DirectControl,
 		FailureCounts: runtimeFailureCounts{
 			Heartbeat: status.ConsecutiveHeartbeatFailures,
 			TaskPoll:  status.ConsecutiveTaskPollFailures,
@@ -977,6 +1037,470 @@ func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
 		return config.OfflineTimeoutSeconds
 	}
 	return defaultOfflineTTL
+}
+
+func effectiveDirectControlListenHost(config *AgentConfig) string {
+	if strings.TrimSpace(config.DirectControlListenHost) != "" {
+		return strings.TrimSpace(config.DirectControlListenHost)
+	}
+	return "0.0.0.0"
+}
+
+func effectiveDirectControlListenPort(config *AgentConfig) int {
+	if config.DirectControlListenPort > 0 {
+		return config.DirectControlListenPort
+	}
+	return 18930
+}
+
+func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
+	if strings.TrimSpace(config.DirectControlAdvertiseHost) != "" {
+		return strings.TrimSpace(config.DirectControlAdvertiseHost)
+	}
+	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
+		return primaryIP
+	}
+	return effectiveDirectControlListenHost(config)
+}
+
+func directControlFirewallRuleName(config *AgentConfig) string {
+	serviceName := strings.TrimSpace(config.Service.Name)
+	if serviceName == "" {
+		serviceName = "gcac-agent"
+	}
+	return fmt.Sprintf("GCAC Agent Direct Control (%s)", serviceName)
+}
+
+func syncWindowsDirectControlFirewallRule(config *AgentConfig, logger *runtimeLogger) error {
+	ruleName := directControlFirewallRuleName(config)
+	if !shouldExposeDirectControlBeyondLoopback(config) {
+		if err := removeWindowsFirewallRule(ruleName); err != nil {
+			return err
+		}
+		logger.Info("direct control firewall rule not required host=%s port=%d", effectiveDirectControlListenHost(config), effectiveDirectControlListenPort(config))
+		return nil
+	}
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("读取当前可执行文件路径失败: %w", err)
+	}
+	if err := ensureWindowsFirewallRule(ruleName, executablePath, effectiveDirectControlListenPort(config), firewallLocalAddressForHost(effectiveDirectControlListenHost(config))); err != nil {
+		return err
+	}
+	logger.Info("direct control firewall rule ensured rule=%s host=%s port=%d", ruleName, effectiveDirectControlListenHost(config), effectiveDirectControlListenPort(config))
+	return nil
+}
+
+func shouldExposeDirectControlBeyondLoopback(config *AgentConfig) bool {
+	if !config.DirectControlEnabled {
+		return false
+	}
+	return !isLoopbackListenHost(effectiveDirectControlListenHost(config))
+}
+
+func isLoopbackListenHost(host string) bool {
+	normalized := normalizeListenHost(host)
+	if normalized == "" {
+		return true
+	}
+	if strings.EqualFold(normalized, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(normalized); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+func firewallLocalAddressForHost(host string) string {
+	normalized := normalizeListenHost(host)
+	switch {
+	case normalized == "":
+		return ""
+	case strings.EqualFold(normalized, "localhost"):
+		return ""
+	case normalized == "0.0.0.0":
+		return ""
+	case normalized == "::":
+		return ""
+	case normalized == "*":
+		return ""
+	}
+	if ip := net.ParseIP(normalized); ip != nil {
+		if ip.IsLoopback() {
+			return ""
+		}
+		return normalized
+	}
+	return ""
+}
+
+func normalizeListenHost(host string) string {
+	normalized := strings.TrimSpace(host)
+	normalized = strings.TrimPrefix(normalized, "[")
+	normalized = strings.TrimSuffix(normalized, "]")
+	return normalized
+}
+
+func ensureWindowsFirewallRule(ruleName string, programPath string, port int, localAddress string) error {
+	script := `
+$ruleName = $env:GCAC_FIREWALL_RULE_NAME
+$programPath = $env:GCAC_FIREWALL_PROGRAM
+$portValue = [int]$env:GCAC_FIREWALL_PORT
+$localAddress = $env:GCAC_FIREWALL_LOCAL_ADDRESS
+
+Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue | Out-Null
+
+$params = @{
+  DisplayName = $ruleName
+  Direction = 'Inbound'
+  Action = 'Allow'
+  Enabled = 'True'
+  Profile = 'Any'
+  Protocol = 'TCP'
+  LocalPort = $portValue
+  Program = $programPath
+}
+
+if (-not [string]::IsNullOrWhiteSpace($localAddress)) {
+  $params.LocalAddress = $localAddress
+}
+
+New-NetFirewallRule @params | Out-Null
+`
+	_, err := runWindowsPowerShellScript(script, map[string]string{
+		"GCAC_FIREWALL_RULE_NAME":     ruleName,
+		"GCAC_FIREWALL_PROGRAM":       programPath,
+		"GCAC_FIREWALL_PORT":          fmt.Sprintf("%d", port),
+		"GCAC_FIREWALL_LOCAL_ADDRESS": localAddress,
+	})
+	if err != nil {
+		return fmt.Errorf("写入 Windows 防火墙规则失败: %w", err)
+	}
+	return nil
+}
+
+func removeWindowsFirewallRule(ruleName string) error {
+	script := `
+$ruleName = $env:GCAC_FIREWALL_RULE_NAME
+Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue | Out-Null
+`
+	_, err := runWindowsPowerShellScript(script, map[string]string{
+		"GCAC_FIREWALL_RULE_NAME": ruleName,
+	})
+	if err != nil {
+		return fmt.Errorf("删除 Windows 防火墙规则失败: %w", err)
+	}
+	return nil
+}
+
+func runWindowsPowerShellScript(script string, env map[string]string) (string, error) {
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+	output, err := cmd.CombinedOutput()
+	trimmed := strings.TrimSpace(string(output))
+	if err != nil {
+		if trimmed == "" {
+			return "", err
+		}
+		return trimmed, fmt.Errorf("%w: %s", err, trimmed)
+	}
+	return trimmed, nil
+}
+
+func newDirectControlState(config *AgentConfig) *directControlState {
+	state := &directControlState{
+		Enabled:          config.DirectControlEnabled,
+		Reachable:        false,
+		ProtocolVersion:  "v1",
+		SupportedActions: []string{"health", "discovery.run", "windows.iis.deploy_certificate"},
+	}
+	if config.DirectControlEnabled {
+		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
+	}
+	return state
+}
+
+func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot) (*directControlServer, error) {
+	if !config.DirectControlEnabled {
+		return nil, nil
+	}
+	host := effectiveDirectControlListenHost(config)
+	port := effectiveDirectControlListenPort(config)
+	state := newDirectControlState(config)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
+		payload := map[string]any{
+			"success":         true,
+			"checkedAt":       time.Now().Format(time.RFC3339),
+			"protocolVersion": "v1",
+			"platform":        "windows",
+			"service": map[string]any{
+				"name":        config.Service.Name,
+				"displayName": config.Service.DisplayName,
+			},
+			"directControl": state,
+			"runtime":       status,
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+	mux.HandleFunc("/api/v1/control/discovery/run", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var request directDiscoveryRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		payload := buildDirectDiscoveryPayloadWindows(collectRuntimeIdentity(config.ControlPlane), request)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+	mux.HandleFunc("/api/v1/control/actions/execute", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var request directActionExecuteRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		response, statusCode := executeDirectControlAction(config, request)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(response)
+	})
+	server := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return nil, err
+	}
+	state.Reachable = true
+	state.LastReadyAt = time.Now().Format(time.RFC3339)
+	go func() {
+		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			state.Reachable = false
+			state.LastDirectError = serveErr.Error()
+		}
+	}()
+	return &directControlServer{state: state, server: server, started: true}, nil
+}
+
+func (s *directControlServer) snapshot() *directControlState {
+	if s == nil || s.state == nil {
+		return nil
+	}
+	copyState := *s.state
+	copyState.SupportedActions = append([]string{}, s.state.SupportedActions...)
+	return &copyState
+}
+
+func (s *directControlServer) shutdown(ctx context.Context) {
+	if s == nil || s.server == nil || !s.started {
+		return
+	}
+	_ = s.server.Shutdown(ctx)
+}
+
+func executeDirectControlAction(config *AgentConfig, request directActionExecuteRequest) (map[string]any, int) {
+	actionType := strings.TrimSpace(request.ActionType)
+	if !strings.EqualFold(actionType, "windows.iis.deploy_certificate") {
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
+			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
+		}, http.StatusBadRequest
+	}
+
+	payload := map[string]any{}
+	for key, value := range request.Inputs {
+		payload[key] = value
+	}
+	payload["type"] = "windows.iis.deploy_certificate"
+
+	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
+	hostName, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostName) == "" {
+		hostName = "localhost"
+	}
+	execution := &taskExecutionContext{
+		ctx:    context.Background(),
+		client: &http.Client{Timeout: 20 * time.Second},
+		config: config,
+		logger: newRuntimeLogger(filepath.Join(config.Paths.Windows.LogDir, "agent.log")),
+		deps: &runtimeDependencies{
+			taskLedger: &localTaskLedger{
+				filePath:         filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-tasks.json"),
+				tasks:            map[string]localTaskRecord{},
+				idempotencyIndex: map[string]string{},
+			},
+			recoveryLedger: &recoveryLedger{
+				filePath: filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-recovery.json"),
+				entries:  map[string]recoveryLedgerEntry{},
+			},
+		},
+		registration: &runtimeRegistration{
+			AgentID:  "direct-control",
+			Hostname: hostName,
+			Version:  agentVersion,
+		},
+		task: agentTaskEnvelope{
+			ID:              taskID,
+			ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
+			ExecutionStepID: fmt.Sprintf("direct_step_%d", time.Now().UnixNano()),
+			Payload:         payload,
+		},
+		leaseID:     fmt.Sprintf("direct_lease_%d", time.Now().UnixNano()),
+		logSequence: 1,
+	}
+
+	success, errorCode, errorMessage, detail := executeTask(execution)
+	statusCode := http.StatusOK
+	if !success {
+		statusCode = http.StatusBadRequest
+	}
+	return map[string]any{
+		"success":      success,
+		"errorCode":    errorCode,
+		"errorMessage": errorMessage,
+		"detail":       detail,
+		"taskId":       taskID,
+		"requestId":    request.RequestID,
+		"actionType":   "windows.iis.deploy_certificate",
+	}, statusCode
+}
+
+func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request directDiscoveryRequest) map[string]any {
+	hostName, _ := os.Hostname()
+	primaryIP := strings.TrimSpace(identity.PrimaryIPAddress)
+	hosts := []map[string]any{
+		{
+			"hostname":        hostName,
+			"primaryIp":       primaryIP,
+			"ipAddresses":     []string{primaryIP},
+			"osType":          "WINDOWS",
+			"osName":          readWindowsOSValue(identity, "ProductName"),
+			"osVersion":       readWindowsOSValue(identity, "Version"),
+			"arch":            runtime.GOARCH,
+			"agentId":         "",
+			"discoverySource": "AGENT",
+			"managementMode":  "AGENT",
+			"status":          "ACTIVE",
+		},
+	}
+	services := make([]map[string]any, 0, 1)
+	serviceAssets := make([]map[string]any, 0)
+	siteAssets := make([]map[string]any, 0)
+	bindings := make([]map[string]any, 0)
+
+	if identity.AdapterSnapshot.IIS != nil && identity.AdapterSnapshot.IIS.Installed {
+		services = append(services, map[string]any{
+			"hostname":        hostName,
+			"providerType":    "IIS",
+			"serviceName":     "iis",
+			"displayName":     "iis",
+			"configPath":      `IIS:\Sites`,
+			"discoverySource": "AGENT",
+			"status":          "ACTIVE",
+			"rawFacts":        identity.AdapterSnapshot.IIS,
+		})
+		for _, site := range identity.AdapterSnapshot.IIS.Sites {
+			for _, binding := range site.Bindings {
+				protocol := strings.ToUpper(strings.TrimSpace(binding.Protocol))
+				if protocol != "HTTPS" && protocol != "HTTP" {
+					continue
+				}
+				hostHeader := strings.TrimSpace(binding.HostHeader)
+				if hostHeader == "" || binding.Port <= 0 {
+					continue
+				}
+				serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", hostHeader, binding.Port, protocol))
+				siteKey := strings.ToLower(fmt.Sprintf("%s:iis:%s:%s", hostName, site.Name, binding.BindingInformation))
+				serviceAssets = append(serviceAssets, map[string]any{
+					"serviceAssetRef": serviceAssetRef,
+					"hostname":        hostName,
+					"providerType":    "IIS",
+					"serviceName":     "iis",
+					"address":         hostHeader,
+					"port":            binding.Port,
+					"protocol":        protocol,
+					"sniName":         hostHeader,
+					"displayName":     hostHeader,
+				})
+				siteAssets = append(siteAssets, map[string]any{
+					"siteAssetRef":       "site-asset:" + siteKey,
+					"serviceAssetRef":    serviceAssetRef,
+					"hostname":           hostName,
+					"providerType":       "IIS",
+					"serviceName":        "iis",
+					"siteType":           "WEB_SITE",
+					"siteName":           site.Name,
+					"siteKey":            siteKey,
+					"bindingInformation": binding.BindingInformation,
+					"hostHeader":         hostHeader,
+					"listenIp":           binding.IPAddress,
+					"port":               binding.Port,
+					"protocol":           protocol,
+					"configPath":         `IIS:\Sites`,
+				})
+				if request.IncludeBindings {
+					bindings = append(bindings, map[string]any{
+						"siteAssetRef":    "site-asset:" + siteKey,
+						"serviceAssetRef": serviceAssetRef,
+						"hostname":        hostName,
+						"providerType":    "IIS",
+						"serviceName":     "iis",
+						"domainName":      hostHeader,
+						"port":            binding.Port,
+						"protocol":        protocol,
+						"bindingType":     "WINDOWS_CERT_STORE",
+						"storeLocation":   "LocalMachine",
+						"storeName":       binding.CertificateStoreName,
+						"storeThumbprint": binding.CertificateThumbprint,
+						"verifyMethod":    "TLS_CONNECT",
+					})
+				}
+			}
+		}
+	}
+
+	return map[string]any{
+		"collectedAt":   time.Now().Format(time.RFC3339),
+		"source":        "agent_direct",
+		"platform":      "windows",
+		"requestId":     request.RequestID,
+		"hosts":         hosts,
+		"services":      services,
+		"serviceAssets": serviceAssets,
+		"siteAssets":    siteAssets,
+		"bindings":      bindings,
+	}
+}
+
+func readWindowsOSValue(identity runtimeIdentity, key string) string {
+	if identity.AdapterSnapshot.OS == nil {
+		return ""
+	}
+	switch key {
+	case "ProductName":
+		return identity.AdapterSnapshot.OS.ProductName
+	case "Version":
+		return identity.AdapterSnapshot.OS.Version
+	default:
+		return ""
+	}
 }
 
 func runWindowsService(name string, program *serviceProgram) error {
@@ -1123,7 +1647,7 @@ func isInteractiveSession() bool {
 	return ret != 0
 }
 
-func collectRuntimeState() RuntimeState {
+func collectRuntimeState(controlPlaneURL string) RuntimeState {
 	hostname, _ := os.Hostname()
 	executable, _ := os.Executable()
 	currentDir, _ := os.Getwd()
@@ -1143,11 +1667,14 @@ func collectRuntimeState() RuntimeState {
 	state.MachineID = buildMachineID(hostname)
 	state.WindowsVersion = strings.TrimSpace(os.Getenv("OS"))
 	state.Interfaces, state.PrimaryIPAddress = collectNetworkInterfaces()
+	if preferredIP := detectPreferredSourceIP(controlPlaneURL); preferredIP != "" {
+		state.PrimaryIPAddress = preferredIP
+	}
 	return state
 }
 
-func collectRuntimeIdentity() runtimeIdentity {
-	state := collectRuntimeState()
+func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
+	state := collectRuntimeState(controlPlaneURL)
 	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
 	return runtimeIdentity{
 		MachineID:         state.MachineID,
@@ -1156,6 +1683,57 @@ func collectRuntimeIdentity() runtimeIdentity {
 		NetworkInterfaces: state.Interfaces,
 		AdapterSnapshot:   adapterSnapshot,
 	}
+}
+
+func detectPreferredSourceIP(controlPlaneURL string) string {
+	target := strings.TrimSpace(controlPlaneURL)
+	if target == "" {
+		return ""
+	}
+	address, err := parseDialTarget(target)
+	if err != nil {
+		return ""
+	}
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr)
+	if !ok || tcpAddr == nil || tcpAddr.IP == nil {
+		return ""
+	}
+	ip := tcpAddr.IP
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String()
+	}
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return ""
+	}
+	return ip.String()
+}
+
+func parseDialTarget(rawURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", err
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return "", fmt.Errorf("controlPlaneUrl 缺少主机名: %s", rawURL)
+	}
+	port := strings.TrimSpace(parsed.Port())
+	if port == "" {
+		switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		default:
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeRegistration, error) {
@@ -1181,6 +1759,9 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 			"agent.task.receive",
 			"agent.log.report",
 		},
+	}
+	if config.DirectControlEnabled {
+		request.Capabilities = append(request.Capabilities, "agent.direct_control.health")
 	}
 
 	var response registerResponse
@@ -1209,6 +1790,7 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 	request.TaskSummary.Failed = counters.Failed
 	if status != nil {
 		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
+		request.DirectControl = status.DirectControl
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
@@ -1597,7 +2179,7 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	}
 	if taskType, ok := payload["type"].(string); ok && taskType == "agent.capability.rescan" {
 		execution.submitLog("info", "开始执行手动能力重扫")
-		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity()); err != nil {
+		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane)); err != nil {
 			_ = submitRuntimeLog(execution.ctx, execution.client, execution.config, submitRuntimeLogRequest{
 				AgentID:   execution.registration.AgentID,
 				Category:  "manual_rescan",
@@ -1717,34 +2299,133 @@ func collectNetworkInterfaces() ([]NetworkInterfaceInfo, string) {
 		return nil, ""
 	}
 
+	defaultRouteInterfaces := detectWindowsDefaultRouteInterfaces()
 	result := make([]NetworkInterfaceInfo, 0, len(interfaces))
-	primary := ""
 	for _, item := range interfaces {
 		info := NetworkInterfaceInfo{
-			Name:       item.Name,
-			MACAddress: item.HardwareAddr.String(),
-			IsUp:       item.Flags&net.FlagUp != 0,
-			IsLoopback: item.Flags&net.FlagLoopback != 0,
+			Name:              item.Name,
+			MACAddress:        item.HardwareAddr.String(),
+			IsUp:              item.Flags&net.FlagUp != 0,
+			IsLoopback:        item.Flags&net.FlagLoopback != 0,
+			HasDefaultGateway: interfaceHasDefaultRoute(defaultRouteInterfaces, item.Name),
+			LikelyVirtual:     isLikelyVirtualWindowsInterface(item.Name),
 		}
 		addrs, _ := item.Addrs()
 		for _, addr := range addrs {
 			ip := extractIP(addr)
-			if ip == nil {
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 				continue
 			}
 			if ip.To4() != nil {
 				value := ip.String()
 				info.IPv4 = append(info.IPv4, value)
-				if primary == "" && !ip.IsLoopback() {
-					primary = value
-				}
 				continue
 			}
 			info.IPv6 = append(info.IPv6, ip.String())
 		}
+		sort.Strings(info.IPv4)
+		sort.Strings(info.IPv6)
 		result = append(result, info)
 	}
-	return result, primary
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result, selectPrimaryIPAddressWindows(result)
+}
+
+func selectPrimaryIPAddressWindows(items []NetworkInterfaceInfo) string {
+	bestIPv4 := ""
+	bestIPv4Score := -1 << 30
+	bestIPv6 := ""
+	bestIPv6Score := -1 << 30
+	for _, item := range items {
+		if !item.IsUp || item.IsLoopback {
+			continue
+		}
+		score := scoreWindowsInterface(item)
+		if len(item.IPv4) > 0 && score > bestIPv4Score {
+			bestIPv4Score = score
+			bestIPv4 = item.IPv4[0]
+		}
+		if len(item.IPv6) > 0 && score > bestIPv6Score {
+			bestIPv6Score = score
+			bestIPv6 = item.IPv6[0]
+		}
+	}
+	if bestIPv4 != "" {
+		return bestIPv4
+	}
+	if bestIPv6 != "" {
+		return bestIPv6
+	}
+	return ""
+}
+
+func scoreWindowsInterface(item NetworkInterfaceInfo) int {
+	score := 0
+	if item.IsUp {
+		score += 20
+	}
+	if item.HasDefaultGateway {
+		score += 100
+	}
+	if item.MACAddress != "" {
+		score += 5
+	}
+	if item.LikelyVirtual {
+		score -= 80
+	}
+	if len(item.IPv4) > 0 {
+		score += 20
+	}
+	if len(item.IPv6) > 0 {
+		score += 5
+	}
+	return score
+}
+
+func detectWindowsDefaultRouteInterfaces() map[string]struct{} {
+	results := make(map[string]struct{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `
+$rows = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.InterfaceAlias) } |
+  Select-Object -ExpandProperty InterfaceAlias -Unique
+if ($null -eq $rows) { return }
+$rows | ForEach-Object { [string]$_ }
+`)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return results
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		results[name] = struct{}{}
+	}
+	return results
+}
+
+func interfaceHasDefaultRoute(defaultRouteInterfaces map[string]struct{}, name string) bool {
+	_, ok := defaultRouteInterfaces[name]
+	return ok
+}
+
+func isLikelyVirtualWindowsInterface(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	virtualPrefixes := []string{
+		"docker", "vethernet", "vmnet", "vboxnet", "virbr", "vethernet", "npcap", "loopback",
+		"zt", "tailscale", "wg", "tun", "tap", "podman", "lxc", "br-", "veth",
+	}
+	for _, prefix := range virtualPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractIP(addr net.Addr) net.IP {

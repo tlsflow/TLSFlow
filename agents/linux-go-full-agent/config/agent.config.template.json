@@ -7,6 +7,10 @@
   "taskPollIntervalSeconds": 60,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
+  "directControlEnabled": true,
+  "directControlListenHost": "0.0.0.0",
+  "directControlListenPort": 18931,
+  "directControlAdvertiseHost": "",
   "capabilityRescanIntervalSeconds": 300,
   "capabilityRescanEnabled": true,
   "paths": {

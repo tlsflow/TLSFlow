@@ -13,6 +13,7 @@
 - Windows 配置模板
 - 安装、卸载、运维辅助脚本
 - 最小前台运行、自检、健康检查和服务信息输出
+- 直连控制面启用后自动维护 Windows 防火墙入站例外规则
 
 当前明确不包含：
 
@@ -49,6 +50,14 @@ go build -o gcac-agent.exe .
 - 自检：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action selfcheck`
 - 健康检查：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action healthcheck`
 - 服务信息：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action service-info`
+
+## 直连监听默认值
+
+- Windows Go Agent 默认直连监听端口：`18930`
+- 默认监听地址：`0.0.0.0`
+- 默认 `directControlAdvertiseHost` 留空，Agent 启动时会优先按 `controlPlaneUrl` 的实际出站源地址选择主 IP 对外声明；如果探测失败，再回退到“默认网关优先、非虚拟网卡优先、IPv4 优先”的评分逻辑；最后才回退到监听地址
+- 只要 `directControlEnabled=true` 且监听地址不是回环地址，Agent 就会自动创建并维护 Windows 防火墙入站例外规则
+- 如果后续把监听改回 `127.0.0.1` / `localhost`，Agent 启动时会自动清理自己管理的这条防火墙规则
 
 ## 安装迁移行为
 
