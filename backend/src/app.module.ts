@@ -117,6 +117,7 @@ import {
   createTaskExecutorRegistry,
   getTaskRouteContracts,
   TaskRepository,
+  TaskRealtimeStreamService,
   TaskWorkerSupervisor,
   TasksApplicationService,
   TasksController,
@@ -163,13 +164,16 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('database', appDb);
   app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
-  const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit);
+  app.setResource('securityServices', security);
+  const taskRealtimeStream = new TaskRealtimeStreamService();
+  const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit, undefined, taskRealtimeStream);
   void tasksService.initialize().catch((error: unknown) => {
     structuredLogger.warn('统一任务控制面初始化失败，等待数据库迁移后重试', {
       error: error instanceof Error ? error.message : String(error),
     }, { module: 'task-control-plane' });
   });
   app.setResource('tasksService', tasksService);
+  app.setResource('taskRealtimeStream', taskRealtimeStream);
   const credentialsService = new CredentialsApplicationService(
     new CredentialsRepository(appDb),
     undefined,

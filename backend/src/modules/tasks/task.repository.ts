@@ -142,7 +142,7 @@ export class TaskRepository {
       params.push(value);
       where.push(sql.replace('?', `$${params.length}`));
     };
-    if (query.category && !query.includeAll) add('category = ?', query.category);
+    if (query.category) add('category = ?', query.category);
     if (query.taskType) add('task_type = ?', query.taskType);
     if (query.status) add('status = ?', query.status);
     if (query.requestedBy) add('requested_by = ?', query.requestedBy);
@@ -174,6 +174,24 @@ export class TaskRepository {
       [...params, pageSize, offset],
     );
     return { items: rows.rows.map(mapTaskRun), page, pageSize, total: count.rows[0]?.total ?? 0 };
+  }
+
+  async listActiveExecutionTasks(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
+    const params: unknown[] = [tenantId];
+    const where = [
+      'tenant_id = $1',
+      `category = 'EXECUTION'`,
+      `status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')`,
+    ];
+    if (requestedBy) {
+      params.push(requestedBy);
+      where.push(`requested_by = $${params.length}`);
+    }
+    const rows = await this.db.query<TaskRunRow>(
+      `select * from task_runs where ${where.join(' and ')} order by created_at desc limit 200`,
+      params,
+    );
+    return rows.rows.map(mapTaskRun);
   }
 
   async claimNext(tenantId: string | undefined, workerId: string, leaseSeconds: number): Promise<{ task: TaskRun; attempt: TaskAttempt } | undefined> {
@@ -252,10 +270,10 @@ export class TaskRepository {
       const updated = await tx.query(
         `update task_runs set status = $4, lease_owner = null, lease_expires_at = null,
             next_attempt_at = $5, finished_at = case when $4 in ('SUCCEEDED', 'FAILED', 'CANCELLED') then now() else finished_at end,
-            last_error_code = $6, last_error_message = $7
+            last_error_code = $6, last_error_message = $7, progress = coalesce($8::jsonb, progress)
           where id = $1 and tenant_id = $2 and lease_owner = $3 and status = 'RUNNING'
           returning id`,
-        [task.id, task.tenantId, workerId, nextStatus, nextAttemptAt ?? null, result.errorCode ?? null, result.errorMessage ?? null],
+        [task.id, task.tenantId, workerId, nextStatus, nextAttemptAt ?? null, result.errorCode ?? null, result.errorMessage ?? null, result.detail ? JSON.stringify(result.detail) : null],
       );
       if (updated.rows.length === 0) throw new Error('TASK_LEASE_LOST');
       await tx.query(

@@ -3,6 +3,7 @@ import type { AuditService } from '../audits/audit.service.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
 import { TaskRegistry } from './task.registry.js';
 import { TaskRepository } from './task.repository.js';
+import type { TaskRealtimePublisher } from './task-realtime-stream.js';
 import type {
   MonitoringProbePage,
   MonitoringProbeQuery,
@@ -22,6 +23,7 @@ export class TasksApplicationService {
     private readonly repository: TaskRepository,
     private readonly audit?: AuditService,
     registry = new TaskRegistry(),
+    private readonly realtime?: TaskRealtimePublisher,
   ) {
     this.registry = registry;
   }
@@ -54,6 +56,7 @@ export class TasksApplicationService {
       context: actor ? { actor } : undefined,
       detail: { taskType: task.taskType, category: task.category, triggerSource: task.triggerSource },
     });
+    this.realtime?.publishTask(task);
     return task;
   }
 
@@ -65,6 +68,10 @@ export class TasksApplicationService {
     const detail = await this.repository.detail(tenantId, id);
     if (!detail) throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
     return detail;
+  }
+
+  async listActiveExecutionTasks(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
+    return this.repository.listActiveExecutionTasks(tenantId, requestedBy);
   }
 
   async cancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
@@ -81,6 +88,7 @@ export class TasksApplicationService {
         riskLevel: 'high',
         detail: { taskId: id, reason },
       });
+      this.realtime?.publishTask(task);
       return task;
     } catch (error) {
       if (error instanceof Error && error.message === 'NOT_FOUND') throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
@@ -102,6 +110,7 @@ export class TasksApplicationService {
         riskLevel: 'high',
         detail: { taskId: id },
       });
+      this.realtime?.publishTask(task);
       return task;
     } catch (error) {
       if (error instanceof Error && error.message === 'NOT_FOUND') throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
@@ -114,6 +123,7 @@ export class TasksApplicationService {
     const claimed = await this.repository.claimNext(tenantId, workerId, 60);
     if (!claimed) return undefined;
     const { task, attempt } = claimed;
+    this.realtime?.publishTask(task);
     let result;
     try {
       result = await executor(task, attempt);
@@ -123,7 +133,9 @@ export class TasksApplicationService {
     const definition = this.registry.get(task.taskType, task.definitionVersion);
     if (result.success) {
       await this.repository.finish(task, attempt, workerId, 'SUCCEEDED', { detail: result.detail });
-      return this.repository.getById(task.tenantId, task.id) as Promise<TaskRun>;
+      const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
+      this.realtime?.publishTask(finished);
+      return finished;
     }
     const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
     const nextAttemptAt = shouldRetry
@@ -135,7 +147,9 @@ export class TasksApplicationService {
       errorMessage: result.errorMessage,
       detail: result.detail,
     }, nextAttemptAt);
-    return this.repository.getById(task.tenantId, task.id) as Promise<TaskRun>;
+    const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
+    this.realtime?.publishTask(finished);
+    return finished;
   }
 
   async listMonitoringProbes(query: MonitoringProbeQuery): Promise<MonitoringProbePage> {

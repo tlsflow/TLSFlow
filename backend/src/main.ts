@@ -15,6 +15,9 @@ import type { CaSyncWorker } from './modules/internal-ca/application/ca-sync-wor
 import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
 import type { AcmeRenewalScheduler } from './modules/internal-ca/application/acme-renewal-scheduler.js';
 import type { AcmeRenewalWorker } from './modules/internal-ca/application/acme-renewal-worker.js';
+import type { SecurityServices } from './modules/security/security.controller.js';
+import { TaskRealtimeGateway, type TaskRealtimeStreamService } from './modules/tasks/task-realtime-stream.js';
+import type { TasksApplicationService } from './modules/tasks/task.application-service.js';
 import type { TaskWorkerSupervisor } from './modules/tasks/task-worker-supervisor.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
@@ -341,6 +344,13 @@ async function start(): Promise<void> {
   }
 
   const server = app.createNodeServer();
+  const taskRealtimeStream = app.getResource<TaskRealtimeStreamService>('taskRealtimeStream');
+  const tasksService = app.getResource<TasksApplicationService>('tasksService');
+  const securityServices = securityBundle?.services ?? app.getResource<SecurityServices>('securityServices');
+  if (taskRealtimeStream && tasksService && securityServices) {
+    new TaskRealtimeGateway(taskRealtimeStream, tasksService, securityServices)
+      .attach(server);
+  }
   server.listen(app.config.port, app.config.host, () => {
     structuredLogger.info('后端服务已启动', {
       host: app.config.host,

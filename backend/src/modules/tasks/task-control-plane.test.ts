@@ -111,6 +111,35 @@ test('任务详情包含尝试、事件、资源引用，监控探测单独分�
   assert.equal(unrelatedProbes.total, 0);
 });
 
+test('includeAll=true 时分类过滤仍然生效，避免监控任务挤掉执行任务列表', async () => {
+  const { service } = await createFixture();
+  await service.enqueue({
+    tenantId: 'tenant-task-category',
+    taskType: 'MONITORING_BATCH',
+    requestedBy: 'user-monitor',
+    triggerSource: 'scheduler',
+  });
+  const executionTask = await service.enqueue({
+    tenantId: 'tenant-task-category',
+    taskType: 'CERTIFICATE_DRY_RUN',
+    requestedBy: 'user-execution',
+    triggerSource: 'deployment.dry-run',
+  });
+
+  const page = await service.list({
+    tenantId: 'tenant-task-category',
+    category: 'EXECUTION',
+    includeAll: true,
+    page: 1,
+    pageSize: 20,
+  });
+
+  assert.equal(page.total, 1);
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0]?.id, executionTask.id);
+  assert.equal(page.items[0]?.category, 'EXECUTION');
+});
+
 test('执行器失败会按注册策略进入重试并最终失败', async () => {
   const { service } = await createFixture();
   const task = await service.enqueue({
