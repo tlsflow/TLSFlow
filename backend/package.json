@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "npm run check:utf8-mojibake",
     "build": "tsc -p tsconfig.json",
     "test": "npm run check:builtin-plugin-versions && npm run check:compatibility-architecture && npm run build && node --test \"dist/**/*.test.js\"",
     "test:unit": "npm run check:builtin-plugin-versions && npm run build && node --test \"dist/**/*.test.js\"",
@@ -15,6 +16,7 @@
     "generate:compatibility": "node ../scripts/generate-compatibility-catalog.mjs",
     "check:compatibility-docs": "node ../scripts/generate-compatibility-catalog.mjs --check",
     "check:plugin-vendor-neutrality": "node ../scripts/check-plugin-vendor-neutrality.mjs",
+    "check:utf8-mojibake": "node ../scripts/check-utf8-mojibake.mjs && node --test ../scripts/check-utf8-mojibake.test.mjs",
     "check:builtin-plugin-versions": "node ../scripts/check-builtin-plugin-versions.mjs && node --test ../scripts/check-builtin-plugin-versions.test.mjs && tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts && tsx --test src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.test.ts",
     "update:builtin-plugin-package-ledger": "tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts --update",
     "audit:managed-target-baseline": "node ../scripts/audit-unified-managed-target-baseline.mjs",

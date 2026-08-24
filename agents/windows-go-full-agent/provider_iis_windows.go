@@ -633,15 +633,15 @@ func (h windowsExecutionHost) importPFX(input windowsIISDeploymentInput) (*windo
 	if pfxPath == "" {
 		decoded, err := base64.StdEncoding.DecodeString(input.PFXBase64)
 		if err != nil {
-			return nil, fmt.Errorf("閻熸瑱绲鹃悗?pfxBase64 濠㈡儼绮剧憴? %w", err)
+			return nil, fmt.Errorf("解码 pfxBase64 失败: %w", err)
 		}
 		tempDir := filepath.Join(os.TempDir(), "gcac-agent")
 		if err := os.MkdirAll(tempDir, 0o700); err != nil {
-			return nil, fmt.Errorf("闁告帗绋戠紓鎾寸▔鐎涙ɑ顦ч柣鈺婂枛缂嶅秵寰勬潏顐バ? %w", err)
+			return nil, fmt.Errorf("创建 PFX 临时目录失败: %w", err)
 		}
 		tempPath = filepath.Join(tempDir, fmt.Sprintf("task-%d.pfx", time.Now().UnixNano()))
 		if err := os.WriteFile(tempPath, decoded, 0o600); err != nil {
-			return nil, fmt.Errorf("闁告劖鐟ラ崣鍡樼▔鐎涙ɑ顦?PFX 濠㈡儼绮剧憴? %w", err)
+			return nil, fmt.Errorf("写入临时 PFX 文件失败: %w", err)
 		}
 		defer os.Remove(tempPath)
 		pfxPath = tempPath
@@ -665,10 +665,10 @@ if ($null -eq $certificate) { throw 'Import-PfxCertificate returned null' }
 	}
 	result.Thumbprint = normalizeThumbprint(result.Thumbprint)
 	if result.Thumbprint == "" {
-		return nil, errors.New("PFX 閻庣數鍘ч崣鍡涘触鎼淬垺寮撻弶鈺傛煥濞?thumbprint")
+		return nil, errors.New("PFX 导入后未返回 thumbprint")
 	}
 	if input.ExpectedThumbprint != "" && !strings.EqualFold(input.ExpectedThumbprint, result.Thumbprint) {
-		return nil, fmt.Errorf("閻庣數鍘ч崣鍡欐嫚娴ｅ嘲濮?thumbprint 濞戞挸绉寸亸顕€鏌?expected=%s actual=%s", input.ExpectedThumbprint, result.Thumbprint)
+		return nil, fmt.Errorf("导入证书 thumbprint 不匹配 expected=%s actual=%s", input.ExpectedThumbprint, result.Thumbprint)
 	}
 	return &result, nil
 }
@@ -684,16 +684,16 @@ func (h windowsExecutionHost) inspectPFX(input windowsIISDeploymentInput) (*wind
 	if pfxPath == "" {
 		decoded, err := base64.StdEncoding.DecodeString(input.PFXBase64)
 		if err != nil {
-			return nil, fmt.Errorf("閻熸瑱绲鹃悗?pfxBase64 濠㈡儼绮剧憴? %w", err)
+			return nil, fmt.Errorf("解码 pfxBase64 失败: %w", err)
 		}
 		localBytes = decoded
 		tempDir := filepath.Join(os.TempDir(), "gcac-agent")
 		if err := os.MkdirAll(tempDir, 0o700); err != nil {
-			return nil, fmt.Errorf("闁告帗绋戠紓鎾寸▔鐎涙ɑ顦ч柣鈺婂枛缂嶅秵寰勬潏顐バ? %w", err)
+			return nil, fmt.Errorf("创建 PFX 临时目录失败: %w", err)
 		}
 		tempPath = filepath.Join(tempDir, fmt.Sprintf("inspect-%d.pfx", time.Now().UnixNano()))
 		if err := os.WriteFile(tempPath, decoded, 0o600); err != nil {
-			return nil, fmt.Errorf("闁告劖鐟ラ崣鍡樼▔鐎涙ɑ顦?PFX 濠㈡儼绮剧憴? %w", err)
+			return nil, fmt.Errorf("写入临时 PFX 文件失败: %w", err)
 		}
 		defer os.Remove(tempPath)
 		pfxPath = tempPath
@@ -701,7 +701,7 @@ func (h windowsExecutionHost) inspectPFX(input windowsIISDeploymentInput) (*wind
 	if len(localBytes) == 0 && strings.TrimSpace(pfxPath) != "" {
 		loaded, readErr := os.ReadFile(pfxPath)
 		if readErr != nil {
-			return nil, fmt.Errorf("閻犲洩顕цぐ?PFX 濠㈡儼绮剧憴? %w", readErr)
+			return nil, fmt.Errorf("读取 PFX 文件失败: %w", readErr)
 		}
 		localBytes = loaded
 	}
@@ -726,25 +726,25 @@ if ($null -eq $certificate) { throw 'X509Certificate2 returned null' }
 	if err := h.runPowerShellJSON(script, &result); err != nil {
 		if len(localBytes) > 0 {
 			if localInspect, localErr := inspectPFXLocally(localBytes, input.PFXPassword); localErr == nil {
-				return localInspect, fmt.Errorf("Windows 闁哄牜鍓氬┃鈧柡鍐У绾墎鎲撮敐鍡欌偓?PFX闁挎稑濂旂徊?Go 闁哄牜鍓欏﹢瀵告喆閿濆棛鈧粙骞嬮幇顒€顫犻柨娑欑〒閺嬫帗瀵?Windows PKCS#12 闁稿繒鍘ч鎰板箑瑜斿Λ鑸碉紣? %w", err)
+				return localInspect, fmt.Errorf("Windows 无法检查 PFX，Go 本地检查成功，请检查 Windows PKCS#12 兼容性: %w", err)
 			}
 		}
-		return nil, fmt.Errorf("Windows 闁?Go 闁哄牜鍓欏﹢鎾焾閼恒儲锟ユ繛澶嬫礉琚欓柡?PFX闁挎稑鐬奸弸鎺撳?PFX 闁告劕鎳庨鎰板箣閺嵮呮闁活喕鐒﹀Λ銈夊极? %w", err)
+		return nil, fmt.Errorf("Windows 与 Go 均无法检查 PFX，请确认 PFX 格式和密码: %w", err)
 	}
 	result.Thumbprint = normalizeThumbprint(result.Thumbprint)
 	if result.Thumbprint == "" {
-		return nil, errors.New("PFX 閻庣數鍘ч崣鍡涘触鎼淬垺寮撻弶鈺傛煥濞?thumbprint")
+		return nil, errors.New("PFX 检查未返回 thumbprint")
 	}
 	if strings.TrimSpace(result.RawCertificateBase64) == "" {
-		return nil, errors.New("PFX ????????????")
+		return nil, errors.New("PFX 检查未返回证书内容")
 	}
 	rawCertificate, err := base64.StdEncoding.DecodeString(result.RawCertificateBase64)
 	if err != nil {
-		return nil, fmt.Errorf("閻熸瑱绲块悥婊呮嫚娴ｅ嘲濮涢柛妯煎枎椤劙寮悧鍫濈ウ濠㈡儼绮剧憴? %w", err)
+		return nil, fmt.Errorf("解码 PFX 证书内容失败: %w", err)
 	}
 	certificate, err := x509.ParseCertificate(rawCertificate)
 	if err != nil {
-		return nil, fmt.Errorf("閻熸瑱绲鹃悗鐣屾嫚娴ｅ嘲濮涢柛妯煎枎椤劙寮悧鍫濈ウ濠㈡儼绮剧憴? %w", err)
+		return nil, fmt.Errorf("解析 PFX 证书内容失败: %w", err)
 	}
 	result.Certificate = certificate
 	result.Subject = certificate.Subject.String()
@@ -781,7 +781,7 @@ Set-Acl -LiteralPath $machineKeyPath -AclObject $acl
 		return err
 	}
 	if !result.Success {
-		return errors.New("缂佸绶氶幐?ACL 閻犱礁澧介悿鍡樺緞鏉堫偉袝")
+		return errors.New("私钥 ACL 设置失败")
 	}
 	return nil
 }
@@ -796,7 +796,7 @@ func (h windowsExecutionHost) restoreBindingCertificate(siteName string, binding
 
 func (h windowsExecutionHost) applyBindingCertificate(siteName string, binding windowsIISBinding, thumbprint string) error {
 	if thumbprint == "" {
-		return errors.New("binding ?? thumbprint ????")
+		return errors.New("binding 证书 thumbprint 不能为空")
 	}
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
@@ -816,14 +816,14 @@ $binding.AddSslCertificate($thumbprint, 'My')
 		return err
 	}
 	if !result.Success {
-		return errors.New("?? IIS Binding ??")
+		return errors.New("更新 IIS Binding 失败")
 	}
 	return nil
 }
 
 func verifyExpectedDomainsAgainstCertificate(certificate *x509.Certificate, expectedDomains []string) error {
 	if certificate == nil {
-		return errors.New("???????????????")
+		return errors.New("证书不能为空")
 	}
 	for _, domain := range expectedDomains {
 		trimmed := strings.TrimSpace(domain)
@@ -831,7 +831,7 @@ func verifyExpectedDomainsAgainstCertificate(certificate *x509.Certificate, expe
 			continue
 		}
 		if err := certificate.VerifyHostname(trimmed); err != nil {
-			return fmt.Errorf("閻犲洣妞掗崝鐔煎春閻旈攱鍊冲☉鎾崇Т鐏忣噣鏌?%s", trimmed)
+			return fmt.Errorf("证书不匹配预期域名 %s", trimmed)
 		}
 	}
 	return nil
@@ -869,7 +869,7 @@ func inspectPFXLocally(pfxBytes []byte, password string) (*windowsInspectPFXResu
 			Certificate: certificate,
 		}, nil
 	}
-	return nil, errors.New("Go ???? PFX ????????")
+	return nil, errors.New("Go 无法从 PFX 中解析证书")
 }
 
 func normalizeThumbprint(value string) string {

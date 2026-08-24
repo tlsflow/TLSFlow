@@ -817,7 +817,7 @@ export class CertificatesApplicationService {
 
   private assertImportableChain(importable: boolean, blockers: string[]): void {
     if (!importable) {
-      throw new AppError('CERT_PARSE_FAILED', blockers[0] ?? '璇佷功鏉愭枡涓嶅彲瀵煎叆', { blockers });
+      throw new AppError('CERT_PARSE_FAILED', blockers[0] ?? '证书材料不可导入', { blockers });
     }
   }
 

@@ -73,24 +73,24 @@ export class SecurityController {
   ) {}
 
   register(router: Router): void {
-    router.post('/api/v1/auth/login', '鐧诲綍', ['Auth'], (request) => this.login(request));
-    router.post('/api/v1/auth/external-login', '澶栭儴韬唤婧愮櫥褰?', ['Auth'], (request) => this.externalLogin(request));
-    router.get('/api/v1/auth/identity-sources/public', '鑾峰彇鍙敤韬唤婧?', ['Auth'], () => this.listPublicIdentitySources());
-    router.post('/api/v1/auth/logout', '閫€鍑虹櫥褰?', ['Auth'], (request) => this.logout(request));
-    router.get('/api/v1/auth/me', '鑾峰彇褰撳墠鐢ㄦ埛', ['Auth'], (request) => this.getMe(request));
-    router.get('/api/v1/auth/permissions', '鑾峰彇褰撳墠鏉冮檺', ['Auth'], (request) => this.getMyPermissions(request));
+    router.post('/api/v1/auth/login', '登录', ['Auth'], (request) => this.login(request));
+    router.post('/api/v1/auth/external-login', '外部身份源登录', ['Auth'], (request) => this.externalLogin(request));
+    router.get('/api/v1/auth/identity-sources/public', '获取可用身份源', ['Auth'], () => this.listPublicIdentitySources());
+    router.post('/api/v1/auth/logout', '退出登录', ['Auth'], (request) => this.logout(request));
+    router.get('/api/v1/auth/me', '获取当前用户', ['Auth'], (request) => this.getMe(request));
+    router.get('/api/v1/auth/permissions', '获取当前权限', ['Auth'], (request) => this.getMyPermissions(request));
     router.get('/api/v1/auth/permission-context', '获取当前对象级权限上下文', ['Auth'], (request) => this.getPermissionContext(request));
     router.put('/api/v1/auth/password', '修改当前用户密码', ['Auth'], (request) => this.changeMyPassword(request));
     router.get('/api/v1/auth/preferences', '获取当前用户偏好', ['Auth'], (request) => this.getMyPreferences(request));
     router.put('/api/v1/auth/preferences', '保存当前用户偏好', ['Auth'], (request) => this.updateMyPreferences(request));
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
-    router.post('/api/v1/secrets', '鍒涘缓 Secret', ['Security'], (request) => this.createSecret(request));
-    router.get('/api/v1/secrets/metadata', '鏌ヨ Secret 鍏冩暟鎹?', ['Security'], (request) => this.getSecretMetadata(request));
-    router.post('/api/v1/approvals', '鍒涘缓瀹℃壒鍗?', ['Security'], (request) => this.createApproval(request));
-    router.post('/api/v1/approvals/decide', '瀹℃壒鍐崇瓥', ['Security'], (request) => this.decideApproval(request));
-    router.get('/api/v1/audit-events', '鏌ヨ瀹¤浜嬩欢', ['Security'], (request) => this.queryAudits(request));
-    router.get('/api/v1/security/users', '鏌ヨ鐢ㄦ埛鍒楄〃', ['Security'], (request) => this.listUsers(request));
-    router.post('/api/v1/security/users', '鍒涘缓鐢ㄦ埛', ['Security'], (request) => this.createUser(request));
+    router.post('/api/v1/secrets', '创建 Secret', ['Security'], (request) => this.createSecret(request));
+    router.get('/api/v1/secrets/metadata', '查询 Secret 元数据', ['Security'], (request) => this.getSecretMetadata(request));
+    router.post('/api/v1/approvals', '创建审批单', ['Security'], (request) => this.createApproval(request));
+    router.post('/api/v1/approvals/decide', '审批决策', ['Security'], (request) => this.decideApproval(request));
+    router.get('/api/v1/audit-events', '查询审计事件', ['Security'], (request) => this.queryAudits(request));
+    router.get('/api/v1/security/users', '查询用户列表', ['Security'], (request) => this.listUsers(request));
+    router.post('/api/v1/security/users', '创建用户', ['Security'], (request) => this.createUser(request));
     router.get('/api/v1/security/groups', '查询用户组列表', ['Security'], (request) => this.listGroups(request));
     router.post('/api/v1/security/groups', '创建本地用户组', ['Security'], (request) => this.createGroup(request));
     router.post('/api/v1/security/groups/lookup-external', '检索身份源用户组', ['Security'], (request) => this.lookupExternalGroup(request));
@@ -98,14 +98,14 @@ export class SecurityController {
     router.post('/api/v1/security/users/lookup-external', '检索身份源用户', ['Security'], (request) => this.lookupExternalUser(request));
     router.post('/api/v1/security/users/external', '创建身份源用户', ['Security'], (request) => this.createExternalUser(request));
     router.patch('/api/v1/security/users', '更新用户', ['Security'], (request) => this.updateUser(request));
-    router.patch('/api/v1/security/users/status', '淇敼鐢ㄦ埛鐘舵€?', ['Security'], (request) => this.updateUserStatus(request));
-    router.post('/api/v1/security/users/roles', '鍒嗛厤鐢ㄦ埛瑙掕壊', ['Security'], (request) => this.assignUserRole(request));
+    router.patch('/api/v1/security/users/status', '修改用户状态', ['Security'], (request) => this.updateUserStatus(request));
+    router.post('/api/v1/security/users/roles', '分配用户角色', ['Security'], (request) => this.assignUserRole(request));
     router.delete('/api/v1/security/users/delete', '删除用户', ['Security'], (request) => this.deleteUser(request));
-    router.get('/api/v1/security/roles', '鏌ヨ瑙掕壊鍒楄〃', ['Security'], (request) => this.listRoles(request));
-    router.post('/api/v1/security/roles', '鍒涘缓瑙掕壊', ['Security'], (request) => this.createRole(request));
+    router.get('/api/v1/security/roles', '查询角色列表', ['Security'], (request) => this.listRoles(request));
+    router.post('/api/v1/security/roles', '创建角色', ['Security'], (request) => this.createRole(request));
     router.delete('/api/v1/security/roles/delete', '删除角色', ['Security'], (request) => this.deleteRole(request));
-    router.get('/api/v1/security/permission-policies', '鏌ヨ鏉冮檺绛栫暐', ['Security'], (request) => this.listPermissionPolicies(request));
-    router.post('/api/v1/security/permission-policies', '鍒涘缓鏉冮檺绛栫暐', ['Security'], (request) => this.createPermissionPolicy(request));
+    router.get('/api/v1/security/permission-policies', '查询权限策略', ['Security'], (request) => this.listPermissionPolicies(request));
+    router.post('/api/v1/security/permission-policies', '创建权限策略', ['Security'], (request) => this.createPermissionPolicy(request));
     router.get('/api/v1/security/object-types', '查询权限对象类型', ['Security'], (request) => this.listObjectTypes(request));
     router.get('/api/v1/security/object-sets', '查询权限对象集合', ['Security'], (request) => this.listObjectSets(request));
     router.post('/api/v1/security/object-sets', '创建权限对象集合', ['Security'], (request) => this.createObjectSet(request));
@@ -115,14 +115,14 @@ export class SecurityController {
     router.get('/api/v1/security/access-grants', '查询对象级访问授权', ['Security'], (request) => this.listAccessGrants(request));
     router.post('/api/v1/security/access-grants', '创建对象级访问授权', ['Security'], (request) => this.createAccessGrant(request));
     router.post('/api/v1/security/object-capabilities', '批量查询对象级能力', ['Security'], (request) => this.getObjectCapabilities(request));
-    router.get('/api/v1/security/identity-sources', '鏌ヨ韬唤婧?', ['Security'], (request) => this.listIdentitySources(request));
-    router.post('/api/v1/security/identity-sources', '鍒涘缓韬唤婧?', ['Security'], (request) => this.createIdentitySource(request));
+    router.get('/api/v1/security/identity-sources', '查询身份源', ['Security'], (request) => this.listIdentitySources(request));
+    router.post('/api/v1/security/identity-sources', '创建身份源', ['Security'], (request) => this.createIdentitySource(request));
     router.patch('/api/v1/security/identity-sources', '更新身份源', ['Security'], (request) => this.updateIdentitySource(request));
     router.delete('/api/v1/security/identity-sources/delete', '删除身份源', ['Security'], (request) => this.deleteIdentitySource(request));
-    router.post('/api/v1/security/identity-sources/test', '娴嬭瘯韬唤婧愯繛鎺?', ['Security'], (request) => this.testIdentitySource(request));
-    router.post('/api/v1/security/identity-sources/sync-users', '鍚屾 LDAP 鐢ㄦ埛', ['Security'], (request) => this.syncIdentitySourceUsers(request));
-    router.get('/api/v1/security/group-role-mappings', '鏌ヨ澶栭儴缁勮鑹叉槧灏?', ['Security'], (request) => this.listGroupRoleMappings(request));
-    router.post('/api/v1/security/group-role-mappings', '鍒涘缓澶栭儴缁勮鑹叉槧灏?', ['Security'], (request) => this.createGroupRoleMapping(request));
+    router.post('/api/v1/security/identity-sources/test', '测试身份源连接', ['Security'], (request) => this.testIdentitySource(request));
+    router.post('/api/v1/security/identity-sources/sync-users', '同步 LDAP 用户', ['Security'], (request) => this.syncIdentitySourceUsers(request));
+    router.get('/api/v1/security/group-role-mappings', '查询外部组角色映射', ['Security'], (request) => this.listGroupRoleMappings(request));
+    router.post('/api/v1/security/group-role-mappings', '创建外部组角色映射', ['Security'], (request) => this.createGroupRoleMapping(request));
   }
 
   private async login(request: HttpRequest) {
@@ -1084,7 +1084,7 @@ function toTime(value: unknown): number {
 
 function toStringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item.trim() !== '')) {
-    throw new AppError('VALIDATION_FAILED', `${field} 蹇呴』鏄瓧绗︿覆鏁扮粍`, { field });
+    throw new AppError('VALIDATION_FAILED', `${field} 必须是字符串数组`, { field });
   }
   return value.map((item) => item.trim());
 }
@@ -1133,7 +1133,7 @@ function readObjectRefs(value: unknown): ObjectRef[] {
 
 function readQueryString(request: HttpRequest, key: string): string {
   const value = readOptionalQueryString(request, key);
-  if (!value) throw new AppError('VALIDATION_FAILED', `缂哄皯鏌ヨ鍙傛暟 ${key}`, { field: key });
+  if (!value) throw new AppError('VALIDATION_FAILED', `缺少查询参数 ${key}`, { field: key });
   return value;
 }
 
@@ -1159,24 +1159,24 @@ function readHeader(request: HttpRequest, key: string): string | undefined {
 
 export function getSecurityRouteContracts(): RouteContract[] {
   return [
-    { method: 'POST', path: '/api/v1/auth/login', operationId: 'login', summary: '鐧诲綍', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/auth/external-login', operationId: 'externalLogin', summary: '澶栭儴韬唤婧愮櫥褰?', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/auth/identity-sources/public', operationId: 'listPublicIdentitySources', summary: '鑾峰彇鍙敤韬唤婧?', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/auth/logout', operationId: 'logout', summary: '閫€鍑虹櫥褰?', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/auth/me', operationId: 'getCurrentUser', summary: '鑾峰彇褰撳墠鐢ㄦ埛', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/auth/permissions', operationId: 'getCurrentPermissions', summary: '鑾峰彇褰撳墠鏉冮檺', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/auth/login', operationId: 'login', summary: '登录', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/auth/external-login', operationId: 'externalLogin', summary: '外部身份源登录', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/auth/identity-sources/public', operationId: 'listPublicIdentitySources', summary: '获取可用身份源', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/auth/logout', operationId: 'logout', summary: '退出登录', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/auth/me', operationId: 'getCurrentUser', summary: '获取当前用户', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/auth/permissions', operationId: 'getCurrentPermissions', summary: '获取当前权限', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/permission-context', operationId: 'getPermissionContext', summary: '获取当前对象级权限上下文', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PUT', path: '/api/v1/auth/password', operationId: 'changeCurrentUserPassword', summary: '修改当前用户密码', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/preferences', operationId: 'getCurrentUserPreferences', summary: '获取当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PUT', path: '/api/v1/auth/preferences', operationId: 'updateCurrentUserPreferences', summary: '保存当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '鍒涘缓 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '鏌ヨ Secret 鍏冩暟鎹?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/approvals', operationId: 'createApproval', summary: '鍒涘缓瀹℃壒鍗?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/approvals/decide', operationId: 'decideApproval', summary: '瀹℃壒鍐崇瓥', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/audit-events', operationId: 'queryAuditEvents', summary: '鏌ヨ瀹¤浜嬩欢', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/security/users', operationId: 'listSecurityUsers', summary: '鏌ヨ鐢ㄦ埛鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/users', operationId: 'createSecurityUser', summary: '鍒涘缓鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '创建 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '查询 Secret 元数据', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/approvals', operationId: 'createApproval', summary: '创建审批单', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/approvals/decide', operationId: 'decideApproval', summary: '审批决策', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/audit-events', operationId: 'queryAuditEvents', summary: '查询审计事件', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/users', operationId: 'listSecurityUsers', summary: '查询用户列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/users', operationId: 'createSecurityUser', summary: '创建用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/groups', operationId: 'listSecurityGroups', summary: '查询用户组列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/groups', operationId: 'createSecurityGroup', summary: '创建本地用户组', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/groups/lookup-external', operationId: 'lookupExternalSecurityGroup', summary: '检索身份源用户组', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -1184,14 +1184,14 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/security/users/lookup-external', operationId: 'lookupExternalSecurityUser', summary: '检索身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users/external', operationId: 'createExternalSecurityUser', summary: '创建身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/users', operationId: 'updateSecurityUser', summary: '更新用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'PATCH', path: '/api/v1/security/users/status', operationId: 'updateSecurityUserStatus', summary: '淇敼鐢ㄦ埛鐘舵€?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/users/roles', operationId: 'assignSecurityUserRole', summary: '鍒嗛厤鐢ㄦ埛瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PATCH', path: '/api/v1/security/users/status', operationId: 'updateSecurityUserStatus', summary: '修改用户状态', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/users/roles', operationId: 'assignSecurityUserRole', summary: '分配用户角色', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'DELETE', path: '/api/v1/security/users/delete', operationId: 'deleteSecurityUser', summary: '删除用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/security/roles', operationId: 'listSecurityRoles', summary: '鏌ヨ瑙掕壊鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/roles', operationId: 'createSecurityRole', summary: '鍒涘缓瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/roles', operationId: 'listSecurityRoles', summary: '查询角色列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/roles', operationId: 'createSecurityRole', summary: '创建角色', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'DELETE', path: '/api/v1/security/roles/delete', operationId: 'deleteSecurityRole', summary: '删除角色', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/security/permission-policies', operationId: 'listSecurityPermissionPolicies', summary: '鏌ヨ鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/permission-policies', operationId: 'createSecurityPermissionPolicy', summary: '鍒涘缓鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/permission-policies', operationId: 'listSecurityPermissionPolicies', summary: '查询权限策略', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/permission-policies', operationId: 'createSecurityPermissionPolicy', summary: '创建权限策略', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/object-types', operationId: 'listSecurityObjectTypes', summary: '查询权限对象类型', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/object-sets', operationId: 'listSecurityObjectSets', summary: '查询权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/object-sets', operationId: 'createSecurityObjectSet', summary: '创建权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -1201,13 +1201,13 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/security/access-grants', operationId: 'listSecurityAccessGrants', summary: '查询对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/access-grants', operationId: 'createSecurityAccessGrant', summary: '创建对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/object-capabilities', operationId: 'getSecurityObjectCapabilities', summary: '批量查询对象级能力', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '鏌ヨ韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '鍒涘缓韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '查询身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '创建身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/identity-sources', operationId: 'updateIdentitySource', summary: '更新身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'DELETE', path: '/api/v1/security/identity-sources/delete', operationId: 'deleteIdentitySource', summary: '删除身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/identity-sources/test', operationId: 'testIdentitySource', summary: '娴嬭瘯韬唤婧愯繛鎺?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/identity-sources/sync-users', operationId: 'syncIdentitySourceUsers', summary: '鍚屾 LDAP 鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/security/group-role-mappings', operationId: 'listGroupRoleMappings', summary: '鏌ヨ澶栭儴缁勮鑹叉槧灏?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/security/group-role-mappings', operationId: 'createGroupRoleMapping', summary: '鍒涘缓澶栭儴缁勮鑹叉槧灏?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/identity-sources/test', operationId: 'testIdentitySource', summary: '测试身份源连接', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/identity-sources/sync-users', operationId: 'syncIdentitySourceUsers', summary: '同步 LDAP 用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/group-role-mappings', operationId: 'listGroupRoleMappings', summary: '查询外部组角色映射', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/group-role-mappings', operationId: 'createGroupRoleMapping', summary: '创建外部组角色映射', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }
