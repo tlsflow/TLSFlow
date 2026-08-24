@@ -104,7 +104,7 @@ const config = computed<BusinessPageConfig>(() => ({
 </script>
 
 <template>
-  <section class="devices-page">
+  <section class="gc-page devices-page">
     <BusinessResourcePage :key="reloadKey" :config="config" />
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />

@@ -32,30 +32,30 @@ defineProps<{
 h1 {
   margin: 0;
   color: var(--gc-color-text-strong);
-  font-size: 24px;
+  font-size: var(--gc-font-size-heading-md);
   line-height: 1.1;
   letter-spacing: 0;
 }
 p {
-  max-width: min(100%, 960px);
+  max-width: min(100%, var(--gc-size-content-readable));
   margin: var(--gc-space-2) 0 0;
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-label);
   font-weight: 520;
   line-height: 1.6;
 }
 .gc-page-header__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); padding-top: var(--gc-space-1); }
 .gc-page-header__actions :slotted(.gc-button) {
-  min-height: 36px;
-  padding-inline: 14px;
+  min-height: var(--gc-size-icon-button);
+  padding-inline: var(--gc-space-panel);
   color: var(--gc-color-surface-solid);
   background: var(--gc-color-primary);
   border-color: var(--gc-color-primary);
-  box-shadow: 0 8px 20px var(--gc-color-primary-weak);
+  box-shadow: 0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-primary-weak);
 }
 .gc-page-header__actions :slotted(.gc-button:hover) { background: var(--gc-color-primary-hover); }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .gc-page-header__actions {
     width: 100%;
     justify-content: flex-start;

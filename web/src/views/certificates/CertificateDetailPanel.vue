@@ -76,11 +76,11 @@ const currentVersionUsages = computed<CertificateUsageRow[]>(() =>
 
 const usageColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'domainName', title: detailPanelT('usage.columns.domainName') },
-  { key: 'agentName', title: detailPanelT('usage.columns.agentName'), width: '160px' },
-  { key: 'siteName', title: detailPanelT('usage.columns.siteName'), width: '180px' },
-  { key: 'bindingType', title: detailPanelT('usage.columns.bindingType'), width: '140px' },
-  { key: 'usageSource', title: detailPanelT('usage.columns.usageSource'), width: '140px' },
-  { key: 'status', title: detailPanelT('usage.columns.status'), width: '120px' },
+  { key: 'agentName', title: detailPanelT('usage.columns.agentName'), width: 'calc(var(--gc-space-10) * 4)' },
+  { key: 'siteName', title: detailPanelT('usage.columns.siteName'), width: 'var(--gc-size-card-min)' },
+  { key: 'bindingType', title: detailPanelT('usage.columns.bindingType'), width: 'calc(var(--gc-space-12) * 3)' },
+  { key: 'usageSource', title: detailPanelT('usage.columns.usageSource'), width: 'calc(var(--gc-space-12) * 3)' },
+  { key: 'status', title: detailPanelT('usage.columns.status'), width: 'calc(var(--gc-space-10) * 3)' },
 ])
 
 const validityRange = computed(() => ({
@@ -508,31 +508,31 @@ async function loadDetail() {
 <style scoped>
 .certificate-detail-panel {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
 }
 
 .certificate-detail-panel__state,
 .certificate-detail-panel__empty {
-  padding: 20px 10px;
+  padding: var(--gc-space-6) var(--gc-space-3);
   color: var(--gc-color-text-muted);
   text-align: center;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
 .certificate-detail-panel__tabs {
   display: flex;
-  gap: 6px;
-  border-bottom: 1px solid var(--gc-color-border);
+  gap: var(--gc-space-2);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .certificate-detail-panel__tab {
   border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 6px 4px 8px;
+  border-bottom: var(--gc-border-width-thick) solid transparent;
+  padding: var(--gc-space-2) var(--gc-space-1);
   color: var(--gc-color-text-muted);
   background: transparent;
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 700;
   cursor: pointer;
 }
@@ -544,22 +544,22 @@ async function loadDetail() {
 
 .certificate-detail-panel__tab-panel {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
 }
 
 .certificate-detail-panel__summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .certificate-detail-panel__summary article,
 .certificate-detail-panel__validity {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 12px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-field);
 }
 
@@ -568,7 +568,7 @@ async function loadDetail() {
 .certificate-detail-panel__field-grid dt,
 .certificate-detail-panel__chain-role {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
@@ -579,15 +579,15 @@ async function loadDetail() {
 .certificate-detail-panel__chain-body small {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.45;
 }
 
 .certificate-detail-panel__validity {
-  gap: 8px;
-  padding: 12px 14px;
-  background: linear-gradient(135deg, var(--gc-color-surface-selected), var(--gc-color-surface-hover));
-  box-shadow: inset 0 1px 0 var(--gc-color-surface-field);
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  background: var(--gc-gradient-surface-soft);
+  box-shadow: inset 0 var(--gc-space-hairline) 0 var(--gc-color-surface-field);
 }
 
 
@@ -595,14 +595,14 @@ async function loadDetail() {
 .certificate-detail-panel__validity-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding-top: 6px;
-  border-top: 1px solid var(--gc-color-border-soft);
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-soft);
 }
 
 .certificate-detail-panel__validity-meta span {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
@@ -615,13 +615,13 @@ async function loadDetail() {
 .certificate-detail-panel__section-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--gc-color-border);
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .certificate-detail-panel__section-header strong {
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .certificate-detail-panel__field-grid {
@@ -631,8 +631,8 @@ async function loadDetail() {
 }
 
 .certificate-detail-panel__field-grid div {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--gc-color-border);
+  padding: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .certificate-detail-panel__field-grid div:nth-last-child(-n + 2) {
@@ -649,11 +649,11 @@ async function loadDetail() {
 
 .certificate-detail-panel__chain-item {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: calc(var(--gc-space-12) + var(--gc-space-7)) minmax(0, 1fr);
+  gap: var(--gc-space-3);
   align-items: start;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--gc-color-border);
+  padding: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .certificate-detail-panel__chain-item:last-child {
@@ -661,21 +661,21 @@ async function loadDetail() {
 }
 
 .certificate-detail-panel__chain-role {
-  padding-top: 2px;
+  padding-top: var(--gc-space-1);
 }
 
 .certificate-detail-panel__chain-body {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-space-1);
 }
 
 .certificate-detail-panel__chain-body strong {
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.35;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .certificate-detail-panel__summary,
   .certificate-detail-panel__field-grid {
     grid-template-columns: 1fr;
@@ -687,7 +687,7 @@ async function loadDetail() {
 
   .certificate-detail-panel__chain-item {
     grid-template-columns: 1fr;
-    gap: 4px;
+    gap: var(--gc-space-1);
   }
 }
 </style>

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { GcEmptyState } from '@/design-system/components'
 import { useAuthStore } from '@/stores/auth.store'
 
 const route = useRoute()
@@ -30,14 +31,14 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <section class="gc-error-page">
-    <h1>{{ t('errors.forbiddenTitle') }}</h1>
-    <p>{{ t('errors.forbiddenMessage') }}</p>
-    <p v-if="missingPermission" class="gc-error-page__meta">{{ t('errors.missingPermission', { permission: missingPermission }) }}</p>
-    <div class="gc-error-page__actions">
-      <button class="gc-button" type="button" @click="goBack">{{ t('errors.back') }}</button>
-      <RouterLink class="gc-button" to="/dashboard">{{ t('errors.backDashboard') }}</RouterLink>
-      <button class="gc-button gc-button--danger" type="button" @click="logout">{{ t('errors.logout') }}</button>
-    </div>
+  <section class="gc-error-page" role="alert">
+    <GcEmptyState :title="t('errors.forbiddenTitle')" :description="t('errors.forbiddenMessage')">
+      <p v-if="missingPermission" class="gc-error-page__meta">{{ t('errors.missingPermission', { permission: missingPermission }) }}</p>
+      <div class="gc-error-page__actions">
+        <button class="gc-button" type="button" @click="goBack">{{ t('errors.back') }}</button>
+        <RouterLink class="gc-button gc-button--primary" to="/dashboard">{{ t('errors.backDashboard') }}</RouterLink>
+        <button class="gc-button gc-button--danger" type="button" @click="logout">{{ t('errors.logout') }}</button>
+      </div>
+    </GcEmptyState>
   </section>
 </template>

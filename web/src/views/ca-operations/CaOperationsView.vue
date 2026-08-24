@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
-import { GcDataTable, GcEmptyState, GcPageToolbar } from '@/design-system/components'
+import { GcDataTable, GcEmptyState, GcPageHeader, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -170,7 +170,7 @@ function statusLabel(status: string): string {
   return t('caOperations.statuses.' + status)
 }
 
-function statusTone(status: string): string {
+function statusTone(status: string): StatusTone {
   if (['issued', 'complete', 'succeeded', 'realtime', 'normal'].includes(status)) return 'success'
   if (['pending', 'partial', 'stale', 'delayed', 'queued'].includes(status)) return 'warning'
   if (['rejected', 'revoked', 'failed', 'offline'].includes(status)) return 'danger'
@@ -197,7 +197,9 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 </script>
 
 <template>
-  <main class="ca-operations">
+  <section class="gc-page ca-operations">
+    <GcPageHeader :title="t('caOperations.title')" />
+
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar class="ca-operations__hero-actions">
         <template #actions>
@@ -212,6 +214,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
     </Teleport>
 
     <p v-if="errorKey" class="ca-operations__error" role="alert">{{ t(errorKey) }}</p>
+    <p v-if="loadingTree" class="ca-operations__loading" role="status">{{ t('common.loading') }}</p>
 
     <div v-if="authorities.length" class="ca-operations__layout">
       <aside class="gc-card ca-operations__tree" :aria-label="t('caOperations.aria.authorityTree')">
@@ -258,16 +261,16 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           </div>
           <div>
             <span>{{ t('caOperations.summary.integrity') }}</span>
-            <span class="ca-operations__status" :class="`ca-operations__status--${statusTone(integrity)}`">{{ statusLabel(integrity) }}</span>
+            <GcStatusTag :status="integrity" :label="statusLabel(integrity)" :tone="statusTone(integrity)" />
           </div>
           <div>
             <span>{{ t('caOperations.summary.lastSuccessfulSync') }}</span>
             <strong>{{ lastSuccessfulSyncAt ? formatBrowserLocalTime(lastSuccessfulSyncAt, { includeSeconds: false }) : t('common.notAvailable') }}</strong>
-            <span class="ca-operations__status" :class="`ca-operations__status--${statusTone(freshness)}`">{{ t(`caOperations.freshness.${freshness}`) }}</span>
+            <GcStatusTag :status="freshness" :label="t(`caOperations.freshness.${freshness}`)" :tone="statusTone(freshness)" />
           </div>
           <div>
             <span>{{ t('caOperations.summary.latestRun') }}</span>
-            <span v-if="latestSyncRun" class="ca-operations__status" :class="`ca-operations__status--${statusTone(latestSyncRun.status)}`">{{ statusLabel(latestSyncRun.status) }}</span>
+            <GcStatusTag v-if="latestSyncRun" :status="latestSyncRun.status" :label="statusLabel(latestSyncRun.status)" :tone="statusTone(latestSyncRun.status)" />
             <strong v-else>{{ t('common.notAvailable') }}</strong>
           </div>
         </div>
@@ -292,220 +295,248 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
               <button class="gc-button" type="submit">{{ t('caOperations.actions.search') }}</button>
             </form>
           </template>
-          <template #cell-status="{ row }"><span class="ca-operations__status" :class="`ca-operations__status--${statusTone(String(row.status))}`">{{ statusLabel(String(row.status)) }}</span></template>
+          <template #cell-status="{ row }"><GcStatusTag :status="String(row.status)" :label="statusLabel(String(row.status))" :tone="statusTone(String(row.status))" /></template>
         </GcDataTable>
       </section>
     </div>
 
     <GcEmptyState v-else-if="!loadingTree" :title="t('caOperations.messages.noAuthority')" :description="t('caOperations.messages.noAuthorityDescription')" />
-  </main>
+  </section>
 </template>
 
 <style scoped>
-.ca-operations { display: grid; gap: var(--gc-space-4); }
-.ca-operations__error { margin: 0; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-soft); border: 1px solid var(--gc-color-danger-border); border-radius: 14px; font-size: 12px; }
+.ca-operations {
+  gap: var(--gc-space-5);
+}
+
+.ca-operations__error,
+.ca-operations__loading {
+  margin: 0;
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.ca-operations__loading {
+  border-color: var(--gc-color-info-border);
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-soft);
+}
 
 .ca-operations__layout {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  gap: var(--gc-space-4);
+  grid-template-columns: minmax(var(--gc-size-card-min), var(--gc-size-sidebar)) minmax(0, 1fr);
+  gap: var(--gc-space-5);
   align-items: start;
 }
 
-/* CA 树 —— 参考证书页资产面板 */
 .ca-operations__tree {
-  padding: 0;
-  display: grid;
-  gap: 10px;
-  align-content: start;
   position: sticky;
-  top: var(--gc-space-10);
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  top: var(--gc-space-4);
+  display: grid;
+  gap: var(--gc-space-3);
+  align-content: start;
+  padding: var(--gc-space-4);
 }
+
 .ca-operations__tree header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
-  padding: 4px 0 10px;
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  gap: var(--gc-space-3);
+  padding: 0 0 var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
+
 .ca-operations__tree header strong {
   color: var(--gc-color-text);
-  font-size: 17px;
+  font-size: var(--gc-font-size-md);
   font-weight: 650;
-  letter-spacing: -0.04em;
 }
+
 .ca-operations__tree header span {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
 }
-.ca-operations__tree-group { display: grid; gap: 6px; }
+
+.ca-operations__tree-group {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
 .ca-operations__tree-group h2 {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
-  letter-spacing: .01em;
 }
+
 .ca-operations__authority {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   width: 100%;
-  padding: 10px 11px;
+  padding: var(--gc-space-3);
   text-align: left;
   color: var(--gc-color-text);
   background: var(--gc-color-surface-soft);
-  border: 1px solid transparent;
-  border-radius: 12px;
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-control);
   cursor: pointer;
-  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
+
 .ca-operations__authority:hover {
   border-color: var(--gc-color-border-soft);
   background: var(--gc-color-surface-muted);
-  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
+  box-shadow: var(--gc-shadow-hover);
 }
+
 .ca-operations__authority--active {
   border-color: var(--gc-color-primary-border);
-  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
-  background: linear-gradient(180deg, var(--gc-color-surface-panel), var(--gc-color-surface-selected));
+  box-shadow: var(--gc-shadow-focus);
+  background: var(--gc-color-surface-selected);
 }
+
 .ca-operations__authority span {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
+
 .ca-operations__authority small {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
 }
 
-/* 内容列 */
 .ca-operations__content {
   min-width: 0;
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
   align-content: start;
 }
 
-/* 摘要卡 —— 参考证书页指标卡 */
 .ca-operations__summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-lg);
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
-  box-shadow: none;
+  grid-template-columns: repeat(4, minmax(var(--gc-size-card-min), 1fr));
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border-color: var(--gc-color-border-muted);
+  background: var(--gc-gradient-surface);
 }
-.ca-operations__summary > div { display: grid; gap: 4px; }
+
+.ca-operations__summary > div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
 .ca-operations__summary span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
+
 .ca-operations__summary small {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
 }
+
 .ca-operations__summary strong {
   color: var(--gc-color-text);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
 
-/* 视图标签页 —— 横向分段控件 */
 .ca-operations__views {
   display: flex;
-  gap: 4px;
-  padding: 4px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-1);
   overflow-x: auto;
   background: var(--gc-color-surface-muted);
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 999px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-full);
 }
+
 .ca-operations__views button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
   min-width: max-content;
-  padding: 6px 14px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-4);
   color: var(--gc-color-text-muted);
   background: transparent;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
-  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
+
 .ca-operations__views button:hover,
 .ca-operations__view--active {
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
-  box-shadow: 0 4px 14px var(--gc-color-border);
+  box-shadow: var(--gc-shadow-sm);
 }
+
 .ca-operations__views small {
   display: inline-grid;
   place-items: center;
-  min-width: 18px;
+  min-width: var(--gc-space-5);
   color: inherit;
 }
 
-/* 状态徽标 —— 参考证书页 pill 徽标 */
-.ca-operations__status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
+.ca-operations__toolbar {
+  display: flex;
+  gap: var(--gc-space-2);
 }
-.ca-operations__status--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
-.ca-operations__status--warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
-.ca-operations__status--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
-.ca-operations__status--info { color: var(--gc-color-info); background: var(--gc-color-info-bg); }
-.ca-operations__status--muted { color: var(--gc-color-muted); background: var(--gc-color-muted-bg); }
 
-/* 记录表工具栏 / 搜索 —— 参考证书页筛选输入 */
-.ca-operations__toolbar { display: flex; gap: 8px; }
 .ca-operations__search {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-glass);
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
-.ca-operations__search:focus { outline: none; border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-surface-field-focus); }
 
-/* 紧凑记录表格 */
+.ca-operations__search:focus {
+  outline: none;
+  border-color: var(--gc-color-primary-border-strong);
+  background: var(--gc-color-surface-field-focus);
+  box-shadow: var(--gc-shadow-focus);
+}
+
 .ca-operations :deep(.gc-data-table th),
-.ca-operations :deep(.gc-data-table td) { padding: var(--gc-space-1) var(--gc-space-2); }
-.ca-operations :deep(.gc-data-table__toolbar) { padding: var(--gc-space-2) var(--gc-space-3); }
+.ca-operations :deep(.gc-data-table td) {
+  padding: var(--gc-space-2) var(--gc-space-3);
+}
 
-@media (max-width: 56.25rem) {
+.ca-operations :deep(.gc-data-table__toolbar) {
+  padding: var(--gc-space-3) var(--gc-space-4);
+}
+
+@media (max-width: 56rem) {
   .ca-operations__layout { grid-template-columns: 1fr; }
   .ca-operations__tree { position: static; }
   .ca-operations__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
 @media (max-width: 40rem) {
   .ca-operations__summary { grid-template-columns: 1fr; }
   .ca-operations__toolbar { flex-direction: column; }

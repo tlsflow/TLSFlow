@@ -379,7 +379,7 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
   color: var(--gc-color-primary-strong);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .gc-plugin-workflow-source-selector__workflow-head,
   .gc-plugin-workflow-source-selector__version {
     grid-template-columns: 1fr;

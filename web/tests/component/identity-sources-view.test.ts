@@ -111,6 +111,7 @@ describe('IdentitySourcesView', () => {
     const wrapper = mountView()
     await flushPromises()
 
+    expect(wrapper.find('section.gc-page.identity-sources').exists()).toBe(true)
     const editButton = wrapper.findAll('button').find((button) => button.text().trim() === '编辑')
     expect(editButton).toBeTruthy()
     await editButton!.trigger('click')

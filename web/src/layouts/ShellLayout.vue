@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
@@ -69,7 +69,6 @@ const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemAct
 const activeChildren = computed(() => isUserViewMode.value ? [] : (activeTopItem.value?.children ?? []))
 const brandTarget = computed(() => isUserViewMode.value ? '/certificates' : '/dashboard')
 const lockContentScroll = computed(() => route.path === '/certificates')
-const showHeroBar = computed(() => activeChildren.value.length > 0)
 const currentPageTitle = computed(() => {
   if (!route.meta.heroTitle) return ''
   const titleKey = route.meta.titleKey
@@ -84,6 +83,10 @@ const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY
 const taskDrawerOpen = ref(false)
 const activeTaskCount = ref(0)
 const taskEntryConnected = ref(false)
+const mobileNavOpen = ref(false)
+const isMobileViewport = ref(false)
+const mobileNavCloseButton = ref<HTMLButtonElement | null>(null)
+const mobileNavToggleButton = ref<HTMLButtonElement | null>(null)
 const userMenuOpen = ref(false)
 const languageMenuOpen = ref(false)
 const userMenuRoot = ref<HTMLElement | null>(null)
@@ -109,6 +112,8 @@ let disposeTaskRealtime: (() => void) | undefined
 let taskEntryRefreshTimer: number | undefined
 let taskEntryRefreshPending = false
 let toastSequence = 0
+let mobileNavPreviousFocus: HTMLElement | null = null
+let mobileViewportQuery: MediaQueryList | undefined
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
 const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
@@ -142,6 +147,58 @@ function switchViewMode(mode: 'user' | 'professional'): void {
     void router.push(firstUserModePath())
   }
 }
+
+function selectViewMode(mode: 'user' | 'professional'): void {
+  switchViewMode(mode)
+  closeMobileNav(false)
+}
+
+function updateMobileViewport(): void {
+  isMobileViewport.value = Boolean(mobileViewportQuery?.matches)
+  if (!isMobileViewport.value) closeMobileNav()
+}
+
+function openMobileNav(): void {
+  if (mobileNavOpen.value) return
+  mobileNavPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  mobileNavOpen.value = true
+}
+
+function closeMobileNav(restoreFocus = true): void {
+  if (!mobileNavOpen.value) return
+  mobileNavOpen.value = false
+  if (!restoreFocus) {
+    mobileNavPreviousFocus = null
+    return
+  }
+  const focusTarget = mobileNavPreviousFocus?.isConnected
+    ? mobileNavPreviousFocus
+    : mobileNavToggleButton.value
+  mobileNavPreviousFocus = null
+  void nextTick(() => focusTarget?.focus())
+}
+
+function toggleMobileNav(): void {
+  if (mobileNavOpen.value) {
+    closeMobileNav()
+    return
+  }
+  openMobileNav()
+}
+
+function handleShellKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && mobileNavOpen.value) {
+    event.preventDefault()
+    closeMobileNav()
+  }
+}
+
+watch(mobileNavOpen, (opened) => {
+  if (!opened) return
+  void nextTick(() => mobileNavCloseButton.value?.focus())
+})
+
+watch(() => route.path, () => closeMobileNav(false))
 
 function iconPath(icon?: string): string {
   const paths: Record<string, string> = {
@@ -269,6 +326,12 @@ watch(showTaskEntry, (visible) => {
 }, { immediate: true })
 
 onMounted(() => {
+  if (typeof window.matchMedia === 'function') {
+    mobileViewportQuery = window.matchMedia('(max-width: 60rem)')
+    mobileViewportQuery.addEventListener('change', updateMobileViewport)
+  }
+  updateMobileViewport()
+  window.addEventListener('keydown', handleShellKeydown)
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   window.addEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity = subscribeTaskActivity((state) => {
@@ -287,6 +350,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleShellKeydown)
+  mobileViewportQuery?.removeEventListener('change', updateMobileViewport)
+  mobileViewportQuery = undefined
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity?.()
@@ -390,55 +456,120 @@ async function refreshTaskEntryCount(): Promise<void> {
 </script>
 
 <template>
-  <div class="gc-shell">
-    <header class="gc-shell__topbar">
-      <RouterLink class="gc-shell__brand" :to="brandTarget" :aria-label="t('shell.backDashboard')">
-        <span class="gc-shell__brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z" /></svg>
-        </span>
-        <span class="gc-shell__brand-text">{{ t('app.brand') }}</span>
-      </RouterLink>
+  <div class="gc-shell gc-workbench" :class="{ 'gc-workbench--nav-open': mobileNavOpen }">
+    <aside
+      id="gc-workbench-navigation"
+      class="gc-workbench__sidebar"
+      :inert="isMobileViewport && !mobileNavOpen"
+      :aria-hidden="isMobileViewport && !mobileNavOpen"
+    >
+      <div class="gc-workbench__sidebar-header">
+        <RouterLink class="gc-workbench__brand" :to="brandTarget" :aria-label="t('shell.backDashboard')" @click="closeMobileNav(false)">
+          <span class="gc-workbench__brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z" /></svg>
+          </span>
+          <span class="gc-workbench__brand-text">{{ t('app.brand') }}</span>
+        </RouterLink>
+        <button
+          ref="mobileNavCloseButton"
+          class="gc-workbench__icon-button gc-workbench__sidebar-close"
+          type="button"
+          :aria-label="t('shell.currentGroupNavigation')"
+          @click="closeMobileNav()"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
 
-      <nav class="gc-shell__menu" :aria-label="t('nav.dashboard')">
+      <nav class="gc-workbench__nav" :aria-label="t('nav.dashboard')">
         <RouterLink
           v-for="item in navItems"
           :key="item.path"
-          class="gc-shell__menu-item"
-          :class="{ 'gc-shell__menu-item--active': isMenuItemActive(item) }"
+          class="gc-workbench__nav-item"
+          :class="{ 'gc-workbench__nav-item--active': isMenuItemActive(item) }"
           :to="item.path"
+          @click="closeMobileNav(false)"
         >
-          <svg class="gc-shell__menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <svg class="gc-workbench__nav-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path :d="iconPath(item.icon)" />
           </svg>
           <span>{{ menuTitle(item) }}</span>
+          <span v-if="isMenuItemActive(item)" class="gc-workbench__nav-active-mark" aria-hidden="true" />
         </RouterLink>
       </nav>
 
-      <div class="gc-shell__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
-        <span
-          class="gc-shell__view-mode-thumb"
-          :class="{ 'gc-shell__view-mode-thumb--right': !isUserViewMode }"
-          aria-hidden="true"
-        ></span>
-        <button
-          class="gc-shell__view-mode-button"
-          :class="{ 'gc-shell__view-mode-button--active': isUserViewMode }"
-          type="button"
-          :aria-pressed="isUserViewMode"
-          @click="switchViewMode('user')"
-        >
-          {{ t('viewMode.user') }}
-        </button>
-        <button
-          class="gc-shell__view-mode-button"
-          :class="{ 'gc-shell__view-mode-button--active': !isUserViewMode }"
-          type="button"
-          :aria-pressed="!isUserViewMode"
-          @click="switchViewMode('professional')"
-        >
-          {{ t('viewMode.professional') }}
-        </button>
+      <div class="gc-workbench__sidebar-footer">
+        <div class="gc-workbench__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
+          <span
+            class="gc-workbench__view-mode-thumb"
+            :class="{ 'gc-workbench__view-mode-thumb--right': !isUserViewMode }"
+            aria-hidden="true"
+          />
+          <button
+            class="gc-workbench__view-mode-button"
+            :class="{ 'gc-workbench__view-mode-button--active': isUserViewMode }"
+            type="button"
+            :aria-pressed="isUserViewMode"
+            @click="selectViewMode('user')"
+          >
+            {{ t('viewMode.user') }}
+          </button>
+          <button
+            class="gc-workbench__view-mode-button"
+            :class="{ 'gc-workbench__view-mode-button--active': !isUserViewMode }"
+            type="button"
+            :aria-pressed="!isUserViewMode"
+            @click="selectViewMode('professional')"
+          >
+            {{ t('viewMode.professional') }}
+          </button>
+        </div>
+        <span class="gc-workbench__version">{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
       </div>
+    </aside>
+
+    <button
+      v-if="mobileNavOpen"
+      class="gc-workbench__scrim"
+      type="button"
+      :aria-label="t('shell.currentGroupNavigation')"
+      @click="closeMobileNav()"
+    />
+
+    <div class="gc-workbench__main">
+      <header class="gc-workbench__topbar">
+        <button
+          ref="mobileNavToggleButton"
+          class="gc-workbench__icon-button gc-workbench__mobile-toggle"
+          type="button"
+          :aria-label="t('shell.currentGroupNavigation')"
+          :aria-expanded="mobileNavOpen"
+          aria-controls="gc-workbench-navigation"
+          @click="toggleMobileNav"
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+
+        <div class="gc-workbench__context">
+          <div class="gc-workbench__context-heading">
+            <span class="gc-workbench__context-eyebrow">{{ t('shell.currentLocation') }}</span>
+            <h1 class="gc-workbench__context-title">{{ currentPageTitle || (activeTopItem ? menuTitle(activeTopItem) : t('nav.dashboard')) }}</h1>
+          </div>
+          <div id="gc-shell-hero-leading" class="gc-workbench__context-leading" />
+          <div id="gc-shell-hero-actions" class="gc-workbench__context-actions" />
+          <nav v-if="activeChildren.length" class="gc-workbench__submenu" :aria-label="t('shell.currentGroupNavigation')">
+            <RouterLink
+              v-for="child in activeChildren"
+            :key="child.path"
+            class="gc-workbench__submenu-item"
+            :class="{ 'gc-workbench__submenu-item--active': isMenuItemActive(child) }"
+            :to="child.path"
+            @click="closeMobileNav(false)"
+          >
+              {{ menuTitle(child) }}
+            </RouterLink>
+          </nav>
+        </div>
 
       <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
         <button
@@ -553,33 +684,10 @@ async function refreshTaskEntryCount(): Promise<void> {
       </div>
     </header>
 
-    <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
-      <section
-        v-if="showHeroBar"
-        class="gc-shell__hero"
-        :class="{ 'gc-shell__hero--monitoring': route.path === '/monitors' }"
-        :aria-label="t('shell.currentLocation')"
-      >
-        <div class="gc-shell__hero-main">
-          <h1 v-if="currentPageTitle" class="gc-shell__page-title">{{ currentPageTitle }}</h1>
-          <div id="gc-shell-hero-leading" class="gc-shell__hero-leading"></div>
-          <div id="gc-shell-hero-actions" class="gc-shell__hero-actions"></div>
-        </div>
-        <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
-          <RouterLink
-            v-for="child in activeChildren"
-            :key="child.path"
-            class="gc-shell__submenu-item"
-            :class="{ 'gc-shell__submenu-item--active': isMenuItemActive(child) }"
-            :to="child.path"
-          >
-            {{ menuTitle(child) }}
-          </RouterLink>
-        </nav>
-      </section>
-
+    <main class="gc-shell__content gc-workbench__content" :class="{ 'gc-shell__content--locked': lockContentScroll, 'gc-workbench__content--locked': lockContentScroll }">
       <RouterView />
     </main>
+    </div>
 
     <GcModal v-model:open="passwordDialogOpen" size="sm" :title="t('password.title')" :description="t('password.description')">
       <form class="gc-password-form" @submit.prevent="submitPasswordChange">
@@ -628,3 +736,16 @@ async function refreshTaskEntryCount(): Promise<void> {
 
   </div>
 </template>
+
+<style scoped>
+.gc-workbench__content--locked {
+  height: calc(100vh - var(--gc-control-height-md) - var(--gc-space-4));
+  overflow: hidden;
+}
+
+@media (max-width: 60rem) {
+  .gc-workbench__sidebar:not([aria-hidden="true"]) {
+    transform: translateX(0);
+  }
+}
+</style>

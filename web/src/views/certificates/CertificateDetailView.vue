@@ -18,7 +18,9 @@ const versionId = computed(() => String(route.query.versionId ?? ''))
       :description="t('certificates.detail.description')"
     >
       <template #actions>
-        <RouterLink class="gc-button" to="/certificates">{{ t('certificates.detail.backList') }}</RouterLink>
+        <RouterLink class="gc-button gc-button--secondary certificate-detail-view__back" to="/certificates">
+          {{ t('certificates.detail.backList') }}
+        </RouterLink>
       </template>
     </GcPageHeader>
 
@@ -29,6 +31,6 @@ const versionId = computed(() => String(route.query.versionId ?? ''))
 <style scoped>
 .certificate-detail-view {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-5);
 }
 </style>

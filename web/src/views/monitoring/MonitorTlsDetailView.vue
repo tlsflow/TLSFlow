@@ -816,6 +816,8 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                 v-for="tab in tabs"
                 :key="tab.value"
                 type="button"
+                role="tab"
+                :aria-selected="activeTab === tab.value"
                 :class="{ 'ca-operations__view--active': activeTab === tab.value }"
                 @click="activeTab = tab.value"
               >
@@ -830,8 +832,18 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
           v-if="error && !snapshot && !loading"
           :title="t('monitoring.tls.messages.loadFailed')"
           :description="error"
-        />
+        >
+          <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="loadDetail">
+            {{ t('businessPage.retry') }}
+          </button>
+        </GcEmptyState>
         <div v-else-if="loading" class="tls-report-page__loading">{{ t('common.loading') }}</div>
+        <div v-if="error && snapshot" class="tls-report-page__inline-error" role="alert">
+          <span>{{ error }}</span>
+          <button class="gc-button" type="button" :disabled="scanning || !inspectorTarget" @click="refreshInspection">
+            {{ scanning ? t('monitoring.tls.actions.refreshing') : t('businessPage.retry') }}
+          </button>
+        </div>
         <template v-else-if="snapshot">
       <section v-if="activeTab === 'overview'" class="tls-section-stack">
         <section class="tls-overview-shell" :aria-label="t('monitoring.tls.report.summaryAriaLabel')">
@@ -1243,147 +1255,34 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: 0;
 }
 
-.monitor-page {
-  display: grid;
-  gap: var(--gc-space-4);
-  padding: var(--gc-space-6);
-}
-
-.monitor-page__workspace {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: var(--gc-space-4);
-  align-items: start;
-}
-
-.monitor-page__targets,
-.monitor-page__detail {
-  min-width: 0;
-}
-
-.monitor-page__targets {
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-
-.monitor-page__section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.monitor-page__section-head > div {
-  display: grid;
-  gap: 3px;
-}
-
-.monitor-page__section-head strong {
-  color: var(--gc-color-text);
-  font-size: 15px;
-}
-
-.monitor-page__section-head span {
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.monitor-page__target {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  min-height: calc(var(--gc-space-8) * 3);
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-lg);
-  padding: 12px;
-  background: var(--gc-color-surface-solid);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
-}
-
-.monitor-page__target:hover {
-  border-color: var(--gc-color-border-soft);
-  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
-}
-
-.monitor-page__target.is-active {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-surface-selected);
-}
-
-.monitor-page__target-body {
-  display: grid;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.monitor-page__target strong,
-.monitor-page__target span {
-  overflow-wrap: anywhere;
-}
-
-.monitor-page__target strong {
-  color: var(--gc-color-text);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.monitor-page__target span {
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-}
-
-.monitor-tls-page__target-meta {
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.monitor-tls-page__target-badge-group {
-  display: grid;
-  justify-items: end;
-  gap: 6px;
-}
-
-.monitor-tls-page__target-grade,
 .monitor-tls-page__header-grade {
   display: inline-grid;
   place-items: center;
-  min-width: 44px;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
+  min-width: var(--gc-space-10);
+  min-height: var(--gc-space-8);
+  padding: 0 var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-muted);
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 800;
 }
 
-.monitor-tls-page__target-grade[data-tone='success'],
 .monitor-tls-page__header-grade[data-tone='success'] {
   color: var(--gc-color-success);
   background: var(--gc-color-success-bg);
 }
 
-.monitor-tls-page__target-grade[data-tone='info'],
 .monitor-tls-page__header-grade[data-tone='info'] {
   color: var(--gc-color-info);
   background: var(--gc-color-info-bg);
 }
 
-.monitor-tls-page__target-grade[data-tone='warning'],
 .monitor-tls-page__header-grade[data-tone='warning'] {
   color: var(--gc-color-warning);
   background: var(--gc-color-warning-bg);
 }
 
-.monitor-tls-page__target-grade[data-tone='danger'],
 .monitor-tls-page__header-grade[data-tone='danger'] {
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
@@ -1391,26 +1290,26 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .monitor-tls-page__views {
   display: flex;
-  gap: 4px;
-  padding: 4px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-1);
   overflow-x: auto;
   background: var(--gc-color-surface-muted);
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 999px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-full);
 }
 
 .monitor-tls-page__views button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-1);
   min-width: max-content;
-  padding: 6px 14px;
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text-muted);
   background: transparent;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
   transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
@@ -1420,19 +1319,19 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .monitor-tls-page__views .ca-operations__view--active {
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
-  box-shadow: 0 4px 14px var(--gc-color-border);
+  box-shadow: var(--gc-shadow-hover);
 }
 
 .monitor-tls-page__views small {
   display: inline-grid;
   place-items: center;
-  min-width: 18px;
+  min-width: var(--gc-space-5);
   color: inherit;
 }
 
 .monitor-tls-page__header {
   padding: var(--gc-space-5);
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
   background: linear-gradient(135deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
   box-shadow: var(--gc-shadow-sm);
@@ -1444,12 +1343,12 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .monitor-tls-page__headline > div {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .monitor-tls-page__headline p {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
@@ -1457,7 +1356,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
   flex-wrap: nowrap;
   margin-left: auto;
 }
@@ -1568,7 +1467,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   justify-content: center;
   min-height: var(--gc-control-height-md);
   padding: 0 var(--gc-space-4);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   border: var(--gc-border-width-default) solid transparent;
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text-strong);
@@ -1654,11 +1553,11 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 7.5rem;
-  height: 7.5rem;
+  width: calc(var(--gc-space-10) * 3);
+  height: calc(var(--gc-space-10) * 3);
   border-radius: var(--gc-radius-xl);
   border: calc(var(--gc-border-width-default) * 2) solid var(--gc-color-border-strong);
-  font-size: 3rem;
+  font-size: var(--gc-font-size-2xl);
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -1736,7 +1635,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-score-card {
   align-content: start;
   gap: var(--gc-space-2);
-  min-height: 8rem;
+  min-height: calc(var(--gc-space-10) * 2);
   padding: var(--gc-space-3);
 }
 
@@ -1746,7 +1645,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 }
 
 .tls-score-card strong {
-  font-size: 2.5rem;
+  font-size: var(--gc-font-size-xl);
   line-height: 1;
 }
 
@@ -1765,14 +1664,14 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   width: 100%;
   height: var(--gc-space-1);
   overflow: hidden;
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-border-soft);
 }
 
 .tls-score-card__bar > span {
   display: block;
   height: 100%;
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
 }
 
 .tls-score-card__bar > span.is-success { background: var(--gc-color-success); }
@@ -1795,7 +1694,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   position: relative;
   height: var(--gc-space-4);
   margin: var(--gc-space-2) 0;
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-gradient-risk-scale);
 }
 
@@ -1814,7 +1713,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   top: 50%;
   width: var(--gc-space-4);
   height: var(--gc-space-4);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   border: calc(var(--gc-border-width-default) * 2) solid var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-md);
   transform: translate(-50%, -50%);
@@ -1843,7 +1742,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   content: '';
   width: var(--gc-space-2);
   height: var(--gc-space-2);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-border-strong);
 }
 
@@ -1866,7 +1765,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   display: inline-flex;
   align-items: center;
   padding: var(--gc-space-hairline) var(--gc-space-2);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
   line-height: 1.4;
@@ -1923,7 +1822,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   top: 50%;
   width: var(--gc-space-2);
   height: var(--gc-space-2);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   transform: translateY(-50%);
 }
 
@@ -2022,7 +1921,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   content: '';
   width: var(--gc-space-1);
   height: var(--gc-space-4);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-primary);
 }
 
@@ -2141,16 +2040,16 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-trust-path__nodes::before {
   content: '';
   position: absolute;
-  left: 0.9375rem;
-  top: 0.5rem;
-  bottom: 0.5rem;
-  width: 0.125rem;
+  left: var(--gc-space-3);
+  top: var(--gc-space-2);
+  bottom: var(--gc-space-2);
+  width: calc(var(--gc-space-hairline) * 2);
   background: linear-gradient(180deg, var(--gc-color-primary-border), var(--gc-color-border));
 }
 
 .tls-trust-path__node {
   display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr);
+  grid-template-columns: calc(var(--gc-space-10) + var(--gc-space-2)) minmax(0, 1fr);
   gap: var(--gc-space-3);
   align-items: start;
 }
@@ -2159,9 +2058,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
+  width: var(--gc-space-8);
+  height: var(--gc-space-8);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-primary-soft);
   color: var(--gc-color-primary);
   font-size: var(--gc-font-size-sm);
@@ -2200,7 +2099,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   width: 100%;
   border-collapse: collapse;
   background: var(--gc-color-surface-solid);
-  min-width: 46rem;
+  min-width: calc(var(--gc-space-10) * 18);
 }
 
 .tls-table th,
@@ -2294,9 +2193,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-strength {
   display: inline-flex;
   align-items: center;
-  min-width: 2.5rem;
+  min-width: calc(var(--gc-space-10) + var(--gc-space-2));
   padding: var(--gc-space-hairline) var(--gc-space-2);
-  border-radius: 999rem;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text-strong);
   font-weight: 700;
@@ -2344,6 +2243,18 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   color: var(--gc-color-text-muted);
 }
 
+.tls-report-page__inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+}
+
 .tls-report-page__sr-only {
   position: absolute;
   inline-size: var(--gc-space-hairline);
@@ -2355,7 +2266,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border: 0;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 64rem) {
   .tls-overview-shell,
   .tls-score-grid,
   .tls-report-grid--certificate,
@@ -2365,7 +2276,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 47.5rem) {
   .tls-report-page {
     padding: var(--gc-space-4);
   }
@@ -2391,9 +2302,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   }
 
   .tls-grade-panel__badge {
-    width: 6rem;
-    height: 6rem;
-    font-size: 2.5rem;
+    width: calc(var(--gc-space-10) + var(--gc-space-8));
+    height: calc(var(--gc-space-10) + var(--gc-space-8));
+    font-size: var(--gc-font-size-xl);
   }
 }
 </style>

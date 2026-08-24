@@ -6,6 +6,7 @@ import { sortDeployableCertificateVersions } from '@/views/deployments/certifica
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { CapabilityMatrixItem } from './GcCapabilityMatrix.vue'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from './GcDeploymentWizard.types'
+import GcHelpTip from './GcHelpTip.vue'
 
 type WizardStep = 1 | 2 | 3
 
@@ -370,13 +371,13 @@ function normalizeDomainKey(value: string): string {
 </script>
 
 <template>
-  <section class="gc-card gc-deployment-wizard" :aria-label="t('designSystem.deploymentWizard.aria.wizard')">
+  <section class="gc-card gc-deployment-wizard" :class="{ 'is-simple': simple }" :aria-label="t('designSystem.deploymentWizard.aria.wizard')">
     <header class="gc-deployment-wizard__header">
       <div class="gc-deployment-wizard__title">
-        <span class="gc-deployment-wizard__eyebrow">{{ t('designSystem.deploymentWizard.title') }}</span>
-        <strong>{{ t('designSystem.deploymentWizard.subtitle') }}</strong>
+        <span v-if="!simple" class="gc-deployment-wizard__eyebrow">{{ t('designSystem.deploymentWizard.title') }}</span>
+        <strong>{{ simple ? t('viewMode.steps.deployments') : t('designSystem.deploymentWizard.subtitle') }}</strong>
       </div>
-      <div class="gc-deployment-wizard__header-meta">
+      <div v-if="!simple" class="gc-deployment-wizard__header-meta">
         <span class="gc-deployment-wizard__status" :class="`is-${readinessTone}`">
           {{ t('designSystem.deploymentWizard.currentStep', { current: currentStep, total: 3 }) }}
         </span>
@@ -394,30 +395,45 @@ function normalizeDomainKey(value: string): string {
             <span class="gc-deployment-wizard__step-index">1</span>
             <div class="gc-deployment-wizard__step-copy">
               <strong>{{ t('designSystem.deploymentWizard.steps.certificate.title') }}</strong>
-              <p>{{ t('designSystem.deploymentWizard.steps.certificate.description') }}</p>
-              <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(1) }}</span>
+              <p v-if="!simple">{{ t('designSystem.deploymentWizard.steps.certificate.description') }}</p>
+              <span v-if="!simple" class="gc-deployment-wizard__step-state">{{ stepStateLabel(1) }}</span>
             </div>
           </button>
+          <GcHelpTip
+            v-if="simple"
+            :content="t('designSystem.deploymentWizard.steps.certificate.description')"
+            :ariaLabel="t('designSystem.deploymentWizard.steps.certificate.title')"
+          />
         </li>
         <li class="gc-deployment-wizard__step" :class="`is-${stepState(2)}`">
           <button type="button" class="gc-deployment-wizard__step-button" :disabled="currentAvailableStep < 2" @click="goToStep(2)">
             <span class="gc-deployment-wizard__step-index">2</span>
             <div class="gc-deployment-wizard__step-copy">
               <strong>{{ t('designSystem.deploymentWizard.steps.target.title') }}</strong>
-              <p>{{ t('designSystem.deploymentWizard.steps.target.description') }}</p>
-              <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(2) }}</span>
+              <p v-if="!simple">{{ t('designSystem.deploymentWizard.steps.target.description') }}</p>
+              <span v-if="!simple" class="gc-deployment-wizard__step-state">{{ stepStateLabel(2) }}</span>
             </div>
           </button>
+          <GcHelpTip
+            v-if="simple"
+            :content="t('designSystem.deploymentWizard.steps.target.description')"
+            :ariaLabel="t('designSystem.deploymentWizard.steps.target.title')"
+          />
         </li>
         <li class="gc-deployment-wizard__step" :class="`is-${stepState(3)}`">
           <button type="button" class="gc-deployment-wizard__step-button" :disabled="currentAvailableStep < 3" @click="goToStep(3)">
             <span class="gc-deployment-wizard__step-index">3</span>
             <div class="gc-deployment-wizard__step-copy">
               <strong>{{ t('designSystem.deploymentWizard.steps.submit.title') }}</strong>
-              <p>{{ t('designSystem.deploymentWizard.steps.submit.description') }}</p>
-              <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(3) }}</span>
+              <p v-if="!simple">{{ t('designSystem.deploymentWizard.steps.submit.description') }}</p>
+              <span v-if="!simple" class="gc-deployment-wizard__step-state">{{ stepStateLabel(3) }}</span>
             </div>
           </button>
+          <GcHelpTip
+            v-if="simple"
+            :content="t('designSystem.deploymentWizard.steps.submit.description')"
+            :ariaLabel="t('designSystem.deploymentWizard.steps.submit.title')"
+          />
         </li>
       </ol>
     </div>
@@ -428,14 +444,14 @@ function normalizeDomainKey(value: string): string {
           <div>
             <h3>{{ t('designSystem.deploymentWizard.panels.certificateTitle') }}</h3>
           </div>
-          <span class="gc-deployment-wizard__panel-state" :class="`is-${stepOneReady ? 'done' : 'active'}`">
+          <span v-if="!simple" class="gc-deployment-wizard__panel-state" :class="`is-${stepOneReady ? 'done' : 'active'}`">
             {{ stepOneReady ? t('designSystem.deploymentWizard.panelState.readyNext') : t('designSystem.deploymentWizard.panelState.pending') }}
           </span>
         </header>
 
         <div class="gc-deployment-wizard__field-grid">
-          <label v-if="!simple" class="gc-form-field">
-            <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
+          <label class="gc-form-field">
+            <span>{{ simple ? t('viewMode.steps.certificates') : t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
             <select v-model="selectedCertificateId" :disabled="loading">
               <option v-for="item in certificateAssetOptions" :key="readString(item, ['id', 'certificateId'])" :value="readString(item, ['id', 'certificateId'])">
                 {{ certificateAssetLabel(item) }}
@@ -443,7 +459,7 @@ function normalizeDomainKey(value: string): string {
             </select>
           </label>
 
-          <label class="gc-form-field">
+          <label v-if="!simple" class="gc-form-field">
             <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
             <select v-model="selectedCertificateVersionId" :disabled="loading || sortedVersions.length === 0">
               <option v-if="latestVersion" :value="LATEST_VERSION_MARKER">
@@ -458,11 +474,11 @@ function normalizeDomainKey(value: string): string {
         </div>
 
         <div class="gc-deployment-wizard__summary-grid">
-          <div v-if="!simple" class="gc-deployment-wizard__summary-item">
+          <div class="gc-deployment-wizard__summary-item">
             <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
             <strong>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], t('designSystem.deploymentWizard.fallback.unselected')) }}</strong>
           </div>
-          <div class="gc-deployment-wizard__summary-item">
+          <div v-if="!simple" class="gc-deployment-wizard__summary-item">
             <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
             <strong>{{ selectedVersionSummary() }}</strong>
           </div>
@@ -474,7 +490,7 @@ function normalizeDomainKey(value: string): string {
           <div>
             <h3>{{ t('designSystem.deploymentWizard.panels.targetTitle') }}</h3>
           </div>
-          <span class="gc-deployment-wizard__panel-state" :class="`is-${stepTwoReady ? 'done' : 'active'}`">
+          <span v-if="!simple" class="gc-deployment-wizard__panel-state" :class="`is-${stepTwoReady ? 'done' : 'active'}`">
             {{ stepTwoReady ? t('designSystem.deploymentWizard.panelState.readyNext') : t('designSystem.deploymentWizard.panelState.pending') }}
           </span>
         </header>
@@ -499,7 +515,7 @@ function normalizeDomainKey(value: string): string {
           <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
             <div class="gc-deployment-wizard__target-head">
               <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
-              <span>{{ readString(selectedTarget, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
+              <span v-if="!simple">{{ readString(selectedTarget, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
             </div>
           <dl v-if="!simple" class="gc-deployment-wizard__target-meta">
             <div v-if="readString(selectedTarget, ['siteName'])">
@@ -528,7 +544,7 @@ function normalizeDomainKey(value: string): string {
           <div>
             <h3>{{ t('designSystem.deploymentWizard.panels.submitTitle') }}</h3>
           </div>
-          <span class="gc-deployment-wizard__panel-state" :class="`is-${canOperate ? 'active' : 'pending'}`">
+          <span v-if="!simple" class="gc-deployment-wizard__panel-state" :class="`is-${canOperate ? 'active' : 'pending'}`">
             {{ canOperate ? t('designSystem.deploymentWizard.panelState.operable') : t('designSystem.deploymentWizard.panelState.needPrerequisites') }}
           </span>
         </header>
@@ -538,7 +554,7 @@ function normalizeDomainKey(value: string): string {
             <dt>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</dt>
             <dd>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], t('designSystem.deploymentWizard.fallback.unselected')) }}</dd>
           </div>
-          <div>
+          <div v-if="!simple">
             <dt>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</dt>
             <dd>{{ selectedVersionSummary() }}</dd>
           </div>
@@ -548,7 +564,7 @@ function normalizeDomainKey(value: string): string {
           </div>
         </dl>
 
-        <p class="gc-deployment-wizard__preview-text">{{ previewSummary }}</p>
+        <p v-if="!simple" class="gc-deployment-wizard__preview-text">{{ previewSummary }}</p>
 
         <div v-if="!simple" class="gc-deployment-wizard__feedback-inline" :class="`is-${readinessTone}`">
           <strong>{{ t('designSystem.deploymentWizard.status.current') }}</strong>
@@ -596,27 +612,70 @@ function normalizeDomainKey(value: string): string {
 <style scoped>
 .gc-deployment-wizard {
   display: grid;
-  gap: 12px;
-  padding: 6px;
-  border-radius: 20px;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-compact);
+  border-radius: var(--gc-radius-panel);
   background:
     radial-gradient(circle at top right, var(--gc-color-info-border), transparent 30%),
     linear-gradient(180deg, var(--gc-color-surface-subtle), var(--gc-color-surface-raised));
 }
 
+.gc-deployment-wizard.is-simple {
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__title strong {
+  font-size: var(--gc-font-size-lg);
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__progress {
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__steps {
+  gap: 0;
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__step:first-child {
+  border-radius: var(--gc-radius-md) 0 0 var(--gc-radius-md);
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__step:last-child {
+  border-radius: 0 var(--gc-radius-md) var(--gc-radius-md) 0;
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__step-button {
+  min-height: calc(var(--gc-space-10) + var(--gc-space-4));
+  padding: var(--gc-space-3);
+}
+
+.gc-deployment-wizard.is-simple .gc-deployment-wizard__step-copy {
+  display: block;
+}
+
 .gc-deployment-wizard__header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-items: flex-start;
-  padding: 0 2px;
+  padding: 0 var(--gc-border-width-thick);
 }
 
 .gc-deployment-wizard__eyebrow {
   display: inline-flex;
-  margin-bottom: 6px;
+  margin-bottom: var(--gc-space-compact);
   color: var(--gc-color-primary);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -624,7 +683,7 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__title strong {
   display: block;
-  font-size: 24px;
+  font-size: var(--gc-font-size-heading-md);
   line-height: 1.15;
   letter-spacing: 0;
 }
@@ -632,7 +691,7 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__header-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-items: center;
   justify-content: flex-end;
 }
@@ -644,7 +703,7 @@ function normalizeDomainKey(value: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
@@ -652,9 +711,9 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__status,
 .gc-deployment-wizard__panel-state,
 .gc-deployment-wizard__check-status {
-  padding: 6px 12px;
-  border: 1px solid transparent;
-  box-shadow: 0 6px 14px var(--gc-color-border-subtle);
+  padding: var(--gc-space-compact) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid transparent;
+  box-shadow: 0 var(--gc-space-compact) var(--gc-space-panel) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__status.is-success,
@@ -696,31 +755,31 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__count {
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-label);
   font-weight: 600;
-  padding: 5px 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 999px;
+  padding: var(--gc-space-chip-block) var(--gc-space-control);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-glass);
 }
 
 .gc-deployment-wizard__progress {
   display: grid;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid var(--gc-color-surface-muted);
-  border-radius: 18px;
+  gap: var(--gc-space-control);
+  padding: var(--gc-space-control);
+  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border-radius: var(--gc-radius-lg);
   background:
     linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-glass),
-    0 8px 20px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
+    0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__progress-bar {
   position: relative;
-  height: 6px;
-  border-radius: 999px;
+  height: var(--gc-size-progress-compact);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-border-muted);
   overflow: hidden;
 }
@@ -730,14 +789,14 @@ function normalizeDomainKey(value: string): string {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--gc-color-primary), var(--gc-color-primary));
-  box-shadow: 0 0 0 1px var(--gc-color-surface-muted) inset;
+  box-shadow: 0 0 0 var(--gc-border-width-default) var(--gc-color-surface-muted) inset;
   transition: width 180ms ease;
 }
 
 .gc-deployment-wizard__steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-control);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -745,12 +804,12 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step {
   position: relative;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 14px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-panel);
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface),
-    0 6px 14px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface),
+    0 var(--gc-space-compact) var(--gc-space-panel) var(--gc-color-border-subtle);
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
@@ -762,18 +821,18 @@ function normalizeDomainKey(value: string): string {
   content: '';
   position: absolute;
   inset: 0 auto 0 0;
-  width: 3px;
-  border-radius: 14px 0 0 14px;
+  width: var(--gc-size-step-accent);
+  border-radius: var(--gc-radius-md) 0 0 var(--gc-radius-md);
   background: transparent;
 }
 
 .gc-deployment-wizard__step-button {
   display: flex;
   width: 100%;
-  gap: 10px;
+  gap: var(--gc-space-control);
   align-items: center;
-  min-height: 76px;
-  padding: 12px 14px;
+  min-height: var(--gc-size-step-min-height);
+  padding: var(--gc-space-3) var(--gc-space-panel);
   border: 0;
   outline: 0;
   appearance: none;
@@ -786,7 +845,7 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step-copy {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-border-width-thick);
   min-width: 0;
 }
 
@@ -797,14 +856,14 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step strong {
   display: block;
-  font-size: 15px;
+  font-size: var(--gc-font-size-body);
   line-height: 1.2;
 }
 
 .gc-deployment-wizard__step p {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.35;
 }
 
@@ -812,32 +871,32 @@ function normalizeDomainKey(value: string): string {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
+  margin-top: var(--gc-space-1);
+  padding: var(--gc-border-width-thick) var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-caption);
   font-weight: 700;
 }
 
 .gc-deployment-wizard__step-index {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
+  width: var(--gc-size-step-index);
+  min-width: var(--gc-size-step-index);
+  height: var(--gc-size-step-index);
   background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
   color: var(--gc-color-text-muted);
-  border: 1px solid var(--gc-color-border-strong);
-  box-shadow: 0 4px 10px var(--gc-color-border-subtle);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
+  box-shadow: 0 var(--gc-space-1) var(--gc-space-control) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__step.is-active {
   border-color: var(--gc-color-primary-border);
   background: linear-gradient(180deg, var(--gc-color-surface-selected), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-panel),
-    0 10px 18px var(--gc-color-primary-soft);
-  transform: translateY(-1px);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-panel),
+    0 var(--gc-space-control) var(--gc-space-5) var(--gc-color-primary-soft);
+  transform: translateY(calc(var(--gc-border-width-default) * -1));
 }
 
 .gc-deployment-wizard__step.is-active::before {
@@ -849,7 +908,7 @@ function normalizeDomainKey(value: string): string {
   color: var(--gc-color-surface-solid);
   border-color: transparent;
   background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary));
-  box-shadow: 0 6px 14px var(--gc-color-primary-weak);
+  box-shadow: 0 var(--gc-space-compact) var(--gc-space-panel) var(--gc-color-primary-weak);
 }
 
 .gc-deployment-wizard__step.is-active .gc-deployment-wizard__step-state {
@@ -861,8 +920,8 @@ function normalizeDomainKey(value: string): string {
   border-color: var(--gc-color-success-border);
   background: linear-gradient(180deg, var(--gc-color-success-soft), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-panel),
-    0 8px 16px var(--gc-color-success-soft);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-panel),
+    0 var(--gc-space-2) var(--gc-space-4) var(--gc-color-success-soft);
 }
 
 .gc-deployment-wizard__step.is-done::before {
@@ -876,37 +935,37 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__panel {
   display: grid;
-  gap: 14px;
+  gap: var(--gc-space-panel);
   min-height: 0;
-  border: 1px solid var(--gc-color-surface-muted);
-  border-radius: 20px;
-  padding: 16px;
+  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border-radius: var(--gc-radius-panel);
+  padding: var(--gc-space-4);
   background:
     linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-glass),
-    0 12px 28px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
+    0 var(--gc-space-3) var(--gc-space-7) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__panel-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-items: center;
   padding-bottom: 0;
-  border-bottom: 1px solid var(--gc-color-border-muted);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .gc-deployment-wizard__panel-header h3 {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--gc-font-size-heading-md);
   line-height: 1.15;
 }
 
 .gc-deployment-wizard__field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .gc-deployment-wizard__field-span-2 {
@@ -915,12 +974,12 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard :deep(.gc-form-field) {
   min-width: 0;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .gc-deployment-wizard :deep(.gc-form-field > span) {
   color: var(--gc-color-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-label);
   font-weight: 700;
 }
 
@@ -929,15 +988,15 @@ function normalizeDomainKey(value: string): string {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--gc-control-height-comfortable);
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: var(--gc-radius-card);
   border-color: var(--gc-color-border-strong);
   background: var(--gc-color-surface-overlay);
   box-shadow:
-    inset 0 1px 2px var(--gc-color-border-subtle),
-    0 1px 0 var(--gc-color-surface-muted);
-  padding-inline: 14px;
+    inset 0 var(--gc-border-width-default) var(--gc-border-width-thick) var(--gc-color-border-subtle),
+    0 var(--gc-border-width-default) 0 var(--gc-color-surface-muted);
+  padding-inline: var(--gc-space-panel);
   transition:
     border-color 140ms ease,
     box-shadow 140ms ease,
@@ -955,40 +1014,40 @@ function normalizeDomainKey(value: string): string {
   outline: none;
   border-color: var(--gc-color-primary-border-strong);
   box-shadow:
-    0 0 0 4px var(--gc-color-primary-weak),
-    inset 0 1px 2px var(--gc-color-border-subtle);
+    0 0 0 var(--gc-space-1) var(--gc-color-primary-weak),
+    inset 0 var(--gc-border-width-default) var(--gc-border-width-thick) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .gc-deployment-wizard__summary-item,
 .gc-deployment-wizard__target-card,
 .gc-deployment-wizard__feedback-inline,
 .gc-deployment-wizard__check-item {
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 16px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-modal);
   background:
     linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-glass),
-    0 10px 24px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
+    0 var(--gc-space-control) var(--gc-space-viewport) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__summary-item {
   display: grid;
-  gap: 8px;
-  padding: 14px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-panel);
 }
 
 .gc-deployment-wizard__summary-item span,
 .gc-deployment-wizard__review-list dt,
 .gc-deployment-wizard__target-meta dt {
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-label);
   font-weight: 700;
 }
 
@@ -997,21 +1056,21 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__target-meta dd {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 16px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.25;
 }
 
 .gc-deployment-wizard__summary-item small {
   color: var(--gc-color-text-muted);
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--gc-font-size-label);
   line-height: 1.4;
 }
 
 .gc-deployment-wizard__tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .gc-deployment-wizard__tag,
@@ -1019,46 +1078,46 @@ function normalizeDomainKey(value: string): string {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  padding: var(--gc-space-chip-block) var(--gc-space-control);
+  border-radius: var(--gc-radius-full);
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
 .gc-deployment-wizard__tag {
-  border: 1px solid var(--gc-color-primary-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
   background: var(--gc-color-surface-selected);
   color: var(--gc-color-primary-strong);
 }
 
 .gc-deployment-wizard__target-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
 }
 
 .gc-deployment-wizard__target-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-items: baseline;
 }
 
 .gc-deployment-wizard__target-head strong {
-  font-size: 20px;
+  font-size: var(--gc-font-size-lg);
   line-height: 1.15;
 }
 
 .gc-deployment-wizard__target-head span {
   color: var(--gc-color-text-muted);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 600;
 }
 
 .gc-deployment-wizard__target-meta,
 .gc-deployment-wizard__review-list {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
   margin: 0;
 }
 
@@ -1069,7 +1128,7 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__target-meta div,
 .gc-deployment-wizard__review-list div {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .gc-deployment-wizard__target-meta div:first-child,
@@ -1078,25 +1137,25 @@ function normalizeDomainKey(value: string): string {
 }
 
 .gc-deployment-wizard__review-list div {
-  padding: 14px 16px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 16px;
+  padding: var(--gc-space-panel) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-modal);
   background:
     linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-field),
-    0 10px 22px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-field),
+    0 var(--gc-space-control) var(--gc-space-6) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__target-meta div {
-  padding-top: 12px;
-  border-top: 1px solid var(--gc-color-border-muted);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .gc-deployment-wizard__review-list dd,
 .gc-deployment-wizard__target-meta dd {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--gc-font-size-body);
   line-height: 1.4;
 }
 
@@ -1104,24 +1163,24 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__empty {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 15px;
+  font-size: var(--gc-font-size-body);
   line-height: 1.6;
 }
 
 .gc-deployment-wizard__feedback-inline {
   display: grid;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-panel) var(--gc-space-4);
 }
 
 .gc-deployment-wizard__feedback-inline strong {
-  font-size: 15px;
+  font-size: var(--gc-font-size-body);
 }
 
 .gc-deployment-wizard__feedback-inline p {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.5;
 }
 
@@ -1148,18 +1207,18 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__hint {
   margin: 0;
   color: var(--gc-color-danger);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 700;
 }
 
 .gc-deployment-wizard__check-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 14px;
+  gap: var(--gc-space-control) var(--gc-space-panel);
 }
 
 .gc-deployment-wizard__check-pill {
-  border: 1px solid transparent;
+  border: var(--gc-border-width-default) solid transparent;
 }
 
 .gc-deployment-wizard__check-pill.is-passed {
@@ -1188,7 +1247,7 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__check-list {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1196,19 +1255,19 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__check-item {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--gc-space-control);
+  padding: var(--gc-space-panel);
 }
 
 .gc-deployment-wizard__check-head {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--gc-space-control);
   align-items: center;
 }
 
 .gc-deployment-wizard__check-head strong {
-  font-size: 16px;
+  font-size: var(--gc-font-size-md);
 }
 
 .gc-deployment-wizard__check-item p {
@@ -1220,32 +1279,32 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__footer {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--gc-space-4);
   align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-surface-muted);
-  border-radius: 16px;
+  padding: var(--gc-space-control) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border-radius: var(--gc-radius-modal);
   background:
     linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
   box-shadow:
-    inset 0 1px 0 var(--gc-color-surface-glass),
-    0 8px 20px var(--gc-color-border-subtle);
+    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
+    0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-border-subtle);
 }
 
 .gc-deployment-wizard__footer-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .gc-deployment-wizard__footer :deep(.gc-button) {
-  min-height: 40px;
-  padding-inline: 16px;
-  border-radius: 12px;
+  min-height: var(--gc-space-10);
+  padding-inline: var(--gc-space-4);
+  border-radius: var(--gc-radius-card);
 }
 
-@media (max-width: 780px) {
+@media (max-width: 48.75rem) {
   .gc-deployment-wizard__steps,
   .gc-deployment-wizard__field-grid,
   .gc-deployment-wizard__summary-grid,
@@ -1268,20 +1327,20 @@ function normalizeDomainKey(value: string): string {
 
   .gc-deployment-wizard__panel {
     min-height: auto;
-    padding: 16px;
+    padding: var(--gc-space-4);
   }
 
   .gc-deployment-wizard__title strong {
-    font-size: 22px;
+    font-size: var(--gc-font-size-heading-sm);
   }
 
   .gc-deployment-wizard__panel-header h3 {
-    font-size: 22px;
+    font-size: var(--gc-font-size-heading-sm);
   }
 
   .gc-deployment-wizard__target-head strong,
   .gc-deployment-wizard__summary-item strong {
-    font-size: 18px;
+    font-size: var(--gc-font-size-heading-xs);
   }
 }
 </style>

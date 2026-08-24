@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { getAutomationRun, listAutomationRunTargets, retryAutomationRun, stopAutomationRun, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
-import { GcPageHeader, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import { listTasks, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
@@ -13,27 +13,58 @@ const router = useRouter()
 const run = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
 const targets = ref<AutomationRunTargetRecord[]>([])
 const planTasks = ref<Record<string, TaskRun[]>>({})
+const loading = ref(false)
+const error = ref('')
+const stopping = ref(false)
+const retrying = ref(false)
 const runId = computed(() => String(route.params.id))
 const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set(['CERTIFICATE_DRY_RUN', 'CERTIFICATE_DEPLOY', 'CERTIFICATE_ROLLBACK'])
 
 async function load() {
-  const [runRecord, targetRecords] = await Promise.all([
-    getAutomationRun(runId.value),
-    listAutomationRunTargets(runId.value),
-  ])
-  run.value = runRecord
-  targets.value = targetRecords
-  planTasks.value = await loadPlanTasks(targetRecords)
+  loading.value = true
+  error.value = ''
+  try {
+    const [runRecord, targetRecords] = await Promise.all([
+      getAutomationRun(runId.value),
+      listAutomationRunTargets(runId.value),
+    ])
+    run.value = runRecord
+    targets.value = targetRecords
+    planTasks.value = await loadPlanTasks(targetRecords)
+  } catch (cause) {
+    run.value = null
+    targets.value = []
+    planTasks.value = {}
+    error.value = cause instanceof Error ? cause.message : t('automations.errors.loadFailed')
+  } finally {
+    loading.value = false
+  }
 }
 
 async function stop() {
-  await stopAutomationRun(runId.value)
-  await load()
+  stopping.value = true
+  error.value = ''
+  try {
+    await stopAutomationRun(runId.value)
+    await load()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : t('automations.errors.loadFailed')
+  } finally {
+    stopping.value = false
+  }
 }
 
 async function retry() {
-  const next = await retryAutomationRun(runId.value)
-  await router.push(`/automation-runs/${next.id}`)
+  retrying.value = true
+  error.value = ''
+  try {
+    const next = await retryAutomationRun(runId.value)
+    await router.push(`/automation-runs/${next.id}`)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : t('automations.errors.loadFailed')
+  } finally {
+    retrying.value = false
+  }
 }
 
 async function loadPlanTasks(targetRecords: readonly AutomationRunTargetRecord[]): Promise<Record<string, TaskRun[]>> {
@@ -139,15 +170,24 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-onMounted(load)
+onMounted(() => { void load() })
 </script>
 
 <template>
-  <section v-if="run" class="run-detail">
+  <section class="run-detail-page">
+    <GcEmptyState v-if="error && !run" :title="t('automations.errors.loadFailed')" :description="error">
+      <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
+    </GcEmptyState>
+    <div v-else-if="loading && !run" class="run-detail-page__state" role="status" aria-live="polite">{{ t('common.loading') }}</div>
+    <section v-else-if="run" class="run-detail">
     <GcPageHeader :title="run.automationNameSnapshot" :description="t('automations.runDetail.description', { version: run.automationVersion })">
       <template #actions>
-        <button class="gc-button" type="button" @click="stop">{{ t('automations.actions.stop') }}</button>
-        <button class="gc-button gc-button--primary" type="button" @click="retry">{{ t('automations.actions.retryFailed') }}</button>
+        <button class="gc-button" type="button" :disabled="loading || stopping || retrying" @click="stop">
+          {{ stopping ? t('businessPage.processing') : t('automations.actions.stop') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="retrying" @click="retry">
+          {{ retrying ? t('businessPage.processing') : t('automations.actions.retryFailed') }}
+        </button>
       </template>
     </GcPageHeader>
 
@@ -186,7 +226,7 @@ onMounted(load)
       <p>{{ t('automations.runDetail.excludedReasons') }}: {{ JSON.stringify(run.triggerContext.excludedReasons || {}) }}</p>
     </section>
 
-    <div class="run-targets">
+    <div v-if="targets.length" class="run-targets">
       <article v-for="target in targets" :key="target.id">
         <header>
           <div class="run-targets__title">
@@ -222,10 +262,26 @@ onMounted(load)
         </footer>
       </article>
     </div>
+    <GcEmptyState v-else :title="t('automations.history.empty')" :description="t('automations.runDetail.description', { version: run.automationVersion })" />
+    </section>
   </section>
 </template>
 
 <style scoped>
+.run-detail-page {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.run-detail-page__state {
+  padding: var(--gc-space-10) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text-muted);
+  text-align: center;
+}
+
 .run-detail,
 .run-targets {
   display: grid;
@@ -345,13 +401,13 @@ onMounted(load)
   gap: var(--gc-space-1);
 }
 
-@media (max-width: 960px) {
+@media (max-width: 60rem) {
   .run-detail__facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .run-detail__facts {
     grid-template-columns: minmax(0, 1fr);
   }

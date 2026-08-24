@@ -23,7 +23,7 @@ import {
 } from '@/api/modules/automations.api'
 import { listTasks, type TaskRun } from '@/api/modules/tasks.api'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
-import { GcModal, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcCard, GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -167,7 +167,7 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
       label: t('automations.actions.delete'),
       permission: 'automation.delete',
       danger: true,
-      confirmText: 'DELETE',
+      confirmText: t('automations.actions.delete'),
       reloadAfterRun: true,
       hidden: (row) => automationFromRow(row).status === 'deleted',
       run: async (row) => {
@@ -754,7 +754,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       </template>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="detailOpen = false">{{ t('common.close') }}</button>
+        <GcButton @click="detailOpen = false">{{ t('common.close') }}</GcButton>
       </template>
     </GcModal>
 
@@ -772,7 +772,11 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
         </header>
 
         <p v-if="historyLoading" class="automation-history__hint">{{ t('common.loading') }}</p>
-        <p v-else-if="historyItems.length === 0" class="automation-history__hint">{{ t('automations.history.empty') }}</p>
+        <GcEmptyState
+          v-else-if="historyItems.length === 0"
+          :title="t('automations.history.empty')"
+          :description="t('automations.history.description')"
+        />
         <div v-else class="automation-history__list">
           <article v-for="run in historyItems" :key="run.id" class="automation-history__item">
             <div class="automation-history__topline">
@@ -816,8 +820,8 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
                   </div>
                 </div>
                 <div class="automation-history__target-actions">
-                  <button v-if="target.deploymentPlanId" class="gc-button gc-button--sm" type="button" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
-                  <button v-if="target.executionRunId" class="gc-button gc-button--sm" type="button" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
+                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
+                  <GcButton v-if="target.executionRunId" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
                 </div>
               </article>
             </section>
@@ -826,7 +830,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="historyOpen = false">{{ t('common.close') }}</button>
+        <GcButton @click="historyOpen = false">{{ t('common.close') }}</GcButton>
       </template>
     </GcModal>
 
@@ -849,16 +853,18 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
           <small>{{ t('automations.manualRun.help') }}</small>
         </label>
 
-        <section class="gc-card automation-manual-run__options">
-          <label>
-            <input v-model="manualRunStopOnError" type="checkbox" :disabled="manualRunSubmitting" />
-            <span>{{ t('automations.manualRun.stopOnError') }}</span>
-          </label>
-          <label>
-            <input v-model="manualRunDryRun" type="checkbox" :disabled="manualRunSubmitting || !manualRunCanDryRun" />
-            <span>{{ t('automations.manualRun.dryRun') }}</span>
-          </label>
-        </section>
+        <GcCard as="section" class="automation-manual-run__options">
+          <div class="automation-manual-run__option-list">
+            <label>
+              <input v-model="manualRunStopOnError" type="checkbox" :disabled="manualRunSubmitting" />
+              <span>{{ t('automations.manualRun.stopOnError') }}</span>
+            </label>
+            <label>
+              <input v-model="manualRunDryRun" type="checkbox" :disabled="manualRunSubmitting || !manualRunCanDryRun" />
+              <span>{{ t('automations.manualRun.dryRun') }}</span>
+            </label>
+          </div>
+        </GcCard>
 
         <p v-if="manualRunLoading || manualRunPreviewLoading" class="automation-manual-run__hint">{{ t('common.loading') }}</p>
         <p v-else-if="manualRunVersions.length === 0" class="automation-manual-run__hint">{{ t('automations.manualRun.empty') }}</p>
@@ -873,15 +879,15 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="manualRunOpen = false">{{ t('common.cancel') }}</button>
-        <button
-          class="gc-button gc-button--primary"
-          type="button"
+        <GcButton @click="manualRunOpen = false">{{ t('common.cancel') }}</GcButton>
+        <GcButton
+          variant="primary"
+          :loading="manualRunSubmitting"
           :disabled="manualRunLoading || manualRunPreviewLoading || manualRunSubmitting || !manualRunVersionId || !manualRunPreview || manualRunExecutableCount === 0"
           @click="submitManualRun"
         >
           {{ t('automations.manualRun.start') }}
-        </button>
+        </GcButton>
       </template>
     </GcModal>
 
@@ -1093,14 +1099,14 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
   gap: var(--gc-space-3);
 }
 
-.automation-manual-run__options {
+.automation-manual-run__option-list {
   display: flex;
   align-items: center;
   gap: var(--gc-space-4);
   flex-wrap: wrap;
 }
 
-.automation-manual-run__options label {
+.automation-manual-run__option-list label {
   display: inline-flex;
   align-items: center;
   gap: var(--gc-space-2);
@@ -1134,13 +1140,13 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
   margin: 0;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 60rem) {
   .automation-detail__facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 45rem) {
   .automation-detail__facts {
     grid-template-columns: minmax(0, 1fr);
   }

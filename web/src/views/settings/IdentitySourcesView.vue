@@ -404,7 +404,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="identity-sources">
+  <section class="gc-page identity-sources">
     <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar>
         <template #actions>
@@ -656,20 +656,20 @@ onMounted(async () => {
 <style scoped>
 .identity-sources { display: grid; gap: var(--gc-space-5); }
 .identity-sources__table-card { overflow: hidden; padding: 0; }
-.identity-sources__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
-.identity-sources__table-head strong { font-size: 17px; }
+.identity-sources__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: var(--gc-space-5) var(--gc-space-6); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
+.identity-sources__table-head strong { font-size: var(--gc-font-size-md); }
 .identity-sources__table-scroll { overflow-x: auto; }
 .identity-sources__table-footer {
   padding: var(--gc-space-3) var(--gc-space-5);
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-raised);
   font-size: var(--gc-font-size-xs);
   font-weight: 650;
 }
-.identity-sources__table { width: 100%; border-collapse: collapse; min-width: 840px; table-layout: fixed; }
+.identity-sources__table { width: 100%; border-collapse: collapse; min-width: calc(var(--gc-space-10) * 21); table-layout: fixed; }
 .identity-sources__table th,
-.identity-sources__table td { padding: 16px 24px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: middle; }
+.identity-sources__table td { padding: var(--gc-space-4) var(--gc-space-6); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: middle; }
 .identity-sources__table th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-subtle); font-size: var(--gc-font-size-xs); font-weight: 850; letter-spacing: 0; }
 .identity-sources__table td { font-size: var(--gc-font-size-sm); font-weight: 700; overflow-wrap: anywhere; }
 .identity-sources__table th:nth-child(1) { width: 26%; }
@@ -678,16 +678,16 @@ onMounted(async () => {
 .identity-sources__table th:nth-child(4) { width: 14%; }
 .identity-sources__table th:nth-child(5) { width: calc(var(--gc-space-10) * 6); }
 .identity-sources__name-cell,
-.identity-sources__status-cell { display: grid; gap: 7px; }
-.identity-sources__name-cell strong { color: var(--gc-color-text); font-size: 15px; font-weight: 900; }
+.identity-sources__status-cell { display: grid; gap: var(--gc-space-2); }
+.identity-sources__name-cell strong { color: var(--gc-color-text); font-size: var(--gc-font-size-md); font-weight: 900; }
 .identity-sources__enabled-badge {
   width: fit-content;
-  min-height: 26px;
+  min-height: var(--gc-control-height-xs);
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 0 10px;
-  font-size: 12px;
+  border-radius: var(--gc-radius-pill);
+  padding: 0 var(--gc-space-2);
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
   white-space: nowrap;
 }
@@ -705,8 +705,8 @@ onMounted(async () => {
 .identity-sources__row-actions :deep(.gc-button) { flex: 0 0 auto; white-space: nowrap; }
 
 .identity-source-form__message { margin: 0; color: var(--gc-color-success); font-weight: 800; }
-.identity-source-form__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
-.identity-sources__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.identity-source-form__error { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.identity-sources__error { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 
 .identity-source-form { display: grid; gap: var(--gc-space-4); }
 .identity-source-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
@@ -716,9 +716,10 @@ onMounted(async () => {
 .identity-source-form__field input,
 .identity-source-form__field select {
   width: 100%;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-muted);
   outline: none;
@@ -726,15 +727,15 @@ onMounted(async () => {
 .identity-source-form__field input:focus,
 .identity-source-form__field select:focus {
   border-color: var(--gc-color-focus);
-  box-shadow: 0 0 0 4px var(--gc-color-focus-ring);
+  box-shadow: var(--gc-shadow-focus);
   background: var(--gc-color-surface-solid);
 }
 .identity-source-form__field small { color: var(--gc-color-text-muted); font-weight: 650; }
-.identity-source-form__protocols { display: flex; gap: var(--gc-space-3); flex-wrap: wrap; min-height: 42px; align-items: center; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 0 12px; background: var(--gc-color-surface-muted); }
-.identity-source-form__protocol-option { display: inline-flex; align-items: center; gap: 8px; color: var(--gc-color-text); font-weight: 700; }
-.identity-source-form__advanced { display: grid; gap: var(--gc-space-3); border-top: 1px solid var(--gc-color-border); padding-top: var(--gc-space-3); }
+.identity-source-form__protocols { display: flex; gap: var(--gc-space-3); flex-wrap: wrap; min-height: var(--gc-control-height-md); align-items: center; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-control); padding: 0 var(--gc-space-3); background: var(--gc-color-surface-muted); }
+.identity-source-form__protocol-option { display: inline-flex; align-items: center; gap: var(--gc-space-2); color: var(--gc-color-text); font-weight: 700; }
+.identity-source-form__advanced { display: grid; gap: var(--gc-space-3); border-top: var(--gc-border-width-default) solid var(--gc-color-border); padding-top: var(--gc-space-3); }
 .identity-source-form__advanced-toggle { width: fit-content; border: 0; padding: 0; color: var(--gc-color-primary); background: transparent; font-weight: 800; cursor: pointer; }
-.identity-source-form__checkbox { display: inline-flex; align-items: center; gap: 10px; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); font-weight: 750; }
+.identity-source-form__checkbox { display: inline-flex; align-items: center; gap: var(--gc-space-3); color: var(--gc-color-text); font-size: var(--gc-font-size-sm); font-weight: 750; }
 
 .identity-source-test { display: grid; gap: var(--gc-space-4); }
 .identity-source-test__loading,
@@ -768,7 +769,7 @@ onMounted(async () => {
   place-items: center;
   width: var(--gc-space-6);
   height: var(--gc-space-6);
-  border-radius: 50%;
+  border-radius: var(--gc-radius-circle);
   color: var(--gc-color-muted);
   background: var(--gc-color-muted-bg);
   font-size: var(--gc-font-size-lg);
@@ -784,7 +785,7 @@ onMounted(async () => {
 .identity-source-test__check--failed .identity-source-test__status { color: var(--gc-color-danger); }
 .identity-source-test__content p { margin: 0; color: var(--gc-color-text-muted); line-height: 1.55; }
 
-@media (max-width: 860px) {
+@media (max-width: 53.75rem) {
   .identity-source-form__grid { grid-template-columns: 1fr; }
   .identity-source-form__field--full { grid-column: auto; }
 }

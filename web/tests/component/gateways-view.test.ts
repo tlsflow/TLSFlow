@@ -111,6 +111,7 @@ describe('GatewaysView', () => {
     })
     await flushPromises()
 
+    expect(wrapper.find('section.gc-page.gateway-page').exists()).toBe(true)
     await wrapper.findAll('button').find((button) => button.text() === '新增 Gateway Agent')?.trigger('click')
     await flushPromises()
     ;(document.body.querySelector('.gateway-command-modal__primary') as HTMLButtonElement).click()

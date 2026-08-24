@@ -3167,6 +3167,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: 'Certificate and application management',
+        subtitle: 'Manage certificates and see which applications use them',
+        sections: {
+          certificates: {
+            title: 'Certificate management',
+            help: 'View and manage all certificates, including expiry and status.'
+          },
+          applications: {
+            title: 'Application attachments',
+            help: 'See where certificates are used and how often they are updated.'
+          }
+        },
+        stats: {
+          total: 'Certificates',
+          expiring: 'Expiring soon',
+          expired: 'Expired'
+        },
+        versionCount: '{count} versions',
+        fields: {
+          expires: 'Expires at',
+          source: 'Source'
+        },
+        empty: {
+          title: 'No certificates yet',
+          description: 'Import your first certificate to start managing it.'
+        },
+        applications: {
+          description: 'See which applications use the selected certificate and configure automatic updates.',
+          selectPrompt: 'Select a certificate on the left first',
+          selectedCertificate: 'Selected certificate',
+          connectedApps: 'Connected applications ({count})',
+          noApps: 'No applications are connected to this certificate yet.',
+          addApp: 'Add application',
+          automationTitle: 'Automatic update configuration',
+          activeAutomations: 'Active automatic updates',
+          totalAutomations: 'Total automatic update plans',
+          automationDescription: 'Automatic update plans check certificate status regularly and deploy updates to connected applications when needed.'
+        }
       }
     },
     detail: {
@@ -4524,6 +4564,8 @@ export default {
     labels: { rootAuthority: 'Root certificate authority', intermediateAuthority: 'Intermediate certificate authority', intermediateCount: '{count} intermediate authorities', expiresAt: 'Expires {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} application assets', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} certificate authorities', unverifiedCapabilityCount: '{count} capabilities are not verified' },
     availability: { single: 'Single node', activeStandby: 'Active/standby', activeActive: 'Active/active' },
     authModes: { managedSecret: 'Managed credential', clientCertificate: 'Client certificate', none: 'No authentication' },
+    isolationLevels: { standard: 'Standard isolation', strict: 'Strict isolation', regulated: 'Regulated isolation' },
+    custodyModes: { managedSecret: 'Managed secret', localAgent: 'Local agent', deviceLocal: 'Device local', externalKey: 'External key' },
     wizard: { title: 'Add certificate authority', description: 'Choose an issuance model, then configure the backend, CA parameters, and security boundary.', stepsAria: 'CA creation steps', entryStep: 'Choose mode', backendStep: 'Configure backend', parentStep: 'Choose parent CA', authorityStep: 'Configure CA', reviewStep: 'Review', completed: 'Completed', inProgress: 'In progress', pending: 'Pending', entryEyebrow: 'Step one', entryTitle: 'Who should perform issuance for this CA?', entryDescription: 'Choose the deployment boundary that fits the environment. Built-in CAs use the managed execution boundary.', recommended: 'Recommended start', builtinTitle: 'Create CA directly', builtinDescription: 'Use the built-in certificate issuance execution plane in the current GCAC service.', builtinFeature1: 'No additional node deployment', builtinFeature2: 'Fits development and smaller internal environments', managedTitle: 'Deploy GCAC CA Node', managedDescription: 'Isolate CA keys and issuance on a dedicated Windows or Linux machine.', managedFeature1: 'Register with a one-time token', managedFeature2: 'Boundary for future HSM and redundancy', backendEyebrow: 'Issuing backend', builtinBackendTitle: 'Use the GCAC built-in backend', builtinBackendDescription: 'The system automatically creates or reuses the tenant built-in execution backend.', managed_nodeBackendTitle: 'Configure a dedicated GCAC CA Node', managed_nodeBackendDescription: 'Create the node backend and issue a short-lived one-time enrollment token.', builtinAutomaticTitle: 'No separate execution backend required', builtinAutomaticDescription: 'GCAC ensures the built-in issuing execution backend exists and binds it when the CA is created.', authorityEyebrow: 'Certificate authority', rootConfigurationTitle: 'Configure root CA', rootConfigurationDescription: 'Define the new root trust boundary, identity, and intermediate CA topology.', intermediateConfigurationTitle: 'Configure intermediate CA', intermediateConfigurationDescription: 'Choose the parent root and configure the authority used for daily issuance.', builtinSecurityNote: 'The software key is held by GCAC SecretService and is not equivalent to a non-exportable HSM key.', managed_nodeSecurityNote: 'The key resides on a dedicated node; production use requires successful registration and capability verification.', reviewEyebrow: 'Final review', reviewTitle: 'Review the trust boundary and issuance model', reviewDescription: 'Verify the CA identity, trust domain, issuing backend, and security warnings before creation.', enrollmentTitle: 'One-time CA Node enrollment token', enrollmentDescription: 'Use this token only for initial node enrollment and transfer it through a secure channel.', enrollmentExpiresAt: 'Token expires at {time}', builtinProviderName: 'GCAC built-in issuing backend', managedProviderName: 'GCAC dedicated CA Node', rootTitle: 'Root CA', rootDescription: 'Create a new independent root trust anchor, optionally with an initial intermediate CA.', intermediateTitle: 'Intermediate CA', intermediateDescription: 'Add an issuing authority below an existing root CA without creating another trust anchor.', noWarnings: 'No additional topology warnings were detected.' },
     riskTypes: { certificate_fingerprint_reuse: 'Same certificate reused across assets', public_key_reuse: 'Same public key reused across assets' },
     common: { unknown: 'Unknown' }, aria: { tabs: 'Internal CA navigation' }

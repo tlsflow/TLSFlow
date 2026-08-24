@@ -233,6 +233,7 @@ onMounted(loadStatus)
   <section class="gc-page licensing-page">
     <p v-if="message" class="licensing-page__message licensing-page__message--success" role="status">{{ message }}</p>
     <p v-if="errorMessage" class="licensing-page__message licensing-page__message--error" role="alert">{{ errorMessage }}</p>
+    <p v-if="loading" class="licensing-page__message licensing-page__message--loading" role="status">{{ t('common.loading') }}</p>
     <p v-if="status?.integrityStatus === 'tampered'" class="licensing-page__message licensing-page__message--error" role="alert">
       {{ t('settings.licensing.messages.licenseTampered') }}
     </p>
@@ -528,34 +529,35 @@ onMounted(loadStatus)
 .licensing-page__message {
   margin: 0;
   padding: var(--gc-space-3) var(--gc-space-4);
-  border-radius: var(--gc-radius-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
 }
 
-.licensing-page__message--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
-.licensing-page__message--error { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
+.licensing-page__message--success { color: var(--gc-color-success); border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
+.licensing-page__message--error { color: var(--gc-color-danger); border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-bg); }
+.licensing-page__message--loading { color: var(--gc-color-info); border-color: var(--gc-color-info-border); background: var(--gc-color-info-soft); }
 
 .licensing-upgrade-modal {
   position: relative;
   display: grid;
   gap: var(--gc-space-5);
   padding: var(--gc-space-5);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top, color-mix(in srgb, var(--gc-color-info-soft) 86%, transparent) 0%, transparent 20%),
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-solid));
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-gradient-surface);
 }
 
 .licensing-upgrade-modal__close {
   position: absolute;
   top: var(--gc-space-3);
   right: var(--gc-space-3);
-  width: 2rem;
-  height: 2rem;
+  width: var(--gc-control-height-sm);
+  height: var(--gc-control-height-sm);
   border: 0;
   border-radius: var(--gc-radius-sm);
   background: transparent;
   color: var(--gc-color-text-muted);
-  font-size: 1.75rem;
+  font-size: var(--gc-font-size-xl);
   line-height: 1;
 }
 
@@ -570,10 +572,9 @@ onMounted(loadStatus)
 .licensing-upgrade-modal__icon {
   display: grid;
   place-items: center;
-  width: 4rem;
-  height: 4rem;
+  width: var(--gc-space-12);
+  height: var(--gc-space-12);
   color: var(--gc-color-info);
-  filter: drop-shadow(0 12px 18px color-mix(in srgb, var(--gc-color-info) 24%, transparent));
 }
 
 .licensing-upgrade-modal__icon svg {
@@ -583,7 +584,7 @@ onMounted(loadStatus)
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.2;
+  stroke-width: var(--gc-border-width-thick);
 }
 
 .licensing-upgrade-modal__icon svg path:last-child {
@@ -594,8 +595,8 @@ onMounted(loadStatus)
 .licensing-upgrade-modal__hero h2 {
   margin: 0;
   color: var(--gc-color-info);
-  font-size: clamp(2rem, 3vw, 3rem);
-  line-height: 1;
+  font-size: var(--gc-font-size-xl);
+  line-height: var(--gc-line-height-tight);
   font-weight: 800;
 }
 
@@ -623,36 +624,22 @@ onMounted(loadStatus)
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: var(--gc-space-4);
-  min-height: 20rem;
+  min-height: calc(var(--gc-space-12) * 4);
   padding: var(--gc-space-5) var(--gc-space-5) 0;
   overflow: hidden;
   border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-md);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--gc-color-surface-overlay) 96%, transparent), var(--gc-color-surface-subtle));
-}
-
-.licensing-upgrade-modal__card::after {
-  content: '';
-  position: absolute;
-  right: -1rem;
-  bottom: -1rem;
-  width: 8rem;
-  height: 8rem;
-  opacity: 0.08;
-  background: linear-gradient(135deg, var(--gc-color-text), transparent 62%);
-  clip-path: polygon(50% 0%, 62% 21%, 85% 18%, 74% 40%, 100% 58%, 72% 64%, 66% 100%, 48% 76%, 24% 100%, 27% 64%, 0 58%, 26% 40%, 15% 18%, 38% 21%);
+  background: var(--gc-gradient-surface);
 }
 
 .licensing-upgrade-modal__card[data-current='true'] {
   border-color: var(--gc-color-info);
-  background:
-    linear-gradient(180deg, var(--gc-color-info-soft), color-mix(in srgb, var(--gc-color-surface-overlay) 80%, transparent));
+  background: var(--gc-color-info-soft);
   box-shadow: var(--gc-shadow-focus);
 }
 
 .licensing-upgrade-modal__card[data-recommended='true'] {
-  border-color: color-mix(in srgb, var(--gc-color-info) 60%, var(--gc-color-border-muted));
+  border-color: var(--gc-color-info-border);
 }
 
 .licensing-upgrade-modal__card-head {
@@ -709,7 +696,7 @@ onMounted(loadStatus)
   margin: 0;
   min-height: var(--gc-control-height-md);
   padding: var(--gc-space-2) 0;
-  border-top: 1px solid var(--gc-color-border-muted);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   color: var(--gc-color-info);
   font-size: var(--gc-font-size-md);
   font-weight: 900;
@@ -725,13 +712,13 @@ onMounted(loadStatus)
   padding-top: var(--gc-space-2);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 68.75rem) {
   .licensing-upgrade-modal__cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 50rem) {
   .licensing-page__summary-head,
   .licensing-page__panel-head {
     display: grid;

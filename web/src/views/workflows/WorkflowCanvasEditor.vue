@@ -822,8 +822,8 @@ function firstNumber(...values: unknown[]): number | undefined {
               <input :value="String(selectedNode.config.connectionRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'connectionRef', label: t('workflows.canvasEditor.fields.connectionVariable'), kind: 'text' }, $event)" />
             </label>
             <label>
-              <span>Method</span>
-              <select :value="String(selectedNode.config.method ?? 'GET')" :disabled="!canEdit" @change="updateField({ key: 'method', label: 'Method', kind: 'select' }, $event)">
+              <span>{{ t('notifications.fields.webhookMethod') }}</span>
+              <select :value="String(selectedNode.config.method ?? 'GET')" :disabled="!canEdit" @change="updateField({ key: 'method', label: t('notifications.fields.webhookMethod'), kind: 'select' }, $event)">
                 <option value="GET">GET</option>
                 <option value="POST">POST</option>
                 <option value="PUT">PUT</option>
@@ -832,8 +832,8 @@ function firstNumber(...values: unknown[]): number | undefined {
               </select>
             </label>
             <label>
-              <span>URL</span>
-              <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: 'URL', kind: 'text' }, $event)" />
+              <span>{{ t('certificates.fields.verifyUrl') }}</span>
+              <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: t('certificates.fields.verifyUrl'), kind: 'text' }, $event)" />
             </label>
             <div class="workflow-canvas-editor__property-group">
               <strong>{{ t('workflows.canvasEditor.sections.httpAuth') }}</strong>
@@ -887,8 +887,8 @@ function firstNumber(...values: unknown[]): number | undefined {
               </label>
             </div>
             <label>
-              <span>Body</span>
-              <textarea :value="String(selectedNode.config.body ?? '')" :disabled="!canEdit" rows="4" @input="updateField({ key: 'body', label: 'Body', kind: 'textarea' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.contentRef') }}</span>
+              <textarea :value="String(selectedNode.config.body ?? '')" :disabled="!canEdit" rows="4" @input="updateField({ key: 'body', label: t('workflows.canvasEditor.fields.contentRef'), kind: 'textarea' }, $event)" />
             </label>
             <label>
               <span>{{ t('workflows.canvasEditor.fields.timeoutSeconds') }}</span>
@@ -1132,8 +1132,8 @@ function firstNumber(...values: unknown[]): number | undefined {
           <ul>
             <li>
               <strong>{{ String(stepTestStepResult?.name ?? stepTestStepName) }}</strong>
-              <span>{{ String(stepTestStepResult?.type ?? '-') }} / {{ String(stepTestStepResult?.status ?? '-') }} / attempts {{ String(stepTestStepResult?.attempts ?? '-') }}</span>
-              <small>plannedOnly: {{ String(stepTestResult?.plannedOnly ?? false) }} / mode: {{ String(stepTestResult?.mode ?? 'mock') }}</small>
+              <span>{{ String(stepTestStepResult?.type ?? '-') }} / {{ String(stepTestStepResult?.status ?? '-') }} / {{ t('tasks.sections.attempts') }} {{ String(stepTestStepResult?.attempts ?? '-') }}</span>
+              <small>{{ t('workflows.canvasEditor.test.executionPlan') }}: {{ stepTestResult?.plannedOnly ? t('workflows.canvasModel.options.boolean.yes') : t('workflows.canvasModel.options.boolean.no') }} / {{ t('executions.fields.runType') }}: {{ String(stepTestResult?.mode ?? 'mock') }}</small>
             </li>
           </ul>
           <div v-if="stepTestErrorDetail" class="workflow-canvas-editor__runtime-error">
@@ -1226,16 +1226,16 @@ function firstNumber(...values: unknown[]): number | undefined {
 <style scoped>
 .workflow-canvas-editor {
   display: grid;
-  gap: 12px;
-  min-height: 640px;
+  gap: var(--gc-space-3);
+  min-height: 40rem;
   color: var(--gc-color-text);
 }
 
 .workflow-canvas-editor__toolbar,
 .workflow-canvas-editor__main,
 .workflow-canvas-editor__bottom {
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
 }
 
@@ -1243,13 +1243,13 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-2) var(--gc-space-3);
 }
 
 .workflow-canvas-editor__toolbar > div:first-child {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-canvas-editor__toolbar span,
@@ -1257,32 +1257,32 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__properties p,
 .workflow-canvas-editor__panel small {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.45;
 }
 
 .workflow-canvas-editor__toolbar-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--gc-space-2);
   justify-content: flex-end;
 }
 
 .workflow-canvas-editor__message {
   margin: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--gc-color-primary-border);
-  border-radius: 8px;
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-selected);
   color: var(--gc-color-primary-strong);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
 .workflow-canvas-editor__main {
   display: grid;
-  grid-template-columns: 220px minmax(420px, 1fr) 280px;
-  min-height: 430px;
+  grid-template-columns: 13.75rem minmax(26.25rem, 1fr) 17.5rem;
+  min-height: 26.875rem;
   min-block-size: 0;
   overflow: hidden;
 }
@@ -1291,34 +1291,34 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__properties {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: var(--gc-space-2);
   min-block-size: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px;
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__palette {
-  border-right: 1px solid var(--gc-color-border-muted);
+  border-right: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .workflow-canvas-editor__properties {
-  border-left: 1px solid var(--gc-color-border-muted);
+  border-left: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .workflow-canvas-editor h3 {
-  margin: 0 0 4px;
-  font-size: 13px;
+  margin: 0 0 var(--gc-space-1);
+  font-size: var(--gc-font-size-sm);
 }
 
 .workflow-canvas-editor__palette-item {
   display: grid;
-  gap: 3px;
+  gap: var(--gc-space-1);
   width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
   text-align: left;
   cursor: pointer;
@@ -1331,28 +1331,28 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__stage-picker {
   display: grid;
-  gap: 4px;
-  padding: 9px 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
 }
 
 .workflow-canvas-editor__stage-picker span {
   color: var(--gc-color-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__stage-picker select {
   width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
-  padding: 7px 9px;
+  min-height: var(--gc-control-height-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__surface-wrap {
@@ -1361,22 +1361,22 @@ function firstNumber(...values: unknown[]): number | undefined {
   min-width: 0;
   overflow: auto;
   background:
-    linear-gradient(var(--gc-color-surface-subtle) 1px, transparent 1px),
-    linear-gradient(90deg, var(--gc-color-surface-subtle) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(var(--gc-color-surface-subtle) var(--gc-space-hairline), transparent var(--gc-space-hairline)),
+    linear-gradient(90deg, var(--gc-color-surface-subtle) var(--gc-space-hairline), transparent var(--gc-space-hairline));
+  background-size: calc(var(--gc-space-12) / 2) calc(var(--gc-space-12) / 2);
 }
 
 .workflow-canvas-editor__properties input,
 .workflow-canvas-editor__properties select,
 .workflow-canvas-editor__properties textarea {
   width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
-  padding: 7px 9px;
+  min-height: var(--gc-control-height-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__surface {
@@ -1393,13 +1393,13 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__stage-lane {
   position: absolute;
-  left: 24px;
-  right: 24px;
+  left: calc(var(--gc-space-12) / 2);
+  right: calc(var(--gc-space-12) / 2);
   display: grid;
   align-content: start;
-  gap: 4px;
-  padding: 12px 14px 0;
-  border-top: 2px dashed var(--gc-color-border-muted);
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3) var(--gc-space-3) 0;
+  border-top: var(--gc-border-width-thick) dashed var(--gc-color-border-muted);
   background: var(--gc-color-surface-hover);
 }
 
@@ -1407,32 +1407,32 @@ function firstNumber(...values: unknown[]): number | undefined {
   content: '';
   position: absolute;
   left: 50%;
-  top: 50px;
+  top: calc(var(--gc-control-height-md) + var(--gc-space-2));
   bottom: 0;
-  width: 2px;
+  width: var(--gc-border-width-thick);
   background: var(--gc-color-muted-bg);
   transform: translateX(-50%);
 }
 
 .workflow-canvas-editor__stage-lane strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 900;
 }
 
 .workflow-canvas-editor__stage-lane span {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.4;
 }
 
 .workflow-canvas-editor__stage-lane small {
   width: fit-content;
-  border-radius: 999px;
-  padding: 2px 7px;
+  border-radius: var(--gc-radius-full);
+  padding: var(--gc-space-hairline) var(--gc-space-2);
   background: var(--gc-color-muted-bg);
   color: var(--gc-color-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 900;
 }
 
@@ -1445,7 +1445,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__edges line {
   stroke: var(--gc-color-text-soft);
-  stroke-width: 2;
+  stroke-width: var(--gc-border-width-thick);
 }
 
 .workflow-canvas-editor__edges line[data-edge-type='failure'] {
@@ -1462,86 +1462,86 @@ function firstNumber(...values: unknown[]): number | undefined {
   position: absolute;
   z-index: 2;
   display: grid;
-  gap: 4px;
-  width: 220px;
-  min-height: 82px;
-  padding: 10px 12px;
-  border: 2px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-1);
+  width: 13.75rem;
+  min-height: 5.125rem;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-thick) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
   text-align: left;
-  box-shadow: 0 10px 28px var(--gc-color-border-soft);
+  box-shadow: var(--gc-shadow-md);
   cursor: pointer;
 }
 
 .workflow-canvas-editor__node--selected {
   border-color: var(--gc-color-primary-strong);
-  box-shadow: 0 0 0 4px var(--gc-color-primary-soft), 0 10px 28px var(--gc-color-border);
+  box-shadow: var(--gc-shadow-focus), var(--gc-shadow-md);
 }
 
 .workflow-canvas-editor__node span {
   color: var(--gc-color-primary-strong);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__node strong {
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   overflow-wrap: anywhere;
 }
 
 .workflow-canvas-editor__node small {
   color: var(--gc-color-text-soft);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
 }
 
 .workflow-canvas-editor__node em {
   width: fit-content;
-  border-radius: 999px;
-  padding: 2px 7px;
+  border-radius: var(--gc-radius-full);
+  padding: var(--gc-space-hairline) var(--gc-space-2);
   background: var(--gc-color-surface-selected);
   color: var(--gc-color-primary-strong);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-style: normal;
   font-weight: 900;
 }
 
 .workflow-canvas-editor__properties label {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-canvas-editor__properties label span {
   color: var(--gc-color-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__property-group {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__property-group > strong {
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__property-hint {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.4;
 }
 
 .workflow-canvas-editor__property-empty {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.45;
 }
 
@@ -1556,19 +1556,19 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__test-actions {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__test-hint {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.45;
 }
 
 .workflow-canvas-editor__bottom {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 180px;
+  min-height: 11.25rem;
   overflow: hidden;
 }
 
@@ -1580,9 +1580,9 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--gc-color-border-muted);
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   background: var(--gc-color-surface-hover);
 }
 
@@ -1594,18 +1594,18 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-canvas-editor__tabs button,
 .workflow-canvas-editor__bottom-toggle {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   cursor: pointer;
 }
@@ -1614,7 +1614,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
   background: var(--gc-color-surface-subtle);
 }
 
@@ -1624,15 +1624,15 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__bottom-toggle-icon {
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: translateY(-2px) rotate(45deg);
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-right: var(--gc-border-width-thick) solid currentColor;
+  border-bottom: var(--gc-border-width-thick) solid currentColor;
+  transform: translateY(calc(var(--gc-border-width-thick) * -1)) rotate(45deg);
 }
 
 .workflow-canvas-editor__bottom-toggle[aria-expanded='false'] .workflow-canvas-editor__bottom-toggle-icon {
-  transform: translateY(2px) rotate(225deg);
+  transform: translateY(var(--gc-border-width-thick)) rotate(225deg);
 }
 
 .workflow-canvas-editor__tabs button[data-active='true'] {
@@ -1642,38 +1642,38 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__panel {
-  max-height: 220px;
+  max-height: 13.75rem;
   overflow: auto;
-  padding: 10px 12px;
+  padding: var(--gc-space-2) var(--gc-space-3);
 }
 
 .workflow-canvas-editor__panel p {
   margin: 0;
   color: var(--gc-color-success);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__dsl-panel {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
   max-height: none;
 }
 
 .workflow-canvas-editor__dsl-actions {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__dsl-actions strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .workflow-canvas-editor__dsl-actions-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--gc-space-2);
   align-items: center;
 }
 
@@ -1681,25 +1681,25 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-hover);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
 .workflow-canvas-editor__dsl-file input {
-  max-width: 220px;
-  font-size: 12px;
+  max-width: 13.75rem;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__dsl-hint,
 .workflow-canvas-editor__dsl-message {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
@@ -1717,64 +1717,64 @@ function firstNumber(...values: unknown[]): number | undefined {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--gc-space-2);
+  margin-bottom: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__variables-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--gc-space-2);
+  margin-bottom: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__variables-header:not(:first-child) {
-  margin-top: 12px;
+  margin-top: var(--gc-space-3);
 }
 
 .workflow-canvas-editor__variables-header strong {
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__variable-editor-list {
-  margin-bottom: 10px;
+  margin-bottom: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__variable-editor {
-  grid-template-columns: minmax(120px, 1.2fr) minmax(100px, 0.8fr) minmax(150px, 1fr) auto auto minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(7.5rem, 1.2fr) minmax(6.25rem, 0.8fr) minmax(9.375rem, 1fr) auto auto minmax(9.375rem, 1fr) auto;
   align-items: end;
 }
 
 .workflow-canvas-editor__variable-editor label {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-canvas-editor__variable-editor label span {
   color: var(--gc-color-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__variable-editor input,
 .workflow-canvas-editor__variable-editor select {
   width: 100%;
-  min-height: 32px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
-  padding: 6px 8px;
+  min-height: 2rem;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__variable-check {
   grid-template-columns: auto auto;
   align-items: center;
   align-content: center;
-  min-height: 32px;
+  min-height: 2rem;
 }
 
 .workflow-canvas-editor__variable-check input {
@@ -1784,35 +1784,35 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__runtime-header span {
   color: var(--gc-color-primary-strong);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-canvas-editor__runtime-inputs {
   display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--gc-space-2);
+  margin-bottom: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__runtime-inputs > strong {
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__runtime-form {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gc-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr));
 }
 
 .workflow-canvas-editor__runtime-form label {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-canvas-editor__runtime-form label span {
   color: var(--gc-color-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
@@ -1820,13 +1820,13 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__runtime-form select,
 .workflow-canvas-editor__runtime-form textarea {
   width: 100%;
-  min-height: 32px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
-  padding: 6px 8px;
+  min-height: 2rem;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__runtime-form input[type='checkbox'] {
@@ -1836,75 +1836,75 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__runtime-empty {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
 .workflow-canvas-editor__runtime-result {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__runtime-error {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-danger-border);
-  border-left: 4px solid var(--gc-color-danger);
-  border-radius: 8px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-left: calc(var(--gc-border-width-thick) * 2) solid var(--gc-color-danger);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-danger-soft);
 }
 
 .workflow-canvas-editor__runtime-error > strong {
   color: var(--gc-color-danger);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__runtime-error dl {
   display: grid;
-  gap: 6px;
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
 .workflow-canvas-editor__runtime-error dl > div {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__runtime-error dt {
   color: var(--gc-color-danger);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 900;
 }
 
 .workflow-canvas-editor__runtime-error dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
 }
 
 .workflow-canvas-editor__runtime-summary {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-primary-border);
-  border-left: 4px solid var(--gc-color-primary-strong);
-  border-radius: 8px;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-left: calc(var(--gc-border-width-thick) * 2) solid var(--gc-color-primary-strong);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-selected);
 }
 
 .workflow-canvas-editor__runtime-summary > div {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: var(--gc-space-2);
 }
 
 .workflow-canvas-editor__runtime-summary dt {
   color: var(--gc-color-primary-strong);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 900;
 }
 
@@ -1912,12 +1912,12 @@ function firstNumber(...values: unknown[]): number | undefined {
   min-width: 0;
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
 }
 
 .workflow-canvas-editor__runtime-summary pre {
-  max-height: 180px;
+  max-height: 11.25rem;
   margin: 0;
   white-space: pre-wrap;
   overflow: auto;
@@ -1925,23 +1925,23 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__runtime-result > strong {
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__runtime-result pre {
-  max-height: 180px;
+  max-height: 11.25rem;
   margin: 0;
-  padding: 10px;
+  padding: var(--gc-space-2);
   overflow: auto;
-  border-radius: 8px;
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-text);
   color: var(--gc-color-info-border);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__panel ul {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1949,11 +1949,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__panel li {
   display: grid;
-  gap: 3px;
-  padding: 8px 10px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-left: 4px solid var(--gc-color-text-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-left: calc(var(--gc-border-width-thick) * 2) solid var(--gc-color-text-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
 }
 
@@ -1966,34 +1966,34 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__panel li span {
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__dsl {
-  max-height: 240px;
+  max-height: 15rem;
   margin: 0;
-  padding: 12px;
+  padding: var(--gc-space-3);
   overflow: auto;
   background: var(--gc-color-text);
   color: var(--gc-color-info-border);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .workflow-canvas-editor__dsl-editor {
   width: 100%;
-  min-height: 280px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
-  padding: 10px 12px;
+  min-height: 17.5rem;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
   resize: vertical;
   background: var(--gc-color-text);
   color: var(--gc-color-muted-bg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 73.75rem) {
   .workflow-canvas-editor__main {
     grid-template-columns: 1fr;
   }
@@ -2001,7 +2001,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   .workflow-canvas-editor__palette,
   .workflow-canvas-editor__properties {
     border: 0;
-    border-bottom: 1px solid var(--gc-color-border-muted);
+    border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-muted);
     overflow-y: visible;
   }
 }

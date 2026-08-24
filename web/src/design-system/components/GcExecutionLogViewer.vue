@@ -138,14 +138,14 @@ const visibleLines = computed(() => {
 .gc-log-viewer__mode {
   color: var(--gc-color-warning);
   background: var(--gc-color-warning-bg);
-  border-radius: 999px;
-  padding: 2px 8px;
+  border-radius: var(--gc-radius-full);
+  padding: var(--gc-border-width-thick) var(--gc-space-2);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
 .gc-log-viewer__toggle {
-  min-height: 32px;
+  min-height: var(--gc-space-8);
 }
 
 .gc-log-viewer__hint,
@@ -162,7 +162,7 @@ const visibleLines = computed(() => {
 }
 
 .gc-log-viewer__step {
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-md);
   padding: var(--gc-space-3);
   min-width: 0;
@@ -190,15 +190,15 @@ const visibleLines = computed(() => {
 
 .gc-log-viewer input,
 .gc-log-viewer select {
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-sm);
-  padding: 6px 8px;
+  padding: var(--gc-space-compact) var(--gc-space-2);
   min-width: 0;
 }
 
 pre {
   margin: 0;
-  max-height: 320px;
+  max-height: var(--gc-size-log-viewer-max-height);
   overflow: auto;
   background: var(--gc-color-code-bg);
   color: var(--gc-color-muted-bg);

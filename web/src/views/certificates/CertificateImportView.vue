@@ -79,7 +79,9 @@ function cancelImport() {
       :description="t('certificates.import.description')"
     >
       <template #actions>
-        <RouterLink class="gc-button" to="/certificates">{{ t('certificates.import.backList') }}</RouterLink>
+        <RouterLink class="gc-button gc-button--secondary certificate-import-page__back" to="/certificates">
+          {{ t('certificates.import.backList') }}
+        </RouterLink>
       </template>
     </GcPageHeader>
 

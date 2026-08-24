@@ -177,7 +177,7 @@ describe('WorkflowCanvasEditor', () => {
       }),
     }))
     expect(wrapper.text()).toContain('模拟运行完成。')
-    expect(wrapper.text()).toContain('http / success / attempts 1')
+    expect(wrapper.text()).toContain('http / success / 尝试记录 1')
     expect(wrapper.text()).toContain('017.CURL_HTTP')
   })
 
@@ -293,7 +293,7 @@ describe('WorkflowCanvasEditor', () => {
     const sshStep = payload.content.steps.find((step: Record<string, any>) => step.type === 'ssh')
     expect(sshStep?.ssh?.connectionRef).toBe('targetSsh')
     expect(wrapper.text()).toContain('真实试跑完成。')
-    expect(wrapper.text()).toContain('ssh / success / attempts 1')
+    expect(wrapper.text()).toContain('ssh / success / 尝试记录 1')
     expect(wrapper.text()).toContain('退出码')
     expect(wrapper.text()).toContain('real ssh ok')
   })
@@ -361,7 +361,7 @@ describe('WorkflowCanvasEditor', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('真实试跑失败。')
-    expect(wrapper.text()).toContain('ssh / failed / attempts 1')
+    expect(wrapper.text()).toContain('ssh / failed / 尝试记录 1')
     expect(wrapper.text()).toContain('SSH 连接失败')
     expect(wrapper.text()).toContain('失败详情')
     expect(wrapper.text()).toContain('SSH_CONNECT_FAILED')

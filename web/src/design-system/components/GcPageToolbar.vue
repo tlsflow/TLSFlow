@@ -45,7 +45,7 @@
   min-width: 0;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .gc-page-toolbar__actions,
   .gc-page-toolbar__primary,
   .gc-page-toolbar__tabs {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { GcButton, GcCard, GcSelectionCard, GcStatusTag } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type {
   CertificateImportDraft,
@@ -181,7 +182,7 @@ function roleLabel(role: 'leaf' | 'intermediate' | 'root') {
 
 function formatDateTime(value: string | undefined) {
   if (!value) return t('agents.common.none')
-  return formatBrowserLocalTime(value) || value
+  return formatBrowserLocalTime(value) || t('agents.common.none')
 }
 
 function submitValidation() {
@@ -200,15 +201,21 @@ function cancelImport() {
 <template>
   <section class="certificate-import-wizard">
     <ol class="certificate-import-wizard__steps" :aria-label="t('certificates.importForm.steps.ariaLabel')">
-      <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }">1. {{ t('certificates.importForm.steps.formatAndMethod') }}</li>
-      <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }">2. {{ t('certificates.importForm.steps.materials') }}</li>
-      <li :class="{ 'is-active': currentStep === 3 }">3. {{ t('certificates.importForm.steps.validateAndImport') }}</li>
+      <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }" :aria-current="currentStep === 1 ? 'step' : undefined">
+        1. {{ t('certificates.importForm.steps.formatAndMethod') }}
+      </li>
+      <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }" :aria-current="currentStep === 2 ? 'step' : undefined">
+        2. {{ t('certificates.importForm.steps.materials') }}
+      </li>
+      <li :class="{ 'is-active': currentStep === 3 }" :aria-current="currentStep === 3 ? 'step' : undefined">
+        3. {{ t('certificates.importForm.steps.validateAndImport') }}
+      </li>
     </ol>
 
-    <section v-if="currentStep === 1" class="gc-card gc-form-panel certificate-import-wizard__panel">
-      <header class="gc-form-header certificate-import-wizard__header">
+    <section v-if="currentStep === 1" class="certificate-import-wizard__panel">
+      <header class="certificate-import-wizard__header">
         <div>
-          <h3>{{ t('certificates.importForm.formatIntro.title') }}</h3>
+          <h2>{{ t('certificates.importForm.formatIntro.title') }}</h2>
           <p>{{ t('certificates.importForm.formatIntro.description') }}</p>
         </div>
       </header>
@@ -217,48 +224,56 @@ function cancelImport() {
         <section class="certificate-import-wizard__choice-group">
           <span class="certificate-import-wizard__choice-label">{{ t('certificates.importForm.labels.importType') }}</span>
           <div class="certificate-import-wizard__cards">
-            <button
+            <GcSelectionCard
               v-for="format in certificateFormatOptions"
               :key="format.key"
-              class="gc-card certificate-import-wizard__card"
-              :class="{ 'is-active': draft.format === format.key, 'is-disabled': !format.supported }"
-              type="button"
-              @click="updateFormat(format.key)"
+              class="certificate-import-wizard__selection"
+              :title="format.label"
+              :description="format.hint"
+              :model-value="draft.format === format.key"
+              :disabled="!format.supported"
+              @select="updateFormat(format.key)"
             >
-              <strong>{{ format.label }}</strong>
-              <span>{{ format.supported ? t('certificates.importForm.status.supported') : t('certificates.importForm.status.unsupported') }}</span>
-              <p>{{ format.hint }}</p>
-            </button>
+              <GcStatusTag
+                :status="format.supported ? 'SUPPORTED' : 'UNSUPPORTED'"
+                :label="format.supported ? t('certificates.importForm.status.supported') : t('certificates.importForm.status.unsupported')"
+                :tone="format.supported ? 'success' : 'muted'"
+              />
+            </GcSelectionCard>
           </div>
         </section>
 
         <section class="certificate-import-wizard__choice-group">
           <span class="certificate-import-wizard__choice-label">{{ t('certificates.importForm.labels.importMethod') }}</span>
           <div class="certificate-import-wizard__cards certificate-import-wizard__cards--compact">
-            <button
+            <GcSelectionCard
               v-for="method in importMethodOptions"
               :key="method.key"
-              class="gc-card certificate-import-wizard__card"
-              :class="{ 'is-active': effectiveMethod === method.key, 'is-disabled': draft.format === 'PFX' && method.key !== 'file' }"
-              type="button"
+              class="certificate-import-wizard__selection"
+              :title="method.label"
+              :description="draft.format === 'PFX' && method.key !== 'file' ? t('certificates.importForm.hints.pfxFileOnly') : method.hint"
+              :model-value="effectiveMethod === method.key"
               :disabled="draft.format === 'PFX' && method.key !== 'file'"
-              @click="updateMethod(method.key)"
+              @select="updateMethod(method.key)"
             >
-              <strong>{{ method.label }}</strong>
-              <p>{{ draft.format === 'PFX' && method.key !== 'file' ? t('certificates.importForm.hints.pfxFileOnly') : method.hint }}</p>
-            </button>
+              <GcStatusTag
+                :status="draft.format === 'PFX' && method.key !== 'file' ? 'UNSUPPORTED' : 'READY'"
+                :label="draft.format === 'PFX' && method.key !== 'file' ? t('certificates.importForm.status.unsupported') : t('certificates.importForm.status.supported')"
+                :tone="draft.format === 'PFX' && method.key !== 'file' ? 'muted' : 'info'"
+              />
+            </GcSelectionCard>
           </div>
         </section>
       </div>
     </section>
 
-    <section v-else-if="currentStep === 2" class="gc-card gc-form-panel certificate-import-wizard__panel">
-      <header class="gc-form-header certificate-import-wizard__header">
-        <div>
-          <h3>{{ methodSpecificTitle }}</h3>
+    <GcCard v-else-if="currentStep === 2" as="section" class="certificate-import-wizard__material-card">
+      <template #header>
+        <div class="certificate-import-wizard__header">
+          <h2>{{ methodSpecificTitle }}</h2>
           <p>{{ chainCheckHint }}</p>
         </div>
-      </header>
+      </template>
 
       <form class="certificate-import-wizard__form" @submit.prevent="nextStep">
         <label v-if="draft.format === 'PEM' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
@@ -327,48 +342,67 @@ function cancelImport() {
           </label>
         </div>
       </form>
-    </section>
+    </GcCard>
 
-    <section v-else class="gc-card gc-form-panel certificate-import-wizard__panel">
-      <header class="gc-form-header certificate-import-wizard__header">
+    <section v-else class="certificate-import-wizard__panel certificate-import-wizard__panel--validation">
+      <header class="certificate-import-wizard__header">
         <div>
-          <h3>{{ t('certificates.importForm.validation.title') }}</h3>
+          <h2>{{ t('certificates.importForm.validation.title') }}</h2>
           <p>{{ t('certificates.importForm.validation.description') }}</p>
         </div>
       </header>
 
-      <div class="certificate-import-wizard__summary">
-        <div><span>{{ t('certificates.importForm.labels.importType') }}</span><strong>{{ selectedFormat.label }}</strong></div>
-        <div><span>{{ t('certificates.importForm.labels.importMethod') }}</span><strong>{{ selectedMethod.label }}</strong></div>
-        <div><span>{{ t('certificates.importForm.labels.materialStatus') }}</span><strong>{{ materialReady ? t('certificates.importForm.status.completed') : t('certificates.importForm.status.incomplete') }}</strong></div>
-      </div>
+      <dl class="certificate-import-wizard__summary">
+        <div>
+          <dt>{{ t('certificates.importForm.labels.importType') }}</dt>
+          <dd>{{ selectedFormat.label }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('certificates.importForm.labels.importMethod') }}</dt>
+          <dd>{{ selectedMethod.label }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('certificates.importForm.labels.materialStatus') }}</dt>
+          <dd>
+            <GcStatusTag
+              :status="materialReady ? 'COMPLETED' : 'INCOMPLETE'"
+              :label="materialReady ? t('certificates.importForm.status.completed') : t('certificates.importForm.status.incomplete')"
+              :tone="materialReady ? 'success' : 'warning'"
+            />
+          </dd>
+        </div>
+      </dl>
 
       <div class="certificate-import-wizard__validate-actions">
-        <button class="gc-button" type="button" :disabled="!materialReady || validating || loading" @click="submitValidation">
+        <GcButton variant="primary" :disabled="!materialReady || validating || loading" :loading="validating" @click="submitValidation">
           {{ validating ? t('certificates.importForm.actions.validating') : t('certificates.importForm.actions.validate') }}
-        </button>
+        </GcButton>
       </div>
 
       <div v-if="validationResult" class="certificate-import-wizard__report">
-        <div class="certificate-import-wizard__status" :class="{ 'is-success': validationResult.importable, 'is-fail': !validationResult.importable }">
-          {{ validationResult.importable ? t('certificates.importForm.validation.passed') : t('certificates.importForm.validation.failed') }}
+        <div class="certificate-import-wizard__status">
+          <GcStatusTag
+            :status="validationResult.importable ? 'SUCCESS' : 'FAILED'"
+            :label="validationResult.importable ? t('certificates.importForm.validation.passed') : t('certificates.importForm.validation.failed')"
+            :tone="validationResult.importable ? 'success' : 'danger'"
+          />
         </div>
 
         <div class="certificate-import-wizard__report-grid">
-          <article class="certificate-import-wizard__report-card">
-            <h4>{{ t('certificates.importForm.report.certificateSummary') }}</h4>
+          <GcCard as="article" class="certificate-import-wizard__report-card">
+            <template #header><h3>{{ t('certificates.importForm.report.certificateSummary') }}</h3></template>
             <dl>
-              <div><dt>CN</dt><dd>{{ validationResult.certificate.commonName || t('agents.common.none') }}</dd></div>
-              <div><dt>SAN</dt><dd>{{ sanText }}</dd></div>
+              <div><dt>{{ t('certificates.detailPanel.fields.commonName') }}</dt><dd>{{ validationResult.certificate.commonName || t('agents.common.none') }}</dd></div>
+              <div><dt>{{ t('certificates.detailPanel.fields.san') }}</dt><dd>{{ sanText }}</dd></div>
               <div><dt>{{ t('certificates.importForm.report.serialNumber') }}</dt><dd>{{ validationResult.certificate.serialNumber }}</dd></div>
               <div><dt>{{ t('certificates.importForm.report.validity') }}</dt><dd>{{ t('certificates.importForm.report.validityRange', { start: formatDateTime(validationResult.certificate.notBefore), end: formatDateTime(validationResult.certificate.notAfter) }) }}</dd></div>
               <div><dt>{{ t('certificates.importForm.report.issuer') }}</dt><dd>{{ issuerText }}</dd></div>
               <div><dt>{{ t('certificates.importForm.report.subject') }}</dt><dd>{{ subjectText }}</dd></div>
             </dl>
-          </article>
+          </GcCard>
 
-          <article class="certificate-import-wizard__report-card">
-            <h4>{{ t('certificates.importForm.report.chainValidation') }}</h4>
+          <GcCard as="article" class="certificate-import-wizard__report-card">
+            <template #header><h3>{{ t('certificates.importForm.report.chainValidation') }}</h3></template>
             <dl>
               <div><dt>{{ t('certificates.importForm.report.chainStatus') }}</dt><dd>{{ validationResult.chain.status }}</dd></div>
               <div><dt>{{ t('certificates.importForm.report.certificateCount') }}</dt><dd>{{ validationResult.chain.certificateCount }}</dd></div>
@@ -386,16 +420,25 @@ function cancelImport() {
             <ul v-if="validationResult.chain.diagnostics.length" class="certificate-import-wizard__list">
               <li v-for="item in validationResult.chain.diagnostics" :key="item">{{ item }}</li>
             </ul>
-          </article>
+          </GcCard>
 
-          <article class="certificate-import-wizard__report-card">
-            <h4>{{ t('certificates.importForm.report.privateKeyMatch') }}</h4>
+          <GcCard as="article" class="certificate-import-wizard__report-card">
+            <template #header><h3>{{ t('certificates.importForm.report.privateKeyMatch') }}</h3></template>
             <dl>
               <div><dt>{{ t('certificates.importForm.report.provided') }}</dt><dd>{{ validationResult.privateKey.provided ? t('agents.common.yes') : t('agents.common.no') }}</dd></div>
-              <div><dt>{{ t('certificates.importForm.report.matchResult') }}</dt><dd>{{ validationResult.privateKey.matched ? t('certificates.importForm.status.matched') : t('certificates.importForm.status.unmatched') }}</dd></div>
+              <div>
+                <dt>{{ t('certificates.importForm.report.matchResult') }}</dt>
+                <dd>
+                  <GcStatusTag
+                    :status="validationResult.privateKey.matched ? 'MATCHED' : 'UNMATCHED'"
+                    :label="validationResult.privateKey.matched ? t('certificates.importForm.status.matched') : t('certificates.importForm.status.unmatched')"
+                    :tone="validationResult.privateKey.matched ? 'success' : 'danger'"
+                  />
+                </dd>
+              </div>
               <div><dt>{{ t('certificates.importForm.report.privateKeySource') }}</dt><dd>{{ validationResult.privateKey.source }}</dd></div>
             </dl>
-          </article>
+          </GcCard>
         </div>
 
         <article v-if="validationResult.blockers.length" class="certificate-import-wizard__messages certificate-import-wizard__messages--error">
@@ -419,28 +462,31 @@ function cancelImport() {
 
     <footer class="gc-form-actions certificate-import-wizard__footer">
       <div class="certificate-import-wizard__footer-left">
-        <button class="gc-button" type="button" :disabled="loading || validating" @click="cancelImport">{{ t('certificates.importForm.actions.cancel') }}</button>
+        <GcButton variant="ghost" :disabled="loading || validating" @click="cancelImport">
+          {{ t('certificates.importForm.actions.cancel') }}
+        </GcButton>
       </div>
       <div class="certificate-import-wizard__footer-right">
-        <button class="gc-button" type="button" :disabled="currentStep === 1 || loading || validating" @click="prevStep">{{ t('certificates.importForm.actions.previous') }}</button>
-        <button
+        <GcButton variant="secondary" :disabled="currentStep === 1 || loading || validating" @click="prevStep">
+          {{ t('certificates.importForm.actions.previous') }}
+        </GcButton>
+        <GcButton
           v-if="currentStep < 3"
-          class="gc-button"
-          type="button"
+          variant="primary"
           :disabled="currentStep === 1 ? !canGoToStepTwo : !canGoToStepThree"
           @click="nextStep"
         >
           {{ t('certificates.importForm.actions.next') }}
-        </button>
-        <button
+        </GcButton>
+        <GcButton
           v-else
-          class="gc-button gc-button--danger"
-          type="button"
+          variant="primary"
           :disabled="!canSubmit"
+          :loading="loading"
           @click="submitImport"
         >
           {{ loading ? t('certificates.importForm.actions.importing') : t('certificates.importForm.actions.import') }}
-        </button>
+        </GcButton>
       </div>
     </footer>
   </section>
@@ -449,38 +495,63 @@ function cancelImport() {
 <style scoped>
 .certificate-import-wizard {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-5);
 }
 
 .certificate-import-wizard__steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--gc-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .certificate-import-wizard__steps li {
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 999px;
-  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--gc-control-height-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-pill);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-soft);
+  background: var(--gc-color-surface-subtle);
   text-align: center;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+  line-height: var(--gc-line-height-tight);
 }
 
 .certificate-import-wizard__steps li.is-active,
 .certificate-import-wizard__steps li.is-done {
-  border-color: var(--gc-color-primary-border);
+  border-color: var(--gc-color-primary);
   color: var(--gc-color-primary);
   background: var(--gc-color-primary-soft);
 }
 
-.certificate-import-wizard__header h3,
-.certificate-import-wizard__report-card h4,
+.certificate-import-wizard__panel,
+.certificate-import-wizard__choice-grid,
+.certificate-import-wizard__choice-group,
+.certificate-import-wizard__cards,
+.certificate-import-wizard__form,
+.certificate-import-wizard__meta,
+.certificate-import-wizard__report,
+.certificate-import-wizard__chain-list {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.certificate-import-wizard__header {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding-bottom: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+}
+
+.certificate-import-wizard__header h2,
+.certificate-import-wizard__header p,
+.certificate-import-wizard__report-card h3,
 .certificate-import-wizard__messages h4 {
   margin: 0;
 }
@@ -492,65 +563,36 @@ function cancelImport() {
   color: var(--gc-color-text-muted);
 }
 
-.certificate-import-wizard__choice-grid,
-.certificate-import-wizard__cards,
-.certificate-import-wizard__meta,
-.certificate-import-wizard__report-grid,
-.certificate-import-wizard__form,
-.certificate-import-wizard__report,
-.certificate-import-wizard__chain-list {
-  display: grid;
-  gap: 10px;
+.certificate-import-wizard__header h2 {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+  line-height: var(--gc-line-height-tight);
+}
+
+.certificate-import-wizard__header p {
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.certificate-import-wizard__choice-label {
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .certificate-import-wizard__cards {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
 }
 
 .certificate-import-wizard__cards--compact {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
 }
 
-.certificate-import-wizard__card {
+.certificate-import-wizard__selection :deep(.gc-selection-card__extra) {
+  display: inline-flex;
+}
+
+.certificate-import-wizard__material-card :deep(.gc-pro-card__body) {
   display: grid;
-  gap: 4px;
-  padding: 12px;
-  border-radius: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.certificate-import-wizard__card strong {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.certificate-import-wizard__card span,
-.certificate-import-wizard__chain-head span {
-  width: fit-content;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: var(--gc-color-primary-soft);
-  color: var(--gc-color-primary);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.certificate-import-wizard__card p {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.certificate-import-wizard__card.is-active {
-  border-color: var(--gc-color-primary-border);
-  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
-}
-
-.certificate-import-wizard__card.is-disabled {
-  opacity: .55;
-  cursor: not-allowed;
 }
 
 .certificate-import-wizard__form,
@@ -563,60 +605,78 @@ function cancelImport() {
 }
 
 .certificate-import-wizard__field textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-}
-
-.certificate-import-wizard__file {
-  padding: 8px 10px;
-  cursor: pointer;
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-sm);
 }
 
 .certificate-import-wizard__summary,
 .certificate-import-wizard__report-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-4);
 }
 
-.certificate-import-wizard__summary div,
-.certificate-import-wizard__report-card,
-.certificate-import-wizard__chain-item {
+.certificate-import-wizard__summary {
+  margin: 0;
+}
+
+.certificate-import-wizard__summary div {
   display: grid;
-  gap: 4px;
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 14px;
-  padding: 12px;
-  background: var(--gc-color-surface-soft);
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-subtle);
 }
 
-.certificate-import-wizard__summary span,
-.certificate-import-wizard__report-card dt {
-  font-size: 11px;
-  font-weight: 600;
+.certificate-import-wizard__summary dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.certificate-import-wizard__summary dd,
+.certificate-import-wizard__report-card dd {
+  margin: 0;
+  color: var(--gc-color-text);
+  overflow-wrap: anywhere;
+}
+
+.certificate-import-wizard__summary dd {
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .certificate-import-wizard__status {
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 11px;
-  font-weight: 700;
+  display: grid;
+  justify-items: start;
 }
 
-.certificate-import-wizard__status.is-success {
-  color: var(--gc-color-success);
-  background: var(--gc-color-success-soft);
+.certificate-import-wizard__report-card :deep(.gc-pro-card__body) {
+  display: grid;
+  gap: var(--gc-space-3);
 }
 
-.certificate-import-wizard__status.is-fail {
-  color: var(--gc-color-danger);
-  background: var(--gc-color-danger-soft);
+.certificate-import-wizard__report-card h3 {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-md);
+  line-height: var(--gc-line-height-tight);
 }
 
 .certificate-import-wizard__report-card dl {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-3);
   margin: 0;
+}
+
+.certificate-import-wizard__report-card dl div {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.certificate-import-wizard__report-card dt {
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .certificate-import-wizard__report-card dd,
@@ -630,14 +690,35 @@ function cancelImport() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--gc-space-3);
+}
+
+.certificate-import-wizard__chain-item {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.certificate-import-wizard__chain-head strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+
+.certificate-import-wizard__chain-head span,
+.certificate-import-wizard__chain-item p,
+.certificate-import-wizard__chain-item small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
 }
 
 .certificate-import-wizard__messages {
   display: grid;
-  gap: 8px;
-  border-radius: 14px;
-  padding: 12px;
+  gap: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-4);
 }
 
 .certificate-import-wizard__messages--error {
@@ -652,14 +733,14 @@ function cancelImport() {
 
 .certificate-import-wizard__list {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--gc-space-5);
 }
 
 .certificate-import-wizard__footer-left,
 .certificate-import-wizard__footer-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--gc-space-2);
 }
 
 .certificate-import-wizard__validate-actions {
@@ -667,7 +748,7 @@ function cancelImport() {
   justify-content: flex-start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 60rem) {
   .certificate-import-wizard__form,
   .certificate-import-wizard__meta,
   .certificate-import-wizard__summary,

@@ -15,6 +15,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
 import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel } from '@/utils/audit-format'
+import { GcButton, GcPageHeader, GcStatusTag } from '@/design-system/components'
 
 const permissionStore = usePermissionStore()
 const { t, te } = useI18n()
@@ -178,7 +179,22 @@ function hideTooltip() {
 
 <template>
   <section class="gc-page dashboard-page">
-    <p v-if="error" class="dashboard-page__error">{{ error }}</p>
+    <GcPageHeader
+      class="dashboard-page__header"
+      :title="t('app.dashboard')"
+      :description="t('nav.dashboardDesc')"
+    >
+      <template #actions>
+        <GcButton variant="primary" :loading="loading" @click="loadOverview">
+          {{ t('common.refresh') }}
+        </GcButton>
+      </template>
+    </GcPageHeader>
+
+    <div v-if="error" class="dashboard-page__error" role="alert">
+      <span>{{ error }}</span>
+      <GcButton variant="secondary" @click="loadOverview">{{ t('businessPage.retry') }}</GcButton>
+    </div>
 
     <section class="dashboard-page__metrics" :aria-label="t('dashboard.aria.metrics')">
       <article
@@ -293,7 +309,11 @@ function hideTooltip() {
             </span>
             <span role="cell">{{ item.primaryDomain }}</span>
             <span role="cell">
-              <mark class="dashboard-state" :data-state="item.state">{{ stateLabel(item.state) }}</mark>
+              <GcStatusTag
+                :status="item.state"
+                :label="stateLabel(item.state)"
+                :tone="item.state === 'valid' ? 'success' : item.state === 'expiring' ? 'warning' : item.state === 'critical' || item.state === 'expired' ? 'danger' : 'muted'"
+              />
             </span>
             <span role="cell">{{ daysText(item.daysRemaining) }}</span>
             <span role="cell">{{ item.bindingCount }}</span>
@@ -343,11 +363,19 @@ function hideTooltip() {
   gap: var(--gc-space-5);
 }
 
+.dashboard-page__header {
+  margin-bottom: var(--gc-space-1);
+}
+
 .dashboard-page__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
   margin: 0;
-  border: 1px solid var(--gc-color-danger-border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-3) var(--gc-space-4);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
   font-weight: 750;
@@ -355,17 +383,17 @@ function hideTooltip() {
 
 .dashboard-page__metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, minmax(var(--gc-size-card-min), 1fr));
   gap: var(--gc-space-3);
 }
 
 .dashboard-metric {
   display: grid;
   gap: var(--gc-space-2);
-  min-height: 132px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 8px;
-  padding: 16px;
+  min-height: calc(var(--gc-space-12) * 3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-4);
   background: var(--gc-color-surface-panel);
   box-shadow: var(--gc-shadow-sm);
 }
@@ -378,8 +406,8 @@ function hideTooltip() {
 
 .dashboard-metric strong {
   color: var(--gc-color-text-strong);
-  font-size: 36px;
-  line-height: 1;
+  font-size: var(--gc-font-size-2xl);
+  line-height: var(--gc-line-height-tight);
   font-weight: 950;
   letter-spacing: 0;
 }
@@ -392,15 +420,15 @@ function hideTooltip() {
 }
 
 .dashboard-metric[data-trend="good"] {
-  border-top: 3px solid var(--gc-color-success);
+  border-top: var(--gc-border-width-thick) solid var(--gc-color-success);
 }
 
 .dashboard-metric[data-trend="warning"] {
-  border-top: 3px solid var(--gc-color-warning);
+  border-top: var(--gc-border-width-thick) solid var(--gc-color-warning);
 }
 
 .dashboard-metric[data-trend="danger"] {
-  border-top: 3px solid var(--gc-color-danger);
+  border-top: var(--gc-border-width-thick) solid var(--gc-color-danger);
 }
 
 .dashboard-metric--loading {
@@ -409,7 +437,7 @@ function hideTooltip() {
 
 .dashboard-actions {
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, minmax(var(--gc-size-card-min), 1fr));
   gap: var(--gc-space-3);
 }
 
@@ -417,10 +445,10 @@ function hideTooltip() {
   display: flex;
   align-items: center;
   gap: var(--gc-space-3);
-  min-height: 72px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 8px;
-  padding: 12px;
+  min-height: var(--gc-space-9);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-field);
   box-shadow: var(--gc-shadow-sm);
 }
@@ -433,18 +461,18 @@ function hideTooltip() {
 .dashboard-action__icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  width: var(--gc-space-7);
+  height: var(--gc-space-7);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-primary);
   background: var(--gc-color-primary-soft);
-  font-size: 20px;
+  font-size: var(--gc-font-size-lg);
   font-weight: 900;
 }
 
 .dashboard-action span:last-child {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
@@ -465,7 +493,7 @@ function hideTooltip() {
 }
 
 .dashboard-panel {
-  border-radius: 8px;
+  border-radius: var(--gc-radius-card);
   padding: 0;
   overflow: hidden;
 }
@@ -475,8 +503,8 @@ function hideTooltip() {
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-4);
-  padding: 16px;
-  border-bottom: 1px solid var(--gc-color-border);
+  padding: var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
   background: var(--gc-color-surface-muted);
 }
 
@@ -486,12 +514,12 @@ function hideTooltip() {
 }
 
 .dashboard-panel__header h2 {
-  font-size: 18px;
+  font-size: var(--gc-font-size-lg);
   letter-spacing: 0;
 }
 
 .dashboard-panel__header p {
-  margin-top: 4px;
+  margin-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 650;
@@ -499,16 +527,16 @@ function hideTooltip() {
 
 .dashboard-heatmap {
   display: grid;
-  gap: 16px;
-  padding: 16px;
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-4);
 }
 
 .dashboard-heatmap__group {
   display: grid;
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(calc(var(--gc-space-10) * 3), calc(var(--gc-size-card-min) - var(--gc-space-2) - (var(--gc-space-hairline) * 2))) minmax(0, 1fr);
+  gap: var(--gc-space-3);
   align-items: start;
-  min-height: 48px;
+  min-height: var(--gc-space-12);
 }
 
 .dashboard-heatmap__group header {
@@ -518,13 +546,13 @@ function hideTooltip() {
 .dashboard-heatmap__group strong {
   display: block;
   color: var(--gc-color-text);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 900;
 }
 
 .dashboard-heatmap__group span {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 750;
@@ -533,50 +561,50 @@ function hideTooltip() {
 
 .dashboard-heatmap__blocks {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(28px, 28px));
-  grid-auto-rows: 28px;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--gc-space-7), var(--gc-space-7)));
+  grid-auto-rows: var(--gc-space-7);
+  gap: var(--gc-space-2);
   align-content: start;
-  min-height: 36px;
+  min-height: var(--gc-space-9);
 }
 
 .dashboard-heatmap__block {
   display: block;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 6px;
-  box-shadow: inset 0 1px 0 var(--gc-color-surface-muted);
+  width: var(--gc-space-7);
+  height: var(--gc-space-7);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  box-shadow: inset 0 var(--gc-space-hairline) 0 var(--gc-color-surface-muted);
 }
 
 .dashboard-heatmap__block-wrap {
   position: relative;
   display: block;
-  width: 28px;
-  height: 28px;
+  width: var(--gc-space-7);
+  height: var(--gc-space-7);
 }
 
 .dashboard-heatmap__block:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 12px var(--gc-color-border-strong);
+  transform: translateY(calc(-1 * var(--gc-space-hairline)));
+  box-shadow: var(--gc-shadow-md);
 }
 
 .dashboard-heatmap__tooltip {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 10px);
+  bottom: calc(100% + var(--gc-space-2));
   z-index: 30;
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   width: max-content;
-  min-width: 190px;
-  max-width: 280px;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-border-strong);
-  border-radius: 8px;
+  min-width: calc(var(--gc-size-card-min) + var(--gc-space-1));
+  max-width: calc(var(--gc-size-card-min) + var(--gc-space-12));
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-overlay);
-  box-shadow: 0 14px 34px var(--gc-color-border-strong);
+  box-shadow: var(--gc-shadow-lg);
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -586,12 +614,12 @@ function hideTooltip() {
   position: absolute;
   left: 50%;
   top: 100%;
-  width: 10px;
-  height: 10px;
-  border-right: 1px solid var(--gc-color-border-strong);
-  border-bottom: 1px solid var(--gc-color-border-strong);
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-right: var(--gc-border-width-default) solid var(--gc-color-border-strong);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-strong);
   background: var(--gc-color-surface-overlay);
-  transform: translate(-50%, -5px) rotate(45deg);
+  transform: translate(-50%, calc(-1 * var(--gc-space-1))) rotate(45deg);
 }
 
 .dashboard-heatmap__tooltip strong {
@@ -637,7 +665,7 @@ function hideTooltip() {
 .dashboard-heatmap__empty {
   display: flex;
   align-items: center;
-  min-height: 24px;
+  min-height: var(--gc-space-6);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 750;
@@ -646,43 +674,48 @@ function hideTooltip() {
 .dashboard-heatmap__legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  padding-top: 4px;
-  border-top: 1px solid var(--gc-color-border);
+  gap: var(--gc-space-2) var(--gc-space-3);
+  padding-top: var(--gc-space-1);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .dashboard-heatmap__legend span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .dashboard-heatmap__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: var(--gc-radius-sm);
 }
 
 .dashboard-table {
   display: grid;
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .dashboard-table__row {
   display: grid;
-  grid-template-columns: minmax(190px, 1.3fr) minmax(160px, 1fr) 110px 110px 70px;
+  grid-template-columns:
+    minmax(calc(var(--gc-size-card-min) + var(--gc-space-3) - (var(--gc-space-hairline) * 2)), 1.3fr)
+    minmax(calc(var(--gc-space-10) * 4), 1fr)
+    calc((var(--gc-space-12) * 2) + var(--gc-space-3) + (var(--gc-space-hairline) * 2))
+    calc((var(--gc-space-12) * 2) + var(--gc-space-3) + (var(--gc-space-hairline) * 2))
+    calc(var(--gc-space-12) + var(--gc-space-6));
   gap: var(--gc-space-3);
   align-items: center;
-  min-height: 56px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  min-height: calc(var(--gc-space-12) + var(--gc-space-2));
+  padding: var(--gc-space-2) var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .dashboard-table__row--head {
-  min-height: 40px;
+  min-height: var(--gc-space-10);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-soft);
   font-size: var(--gc-font-size-xs);
@@ -696,7 +729,7 @@ function hideTooltip() {
 
 .dashboard-table__row span:first-child {
   display: grid;
-  gap: 3px;
+  gap: var(--gc-space-hairline);
 }
 
 .dashboard-table__row strong {
@@ -705,34 +738,6 @@ function hideTooltip() {
 
 .dashboard-table__row small {
   color: var(--gc-color-text-muted);
-}
-
-.dashboard-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  border-radius: 999px;
-  padding: 0 9px;
-  font-size: var(--gc-font-size-xs);
-  font-weight: 850;
-  background: var(--gc-color-muted-bg);
-  color: var(--gc-color-muted);
-}
-
-.dashboard-state[data-state="valid"] {
-  color: var(--gc-color-success);
-  background: var(--gc-color-success-bg);
-}
-
-.dashboard-state[data-state="expiring"] {
-  color: var(--gc-color-warning);
-  background: var(--gc-color-warning-bg);
-}
-
-.dashboard-state[data-state="critical"],
-.dashboard-state[data-state="expired"] {
-  color: var(--gc-color-danger);
-  background: var(--gc-color-danger-bg);
 }
 
 .dashboard-audits {
@@ -745,21 +750,21 @@ function hideTooltip() {
 
 .dashboard-audits li {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) max-content;
-  gap: 10px 12px;
+  grid-template-columns: calc(var(--gc-space-12) + var(--gc-space-2)) minmax(0, 1fr) max-content;
+  gap: var(--gc-space-2) var(--gc-space-3);
   align-items: start;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .dashboard-audits__result {
   display: inline-grid;
   place-items: center;
-  min-width: 48px;
-  min-height: 24px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 999px;
-  padding: 0 8px;
+  min-width: var(--gc-space-12);
+  min-height: var(--gc-space-6);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-pill);
+  padding: 0 var(--gc-space-2);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-soft);
   font-size: var(--gc-font-size-xs);
@@ -787,7 +792,7 @@ function hideTooltip() {
 
 .dashboard-audits__body {
   display: grid;
-  gap: 6px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
@@ -795,7 +800,7 @@ function hideTooltip() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
@@ -806,7 +811,7 @@ function hideTooltip() {
 
 .dashboard-audits__title-row strong {
   color: var(--gc-color-text);
-  font-size: 15px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.25;
   font-weight: 950;
 }
@@ -814,9 +819,9 @@ function hideTooltip() {
 .dashboard-audits__type {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  border-radius: 999px;
-  padding: 0 8px;
+  min-height: var(--gc-space-6);
+  border-radius: var(--gc-radius-pill);
+  padding: 0 var(--gc-space-2);
   font-size: var(--gc-font-size-xs);
   font-weight: 850;
   line-height: 1;
@@ -843,19 +848,19 @@ function hideTooltip() {
 }
 
 .dashboard-audits time {
-  padding-top: 3px;
+  padding-top: var(--gc-space-hairline);
   white-space: nowrap;
 }
 
 .dashboard-empty {
   display: grid;
   place-items: center;
-  min-height: 180px;
+  min-height: calc(var(--gc-space-12) * 4);
   color: var(--gc-color-text-muted);
   font-weight: 850;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 80rem) {
   .dashboard-page__metrics,
   .dashboard-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -866,7 +871,7 @@ function hideTooltip() {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 47.5rem) {
   .dashboard-page__metrics,
   .dashboard-actions {
     grid-template-columns: 1fr;
@@ -878,7 +883,7 @@ function hideTooltip() {
 
   .dashboard-table__row {
     grid-template-columns: 1fr;
-    gap: 6px;
+    gap: var(--gc-space-2);
     align-items: start;
   }
 

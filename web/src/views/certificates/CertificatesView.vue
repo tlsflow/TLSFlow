@@ -17,12 +17,19 @@ import {
   GcConfirmAction,
   GcDataTable,
   GcEmptyState,
+  GcHelpTip,
   GcModal,
+  GcButton,
+  GcPageHeader,
   GcPageToolbar,
   GcPermissionButton,
   GcStatusTag,
+  GcUserFlowWizard,
+  GcSimpleFlowWizard,
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
+import type { SimpleFlowSection } from '@/design-system/components/GcSimpleFlowWizard.vue'
 import type { StatusTone } from '@/design-system/status/status-map'
 import { useAppStore } from '@/stores/app.store'
 import { usePermissionStore } from '@/stores/permission.store'
@@ -139,10 +146,47 @@ const selectedAssetMemberIds = computed(() => {
 const assetCount = computed(() => displayedAssets.value.length)
 const isProfessionalView = computed(() => appStore.viewMode === 'professional')
 const canReadApplicationAssets = computed(() => permissionStore.hasPermission('service_asset.read'))
-const canManageApplicationAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
 const canReadAutomationPlans = computed(() => permissionStore.hasPermission('automation.read'))
 const expiredAssetCount = computed(() => displayedAssets.value.filter((item) => readAssetLifecycleStatusKey(item) === 'expired').length)
 const expiringSoonAssetCount = computed(() => displayedAssets.value.filter((item) => readAssetLifecycleStatusKey(item) === 'expiringSoon').length)
+const userFlowSteps = computed<UserFlowStep[]>(() => [
+  {
+    id: 'certificates',
+    label: t('viewMode.steps.certificates'),
+    help: t('certificates.userView.hero.description'),
+    helpLabel: t('certificates.userView.hero.title'),
+    completed: assetCount.value > 0,
+  },
+  {
+    id: 'applications',
+    label: t('viewMode.steps.applications'),
+    help: t('certificates.userView.steps.applications.description'),
+    helpLabel: t('certificates.userView.steps.applications.title'),
+    completed: (applicationAssetCount.value ?? 0) > 0,
+  },
+  {
+    id: 'deployments',
+    label: t('viewMode.steps.deployments'),
+    help: t('certificates.userView.steps.automations.description'),
+    helpLabel: t('certificates.userView.steps.automations.title'),
+    completed: (activeAutomationPlanCount.value ?? 0) > 0,
+  },
+])
+const simpleFlowSections = computed<SimpleFlowSection[]>(() => [
+  {
+    id: 'certificates',
+    label: t('certificates.userView.simple.sections.certificates.title'),
+    help: t('certificates.userView.simple.sections.certificates.help'),
+    helpLabel: t('certificates.userView.simple.sections.certificates.title'),
+  },
+  {
+    id: 'applications',
+    label: t('certificates.userView.simple.sections.applications.title'),
+    help: t('certificates.userView.simple.sections.applications.help'),
+    helpLabel: t('certificates.userView.simple.sections.applications.title'),
+  },
+])
+const activeSimpleSection = ref('certificates')
 const attentionAssets = computed(() =>
   displayedAssets.value
     .map((record) => {
@@ -159,7 +203,6 @@ const attentionAssets = computed(() =>
     .sort((left, right) => compareAttentionAssets(left, right))
     .slice(0, 4),
 )
-const selectedAssetExpiryLabel = computed(() => formatAssetExpiry(selectedAsset.value))
 const rawVersionRows = computed<CertificateVersionRow[]>(() =>
   versions.value.map((record, index) => {
     const id = readString(record, ['id', 'certificateVersionId'], `certver-${index + 1}`)
@@ -196,7 +239,7 @@ const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => 
   { key: 'sourceType', title: t('certificates.list.columns.sourceType'), width: '9%' },
   { key: 'status', title: t('certificates.list.columns.status'), width: '8%' },
   { key: 'id', title: t('certificates.list.columns.certificateVersionId'), width: '12%' },
-  { key: 'actions', title: t('agents.columns.actions'), width: '168px' },
+  { key: 'actions', title: t('agents.columns.actions'), width: 'var(--gc-size-card-min)' },
 ])
 const versionRows = computed<CertificateVersionRow[]>(() => {
   const keyword = versionFilterKeyword.value.trim().toLowerCase()
@@ -289,11 +332,6 @@ function formatDateOnly(value: string) {
 
 function readAssetExpiry(record: ApiRecord | null) {
   return readString(record, ['currentVersion.notAfter', 'expiresAt', 'notAfter'], '')
-}
-
-function formatAssetExpiry(record: ApiRecord | null) {
-  const expiry = readAssetExpiry(record)
-  return expiry ? formatDateOnly(expiry) : t('certificates.userView.common.notAvailable')
 }
 
 function compareAttentionAssets(
@@ -492,13 +530,16 @@ function openApplicationWorkspace() {
   void router.push({ name: 'asset.list', query: { entry: 'certificate-user-view', action: 'create' } })
 }
 
-function openAutomationWorkspace() {
-  void router.push({ name: 'automation.list', query: { entry: 'certificate-user-view', action: 'create' } })
-}
-
-function openProfessionalDetail(assetId: string) {
-  selectAsset(assetId)
-  appStore.setViewMode('professional')
+function navigateUserFlow(stepId: string) {
+  if (stepId === 'certificates') {
+    void router.push({ name: 'certificate.list' })
+    return
+  }
+  if (stepId === 'applications') {
+    void router.push({ name: 'asset.list' })
+    return
+  }
+  void router.push({ name: 'deployment.plan.list' })
 }
 
 async function submitImport() {
@@ -699,17 +740,47 @@ async function removeVersion(row: CertificateVersionRow) {
 
 <template>
   <section class="gc-page certificate-page">
+    <GcPageHeader
+      class="certificate-page__header"
+      :title="t('nav.certificates')"
+      :description="t('nav.certificatesDesc')"
+    >
+      <template #actions>
+        <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.import" @click="openImportDialog">
+          {{ t('certificates.import.title') }}
+        </GcPermissionButton>
+      </template>
+    </GcPageHeader>
+
     <div v-if="importResultId" class="certificate-page__inline-success" role="status">
       <strong>{{ t('certificates.banners.importSucceeded', { id: importResultId }) }}</strong>
     </div>
 
     <template v-if="isProfessionalView">
+      <section class="certificate-page__metrics" :aria-label="t('businessPage.metricsAria')">
+        <article class="certificate-page__metric">
+          <span>{{ t('certificates.userView.simple.stats.total') }}</span>
+          <strong>{{ assetsLoading ? t('common.notAvailable') : assetCount }}</strong>
+          <small>{{ t('certificates.list.assets.title') }}</small>
+        </article>
+        <article class="certificate-page__metric certificate-page__metric--warning">
+          <span>{{ t('certificates.userView.simple.stats.expiring') }}</span>
+          <strong>{{ assetsLoading ? t('common.notAvailable') : expiringSoonAssetCount }}</strong>
+          <small>{{ t('certificates.userView.simple.fields.expires') }}</small>
+        </article>
+        <article class="certificate-page__metric certificate-page__metric--danger">
+          <span>{{ t('certificates.userView.simple.stats.expired') }}</span>
+          <strong>{{ assetsLoading ? t('common.notAvailable') : expiredAssetCount }}</strong>
+          <small>{{ t('certificates.list.lifecycle.expired') }}</small>
+        </article>
+      </section>
+
       <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
         <GcPageToolbar class="certificate-page__toolbar-actions">
           <template #actions>
-            <button class="gc-button" type="button" @click="toggleFilters">
+            <GcButton variant="secondary" @click="toggleFilters">
               {{ t('certificates.list.actions.toggleFilters') }}
-            </button>
+            </GcButton>
             <GcPermissionButton class="gc-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
               {{ t('certificates.trustRoots.actions.open') }}
             </GcPermissionButton>
@@ -742,7 +813,7 @@ async function removeVersion(row: CertificateVersionRow) {
             </select>
           </label>
           <div class="certificate-page__filter-actions">
-            <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
+            <GcButton variant="secondary" @click="clearFilters">{{ t('businessPage.clearFilters') }}</GcButton>
           </div>
         </section>
       </section>
@@ -758,7 +829,7 @@ async function removeVersion(row: CertificateVersionRow) {
 
           <GcEmptyState v-if="assetsError" class="certificate-page__empty-state" :title="t('certificates.list.assets.loadFailed')" :description="assetsError.message">
             <p>{{ t('businessPage.errorCode', { code: assetsError.errorCode }) }}</p>
-            <button class="gc-button" type="button" @click="loadAssets">{{ t('businessPage.retry') }}</button>
+            <GcButton variant="secondary" @click="loadAssets">{{ t('businessPage.retry') }}</GcButton>
           </GcEmptyState>
 
           <div v-else-if="assetsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
@@ -779,7 +850,11 @@ async function removeVersion(row: CertificateVersionRow) {
                 <span>{{ readAssetSubtitle(asset) }}</span>
               </div>
               <div class="certificate-page__asset-side">
-                <span class="certificate-page__lifecycle">{{ readAssetLifecycleStatus(asset) }}</span>
+                <GcStatusTag
+                  :status="readAssetLifecycleStatusKey(asset)"
+                  :label="readAssetLifecycleStatus(asset)"
+                  :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
+                />
               </div>
             </button>
           </div>
@@ -801,7 +876,7 @@ async function removeVersion(row: CertificateVersionRow) {
             </div>
             <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" :title="t('certificates.list.versions.loadFailed')" :description="versionsError.message">
               <p>{{ t('businessPage.errorCode', { code: versionsError.errorCode }) }}</p>
-              <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">{{ t('businessPage.retry') }}</button>
+              <GcButton variant="secondary" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">{{ t('businessPage.retry') }}</GcButton>
             </GcEmptyState>
 
             <div v-else-if="versionsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
@@ -844,7 +919,7 @@ async function removeVersion(row: CertificateVersionRow) {
                         <option value="REVOKED">REVOKED</option>
                       </select>
                     </label>
-                    <button class="gc-button" type="button" @click="clearVersionFilters">{{ t('certificates.list.actions.clear') }}</button>
+                    <GcButton variant="secondary" @click="clearVersionFilters">{{ t('certificates.list.actions.clear') }}</GcButton>
                   </div>
                 </div>
               </template>
@@ -894,7 +969,7 @@ async function removeVersion(row: CertificateVersionRow) {
               </template>
               <template #cell-actions="{ row }">
                 <div class="certificate-page__row-actions">
-                  <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">{{ t('agents.actions.detail') }}</button>
+                  <GcButton variant="secondary" @click="openDetailDialog(row as CertificateVersionRow)">{{ t('agents.actions.detail') }}</GcButton>
                   <GcConfirmAction
                     v-if="canDeleteVersion"
                     :action-name="t('agents.actions.delete')"
@@ -912,173 +987,156 @@ async function removeVersion(row: CertificateVersionRow) {
     </template>
 
     <section v-else class="certificate-user-view">
-      <section class="gc-card certificate-user-view__hero">
-        <div class="certificate-user-view__hero-copy">
-          <span class="certificate-user-view__eyebrow">{{ t('certificates.userView.hero.eyebrow') }}</span>
-          <h2>{{ t('certificates.userView.hero.title') }}</h2>
-          <p>{{ t('certificates.userView.hero.description') }}</p>
-        </div>
-        <div class="certificate-user-view__hero-actions">
-          <GcPermissionButton class="certificate-page__import-button certificate-user-view__hero-action" permission="certificate.import" @click="openImportDialog">
+      <GcSimpleFlowWizard
+        :sections="simpleFlowSections"
+        :active-section="activeSimpleSection"
+        :title="t('certificates.userView.simple.title')"
+        :subtitle="t('certificates.userView.simple.subtitle')"
+        :ariaLabel="t('certificates.userView.summary.ariaLabel')"
+        @select="activeSimpleSection = $event"
+      >
+        <template #actions>
+          <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
             {{ t('certificates.userView.hero.primaryAction') }}
           </GcPermissionButton>
-        </div>
-      </section>
+        </template>
 
-      <section class="certificate-user-view__metrics" :aria-label="t('certificates.userView.summary.ariaLabel')">
-        <article class="gc-card certificate-user-view__metric">
-          <span>{{ t('certificates.userView.summary.managedCertificates') }}</span>
-          <strong>{{ assetCount }}</strong>
-        </article>
-        <article class="gc-card certificate-user-view__metric">
-          <span>{{ t('certificates.userView.summary.expiredCertificates') }}</span>
-          <strong>{{ expiredAssetCount }}</strong>
-        </article>
-        <article class="gc-card certificate-user-view__metric">
-          <span>{{ t('certificates.userView.summary.expiringSoonCertificates') }}</span>
-          <strong>{{ expiringSoonAssetCount }}</strong>
-        </article>
-        <article class="gc-card certificate-user-view__metric">
-          <span>{{ t('certificates.userView.summary.connectedApplications') }}</span>
-          <strong>{{ formatGuideCount(applicationAssetCount) }}</strong>
-        </article>
-        <article class="gc-card certificate-user-view__metric">
-          <span>{{ t('certificates.userView.summary.activeAutomationPlans') }}</span>
-          <strong>{{ formatGuideCount(activeAutomationPlanCount) }}</strong>
-        </article>
-      </section>
-
-      <section class="certificate-user-view__section">
-        <header class="certificate-user-view__section-head">
-          <div>
-            <h3>{{ t('certificates.userView.steps.title') }}</h3>
-            <p>{{ t('certificates.userView.steps.description') }}</p>
+        <!-- 证书管理区域 -->
+        <section v-if="activeSimpleSection === 'certificates'" class="certificate-simple-view__section">
+          <div class="certificate-simple-view__stats">
+            <article class="certificate-simple-view__stat-card">
+              <span class="certificate-simple-view__stat-label">{{ t('certificates.userView.simple.stats.total') }}</span>
+              <strong class="certificate-simple-view__stat-value">{{ assetCount }}</strong>
+            </article>
+            <article class="certificate-simple-view__stat-card certificate-simple-view__stat-card--warning">
+              <span class="certificate-simple-view__stat-label">{{ t('certificates.userView.simple.stats.expiring') }}</span>
+              <strong class="certificate-simple-view__stat-value">{{ expiringSoonAssetCount }}</strong>
+            </article>
+            <article class="certificate-simple-view__stat-card certificate-simple-view__stat-card--danger">
+              <span class="certificate-simple-view__stat-label">{{ t('certificates.userView.simple.stats.expired') }}</span>
+              <strong class="certificate-simple-view__stat-value">{{ expiredAssetCount }}</strong>
+            </article>
           </div>
-        </header>
 
-        <div class="certificate-user-view__step-grid">
-          <article class="gc-card certificate-user-view__step">
-            <div class="certificate-user-view__step-head">
-              <span class="certificate-user-view__step-index">1</span>
-              <span class="certificate-user-view__step-state" :data-state="assetCount > 0 ? 'done' : 'todo'">
-                {{ assetCount > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
-              </span>
+          <div class="certificate-simple-view__content">
+            <GcEmptyState
+              v-if="assetsError"
+              :title="t('certificates.list.assets.loadFailed')"
+            >
+              <p class="certificate-simple-view__error">{{ assetsError.message }}</p>
+              <GcButton variant="secondary" @click="loadAssets">{{ t('businessPage.retry') }}</GcButton>
+            </GcEmptyState>
+
+            <div v-else-if="assetsLoading" class="certificate-simple-view__loading">
+              {{ t('common.loading') }}
             </div>
-            <h4>{{ t('certificates.userView.steps.import.title') }}</h4>
-            <p>{{ t('certificates.userView.steps.import.description') }}</p>
-            <small class="certificate-user-view__step-helper">
-              {{ assetCount > 0
-                ? t('certificates.userView.steps.import.helperCompleted', { count: assetCount })
-                : t('certificates.userView.steps.import.helperEmpty') }}
-            </small>
-            <div class="certificate-user-view__step-actions">
+
+            <GcEmptyState
+              v-else-if="displayedAssets.length === 0"
+              :title="t('certificates.userView.simple.empty.title')"
+            >
+              <p>{{ t('certificates.userView.simple.empty.description') }}</p>
               <GcPermissionButton permission="certificate.import" @click="openImportDialog">
-                {{ t('certificates.userView.steps.import.action') }}
+                {{ t('certificates.userView.hero.primaryAction') }}
               </GcPermissionButton>
-            </div>
-          </article>
+            </GcEmptyState>
 
-          <article class="gc-card certificate-user-view__step">
-            <div class="certificate-user-view__step-head">
-              <span class="certificate-user-view__step-index">2</span>
-              <span class="certificate-user-view__step-state" :data-state="(applicationAssetCount ?? 0) > 0 ? 'done' : 'todo'">
-                {{ (applicationAssetCount ?? 0) > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
-              </span>
-            </div>
-            <h4>{{ t('certificates.userView.steps.applications.title') }}</h4>
-            <p>{{ t('certificates.userView.steps.applications.description') }}</p>
-            <small class="certificate-user-view__step-helper">
-              {{ (applicationAssetCount ?? 0) > 0
-                ? t('certificates.userView.steps.applications.helperCompleted', { count: applicationAssetCount ?? 0 })
-                : t('certificates.userView.steps.applications.helperEmpty') }}
-            </small>
-            <div class="certificate-user-view__step-actions">
-              <GcPermissionButton v-if="canManageApplicationAssets" permission="service_asset.manage" @click="openApplicationWorkspace">
-                {{ t('certificates.userView.steps.applications.action') }}
-              </GcPermissionButton>
-              <small v-else class="certificate-user-view__step-helper">{{ t('certificates.userView.common.permissionRequired') }}</small>
-            </div>
-          </article>
-
-          <article class="gc-card certificate-user-view__step">
-            <div class="certificate-user-view__step-head">
-              <span class="certificate-user-view__step-index">3</span>
-              <span class="certificate-user-view__step-state" :data-state="(activeAutomationPlanCount ?? 0) > 0 ? 'done' : 'todo'">
-                {{ (activeAutomationPlanCount ?? 0) > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
-              </span>
-            </div>
-            <h4>{{ t('certificates.userView.steps.automations.title') }}</h4>
-            <p>{{ t('certificates.userView.steps.automations.description') }}</p>
-            <small class="certificate-user-view__step-helper">
-              {{ (activeAutomationPlanCount ?? 0) > 0
-                ? t('certificates.userView.steps.automations.helperCompleted', { count: activeAutomationPlanCount ?? 0 })
-                : t('certificates.userView.steps.automations.helperEmpty') }}
-            </small>
-            <div class="certificate-user-view__step-actions">
-              <GcPermissionButton v-if="canReadAutomationPlans" permission="automation.read" @click="openAutomationWorkspace">
-                {{ t('certificates.userView.steps.automations.action') }}
-              </GcPermissionButton>
-              <small v-else class="certificate-user-view__step-helper">{{ t('certificates.userView.common.permissionRequired') }}</small>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="certificate-user-view__focus-grid">
-        <article class="gc-card certificate-user-view__focus-card">
-          <header class="certificate-user-view__section-head">
-            <div>
-              <h3>{{ t('certificates.userView.focus.currentSelectionTitle') }}</h3>
-              <p>{{ t('certificates.userView.focus.currentSelectionDescription') }}</p>
-            </div>
-          </header>
-          <div class="certificate-user-view__selection-summary">
-            <strong>{{ selectedAsset ? selectedDomainName : t('certificates.userView.focus.currentSelectionEmpty') }}</strong>
-            <p v-if="selectedAsset">{{ t('certificates.userView.focus.validUntil', { value: selectedAssetExpiryLabel }) }}</p>
-            <p v-else>{{ t('certificates.userView.focus.currentSelectionHint') }}</p>
-            <div class="certificate-user-view__selection-actions">
-              <GcStatusTag
-                v-if="selectedAsset"
-                :status="readAssetLifecycleStatusKey(selectedAsset)"
-                :label="readAssetLifecycleStatus(selectedAsset)"
-                :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(selectedAsset))"
-              />
-              <button class="gc-button" type="button" @click="appStore.setViewMode('professional')">
-                {{ t('certificates.userView.focus.openProfessional') }}
-              </button>
+            <div v-else class="certificate-simple-view__list">
+              <article
+                v-for="asset in displayedAssets"
+                :key="readId(asset)"
+                class="certificate-simple-view__card"
+                @click="selectAsset(readId(asset))"
+              >
+                <div class="certificate-simple-view__card-header">
+                  <div class="certificate-simple-view__card-title">
+                    <strong>{{ readAssetName(asset) }}</strong>
+                    <GcStatusTag
+                      :status="readAssetLifecycleStatusKey(asset)"
+                      :label="readAssetLifecycleStatus(asset)"
+                      :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
+                    />
+                  </div>
+                  <span class="certificate-simple-view__card-meta">
+                    {{ t('certificates.userView.simple.versionCount', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}
+                  </span>
+                </div>
+                <div class="certificate-simple-view__card-body">
+                  <div class="certificate-simple-view__card-field">
+                    <span class="certificate-simple-view__field-label">{{ t('certificates.userView.simple.fields.expires') }}</span>
+                    <span class="certificate-simple-view__field-value">{{ readAssetExpiry(asset) ? formatDateOnly(readAssetExpiry(asset)) : t('certificates.userView.common.notAvailable') }}</span>
+                  </div>
+                  <div class="certificate-simple-view__card-field">
+                    <span class="certificate-simple-view__field-label">{{ t('certificates.userView.simple.fields.source') }}</span>
+                    <span class="certificate-simple-view__field-value">{{ t(`certificates.list.sourceTypes.${resolveCertificateSourceTypeKey(readString(asset, ['sourceType'], ''))}`) }}</span>
+                  </div>
+                </div>
+              </article>
             </div>
           </div>
-        </article>
+        </section>
 
-        <article class="gc-card certificate-user-view__focus-card">
-          <header class="certificate-user-view__section-head">
-            <div>
-              <h3>{{ t('certificates.userView.focus.attentionTitle') }}</h3>
-              <p>{{ t('certificates.userView.focus.attentionDescription') }}</p>
+        <!-- 应用关联区域 -->
+        <section v-else-if="activeSimpleSection === 'applications'" class="certificate-simple-view__section">
+          <div class="certificate-simple-view__app-header">
+            <p class="certificate-simple-view__app-description">
+              {{ t('certificates.userView.simple.applications.description') }}
+            </p>
+          </div>
+
+          <div class="certificate-simple-view__content">
+            <div v-if="assetsLoading || !selectedAsset" class="certificate-simple-view__loading">
+              {{ selectedAsset ? t('common.loading') : t('certificates.userView.simple.applications.selectPrompt') }}
             </div>
-          </header>
-          <ul v-if="attentionAssets.length" class="certificate-user-view__attention-list">
-            <li v-for="asset in attentionAssets" :key="asset.id" class="certificate-user-view__attention-item">
-              <div class="certificate-user-view__attention-copy">
-                <strong>{{ asset.name }}</strong>
-                <p>{{ t('certificates.userView.focus.validUntil', { value: asset.expiresAt ? formatDateOnly(asset.expiresAt) : t('certificates.userView.common.notAvailable') }) }}</p>
+
+            <div v-else class="certificate-simple-view__app-details">
+              <div class="certificate-simple-view__selected-cert">
+                <h3>{{ t('certificates.userView.simple.applications.selectedCertificate') }}</h3>
+                <div class="certificate-simple-view__cert-badge">
+                  <strong>{{ readAssetName(selectedAsset) }}</strong>
+                  <GcStatusTag
+                    :status="readAssetLifecycleStatusKey(selectedAsset)"
+                    :label="readAssetLifecycleStatus(selectedAsset)"
+                    :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(selectedAsset))"
+                  />
+                </div>
               </div>
-              <div class="certificate-user-view__attention-actions">
-                <GcStatusTag :status="asset.lifecycleKey" :label="asset.lifecycle" :tone="lifecycleStatusTone(asset.lifecycleKey)" />
-                <button class="gc-button" type="button" @click="openProfessionalDetail(asset.id)">
-                  {{ t('certificates.userView.focus.assetAction') }}
+
+              <div class="certificate-simple-view__app-list">
+                <h3>{{ t('certificates.userView.simple.applications.connectedApps', { count: applicationAssetCount ?? 0 }) }}</h3>
+                <p v-if="(applicationAssetCount ?? 0) === 0" class="certificate-simple-view__empty-message">
+                  {{ t('certificates.userView.simple.applications.noApps') }}
+                </p>
+                <button
+                  v-if="canReadApplicationAssets"
+                  class="gc-button gc-button--primary certificate-simple-view__action-button"
+                  type="button"
+                  @click="openApplicationWorkspace"
+                >
+                  {{ t('certificates.userView.simple.applications.addApp') }}
                 </button>
               </div>
-            </li>
-          </ul>
-          <GcEmptyState
-            v-else
-            class="certificate-page__empty-state"
-            :title="t('certificates.userView.focus.emptyTitle')"
-            :description="t('certificates.userView.focus.emptyDescription')"
-          />
-        </article>
-      </section>
+
+              <div v-if="(activeAutomationPlanCount ?? 0) > 0" class="certificate-simple-view__automation-info">
+                <h4>{{ t('certificates.userView.simple.applications.automationTitle') }}</h4>
+                <div class="certificate-simple-view__automation-stats">
+                  <div class="certificate-simple-view__automation-stat">
+                    <span>{{ t('certificates.userView.simple.applications.activeAutomations') }}</span>
+                    <strong>{{ formatGuideCount(activeAutomationPlanCount) }}</strong>
+                  </div>
+                  <div class="certificate-simple-view__automation-stat">
+                    <span>{{ t('certificates.userView.simple.applications.totalAutomations') }}</span>
+                    <strong>{{ formatGuideCount(automationPlanCount) }}</strong>
+                  </div>
+                </div>
+                <p class="certificate-simple-view__automation-description">
+                  {{ t('certificates.userView.simple.applications.automationDescription') }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </GcSimpleFlowWizard>
     </section>
 
     <GcModal
@@ -1121,14 +1179,6 @@ async function removeVersion(row: CertificateVersionRow) {
 </template>
 
 <style scoped>
-.certificate-user-view__eyebrow {
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .certificate-page__inline-success {
   display: grid;
   gap: var(--gc-space-1);
@@ -1144,228 +1194,366 @@ async function removeVersion(row: CertificateVersionRow) {
   gap: var(--gc-space-4);
 }
 
-.certificate-user-view__hero,
-.certificate-user-view__section,
-.certificate-user-view__focus-card {
+.certificate-simple-view__section {
   display: grid;
+  gap: var(--gc-space-5);
+}
+
+.certificate-simple-view__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--gc-space-4);
 }
 
-.certificate-user-view__hero {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+.certificate-simple-view__stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-3);
   padding: var(--gc-space-5);
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  border-radius: var(--gc-radius-lg);
-  background:
-    radial-gradient(circle at top right, var(--gc-color-warning-soft), transparent 24%),
-    linear-gradient(135deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
+  border-radius: var(--gc-radius-xl);
+  background: var(--gc-gradient-surface-soft);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  transition: all 0.25s ease;
 }
 
-.certificate-user-view__hero-copy,
-.certificate-user-view__hero-actions,
-.certificate-user-view__section-head,
-.certificate-user-view__selection-summary,
-.certificate-user-view__attention-copy,
-.certificate-user-view__attention-actions,
-.certificate-user-view__step {
+.certificate-simple-view__stat-card:hover {
+  border-color: var(--gc-color-primary-border);
+  transform: translateY(calc(-1 * var(--gc-space-1)));
+  box-shadow: var(--gc-shadow-hover);
+}
+
+.certificate-simple-view__stat-card--warning {
+  background: var(--gc-color-warning-soft);
+  border-color: var(--gc-color-warning-border);
+}
+
+.certificate-simple-view__stat-card--danger {
+  background: var(--gc-color-danger-soft);
+  border-color: var(--gc-color-danger-border);
+}
+
+.certificate-simple-view__stat-label {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 700;
+}
+
+.certificate-simple-view__stat-value {
+  color: var(--gc-color-text);
+  font-size: calc(var(--gc-font-size-2xl) + var(--gc-space-2));
+  font-weight: 900;
+  line-height: 1;
+}
+
+.certificate-simple-view__stat-card--warning .certificate-simple-view__stat-value {
+  color: var(--gc-color-warning);
+}
+
+.certificate-simple-view__stat-card--danger .certificate-simple-view__stat-value {
+  color: var(--gc-color-danger);
+}
+
+.certificate-simple-view__content {
+  min-height: calc(var(--gc-space-10) * 10);
+}
+
+.certificate-simple-view__loading,
+.certificate-simple-view__error {
+  display: grid;
+  place-items: center;
+  min-height: calc(var(--gc-space-10) * 5);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.certificate-simple-view__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--gc-size-card-min) + var(--gc-space-10) * 4), 1fr));
+  gap: var(--gc-space-4);
+}
+
+.certificate-simple-view__card {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-thick) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-solid);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.certificate-simple-view__card:hover {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-hover);
+  transform: translateY(calc(-1 * var(--gc-space-1)));
+  box-shadow: var(--gc-shadow-md);
+}
+
+.certificate-simple-view__card-header {
   display: grid;
   gap: var(--gc-space-2);
 }
 
-.certificate-user-view__hero-copy h2,
-.certificate-user-view__hero-copy p,
-.certificate-user-view__section-head h3,
-.certificate-user-view__section-head p,
-.certificate-user-view__step h4,
-.certificate-user-view__step p,
-.certificate-user-view__selection-summary p,
-.certificate-user-view__attention-copy p {
-  margin: 0;
-}
-
-.certificate-user-view__hero-copy h2 {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-2xl);
-  line-height: var(--gc-line-height-tight);
-}
-
-.certificate-user-view__hero-copy p,
-.certificate-user-view__section-head p,
-.certificate-user-view__step p,
-.certificate-user-view__step-helper,
-.certificate-user-view__selection-summary p,
-.certificate-user-view__attention-copy p {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.certificate-user-view__hero-actions {
-  justify-items: end;
-}
-
-.certificate-user-view__hero-action {
-  min-width: calc(var(--gc-space-10) * 2);
-}
-
-.certificate-user-view__metrics,
-.certificate-user-view__step-grid,
-.certificate-user-view__focus-grid {
-  display: grid;
-  gap: var(--gc-space-3);
-}
-
-.certificate-user-view__metrics {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.certificate-user-view__metric,
-.certificate-user-view__step,
-.certificate-user-view__focus-card {
-  padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-lg);
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
-}
-
-.certificate-user-view__metric span {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 800;
-}
-
-.certificate-user-view__metric strong,
-.certificate-user-view__selection-summary strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-xl);
-  line-height: var(--gc-line-height-tight);
-}
-
-.certificate-user-view__step-grid,
-.certificate-user-view__focus-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.certificate-user-view__step-grid {
-  align-items: stretch;
-}
-
-.certificate-user-view__step-head,
-.certificate-user-view__selection-actions {
+.certificate-simple-view__card-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-3);
 }
 
-.certificate-user-view__step-index {
-  display: grid;
-  place-items: center;
-  width: var(--gc-space-8);
-  height: var(--gc-space-8);
-  border-radius: var(--gc-radius-full);
-  background: var(--gc-color-primary-soft);
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 900;
-}
-
-.certificate-user-view__step-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--gc-control-height-sm);
-  padding: 0 var(--gc-space-3);
-  border-radius: var(--gc-radius-full);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 900;
-}
-
-.certificate-user-view__step-state[data-state='done'] {
-  background: var(--gc-color-success-bg);
-  color: var(--gc-color-success);
-}
-
-.certificate-user-view__step-state[data-state='todo'] {
-  background: var(--gc-color-warning-soft);
-  color: var(--gc-color-warning);
-}
-
-.certificate-user-view__step h4 {
+.certificate-simple-view__card-title strong {
+  flex: 1;
+  min-width: 0;
   color: var(--gc-color-text);
-  font-size: var(--gc-font-size-lg);
+  font-size: var(--gc-font-size-md);
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.certificate-user-view__step-actions {
-  margin-top: auto;
+.certificate-simple-view__card-meta {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
 }
 
-.certificate-user-view__selection-summary,
-.certificate-user-view__attention-list {
-  min-height: 100%;
-}
-
-.certificate-user-view__attention-list {
+.certificate-simple-view__card-body {
   display: grid;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.certificate-simple-view__card-field {
+  display: flex;
+  justify-content: space-between;
   gap: var(--gc-space-3);
+  align-items: baseline;
+}
+
+.certificate-simple-view__field-label {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+}
+
+.certificate-simple-view__field-value {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 650;
+  text-align: right;
+}
+
+.certificate-simple-view__app-header {
+  padding: var(--gc-space-4);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-hover);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+}
+
+.certificate-simple-view__app-description {
   margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
 }
 
-.certificate-user-view__attention-item {
+.certificate-simple-view__app-details {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gc-space-5);
+}
+
+.certificate-simple-view__selected-cert,
+.certificate-simple-view__app-list,
+.certificate-simple-view__automation-info {
+  display: grid;
   gap: var(--gc-space-3);
+  padding: var(--gc-space-5);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-solid);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+}
+
+.certificate-simple-view__selected-cert h3,
+.certificate-simple-view__app-list h3,
+.certificate-simple-view__automation-info h4 {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+  font-weight: 750;
+}
+
+.certificate-simple-view__cert-badge {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-hover);
 }
 
-.certificate-user-view__attention-copy strong {
+.certificate-simple-view__cert-badge strong {
+  flex: 1;
+  min-width: 0;
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.certificate-user-view__attention-actions {
-  justify-items: end;
+.certificate-simple-view__empty-message {
+  margin: 0;
+  padding: var(--gc-space-4);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  text-align: center;
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-hover);
+}
+
+.certificate-simple-view__action-button {
+  justify-self: start;
+}
+
+.certificate-simple-view__automation-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.certificate-simple-view__automation-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-hover);
+}
+
+.certificate-simple-view__automation-stat span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+}
+
+.certificate-simple-view__automation-stat strong {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-xl);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.certificate-simple-view__automation-description {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+@media (max-width: 48rem) {
+  .certificate-simple-view__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .certificate-simple-view__list {
+    grid-template-columns: 1fr;
+  }
+
+  .certificate-simple-view__automation-stats {
+    grid-template-columns: 1fr;
+  }
 }
 
 .certificate-page {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--gc-space-3);
   flex: 1;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
+.certificate-page__header {
+  flex: 0 0 auto;
+}
+
+.certificate-page__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  flex: 0 0 auto;
+}
+
+.certificate-page__metric {
+  display: grid;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-space-12);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-4);
+  background: var(--gc-color-surface-panel);
+  box-shadow: var(--gc-shadow-card);
+}
+
+.certificate-page__metric span,
+.certificate-page__metric small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 750;
+}
+
+.certificate-page__metric strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-2xl);
+  line-height: var(--gc-line-height-tight);
+}
+
+.certificate-page__metric--warning {
+  border-color: var(--gc-color-warning-border);
+  background: var(--gc-color-warning-soft);
+}
+
+.certificate-page__metric--warning strong {
+  color: var(--gc-color-warning);
+}
+
+.certificate-page__metric--danger {
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
+}
+
+.certificate-page__metric--danger strong {
+  color: var(--gc-color-danger);
+}
+
 .certificate-page__toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: var(--gc-space-3);
   align-items: stretch;
 }
 
 .certificate-page__filters {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(180px, 220px) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(var(--gc-size-card-min), calc(var(--gc-size-card-min) + var(--gc-space-10))) auto;
+  gap: var(--gc-space-2);
   align-items: center;
   padding: 0;
-  border-radius: 16px;
+  border-radius: var(--gc-radius-modal);
 }
 
 .certificate-page__filter {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
   min-width: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
   letter-spacing: .01em;
 }
@@ -1379,10 +1567,10 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__filter select {
   flex: 1;
   width: auto;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  min-height: 32px;
-  padding: 6px 10px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  min-height: var(--gc-space-8);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-glass);
 }
@@ -1391,13 +1579,13 @@ async function removeVersion(row: CertificateVersionRow) {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-space-8);
 }
 
 .certificate-page__workspace {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(calc(var(--gc-size-card-min) + var(--gc-space-10)), calc(var(--gc-size-card-min) + var(--gc-space-10) * 2)) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
   flex: 1;
@@ -1408,7 +1596,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__assets,
 .certificate-page__versions {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
   min-height: 0;
   overflow: hidden;
   background: transparent;
@@ -1418,9 +1606,9 @@ async function removeVersion(row: CertificateVersionRow) {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
-  padding: 4px 0 10px;
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-1) 0 var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .certificate-page__panel-header h2,
@@ -1430,7 +1618,7 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__panel-header h2 {
   color: var(--gc-color-text);
-  font-size: 17px;
+  font-size: var(--gc-font-size-md);
   font-weight: 650;
   letter-spacing: -0.04em;
 }
@@ -1438,27 +1626,27 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__panel-header p,
 .certificate-page__panel-header span {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
 .certificate-page__asset-list {
   display: grid;
-  gap: 6px;
+  gap: var(--gc-space-2);
   align-content: start;
   min-height: 0;
   overflow: auto;
-  padding-right: 10px;
+  padding-right: var(--gc-space-3);
 }
 
 .certificate-page__asset-item {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--gc-space-2);
   width: 100%;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 10px 11px;
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-soft);
   text-align: left;
   cursor: pointer;
@@ -1468,31 +1656,31 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__asset-item:hover {
   border-color: var(--gc-color-border-soft);
   background: var(--gc-color-surface-muted);
-  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .certificate-page__asset-item--active {
   border-color: var(--gc-color-primary-border);
-  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
-  background: linear-gradient(180deg, var(--gc-color-surface-panel), var(--gc-color-surface-selected));
+  box-shadow: inset 0 0 0 var(--gc-border-width-default) var(--gc-color-primary-weak);
+  background: var(--gc-color-surface-selected);
 }
 
 .certificate-page__asset-main {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .certificate-page__asset-main strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
 
 .certificate-page__asset-main span {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
 }
 
@@ -1500,39 +1688,23 @@ async function removeVersion(row: CertificateVersionRow) {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
-}
-
-.certificate-page__lifecycle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 999px;
-  background: var(--gc-color-surface-glass);
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
+  gap: var(--gc-space-2);
 }
 
 .certificate-page__state {
-  padding: 24px 12px;
+  padding: var(--gc-space-6) var(--gc-space-3);
   color: var(--gc-color-text-muted);
   text-align: center;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
 .certificate-page__inline-error {
   display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--gc-color-danger-border);
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-danger-soft);
   color: var(--gc-color-danger);
 }
@@ -1540,7 +1712,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__versions-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--gc-space-3);
   min-height: 0;
   overflow: hidden;
 }
@@ -1548,13 +1720,13 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__versions {
   min-width: 0;
   grid-template-rows: auto minmax(0, 1fr);
-  padding-left: 20px;
+  padding-left: var(--gc-space-6);
 }
 
 .certificate-page__assets {
   grid-template-rows: auto minmax(0, 1fr);
-  padding-right: 18px;
-  border-right: 1px solid var(--gc-color-border-soft);
+  padding-right: var(--gc-space-5);
+  border-right: var(--gc-border-width-default) solid var(--gc-color-border-soft);
 }
 
 .certificate-page__assets > .certificate-page__state,
@@ -1572,7 +1744,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page :deep(.certificate-page__empty-state) {
   border: 0;
   border-radius: 0;
-  padding: 24px 12px;
+  padding: var(--gc-space-6) var(--gc-space-3);
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
@@ -1594,14 +1766,14 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__table-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--gc-space-4);
   align-items: flex-start;
   flex-wrap: wrap;
 }
 
 .certificate-page__table-heading {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   color: var(--gc-color-text-muted);
 }
 
@@ -1611,26 +1783,26 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__table-controls {
   display: flex;
-  gap: 10px;
+  gap: var(--gc-space-3);
   align-items: end;
   flex-wrap: wrap;
 }
 
 .certificate-page__table-filter {
   display: grid;
-  gap: 4px;
-  min-width: 180px;
+  gap: var(--gc-space-1);
+  min-width: var(--gc-size-card-min);
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
 .certificate-page__table-filter input,
 .certificate-page__table-filter select {
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  min-height: 34px;
-  padding: 6px 10px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  min-height: var(--gc-control-height-sm);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
 }
@@ -1638,7 +1810,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__header-sort {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--gc-space-1);
   padding: 0;
   border: 0;
   background: transparent;
@@ -1654,7 +1826,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__cell-main,
 .certificate-page__cell-stack {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
@@ -1674,13 +1846,13 @@ async function removeVersion(row: CertificateVersionRow) {
   right: 0;
   z-index: 1;
   background: var(--gc-color-surface-solid);
-  box-shadow: -8px 0 12px var(--gc-color-surface-overlay);
+  box-shadow: calc(-1 * var(--gc-space-2)) 0 var(--gc-space-3) var(--gc-color-surface-overlay);
 }
 
 .certificate-page__version-table :deep(th:last-child) {
   z-index: 2;
   background: var(--gc-color-surface-muted);
-  box-shadow: -8px 0 12px var(--gc-color-surface-subtle);
+  box-shadow: calc(-1 * var(--gc-space-2)) 0 var(--gc-space-3) var(--gc-color-surface-subtle);
 }
 
 .certificate-page__version-table :deep(td:last-child) {
@@ -1690,7 +1862,7 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__cell-stack span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1702,7 +1874,7 @@ async function removeVersion(row: CertificateVersionRow) {
 }
 
 .certificate-page__version-id {
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
@@ -1711,21 +1883,22 @@ async function removeVersion(row: CertificateVersionRow) {
 }
 
 .certificate-page__version-table :deep(td:last-child .gc-button) {
-  min-width: 56px;
+  min-width: calc(var(--gc-space-7) * 2);
 }
 
 .certificate-page__row-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
   min-width: max-content;
 }
 
-@media (max-width: 1200px) {
-  .certificate-user-view__hero,
-  .certificate-user-view__focus-grid,
-  .certificate-user-view__step-grid,
-  .certificate-user-view__metrics {
+@media (max-width: 75rem) {
+  .certificate-page__metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .certificate-simple-view__stats {
     grid-template-columns: 1fr;
   }
 
@@ -1746,13 +1919,13 @@ async function removeVersion(row: CertificateVersionRow) {
 
   .certificate-page__assets {
     padding-right: 0;
-    padding-bottom: 12px;
+    padding-bottom: var(--gc-space-3);
     border-right: 0;
-    border-bottom: 1px solid var(--gc-color-border-soft);
+    border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   }
 
   .certificate-page__versions {
-    padding-top: 12px;
+    padding-top: var(--gc-space-3);
     padding-left: 0;
   }
 
@@ -1765,16 +1938,17 @@ async function removeVersion(row: CertificateVersionRow) {
   }
 }
 
-@media (max-width: 900px) {
-  .certificate-user-view__hero-actions,
-  .certificate-user-view__attention-actions {
-    justify-items: stretch;
+@media (max-width: 56.25rem) {
+  .certificate-page__metrics {
+    grid-template-columns: 1fr;
   }
 
-  .certificate-user-view__step-head,
-  .certificate-user-view__selection-actions,
-  .certificate-user-view__attention-item {
-    display: grid;
+  .certificate-simple-view__list {
+    grid-template-columns: 1fr;
+  }
+
+  .certificate-simple-view__automation-stats {
+    grid-template-columns: 1fr;
   }
 
   .certificate-page__filter-actions {
@@ -1784,7 +1958,7 @@ async function removeVersion(row: CertificateVersionRow) {
 
   .certificate-page__filter {
     display: grid;
-    gap: 4px;
+    gap: var(--gc-space-1);
   }
 
   .certificate-page__filter input,
@@ -1802,7 +1976,7 @@ async function removeVersion(row: CertificateVersionRow) {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .certificate-page__filters {
     grid-template-columns: 1fr;
   }

@@ -3195,6 +3195,46 @@ export default {
         assetAction: '查看专业详情',
         emptyTitle: '当前没有紧急证书',
         emptyDescription: '所有已导入证书暂时都在有效期内。'
+      },
+      simple: {
+        title: '证书与应用管理',
+        subtitle: '管理证书和查看哪些应用在使用它们',
+        sections: {
+          certificates: {
+            title: '证书管理',
+            help: '查看和管理所有证书，包括到期时间和状态。'
+          },
+          applications: {
+            title: '应用关联',
+            help: '查看证书在哪些应用中使用，以及更新方式和频率。'
+          }
+        },
+        stats: {
+          total: '证书总数',
+          expiring: '即将到期',
+          expired: '已过期'
+        },
+        versionCount: '{count} 个版本',
+        fields: {
+          expires: '到期时间',
+          source: '来源'
+        },
+        empty: {
+          title: '还没有证书',
+          description: '导入第一个证书开始管理。'
+        },
+        applications: {
+          description: '查看选中证书在哪些应用中使用，以及自动更新配置。',
+          selectPrompt: '请先在左侧选择一个证书',
+          selectedCertificate: '当前证书',
+          connectedApps: '关联应用（{count}）',
+          noApps: '该证书还没有关联任何应用。',
+          addApp: '添加应用',
+          automationTitle: '自动更新配置',
+          activeAutomations: '活跃的自动更新',
+          totalAutomations: '总自动更新计划',
+          automationDescription: '自动更新计划会定期检查证书状态，并在需要时自动部署到关联的应用。'
+        }
       }
     },
     detail: {
@@ -4563,6 +4603,8 @@ export default {
     labels: { rootAuthority: '根证书颁发机构', intermediateAuthority: '中间证书颁发机构', intermediateCount: '{count} 个中间 CA', expiresAt: '到期时间：{time}', defaultTrustDomain: '默认信任域', independentTrustDomain: '独立根信任边界', trustDomainCount: '{count} 个 CA 信任域', versionCount: '{count} 个版本', assetCount: '{count} 个应用资产', requestCount: '将创建 {count} 个独立证书申请', backendUsageCount: '{count} 个证书机构正在使用', unverifiedCapabilityCount: '{count} 项能力尚未验证' },
     availability: { single: '单节点', activeStandby: '主备', activeActive: '多活' },
     authModes: { managedSecret: '托管凭据', clientCertificate: '客户端证书', none: '无认证' },
+    isolationLevels: { standard: '标准隔离', strict: '严格隔离', regulated: '受监管隔离' },
+    custodyModes: { managedSecret: '托管 Secret', localAgent: '本地 Agent', deviceLocal: '设备本地', externalKey: '外部密钥' },
     wizard: { title: '添加证书颁发机构', description: '先选择签发方式，再逐步配置签发后端、CA 参数和安全边界。', stepsAria: 'CA 创建步骤', entryStep: '选择方式', backendStep: '配置后端', parentStep: '选择父 CA', authorityStep: '配置 CA', reviewStep: '确认创建', completed: '已完成', inProgress: '进行中', pending: '待填写', entryEyebrow: '第一步', entryTitle: '这套 CA 由谁负责签发？', entryDescription: '选择最符合部署边界的入口。内置 CA 使用受管执行边界。', recommended: '推荐起步', builtinTitle: '直接创建 CA', builtinDescription: '由当前 GCAC 服务内置的通用证书签发执行面完成。', builtinFeature1: '无需部署额外节点', builtinFeature2: '适合开发和中小规模内部环境', managedTitle: '部署 GCAC CA Node', managedDescription: '将 CA 私钥和签发执行面隔离到独立 Windows 或 Linux 机器。', managedFeature1: '一次性令牌注册节点', managedFeature2: '为 HSM 与冗余部署预留边界', backendEyebrow: '签发后端', builtinBackendTitle: '使用 GCAC 内置签发后端', builtinBackendDescription: '系统自动创建或复用租户内置执行后端，用户只需要配置 CA。', managed_nodeBackendTitle: '配置独立 GCAC CA Node', managed_nodeBackendDescription: '创建节点签发后端并生成短期一次性注册令牌。', builtinAutomaticTitle: '无需单独创建执行后端', builtinAutomaticDescription: '创建 CA 时系统会自动确保内置签发执行后端存在，并绑定到当前 CA。', authorityEyebrow: '证书机构', rootConfigurationTitle: '配置根 CA', rootConfigurationDescription: '定义新的根信任边界、名称、主题和是否启用中间 CA。', intermediateConfigurationTitle: '配置中间 CA', intermediateConfigurationDescription: '先选择父根 CA，再配置承担日常签发的中间证书颁发机构。', builtinSecurityNote: '软件私钥由 GCAC SecretService 托管，不等同于不可导出 HSM 密钥。', managed_nodeSecurityNote: '私钥位于独立节点；只有节点注册并通过能力验证后才应投入生产。', reviewEyebrow: '最终确认', reviewTitle: '检查信任边界与签发方式', reviewDescription: '确认 CA 名称、信任域、签发后端和风险提示后再创建。', enrollmentTitle: 'CA Node 一次性注册令牌', enrollmentDescription: '令牌仅用于独立节点首次注册，请通过安全通道复制到目标机器。', enrollmentExpiresAt: '令牌到期时间：{time}', builtinProviderName: 'GCAC 内置签发后端', managedProviderName: 'GCAC 独立 CA Node', rootTitle: '根 CA', rootDescription: '创建新的独立根信任锚点，并可同时创建首个中间 CA。', intermediateTitle: '中间 CA', intermediateDescription: '挂载到已有根 CA 下承担日常签发，不创建新的根信任边界。', noWarnings: '未发现额外的拓扑风险警告。' },
     riskTypes: { certificate_fingerprint_reuse: '同一证书跨资产复用', public_key_reuse: '同一公钥跨资产复用' },
     common: { unknown: '未知' }, aria: { tabs: '内部 CA 功能导航' }

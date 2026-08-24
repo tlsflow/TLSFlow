@@ -2,7 +2,7 @@
 import { Teleport, computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { GcEmptyState, GcModal, GcPageToolbar, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
 import { listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
@@ -281,7 +281,15 @@ function timestamp(record: ApiRecord): number {
 }
 
 function formatListTime(value: string): string {
-  return value ? formatBrowserLocalTime(value, { includeSeconds: false }) : t('executions.list.timeUnknown')
+  return formatBrowserLocalTime(value, { includeSeconds: false }) || t('executions.list.timeUnknown')
+}
+
+function formatDetailTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || t('common.notAvailable')
+}
+
+function formatStepStartTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || t('executions.detail.notStarted')
 }
 
 function readRecordArray(value: unknown): ApiRecord[] {
@@ -296,6 +304,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 <template>
   <section class="gc-page execution-page">
+    <GcPageHeader :title="t('executions.title')" :description="t('executions.description')" />
     <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar>
         <template #actions>
@@ -321,7 +330,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
         </span>
       </header>
 
-      <div v-if="loading" class="execution-list__state">{{ t('designSystem.dataTable.loading') }}</div>
+      <div v-if="loading" class="execution-list__state" role="status" aria-live="polite">{{ t('designSystem.dataTable.loading') }}</div>
       <div v-else-if="visibleRows.length" class="execution-list__table-wrap">
         <table class="execution-list__table">
           <thead>
@@ -405,10 +414,10 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
           </div>
         </section>
 
-        <div class="execution-detail-modal__tabs">
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">{{ t('executions.tabs.summary') }}</button>
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'steps'" @click="activeTab = 'steps'">{{ t('executions.tabs.steps') }}</button>
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'logs'" @click="activeTab = 'logs'">{{ t('executions.tabs.logs') }}</button>
+        <div class="execution-detail-modal__tabs" role="tablist" :aria-label="t('executions.detail.title')">
+          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'summary'" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">{{ t('executions.tabs.summary') }}</button>
+          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'steps'" :data-active="activeTab === 'steps'" @click="activeTab = 'steps'">{{ t('executions.tabs.steps') }}</button>
+          <button class="execution-detail-modal__tab" type="button" role="tab" :aria-selected="activeTab === 'logs'" :data-active="activeTab === 'logs'" @click="activeTab = 'logs'">{{ t('executions.tabs.logs') }}</button>
         </div>
 
         <section v-if="activeTab === 'summary'" class="execution-detail-modal__section">
@@ -435,11 +444,11 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
             </div>
             <div>
               <dt>{{ t('executions.fields.startedAt') }}</dt>
-              <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['startedAt', 'createdAt'])) || readString(detailRow.raw, ['startedAt', 'createdAt']) }}</dd>
+              <dd>{{ formatDetailTime(readString(detailRow.raw, ['startedAt', 'createdAt'])) }}</dd>
             </div>
             <div>
               <dt>{{ t('executions.fields.finishedAt') }}</dt>
-              <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['finishedAt', 'updatedAt'])) || readString(detailRow.raw, ['finishedAt', 'updatedAt']) }}</dd>
+              <dd>{{ formatDetailTime(readString(detailRow.raw, ['finishedAt', 'updatedAt'])) }}</dd>
             </div>
             <div>
               <dt>{{ t('executions.fields.errorCode') }}</dt>
@@ -479,7 +488,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
                 <GcStatusTag :status="step.status" />
               </div>
               <p>{{ step.detail ?? t('executions.detail.noStepDetail') }}</p>
-              <small>{{ step.startedAt ?? t('executions.detail.notStarted') }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
+              <small>{{ formatStepStartTime(step.startedAt) }}{{ step.finishedAt ? ` -> ${formatDetailTime(step.finishedAt)}` : '' }}</small>
             </li>
           </ul>
           <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noSteps') }}</p>
@@ -515,8 +524,10 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 .execution-list {
   overflow: hidden;
-  border-radius: var(--gc-radius-sm);
+  border-radius: var(--gc-radius-lg);
   padding: 0;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .execution-list__header,
@@ -530,7 +541,8 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 }
 
 .execution-list__header {
-  border-bottom: 1px solid var(--gc-color-border);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+  background: var(--gc-color-surface-solid);
 }
 
 .execution-list__header h2,
@@ -579,7 +591,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 .execution-list__table th,
 .execution-list__table td {
   padding: var(--gc-space-3) var(--gc-space-4);
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
   text-align: left;
   vertical-align: middle;
 }
@@ -679,7 +691,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 .execution-list__asset {
   margin: var(--gc-space-1) var(--gc-space-1) var(--gc-space-1) 0;
-  border: 1px solid var(--gc-color-info-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
   color: var(--gc-color-info);
   background: var(--gc-color-info-bg);
 }
@@ -708,7 +720,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 .execution-list__pagination {
   justify-content: flex-end;
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .execution-detail-modal {
@@ -723,7 +735,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   align-items: stretch;
   gap: var(--gc-space-4);
   padding: var(--gc-space-4);
-  border: 1px solid var(--gc-color-info-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
   border-radius: var(--gc-radius-lg);
   background: var(--gc-color-surface-subtle);
 }
@@ -794,7 +806,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   gap: var(--gc-space-1);
   width: fit-content;
   padding: var(--gc-space-1);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-xl);
   background: var(--gc-color-surface-hover);
 }
@@ -814,7 +826,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 .execution-detail-modal__tab[data-active='true'] {
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-primary);
-  box-shadow: 0 4px 14px var(--gc-color-primary-weak);
+  box-shadow: var(--gc-shadow-button-primary);
 }
 
 .execution-detail-modal__section,
@@ -822,7 +834,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-lg);
   background: var(--gc-color-surface-solid);
 }
@@ -840,7 +852,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   display: grid;
   gap: var(--gc-space-1);
   padding: var(--gc-space-3);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-hover);
 }
@@ -894,7 +906,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   display: grid;
   gap: var(--gc-space-2);
   padding: var(--gc-space-3);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-hover);
 }

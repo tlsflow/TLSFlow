@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCertificateTrustRootDetail, getCertificateVersionDetail, listCertificateTrustRoots } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcEmptyState, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcCard, GcEmptyState, GcSelectionCard, GcStatusTag } from '@/design-system/components'
 import type { StatusTone } from '@/design-system/status/status-map'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
@@ -140,11 +140,11 @@ function selectRoot(rootKey: string) {
 }
 
 function formatDateTime(value: string) {
-  return formatBrowserLocalTime(value) || value || '—'
+  return formatBrowserLocalTime(value) || t('certificates.detailPanel.fallbacks.emptyValue')
 }
 
 function formatDn(record: ApiRecord | null | undefined, key: 'subject' | 'issuer') {
-  return readString(record, [`${key}.commonName`, `${key}.organization`, `${key}.raw`], '—')
+  return readString(record, [`${key}.commonName`, `${key}.organization`, `${key}.raw`], t('certificates.detailPanel.fallbacks.emptyValue'))
 }
 
 function rootValidationTone(status: string): StatusTone {
@@ -247,8 +247,9 @@ function compareAssetGroups(left: RelatedAssetGroup, right: RelatedAssetGroup): 
 }
 
 function rootGroupName(group: RootGroup): string {
-  return formatDn(group.rootRecord, 'subject') !== '—'
-    ? formatDn(group.rootRecord, 'subject')
+  const subject = formatDn(group.rootRecord, 'subject')
+  return subject !== t('certificates.detailPanel.fallbacks.emptyValue')
+    ? subject
     : group.fingerprintSha256 || t('certificates.trustRoots.summary.rootFingerprintUnavailable')
 }
 
@@ -378,9 +379,9 @@ interface RootGroup {
         <strong>{{ t('certificates.trustRoots.toolbar.title') }}</strong>
         <p>{{ t('certificates.trustRoots.toolbar.description', { count: rootGroups.length }) }}</p>
       </div>
-      <button class="gc-button" type="button" :disabled="loading" @click="loadRoots">
+      <GcButton variant="secondary" :loading="loading" @click="loadRoots">
         {{ t('certificates.trustRoots.actions.refresh') }}
-      </button>
+      </GcButton>
     </header>
 
     <GcEmptyState
@@ -396,22 +397,30 @@ interface RootGroup {
 
     <template v-else>
       <section v-if="managedTotal > 0" class="trust-roots-modal__summary">
-        <div class="trust-roots-modal__summary-card">
-          <strong>{{ managedTotal }}</strong>
-          <span>{{ t('certificates.trustRoots.summary.managedVersions') }}</span>
-        </div>
-        <div class="trust-roots-modal__summary-card trust-roots-modal__summary-card--success">
-          <strong>{{ managedResolved }}</strong>
-          <span>{{ t('certificates.trustRoots.summary.resolvedVersions') }}</span>
-        </div>
-        <div class="trust-roots-modal__summary-card trust-roots-modal__summary-card--danger">
-          <strong>{{ managedMissing }}</strong>
-          <span>{{ t('certificates.trustRoots.summary.missingVersions') }}</span>
-        </div>
-        <div class="trust-roots-modal__summary-card trust-roots-modal__summary-card--warning">
-          <strong>{{ managedInvalidChain }}</strong>
-          <span>{{ t('certificates.trustRoots.summary.invalidChainVersions') }}</span>
-        </div>
+        <GcCard as="article" class="trust-roots-modal__summary-card">
+          <div class="trust-roots-modal__summary-card-content">
+            <strong>{{ managedTotal }}</strong>
+            <span>{{ t('certificates.trustRoots.summary.managedVersions') }}</span>
+          </div>
+        </GcCard>
+        <GcCard as="article" class="trust-roots-modal__summary-card trust-roots-modal__summary-card--success">
+          <div class="trust-roots-modal__summary-card-content">
+            <strong>{{ managedResolved }}</strong>
+            <span>{{ t('certificates.trustRoots.summary.resolvedVersions') }}</span>
+          </div>
+        </GcCard>
+        <GcCard as="article" class="trust-roots-modal__summary-card trust-roots-modal__summary-card--danger">
+          <div class="trust-roots-modal__summary-card-content">
+            <strong>{{ managedMissing }}</strong>
+            <span>{{ t('certificates.trustRoots.summary.missingVersions') }}</span>
+          </div>
+        </GcCard>
+        <GcCard as="article" class="trust-roots-modal__summary-card trust-roots-modal__summary-card--warning">
+          <div class="trust-roots-modal__summary-card-content">
+            <strong>{{ managedInvalidChain }}</strong>
+            <span>{{ t('certificates.trustRoots.summary.invalidChainVersions') }}</span>
+          </div>
+        </GcCard>
       </section>
       <GcEmptyState
         v-if="rootGroups.length === 0"
@@ -422,26 +431,21 @@ interface RootGroup {
 
       <div v-else class="trust-roots-modal__workspace">
         <aside class="trust-roots-modal__list">
-          <button
+          <GcSelectionCard
             v-for="root in rootGroups"
             :key="root.key"
             class="trust-roots-modal__item"
-            :class="{ 'trust-roots-modal__item--active': root.key === selectedRootKey }"
-            type="button"
-            @click="selectRoot(root.key)"
+            :title="rootGroupName(root)"
+            :description="t('certificates.trustRoots.summary.relatedAssetCount', { count: rootAssetCount(root) })"
+            :model-value="root.key === selectedRootKey"
+            @select="selectRoot(root.key)"
           >
-            <div class="trust-roots-modal__item-main">
-              <strong>{{ rootGroupName(root) }}</strong>
-              <span>
-                {{ t('certificates.trustRoots.summary.relatedAssetCount', { count: rootAssetCount(root) }) }}
-              </span>
-            </div>
             <GcStatusTag
               :status="rootGroupStatus(root)"
               :label="t(`certificates.trustRoots.rootStatus.${rootGroupStatus(root)}`)"
               :tone="managedRootTone(rootGroupStatus(root))"
             />
-          </button>
+          </GcSelectionCard>
         </aside>
 
         <section class="trust-roots-modal__detail">
@@ -481,7 +485,7 @@ interface RootGroup {
               </div>
             </header>
 
-            <section class="trust-roots-modal__card">
+            <GcCard as="section" class="trust-roots-modal__card">
               <dl class="trust-roots-modal__grid">
                 <div v-if="selectedRootDetail">
                   <dt>{{ t('certificates.trustRoots.fields.serialNumber') }}</dt>
@@ -515,9 +519,9 @@ interface RootGroup {
               <p v-if="!selectedRootDetail" class="trust-roots-modal__hint">
                 {{ t('certificates.trustRoots.states.rootNotInLibrary') }}
               </p>
-            </section>
+            </GcCard>
 
-            <section class="trust-roots-modal__card">
+            <GcCard as="section" class="trust-roots-modal__card">
               <header class="trust-roots-modal__section-header">
                 <strong>{{ t('certificates.trustRoots.sections.relatedAssets') }}</strong>
                 <span>{{ t('businessPage.total', { count: relatedAssets.length }) }}</span>
@@ -533,7 +537,7 @@ interface RootGroup {
                 :title="t('certificates.trustRoots.states.emptyAssets')"
               />
               <div v-else class="trust-roots-modal__asset-list">
-                <article v-for="group in relatedAssets" :key="readString(group.asset, ['id'])" class="trust-roots-modal__asset-card">
+                <article v-for="group in relatedAssets" :key="readString(group.asset, ['id'])" class="trust-roots-modal__asset-item">
                   <header class="trust-roots-modal__asset-header">
                     <div class="trust-roots-modal__asset-title">
                       <strong>{{ readString(group.asset, ['name', 'primaryDomain', 'id']) }}</strong>
@@ -541,9 +545,9 @@ interface RootGroup {
                     </div>
                     <div class="trust-roots-modal__asset-actions">
                       <span class="trust-roots-modal__asset-count">{{ t('businessPage.total', { count: group.versions.length }) }}</span>
-                      <button class="trust-roots-modal__toggle-button" type="button" @click="toggleAssetExpanded(group)">
+                      <GcButton variant="ghost" @click="toggleAssetExpanded(group)">
                         {{ isAssetExpanded(group) ? t('certificates.trustRoots.actions.collapseVersions') : t('certificates.trustRoots.actions.expandVersions') }}
-                      </button>
+                      </GcButton>
                     </div>
                   </header>
                   <dl class="trust-roots-modal__asset-meta">
@@ -575,9 +579,9 @@ interface RootGroup {
                   </ul>
                 </article>
               </div>
-            </section>
+            </GcCard>
 
-            <section class="trust-roots-modal__card">
+            <GcCard as="section" class="trust-roots-modal__card">
               <header class="trust-roots-modal__section-header">
                 <strong>{{ t('certificates.trustRoots.sections.observations') }}</strong>
                 <span>{{ t('businessPage.total', { count: observations.length }) }}</span>
@@ -601,7 +605,7 @@ interface RootGroup {
                   />
                 </li>
               </ul>
-            </section>
+            </GcCard>
           </div>
         </section>
       </div>
@@ -612,8 +616,8 @@ interface RootGroup {
 <style scoped>
 .trust-roots-modal {
   display: grid;
-  gap: 12px;
-  min-height: min(72vh, 880px);
+  gap: var(--gc-space-4);
+  min-height: 72vh;
 }
 
 .trust-roots-modal__toolbar,
@@ -622,7 +626,7 @@ interface RootGroup {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .trust-roots-modal__toolbar strong,
@@ -636,40 +640,36 @@ interface RootGroup {
 .trust-roots-modal__section-header span {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .trust-roots-modal__workspace {
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(var(--gc-size-card-min), 1fr) minmax(0, 2fr);
+  gap: var(--gc-space-4);
   min-height: 0;
 }
 
 .trust-roots-modal__summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
-.trust-roots-modal__summary-card {
+.trust-roots-modal__summary-card-content {
   display: grid;
-  gap: 4px;
-  padding: 14px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 16px;
-  background: var(--gc-color-surface-soft);
+  gap: var(--gc-space-1);
 }
 
 .trust-roots-modal__summary-card strong {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-xl);
-  line-height: 1;
+  line-height: var(--gc-line-height-tight);
 }
 
 .trust-roots-modal__summary-card span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .trust-roots-modal__summary-card--success {
@@ -694,66 +694,14 @@ interface RootGroup {
 
 .trust-roots-modal__list {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
   align-content: start;
   overflow: auto;
-  padding-right: 8px;
+  padding-right: var(--gc-space-2);
 }
 
 .trust-roots-modal__item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 14px;
-  background: var(--gc-color-surface-soft);
-  text-align: left;
-  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
-}
-
-.trust-roots-modal__item:hover {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-surface-muted);
-}
-
-.trust-roots-modal__item--active {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-surface-selected);
-  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
-}
-
-.trust-roots-modal__item-main,
-.trust-roots-modal__record-main {
-  display: grid;
-  gap: 4px;
   min-width: 0;
-}
-
-.trust-roots-modal__item-main strong,
-.trust-roots-modal__record-main strong {
-  font-size: 13px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.trust-roots-modal__item-main span,
-.trust-roots-modal__asset-title p,
-.trust-roots-modal__version-main span {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.trust-roots-modal__item-main code,
-.trust-roots-modal__record-main code,
-.trust-roots-modal__version-main code {
-  color: var(--gc-color-text-muted);
-  font-size: 11px;
-  overflow-wrap: anywhere;
 }
 
 .trust-roots-modal__detail {
@@ -763,78 +711,72 @@ interface RootGroup {
 
 .trust-roots-modal__detail-body {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
   min-height: 0;
   overflow: auto;
-  padding-right: 4px;
+  padding-right: var(--gc-space-1);
 }
 
 .trust-roots-modal__status-group {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
-.trust-roots-modal__card {
+.trust-roots-modal__card :deep(.gc-pro-card__body) {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 16px;
-  background: var(--gc-color-surface-soft);
+  gap: var(--gc-space-3);
 }
 
 .trust-roots-modal__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
   margin: 0;
 }
 
 .trust-roots-modal__grid div {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-space-1);
 }
 
 .trust-roots-modal__grid dt {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .trust-roots-modal__grid dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
   overflow-wrap: anywhere;
 }
 
 .trust-roots-modal__hint {
   margin: 0;
-  padding: 12px;
-  border: 1px dashed var(--gc-color-warning-border);
-  border-radius: 14px;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) dashed var(--gc-color-warning-border);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-warning-soft);
   color: var(--gc-color-text-muted);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
 }
 
 .trust-roots-modal__asset-list,
 .trust-roots-modal__version-list,
 .trust-roots-modal__record-list {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
-.trust-roots-modal__asset-card {
+.trust-roots-modal__asset-item {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 14px;
-  background: var(--gc-color-surface-panel);
+  gap: var(--gc-space-3);
+  padding-block: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .trust-roots-modal__asset-header,
@@ -842,82 +784,67 @@ interface RootGroup {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--gc-space-3);
 }
 
 .trust-roots-modal__asset-title,
-.trust-roots-modal__version-main {
+.trust-roots-modal__version-main,
+.trust-roots-modal__record-main {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .trust-roots-modal__asset-title strong,
 .trust-roots-modal__version-main strong {
   color: var(--gc-color-text);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.35;
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+  line-height: var(--gc-line-height-tight);
   overflow-wrap: anywhere;
 }
 
 .trust-roots-modal__detail .trust-roots-modal__asset-title p,
 .trust-roots-modal__detail .trust-roots-modal__version-main span,
 .trust-roots-modal__detail .trust-roots-modal__record-main span {
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-tight);
 }
 
 .trust-roots-modal__asset-count {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   white-space: nowrap;
 }
 
 .trust-roots-modal__asset-actions {
   display: grid;
   justify-items: end;
-  gap: 8px;
-}
-
-.trust-roots-modal__toggle-button {
-  padding: 4px 8px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 999px;
-  background: var(--gc-color-surface-soft);
-  color: var(--gc-color-text);
-  font-size: 11px;
-  font-weight: 600;
-  transition: border-color .16s ease, background .16s ease;
-}
-
-.trust-roots-modal__toggle-button:hover {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-surface-selected);
+  gap: var(--gc-space-2);
 }
 
 .trust-roots-modal__asset-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
 .trust-roots-modal__asset-meta div {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-space-1);
 }
 
 .trust-roots-modal__asset-meta dt {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .trust-roots-modal__asset-meta dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
   overflow-wrap: anywhere;
 }
 
@@ -928,10 +855,8 @@ interface RootGroup {
 }
 
 .trust-roots-modal__version-item {
-  padding: 8px 10px;
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 12px;
-  background: var(--gc-color-surface-soft);
+  padding-block: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .trust-roots-modal__record-list {
@@ -943,21 +868,20 @@ interface RootGroup {
 .trust-roots-modal__record-item {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--gc-color-border-subtle);
-  border-radius: 12px;
-  background: var(--gc-color-surface-panel);
+  gap: var(--gc-space-3);
+  padding-block: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .trust-roots-modal__detail .trust-roots-modal__record-main strong {
-  font-size: 12px;
-  line-height: 1.35;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-tight);
 }
 
 .trust-roots-modal__record-main span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-sm);
   overflow-wrap: anywhere;
 }
 
@@ -965,18 +889,18 @@ interface RootGroup {
   display: grid;
   align-content: center;
   justify-items: center;
-  min-height: 280px;
+  min-height: var(--gc-size-card-min);
   color: var(--gc-color-text-muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .trust-roots-modal__inline-error {
   display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--gc-color-danger-border);
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-danger-soft);
   color: var(--gc-color-danger);
 }
@@ -986,12 +910,12 @@ interface RootGroup {
 }
 
 .trust-roots-modal :deep(.trust-roots-modal__empty--embedded) {
-  padding: 12px 0;
+  padding: var(--gc-space-3) 0;
   background: transparent;
   border: 0;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 60rem) {
   .trust-roots-modal {
     min-height: 0;
   }

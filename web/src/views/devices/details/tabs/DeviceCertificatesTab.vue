@@ -27,7 +27,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised)); }
+.agent-detail-modal__section { padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-gradient-surface); }
 .agent-detail-modal__certificate-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); }
 @media (max-width: 68.75rem) { .agent-detail-modal__certificate-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 47.5rem) { .agent-detail-modal__certificate-list { grid-template-columns: 1fr; } }

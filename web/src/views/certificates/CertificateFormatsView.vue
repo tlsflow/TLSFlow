@@ -8,8 +8,10 @@ import {
   listCertificateFormats,
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcDataTable, GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcCard, GcDataTable, GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import type { StatusTone } from '@/design-system/status/status-map'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { toErrorState, type CertificatePageError } from './certificate-view-utils'
 
 const route = useRoute()
@@ -79,42 +81,198 @@ async function createFormat() {
   }
 }
 
+function formatDateTime(value: unknown) {
+  const raw = String(value ?? '')
+  return formatBrowserLocalTime(raw) || t('agents.common.none')
+}
+
+function formatStatusTone(value: unknown): StatusTone {
+  switch (String(value ?? '').toUpperCase()) {
+    case 'READY':
+    case 'AVAILABLE':
+    case 'SUCCESS':
+    case 'COMPLETED':
+      return 'success'
+    case 'PENDING':
+    case 'PROCESSING':
+    case 'CREATING':
+      return 'info'
+    case 'UNSUPPORTED':
+    case 'WARNING':
+      return 'warning'
+    case 'FAILED':
+    case 'ERROR':
+      return 'danger'
+    default:
+      return 'muted'
+  }
+}
+
 onMounted(() => void loadFormats())
 </script>
 
 <template>
   <section class="gc-page certificate-formats">
     <GcPageHeader :title="t('certificates.formats.title')" :description="t('certificates.formats.description', { id: certificateId })">
-      <template #actions><RouterLink class="gc-button" :to="`/certificates/${certificateId}`">{{ t('certificates.usages.backDetail') }}</RouterLink></template>
+      <template #actions>
+        <RouterLink class="gc-button gc-button--secondary certificate-formats__back" :to="`/certificates/${certificateId}`">
+          {{ t('certificates.usages.backDetail') }}
+        </RouterLink>
+      </template>
     </GcPageHeader>
 
-    <section class="gc-card certificate-formats__actions">
-      <label><span>{{ t('certificates.formats.fields.targetFormat') }}</span><select v-model="draft.format"><option v-for="item in formatOptions" :key="item.value" :value="item.value">{{ t('certificates.formats.optionAvailable', { label: item.label }) }}</option></select></label>
-      <label><span>{{ t('certificates.formats.fields.versionId') }}</span><input v-model="draft.certificateVersionId" placeholder="certver-..." /></label>
-      <label><span>{{ t('certificates.formats.fields.passwordSecretRef') }}</span><input v-model="draft.passwordSecretRef" placeholder="secret://pfx_password/sec_...#current" /></label>
-      <label><span>{{ t('certificates.formats.fields.alias') }}</span><input v-model="draft.alias" :placeholder="t('certificates.formats.placeholders.alias')" /></label>
-      <label><span>{{ t('certificates.formats.fields.containsPrivateKey') }}</span><select v-model="draft.containsPrivateKey"><option :value="false">{{ t('agents.common.no') }}</option><option :value="true">{{ t('agents.common.yes') }}</option></select></label>
-      <button class="gc-button" type="button" :disabled="!selectedFormat.supported" @click="createFormat">{{ t('certificates.formats.create') }}</button>
-      <p>{{ t('certificates.formats.hint') }}</p>
-      <p v-if="actionError" class="certificate-formats__error">{{ actionError }}</p>
-    </section>
+    <GcCard as="section" class="certificate-formats__form-card">
+      <template #header>
+        <div class="certificate-formats__form-header">
+          <h2>{{ t('certificates.formats.create') }}</h2>
+          <p>{{ t('certificates.formats.hint') }}</p>
+        </div>
+      </template>
+
+      <form class="certificate-formats__form" @submit.prevent="createFormat">
+        <label class="gc-form-field">
+          <span>{{ t('certificates.formats.fields.targetFormat') }}</span>
+          <select v-model="draft.format">
+            <option v-for="item in formatOptions" :key="item.value" :value="item.value">
+              {{ t('certificates.formats.optionAvailable', { label: item.label }) }}
+            </option>
+          </select>
+        </label>
+        <label class="gc-form-field">
+          <span>{{ t('certificates.formats.fields.versionId') }}</span>
+          <input v-model="draft.certificateVersionId" placeholder="certver-..." />
+        </label>
+        <label class="gc-form-field">
+          <span>{{ t('certificates.formats.fields.passwordSecretRef') }}</span>
+          <input v-model="draft.passwordSecretRef" placeholder="secret://pfx_password/sec_...#current" />
+        </label>
+        <label class="gc-form-field">
+          <span>{{ t('certificates.formats.fields.alias') }}</span>
+          <input v-model="draft.alias" :placeholder="t('certificates.formats.placeholders.alias')" />
+        </label>
+        <label class="gc-form-field">
+          <span>{{ t('certificates.formats.fields.containsPrivateKey') }}</span>
+          <select v-model="draft.containsPrivateKey">
+            <option :value="false">{{ t('agents.common.no') }}</option>
+            <option :value="true">{{ t('agents.common.yes') }}</option>
+          </select>
+        </label>
+        <div class="certificate-formats__form-actions">
+          <GcButton type="submit" variant="primary" :disabled="!selectedFormat.supported">
+            {{ t('certificates.formats.create') }}
+          </GcButton>
+        </div>
+        <p v-if="actionError" class="certificate-formats__error" role="alert">{{ actionError }}</p>
+      </form>
+    </GcCard>
 
     <GcEmptyState v-if="error" :title="t('certificates.formats.loadFailed')" :description="error.message">
       <p>{{ t('businessPage.errorCode', { code: error.errorCode }) }}</p>
     </GcEmptyState>
-    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.formats.empty')">
-      <template #toolbar><strong>{{ t('certificates.formats.toolbar') }}</strong></template>
-      <template #cell-status="{ row }"><GcStatusTag :status="String(row.status ?? 'UNKNOWN')" /></template>
+    <GcDataTable v-else dense :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.formats.empty')">
+      <template #toolbar>
+        <div class="certificate-formats__table-toolbar">
+          <strong>{{ t('certificates.formats.toolbar') }}</strong>
+          <span>{{ t('businessPage.total', { count: rows.length }) }}</span>
+        </div>
+      </template>
+      <template #cell-status="{ row }">
+        <GcStatusTag :status="String(row.status ?? 'UNKNOWN')" :tone="formatStatusTone(row.status)" />
+      </template>
+      <template #cell-createdAt="{ row }">{{ formatDateTime(row.createdAt) }}</template>
     </GcDataTable>
   </section>
 </template>
 
 <style scoped>
-.certificate-formats { display: grid; gap: var(--gc-space-5); }
-.certificate-formats__actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-3); align-items: end; padding: 20px; }
-.certificate-formats__actions label { display: grid; gap: var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
-.certificate-formats__actions input, .certificate-formats__actions select { border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; }
-.certificate-formats__actions p { grid-column: 1 / -1; margin: 0; color: var(--gc-color-text-muted); font-weight: 800; }
-.certificate-formats__error { color: var(--gc-color-danger) !important; }
-@media (max-width: 1000px) { .certificate-formats__actions { grid-template-columns: 1fr; } }
+.certificate-formats {
+  display: grid;
+  gap: var(--gc-space-5);
+}
+
+.certificate-formats__form-header {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.certificate-formats__form-header h2,
+.certificate-formats__form-header p,
+.certificate-formats__error {
+  margin: 0;
+}
+
+.certificate-formats__form-header h2 {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+  line-height: var(--gc-line-height-tight);
+}
+
+.certificate-formats__form-header p {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.certificate-formats__form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--gc-space-4);
+}
+
+.certificate-formats__form-actions,
+.certificate-formats__error {
+  grid-column: 1 / -1;
+}
+
+.certificate-formats__form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.certificate-formats__error {
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.certificate-formats__table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.certificate-formats__table-toolbar strong {
+  color: var(--gc-color-text-strong);
+}
+
+.certificate-formats__table-toolbar span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+@media (max-width: 72rem) {
+  .certificate-formats__form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48rem) {
+  .certificate-formats__form {
+    grid-template-columns: 1fr;
+  }
+
+  .certificate-formats__form-actions {
+    justify-content: stretch;
+  }
+
+  .certificate-formats__form-actions :deep(.gc-button) {
+    width: 100%;
+  }
+}
 </style>

@@ -13,7 +13,7 @@ defineProps<{ title: string; description?: string }>()
 <style scoped>
 .gc-empty-state {
   text-align: center;
-  padding: 46px var(--gc-space-8);
+  padding: var(--gc-size-empty-state-padding) var(--gc-space-8);
   color: var(--gc-color-text-muted);
   border-radius: var(--gc-radius-lg);
   background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));

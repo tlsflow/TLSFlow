@@ -36,7 +36,7 @@ function displayValue(field: DeviceDetailField): string {
 
 <style scoped>
 .agent-detail-modal__sections { display: grid; gap: var(--gc-space-2); }
-.agent-detail-modal__section { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised)); }
+.agent-detail-modal__section { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-gradient-surface); }
 .agent-detail-modal__section-head h3 { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); }
 .agent-detail-modal__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-1) var(--gc-space-2); margin: 0; }
 .agent-detail-modal__item { display: grid; min-width: 0; gap: var(--gc-space-1); padding: var(--gc-space-1) var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-hover); }

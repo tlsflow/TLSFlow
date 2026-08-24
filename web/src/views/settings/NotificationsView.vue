@@ -412,7 +412,7 @@ onMounted(refresh)
 </script>
 
 <template>
-  <section class="notifications-page">
+  <section class="gc-page notifications-page">
     <p v-if="errorMessage" class="notifications-page__error" role="alert">{{ errorMessage }}</p>
     <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar>
@@ -431,6 +431,8 @@ onMounted(refresh)
       </GcPageToolbar>
     </Teleport>
 
+    <p v-if="loading" class="notifications-page__loading" role="status">{{ t('common.loading') }}</p>
+
     <section v-if="activeTab === 'channels'" class="notifications-page__section">
       <form class="gc-card notifications-page__settings" @submit.prevent="saveNotificationSettings">
         <header class="notifications-page__toolbar">
@@ -438,7 +440,7 @@ onMounted(refresh)
             <h2>{{ t('notifications.settings.privateOriginsTitle') }}</h2>
             <p>{{ t('notifications.settings.privateOriginsDescription') }}</p>
           </div>
-          <button v-if="canUpdateSettings" class="notifications-page__button" type="submit" :disabled="submitting">{{ t('notifications.actions.saveSettings') }}</button>
+          <button v-if="canUpdateSettings" class="gc-button gc-button--primary" type="submit" :disabled="submitting">{{ t('notifications.actions.saveSettings') }}</button>
         </header>
         <div class="notifications-page__settings-grid">
           <label><span>{{ t('notifications.fields.wecomPrivateOrigins') }}</span><textarea v-model="notificationSettings.wecomPrivateOrigins" :readonly="!canUpdateSettings" :placeholder="t('notifications.fields.privateOriginsPlaceholder')" /></label>
@@ -462,8 +464,8 @@ onMounted(refresh)
             <div><dt>{{ t('notifications.fields.latency') }}</dt><dd>{{ channel.lastLatencyMs ?? t('notifications.values.notAvailable') }}</dd></div>
           </dl>
           <div class="notifications-page__actions">
-            <button type="button" @click="toggleChannel(channel)">{{ channel.status === 'active' ? t('notifications.actions.disable') : t('notifications.actions.enable') }}</button>
-            <button type="button" @click="openTestDialog(channel)">{{ t('notifications.actions.test') }}</button>
+            <button class="gc-button" type="button" @click="toggleChannel(channel)">{{ channel.status === 'active' ? t('notifications.actions.disable') : t('notifications.actions.enable') }}</button>
+            <button class="gc-button" type="button" @click="openTestDialog(channel)">{{ t('notifications.actions.test') }}</button>
           </div>
         </article>
       </div>
@@ -486,7 +488,7 @@ onMounted(refresh)
             <div><dt>{{ t('notifications.fields.failureCategory') }}</dt><dd>{{ delivery.failureCategory || t('notifications.values.notAvailable') }}</dd></div>
           </dl>
           <div v-if="delivery.status === 'failed'" class="notifications-page__actions">
-            <button type="button" @click="retryDelivery(delivery)">{{ t('notifications.actions.retry') }}</button>
+            <button class="gc-button" type="button" @click="retryDelivery(delivery)">{{ t('notifications.actions.retry') }}</button>
           </div>
         </article>
       </div>
@@ -610,8 +612,8 @@ onMounted(refresh)
         <label><span>{{ t('notifications.fields.endsAt') }}</span><input v-model="silenceForm.endsAt" type="datetime-local" required /></label>
       </form>
       <template #actions>
-        <button class="notifications-page__button notifications-page__button--secondary" type="button" :disabled="submitting" @click="closeDialog">{{ t('notifications.actions.cancel') }}</button>
-        <button v-if="activeDialog" class="notifications-page__button" type="submit" :form="`notification-${activeDialog}-form`" :disabled="submitting">{{ activeDialog === 'test' ? t('notifications.actions.test') : t('notifications.actions.confirmCreate') }}</button>
+        <button class="gc-button" type="button" :disabled="submitting" @click="closeDialog">{{ t('notifications.actions.cancel') }}</button>
+        <button v-if="activeDialog" class="gc-button gc-button--primary" type="submit" :form="`notification-${activeDialog}-form`" :disabled="submitting">{{ activeDialog === 'test' ? t('notifications.actions.test') : t('notifications.actions.confirmCreate') }}</button>
       </template>
     </GcModal>
   </section>
@@ -634,6 +636,7 @@ onMounted(refresh)
 .notifications-page__settings-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .notifications-page__settings-grid label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .notifications-page__settings-grid textarea { min-height: calc(var(--gc-space-10) * 2); padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text); resize: vertical; }
+.notifications-page__loading { margin: 0; padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); color: var(--gc-color-info); background: var(--gc-color-info-soft); font-weight: 750; }
 .notifications-page__rules { gap: var(--gc-space-6); }
 .notifications-page__toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
 .notifications-page__toolbar h2, .notifications-page__toolbar p, .notifications-page__item h3, .notifications-page__item p { margin: 0; }
@@ -649,9 +652,6 @@ onMounted(refresh)
 .notifications-page__form label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .notifications-page__form input, .notifications-page__form select, .notifications-page__form textarea { padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text); }
 .notifications-page__form textarea { min-height: calc(var(--gc-space-10) * 2); resize: vertical; }
-.notifications-page__button, .notifications-page__actions button { min-height: var(--gc-space-8); padding: 0 var(--gc-space-4); border: 0; border-radius: var(--gc-radius-sm); color: var(--gc-color-text-inverse); background: var(--gc-color-primary-strong); cursor: pointer; }
-.notifications-page__button--secondary { border: var(--gc-space-hairline) solid var(--gc-color-border); color: var(--gc-color-text); background: var(--gc-color-surface); }
-.notifications-page__button:disabled, .notifications-page__actions button:disabled { cursor: default; }
 .notifications-page__error { margin: 0; padding: var(--gc-space-3); border: var(--gc-space-hairline) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-sm); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 
 @media (max-width: 56.25rem) {

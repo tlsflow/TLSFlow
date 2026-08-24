@@ -10,7 +10,7 @@ const props = withDefaults(defineProps<{
   labelledBy?: string
 }>(), {
   open: false,
-  width: 'min(620px, 100vw)',
+  width: 'min(var(--gc-size-drawer-wide), 100vw)',
 })
 
 const emit = defineEmits<{
@@ -139,7 +139,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
   padding: var(--gc-space-4) var(--gc-space-6) var(--gc-space-6);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .gc-drawer__header,
   .gc-drawer__body {
     padding-inline: var(--gc-space-4);

@@ -139,6 +139,7 @@ describe('CloudProvidersView', () => {
     const wrapper = mountView()
     await flushPromises()
 
+    expect(wrapper.find('main.gc-page.provider-page').exists()).toBe(true)
     expect(pageState.config).not.toBeNull()
     expect(pageState.config!.actions).toEqual([])
     expect(pageState.config!.rowActions.map((action: { label: string }) => action.label)).toEqual(['编辑', '删除'])

@@ -30,6 +30,7 @@ import { computeTlsInspectionRating, tlsRatingTone } from './monitor-tls-scoring
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
 type TargetStatus = ProbeStatus | 'NONE'
+type MonitorFilterStatus = 'ALL' | TargetStatus
 type MonitorWarningReason = 'certificateNotApplied' | 'chainVerificationFailed'
 
 interface MonitorTarget {
@@ -91,6 +92,8 @@ const certificateObservations = ref<Record<string, CertificateObservation[]>>({}
 const selectedAssetId = ref('')
 const selectedIntervalSeconds = ref(60)
 const selectedTargetId = ref('')
+const monitorKeyword = ref('')
+const monitorStatusFilter = ref<MonitorFilterStatus>('ALL')
 const loading = ref(false)
 const probing = ref(false)
 const addDialogOpen = ref(false)
@@ -169,6 +172,27 @@ const monitorRows = computed(() =>
   }),
 )
 
+const filteredMonitorRows = computed(() => {
+  const normalizedKeyword = monitorKeyword.value.trim().toLocaleLowerCase()
+  return monitorRows.value.filter((row) => {
+    if (monitorStatusFilter.value !== 'ALL' && row.status !== monitorStatusFilter.value) return false
+    if (!normalizedKeyword) return true
+    return [row.title, row.endpoint, row.statusLabel, row.warningSummary]
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase()
+      .includes(normalizedKeyword)
+  })
+})
+
+const monitorStatusOptions = computed(() => [
+  { value: 'ALL' as const, label: t('businessPage.all') },
+  { value: 'READY' as const, label: t('monitoring.status.ready') },
+  { value: 'WARNING' as const, label: t('monitoring.status.warning') },
+  { value: 'ERROR' as const, label: t('monitoring.status.error') },
+  { value: 'NONE' as const, label: t('monitoring.status.none') },
+])
+
 onMounted(() => {
   shouldTeleportActions.value = Boolean(document.querySelector('#gc-shell-hero-actions'))
   clearStoredMonitorState()
@@ -190,6 +214,11 @@ watch(
 
 watch(tlsDialogOpen, (open) => {
   if (!open) void clearTlsDialogQuery()
+})
+
+watch(filteredMonitorRows, (rows) => {
+  if (rows.some((row) => row.target.id === selectedTargetId.value)) return
+  selectedTargetId.value = rows[0]?.target.id ?? ''
 })
 
 async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {}) {
@@ -473,6 +502,13 @@ function statusFromProbeAndRisks(
   if (warningReasons.length > 0) return 'WARNING'
   if (assetRisks.some(isActiveRisk)) return 'WARNING'
   return probe?.status ?? 'NONE'
+}
+
+function monitorStatusTone(status: TargetStatus): 'success' | 'warning' | 'danger' | 'muted' {
+  if (status === 'READY') return 'success'
+  if (status === 'WARNING') return 'warning'
+  if (status === 'ERROR') return 'danger'
+  return 'muted'
 }
 
 function isActiveRisk(risk: ApiRecord): boolean {
@@ -868,7 +904,11 @@ function trimProbeStateToTargets() {
       </div>
     </Teleport>
 
-    <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error" />
+    <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error">
+      <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="refreshAll()">
+        {{ loading ? t('monitoring.actions.refreshing') : t('businessPage.retry') }}
+      </button>
+    </GcEmptyState>
 
     <GcEmptyState
       v-else-if="!loading && monitorTargets.length === 0"
@@ -878,14 +918,36 @@ function trimProbeStateToTargets() {
 
     <section v-else class="monitor-page__workspace">
       <aside class="monitor-page__targets gc-card">
+        <div class="monitor-page__filterbar" :aria-label="t('businessPage.toggleFilters')">
+          <label class="monitor-page__filter-search">
+            <span>{{ t('monitoring.labels.applicationAsset') }}</span>
+            <input v-model="monitorKeyword" type="search" :placeholder="t('monitoring.labels.applicationAsset')">
+          </label>
+          <label class="monitor-page__filter-status">
+            <span>{{ t('businessPage.toggleFilters') }}</span>
+            <select v-model="monitorStatusFilter">
+              <option v-for="option in monitorStatusOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <button
+            v-if="monitorKeyword || monitorStatusFilter !== 'ALL'"
+            class="gc-button monitor-page__filter-reset"
+            type="button"
+            @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'"
+          >
+            {{ t('businessPage.clearFilters') }}
+          </button>
+        </div>
         <header class="monitor-page__section-head">
           <div>
             <strong>{{ t('monitoring.sections.targets') }}</strong>
-            <span>{{ t('monitoring.targets.assetCount', { count: monitorRows.length }) }}</span>
+            <span>{{ t('monitoring.targets.assetCount', { count: filteredMonitorRows.length }) }}</span>
           </div>
         </header>
         <button
-          v-for="row in monitorRows"
+          v-for="row in filteredMonitorRows"
           :key="row.target.id"
           class="monitor-page__target"
           :class="{ 'is-active': selectedTargetId === row.target.id }"
@@ -912,17 +974,23 @@ function trimProbeStateToTargets() {
             >
               {{ row.tlsRating }}
             </span>
-            <span
+            <GcStatusTag
               class="monitor-page__target-status"
-              :data-status="row.status"
               :title="row.warningSummary"
               :aria-label="row.warningSummary || row.statusLabel"
-            >
-              <b v-if="row.status === 'WARNING'" aria-hidden="true">!</b>
-              {{ row.statusLabel }}
-            </span>
+              :status="row.status"
+              :label="row.statusLabel"
+              :tone="monitorStatusTone(row.status)"
+            />
           </div>
         </button>
+        <div v-if="filteredMonitorRows.length === 0" class="monitor-page__filtered-empty">
+          <strong>{{ t('monitoring.empty.title') }}</strong>
+          <span>{{ t('businessPage.clearFilters') }}</span>
+          <button class="gc-button" type="button" @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'">
+            {{ t('businessPage.clearFilters') }}
+          </button>
+        </div>
       </aside>
 
       <section class="monitor-page__detail">
@@ -1121,7 +1189,7 @@ function trimProbeStateToTargets() {
                 <tr v-for="item in selectedProbeHistory" :key="`${item.checkedAt}-${item.message}`">
                   <td>{{ formatLocalTime(item.checkedAt) }}</td>
                   <td>{{ sourceLabel(item.source) }}</td>
-                  <td>{{ item.status }}</td>
+                  <td><GcStatusTag :status="item.status" /></td>
                   <td>{{ item.latencyMs === undefined ? t('monitoring.fallback.notCollected') : `${item.latencyMs} ms` }}</td>
                   <td>{{ item.message }}</td>
                 </tr>
@@ -1203,13 +1271,13 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__actions .gc-button {
-  min-height: 36px;
-  padding-inline: 14px;
+  min-height: var(--gc-control-height-sm);
+  padding-inline: var(--gc-space-3);
 }
 
 .monitor-page__workspace {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: calc(var(--gc-space-10) * 8) minmax(0, 1fr);
   gap: var(--gc-space-4);
   align-items: start;
 }
@@ -1217,34 +1285,87 @@ function trimProbeStateToTargets() {
 .monitor-page__targets,
 .monitor-page__summary,
 .monitor-page__panel {
-  padding: 16px;
+  padding: var(--gc-space-4);
 }
 
 .monitor-page__targets {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
+}
+
+.monitor-page__filterbar {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding-bottom: var(--gc-space-2);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.monitor-page__filter-search,
+.monitor-page__filter-status {
+  display: grid;
+  gap: var(--gc-space-1);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+}
+
+.monitor-page__filter-search input,
+.monitor-page__filter-status select {
+  min-width: 0;
+  min-height: var(--gc-control-height-sm);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-sm);
+  padding: 0 var(--gc-space-2);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  font: inherit;
+}
+
+.monitor-page__filter-search input:focus,
+.monitor-page__filter-status select:focus {
+  outline: none;
+  border-color: var(--gc-color-focus);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.monitor-page__filter-reset {
+  justify-self: start;
+}
+
+.monitor-page__filtered-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-4) 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.monitor-page__filtered-empty strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
 }
 
 .monitor-page__section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .monitor-page__section-head > div {
   display: grid;
-  gap: 3px;
+  gap: var(--gc-space-1);
 }
 
 .monitor-page__section-head strong {
   color: var(--gc-color-text);
-  font-size: 15px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .monitor-page__section-head span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
@@ -1252,12 +1373,12 @@ function trimProbeStateToTargets() {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--gc-space-2);
   width: 100%;
   min-height: calc(var(--gc-space-8) * 3);
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 8px;
-  padding: 12px;
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-solid);
   text-align: left;
   cursor: pointer;
@@ -1270,40 +1391,40 @@ function trimProbeStateToTargets() {
 
 .monitor-page__target-body {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   flex: 1 1 auto;
   min-width: 0;
 }
 
 .monitor-page__target strong,
-.monitor-page__target span {
+.monitor-page__target-body > span {
   overflow-wrap: anywhere;
 }
 
-.monitor-page__target span {
+.monitor-page__target-body > span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .monitor-page__target small {
   color: var(--gc-color-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 750;
 }
 
 .monitor-page__probe-blocks {
   display: grid;
   grid-template-columns: repeat(10, var(--gc-space-3));
-  gap: 4px;
+  gap: var(--gc-space-1);
   width: max-content;
-  margin-top: 4px;
+  margin-top: var(--gc-space-1);
 }
 
 .monitor-page__probe-blocks i {
   display: block;
   width: var(--gc-space-3);
   height: var(--gc-space-3);
-  border-radius: 4px;
+  border-radius: var(--gc-radius-sm);
   background: var(--gc-color-muted-bg);
 }
 
@@ -1321,14 +1442,11 @@ function trimProbeStateToTargets() {
 
 .monitor-page__target-status {
   flex: 0 0 auto;
-  min-width: 54px;
-  min-height: 32px;
-  align-self: flex-start;
-  border-radius: 999px;
-  padding: 4px 10px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 850;
+  min-width: calc(var(--gc-space-10) + var(--gc-space-3));
+  min-height: var(--gc-space-8);
+  display: inline-grid;
+  place-items: center;
+  align-self: auto;
 }
 
 .monitor-page__target-indicators {
@@ -1337,12 +1455,6 @@ function trimProbeStateToTargets() {
   width: calc(var(--gc-space-10) + var(--gc-space-4));
   justify-items: center;
   gap: var(--gc-space-2);
-}
-
-.monitor-page__target-status {
-  display: inline-grid;
-  place-items: center;
-  align-self: auto;
 }
 
 .monitor-page__target-tls-rating,
@@ -1383,45 +1495,25 @@ function trimProbeStateToTargets() {
   background: var(--gc-color-danger-bg);
 }
 
-.monitor-page__target-status[data-status='READY'] {
-  background: var(--gc-color-success-bg);
-  color: var(--gc-color-success);
-}
-
-.monitor-page__target-status[data-status='WARNING'] {
-  background: var(--gc-color-warning-bg);
-  color: var(--gc-color-warning);
-}
-
-.monitor-page__target-status[data-status='ERROR'] {
-  background: var(--gc-color-danger-bg);
-  color: var(--gc-color-danger);
-}
-
-.monitor-page__target-status[data-status='NONE'] {
-  background: var(--gc-color-info-bg);
-  color: var(--gc-color-text-muted);
-}
-
 .monitor-page__dialog-form {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .monitor-page__dialog-form label {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 
 .monitor-page__dialog-form select,
 .monitor-page__dialog-form input {
-  min-height: 40px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 8px;
-  padding: 8px 10px;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-2) var(--gc-space-3);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
 }
@@ -1429,11 +1521,11 @@ function trimProbeStateToTargets() {
 .monitor-page__dialog-number {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .monitor-page__dialog-number input {
-  width: 120px;
+  width: calc(var(--gc-space-10) * 3);
 }
 
 .monitor-page__dialog-number b {
@@ -1443,7 +1535,7 @@ function trimProbeStateToTargets() {
 .monitor-page__dialog-form p {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 700;
 }
 
@@ -1454,20 +1546,20 @@ function trimProbeStateToTargets() {
 
 .monitor-page__summary {
   display: grid;
-  gap: 16px;
+  gap: var(--gc-space-4);
 }
 
 .monitor-page__summary-title {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .monitor-page__summary-title span,
 .monitor-page__summary-title p {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 750;
 }
 
@@ -1478,37 +1570,37 @@ function trimProbeStateToTargets() {
 
 .monitor-page__summary-title h2 {
   color: var(--gc-color-text);
-  font-size: 24px;
-  line-height: 1.12;
+  font-size: calc(var(--gc-font-size-lg) + var(--gc-space-1));
+  line-height: var(--gc-line-height-tight);
   overflow-wrap: anywhere;
 }
 
 .monitor-page__target-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
   flex: 0 0 auto;
 }
 
 .monitor-page__target-interval {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-sm);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 800;
 }
 
 .monitor-page__target-interval input {
-  width: 76px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 6px;
-  padding: 5px 8px;
+  width: calc(var(--gc-space-10) + var(--gc-space-8));
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-1) var(--gc-space-2);
   color: var(--gc-color-text);
   font: inherit;
 }
@@ -1520,28 +1612,28 @@ function trimProbeStateToTargets() {
 .monitor-page__kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-2);
 }
 
 .monitor-page__kpi-grid article {
   display: grid;
-  gap: 6px;
-  min-height: 78px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 8px;
-  padding: 12px;
+  gap: var(--gc-space-1);
+  min-height: calc(var(--gc-space-10) + var(--gc-space-8));
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-subtle);
 }
 
 .monitor-page__kpi-grid span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .monitor-page__kpi-grid strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 700;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -1591,7 +1683,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__panel {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-content: start;
 }
 
@@ -1601,37 +1693,37 @@ function trimProbeStateToTargets() {
 
 .monitor-page__empty-line {
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 700;
 }
 
 .monitor-page__certificate-detail {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
 .monitor-page__certificate-detail div {
   display: grid;
-  gap: 5px;
+  gap: var(--gc-space-1);
   min-width: 0;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 8px;
-  padding: 10px;
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
 }
 
 .monitor-page__certificate-detail dt {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 
 .monitor-page__certificate-detail dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 750;
   overflow-wrap: anywhere;
 }
@@ -1639,13 +1731,13 @@ function trimProbeStateToTargets() {
 .monitor-page__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
 }
 
 .monitor-page__table th,
 .monitor-page__table td {
-  border-bottom: 1px solid var(--gc-color-muted-bg);
-  padding: 9px 8px;
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  padding: var(--gc-space-2) var(--gc-space-2);
   text-align: left;
   vertical-align: top;
   overflow-wrap: anywhere;
@@ -1691,7 +1783,7 @@ function trimProbeStateToTargets() {
   line-height: 1.45;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 67.5rem) {
   .monitor-page__workspace,
   .monitor-page__panels {
     grid-template-columns: 1fr;
@@ -1702,7 +1794,7 @@ function trimProbeStateToTargets() {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 45rem) {
   .monitor-page__summary-title,
   .monitor-page__section-head {
     align-items: stretch;

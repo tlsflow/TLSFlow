@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcLocaleSelect, GcPageToolbar, GcThemeToggle } from '@/design-system/components'
 
 const { t } = useI18n()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 const cards = [
   { titleKey: 'settings.version.title', path: '/settings/version', descriptionKey: 'settings.version.description' },
@@ -18,15 +15,6 @@ const cards = [
 
 <template>
   <section class="gc-page settings-overview">
-    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-      <GcPageToolbar>
-        <template #actions>
-          <GcThemeToggle />
-          <GcLocaleSelect />
-        </template>
-      </GcPageToolbar>
-    </Teleport>
-
     <section class="settings-overview__cards" :aria-label="t('settings.securityLabel')">
       <RouterLink v-for="card in cards" :key="card.path" class="gc-card settings-overview__card" :to="card.path">
         <h2>{{ t(card.titleKey) }}</h2>
@@ -39,13 +27,13 @@ const cards = [
 
 <style scoped>
 .settings-overview { display: grid; gap: var(--gc-space-5); }
-.settings-overview__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gc-space-4); }
+.settings-overview__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(var(--gc-space-10) * 6), 1fr)); gap: var(--gc-space-4); }
 .settings-overview__card {
   position: relative;
   display: grid;
-  gap: 12px;
-  min-height: 170px;
-  padding: 24px;
+  gap: var(--gc-space-3);
+  min-height: var(--gc-size-card-min);
+  padding: var(--gc-space-6);
   overflow: hidden;
   color: inherit;
   text-decoration: none;
@@ -57,24 +45,24 @@ const cards = [
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 4px;
-  background: linear-gradient(90deg, var(--gc-color-primary-strong), var(--gc-color-success));
+  height: var(--gc-space-1);
+  background: var(--gc-gradient-brand);
 }
-.settings-overview__card:hover { transform: translateY(-2px); border-color: var(--gc-color-primary); box-shadow: var(--gc-shadow-md); }
-.settings-overview__card:focus-visible { outline: 3px solid var(--gc-color-primary-weak); outline-offset: 3px; }
-.settings-overview__card h2 { margin: 0; color: var(--gc-color-text); font-size: 22px; letter-spacing: 0; }
+.settings-overview__card:hover { transform: translateY(calc(var(--gc-space-hairline) * -2)); border-color: var(--gc-color-primary); box-shadow: var(--gc-shadow-md); }
+.settings-overview__card:focus-visible { outline: var(--gc-border-width-thick) solid var(--gc-color-primary-weak); outline-offset: var(--gc-space-1); }
+.settings-overview__card h2 { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-lg); letter-spacing: 0; }
 .settings-overview__card span { color: var(--gc-color-text-muted); line-height: 1.6; font-weight: 650; }
 .settings-overview__card strong {
   align-self: end;
   justify-self: start;
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 16px;
-  border-radius: 999px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-4);
+  border-radius: var(--gc-radius-pill);
   color: var(--gc-color-surface-solid);
   background: var(--gc-color-primary-strong);
-  box-shadow: 0 10px 18px var(--gc-color-primary-weak);
+  box-shadow: var(--gc-shadow-primary);
   font-size: var(--gc-font-size-sm);
   font-weight: 850;
 }

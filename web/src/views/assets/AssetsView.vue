@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
@@ -13,7 +13,8 @@ import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcPageToolbar, GcPermissionButton, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPageHeader, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { useTenantStore } from '@/stores/tenant.store'
@@ -90,14 +91,19 @@ interface WorkflowTargetInfo {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, locale } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const tenantStore = useTenantStore()
-const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
+const assetOverviewCount = computed(() => assetOverviewTotal.value || assetOverviewItems.value.length)
+const assetOverviewActiveCount = computed(() => assetOverviewItems.value.filter((item) => String(item.status ?? '').toUpperCase() === 'ACTIVE').length)
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const userAssetItems = ref<ApiRecord[]>([])
 const userAssetsLoading = ref(false)
 const userAssetsError = ref('')
+const assetOverviewTotal = ref(0)
+const assetOverviewItems = ref<ApiRecord[]>([])
+const assetOverviewLoading = ref(false)
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
 const detailTabs = computed(() => [
@@ -235,8 +241,8 @@ const config = computed<BusinessPageConfig>(() => ({
     { label: t('assets.fields.platform'), candidates: ['platform'] },
     { label: t('assets.fields.frameworkType'), candidates: ['targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
     { label: t('assets.fields.deploymentStrategyCompatibility'), candidates: ['deploymentStrategyCompatibilityLabel'] },
-    { label: 'Agent ID', candidates: ['agentId'] },
-    { label: 'SNI', candidates: ['sniName', 'metadata.workflowTarget.sniName', 'deploymentStrategy.workflow.target.sniName'] },
+    { label: t('assets.fields.hostId'), candidates: ['agentId'] },
+    { label: t('assets.fields.sniName'), candidates: ['sniName', 'metadata.workflowTarget.sniName', 'deploymentStrategy.workflow.target.sniName'] },
     { label: t('assets.fields.serviceInstanceId'), candidates: ['serviceInstanceId'] },
     { label: t('assets.fields.siteId'), candidates: ['targetBinding.siteAssetId', 'metadata.workflowTarget.siteName'] },
     { label: t('assets.fields.managedTargetId'), candidates: ['targetBinding.managedTargetId'] },
@@ -386,6 +392,27 @@ const publishedWorkflowVersionItems = computed<ApiRecord[]>(() => {
 })
 
 const isUserViewMode = computed(() => appStore.viewMode === 'user')
+const userFlowSteps = computed<UserFlowStep[]>(() => [
+  {
+    id: 'certificates',
+    label: t('viewMode.steps.certificates'),
+    help: t('certificates.userView.hero.description'),
+    helpLabel: t('certificates.userView.hero.title'),
+  },
+  {
+    id: 'applications',
+    label: t('viewMode.steps.applications'),
+    help: t('assets.userView.description'),
+    helpLabel: t('assets.userView.title'),
+    completed: userAssetItems.value.length > 0,
+  },
+  {
+    id: 'deployments',
+    label: t('viewMode.steps.deployments'),
+    help: t('deploymentPlans.userView.description'),
+    helpLabel: t('deploymentPlans.userView.title'),
+  },
+])
 
 const latestPublishedWorkflowVersion = computed(() => {
   const currentVersionId = String(selectedWorkflowTemplate.value?.currentVersionId ?? '')
@@ -571,8 +598,6 @@ const currentAvailableStep = computed<AssetWizardStep>(() => {
   return 3
 })
 
-const assetWizardProgress = computed(() => `${(assetWizardStep.value / 3) * 100}%`)
-
 const canGoPreviousAssetStep = computed(() => assetWizardStep.value > 1)
 const canGoNextAssetStep = computed(() =>
   (assetWizardStep.value === 1 && commonStepReady.value)
@@ -616,6 +641,15 @@ async function openCreateDialog() {
   createRequestId.value = ''
   await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   selectUserModeDefaults()
+}
+
+function navigateUserFlow(stepId: string) {
+  if (stepId === 'certificates') {
+    void router.push({ name: 'certificate.list' })
+    return
+  }
+  if (stepId === 'applications') return
+  void router.push({ name: 'deployment.plan.list' })
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -1659,20 +1693,28 @@ function gatewayLabel(item: ApiRecord): string {
   return status ? `${name} (${status})` : name
 }
 
-function renderValue(value: unknown, fallback = '—'): string {
+function renderValue(value: unknown, fallback = t('common.notAvailable')): string {
   return formatMaybeLocalTime(value, fallback)
 }
 
 async function loadAssetsWithDisplayNames(): Promise<ApiPageResult> {
-  const result = await listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' })
-  const page = result.data
-  if (!page || page.items.length === 0) return result
-  return {
-    ...result,
-    data: {
-      ...page,
-      items: page.items.map((item) => enrichAssetDisplayNames(item)),
-    },
+  assetOverviewLoading.value = true
+  try {
+    const result = await listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' })
+    const page = result.data
+    if (!page) return result
+    const items = page.items.map((item) => enrichAssetDisplayNames(item))
+    assetOverviewTotal.value = page.total
+    assetOverviewItems.value = items
+    return {
+      ...result,
+      data: {
+        ...page,
+        items,
+      },
+    }
+  } finally {
+    assetOverviewLoading.value = false
   }
 }
 
@@ -1947,86 +1989,107 @@ function managedTargetLabel(target: ApiRecord): string {
 <template>
   <section class="asset-page">
     <template v-if="isUserViewMode">
-      <section class="gc-card asset-user-view__hero">
-        <div>
-          <span>{{ t('assets.userView.stepLabel') }}</span>
-          <h2>{{ t('assets.userView.title') }}</h2>
-          <p>{{ t('assets.userView.description') }}</p>
-        </div>
-        <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
-          {{ t('assets.userView.addAction') }}
-        </GcPermissionButton>
-      </section>
-
-      <section class="asset-user-view__content">
-        <header class="asset-user-view__section-head">
-          <div>
-            <h3>{{ t('assets.userView.listTitle') }}</h3>
-            <p>{{ t('assets.userView.listDescription') }}</p>
-          </div>
-          <RouterLink class="gc-button gc-button--primary" to="/deployment-plans">
-            {{ t('assets.userView.continueToDeployment') }}
-          </RouterLink>
-        </header>
-
-        <GcEmptyState
-          v-if="userAssetsError"
-          :title="t('assets.userView.loadFailed')"
-          :description="userAssetsError"
-        >
-          <button class="gc-button" type="button" @click="loadUserAssets">{{ t('businessPage.retry') }}</button>
-        </GcEmptyState>
-        <div v-else-if="userAssetsLoading" class="asset-user-view__state">{{ t('common.loading') }}</div>
-        <GcEmptyState
-          v-else-if="userAssetItems.length === 0"
-          :title="t('assets.userView.emptyTitle')"
-          :description="t('assets.userView.emptyDescription')"
-        >
+      <GcUserFlowWizard
+        :steps="userFlowSteps"
+        active-step="applications"
+        :title="t('viewMode.steps.applications')"
+        :help="t('assets.userView.description')"
+        :help-label="t('assets.userView.title')"
+        :ariaLabel="t('assets.userView.listTitle')"
+        @select="navigateUserFlow"
+      >
+        <template #actions>
           <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
             {{ t('assets.userView.addAction') }}
           </GcPermissionButton>
-        </GcEmptyState>
-        <div v-else class="asset-user-view__grid">
-          <article v-for="asset in userAssetItems" :key="String(asset.id)" class="gc-card asset-user-view__card">
-            <header>
-              <div>
-                <h3>{{ userAssetName(asset) }}</h3>
-                <p>{{ userAssetAddress(asset) }}</p>
+        </template>
+
+        <section class="asset-user-view__summary">
+          <div>
+            <strong>{{ userAssetItems.length }}</strong>
+            <span>{{ t('assets.userView.listTitle') }}</span>
+          </div>
+          <GcHelpTip
+            :content="t('assets.userView.listDescription')"
+            :ariaLabel="t('assets.userView.listTitle')"
+          />
+        </section>
+
+        <section class="asset-user-view__content">
+          <header class="asset-user-view__section-head">
+            <h3>{{ t('assets.userView.listTitle') }}</h3>
+            <RouterLink class="gc-button gc-button--primary" to="/deployment-plans">
+              {{ t('assets.userView.continueToDeployment') }}
+            </RouterLink>
+          </header>
+
+          <GcEmptyState
+            v-if="userAssetsError"
+            :title="t('assets.userView.loadFailed')"
+          >
+            <p class="asset-user-view__error">{{ userAssetsError }}</p>
+            <GcButton variant="secondary" @click="loadUserAssets">{{ t('businessPage.retry') }}</GcButton>
+          </GcEmptyState>
+          <div v-else-if="userAssetsLoading" class="asset-user-view__state">{{ t('common.loading') }}</div>
+          <GcEmptyState
+            v-else-if="userAssetItems.length === 0"
+            :title="t('assets.userView.emptyTitle')"
+          >
+            <GcHelpTip
+              :content="t('assets.userView.emptyDescription')"
+              :ariaLabel="t('assets.userView.emptyTitle')"
+            />
+            <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
+              {{ t('assets.userView.addAction') }}
+            </GcPermissionButton>
+          </GcEmptyState>
+          <div v-else class="asset-user-view__grid">
+            <article v-for="asset in userAssetItems" :key="String(asset.id)" class="gc-card asset-user-view__card">
+              <header>
+                <div>
+                  <h3>{{ userAssetName(asset) }}</h3>
+                  <p>{{ userAssetAddress(asset) }}</p>
+                </div>
+                <GcStatusTag :status="String(asset.status ?? 'ACTIVE')" />
+              </header>
+              <div class="asset-user-view__location">
+                <span>{{ t('assets.userView.deploymentLocation') }}</span>
+                <strong>{{ userAssetTarget(asset) }}</strong>
               </div>
-              <GcStatusTag :status="String(asset.status ?? 'ACTIVE')" />
-            </header>
-            <dl>
-              <div>
-                <dt>{{ t('assets.userView.deploymentLocation') }}</dt>
-                <dd>{{ userAssetTarget(asset) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('assets.fields.platform') }}</dt>
-                <dd>{{ String(asset.platform ?? t('assets.empty.notSet')) }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
-      </section>
+            </article>
+          </div>
+        </section>
+      </GcUserFlowWizard>
     </template>
 
     <template v-else>
-      <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
-        <GcPageToolbar class="asset-page__hero-actions">
-          <template #actions>
-            <button class="gc-button" type="button" @click="pageRef?.reload()">{{ t('common.refresh') }}</button>
-          </template>
-          <template #primary>
-            <GcPermissionButton
-              class="gc-button gc-button--primary"
-              permission="service_asset.manage"
-              @click="openCreateDialog"
-            >
-              {{ t('assets.actions.add') }}
-            </GcPermissionButton>
-          </template>
-        </GcPageToolbar>
-      </Teleport>
+      <GcPageHeader
+        class="asset-page__header"
+        :title="t('assets.title')"
+        :description="t('assets.description')"
+      >
+        <template #actions>
+          <GcButton variant="primary" :loading="assetOverviewLoading" @click="pageRef?.reload()">
+            {{ t('common.refresh') }}
+          </GcButton>
+          <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="openCreateDialog">
+            {{ t('assets.actions.add') }}
+          </GcPermissionButton>
+        </template>
+      </GcPageHeader>
+
+      <section class="asset-page__metrics" :aria-label="t('businessPage.metricsAria')">
+        <article class="asset-page__metric">
+          <span>{{ t('assets.resourceName') }}</span>
+          <strong>{{ assetOverviewLoading ? t('common.notAvailable') : assetOverviewCount }}</strong>
+          <small>{{ t('assets.description') }}</small>
+        </article>
+        <article class="asset-page__metric asset-page__metric--success">
+          <span>{{ t('assets.columns.status') }}</span>
+          <strong>{{ assetOverviewLoading ? t('common.notAvailable') : assetOverviewActiveCount }}</strong>
+          <small>{{ t('assets.status.unknownStatus') }}</small>
+        </article>
+      </section>
 
       <BusinessResourcePage ref="pageRef" :config="config" />
     </template>
@@ -2109,7 +2172,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'bindingInformation'])) }}</dd>
               </div>
               <div>
-                <dt>Host Header</dt>
+                <dt>{{ t('assets.fields.hostHeader') }}</dt>
                 <dd>{{ renderValue(readNested(selectedAssetDetail, ['targetBindingDetail', 'siteAsset', 'hostHeader'])) }}</dd>
               </div>
               <div>
@@ -2129,7 +2192,7 @@ function managedTargetLabel(target: ApiRecord): string {
               <li v-for="binding in bindingRelations" :key="String(binding.id ?? '')" class="asset-binding-relations__item">
                 <div class="asset-binding-relations__grid">
                   <div>
-                    <span>Binding</span>
+                    <span>{{ t('assets.fields.bindingKey') }}</span>
                     <strong>{{ renderValue(binding.bindingKey) }}</strong>
                   </div>
                   <div>
@@ -2175,14 +2238,14 @@ function managedTargetLabel(target: ApiRecord): string {
                   </div>
                   <div>
                     <span>{{ t('assets.columns.status') }}</span>
-                    <strong>{{ renderValue(snapshot.status) }}</strong>
+                    <GcStatusTag :status="String(snapshot.status ?? 'UNKNOWN')" />
                   </div>
                   <div>
                     <span>{{ t('assets.fields.time') }}</span>
                     <strong>{{ renderValue(snapshot.capturedAt ?? snapshot.createdAt) }}</strong>
                   </div>
                   <div>
-                    <span>Thumbprint</span>
+                    <span>{{ t('assets.fields.certificateStore') }}</span>
                     <strong>{{ renderValue(snapshot.storeThumbprint) }}</strong>
                   </div>
                   <div>
@@ -2212,23 +2275,23 @@ function managedTargetLabel(target: ApiRecord): string {
     <GcModal
       v-model:open="createDialogOpen"
       :title="isEditMode ? t('assets.form.editTitle') : t('assets.form.createTitle')"
-      :description="isEditMode ? t('assets.form.editDescription') : t('assets.form.createDescription')"
+      :description="isUserViewMode ? undefined : (isEditMode ? t('assets.form.editDescription') : t('assets.form.createDescription'))"
       size="xxl"
-      width="980px"
+      width="min(100%, var(--gc-size-modal-wide))"
     >
       <section v-if="isUserViewMode" class="asset-form asset-user-form gc-native-select-surface">
         <header class="asset-user-form__header">
-          <div>
-            <span>{{ t('assets.userView.form.eyebrow') }}</span>
-            <h3>{{ isEditMode ? t('assets.form.editTitle') : t('assets.userView.form.title') }}</h3>
-            <p>{{ t('assets.userView.form.description') }}</p>
-          </div>
+          <h3>{{ isEditMode ? t('assets.form.editTitle') : t('assets.userView.form.title') }}</h3>
+          <GcHelpTip
+            :content="t('assets.userView.form.description')"
+            :ariaLabel="t('assets.userView.form.title')"
+          />
         </header>
 
         <div class="asset-form__grid">
           <label class="asset-form__field">
             <span>{{ t('assets.fields.domain') }} <strong>*</strong></span>
-            <input v-model="assetDraft.address" :placeholder="t('assets.userView.form.addressPlaceholder')" autocomplete="off" />
+            <input v-model="assetDraft.address" data-testid="asset-address-input" :placeholder="t('assets.form.placeholders.hostHeader')" autocomplete="off" />
           </label>
           <label class="asset-form__field">
             <span>{{ t('assets.fields.displayName') }}</span>
@@ -2236,7 +2299,7 @@ function managedTargetLabel(target: ApiRecord): string {
           </label>
           <label class="asset-form__field">
             <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
-            <input v-model="assetDraft.port" inputmode="numeric" :placeholder="t('assets.userView.form.portPlaceholder')" autocomplete="off" />
+            <input v-model="assetDraft.port" data-testid="asset-port-input" inputmode="numeric" autocomplete="off" />
           </label>
           <label class="asset-form__field">
             <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
@@ -2259,7 +2322,10 @@ function managedTargetLabel(target: ApiRecord): string {
         <section class="asset-user-form__location">
           <header>
             <h4>{{ t('assets.userView.form.locationTitle') }}</h4>
-            <p>{{ t('assets.userView.form.locationDescription') }}</p>
+            <GcHelpTip
+              :content="t('assets.userView.form.locationDescription')"
+              :ariaLabel="t('assets.userView.form.locationTitle')"
+            />
           </header>
           <GcManagedTargetSelector
             v-model:device-id="assetDraft.deviceId"
@@ -2307,9 +2373,12 @@ function managedTargetLabel(target: ApiRecord): string {
 
       <section v-else class="asset-form asset-wizard">
         <div class="asset-wizard__progress">
-          <div class="asset-wizard__progress-bar">
-            <span class="asset-wizard__progress-fill" :style="{ width: assetWizardProgress }"></span>
-          </div>
+          <GcProgressBar
+            :value="assetWizardStep"
+            :max="3"
+            tone="info"
+            :ariaLabel="t('assets.wizard.ariaLabel')"
+          />
           <ol class="asset-wizard__steps" :aria-label="t('assets.wizard.ariaLabel')">
             <li class="asset-wizard__step" :class="`is-${assetWizardStepState(1)}`">
               <button type="button" class="asset-wizard__step-button" @click="goToAssetStep(1)">
@@ -2376,7 +2445,7 @@ function managedTargetLabel(target: ApiRecord): string {
           <div class="asset-form__grid">
             <label class="asset-form__field">
               <span>{{ t('assets.fields.domain') }} <strong>*</strong></span>
-              <input v-model="assetDraft.address" placeholder="app.example.com" autocomplete="off" />
+              <input v-model="assetDraft.address" data-testid="asset-address-input" :placeholder="t('assets.form.placeholders.hostHeader')" autocomplete="off" />
             </label>
             <label class="asset-form__field">
               <span>{{ t('assets.fields.displayName') }}</span>
@@ -2384,7 +2453,7 @@ function managedTargetLabel(target: ApiRecord): string {
             </label>
             <label class="asset-form__field">
               <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
-              <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
+              <input v-model="assetDraft.port" data-testid="asset-port-input" inputmode="numeric" autocomplete="off" />
             </label>
             <label class="asset-form__field">
               <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
@@ -2504,7 +2573,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 <strong>{{ renderValue(currentBindingSummary.bindingInformation) }}</strong>
               </div>
               <div>
-                <span>Host Header</span>
+                <span>{{ t('assets.fields.hostHeader') }}</span>
                 <strong>{{ renderValue(currentBindingSummary.hostHeader) }}</strong>
               </div>
               <div>
@@ -2700,62 +2769,74 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-4);
 }
 
+.asset-page__header {
+  margin-bottom: 0;
+}
+
+.asset-page__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.asset-page__metric {
+  display: grid;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-space-12);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-4);
+  background: var(--gc-color-surface-panel);
+  box-shadow: var(--gc-shadow-card);
+}
+
+.asset-page__metric span,
+.asset-page__metric small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 750;
+}
+
+.asset-page__metric strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-2xl);
+  line-height: var(--gc-line-height-tight);
+}
+
+.asset-page__metric--success {
+  border-color: var(--gc-color-success-border);
+  background: var(--gc-color-success-soft);
+}
+
+.asset-page__metric--success strong {
+  color: var(--gc-color-success);
+}
+
 .asset-page :deep(.business-page__toolbar) {
   display: none;
 }
 
-.asset-user-view__hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--gc-space-4);
-  align-items: center;
-  padding: var(--gc-space-5);
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  border-radius: var(--gc-radius-lg);
-  background: linear-gradient(145deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
-}
-
-.asset-user-view__hero div,
-.asset-user-view__section-head div,
-.asset-user-form__header div,
 .asset-user-form__location,
 .asset-user-form__location header {
   display: grid;
   gap: var(--gc-space-2);
 }
 
-.asset-user-view__hero span,
-.asset-user-form__header span {
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.asset-user-view__hero h2,
-.asset-user-view__hero p,
 .asset-user-view__section-head h3,
-.asset-user-view__section-head p,
 .asset-user-view__card h3,
 .asset-user-view__card p,
 .asset-user-form__header h3,
-.asset-user-form__header p,
 .asset-user-form__location h4,
 .asset-user-form__location p {
   margin: 0;
 }
 
-.asset-user-view__hero h2,
 .asset-user-form__header h3 {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-xl);
 }
 
-.asset-user-view__hero p,
-.asset-user-view__section-head p,
 .asset-user-view__card p,
-.asset-user-form__header p,
 .asset-user-form__location p {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
@@ -2797,26 +2878,6 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-3);
 }
 
-.asset-user-view__card dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-  margin: 0;
-}
-
-.asset-user-view__card dt {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-}
-
-.asset-user-view__card dd {
-  margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-  overflow-wrap: anywhere;
-}
-
 .asset-user-view__state {
   padding: var(--gc-space-6);
   color: var(--gc-color-text-muted);
@@ -2844,34 +2905,105 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-3);
 }
 
+.asset-user-view__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-solid);
+}
+
+.asset-user-view__summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gc-space-2);
+}
+
+.asset-user-view__summary strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xl);
+  line-height: var(--gc-line-height-tight);
+}
+
+.asset-user-view__summary span,
+.asset-user-view__error {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.asset-user-view__section-head h3 {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+}
+
+.asset-user-view__location {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.asset-user-view__location span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.asset-user-view__location strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.asset-user-form__header {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+}
+
+.asset-user-form__header h3 {
+  margin: 0;
+}
+
+.asset-user-form__location header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.asset-user-form__location header h4 {
+  margin: 0;
+}
+
 .asset-detail-modal {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .asset-detail-modal__hero {
   display: flex;
   justify-content: space-between;
   align-items: stretch;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid var(--gc-color-info-border);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
-    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-4) var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-gradient-hero);
 }
 
 .asset-detail-modal__hero-copy {
   display: grid;
-  gap: 5px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .asset-detail-modal__eyebrow {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2880,7 +3012,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-detail-modal__hero-copy h2 {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 24px;
+  font-size: var(--gc-font-size-lg);
   line-height: 1.06;
   letter-spacing: -0.05em;
   overflow-wrap: anywhere;
@@ -2888,7 +3020,7 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-detail-modal__hero-copy span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   overflow-wrap: anywhere;
 }
@@ -2897,30 +3029,30 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   align-content: space-between;
   justify-items: end;
-  gap: 8px;
-  min-width: 150px;
+  gap: var(--gc-space-2);
+  min-width: calc(var(--gc-size-card-min) - var(--gc-space-7));
 }
 
 .asset-detail-modal__spotlight {
   display: grid;
-  gap: 4px;
-  min-width: 150px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  min-width: calc(var(--gc-size-card-min) - var(--gc-space-7));
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-text);
   color: var(--gc-color-surface-solid);
 }
 
 .asset-detail-modal__spotlight small {
   color: var(--gc-color-text-inverse-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .asset-detail-modal__spotlight strong {
-  font-size: 16px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.15;
   letter-spacing: -0.03em;
   overflow-wrap: anywhere;
@@ -2928,21 +3060,21 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-detail-modal__sections {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
 }
 
 .asset-detail-modal__section {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-modal);
+  background: var(--gc-gradient-surface);
 }
 
 .asset-detail-modal__section-head {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .asset-detail-modal__section-head h3,
@@ -2952,36 +3084,36 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-detail-modal__section-head h3 {
   color: var(--gc-color-text);
-  font-size: 15px;
+  font-size: var(--gc-font-size-sm);
   letter-spacing: -0.03em;
 }
 
 .asset-detail-modal__section-head p {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
 .asset-detail-modal__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
   margin: 0;
 }
 
 .asset-detail-modal__item {
   display: grid;
-  gap: 5px;
-  min-height: 70px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: var(--gc-space-1);
+  min-height: calc(var(--gc-space-9) * 2);
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .asset-detail-modal__item dt {
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2990,7 +3122,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-detail-modal__item dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.35;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -3000,7 +3132,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-detail-modal__links {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .asset-summary__error { margin: 0; }
@@ -3032,8 +3164,8 @@ function managedTargetLabel(target: ApiRecord): string {
   list-style: none;
 }
 .asset-binding-relations__item {
-  border: 1px solid var(--gc-color-border);
-  border-radius: 8px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
   padding: var(--gc-space-3);
   background: var(--gc-color-surface-muted);
 }
@@ -3067,8 +3199,8 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-form__binding-summary > div {
   display: grid;
   gap: var(--gc-space-1);
-  border: 1px solid var(--gc-color-border);
-  border-radius: 8px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
   padding: var(--gc-space-3);
   background: var(--gc-color-surface-muted);
 }
@@ -3095,9 +3227,9 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-form__field textarea,
 .asset-form__readonly {
   width: 100%;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-muted);
 }
@@ -3110,19 +3242,19 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-form__field select:focus,
 .asset-form__field textarea:focus {
   border-color: var(--gc-color-focus);
-  box-shadow: 0 0 0 4px var(--gc-color-focus-ring);
+  box-shadow: var(--gc-shadow-focus);
   background: var(--gc-color-surface-solid);
 }
 .asset-form__field textarea {
-  min-height: 148px;
+  min-height: calc(var(--gc-space-12) * 3);
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--gc-font-family-mono);
   line-height: 1.45;
 }
 .asset-form__readonly {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--gc-control-height-md);
   font-weight: 700;
   word-break: break-word;
 }
@@ -3140,7 +3272,7 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-3);
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-subtle);
 }
@@ -3180,7 +3312,7 @@ function managedTargetLabel(target: ApiRecord): string {
   justify-content: space-between;
   gap: var(--gc-space-3);
   padding-top: var(--gc-space-2);
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
 .workflow-target-form__advanced-head > div {
@@ -3204,7 +3336,7 @@ function managedTargetLabel(target: ApiRecord): string {
   justify-content: space-between;
   gap: var(--gc-space-3);
   padding: var(--gc-space-2) var(--gc-space-3);
-  border: 1px solid var(--gc-color-info-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
   border-radius: var(--gc-radius-sm);
   background: var(--gc-color-surface-selected);
 }
@@ -3223,28 +3355,13 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-wizard__progress {
   display: grid;
-  gap: 12px;
-}
-
-.asset-wizard__progress-bar {
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--gc-color-muted-bg);
-}
-
-.asset-wizard__progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--gc-color-primary-strong), var(--gc-color-success));
-  transition: width 160ms ease;
+  gap: var(--gc-space-3);
 }
 
 .asset-wizard__steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
   padding: 0;
   margin: 0;
   list-style: none;
@@ -3252,13 +3369,13 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-wizard__step-button {
   width: 100%;
-  min-height: 74px;
+  min-height: calc(var(--gc-space-9) * 2);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 14px;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-hover);
   color: var(--gc-color-text);
   text-align: left;
@@ -3277,15 +3394,15 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-wizard__step-index {
-  width: 30px;
-  height: 30px;
+  width: var(--gc-control-height-xs);
+  height: var(--gc-control-height-xs);
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-info-border);
   color: var(--gc-color-primary-strong);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 900;
 }
 
@@ -3296,36 +3413,36 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-wizard__step-button span:last-child {
   display: grid;
-  gap: 3px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .asset-wizard__step-button strong {
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
 .asset-wizard__step-button small {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 750;
 }
 
 .asset-wizard__panel {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-radius: var(--gc-radius-modal);
+  background: var(--gc-gradient-surface);
 }
 
 .asset-wizard__panel-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .asset-wizard__panel-header h3,
@@ -3335,24 +3452,24 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-wizard__panel-header h3 {
   color: var(--gc-color-text);
-  font-size: 17px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.25;
 }
 
 .asset-wizard__panel-header p {
-  margin-top: 4px;
+  margin-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.5;
 }
 
 .asset-wizard__panel-state {
   flex: 0 0 auto;
-  border-radius: 999px;
-  padding: 6px 10px;
+  border-radius: var(--gc-radius-full);
+  padding: var(--gc-space-2) var(--gc-space-3);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 
@@ -3369,16 +3486,16 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-wizard__mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
 }
 
 .asset-wizard__mode-card {
   display: grid;
-  gap: 5px;
-  min-height: 82px;
-  padding: 14px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  min-height: calc(var(--gc-space-10) * 2);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text);
   text-align: left;
@@ -3388,57 +3505,57 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-wizard__mode-card.is-selected {
   border-color: var(--gc-color-primary-strong);
   background: var(--gc-color-surface-selected);
-  box-shadow: 0 0 0 4px var(--gc-color-primary-soft);
+  box-shadow: var(--gc-shadow-focus);
 }
 
 .asset-wizard__mode-card span {
   color: var(--gc-color-primary-strong);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 900;
 }
 
 .asset-wizard__mode-card strong {
-  font-size: 15px;
+  font-size: var(--gc-font-size-sm);
   line-height: 1.3;
 }
 
 .asset-wizard__review {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
   margin: 0;
 }
 
 .asset-wizard__review div {
   display: grid;
-  gap: 5px;
-  min-height: 72px;
-  padding: 11px 12px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 12px;
+  gap: var(--gc-space-1);
+  min-height: calc(var(--gc-space-9) * 2);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-subtle);
 }
 
 .asset-wizard__review dt {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 
 .asset-wizard__review dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 850;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 860px) {
-  .asset-user-view__hero,
-  .asset-user-view__card dl {
+@media (max-width: 53.75rem) {
+  .asset-page__metrics {
     grid-template-columns: 1fr;
   }
+
   .asset-user-view__section-head,
   .asset-user-view__card header {
     align-items: stretch;

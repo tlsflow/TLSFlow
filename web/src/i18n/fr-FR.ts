@@ -3126,6 +3126,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: 'Gestion des certificats et des applications',
+        subtitle: 'Gérez les certificats et voyez quelles applications les utilisent',
+        sections: {
+          certificates: {
+            title: 'Gestion des certificats',
+            help: 'Consultez et gérez tous les certificats, leur expiration et leur état.'
+          },
+          applications: {
+            title: 'Applications associées',
+            help: 'Voyez où les certificats sont utilisés et à quelle fréquence ils sont mis à jour.'
+          }
+        },
+        stats: {
+          total: 'Certificats',
+          expiring: 'Bientôt expirés',
+          expired: 'Expirés'
+        },
+        versionCount: '{count} versions',
+        fields: {
+          expires: 'Expire le',
+          source: 'Source'
+        },
+        empty: {
+          title: 'Aucun certificat',
+          description: 'Importez votre premier certificat pour commencer la gestion.'
+        },
+        applications: {
+          description: 'Voyez quelles applications utilisent le certificat sélectionné et configurez les mises à jour automatiques.',
+          selectPrompt: 'Sélectionnez d’abord un certificat à gauche',
+          selectedCertificate: 'Certificat sélectionné',
+          connectedApps: 'Applications associées ({count})',
+          noApps: 'Aucune application n’est encore associée à ce certificat.',
+          addApp: 'Ajouter une application',
+          automationTitle: 'Configuration des mises à jour automatiques',
+          activeAutomations: 'Mises à jour automatiques actives',
+          totalAutomations: 'Plans de mise à jour au total',
+          automationDescription: 'Les plans de mise à jour vérifient régulièrement l’état des certificats et déploient les mises à jour vers les applications associées si nécessaire.'
+        }
       }
     },
     detail: {

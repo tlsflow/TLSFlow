@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcEmptyState, GcPageHeader, GcPermissionButton } from '@/design-system/components'
+import { GcEmptyState, GcPageHeader, GcPermissionButton, GcStatusTag, type StatusTone } from '@/design-system/components'
 import { exportAuditEvidence, listAudits } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { ApiClientError } from '@/api/client'
@@ -23,6 +23,13 @@ const { t } = useI18n()
 
 const failedCount = computed(() => rows.value.filter((row) => row.result === 'failure' || row.result === 'denied').length)
 const userActionCount = computed(() => rows.value.filter((row) => row.actorType === 'user').length)
+
+function auditResultTone(result: string): StatusTone {
+  if (result === 'success') return 'success'
+  if (result === 'denied') return 'warning'
+  if (result === 'failure') return 'danger'
+  return 'muted'
+}
 
 onMounted(() => {
   void loadAudits()
@@ -118,7 +125,7 @@ function readPath(record: ApiRecord, path: string): unknown {
       </template>
     </GcPageHeader>
 
-    <p v-if="exportError" class="audit-page__error">{{ exportError }}</p>
+    <p v-if="exportError" class="audit-page__error" role="alert">{{ exportError }}</p>
 
     <section class="audit-page__metrics" :aria-label="t('audit.metrics.ariaLabel')">
       <article class="gc-card audit-page__metric">
@@ -156,7 +163,7 @@ function readPath(record: ApiRecord, path: string): unknown {
       <div v-if="loading" class="audit-list__state">{{ t('designSystem.dataTable.loading') }}</div>
       <ol v-else-if="rows.length" class="audit-list__items">
         <li v-for="item in rows" :key="item.id" :data-result="item.result">
-          <span class="audit-list__result" :data-result="item.result">{{ auditResultLabel(item.result, t) }}</span>
+          <GcStatusTag class="audit-list__result" :status="item.result" :label="auditResultLabel(item.result, t)" :tone="auditResultTone(item.result)" />
           <div class="audit-list__body">
             <div class="audit-list__title-row">
               <strong>{{ auditReadableTitle(item, t) }}</strong>
@@ -179,26 +186,28 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 .audit-page__error {
   margin: 0;
-  border: 1px solid var(--gc-color-danger-border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3) var(--gc-space-4);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
   font-weight: 750;
 }
 
 .audit-page__metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(var(--gc-size-card-min), 1fr));
   gap: var(--gc-space-3);
 }
 
 .audit-page__metric {
   display: grid;
   gap: var(--gc-space-2);
-  min-height: 126px;
-  border-radius: 8px;
-  padding: 16px;
+  min-height: var(--gc-size-card-min);
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-4);
 }
 
 .audit-page__metric span {
@@ -209,7 +218,7 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 .audit-page__metric strong {
   color: var(--gc-color-text-strong);
-  font-size: 34px;
+  font-size: var(--gc-font-size-2xl);
   line-height: 1;
   font-weight: 950;
   letter-spacing: 0;
@@ -219,12 +228,12 @@ function readPath(record: ApiRecord, path: string): unknown {
   margin: 0;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
-  line-height: 1.45;
+  line-height: var(--gc-line-height-relaxed);
 }
 
 .audit-list {
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--gc-radius-card);
   padding: 0;
 }
 
@@ -233,8 +242,8 @@ function readPath(record: ApiRecord, path: string): unknown {
   justify-content: space-between;
   gap: var(--gc-space-4);
   align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid var(--gc-color-border);
+  padding: var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
   background: var(--gc-color-surface-muted);
 }
 
@@ -244,19 +253,19 @@ function readPath(record: ApiRecord, path: string): unknown {
 }
 
 .audit-list__header h2 {
-  font-size: 18px;
+  font-size: var(--gc-font-size-lg);
   letter-spacing: 0;
 }
 
 .audit-list__header p {
-  margin-top: 4px;
+  margin-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 650;
 }
 
 .audit-list__state {
-  padding: 48px 16px;
+  padding: var(--gc-space-12) var(--gc-space-4);
   text-align: center;
   color: var(--gc-color-text-muted);
   font-weight: 850;
@@ -272,53 +281,20 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 .audit-list__items li {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) max-content;
-  gap: 10px 12px;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: var(--gc-space-2) var(--gc-space-3);
   align-items: start;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--gc-color-border-subtle);
+  padding: var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .audit-list__items li:last-child {
   border-bottom: 0;
 }
 
-.audit-list__result {
-  display: inline-grid;
-  place-items: center;
-  min-width: 48px;
-  min-height: 24px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 999px;
-  padding: 0 8px;
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-soft);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.audit-list__result[data-result="success"] {
-  color: var(--gc-color-success);
-  background: var(--gc-color-success-bg);
-  border-color: var(--gc-color-success-border);
-}
-
-.audit-list__result[data-result="failure"] {
-  color: var(--gc-color-danger);
-  background: var(--gc-color-danger-bg);
-  border-color: var(--gc-color-danger-border);
-}
-
-.audit-list__result[data-result="denied"] {
-  color: var(--gc-color-warning);
-  background: var(--gc-color-warning-bg);
-  border-color: var(--gc-color-warning-border);
-}
-
 .audit-list__body {
   display: grid;
-  gap: 6px;
+  gap: var(--gc-space-2);
   min-width: 0;
 }
 
@@ -326,7 +302,7 @@ function readPath(record: ApiRecord, path: string): unknown {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
   min-width: 0;
 }
 
@@ -337,17 +313,17 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 .audit-list__title-row strong {
   color: var(--gc-color-text);
-  font-size: 15px;
-  line-height: 1.25;
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-tight);
   font-weight: 950;
 }
 
 .audit-list__type {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  border-radius: 999px;
-  padding: 0 8px;
+  min-height: var(--gc-control-height-xs);
+  border-radius: var(--gc-radius-full);
+  padding: 0 var(--gc-space-2);
   color: var(--gc-color-primary);
   background: var(--gc-color-primary-soft);
   font-size: var(--gc-font-size-xs);
@@ -360,19 +336,19 @@ function readPath(record: ApiRecord, path: string): unknown {
   margin: 0;
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
-  line-height: 1.45;
+  line-height: var(--gc-line-height-relaxed);
   font-weight: 700;
 }
 
 .audit-list time {
-  padding-top: 3px;
+  padding-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56rem) {
   .audit-page__metrics {
     grid-template-columns: 1fr;
   }
@@ -384,10 +360,6 @@ function readPath(record: ApiRecord, path: string): unknown {
 
   .audit-list__items li {
     grid-template-columns: 1fr;
-  }
-
-  .audit-list__result {
-    justify-self: start;
   }
 
   .audit-list time {

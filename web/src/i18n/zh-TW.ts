@@ -3081,6 +3081,46 @@ export default {
         assetAction: "查看專業詳情",
         emptyTitle: "目前沒有緊急證書",
         emptyDescription: "所有已匯入證書暫時都還在有效期內。"
+      },
+      simple: {
+        title: '憑證與應用程式管理',
+        subtitle: '管理憑證並查看哪些應用程式正在使用它們',
+        sections: {
+          certificates: {
+            title: '憑證管理',
+            help: '查看並管理所有憑證，包括到期時間與狀態。'
+          },
+          applications: {
+            title: '應用程式關聯',
+            help: '查看憑證使用於哪些應用程式，以及更新頻率。'
+          }
+        },
+        stats: {
+          total: '憑證總數',
+          expiring: '即將到期',
+          expired: '已到期'
+        },
+        versionCount: '{count} 個版本',
+        fields: {
+          expires: '到期時間',
+          source: '來源'
+        },
+        empty: {
+          title: '尚無憑證',
+          description: '匯入第一張憑證以開始管理。'
+        },
+        applications: {
+          description: '查看選取的憑證使用於哪些應用程式，以及設定自動更新。',
+          selectPrompt: '請先在左側選取憑證',
+          selectedCertificate: '目前憑證',
+          connectedApps: '關聯應用程式（{count}）',
+          noApps: '此憑證尚未關聯任何應用程式。',
+          addApp: '新增應用程式',
+          automationTitle: '自動更新設定',
+          activeAutomations: '啟用中的自動更新',
+          totalAutomations: '自動更新計畫總數',
+          automationDescription: '自動更新計畫會定期檢查憑證狀態，必要時自動部署到關聯的應用程式。'
+        }
       }
     },
     detail: {
@@ -4241,6 +4281,8 @@ export default {
     labels: { rootAuthority: '根憑證機構', intermediateAuthority: '中繼憑證機構', intermediateCount: '{count} 個中繼 CA', expiresAt: '到期時間：{time}', defaultTrustDomain: '預設信任域', independentTrustDomain: '獨立根信任邊界', trustDomainCount: '{count} 個 CA 信任域', versionCount: '{count} 個版本', assetCount: '{count} 個應用資產', requestCount: '將建立 {count} 個獨立憑證申請', backendUsageCount: '{count} 個憑證機構正在使用', unverifiedCapabilityCount: '有 {count} 項能力尚未驗證' },
     availability: { single: '單一節點', activeStandby: '主備', activeActive: '多活' },
     authModes: { managedSecret: '託管認證資訊', clientCertificate: '用戶端憑證', none: '無驗證' },
+    isolationLevels: { standard: '標準隔離', strict: '嚴格隔離', regulated: '受監管隔離' },
+    custodyModes: { managedSecret: '託管 Secret', localAgent: '本機 Agent', deviceLocal: '裝置本機', externalKey: '外部金鑰' },
     wizard: { title: '新增憑證機構', description: '先選擇簽發方式，再逐步設定簽發後端、CA 參數與安全邊界。', stepsAria: 'CA 建立步驟', entryStep: '選擇方式', backendStep: '設定後端', parentStep: '選擇父 CA', authorityStep: '設定 CA', reviewStep: '確認建立', completed: '已完成', inProgress: '進行中', pending: '待填寫', entryEyebrow: '第一步', entryTitle: '這套 CA 由誰負責簽發？', entryDescription: '選擇符合部署邊界的入口。內建 CA 使用受管執行邊界。', recommended: '建議起步', builtinTitle: '直接建立 CA', builtinDescription: '由目前 GCAC 服務內建的通用憑證簽發執行面完成。', builtinFeature1: '不需部署額外節點', builtinFeature2: '適合開發與中小型內部環境', managedTitle: '部署 GCAC CA Node', managedDescription: '將 CA 私鑰與簽發執行面隔離到獨立 Windows 或 Linux 主機。', managedFeature1: '使用一次性權杖註冊節點', managedFeature2: '為 HSM 與備援部署保留邊界', backendEyebrow: '簽發後端', builtinBackendTitle: '使用 GCAC 內建簽發後端', builtinBackendDescription: '系統會自動建立或重用租戶內建執行後端，使用者只需設定 CA。', managed_nodeBackendTitle: '設定獨立 GCAC CA Node', managed_nodeBackendDescription: '建立節點簽發後端並產生短效一次性註冊權杖。', builtinAutomaticTitle: '不需要另外建立執行後端', builtinAutomaticDescription: '建立 CA 時系統會自動確保內建簽發執行後端存在並完成綁定。', authorityEyebrow: '憑證機構', rootConfigurationTitle: '設定根 CA', rootConfigurationDescription: '定義新的根信任邊界、名稱、主體與中繼 CA 拓撲。', intermediateConfigurationTitle: '設定中繼 CA', intermediateConfigurationDescription: '先選擇父根 CA，再設定承擔日常簽發的中繼憑證機構。', builtinSecurityNote: '軟體私鑰由 GCAC SecretService 託管，不等同於不可匯出的 HSM 金鑰。', managed_nodeSecurityNote: '私鑰位於獨立節點；節點註冊並通過能力驗證後才應投入正式環境。', reviewEyebrow: '最後確認', reviewTitle: '檢查信任邊界與簽發方式', reviewDescription: '確認 CA 名稱、信任域、簽發後端與風險提示後再建立。', enrollmentTitle: 'CA Node 一次性註冊權杖', enrollmentDescription: '權杖僅供獨立節點首次註冊，請透過安全通道複製到目標主機。', enrollmentExpiresAt: '權杖到期時間：{time}', builtinProviderName: 'GCAC 內建簽發後端', managedProviderName: 'GCAC 獨立 CA Node', rootTitle: '根 CA', rootDescription: '建立新的獨立根信任錨點，並可同時建立首個中繼 CA。', intermediateTitle: '中繼 CA', intermediateDescription: '掛載至現有根 CA 下承擔日常簽發，不建立新的根信任邊界。', noWarnings: '未發現額外的拓撲風險警告。' },
     riskTypes: { certificate_fingerprint_reuse: '同一憑證跨資產重用', public_key_reuse: '同一公鑰跨資產重用' },
     common: { unknown: '未知' }, aria: { tabs: '內部 CA 功能導覽' }

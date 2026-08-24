@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
-import { GcModal } from '@/design-system/components'
+import { GcModal, GcPageToolbar } from '@/design-system/components'
 
 let securityAdminFormSeed = 0
 
@@ -37,6 +37,7 @@ const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
 const formId = `security-admin-create-form-${++securityAdminFormSeed}`
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -84,26 +85,28 @@ onMounted(load)
 
 <template>
   <section class="security-admin" :class="{ 'gc-page': !props.embedded, 'security-admin--embedded': props.embedded }">
-    <header
-      class="security-admin__header"
-      :class="{ 'security-admin__header--actions-only': !(config.eyebrow || config.title || config.description) }"
-    >
-      <div v-if="config.eyebrow || config.title || config.description" class="security-admin__header-copy">
-        <p v-if="config.eyebrow">{{ config.eyebrow }}</p>
-        <component :is="props.embedded ? 'h2' : 'h1'" v-if="config.title">{{ config.title }}</component>
-        <span v-if="config.description">{{ config.description }}</span>
-      </div>
-      <div class="security-admin__actions">
-        <button
-          v-if="config.create && config.fields?.length"
-          class="gc-button gc-button--primary"
-          type="button"
-          @click="createModalOpen = true"
-        >
-          {{ config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
-        </button>
-        <button class="gc-button" type="button" @click="load">{{ t('common.refresh') }}</button>
-      </div>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button
+            v-if="config.create && config.fields?.length"
+            class="gc-button gc-button--primary"
+            type="button"
+            @click="createModalOpen = true"
+          >
+            {{ config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
+          </button>
+        </template>
+      </GcPageToolbar>
+    </Teleport>
+
+    <header v-if="config.eyebrow || config.title || config.description" class="security-admin__header-copy">
+      <p v-if="config.eyebrow">{{ config.eyebrow }}</p>
+      <component :is="props.embedded ? 'h2' : 'h1'" v-if="config.title">{{ config.title }}</component>
+      <span v-if="config.description">{{ config.description }}</span>
     </header>
 
     <p v-if="error" class="security-admin__error" role="alert">{{ error }}</p>
@@ -161,33 +164,30 @@ onMounted(load)
 <style scoped>
 .security-admin { display: grid; gap: var(--gc-space-5); }
 .security-admin--embedded { gap: var(--gc-space-4); }
-.security-admin__header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
-.security-admin__header--actions-only { justify-content: flex-end; }
-.security-admin__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); }
-.security-admin__header-copy p { margin: 0 0 8px; color: var(--gc-color-primary); font-size: 12px; font-weight: 950; letter-spacing: .18em; }
-.security-admin__header-copy h1, .security-admin__header-copy h2 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
-.security-admin--embedded .security-admin__header-copy h2 { font-size: 22px; letter-spacing: -0.035em; }
-.security-admin__header-copy span { display: block; max-width: 760px; margin-top: 10px; color: var(--gc-color-text-muted); line-height: 1.65; font-weight: 650; }
-.security-admin__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
-.security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; }
-.security-admin__form label { display: grid; gap: 7px; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
-.security-admin__form input, .security-admin__form select, .security-admin__form textarea { width: 100%; min-height: 42px; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; background: var(--gc-color-surface-muted); outline: none; }
-.security-admin__form textarea { min-height: 42px; resize: vertical; }
-.security-admin__form input:focus, .security-admin__form select:focus, .security-admin__form textarea:focus { border-color: var(--gc-color-focus); box-shadow: 0 0 0 4px var(--gc-color-focus-ring); background: var(--gc-color-surface-solid); }
+.security-admin__header-copy p { margin: 0 0 var(--gc-space-2); color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 950; letter-spacing: 0; }
+.security-admin__header-copy h1, .security-admin__header-copy h2 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-xl); letter-spacing: 0; }
+.security-admin--embedded .security-admin__header-copy h2 { font-size: var(--gc-font-size-lg); }
+.security-admin__header-copy span { display: block; max-width: var(--gc-size-modal-wide); margin-top: var(--gc-space-2); color: var(--gc-color-text-muted); line-height: var(--gc-line-height-relaxed); font-weight: 650; }
+.security-admin__error { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(var(--gc-space-10) * 6), 1fr)); gap: var(--gc-space-4); align-items: end; }
+.security-admin__form label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
+.security-admin__form input, .security-admin__form select, .security-admin__form textarea { width: 100%; min-height: var(--gc-control-height-md); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-control); padding: var(--gc-space-2) var(--gc-space-3); background: var(--gc-color-surface-muted); outline: none; }
+.security-admin__form textarea { min-height: var(--gc-control-height-md); resize: vertical; }
+.security-admin__form input:focus, .security-admin__form select:focus, .security-admin__form textarea:focus { border-color: var(--gc-color-focus); box-shadow: var(--gc-shadow-focus); background: var(--gc-color-surface-solid); }
 .security-admin__table { overflow: hidden; padding: 0; }
-.security-admin__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
-.security-admin__table-head strong { font-size: 17px; }
+.security-admin__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: var(--gc-space-5) var(--gc-space-6); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
+.security-admin__table-head strong { font-size: var(--gc-font-size-md); }
 .security-admin__table-scroll { overflow-x: auto; }
 .security-admin__table-footer {
   padding: var(--gc-space-3) var(--gc-space-5);
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-raised);
   font-size: var(--gc-font-size-xs);
   font-weight: 650;
 }
-table { width: 100%; border-collapse: collapse; min-width: 760px; }
-th, td { padding: 14px 16px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: top; }
-th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-xs); letter-spacing: .06em; text-transform: uppercase; }
+table { width: 100%; border-collapse: collapse; min-width: calc(var(--gc-space-10) * 19); }
+th, td { padding: var(--gc-space-3) var(--gc-space-4); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: top; }
+th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-xs); letter-spacing: 0; text-transform: uppercase; }
 td { font-size: var(--gc-font-size-sm); font-weight: 650; overflow-wrap: anywhere; }
 </style>

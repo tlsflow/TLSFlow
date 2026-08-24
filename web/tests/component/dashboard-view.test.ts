@@ -74,4 +74,26 @@ describe('DashboardView', () => {
     expect(auditList.find('.dashboard-audits__risk').exists()).toBe(false)
     expect(auditList.find('.dashboard-audits__details').exists()).toBe(false)
   })
+
+  it('使用 Cloud Security Pro 页面头和核心指标区域', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-07-06T08:34:00.000Z',
+        metrics: [{ key: 'applications', title: '应用', value: 4, description: '已纳管应用', trend: 'good' }],
+        quickActions: [],
+        statusGroups: [],
+        certificateStatuses: [],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('.dashboard-page__header').exists()).toBe(true)
+      expect(wrapper.find('.dashboard-metric').text()).toContain('4')
+    })
+    expect(wrapper.find('.dashboard-page__header').text()).toContain('总览')
+    expect(wrapper.find('.dashboard-page__header .gc-button').exists()).toBe(true)
+  })
 })

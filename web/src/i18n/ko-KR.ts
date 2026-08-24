@@ -3056,6 +3056,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: '인증서 및 애플리케이션 관리',
+        subtitle: '인증서를 관리하고 인증서를 사용하는 애플리케이션을 확인합니다',
+        sections: {
+          certificates: {
+            title: '인증서 관리',
+            help: '만료일과 상태를 포함한 모든 인증서를 확인하고 관리합니다.'
+          },
+          applications: {
+            title: '애플리케이션 연결',
+            help: '인증서가 사용되는 위치와 업데이트 빈도를 확인합니다.'
+          }
+        },
+        stats: {
+          total: '인증서 수',
+          expiring: '곧 만료',
+          expired: '만료됨'
+        },
+        versionCount: '{count}개 버전',
+        fields: {
+          expires: '만료일',
+          source: '출처'
+        },
+        empty: {
+          title: '인증서가 없습니다',
+          description: '첫 번째 인증서를 가져와 관리를 시작하세요.'
+        },
+        applications: {
+          description: '선택한 인증서를 사용하는 애플리케이션과 자동 업데이트를 확인합니다.',
+          selectPrompt: '먼저 왼쪽에서 인증서를 선택하세요',
+          selectedCertificate: '선택한 인증서',
+          connectedApps: '연결된 애플리케이션 ({count})',
+          noApps: '이 인증서에 연결된 애플리케이션이 아직 없습니다.',
+          addApp: '애플리케이션 추가',
+          automationTitle: '자동 업데이트 설정',
+          activeAutomations: '활성 자동 업데이트',
+          totalAutomations: '전체 자동 업데이트 계획',
+          automationDescription: '자동 업데이트 계획은 인증서 상태를 정기적으로 확인하고 필요할 때 연결된 애플리케이션에 업데이트를 배포합니다.'
+        }
       }
     },
     detail: {

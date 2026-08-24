@@ -34,6 +34,27 @@ describe('NotificationsView', () => {
     apiMocks.updateNotificationSettings.mockResolvedValue({ data: { tenantId: 'tenant-1', privateOrigins: { wecom: [], feishu: [], dingtalk: [] }, version: 1 } })
   })
 
+  it('加载期间显示统一工作台状态反馈', async () => {
+    const pending = () => new Promise(() => {})
+    apiMocks.listNotificationChannels.mockImplementation(pending)
+    apiMocks.listNotificationDeliveries.mockImplementation(pending)
+    apiMocks.listNotificationRoutes.mockImplementation(pending)
+    apiMocks.listNotificationTemplates.mockImplementation(pending)
+    apiMocks.listNotificationSilences.mockImplementation(pending)
+    apiMocks.getNotificationSettings.mockImplementation(pending)
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: { GcTabs: { props: ['modelValue'], template: '<nav />' } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.gc-page.notifications-page').exists()).toBe(true)
+    expect(wrapper.get('.notifications-page__loading').text()).toContain('加载中')
+  })
+
   it('加载渠道与投递，并且不显示 Secret 明文', async () => {
     apiMocks.listNotificationChannels.mockResolvedValue({
       data: [{

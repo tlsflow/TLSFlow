@@ -15,7 +15,7 @@ const meta = computed(() => resolveRiskMeta(props.risk, t))
 </template>
 
 <style scoped>
-.gc-risk { display: inline-flex; align-items: center; border-radius: var(--gc-radius-sm); padding: 3px 8px; font-size: var(--gc-font-size-xs); font-weight: 700; }
+.gc-risk { display: inline-flex; align-items: center; border-radius: var(--gc-radius-sm); padding: var(--gc-space-badge-block) var(--gc-space-2); font-size: var(--gc-font-size-xs); font-weight: 700; }
 .gc-risk--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .gc-risk--warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
 .gc-risk--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }

@@ -389,7 +389,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="users-view">
+  <section class="gc-page users-view">
     <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar>
         <template #actions>
@@ -704,28 +704,28 @@ onMounted(async () => {
 
 <style scoped>
 .users-view { display: grid; gap: var(--gc-space-5); }
-.users-view__checkbox-col { width: 48px; text-align: center; }
+.users-view__checkbox-col { width: var(--gc-space-12); text-align: center; }
 
 .users-view__table-card { overflow: hidden; padding: 0; }
-.users-view__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 12px 16px; border-bottom: 1px solid var(--gc-color-border); }
+.users-view__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: var(--gc-space-3) var(--gc-space-4); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
 .users-view__table-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); }
-.users-view__table-head strong { font-size: 14px; }
+.users-view__table-head strong { font-size: var(--gc-font-size-sm); }
 .users-view__table-scroll { overflow-x: auto; }
 .users-view__table-footer {
   padding: var(--gc-space-3) var(--gc-space-4);
-  border-top: 1px solid var(--gc-color-border);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-raised);
   font-size: var(--gc-font-size-xs);
   font-weight: 650;
 }
-.users-view__table { width: 100%; border-collapse: collapse; min-width: 1260px; }
-.users-view__table--groups { min-width: 980px; }
+.users-view__table { width: 100%; border-collapse: collapse; min-width: var(--gc-size-modal-wide); }
+.users-view__table--groups { min-width: calc(var(--gc-space-10) * 25); }
 .users-view__table th,
-.users-view__table td { padding: 9px 12px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: middle; line-height: 1.25; }
-.users-view__table th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
-.users-view__table td { font-size: 12px; font-weight: 650; white-space: nowrap; }
-.users-view__row-actions { display: flex; flex-wrap: nowrap; gap: 6px; white-space: nowrap; }
+.users-view__table td { padding: var(--gc-space-2) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: middle; line-height: 1.25; }
+.users-view__table th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-xs); letter-spacing: 0; text-transform: uppercase; white-space: nowrap; }
+.users-view__table td { font-size: var(--gc-font-size-xs); font-weight: 650; white-space: nowrap; }
+.users-view__row-actions { display: flex; flex-wrap: nowrap; gap: var(--gc-space-1); white-space: nowrap; }
 .users-view__row-actions :deep(button) { white-space: nowrap; }
 
 .users-view__form { display: grid; gap: var(--gc-space-4); }
@@ -733,18 +733,18 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-2);
-  padding: 4px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 14px;
+  padding: var(--gc-space-1);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-muted);
 }
 .users-view__mode-switch label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 38px;
-  border-radius: 10px;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-control-height-md);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 850;
@@ -762,9 +762,10 @@ onMounted(async () => {
 .users-view__field input,
 .users-view__field select {
   width: 100%;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-muted);
   outline: none;
@@ -772,7 +773,7 @@ onMounted(async () => {
 .users-view__field input:focus,
 .users-view__field select:focus {
   border-color: var(--gc-color-focus);
-  box-shadow: 0 0 0 4px var(--gc-color-focus-ring);
+  box-shadow: var(--gc-shadow-focus);
   background: var(--gc-color-surface-solid);
 }
 .users-view__lookup { display: grid; gap: var(--gc-space-3); }
@@ -781,17 +782,17 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-3);
-  border: 1px solid var(--gc-color-primary-border);
-  border-radius: 14px;
-  padding: 14px;
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-4);
   background: var(--gc-color-surface-selected);
 }
-.users-view__profile-preview div { display: grid; gap: 5px; min-width: 0; }
-.users-view__profile-preview span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 800; }
+.users-view__profile-preview div { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.users-view__profile-preview span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }
 .users-view__profile-preview strong { overflow-wrap: anywhere; font-size: var(--gc-font-size-sm); }
-.users-view__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.users-view__error { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 
-@media (max-width: 860px) {
+@media (max-width: 53.75rem) {
   .users-view__table-head { align-items: flex-start; flex-direction: column; }
   .users-view__mode-switch,
   .users-view__profile-preview,

@@ -79,10 +79,10 @@ const summary = computed(() => props.items.reduce<Record<CapabilityState, number
 .gc-capability-matrix__header p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
 .gc-capability-matrix__summary { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; color: var(--gc-color-text-muted); }
 .gc-capability-matrix__list { display: grid; gap: var(--gc-space-3); margin: 0; padding: 0; list-style: none; }
-.gc-capability-matrix__item { border: 1px solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3); display: grid; gap: var(--gc-space-2); }
+.gc-capability-matrix__item { border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3); display: grid; gap: var(--gc-space-2); }
 .gc-capability-matrix__main, .gc-capability-matrix__meta { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); align-items: center; justify-content: space-between; }
-.gc-capability-matrix__level { border-radius: 999px; background: var(--gc-color-surface-muted); padding: 2px 8px; font-size: var(--gc-font-size-xs); font-weight: 700; }
-.gc-capability-matrix__state { border-radius: 999px; padding: 2px 8px; font-size: var(--gc-font-size-xs); font-weight: 700; }
+.gc-capability-matrix__level { border-radius: var(--gc-radius-full); background: var(--gc-color-surface-muted); padding: var(--gc-border-width-thick) var(--gc-space-2); font-size: var(--gc-font-size-xs); font-weight: 700; }
+.gc-capability-matrix__state { border-radius: var(--gc-radius-full); padding: var(--gc-border-width-thick) var(--gc-space-2); font-size: var(--gc-font-size-xs); font-weight: 700; }
 .gc-capability-matrix__state--ok { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .gc-capability-matrix__state--missing { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .gc-capability-matrix__state--unknown { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }

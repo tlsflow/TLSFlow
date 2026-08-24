@@ -51,7 +51,7 @@ export function isDateTimeCandidate(candidates: readonly string[]): boolean {
 
 export function formatBrowserLocalTime(value: unknown, options: LocalTimeOptions = {}): string {
   const date = parseDateValue(value)
-  if (!date) return typeof value === 'string' ? value : ''
+  if (!date) return ''
 
   const year = date.getFullYear()
   const month = pad(date.getMonth() + 1)
@@ -104,5 +104,5 @@ export function formatMaybeLocalTime(value: unknown, fallback = '—'): string {
 
 export function formatMaybeLocalTimeByCandidates(value: string, candidates: readonly string[]): string {
   if (!isDateTimeCandidate(candidates)) return value
-  return formatBrowserLocalTime(value) || value
+  return formatBrowserLocalTime(value)
 }

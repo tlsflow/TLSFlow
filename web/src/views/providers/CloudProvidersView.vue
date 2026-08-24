@@ -272,7 +272,7 @@ function errorMessage(cause: unknown, fallback: string): string {
 </script>
 
 <template>
-  <main class="provider-page">
+  <main class="gc-page provider-page">
     <p v-if="requestError" class="provider-message provider-message--error">{{ requestError }}</p>
     <p v-if="notice" class="provider-message provider-message--success">{{ notice }}</p>
     <BusinessResourcePage :key="reloadKey" :config="config" />

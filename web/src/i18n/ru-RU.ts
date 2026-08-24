@@ -3056,6 +3056,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: 'Управление сертификатами и приложениями',
+        subtitle: 'Управляйте сертификатами и просматривайте приложения, которые их используют',
+        sections: {
+          certificates: {
+            title: 'Управление сертификатами',
+            help: 'Просматривайте и управляйте всеми сертификатами, сроками действия и состояниями.'
+          },
+          applications: {
+            title: 'Связанные приложения',
+            help: 'Просматривайте места использования сертификатов и частоту обновлений.'
+          }
+        },
+        stats: {
+          total: 'Всего сертификатов',
+          expiring: 'Скоро истекают',
+          expired: 'Истекшие'
+        },
+        versionCount: 'Версий: {count}',
+        fields: {
+          expires: 'Срок действия',
+          source: 'Источник'
+        },
+        empty: {
+          title: 'Сертификатов пока нет',
+          description: 'Импортируйте первый сертификат, чтобы начать управление.'
+        },
+        applications: {
+          description: 'Просматривайте приложения, использующие выбранный сертификат, и настройте автоматические обновления.',
+          selectPrompt: 'Сначала выберите сертификат слева',
+          selectedCertificate: 'Выбранный сертификат',
+          connectedApps: 'Связанные приложения ({count})',
+          noApps: 'С этим сертификатом пока нет связанных приложений.',
+          addApp: 'Добавить приложение',
+          automationTitle: 'Настройка автоматического обновления',
+          activeAutomations: 'Активные автоматические обновления',
+          totalAutomations: 'Всего планов обновления',
+          automationDescription: 'Планы обновления регулярно проверяют состояние сертификатов и при необходимости развертывают обновления в связанных приложениях.'
+        }
       }
     },
     detail: {

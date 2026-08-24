@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets, listManagedTargets } from '@/api/modules/assets.api'
 import { decideApproval } from '@/api/modules/audits.api'
@@ -18,8 +19,9 @@ import {
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { listMonitorCertificateObservations, probeMonitorServiceAsset } from '@/api/modules/monitors.api'
-import { GcConfirmAction, GcDeploymentWizard, GcDryRunResultModal, GcEmptyState, GcExecutionProgressPanel, GcModal, GcPermissionButton, GcStatusTag } from '@/design-system/components'
+import { GcConfirmAction, GcDeploymentWizard, GcDryRunResultModal, GcEmptyState, GcExecutionProgressPanel, GcHelpTip, GcModal, GcPermissionButton, GcStatusTag, GcUserFlowWizard } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
+import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { dispatchGlobalTaskRefresh, subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
@@ -65,12 +67,34 @@ interface ExecutionTaskFlight {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, te } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
 const permissionStore = usePermissionStore()
 const isUserViewMode = computed(() => appStore.viewMode === 'user')
 const userPlanItems = ref<ApiRecord[]>([])
 const userPlansLoading = ref(false)
 const userPlansError = ref('')
+const userFlowSteps = computed<UserFlowStep[]>(() => [
+  {
+    id: 'certificates',
+    label: t('viewMode.steps.certificates'),
+    help: t('certificates.userView.hero.description'),
+    helpLabel: t('certificates.userView.hero.title'),
+  },
+  {
+    id: 'applications',
+    label: t('viewMode.steps.applications'),
+    help: t('assets.userView.description'),
+    helpLabel: t('assets.userView.title'),
+  },
+  {
+    id: 'deployments',
+    label: t('viewMode.steps.deployments'),
+    help: t('deploymentPlans.userView.description'),
+    helpLabel: t('deploymentPlans.userView.title'),
+    completed: userPlanItems.value.length > 0,
+  },
+])
 const userPlanActions = computed(() => createDeploymentPlanUiActions(t))
 const createDialogOpen = ref(false)
 const loading = ref(false)
@@ -136,10 +160,20 @@ const executionModalCollapseTargetSelector = '.gc-shell__task-button'
 const deploymentPlanRealtimeReloadDelayMs = 300
 const deploymentExecutionTaskTypes = new Set(['CERTIFICATE_DRY_RUN', 'CERTIFICATE_DEPLOY', 'CERTIFICATE_ROLLBACK'])
 
+function formatDeploymentTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || t('common.notAvailable')
+}
+
 const pageConfig = computed<BusinessPageConfig>(() => {
   const baseConfig = createDeploymentPlansPageConfig(t)
   return {
     ...baseConfig,
+    columns: baseConfig.columns.map((column) => column.kind === 'date'
+      ? {
+        ...column,
+        format: (record) => formatDeploymentTime(readString(record, column.candidates)),
+      }
+      : column),
     toolbarPlacement: 'hero-leading',
     showHeader: false,
     showMetrics: false,
@@ -369,6 +403,18 @@ async function openCreateDialog() {
   wizardInitialPlan.value = null
   resetMessages()
   await loadWizardOptions()
+}
+
+function navigateUserFlow(stepId: string) {
+  if (stepId === 'certificates') {
+    void router.push({ name: 'certificate.list' })
+    return
+  }
+  if (stepId === 'applications') {
+    void router.push({ name: 'asset.list' })
+    return
+  }
+  void router.push({ name: 'deployment.plan.list' })
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -1512,73 +1558,83 @@ async function fetchAllPages(
   <section class="deployment-plans-page">
     <p v-if="approvalFeedback" class="deployment-plans-page__info deployment-plans-page__approval-feedback">{{ approvalFeedback }}</p>
     <template v-if="isUserViewMode">
-      <section class="gc-card deployment-user-view__hero">
-        <div>
-          <span>{{ t('deploymentPlans.userView.stepLabel') }}</span>
-          <h2>{{ t('deploymentPlans.userView.title') }}</h2>
-          <p>{{ t('deploymentPlans.userView.description') }}</p>
-        </div>
-        <GcPermissionButton permission="deployment.plan.write" @click="openCreateDialog">
-          {{ t('deploymentPlans.userView.createAction') }}
-        </GcPermissionButton>
-      </section>
-
-      <section class="deployment-user-view__content">
-        <header>
-          <h3>{{ t('deploymentPlans.userView.listTitle') }}</h3>
-          <p>{{ t('deploymentPlans.userView.listDescription') }}</p>
-        </header>
-        <GcEmptyState
-          v-if="userPlansError"
-          :title="t('deploymentPlans.userView.loadFailed')"
-          :description="userPlansError"
-        >
-          <button class="gc-button" type="button" @click="loadUserPlans">{{ t('businessPage.retry') }}</button>
-        </GcEmptyState>
-        <div v-else-if="userPlansLoading" class="deployment-user-view__state">{{ t('common.loading') }}</div>
-        <GcEmptyState
-          v-else-if="userPlanItems.length === 0"
-          :title="t('deploymentPlans.userView.emptyTitle')"
-          :description="t('deploymentPlans.userView.emptyDescription')"
-        >
+      <GcUserFlowWizard
+        :steps="userFlowSteps"
+        active-step="deployments"
+        :title="t('viewMode.steps.deployments')"
+        :help="t('deploymentPlans.userView.description')"
+        :help-label="t('deploymentPlans.userView.title')"
+        :ariaLabel="t('deploymentPlans.userView.listTitle')"
+        @select="navigateUserFlow"
+      >
+        <template #actions>
           <GcPermissionButton permission="deployment.plan.write" @click="openCreateDialog">
             {{ t('deploymentPlans.userView.createAction') }}
           </GcPermissionButton>
-        </GcEmptyState>
-        <div v-else class="deployment-user-view__grid">
-          <article v-for="plan in userPlanItems" :key="readString(plan, ['id', 'planId'])" class="gc-card deployment-user-view__card">
-            <header class="deployment-user-view__card-head">
-              <div>
-                <h3>{{ readString(plan, ['name', 'displayName'], t('deploymentPlans.userView.unnamedPlan')) }}</h3>
-                <p>{{ userPlanCertificate(plan) }} → {{ userPlanApplication(plan) }}</p>
+        </template>
+
+        <section class="deployment-user-view__content">
+          <header class="deployment-user-view__section-head">
+            <h3>{{ t('deploymentPlans.userView.listTitle') }}</h3>
+            <GcHelpTip
+              :content="t('deploymentPlans.userView.listDescription')"
+              :ariaLabel="t('deploymentPlans.userView.listTitle')"
+            />
+          </header>
+          <GcEmptyState
+            v-if="userPlansError"
+            :title="t('deploymentPlans.userView.loadFailed')"
+          >
+            <p class="deployment-user-view__error">{{ userPlansError }}</p>
+            <button class="gc-button" type="button" @click="loadUserPlans">{{ t('businessPage.retry') }}</button>
+          </GcEmptyState>
+          <div v-else-if="userPlansLoading" class="deployment-user-view__state">{{ t('common.loading') }}</div>
+          <GcEmptyState
+            v-else-if="userPlanItems.length === 0"
+            :title="t('deploymentPlans.userView.emptyTitle')"
+          >
+            <GcHelpTip
+              :content="t('deploymentPlans.userView.emptyDescription')"
+              :ariaLabel="t('deploymentPlans.userView.emptyTitle')"
+            />
+            <GcPermissionButton permission="deployment.plan.write" @click="openCreateDialog">
+              {{ t('deploymentPlans.userView.createAction') }}
+            </GcPermissionButton>
+          </GcEmptyState>
+          <div v-else class="deployment-user-view__grid">
+            <article v-for="plan in userPlanItems" :key="readString(plan, ['id', 'planId'])" class="gc-card deployment-user-view__card">
+              <header class="deployment-user-view__card-head">
+                <div>
+                  <h3>{{ readString(plan, ['name', 'displayName'], t('deploymentPlans.userView.unnamedPlan')) }}</h3>
+                  <p>{{ userPlanCertificate(plan) }} → {{ userPlanApplication(plan) }}</p>
+                </div>
+                <GcStatusTag :status="readString(plan, ['status', 'state'], 'DRAFT')" />
+              </header>
+              <div class="deployment-user-view__actions">
+                <GcConfirmAction
+                  v-if="recommendedUserPlanAction(plan)?.confirmText && permissionStore.hasPermission(recommendedUserPlanAction(plan)?.permission ?? '')"
+                  :action-name="recommendedUserPlanAction(plan)?.label ?? ''"
+                  :risk-text="recommendedUserPlanAction(plan)?.riskText"
+                  :confirm-text="recommendedUserPlanAction(plan)?.confirmText"
+                  :danger="recommendedUserPlanAction(plan)?.danger"
+                  :disabled="Boolean(userPlanActionDisabledReason(plan))"
+                  :disabled-reason="userPlanActionDisabledReason(plan)"
+                  @confirm="runUserPlanAction(plan)"
+                />
+                <GcPermissionButton
+                  v-else-if="recommendedUserPlanAction(plan)"
+                  :permission="recommendedUserPlanAction(plan)?.permission ?? 'deployment.plan.read'"
+                  :disabled="Boolean(userPlanActionDisabledReason(plan))"
+                  @click="runUserPlanAction(plan)"
+                >
+                  {{ recommendedUserPlanAction(plan)?.label }}
+                </GcPermissionButton>
+                <span v-else class="deployment-user-view__waiting">{{ t('deploymentPlans.userView.waiting') }}</span>
               </div>
-              <GcStatusTag :status="readString(plan, ['status', 'state'], 'DRAFT')" />
-            </header>
-            <p class="deployment-user-view__hint">{{ t('deploymentPlans.userView.nextActionHint') }}</p>
-            <div class="deployment-user-view__actions">
-              <GcConfirmAction
-                v-if="recommendedUserPlanAction(plan)?.confirmText && permissionStore.hasPermission(recommendedUserPlanAction(plan)?.permission ?? '')"
-                :action-name="recommendedUserPlanAction(plan)?.label ?? ''"
-                :risk-text="recommendedUserPlanAction(plan)?.riskText"
-                :confirm-text="recommendedUserPlanAction(plan)?.confirmText"
-                :danger="recommendedUserPlanAction(plan)?.danger"
-                :disabled="Boolean(userPlanActionDisabledReason(plan))"
-                :disabled-reason="userPlanActionDisabledReason(plan)"
-                @confirm="runUserPlanAction(plan)"
-              />
-              <GcPermissionButton
-                v-else-if="recommendedUserPlanAction(plan)"
-                :permission="recommendedUserPlanAction(plan)?.permission ?? 'deployment.plan.read'"
-                :disabled="Boolean(userPlanActionDisabledReason(plan))"
-                @click="runUserPlanAction(plan)"
-              >
-                {{ recommendedUserPlanAction(plan)?.label }}
-              </GcPermissionButton>
-              <span v-else class="deployment-user-view__waiting">{{ t('deploymentPlans.userView.waiting') }}</span>
-            </div>
-          </article>
-        </div>
-      </section>
+            </article>
+          </div>
+        </section>
+      </GcUserFlowWizard>
     </template>
 
     <BusinessResourcePage v-else ref="pageRef" :config="pageConfig" />
@@ -1706,7 +1762,7 @@ async function fetchAllPages(
       :title="t('deploymentPlans.dryRunRequired.title')"
       :description="t('deploymentPlans.dryRunRequired.description')"
       size="md"
-      width="560px"
+      width="var(--gc-size-modal-default)"
       :close-on-backdrop="!dryRunRequiredPending"
     >
       <section class="deployment-plans-page__dry-run-required">
@@ -1729,12 +1785,12 @@ async function fetchAllPages(
       :title="detailPlanRow ? t('deploymentPlans.detail.titleWithName', { name: readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id) }) : t('deploymentPlans.detail.title')"
       :description="t('deploymentPlans.detail.description')"
       size="xxl"
-      width="min(1240px, calc(100vw - 32px))"
+      width="min(var(--gc-size-modal-wide), calc(100vw - var(--gc-space-8)))"
     >
       <section v-if="detailPlanRow" class="deployment-plan-detail">
         <section class="deployment-plan-detail__hero">
           <div class="deployment-plan-detail__hero-copy">
-            <p class="deployment-plan-detail__eyebrow">Deployment Plan</p>
+            <p class="deployment-plan-detail__eyebrow">{{ t('nav.deploymentPlans') }}</p>
             <h2>{{ readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id) }}</h2>
             <span>{{ t('deploymentPlans.detail.planIdLine', { planId: readString(detailPlanRow.raw, ['id', 'planId']) }) }}</span>
           </div>
@@ -1827,7 +1883,7 @@ async function fetchAllPages(
                 <span>{{ t('deploymentPlans.detail.relatedPlan', { planId: item.planId }) }}</span>
                 <span>{{ t('deploymentPlans.detail.relatedRun', { runId: item.runId }) }}</span>
                 <span>{{ t('deploymentPlans.detail.relatedSource', { source: item.createdReason }) }}</span>
-                <span>{{ formatBrowserLocalTime(item.updatedAt || item.createdAt) || item.updatedAt || item.createdAt }}</span>
+                <span>{{ formatDeploymentTime(item.updatedAt || item.createdAt) }}</span>
               </div>
               <p>
                 <span class="deployment-plan-detail__related-label">{{ t('deploymentPlans.detail.targetLabel') }}</span>
@@ -1873,36 +1929,13 @@ async function fetchAllPages(
   gap: var(--gc-space-4);
 }
 
-.deployment-user-view__hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--gc-space-4);
-  align-items: center;
-  padding: var(--gc-space-5);
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  border-radius: var(--gc-radius-lg);
-  background: linear-gradient(145deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
-}
-
-.deployment-user-view__hero div,
 .deployment-user-view__content,
-.deployment-user-view__content > header,
 .deployment-user-view__card,
 .deployment-user-view__card-head div {
   display: grid;
   gap: var(--gc-space-2);
 }
 
-.deployment-user-view__hero span {
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.deployment-user-view__hero h2,
-.deployment-user-view__hero p,
 .deployment-user-view__content h3,
 .deployment-user-view__content p,
 .deployment-user-view__card h3,
@@ -1910,15 +1943,7 @@ async function fetchAllPages(
   margin: 0;
 }
 
-.deployment-user-view__hero h2 {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-xl);
-}
-
-.deployment-user-view__hero p,
-.deployment-user-view__content > header p,
-.deployment-user-view__card-head p,
-.deployment-user-view__hint {
+.deployment-user-view__card-head p {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   line-height: var(--gc-line-height-relaxed);
@@ -1961,11 +1986,25 @@ async function fetchAllPages(
   text-align: center;
 }
 
-@media (max-width: 53.75rem) {
-  .deployment-user-view__hero {
-    grid-template-columns: 1fr;
-  }
+.deployment-user-view__section-head {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
 
+.deployment-user-view__section-head h3 {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+}
+
+.deployment-user-view__error {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+@media (max-width: 53.75rem) {
   .deployment-user-view__card-head {
     align-items: stretch;
     flex-direction: column;
@@ -1974,7 +2013,7 @@ async function fetchAllPages(
 
 .deployment-plans-page__dry-run-required {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .deployment-plans-page__dry-run-required-copy {
@@ -1986,25 +2025,25 @@ async function fetchAllPages(
 .deployment-plans-page__error,
 .deployment-plans-page__info {
   margin: 0;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: var(--gc-radius-card);
+  padding: var(--gc-space-3) var(--gc-space-4);
   font-weight: 750;
 }
 
 .deployment-plans-page__error {
-  border: 1px solid var(--gc-color-danger-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
 }
 
 .deployment-plans-page__info {
-  border: 1px solid var(--gc-color-info-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
   color: var(--gc-color-primary-strong);
   background: var(--gc-color-surface-selected);
 }
 
 .deployment-plans-page__wizard-message {
-  margin-bottom: 10px;
+  margin-bottom: var(--gc-space-3);
 }
 
 .deployment-execution-flight {
@@ -2093,7 +2132,7 @@ async function fetchAllPages(
   gap: var(--gc-space-1);
   min-width: 0;
   padding: var(--gc-space-3);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-hover);
 }
@@ -2124,32 +2163,30 @@ async function fetchAllPages(
 
 .deployment-plan-detail {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .deployment-plan-detail__hero {
   display: flex;
   justify-content: space-between;
   align-items: stretch;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid var(--gc-color-info-border);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
-    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-4) var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-subtle);
 }
 
 .deployment-plan-detail__hero-copy {
   display: grid;
-  gap: 5px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .deployment-plan-detail__eyebrow {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2158,14 +2195,14 @@ async function fetchAllPages(
 .deployment-plan-detail__hero-copy h2 {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 24px;
+  font-size: var(--gc-font-size-lg);
   line-height: 1.06;
   overflow-wrap: anywhere;
 }
 
 .deployment-plan-detail__hero-copy span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
@@ -2173,51 +2210,51 @@ async function fetchAllPages(
   display: grid;
   align-content: space-between;
   justify-items: end;
-  gap: 8px;
-  min-width: 150px;
+  gap: var(--gc-space-2);
+  min-width: calc(var(--gc-size-card-min) - var(--gc-space-7));
 }
 
 .deployment-plan-detail__spotlight {
   display: grid;
-  gap: 4px;
-  min-width: 150px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  min-width: calc(var(--gc-size-card-min) - var(--gc-space-7));
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-text);
   color: var(--gc-color-surface-solid);
 }
 
 .deployment-plan-detail__spotlight small {
   color: var(--gc-color-text-inverse-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .deployment-plan-detail__spotlight strong {
-  font-size: 16px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.15;
 }
 
 .deployment-plan-detail__tabs {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
   width: fit-content;
-  padding: 4px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 999px;
+  padding: var(--gc-space-1);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-hover);
 }
 
 .deployment-plan-detail__tab {
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-4);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   background: transparent;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   cursor: pointer;
 }
@@ -2225,16 +2262,16 @@ async function fetchAllPages(
 .deployment-plan-detail__tab[data-active='true'] {
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-primary);
-  box-shadow: 0 4px 14px var(--gc-color-primary-weak);
+  box-shadow: var(--gc-shadow-button-primary);
 }
 
 .deployment-plan-detail__section {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-modal);
+  background: var(--gc-color-surface-raised);
 }
 .deployment-plan-detail__workflow { display: grid; gap: var(--gc-space-3); }
 .deployment-plan-detail__workflow h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
@@ -2244,23 +2281,23 @@ async function fetchAllPages(
 .deployment-plan-detail__facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-3);
   margin: 0;
 }
 
 .deployment-plan-detail__facts div {
   display: grid;
-  gap: 5px;
-  min-height: 70px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: var(--gc-space-1);
+  min-height: calc(var(--gc-space-9) * 2);
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .deployment-plan-detail__facts dt {
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2269,14 +2306,14 @@ async function fetchAllPages(
 .deployment-plan-detail__facts dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 800;
   overflow-wrap: anywhere;
 }
 
 .deployment-plan-detail__list {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-3);
   padding: 0;
   margin: 0;
   list-style: none;
@@ -2284,38 +2321,38 @@ async function fetchAllPages(
 
 .deployment-plan-detail__list-item {
   display: grid;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 12px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
 }
 
 .deployment-plan-detail__related-list {
-  gap: 6px;
+  gap: var(--gc-space-2);
 }
 
 .deployment-plan-detail__related-item {
-  gap: 6px;
-  padding: 9px 12px;
-  border-radius: 10px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-radius: var(--gc-radius-sm);
 }
 
 .deployment-plan-detail__related-main {
   display: grid;
-  gap: 2px;
+  gap: var(--gc-space-1);
 }
 
 .deployment-plan-detail__record-tag {
   display: inline-flex;
   align-items: center;
-  min-height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
+  min-height: calc(var(--gc-space-4) + var(--gc-space-1));
+  padding: 0 var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   line-height: 1;
-  border: 1px solid transparent;
+  border: var(--gc-border-width-default) solid transparent;
 }
 
 .deployment-plan-detail__record-tag[data-kind='dry-run'] {
@@ -2334,25 +2371,25 @@ async function fetchAllPages(
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--gc-space-2);
   flex-wrap: wrap;
 }
 
 .deployment-plan-detail__related-meta span,
 .deployment-plan-detail__related-footer small {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.35;
 }
 
 .deployment-plan-detail__related-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: var(--gc-space-1) var(--gc-space-3);
 }
 
 .deployment-plan-detail__related-item p {
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.4;
 }
 
@@ -2362,21 +2399,21 @@ async function fetchAllPages(
 }
 
 .deployment-plan-detail__related-separator {
-  margin: 0 6px;
+  margin: 0 var(--gc-space-2);
   color: var(--gc-color-text-soft);
 }
 
 .deployment-plan-detail__related-action {
-  min-height: 30px;
-  padding: 0 12px;
-  font-size: 12px;
+  min-height: var(--gc-control-height-xs);
+  padding: 0 var(--gc-space-3);
+  font-size: var(--gc-font-size-xs);
 }
 
 .deployment-plan-detail__list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--gc-space-3);
   flex-wrap: wrap;
 }
 
@@ -2384,7 +2421,7 @@ async function fetchAllPages(
 .deployment-plan-detail__list-item small {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -2398,7 +2435,7 @@ async function fetchAllPages(
   color: var(--gc-color-danger);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .deployment-plan-approval__facts {
     grid-template-columns: 1fr;
   }

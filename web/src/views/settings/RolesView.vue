@@ -139,7 +139,7 @@ const roleColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'builtin', title: t('settings.roles.columns.builtin'), width: '10%' },
   { key: 'policyCount', title: t('settings.roles.columns.policyCount'), width: '10%' },
   { key: 'permissions', title: t('settings.roles.columns.permissions') },
-  { key: 'actions', title: t('settings.roles.columns.actions'), width: '310px' }
+  { key: 'actions', title: t('settings.roles.columns.actions'), width: 'calc(var(--gc-space-10) * 8)' }
 ])
 
 const accessGrantColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
@@ -1195,53 +1195,53 @@ onMounted(() => void reloadAll())
 <style scoped>
 .roles-view { display: grid; gap: var(--gc-space-5); }
 .roles-view__table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
-.roles-view__table-toolbar strong { font-size: 14px; }
-.roles-view__table-toolbar span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 750; }
+.roles-view__table-toolbar strong { font-size: var(--gc-font-size-sm); }
+.roles-view__table-toolbar span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 750; }
 .roles-view__toolbar-actions,
 .roles-view__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
-.roles-view__cell-wrap { display: inline-block; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.roles-view__cell-wrap { display: inline-block; max-width: calc(var(--gc-space-10) * 13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .roles-view__detail { display: grid; gap: var(--gc-space-4); }
 .roles-view__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); margin: 0; }
-.roles-view__facts div { min-width: 0; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 12px; background: var(--gc-color-surface-muted); }
-.roles-view__facts dt { margin-bottom: 6px; color: var(--gc-color-text-muted); font-size: 12px; font-weight: 850; }
-.roles-view__facts dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 750; }
+.roles-view__facts div { min-width: 0; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3); background: var(--gc-color-surface-muted); }
+.roles-view__facts dt { margin-bottom: var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 850; }
+.roles-view__facts dd { margin: 0; overflow-wrap: anywhere; font-size: var(--gc-font-size-sm); font-weight: 750; }
 .roles-view__grant-editor { display: grid; gap: var(--gc-space-4); }
 .roles-view__create-grant { margin-top: var(--gc-space-4); }
 .roles-view__member-editor { display: grid; gap: var(--gc-space-4); }
 .roles-view__grant-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .roles-view__grant-summary div {
   display: grid;
-  gap: 6px;
+  gap: var(--gc-space-1);
   min-width: 0;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 12px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3);
   background: var(--gc-color-surface-muted);
 }
-.roles-view__grant-summary span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 850; }
-.roles-view__grant-summary strong { overflow-wrap: anywhere; font-size: 13px; }
+.roles-view__grant-summary span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 850; }
+.roles-view__grant-summary strong { overflow-wrap: anywhere; font-size: var(--gc-font-size-sm); }
 .roles-view__selected-scopes {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-primary-border);
-  border-radius: 12px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-selected);
 }
 .roles-view__selected-scopes span {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  min-height: 28px;
-  border: 1px solid var(--gc-color-primary-border);
-  border-radius: 999px;
-  padding: 0 10px;
+  min-height: var(--gc-control-height-xs);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-pill);
+  padding: 0 var(--gc-space-2);
   overflow: hidden;
   color: var(--gc-color-primary-strong);
   background: var(--gc-color-surface-solid);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1249,7 +1249,7 @@ onMounted(() => void reloadAll())
 .roles-view__selected-scopes .gc-button { margin-left: auto; }
 .roles-view__object-tree {
   overflow: hidden;
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-lg);
   background: var(--gc-color-surface-solid);
 }
@@ -1258,38 +1258,38 @@ onMounted(() => void reloadAll())
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-3);
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--gc-color-border);
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+  background: var(--gc-gradient-surface);
 }
-.roles-view__object-tree header strong { font-size: 14px; }
-.roles-view__tree-state { padding: 34px 16px; text-align: center; color: var(--gc-color-text-muted); font-weight: 800; }
-.roles-view__tree-list { display: grid; max-height: 360px; overflow: auto; margin: 0; padding: 8px; list-style: none; }
+.roles-view__object-tree header strong { font-size: var(--gc-font-size-sm); }
+.roles-view__tree-state { padding: var(--gc-space-8) var(--gc-space-4); text-align: center; color: var(--gc-color-text-muted); font-weight: 800; }
+.roles-view__tree-list { display: grid; max-height: calc(var(--gc-space-12) * 7); overflow: auto; margin: 0; padding: var(--gc-space-2); list-style: none; }
 .roles-view__tree-node {
   --tree-level: 0;
   display: grid;
-  grid-template-columns: 26px 24px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: var(--gc-space-7) var(--gc-space-6) minmax(0, 1fr);
+  gap: var(--gc-space-2);
   width: 100%;
-  min-height: 42px;
+  min-height: var(--gc-control-height-md);
   margin: 0;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 7px 10px 7px calc(10px + (var(--tree-level) * 22px));
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3) var(--gc-space-2) calc(var(--gc-space-3) + (var(--tree-level) * var(--gc-space-6)));
   color: var(--gc-color-text);
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 .roles-view__tree-node:hover { background: var(--gc-color-surface-hover); border-color: var(--gc-color-info-border); }
-.roles-view__tree-node--selected { background: var(--gc-color-surface-selected); border-color: var(--gc-color-primary-border-strong); box-shadow: 0 0 0 3px var(--gc-color-focus-ring); }
+.roles-view__tree-node--selected { background: var(--gc-color-surface-selected); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
 .roles-view__tree-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
+  width: var(--gc-space-6);
+  height: var(--gc-space-6);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-primary);
   background: var(--gc-color-surface-selected);
   font-weight: 900;
@@ -1298,14 +1298,14 @@ onMounted(() => void reloadAll())
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--gc-space-6);
+  height: var(--gc-space-6);
   align-self: center;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 7px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
   color: transparent;
   background: var(--gc-color-surface-solid);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 950;
 }
 .roles-view__tree-check[data-state='checked'],
@@ -1314,39 +1314,39 @@ onMounted(() => void reloadAll())
   color: var(--gc-color-surface-solid);
   background: var(--gc-color-primary);
 }
-.roles-view__tree-copy { display: grid; gap: 3px; min-width: 0; }
-.roles-view__tree-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.roles-view__tree-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gc-color-text-muted); font-size: 11px; font-weight: 750; }
+.roles-view__tree-copy { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.roles-view__tree-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--gc-font-size-sm); }
+.roles-view__tree-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 750; }
 .roles-view__member-list {
   display: grid;
-  max-height: 360px;
+  max-height: calc(var(--gc-space-12) * 7);
   overflow: auto;
-  border: 1px solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-lg);
-  padding: 8px;
+  padding: var(--gc-space-2);
   background: var(--gc-color-surface-solid);
 }
 .roles-view__member-option {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: var(--gc-space-6) minmax(0, 1fr);
+  gap: var(--gc-space-3);
   align-items: center;
-  min-height: 48px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 8px 10px;
+  min-height: var(--gc-control-height-lg);
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 .roles-view__member-option:hover { background: var(--gc-color-surface-hover); border-color: var(--gc-color-info-border); }
-.roles-view__member-option--selected { background: var(--gc-color-surface-selected); border-color: var(--gc-color-primary-border-strong); box-shadow: 0 0 0 3px var(--gc-color-focus-ring); }
-.roles-view__member-option span:last-child { display: grid; gap: 3px; min-width: 0; }
+.roles-view__member-option--selected { background: var(--gc-color-surface-selected); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
+.roles-view__member-option span:last-child { display: grid; gap: var(--gc-space-1); min-width: 0; }
 .roles-view__member-option strong,
 .roles-view__member-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.roles-view__member-option strong { font-size: 13px; }
-.roles-view__member-option small { color: var(--gc-color-text-muted); font-size: 11px; font-weight: 750; }
+.roles-view__member-option strong { font-size: var(--gc-font-size-sm); }
+.roles-view__member-option small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 750; }
 .roles-view__form { display: grid; gap: var(--gc-space-3); }
 .roles-view__form--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .roles-view__form label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
@@ -1357,20 +1357,20 @@ onMounted(() => void reloadAll())
 .roles-view__form select,
 .roles-view__form textarea {
   width: 100%;
-  min-height: 40px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  padding: 10px 12px;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-muted);
   outline: none;
 }
-.roles-view__form textarea { min-height: 96px; resize: vertical; }
+.roles-view__form textarea { min-height: calc(var(--gc-space-12) * 2); resize: vertical; }
 .roles-view__form input:focus,
 .roles-view__form select:focus,
-.roles-view__form textarea:focus { border-color: var(--gc-color-focus); box-shadow: 0 0 0 4px var(--gc-color-focus-ring); background: var(--gc-color-surface-solid); }
-.roles-view__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
-@media (max-width: 860px) {
+.roles-view__form textarea:focus { border-color: var(--gc-color-focus); box-shadow: var(--gc-shadow-focus); background: var(--gc-color-surface-solid); }
+.roles-view__error { margin: 0; border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+@media (max-width: 53.75rem) {
   .roles-view__facts,
   .roles-view__grant-summary,
   .roles-view__form--two { grid-template-columns: 1fr; }

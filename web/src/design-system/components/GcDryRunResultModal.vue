@@ -60,7 +60,7 @@ function closeModal() {
     :title="displayTitle"
     :description="props.description"
     size="xxl"
-    width="min(1320px, calc(100vw - 24px))"
+    width="min(var(--gc-size-modal-xxl), calc(100vw - var(--gc-space-viewport)))"
     :transition-name="props.transitionName"
     :collapse-target-selector="props.collapseTargetSelector"
     @update:open="emit('update:open', $event)"

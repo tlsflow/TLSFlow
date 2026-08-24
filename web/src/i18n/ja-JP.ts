@@ -3082,6 +3082,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: '証明書とアプリケーションの管理',
+        subtitle: '証明書を管理し、使用しているアプリケーションを確認します',
+        sections: {
+          certificates: {
+            title: '証明書管理',
+            help: '有効期限や状態を含むすべての証明書を確認・管理します。'
+          },
+          applications: {
+            title: 'アプリケーション連携',
+            help: '証明書の利用先と更新頻度を確認します。'
+          }
+        },
+        stats: {
+          total: '証明書総数',
+          expiring: 'まもなく期限切れ',
+          expired: '期限切れ'
+        },
+        versionCount: '{count} バージョン',
+        fields: {
+          expires: '有効期限',
+          source: 'ソース'
+        },
+        empty: {
+          title: '証明書はありません',
+          description: '最初の証明書をインポートして管理を開始します。'
+        },
+        applications: {
+          description: '選択した証明書を使用するアプリケーションと自動更新を確認します。',
+          selectPrompt: '左側で証明書を選択してください',
+          selectedCertificate: '選択中の証明書',
+          connectedApps: '連携アプリケーション（{count}）',
+          noApps: 'この証明書に連携されたアプリケーションはありません。',
+          addApp: 'アプリケーションを追加',
+          automationTitle: '自動更新の設定',
+          activeAutomations: '有効な自動更新',
+          totalAutomations: '自動更新プラン総数',
+          automationDescription: '自動更新プランは証明書の状態を定期的に確認し、必要に応じて連携アプリケーションへ更新をデプロイします。'
+        }
       }
     },
     detail: {

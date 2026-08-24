@@ -293,7 +293,7 @@ function previousStep() {
 .device-wizard__step-marker { display: grid; flex: 0 0 auto; place-items: center; inline-size: var(--gc-space-6); block-size: var(--gc-space-6); color: inherit; background: var(--gc-color-surface); border-radius: var(--gc-radius-xl); }
 .device-wizard__steps li.active .device-wizard__step-marker { color: var(--gc-color-primary); }
 .device-wizard__steps li.done .device-wizard__step-marker { color: var(--gc-color-text-inverse); background: var(--gc-color-success); }
-.device-wizard__step-marker svg { inline-size: var(--gc-space-4); block-size: var(--gc-space-4); stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.device-wizard__step-marker svg { inline-size: var(--gc-space-4); block-size: var(--gc-space-4); stroke: currentColor; stroke-width: var(--gc-border-width-thick); stroke-linecap: round; stroke-linejoin: round; }
 .device-wizard__platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .device-wizard__platform { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); text-align: left; color: var(--gc-color-text); background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
 .device-wizard__platform--active { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }

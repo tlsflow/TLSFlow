@@ -28,10 +28,12 @@ function releaseBodyScrollLock() {
 </script>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+
+let modalInstanceCount = 0
 
 const props = withDefaults(defineProps<{
   /** 兼容 v-model:open 的受控开关。 */
@@ -42,11 +44,13 @@ const props = withDefaults(defineProps<{
   title?: string
   /** 标题下方的补充说明。 */
   description?: string
+  /** 无标题模态框的翻译后区域名称。 */
+  ariaLabel?: string
   /** 模态框宽度档位。 */
   size?: ModalSize
   /** 兼容旧调用参数；遮罩点击不再关闭模态框。 */
   closeOnBackdrop?: boolean
-  /** 自定义模态框宽度，优先级高于 size（例如 '60vw'、'800px'）。 */
+  /** 自定义模态框宽度，优先级高于 size（例如 '60vw'、'var(--gc-size-modal-wide)'）。 */
   width?: string
   /** 自定义模态框最大高度，例如 '60vh'。 */
   maxHeight?: string
@@ -58,6 +62,10 @@ const props = withDefaults(defineProps<{
   transitionName?: string
   /** 收起动画的目标元素选择器，用于把模态框动态收进入口按钮。 */
   collapseTargetSelector?: string
+  /** 提交或异步操作进行中；会禁止内容区原生控件和关闭操作。 */
+  busy?: boolean
+  /** 由调用方传入的已翻译错误信息。 */
+  error?: string
 }>(), {
   size: 'md',
   closeOnBackdrop: false,
@@ -65,6 +73,8 @@ const props = withDefaults(defineProps<{
   edgeToEdge: false,
   transitionName: 'gc-modal',
   collapseTargetSelector: '',
+  busy: false,
+  error: '',
 })
 
 const emit = defineEmits<{
@@ -72,6 +82,13 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 const { t } = useI18n()
+const modalRef = ref<HTMLElement | null>(null)
+const instanceId = ++modalInstanceCount
+const titleId = `gc-modal-title-${instanceId}`
+const descriptionId = `gc-modal-description-${instanceId}`
+const errorId = `gc-modal-error-${instanceId}`
+let restoreFocusElement: HTMLElement | null = null
+const busyControlStates = new Map<HTMLElement, boolean>()
 
 const isOpen = computed({
   get() {
@@ -98,14 +115,95 @@ const modalStyle = computed(() => ({
   ...(props.width ? { '--gc-modal-width': props.width } : {}),
   ...(props.maxHeight ? { '--gc-modal-max-height': props.maxHeight } : {}),
 }))
+const labelledBy = computed(() => props.title ? titleId : undefined)
+const describedBy = computed(() => [props.description ? descriptionId : '', props.error ? errorId : ''].filter(Boolean).join(' ') || undefined)
 
 function closeModal() {
+  if (props.busy) return
   isOpen.value = false
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  closeModal()
+  if (event.key === 'Tab') {
+    handleModalKeydown(event)
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeModal()
+    return
+  }
+}
+
+const focusableSelector = [
+  'a[href]',
+  'area[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function focusFirstElement(): void {
+  const modal = modalRef.value
+  if (!modal) return
+  const firstElement = modal.querySelector<HTMLElement>(focusableSelector)
+  ;(firstElement ?? modal).focus()
+}
+
+function handleModalKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Tab') return
+  const modal = modalRef.value
+  if (!modal) return
+  const focusableElements = [...modal.querySelectorAll<HTMLElement>(focusableSelector)]
+  if (focusableElements.length === 0) {
+    event.preventDefault()
+    modal.focus()
+    return
+  }
+  const firstElement = focusableElements[0]
+  const lastElement = focusableElements[focusableElements.length - 1]
+  if (event.shiftKey && document.activeElement === firstElement) {
+    event.preventDefault()
+    lastElement.focus()
+  } else if (!event.shiftKey && document.activeElement === lastElement) {
+    event.preventDefault()
+    firstElement.focus()
+  }
+}
+
+async function updateFocus(opened: boolean): Promise<void> {
+  if (opened) {
+    const activeElement = document.activeElement
+    restoreFocusElement = activeElement instanceof HTMLElement ? activeElement : null
+    await nextTick()
+    if (isOpen.value) {
+      syncBusyControls()
+      focusFirstElement()
+    }
+    return
+  }
+
+  await nextTick()
+  if (restoreFocusElement?.isConnected) restoreFocusElement.focus()
+  restoreFocusElement = null
+}
+
+function syncBusyControls(): void {
+  const modal = modalRef.value
+  if (!modal) return
+  const controls = modal.querySelectorAll<HTMLElement>('button, input, select, textarea')
+  controls.forEach((control) => {
+    if (props.busy) {
+      if (!busyControlStates.has(control)) busyControlStates.set(control, control.hasAttribute('disabled'))
+      control.setAttribute('disabled', '')
+      return
+    }
+    const wasDisabled = busyControlStates.get(control)
+    if (wasDisabled === false) control.removeAttribute('disabled')
+    busyControlStates.delete(control)
+  })
 }
 
 function prepareLeave(element: Element) {
@@ -139,6 +237,7 @@ watch(isOpen, (opened) => {
       acquireBodyScrollLock()
       ownsBodyScrollLock = true
     }
+    void updateFocus(true)
     return
   }
 
@@ -147,11 +246,18 @@ watch(isOpen, (opened) => {
     releaseBodyScrollLock()
     ownsBodyScrollLock = false
   }
+  void updateFocus(false)
 }, { immediate: true })
+
+watch(() => props.busy, () => {
+  void nextTick(syncBusyControls)
+})
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   if (ownsBodyScrollLock) releaseBodyScrollLock()
+  busyControlStates.clear()
+  restoreFocusElement = null
 })
 </script>
 
@@ -164,33 +270,41 @@ onBeforeUnmount(() => {
         role="presentation"
       >
         <section
+          ref="modalRef"
           :class="modalClass"
           :style="modalStyle"
           role="dialog"
           aria-modal="true"
-          :aria-label="title"
+          :aria-label="title ? undefined : ariaLabel"
+          :aria-labelledby="labelledBy"
+          :aria-describedby="describedBy"
+          :aria-busy="busy || undefined"
+          tabindex="-1"
           @click.stop
         >
           <header v-if="!frameless && (title || description)" class="gc-modal__header">
             <div>
-              <h2 v-if="title">{{ title }}</h2>
-              <p v-if="description">{{ description }}</p>
+              <h2 v-if="title" :id="titleId">{{ title }}</h2>
+              <p v-if="description" :id="descriptionId">{{ description }}</p>
             </div>
             <div class="gc-modal__header-actions">
               <slot name="header-actions" />
-              <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
-                ×
+              <button class="gc-button gc-modal__close" type="button" :disabled="busy" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           </header>
 
-          <div class="gc-modal__body">
-            <slot />
-          </div>
+          <fieldset class="gc-modal__content" :disabled="busy" :aria-busy="busy || undefined">
+            <div class="gc-modal__body">
+              <p v-if="error" :id="errorId" class="gc-modal__error" role="alert">{{ error }}</p>
+              <slot />
+            </div>
 
-          <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
-            <slot name="actions" />
-          </footer>
+            <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
+              <slot name="actions" />
+            </footer>
+          </fieldset>
         </section>
       </div>
     </Transition>
@@ -228,6 +342,17 @@ onBeforeUnmount(() => {
   padding: var(--gc-space-4);
   border-color: var(--gc-color-surface-field);
   box-shadow: var(--gc-shadow-overlay);
+}
+
+.gc-modal__content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
 
 .gc-modal--sm { --gc-modal-width: 26.25rem; }
@@ -282,6 +407,16 @@ onBeforeUnmount(() => {
 .gc-modal__body {
   min-height: 0;
   overflow: auto;
+}
+
+.gc-modal__error {
+  margin: 0 0 var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
+  padding: var(--gc-space-3);
+  font-size: var(--gc-font-size-sm);
 }
 
 .gc-modal__actions {
@@ -353,6 +488,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.gc-modal--frameless .gc-modal__content {
+  display: block;
+}
+
 .gc-modal--frameless .gc-modal__body {
   overflow: auto;
 }
@@ -383,5 +522,10 @@ onBeforeUnmount(() => {
   .gc-modal-task-icon-leave-active .gc-modal {
     transition: none;
   }
+}
+
+.gc-modal:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus), var(--gc-shadow-overlay);
 }
 </style>

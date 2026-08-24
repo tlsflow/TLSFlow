@@ -25,6 +25,8 @@ const plugins = ref<PluginRecord[]>([])
 const keyword = ref('')
 const sourceFilter = ref<SourceFilter>('all')
 const validityFilter = ref<ValidityFilter>('all')
+const pluginPage = ref(1)
+const pluginPageSize = 12
 const selectedPlugin = ref<PluginRecord | null>(null)
 const detailOpen = ref(false)
 const changingPluginId = ref('')
@@ -78,6 +80,12 @@ const filteredPlugins = computed(() => {
   })
 })
 
+const pluginPageCount = computed(() => Math.max(1, Math.ceil(filteredPlugins.value.length / pluginPageSize)))
+const pagedPlugins = computed(() => {
+  const start = (pluginPage.value - 1) * pluginPageSize
+  return filteredPlugins.value.slice(start, start + pluginPageSize)
+})
+
 const builtinCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'builtin').length)
 const userCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'user').length)
 
@@ -87,6 +95,14 @@ onMounted(() => {
 
 watch(locale, () => {
   void loadPlugins()
+})
+
+watch([keyword, sourceFilter, validityFilter], () => {
+  pluginPage.value = 1
+})
+
+watch(pluginPageCount, (count) => {
+  if (pluginPage.value > count) pluginPage.value = count
 })
 
 async function loadPlugins(refreshBuiltins = false): Promise<void> {
@@ -234,8 +250,14 @@ function pluginInitial(plugin: PluginRecord): string {
 function resolvedLogoUrl(plugin: PluginRecord): string | undefined {
   const value = plugin.metadata.logoUrl?.trim()
   if (!value || failedLogos.value.has(plugin.id)) return undefined
-  if (/^https?:\/\//i.test(value) || value.startsWith('/')) return value
-  return `/${value.replace(/^\.\//, '')}`
+  if (typeof window === 'undefined') return undefined
+  try {
+    const url = new URL(value, window.location.origin)
+    if (url.origin !== window.location.origin) return undefined
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return undefined
+  }
 }
 
 function markLogoFailed(pluginId: string): void {
@@ -346,10 +368,15 @@ function pluginStatusClass(plugin: PluginRecord): string {
       </button>
     </section>
 
-    <p v-if="loadError" class="market-error">{{ loadError }}</p>
+    <div v-if="loadError" class="market-error">
+      <span>{{ loadError }}</span>
+      <button class="gc-button" type="button" :disabled="loading" @click="refreshPlugins">
+        {{ loading ? t('plugins.actions.refreshing') : t('businessPage.retry') }}
+      </button>
+    </div>
 
     <section v-if="filteredPlugins.length" class="plugin-grid" :aria-label="t('plugins.aria.list')">
-      <article v-for="plugin in filteredPlugins" :key="plugin.id" class="plugin-card">
+      <article v-for="plugin in pagedPlugins" :key="plugin.id" class="plugin-card">
         <header class="plugin-card__header">
           <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': resolvedLogoUrl(plugin) }">
             <img
@@ -432,10 +459,20 @@ function pluginStatusClass(plugin: PluginRecord): string {
     </section>
 
     <GcEmptyState
-      v-else-if="!loading"
+      v-else-if="!loading && !loadError"
       :title="t('plugins.empty.title')"
       :description="t('plugins.empty.description')"
     />
+
+    <nav v-if="filteredPlugins.length > pluginPageSize" class="plugin-pagination" :aria-label="t('businessPage.pagination', { page: pluginPage, pageSize: pluginPageSize })">
+      <button class="gc-button" type="button" :disabled="pluginPage <= 1" @click="pluginPage -= 1">
+        {{ t('tasks.actions.previousPage') }}
+      </button>
+      <span>{{ t('businessPage.pagination', { page: pluginPage, pageSize: pluginPageSize }) }}</span>
+      <button class="gc-button" type="button" :disabled="pluginPage >= pluginPageCount" @click="pluginPage += 1">
+        {{ t('tasks.actions.nextPage') }}
+      </button>
+    </nav>
 
     <GcModal
       v-model:open="detailOpen"
@@ -685,12 +722,25 @@ function pluginStatusClass(plugin: PluginRecord): string {
 }
 
 .market-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
   margin: 0;
   padding: var(--gc-space-3) var(--gc-space-4);
   border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
   border-radius: var(--gc-radius-md);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
+}
+
+.plugin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gc-space-3);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
 }
 
 .plugin-grid {
@@ -1074,13 +1124,13 @@ function pluginStatusClass(plugin: PluginRecord): string {
   font-size: var(--gc-font-size-sm);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .market-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .market-stats {
     grid-template-columns: 1fr;
   }
@@ -1088,6 +1138,12 @@ function pluginStatusClass(plugin: PluginRecord): string {
   .market-refresh {
     width: 100%;
     margin-left: 0;
+  }
+
+  .market-error,
+  .plugin-pagination {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .plugin-detail__identity {

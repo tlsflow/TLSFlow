@@ -5,14 +5,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { GcLocaleSelect, GcThemeToggle } from '@/design-system/components'
 import { normalizeInternalRedirectPath } from '@/router/redirect'
-import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { gcacVersion } from '@/version'
 
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
 const authStore = useAuthStore()
 const permissionStore = usePermissionStore()
 const { t } = useI18n()
@@ -22,11 +20,9 @@ const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
-const redirectPath = computed(() => {
-  return normalizeInternalRedirectPath(route.query.redirect, '/dashboard')
-})
+const redirectPath = computed(() => normalizeInternalRedirectPath(route.query.redirect, '/dashboard'))
 
-async function submit() {
+async function submit(): Promise<void> {
   if (loading.value) return
   error.value = ''
   loading.value = true
@@ -47,761 +43,370 @@ async function submit() {
 </script>
 
 <template>
-  <main class="login-page" :class="`login-page--${appStore.theme}`">
-    <div class="login-page__grid" aria-hidden="true"></div>
-    <div class="login-page__orb login-page__orb--a" aria-hidden="true"></div>
-    <div class="login-page__orb login-page__orb--b" aria-hidden="true"></div>
-    <div class="login-page__orb login-page__orb--c" aria-hidden="true"></div>
-
+  <main class="login-page">
     <header class="login-page__topbar">
       <div class="login-page__brand">
-        <span class="login-page__mark">G</span>
+        <span class="login-page__mark" aria-hidden="true">G</span>
         <span class="login-page__brand-text">
-          <span class="login-page__brand-primary">Glorinfo Certificate Admin Center</span>
-          <span class="login-page__brand-secondary">{{ t('login.brandSecondary') }}</span>
+          <strong>{{ t('app.brand') }}</strong>
+          <small>{{ t('login.brandSecondary') }}</small>
         </span>
       </div>
-
-      <div class="login-page__preferences">
+      <div class="login-page__preferences" :aria-label="t('preferences.languageSelect')">
         <GcThemeToggle />
         <GcLocaleSelect />
       </div>
     </header>
 
-    <section class="login-page__visual" :aria-label="t('login.visualLabel')">
-      <div class="login-page__headline">
-        <h1>{{ t('login.headlinePrefix') }}<span class="login-page__highlight">{{ t('login.headlineHighlight') }}</span>{{ t('login.headlineSuffix') }}</h1>
+    <div class="login-page__content">
+      <section class="login-page__intro" :aria-label="t('login.visualLabel')">
+        <span class="login-page__eyebrow">{{ t('shell.currentLocation') }}</span>
+        <h1>{{ t('login.headlinePrefix') }}<span>{{ t('login.headlineHighlight') }}</span>{{ t('login.headlineSuffix') }}</h1>
         <p>{{ t('login.intro') }}</p>
-      </div>
-
-      <div class="login-page__features" :aria-label="t('login.capabilitiesLabel')">
-        <article>
-          <div class="login-page__features-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg>
-          </div>
-          <strong>{{ t('login.featureLifecycle') }}</strong>
-          <p>{{ t('login.featureLifecycleDesc') }}</p>
-        </article>
-        <article>
-          <div class="login-page__features-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><path d="M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
-          </div>
-          <strong>{{ t('login.featureAutomation') }}</strong>
-          <p>{{ t('login.featureAutomationDesc') }}</p>
-        </article>
-        <article>
-          <div class="login-page__features-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-          </div>
-          <strong>{{ t('login.featureRollback') }}</strong>
-          <p>{{ t('login.featureRollbackDesc') }}</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="login-page__panel" :aria-label="t('login.formLabel')">
-      <form class="login-card" @submit.prevent="submit">
-        <div class="login-card__status" aria-hidden="true">
-          <span></span>
-          <span>{{ t('login.secure') }}</span>
+        <div class="login-page__features" :aria-label="t('login.capabilitiesLabel')">
+          <article>
+            <span class="login-page__feature-icon" aria-hidden="true">✓</span>
+            <span><strong>{{ t('login.featureLifecycle') }}</strong><small>{{ t('login.featureLifecycleDesc') }}</small></span>
+          </article>
+          <article>
+            <span class="login-page__feature-icon" aria-hidden="true">⌁</span>
+            <span><strong>{{ t('login.featureAutomation') }}</strong><small>{{ t('login.featureAutomationDesc') }}</small></span>
+          </article>
+          <article>
+            <span class="login-page__feature-icon" aria-hidden="true">◆</span>
+            <span><strong>{{ t('login.featureRollback') }}</strong><small>{{ t('login.featureRollbackDesc') }}</small></span>
+          </article>
         </div>
+      </section>
 
-        <header class="login-card__header">
-          <h2>{{ t('login.welcome') }}</h2>
-          <p>{{ t('login.hint') }}</p>
-        </header>
+      <section class="login-page__panel" :aria-label="t('login.formLabel')">
+        <form class="login-card" @submit.prevent="submit">
+          <div class="login-card__status"><span aria-hidden="true" />{{ t('login.secure') }}</div>
+          <header class="login-card__header">
+            <h2>{{ t('login.welcome') }}</h2>
+            <p>{{ t('login.hint') }}</p>
+          </header>
 
-        <label class="login-card__field">
-          <span>{{ t('login.username') }}</span>
-          <input v-model="username" autocomplete="username" required :placeholder="t('login.usernamePlaceholder')" />
-        </label>
-
-        <label class="login-card__field">
-          <span>{{ t('login.password') }}</span>
-          <input v-model="password" autocomplete="current-password" required type="password" :placeholder="t('login.passwordPlaceholder')" />
-        </label>
-
-        <p v-if="error" class="login-card__error" role="alert">{{ error }}</p>
-
-        <button class="login-card__submit" type="submit" :disabled="loading">
-          {{ loading ? t('login.submitting') : t('login.submit') }}
-        </button>
-
-        <footer class="login-card__footer">
-          <span>{{ t('login.policy') }}</span>
-          <span>{{ t('login.audit') }}</span>
-          <span>{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
-        </footer>
-      </form>
-    </section>
+          <label class="login-card__field">
+            <span>{{ t('login.username') }}</span>
+            <input v-model="username" autocomplete="username" required :placeholder="t('login.usernamePlaceholder')">
+          </label>
+          <label class="login-card__field">
+            <span>{{ t('login.password') }}</span>
+            <input v-model="password" autocomplete="current-password" required type="password" :placeholder="t('login.passwordPlaceholder')">
+          </label>
+          <p v-if="error" class="login-card__error" role="alert">{{ error }}</p>
+          <button class="login-card__submit" type="submit" :disabled="loading">
+            {{ loading ? t('login.submitting') : t('login.submit') }}
+          </button>
+          <footer class="login-card__footer">
+            <span>{{ t('login.policy') }}</span>
+            <span>{{ t('login.audit') }}</span>
+            <span>{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
+          </footer>
+        </form>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
-/* ===== 页面根布局：默认暗色科技风 ===== */
 .login-page {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(380px, .92fr);
   min-height: 100vh;
-  min-height: 100dvh;
-  overflow: hidden;
-  isolation: isolate;
-  background:
-    radial-gradient(ellipse 62% 54% at 22% 18%, var(--gc-color-legacy-rgb-14-116-144-a34p), transparent 62%),
-    linear-gradient(135deg, var(--gc-color-legacy-081427) 0%, var(--gc-color-legacy-0d2440) 46%, var(--gc-color-legacy-071427) 100%);
-  color: var(--gc-color-legacy-e7f5ff);
-
-  --login-headline-text: var(--gc-color-legacy-f0f8ff);
-  --login-visual-text: var(--gc-color-legacy-f0f8ff);
-  --login-visual-text-muted: var(--gc-color-text-inverse-muted);
-  --login-card-text: var(--gc-color-legacy-f0f8ff);
-  --login-card-text-muted: var(--gc-color-text-inverse-muted);
-  --login-control-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
-  --login-control-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
-  --login-control-border-strong: var(--gc-color-legacy-rgb-125-211-252-a34p);
-  --login-control-primary-soft: var(--gc-color-legacy-rgb-20-184-166-a12p);
-  --login-control-primary-weak: var(--gc-color-legacy-rgb-125-211-252-a16p);
-  --login-panel-bg: var(--gc-color-legacy-rgb-12-34-62-a70p);
-  --login-panel-border: var(--gc-color-legacy-rgb-125-211-252-a28p);
-  --login-input-label: var(--gc-color-legacy-67e8f9);
-  --login-input-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
-  --login-input-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
-  --login-input-focus-bg: var(--gc-color-legacy-rgb-12-34-62-a70p);
-  --login-input-focus-border: var(--gc-color-legacy-rgb-125-211-252-a34p);
-  --login-input-focus-ring: var(--gc-color-legacy-rgb-14-165-233-a15p);
-  --login-card-shadow-inset: var(--gc-color-surface-muted);
-  --login-card-outline-opacity: .54;
-  --login-card-shadow: 0 28px 80px var(--gc-color-legacy-rgb-2-6-23-a26p), 0 1px 0 var(--login-card-shadow-inset) inset;
-  --login-card-outline-a: var(--gc-color-legacy-rgb-125-211-252-a30p);
-  --login-card-outline-b: var(--gc-color-surface-soft);
-  --login-card-outline-c: var(--gc-color-legacy-rgb-20-184-166-a20p);
-  --login-control-text: var(--login-visual-text);
-  --login-control-label: var(--login-visual-text-muted);
-  --login-feature-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
-  --login-feature-bg-hover: var(--gc-color-legacy-rgb-12-34-62-a70p);
-  --login-feature-border: var(--gc-color-legacy-rgb-125-211-252-a16p);
-  --login-feature-border-hover: var(--gc-color-legacy-rgb-125-211-252-a34p);
-  --login-feature-title: var(--gc-color-legacy-f0f8ff);
-  --login-feature-text: var(--gc-color-text-soft);
-  --login-feature-icon-bg: var(--gc-color-legacy-rgb-20-184-166-a12p);
-  --login-feature-icon-border: var(--gc-color-legacy-rgb-45-212-191-a18p);
-  --login-feature-icon-color: var(--gc-color-legacy-67e8f9);
-  --login-feature-shadow: 0 18px 42px var(--gc-color-legacy-rgb-2-6-23-a18p), inset 0 1px 0 var(--gc-color-surface-muted);
-  --login-highlight-from: var(--gc-color-legacy-67e8f9);
-  --login-highlight-to: var(--gc-color-legacy-5eead4);
-  --login-mark-border: var(--gc-color-legacy-rgb-125-211-252-a28p);
-  --login-mark-color: var(--gc-color-legacy-ecfeff);
-  --login-mark-shadow: 0 14px 34px var(--gc-color-legacy-rgb-14-165-233-a30p);
-  --login-grid-line-a: var(--gc-color-legacy-rgb-125-211-252-a7p);
-  --login-grid-line-b: var(--gc-color-legacy-rgb-45-212-191-a6p);
-  --login-grid-opacity: .72;
-  --login-grid-blend: screen;
-  --login-glow-a: var(--gc-color-info-bg);
-  --login-glow-b: var(--gc-color-primary-weak);
-  --login-glow-c: var(--gc-color-legacy-rgb-20-184-166-a16p);
-  --login-beam: var(--gc-color-legacy-rgb-125-211-252-a10p);
-  --login-veil-top: var(--gc-color-surface-muted);
-  --login-veil-bottom: var(--gc-color-legacy-rgb-2-6-23-a18p);
-  --login-orb-a: var(--gc-color-legacy-rgb-14-165-233-a30p);
-  --login-orb-b: var(--gc-color-legacy-rgb-20-184-166-a20p);
-  --login-orb-c: var(--gc-color-legacy-rgb-125-211-252-a16p);
-  --login-status-border: var(--gc-color-legacy-rgb-20-184-166-a18p);
-}
-
-/* ===== 日间模式：浅色科技风 ===== */
-.login-page--light {
-  background:
-    radial-gradient(ellipse 70% 55% at 12% 8%, var(--gc-color-info-bg), transparent 58%),
-    radial-gradient(ellipse 50% 45% at 88% 12%, var(--gc-color-primary-weak), transparent 55%),
-    radial-gradient(ellipse 55% 50% at 70% 95%, var(--gc-color-success-soft), transparent 60%),
-    linear-gradient(155deg, var(--gc-color-surface-hover) 0%, var(--gc-color-bg) 40%, var(--gc-color-bg-strong) 100%);
+  padding: var(--gc-space-6) var(--gc-space-8) var(--gc-space-10);
   color: var(--gc-color-text);
-
-  --login-headline-text: var(--gc-color-text-strong);
-  --login-visual-text: var(--gc-color-text-strong);
-  --login-visual-text-muted: var(--gc-color-text-muted);
-  --login-card-text: var(--gc-color-text);
-  --login-card-text-muted: var(--gc-color-text-muted);
-  --login-control-bg: var(--gc-color-surface-overlay);
-  --login-control-border: var(--gc-color-border);
-  --login-control-border-strong: var(--gc-color-border-strong);
-  --login-control-primary-soft: var(--gc-color-primary-soft);
-  --login-control-primary-weak: var(--gc-color-primary-weak);
-  --login-panel-bg: var(--gc-color-surface-overlay);
-  --login-panel-border: var(--gc-color-border);
-  --login-input-label: var(--gc-color-text);
-  --login-input-bg: var(--gc-color-surface-field);
-  --login-input-border: var(--gc-color-border);
-  --login-input-focus-bg: var(--gc-color-surface-field-focus);
-  --login-input-focus-border: var(--gc-color-primary-border-strong);
-  --login-input-focus-ring: var(--gc-color-focus-ring);
-  --login-card-shadow-inset: var(--gc-color-surface-solid);
-  --login-card-outline-opacity: .55;
-  --login-card-shadow: var(--gc-shadow-lg), 0 1px 0 var(--login-card-shadow-inset) inset;
-  --login-card-outline-a: var(--gc-color-primary-border);
-  --login-card-outline-b: var(--gc-color-surface-soft);
-  --login-card-outline-c: var(--gc-color-info-border);
-  --login-control-text: var(--gc-color-text);
-  --login-control-label: var(--gc-color-text-muted);
-  --login-feature-bg: var(--gc-color-surface-glass);
-  --login-feature-bg-hover: var(--gc-color-surface-overlay);
-  --login-feature-border: var(--gc-color-border);
-  --login-feature-border-hover: var(--gc-color-primary-border-strong);
-  --login-feature-title: var(--gc-color-text-strong);
-  --login-feature-text: var(--gc-color-text-muted);
-  --login-feature-icon-bg: var(--gc-color-info-soft);
-  --login-feature-icon-border: var(--gc-color-info-border);
-  --login-feature-icon-color: var(--gc-color-info);
-  --login-feature-shadow: var(--gc-shadow-md), inset 0 1px 0 var(--gc-color-surface-solid);
-  --login-highlight-from: var(--gc-color-primary);
-  --login-highlight-to: var(--gc-color-info);
-  --login-mark-border: var(--gc-color-primary-border);
-  --login-mark-color: var(--gc-color-text-inverse);
-  --login-mark-shadow: var(--gc-shadow-primary);
-  --login-grid-line-a: var(--gc-color-primary-weak);
-  --login-grid-line-b: var(--gc-color-info-border);
-  --login-grid-opacity: .38;
-  --login-grid-blend: multiply;
-  --login-glow-a: var(--gc-color-info-soft);
-  --login-glow-b: var(--gc-color-primary-soft);
-  --login-glow-c: var(--gc-color-success-soft);
-  --login-beam: var(--gc-color-primary-weak);
-  --login-veil-top: var(--gc-color-surface-muted);
-  --login-veil-bottom: var(--gc-color-info-soft);
-  --login-orb-a: var(--gc-color-info-bg);
-  --login-orb-b: var(--gc-color-primary-weak);
-  --login-orb-c: var(--gc-color-success-bg);
-  --login-status-border: var(--gc-color-success-border);
-}
-
-/* ===== 全屏光晕层 ===== */
-.login-page::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse 48% 44% at 18% 20%, var(--login-glow-a), transparent 62%),
-    radial-gradient(ellipse 38% 34% at 78% 22%, var(--login-glow-b), transparent 60%),
-    radial-gradient(ellipse 54% 42% at 64% 86%, var(--login-glow-c), transparent 64%);
-  pointer-events: none;
-}
-
-.login-page::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  background:
-    linear-gradient(120deg, transparent 0 34%, var(--login-beam) 48%, transparent 62% 100%),
-    linear-gradient(180deg, var(--login-veil-top), transparent 45%, var(--login-veil-bottom));
-  pointer-events: none;
-}
-
-/* ===== 斜菱形网格 ===== */
-.login-page__grid {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background-image:
-    repeating-linear-gradient(45deg, var(--login-grid-line-a) 0 1px, transparent 1px 82px),
-    repeating-linear-gradient(-45deg, var(--login-grid-line-b) 0 1px, transparent 1px 82px);
-  background-size: 164px 164px;
-  mask-image: radial-gradient(ellipse 82% 70% at 50% 50%, var(--gc-color-legacy-rgb-0-0-0-a72p) 0%, var(--gc-color-legacy-rgb-0-0-0-a42p) 66%, transparent 100%);
-  opacity: var(--login-grid-opacity);
-  mix-blend-mode: var(--login-grid-blend);
-}
-
-/* ===== 浮动光球装饰 ===== */
-.login-page__orb {
-  position: fixed;
-  z-index: 1;
-  border-radius: 50%;
-  pointer-events: none;
-  filter: blur(60px);
-  opacity: .55;
-}
-
-.login-page__orb--a {
-  top: -8%;
-  left: -4%;
-  width: 420px;
-  height: 420px;
-  background: var(--login-orb-a);
-}
-
-.login-page__orb--b {
-  top: 12%;
-  right: -6%;
-  width: 360px;
-  height: 360px;
-  background: var(--login-orb-b);
-}
-
-.login-page__orb--c {
-  bottom: -10%;
-  left: 35%;
-  width: 480px;
-  height: 480px;
-  background: var(--login-orb-c);
-  opacity: .4;
-}
-
-/* ===== 内容层级 ===== */
-.login-page__visual,
-.login-page__panel {
-  position: relative;
-  z-index: 2;
+  background: var(--gc-color-bg);
 }
 
 .login-page__topbar {
-  position: absolute;
-  top: 34px;
-  left: clamp(20px, 3.6vw, 72px);
-  right: clamp(20px, 3.6vw, 72px);
-  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-}
-
-/* ===== 左侧品牌区域 ===== */
-.login-page__visual {
-  display: grid;
-  align-content: space-between;
-  gap: 44px;
-  padding: 188px 72px 64px;
-}
-
-.login-page__preferences {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-  --gc-color-text: var(--login-control-text);
-  --gc-color-text-muted: var(--login-control-label);
-  --gc-color-surface-soft: var(--login-control-bg);
-  --gc-color-border: var(--login-control-border);
-  --gc-color-border-strong: var(--login-control-border-strong);
-  --gc-color-primary-soft: var(--login-control-primary-soft);
-  --gc-color-primary-weak: var(--login-control-primary-weak);
+  gap: var(--gc-space-4);
+  max-width: 74rem;
+  margin: 0 auto;
 }
 
 .login-page__brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  width: fit-content;
-  color: var(--login-visual-text);
-}
-
-.login-page__brand-text {
-  display: grid;
-  gap: 2px;
-  line-height: 1.12;
-}
-
-.login-page__brand-primary {
-  color: var(--login-visual-text);
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.login-page__brand-secondary {
-  color: var(--login-visual-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  white-space: nowrap;
+  gap: var(--gc-space-3);
+  min-width: 0;
 }
 
 .login-page__mark {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--login-mark-border);
-  border-radius: var(--gc-radius-sm);
-  color: var(--login-mark-color);
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--gc-color-info), var(--gc-color-primary-strong));
-  box-shadow: var(--login-mark-shadow);
+  width: var(--gc-size-icon-button);
+  height: var(--gc-size-icon-button);
+  border-radius: var(--gc-radius-control);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-primary);
+  font-weight: 900;
 }
 
-/* ===== 标题区域 ===== */
-.login-page__headline {
+.login-page__brand-text {
   display: grid;
-  gap: 20px;
-  max-width: 680px;
+  min-width: 0;
+  gap: var(--gc-space-1);
 }
 
-.login-page__headline h1 {
-  margin: 0;
-  color: var(--login-headline-text);
-  font-size: 52px;
+.login-page__brand-text strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+}
+
+.login-page__brand-text small,
+.login-page__eyebrow {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-xs);
+}
+
+.login-page__preferences {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+}
+
+.login-page__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 27.5rem);
+  align-items: center;
+  gap: var(--gc-space-12);
+  max-width: 74rem;
+  min-height: calc(100vh - var(--gc-space-12));
+  margin: 0 auto;
+}
+
+.login-page__intro {
+  max-width: 42.5rem;
+}
+
+.login-page__eyebrow {
+  display: block;
+  margin-bottom: var(--gc-space-3);
   font-weight: 800;
-  line-height: 1.12;
   letter-spacing: 0;
+  text-transform: uppercase;
 }
 
-.login-page__highlight {
-  background: linear-gradient(135deg, var(--login-highlight-from), var(--login-highlight-to));
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.login-page__headline p {
+.login-page__intro h1 {
+  max-width: 41.25rem;
   margin: 0;
-  max-width: 590px;
-  color: var(--login-visual-text-muted);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.78;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-2xl);
+  line-height: var(--gc-line-height-tight);
 }
 
-/* ===== 特性卡片 ===== */
+.login-page__intro h1 span {
+  color: var(--gc-color-primary);
+}
+
+.login-page__intro > p {
+  max-width: 38.75rem;
+  margin: var(--gc-space-5) 0 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-md);
+  line-height: var(--gc-line-height-relaxed);
+}
+
 .login-page__features {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  max-width: 780px;
+  gap: var(--gc-space-3);
+  margin-top: var(--gc-space-8);
 }
 
 .login-page__features article {
-  position: relative;
-  padding: 22px 20px;
-  border: 1px solid var(--login-feature-border);
-  border-radius: var(--gc-radius-sm);
-  background: var(--login-feature-bg);
-  box-shadow: var(--login-feature-shadow);
-  backdrop-filter: blur(16px);
-  transition: border-color .35s ease, background .35s ease, transform .35s ease, box-shadow .35s ease;
+  display: flex;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
 }
 
-.login-page__features article:hover {
-  border-color: var(--login-feature-border-hover);
-  background: var(--login-feature-bg-hover);
-  box-shadow: var(--gc-shadow-hover);
-  transform: translateY(-2px);
-}
-
-.login-page__features-icon {
-  width: 36px;
-  height: 36px;
-  margin-bottom: 14px;
-  color: var(--login-feature-icon-color);
-  padding: 7px;
-  border: 1px solid var(--login-feature-icon-border);
-  border-radius: 8px;
-  background: var(--login-feature-icon-bg);
-}
-
-.login-page__features-icon svg {
-  width: 100%;
-  height: 100%;
+.login-page__features article > span:last-child {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
 }
 
 .login-page__features strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--login-feature-title);
-  font-size: 15px;
-  font-weight: 750;
-  line-height: 1.35;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
 }
 
-.login-page__features p {
-  margin: 0;
-  color: var(--login-feature-text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.65;
+.login-page__features small {
+  color: var(--gc-color-text-muted);
+  line-height: var(--gc-line-height-relaxed);
 }
 
-/* ===== 右侧登录面板 ===== */
+.login-page__feature-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--gc-size-icon-button);
+  height: var(--gc-size-icon-button);
+  border-radius: var(--gc-radius-control);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+  font-weight: 900;
+}
+
 .login-page__panel {
   display: grid;
   place-items: center;
-  padding: 120px 42px 42px;
 }
 
 .login-card {
-  position: relative;
   display: grid;
-  gap: 18px;
-  width: min(100%, 430px);
-  padding: 34px 32px;
-  border: 1px solid var(--login-panel-border);
-  border-radius: var(--gc-radius-md);
-  background: var(--login-panel-bg);
-  box-shadow: var(--login-card-shadow);
-  backdrop-filter: blur(24px) saturate(140%);
+  gap: var(--gc-space-4);
+  width: 100%;
+  padding: var(--gc-space-8);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-modal);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-lg);
 }
 
-.login-card::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: linear-gradient(160deg, var(--login-card-outline-a), var(--login-card-outline-b), var(--login-card-outline-c));
-  opacity: var(--login-card-outline-opacity);
-}
-
-/* ===== 状态指示 ===== */
 .login-card__status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  min-height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--login-status-border);
-  border-radius: 999px;
+  justify-self: start;
+  gap: var(--gc-space-2);
   color: var(--gc-color-success);
-  background: var(--gc-color-success-soft);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .04em;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
-.login-card__status span:first-child {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
+.login-card__status span {
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-success);
-  box-shadow: 0 0 0 0 var(--gc-color-legacy-rgb-20-184-166-a36p);
-  animation: login-pulse 2.2s ease-out infinite;
 }
 
-/* ===== 表单头部 ===== */
-.login-card__header h2 {
+.login-card__header h2,
+.login-card__header p {
   margin: 0;
-  color: var(--login-card-text);
-  font-size: 26px;
-  font-weight: 750;
-  line-height: 1.25;
+}
+
+.login-card__header h2 {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-xl);
 }
 
 .login-card__header p {
-  margin: 6px 0 0;
-  color: var(--login-card-text-muted);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
+  margin-top: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  line-height: var(--gc-line-height-relaxed);
 }
 
-/* ===== 表单字段 ===== */
 .login-card__field {
   display: grid;
-  gap: 6px;
-}
-
-.login-card__field span {
-  color: var(--login-input-label);
-  font-size: 13px;
-  font-weight: 750;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
 }
 
 .login-card__field input {
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--login-input-border);
-  border-radius: var(--gc-radius-sm);
-  background: var(--login-input-bg);
-  color: var(--login-card-text);
-  font-size: var(--gc-font-size-sm);
-  outline: none;
-  transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
-}
-
-.login-card__field input::placeholder {
-  color: var(--login-card-text-muted);
+  width: 100%;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  padding: 0 var(--gc-space-3);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-field);
 }
 
 .login-card__field input:focus {
-  border-color: var(--login-input-focus-border);
-  background: var(--login-input-focus-bg);
-  box-shadow: 0 0 0 3px var(--login-input-focus-ring);
+  border-color: var(--gc-color-focus);
+  outline: 0;
+  box-shadow: var(--gc-shadow-focus);
 }
 
-/* ===== 错误提示 ===== */
 .login-card__error {
   margin: 0;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--gc-color-danger-soft);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-3);
   color: var(--gc-color-danger);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.5;
+  background: var(--gc-color-danger-bg);
+  line-height: var(--gc-line-height-relaxed);
 }
 
-/* ===== 提交按钮 ===== */
 .login-card__submit {
-  min-height: 46px;
-  border: 0;
-  border-radius: var(--gc-radius-sm);
-  background: linear-gradient(135deg, var(--gc-color-info), var(--gc-color-primary-strong));
+  min-height: var(--gc-control-height-lg);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary);
+  border-radius: var(--gc-radius-control);
   color: var(--gc-color-text-inverse);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: .06em;
+  background: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-button-primary);
+  font-weight: 800;
   cursor: pointer;
-  transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
 }
 
-.login-card__submit:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--gc-shadow-primary);
-}
-
-.login-card__submit:active {
-  transform: translateY(0);
+.login-card__submit:hover:not(:disabled) {
+  background: var(--gc-color-primary-hover);
 }
 
 .login-card__submit:disabled {
+  opacity: var(--gc-opacity-disabled);
   cursor: wait;
-  opacity: .68;
 }
 
-/* ===== 底部信息 ===== */
 .login-card__footer {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
   flex-wrap: wrap;
-  padding-top: 2px;
-  color: var(--login-card-text-muted);
-  font-size: 12px;
-  font-weight: 600;
+  justify-content: space-between;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-xs);
 }
 
-/* ===== 响应式布局 ===== */
-@media (max-width: 1100px) {
+@media (max-width: 60rem) {
   .login-page {
+    padding-inline: var(--gc-space-4);
+  }
+
+  .login-page__content {
     grid-template-columns: 1fr;
+    gap: var(--gc-space-8);
+    min-height: auto;
+    padding: var(--gc-space-12) 0;
   }
 
+  .login-page__intro {
+    max-width: none;
+  }
+
+  .login-page__intro h1 {
+    font-size: var(--gc-font-size-xl);
+  }
+}
+
+@media (max-width: 42rem) {
   .login-page__topbar {
-    top: 24px;
-    left: 32px;
-    right: 32px;
+    align-items: flex-start;
   }
 
-  .login-page__visual {
-    gap: 32px;
-    padding: 132px 32px 16px;
-  }
-
-  .login-page__headline h1 {
-    font-size: 40px;
+  .login-page__brand-text small {
+    display: none;
   }
 
   .login-page__features {
     grid-template-columns: 1fr;
   }
 
-  .login-page__panel {
-    padding: 0 28px 40px;
-  }
-
-  .login-page__orb--a {
-    width: 280px;
-    height: 280px;
-  }
-
-  .login-page__orb--b {
-    width: 240px;
-    height: 240px;
-  }
-
-  .login-page__orb--c {
-    width: 320px;
-    height: 320px;
-  }
-}
-
-@media (max-width: 620px) {
-  .login-page__topbar {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    display: grid;
-    padding: 22px 18px 0;
-  }
-
-  .login-page__preferences {
-    justify-content: flex-start;
-  }
-
-  .login-page__visual {
-    padding: 44px 18px 12px;
-  }
-
-  .login-page__brand {
-    gap: 10px;
-  }
-
-  .login-page__brand-primary {
-    font-size: 13px;
-  }
-
-  .login-page__brand-secondary {
-    font-size: 11px;
-  }
-
-  .login-page__headline {
-    gap: 14px;
-  }
-
-  .login-page__headline h1 {
-    font-size: 30px;
-  }
-
-  .login-page__headline p {
-    font-size: 14px;
-    line-height: 1.7;
-  }
-
-  .login-page__panel {
-    padding: 0 16px 32px;
-  }
-
   .login-card {
-    padding: 28px 22px;
-  }
-
-  .login-card__footer {
-    display: grid;
-  }
-}
-
-@keyframes login-pulse {
-  0% { box-shadow: 0 0 0 0 var(--gc-color-legacy-rgb-20-184-166-a36p); }
-  70%, 100% { box-shadow: 0 0 0 6px var(--gc-color-legacy-rgb-20-184-166-a0p); }
-}
-
-/* ===== 减少动效偏好 ===== */
-@media (prefers-reduced-motion: reduce) {
-  .login-card__status span:first-child {
-    animation: none;
-  }
-
-  .login-page__features article {
-    transition: none;
-  }
-
-  .login-card__submit {
-    transition: none;
+    padding: var(--gc-space-6) var(--gc-space-4);
   }
 }
 </style>

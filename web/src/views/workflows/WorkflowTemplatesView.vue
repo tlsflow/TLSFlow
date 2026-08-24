@@ -67,6 +67,10 @@ const pluginSourceWorkflowName = ref('')
 const pluginSourceSuggestedName = ref('')
 const showNonDeploymentWorkflows = ref(false)
 
+function formatWorkflowTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || t('common.notAvailable')
+}
+
 const config: BusinessPageConfig = {
   title: t('workflows.templates.title'),
   description: t('workflows.templates.description'),
@@ -93,7 +97,13 @@ const config: BusinessPageConfig = {
     },
     { key: 'status', title: t('workflows.templates.fields.status'), candidates: ['status'] },
     { key: 'currentVersionLabel', title: t('workflows.templates.fields.currentVersion'), candidates: ['currentVersionLabel', 'currentVersion'] },
-    { key: 'updatedAt', title: t('workflows.templates.fields.updatedAt'), candidates: ['updatedAt', 'createdAt'], kind: 'date' },
+    {
+      key: 'updatedAt',
+      title: t('workflows.templates.fields.updatedAt'),
+      candidates: ['updatedAt', 'createdAt'],
+      kind: 'date',
+      format: (record) => formatWorkflowTime(readString(record, ['updatedAt', 'createdAt'], '')),
+    },
     { key: 'actions', title: t('workflows.templates.fields.actions'), candidates: [] },
   ],
   metrics: [],
@@ -728,12 +738,12 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
       :title="detailRow ? t('workflows.templates.detail.titleWithName', { name: readString(detailRow.raw, ['name'], detailRow.id) }) : t('workflows.templates.detail.title')"
       :description="t('workflows.templates.detail.description')"
       size="xl"
-      width="min(1280px, calc(100vw - 32px))"
+      width="min(var(--gc-size-modal-wide), calc(100vw - (var(--gc-space-4) * 2)))"
     >
       <section v-if="detailRow" class="workflow-template-detail">
         <section class="workflow-template-detail__hero">
           <div class="workflow-template-detail__hero-copy">
-            <p class="workflow-template-detail__eyebrow">Workflow</p>
+            <p class="workflow-template-detail__eyebrow">{{ t('nav.workflowTemplates') }}</p>
             <div class="workflow-template-detail__title-row">
               <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
               <button v-if="!detailNameEditing && !isPluginInternal(detailRow)" class="gc-button" type="button" @click="beginDetailNameEdit">
@@ -776,8 +786,8 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <div><dt>{{ t('workflows.templates.fields.name') }}</dt><dd>{{ readString(detailRow.raw, ['name']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.currentStatus') }}</dt><dd>{{ readString(detailRow.raw, ['status']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.currentVersionId') }}</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
-            <div><dt>{{ t('workflows.templates.fields.createdAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['createdAt'])) || readString(detailRow.raw, ['createdAt']) }}</dd></div>
-            <div><dt>{{ t('workflows.templates.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['updatedAt'])) || readString(detailRow.raw, ['updatedAt']) }}</dd></div>
+            <div><dt>{{ t('workflows.templates.fields.createdAt') }}</dt><dd>{{ formatWorkflowTime(readString(detailRow.raw, ['createdAt'])) }}</dd></div>
+            <div><dt>{{ t('workflows.templates.fields.updatedAt') }}</dt><dd>{{ formatWorkflowTime(readString(detailRow.raw, ['updatedAt'])) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ t(`workflows.templates.origins.${workflowOrigin(detailRow)}`) }}</dd></div>
           </dl>
         </section>
@@ -794,7 +804,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
               </div>
               <p>{{ readString(item, ['changeSummary'], t('workflows.templates.empty.noChangeSummary')) }}</p>
               <small v-if="readString(item, ['pluginSource.pluginVersionId'])">{{ t('workflows.templates.pluginSources.versionSource', { plugin: readString(item, ['pluginSource.pluginId']), version: readString(item, ['pluginSource.pluginVersionId']), capability: readString(item, ['pluginSource.capabilityKey']) }) }}</small>
-              <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
+              <small>{{ formatWorkflowTime(readString(item, ['createdAt'])) }}</small>
               <button
                 v-if="canRunVersionAction(item)"
                 class="gc-button"
@@ -820,7 +830,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
       :title="versionManagerRow ? t('workflows.templates.versionManager.titleWithName', { name: readString(versionManagerRow.raw, ['name'], versionManagerRow.id) }) : t('workflows.templates.actions.versionManagement')"
       :description="t('workflows.templates.versionManager.description')"
       size="xl"
-      width="min(980px, calc(100vw - 32px))"
+      width="min(calc(var(--gc-size-modal-default) + (var(--gc-space-10) * 8)), calc(100vw - (var(--gc-space-4) * 2)))"
     >
       <section v-if="versionManagerRow" class="workflow-version-manager">
         <header class="workflow-version-manager__head">
@@ -841,7 +851,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-version-manager__item">
             <div class="workflow-version-manager__version">
               <strong>{{ workflowVersionDisplayLabel(item, versionManagerRow) }}</strong>
-              <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
+              <small>{{ formatWorkflowTime(readString(item, ['createdAt'])) }}</small>
             </div>
             <div class="workflow-version-manager__summary">
               <label>
@@ -908,7 +918,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
       v-model:open="editorModalOpen"
       frameless
       :close-on-backdrop="false"
-      width="calc(100vw - 28px)"
+      width="calc(100vw - var(--gc-space-7))"
     >
       <section v-if="editorRow" class="workflow-template-editor-shell">
         <WorkflowCanvasEditor
@@ -932,7 +942,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
       :title="pluginSourceModalTitle"
       :description="t('workflows.templates.pluginSources.description')"
       size="xl"
-      width="min(1080px, calc(100vw - 32px))"
+      width="min(calc(var(--gc-size-modal-default) + (var(--gc-space-10) * 10)), calc(100vw - (var(--gc-space-4) * 2)))"
     >
       <section class="workflow-file-template-modal">
         <p v-if="pluginSourceMode === 'apply' && pluginSourceTargetRow" class="workflow-file-template-modal__target">
@@ -989,32 +999,30 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .workflow-template-detail__hero {
   display: flex;
   justify-content: space-between;
   align-items: stretch;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid var(--gc-color-info-border);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
-    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4) var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-subtle);
 }
 
 .workflow-template-detail__hero-copy {
   display: grid;
-  gap: 5px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .workflow-template-detail__eyebrow {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1023,14 +1031,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__hero-copy h2 {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 24px;
+  font-size: var(--gc-font-size-xl);
   line-height: 1.06;
   overflow-wrap: anywhere;
 }
 
 .workflow-template-detail__hero-copy span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
 }
 
@@ -1038,29 +1046,29 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   display: grid;
   align-content: space-between;
   justify-items: end;
-  gap: 8px;
-  min-width: 150px;
+  gap: var(--gc-space-2);
+  min-width: 9.375rem;
 }
 
 .workflow-template-detail__spotlight {
   display: grid;
-  gap: 4px;
-  min-width: 150px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: var(--gc-space-1);
+  min-width: 9.375rem;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-radius: var(--gc-radius-md);
   background: var(--gc-color-text);
   color: var(--gc-color-surface-solid);
 }
 
 .workflow-template-detail__spotlight small {
   color: var(--gc-color-text-inverse-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .workflow-template-detail__spotlight strong {
-  font-size: 16px;
+  font-size: var(--gc-font-size-md);
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
@@ -1068,22 +1076,22 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__tabs {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
   width: fit-content;
-  padding: 4px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 999px;
+  padding: var(--gc-space-1);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-hover);
 }
 
 .workflow-template-detail__tab {
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--gc-radius-full);
   background: transparent;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   cursor: pointer;
 }
@@ -1091,22 +1099,22 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__tab[data-active='true'] {
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-primary);
-  box-shadow: 0 4px 14px var(--gc-color-primary-weak);
+  box-shadow: var(--gc-shadow-primary);
 }
 
 .workflow-template-detail__section {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-modal);
+  background: var(--gc-color-surface-raised);
 }
 
 .workflow-template-detail__facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
@@ -1159,16 +1167,16 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__facts div,
 .workflow-template-detail__list-item {
   display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
-  border: 1px solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
 }
 
 .workflow-template-detail__facts dt {
   color: var(--gc-color-text-muted);
-  font-size: 10px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1177,14 +1185,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__facts dd {
   margin: 0;
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   font-weight: 800;
   overflow-wrap: anywhere;
 }
 
 .workflow-template-detail__list {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
   padding: 0;
   margin: 0;
   list-style: none;
@@ -1194,7 +1202,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--gc-space-2);
   flex-wrap: wrap;
 }
 
@@ -1205,7 +1213,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__error {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
@@ -1215,18 +1223,18 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-version-manager {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-version-manager__head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--gc-space-2);
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-hover);
 }
 
@@ -1234,35 +1242,35 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   display: grid;
   grid-template-columns: auto auto auto;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--gc-space-2);
   min-width: 0;
 }
 
 .workflow-version-manager__current span {
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   white-space: nowrap;
 }
 
 .workflow-version-manager__current strong {
   color: var(--gc-color-text);
-  font-size: 18px;
+  font-size: var(--gc-font-size-lg);
   line-height: 1;
   white-space: nowrap;
 }
 
 .workflow-version-manager__current small {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   white-space: nowrap;
 }
 
 .workflow-version-manager__list {
   display: grid;
-  gap: 8px;
-  max-height: min(58vh, 620px);
+  gap: var(--gc-space-2);
+  max-height: min(58vh, 38.75rem);
   padding: 0;
   margin: 0;
   overflow: auto;
@@ -1271,13 +1279,13 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-version-manager__item {
   display: grid;
-  grid-template-columns: 170px minmax(0, 1fr) minmax(170px, auto) 116px;
+  grid-template-columns: 10.625rem minmax(0, 1fr) minmax(10.625rem, auto) 7.25rem;
   align-items: center;
-  gap: 10px;
-  min-height: 58px;
-  padding: 9px 10px;
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  gap: var(--gc-space-2);
+  min-height: 3.625rem;
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-hover);
 }
 
@@ -1288,18 +1296,18 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-version-manager__version {
-  gap: 3px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-version-manager__version strong {
   color: var(--gc-color-text);
-  font-size: 18px;
+  font-size: var(--gc-font-size-lg);
   line-height: 1;
 }
 
 .workflow-version-manager__version small {
   color: var(--gc-color-text-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.35;
   white-space: nowrap;
 }
@@ -1307,36 +1315,36 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-version-manager__summary {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-version-manager__summary label {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .workflow-version-manager__summary label span {
   color: var(--gc-color-muted);
-  font-size: 11px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
 }
 
 .workflow-version-manager__summary .gc-input {
   width: 100%;
-  min-height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--gc-color-border-strong);
-  border-radius: 8px;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
   outline: none;
 }
 
 .workflow-version-manager__summary .gc-input:focus {
   border-color: var(--gc-color-focus);
-  box-shadow: 0 0 0 3px var(--gc-color-focus-ring);
+  box-shadow: var(--gc-shadow-focus);
 }
 
 .workflow-version-manager__badges {
@@ -1344,36 +1352,36 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   justify-content: end;
   justify-items: start;
   align-content: center;
-  gap: 6px;
+  gap: var(--gc-space-2);
 }
 
 .workflow-version-manager__action-cell {
   display: flex;
   justify-content: flex-end;
-  min-width: 116px;
+  min-width: 7.25rem;
 }
 
 .workflow-version-manager__action {
-  width: 116px;
+  min-width: 7.25rem;
 }
 
 .workflow-version-manager__current-badge {
   justify-content: center;
-  width: 116px;
+  min-width: 7.25rem;
 }
 
 .workflow-version-manager__note-save {
-  min-width: 88px;
-  min-height: 34px;
+  min-width: 5.5rem;
+  min-height: var(--gc-control-height-sm);
 }
 
 .workflow-version-manager__status {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 12px;
+  min-height: 1.5rem;
+  padding: var(--gc-space-hairline) var(--gc-space-2);
+  border-radius: var(--gc-radius-full);
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -1398,14 +1406,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-editor-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  width: calc(100vw - 28px);
-  height: calc(100vh - 28px);
-  padding: 12px;
+  width: calc(100vw - var(--gc-space-7));
+  height: calc(100vh - var(--gc-space-7));
+  padding: var(--gc-space-3);
   overflow: hidden;
-  border: 1px solid var(--gc-color-surface-field);
-  border-radius: 18px;
+  border: var(--gc-border-width-default) solid var(--gc-color-surface-field);
+  border-radius: var(--gc-radius-lg);
   background: var(--gc-color-surface-subtle);
-  box-shadow: 0 24px 80px var(--gc-color-border-strong);
+  box-shadow: var(--gc-shadow-overlay);
 }
 
 .workflow-template-editor-shell__editor {
@@ -1415,7 +1423,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-editor-shell__editor :deep(.workflow-canvas-editor) {
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr) minmax(150px, 22vh);
+  grid-template-rows: auto auto minmax(0, 1fr) minmax(9.375rem, 22vh);
 }
 
 .workflow-template-editor-shell__editor :deep(.workflow-canvas-editor__main) {
@@ -1423,19 +1431,19 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-template-editor-shell__editor :deep(.workflow-canvas-editor__surface) {
-  min-height: 760px;
+  min-height: 47.5rem;
 }
 
 .workflow-file-template-modal {
   display: grid;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .workflow-file-template-modal__target,
 .workflow-file-template-modal__loading,
 .workflow-file-template-modal__error {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .workflow-file-template-modal__target,
@@ -1444,12 +1452,12 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-file-template-modal__field {
-  width: min(420px, 100%);
+  width: min(26.25rem, 100%);
 }
 
 .workflow-file-template-modal__field > span strong {
   color: var(--gc-color-danger);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .workflow-file-template-modal__error {
@@ -1458,17 +1466,17 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-file-template-modal__list {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: min(56vh, 640px);
+  max-height: min(56vh, 40rem);
   overflow: auto;
 }
 
 .workflow-file-template-modal__item {
-  border: 1px solid var(--gc-color-border-muted);
-  border-radius: 8px;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-solid);
 }
 
@@ -1480,44 +1488,44 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-file-template-modal__choice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
   align-items: start;
 }
 
 .workflow-file-template-modal__choice input {
-  margin-top: 2px;
+  margin-top: var(--gc-space-hairline);
 }
 
 .workflow-file-template-modal__body {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .workflow-file-template-modal__head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--gc-space-3);
 }
 
 .workflow-file-template-modal__head strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: var(--gc-font-size-sm);
 }
 
 .workflow-file-template-modal__body small,
 .workflow-file-template-modal__body p {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.5;
 }
 
 .workflow-file-template-modal__pill {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
+  border-radius: var(--gc-radius-full);
+  padding: var(--gc-space-hairline) var(--gc-space-2);
+  font-size: var(--gc-font-size-xs);
   font-weight: 800;
   white-space: nowrap;
   background: var(--gc-color-muted-bg);
@@ -1534,7 +1542,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   color: var(--gc-color-danger);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .workflow-template-detail__hero {
     display: grid;
     grid-template-columns: 1fr;
@@ -1545,9 +1553,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   }
 
   .workflow-template-editor-shell {
-    width: calc(100vw - 16px);
-    height: calc(100vh - 16px);
-    padding: 8px;
+    width: calc(100vw - var(--gc-space-4));
+    height: calc(100vh - var(--gc-space-4));
+    padding: var(--gc-space-2);
     overflow: hidden;
   }
 

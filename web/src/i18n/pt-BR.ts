@@ -3056,6 +3056,46 @@ export default {
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
+      },
+      simple: {
+        title: 'Gerenciamento de certificados e aplicações',
+        subtitle: 'Gerencie certificados e veja quais aplicações os utilizam',
+        sections: {
+          certificates: {
+            title: 'Gerenciamento de certificados',
+            help: 'Consulte e gerencie todos os certificados, incluindo validade e status.'
+          },
+          applications: {
+            title: 'Aplicações vinculadas',
+            help: 'Veja onde os certificados são usados e com que frequência são atualizados.'
+          }
+        },
+        stats: {
+          total: 'Certificados',
+          expiring: 'Expirando em breve',
+          expired: 'Expirados'
+        },
+        versionCount: '{count} versões',
+        fields: {
+          expires: 'Expira em',
+          source: 'Origem'
+        },
+        empty: {
+          title: 'Ainda não há certificados',
+          description: 'Importe o primeiro certificado para começar a gerenciá-lo.'
+        },
+        applications: {
+          description: 'Veja quais aplicações usam o certificado selecionado e configure atualizações automáticas.',
+          selectPrompt: 'Selecione primeiro um certificado à esquerda',
+          selectedCertificate: 'Certificado selecionado',
+          connectedApps: 'Aplicações vinculadas ({count})',
+          noApps: 'Ainda não há aplicações vinculadas a este certificado.',
+          addApp: 'Adicionar aplicação',
+          automationTitle: 'Configuração de atualização automática',
+          activeAutomations: 'Atualizações automáticas ativas',
+          totalAutomations: 'Total de planos de atualização',
+          automationDescription: 'Os planos de atualização verificam regularmente o status dos certificados e implantam atualizações nas aplicações vinculadas quando necessário.'
+        }
       }
     },
     detail: {

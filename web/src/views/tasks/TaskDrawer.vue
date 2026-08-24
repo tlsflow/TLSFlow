@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { getAutomationRun, listAutomationRunTargets, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
 import { decideApproval } from '@/api/modules/audits.api'
-import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -871,13 +871,13 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
           <h2 id="global-task-popover-title">{{ t('tasks.title') }}</h2>
           <p>{{ t('tasks.description') }}</p>
         </div>
-        <button class="gc-icon-button task-popover__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="emit('close')">
+        <GcButton variant="icon" class="task-popover__close" :aria-label="t('designSystem.modal.closeAria')" @click="emit('close')">
           <span aria-hidden="true">×</span>
-        </button>
+        </GcButton>
       </header>
       <div class="task-popover__body">
         <div v-if="detail" class="task-drawer__detail">
-          <button class="gc-button" type="button" @click="closeDetail">{{ t('tasks.actions.backToList') }}</button>
+          <GcButton @click="closeDetail">{{ t('tasks.actions.backToList') }}</GcButton>
           <div class="task-drawer__detail-header">
             <div>
               <p class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
@@ -915,25 +915,26 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <h4>{{ t('tasks.typeLabels.AUTOMATION_RUN') }}</h4>
               <div class="task-drawer__automation-overview">
                 <p class="task-drawer__item-summary">{{ taskStatusSummary(detailTask) }}</p>
-                <span
+                <GcProgressBar
                   class="task-drawer__item-progress"
-                  :style="{ '--task-progress': `${taskProgressPercent(detailTask)}%` }"
+                  :value="taskProgressPercent(detailTask)"
+                  :tone="statusTone(detailTask.status)"
+                  :ariaLabel="taskStatusSummary(detailTask)"
                 >
-                  <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
                   <span class="task-drawer__item-progress-text">{{ taskProgressPercent(detailTask) }}%</span>
-                </span>
+                </GcProgressBar>
                 <div v-if="taskNeedsApproval(detailTask)" class="task-drawer__automation-actions">
-                  <button class="gc-button gc-button--sm gc-button--primary" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+                  <GcButton variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
                     {{ t('deploymentPlans.actions.approve') }}
-                  </button>
-                  <button class="gc-button gc-button--sm" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+                  </GcButton>
+                  <GcButton :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
                     {{ t('deploymentPlans.actions.reject') }}
-                  </button>
+                  </GcButton>
                   <span v-if="taskApprovalPending" class="task-drawer__item-meta">{{ t('deploymentPlans.approval.processing') }}</span>
                 </div>
                 <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
               </div>
-              <div v-if="automationTargets.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+              <GcEmptyState v-if="automationTargets.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
               <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record">
                 <div class="task-drawer__record-header">
                   <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName }}</strong>
@@ -943,8 +944,8 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 <span>{{ automationActionLabel(target.currentAction) }}</span>
                 <p v-if="target.errorMessage">{{ target.errorCode }} · {{ target.errorMessage }}</p>
                 <div class="task-drawer__record-actions">
-                  <button v-if="target.deploymentPlanId" class="gc-button gc-button--sm" type="button" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
-                  <button v-if="target.executionRunId" class="gc-button gc-button--sm" type="button" @click="router.push(`/executions?id=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
+                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
+                  <GcButton v-if="target.executionRunId" @click="router.push(`/executions?id=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
                 </div>
               </div>
             </section>
@@ -963,7 +964,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
             </section>
             <section class="task-drawer__section">
               <h4>{{ t('tasks.sections.children') }}</h4>
-              <div v-if="detail.childTasks.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+              <GcEmptyState v-if="detail.childTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
               <div v-for="child in detail.childTasks" :key="child.id" class="task-drawer__record">
                 <strong>{{ child.taskType }}</strong><span>{{ child.id }}</span><GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="statusTone(child.status)" />
               </div>
@@ -1000,9 +1001,9 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                   <h3>{{ t('tasks.quick.active') }}</h3>
                   <span class="task-drawer__group-count">{{ quickActiveTasks.length }}</span>
                 </header>
-                <div v-if="quickActiveTasks.length === 0" class="task-drawer__empty task-drawer__empty--section">{{ t('tasks.values.empty') }}</div>
+                <GcEmptyState v-if="quickActiveTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <button v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
+                  <GcButton v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item" @click="openTask(task)">
                     <span class="task-drawer__item-main">
                       <span class="task-drawer__item-header">
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
@@ -1011,18 +1012,19 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                       <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                       <span class="task-drawer__item-meta-row">
                         <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                        <span
+                        <GcProgressBar
                           v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
-                          :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                          :value="taskProgressPercent(task)"
+                          :tone="statusTone(task.status)"
+                          :ariaLabel="taskStatusSummary(task)"
                         >
-                          <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
                           <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                        </span>
+                        </GcProgressBar>
                       </span>
                     </span>
                     <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-                  </button>
+                  </GcButton>
                 </div>
               </section>
               <section class="task-drawer__group">
@@ -1030,9 +1032,9 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                   <h3>{{ t('tasks.quick.recent') }}</h3>
                   <span class="task-drawer__group-count">{{ quickRecentCompleted.length }}</span>
                 </header>
-                <div v-if="quickRecentCompleted.length === 0" class="task-drawer__empty task-drawer__empty--section">{{ t('tasks.values.empty') }}</div>
+                <GcEmptyState v-if="quickRecentCompleted.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <button v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
+                  <GcButton v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item" @click="openTask(task)">
                     <span class="task-drawer__item-main">
                       <span class="task-drawer__item-header">
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
@@ -1041,26 +1043,27 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                       <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                       <span class="task-drawer__item-meta-row">
                         <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                        <span
+                        <GcProgressBar
                           v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
-                          :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                          :value="taskProgressPercent(task)"
+                          :tone="statusTone(task.status)"
+                          :ariaLabel="taskStatusSummary(task)"
                         >
-                          <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
                           <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                        </span>
+                        </GcProgressBar>
                       </span>
                     </span>
                     <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-                  </button>
+                  </GcButton>
                 </div>
               </section>
               <div v-if="loading && hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
             </div>
           </div>
-          <button class="gc-button gc-button--primary task-drawer__view-all" type="button" @click="openAllTasks">
+          <GcButton variant="primary" class="task-drawer__view-all" @click="openAllTasks">
             {{ t('tasks.actions.viewAll') }}
-          </button>
+          </GcButton>
         </div>
       </div>
     </div>
@@ -1068,7 +1071,6 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   <GcModal
     v-model:open="allTasksModalOpen"
     size="xl"
-    max-height="60vh"
     :title="t('tasks.actions.viewAll')"
     :description="t('tasks.description')"
   >
@@ -1085,9 +1087,9 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
       <p v-if="allTasksError" class="gc-form-error">{{ allTasksError }}</p>
       <div ref="allTasksScroll" class="task-drawer__all-scroll" @scroll="handleAllTasksScroll">
         <div v-if="allTasksLoading && allTasks.length === 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
-        <div v-else-if="allTasks.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+        <GcEmptyState v-else-if="allTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
         <div v-else class="task-drawer__items">
-          <button v-for="task in allTasks" :key="task.id" class="task-drawer__item" type="button" @click="openTask(task)">
+          <GcButton v-for="task in allTasks" :key="task.id" class="task-drawer__item" @click="openTask(task)">
             <span class="task-drawer__item-main">
               <span class="task-drawer__item-header">
                 <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
@@ -1096,18 +1098,19 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
               <span class="task-drawer__item-meta-row">
                 <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                <span
+                <GcProgressBar
                   v-if="shouldRenderTaskProgress(task)"
                   class="task-drawer__item-progress"
-                  :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                  :value="taskProgressPercent(task)"
+                  :tone="statusTone(task.status)"
+                  :ariaLabel="taskStatusSummary(task)"
                 >
-                  <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
                   <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                </span>
+                </GcProgressBar>
               </span>
             </span>
             <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-          </button>
+          </GcButton>
         </div>
         <div v-if="allTasksLoading && allTasks.length > 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
       </div>
@@ -1116,7 +1119,6 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   <GcModal
     v-model:open="approvalModalOpen"
     size="lg"
-    max-height="75vh"
     :title="t('deploymentPlans.approval.title')"
     :description="t('deploymentPlans.approval.description')"
   >
@@ -1152,7 +1154,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
         </div>
         <section class="task-drawer__section">
           <h4>{{ t('automations.editor.sections.targets') }}</h4>
-          <div v-if="automationTargets.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+          <GcEmptyState v-if="automationTargets.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
           <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record task-drawer__approval-target">
             <div class="task-drawer__record-header">
               <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName || t('common.notAvailable') }}</strong>
@@ -1166,12 +1168,12 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
         <footer class="task-drawer__approval-actions">
           <span>{{ t('deploymentPlans.approval.decisionHint') }}</span>
           <div>
-            <button class="gc-button gc-button--primary" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+            <GcButton variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
               {{ t('deploymentPlans.actions.approve') }}
-            </button>
-            <button class="gc-button" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+            </GcButton>
+            <GcButton :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
               {{ t('deploymentPlans.actions.reject') }}
-            </button>
+            </GcButton>
           </div>
         </footer>
       </template>
@@ -1187,8 +1189,8 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   z-index: 35;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(48rem, calc(100vw - var(--gc-space-8)));
-  max-height: min(44rem, calc(100vh - var(--gc-space-8)));
+  width: min(var(--gc-size-drawer-default), calc(100vw - var(--gc-space-8)));
+  max-height: calc(100vh - var(--gc-space-8));
   overflow: visible;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
@@ -1467,7 +1469,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 .task-drawer__switch-track span {
   width: calc(var(--gc-space-4) + (var(--gc-space-1) / 2));
   height: calc(var(--gc-space-4) + (var(--gc-space-1) / 2));
-  border-radius: 50%;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-sm);
   transform: translateX(0);
@@ -1503,7 +1505,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 }
 
 .task-drawer__scroll {
-  min-height: 16rem;
+  min-height: calc(var(--gc-space-8) * 8);
 }
 
 .task-drawer__all-list {
@@ -1516,8 +1518,8 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 }
 
 .task-drawer__all-scroll {
-  max-height: calc(60vh - var(--gc-space-10));
-  min-height: 16rem;
+  max-height: calc(100vh - (var(--gc-space-10) * 3));
+  min-height: calc(var(--gc-space-8) * 8);
 }
 
 .task-drawer__view-all {
@@ -1535,8 +1537,18 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   border-radius: var(--gc-radius-sm);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-field);
+  font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.task-drawer__item :deep(.gc-button__content) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  width: 100%;
+  min-width: 0;
 }
 
 .task-drawer__item:hover {
@@ -1545,6 +1557,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 }
 
 .task-drawer__item-main {
+  flex: 1 1 auto;
   display: grid;
   gap: var(--gc-space-2);
   min-width: 0;
@@ -1602,39 +1615,20 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 }
 
 .task-drawer__item-progress {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--gc-space-2);
-  min-width: 8.5rem;
+  flex: 0 1 auto;
+  min-width: calc((var(--gc-space-10) * 3) + var(--gc-space-2));
+}
+
+.task-drawer__item-progress :deep(.gc-progress__caption) {
+  display: flex;
+  justify-content: flex-end;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
-  font-weight: 750;
-}
-
-.task-drawer__item-progress-track {
-  position: relative;
-  flex: 1 1 auto;
-  height: var(--gc-space-2);
-  min-width: 5rem;
-  overflow: hidden;
-  border-radius: var(--gc-radius-pill);
-  background: var(--gc-color-surface-muted);
-  box-shadow: inset 0 0 0 var(--gc-border-width-default) var(--gc-color-border-subtle);
-}
-
-.task-drawer__item-progress-track span {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  width: var(--task-progress, 0%);
-  border-radius: inherit;
-  background: var(--gc-color-primary);
-  transition: width 180ms ease;
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .task-drawer__item-progress-text {
-  flex: 0 0 2.25rem;
+  min-width: var(--gc-space-9);
   text-align: right;
 }
 
@@ -1766,7 +1760,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 @media (max-width: 35rem) {
   .task-popover {
     right: calc(var(--gc-space-4) * -1);
-    width: min(48rem, calc(100vw - var(--gc-space-4)));
+    width: min(var(--gc-size-drawer-default), calc(100vw - var(--gc-space-4)));
   }
 
   .task-drawer__facts {

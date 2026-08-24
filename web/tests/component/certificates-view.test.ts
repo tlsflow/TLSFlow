@@ -51,6 +51,8 @@ describe('CertificatesView', () => {
       expect(document.querySelector(filterToggleSelector)).not.toBeNull()
     })
 
+    expect(wrapper.find('.certificate-page__header').exists()).toBe(true)
+    expect(wrapper.findAll('.certificate-page__metric')).toHaveLength(3)
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
 
     document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()

@@ -14,6 +14,7 @@ import {
   GcDataTable,
   GcEmptyState,
   GcModal,
+  GcPageHeader,
   GcPageToolbar,
   GcPermissionButton,
 } from '@/design-system/components'
@@ -108,9 +109,9 @@ const PLATFORM_PRESETS: Record<Exclude<SystemPlatform, ''>, TemplatePreset> = {
   },
 }
 
-const SYSTEM_PLATFORM_OPTIONS: Array<{ value: Exclude<SystemPlatform, ''>; label: string }> = [
-  { value: 'windows', label: 'Windows' },
-  { value: 'linux', label: 'Linux' },
+const SYSTEM_PLATFORM_OPTIONS: Array<{ value: Exclude<SystemPlatform, ''>; labelKey: string }> = [
+  { value: 'windows', labelKey: 'assets.platforms.windows' },
+  { value: 'linux', labelKey: 'assets.platforms.linux' },
 ]
 
 const FORMAT_OPTION_DEFINITIONS: Array<{ value: PresetFormat; labelKey: string }> = [
@@ -526,9 +527,9 @@ function renderExportSummary(item: ApiRecord, parameters: Record<string, unknown
 function renderSystemPlatform(value: string) {
   switch (value) {
     case 'windows':
-      return 'Windows'
+      return t('assets.platforms.windows')
     case 'linux':
-      return 'Linux'
+      return t('assets.platforms.linux')
     default:
       return ''
   }
@@ -616,6 +617,11 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
 <template>
   <section class="gc-page artifact-page">
+    <GcPageHeader
+      :title="t('bindings.list.title')"
+      :description="t('bindings.list.descriptionWithCount', { count: rows.length })"
+    />
+
     <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
       <GcPageToolbar class="artifact-page__hero-actions">
         <template #actions>
@@ -707,7 +713,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
               <span>{{ t('bindings.fields.systemPlatform') }}</span>
               <select v-model="draft.systemPlatform" @change="handleSystemPlatformChange">
                 <option value="">{{ t('bindings.select.placeholder') }}</option>
-                <option v-for="item in SYSTEM_PLATFORM_OPTIONS" :key="item.value" :value="item.value">{{ item.label }}</option>
+                <option v-for="item in SYSTEM_PLATFORM_OPTIONS" :key="item.value" :value="item.value">{{ t(item.labelKey) }}</option>
               </select>
             </label>
             <label class="artifact-form__field">
@@ -766,7 +772,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
             </label>
             <label class="artifact-form__field">
               <span>{{ t('bindings.fields.expiresAt') }}</span>
-              <input v-model="draft.expiresAt" placeholder="2026-12-31T23:59:59Z" />
+              <input v-model="draft.expiresAt" />
             </label>
           </div>
         </section>
@@ -863,27 +869,30 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-page {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--gc-space-5);
   flex: 1;
   min-height: 0;
 }
 
 .artifact-page__filters {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 280px);
-  gap: 8px;
-  align-items: center;
-  padding: 0;
-  border-radius: 16px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(var(--gc-size-card-min), var(--gc-size-sidebar));
+  gap: var(--gc-space-3);
+  align-items: end;
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .artifact-page__filter {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gc-space-2);
   min-width: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   font-weight: 600;
 }
 
@@ -895,11 +904,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-page__filter input,
 .artifact-page__filter select {
   flex: 1;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 12px;
-  min-height: 32px;
-  padding: 6px 10px;
-  background: var(--gc-color-surface-glass);
+  min-width: 0;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
+  color: var(--gc-color-text);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-field);
 }
 
 .artifact-page__table :deep(table) {
@@ -910,64 +921,63 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-page__table-heading {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--gc-space-4);
   align-items: flex-start;
 }
 
 .artifact-page__table-heading {
   display: grid;
-  color: var(--gc-color-text-muted);
+  gap: var(--gc-space-1);
 }
 
 .artifact-page__table-heading strong {
-  color: var(--gc-color-text);
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-md);
 }
 
 .artifact-page__cell-stack {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
   min-width: 0;
 }
 
 .artifact-page__cell-stack span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .artifact-page__actions-cell {
   display: flex;
-  gap: 8px;
+  gap: var(--gc-space-2);
   flex-wrap: wrap;
 }
 
 .artifact-form {
   display: grid;
-  gap: 14px;
+  gap: var(--gc-space-4);
 }
 
 .artifact-form__section {
   display: grid;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid var(--gc-color-border-soft);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-hover)),
-    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 40%);
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-gradient-surface);
 }
 
 .artifact-form__section--template {
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-selected), var(--gc-color-surface-overlay)),
-    radial-gradient(circle at top left, var(--gc-color-primary-soft), transparent 45%);
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-gradient-surface-soft);
 }
 
 .artifact-form__section-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--gc-space-3);
   align-items: flex-start;
 }
 
@@ -977,27 +987,27 @@ function toErrorMessage(cause: unknown, fallback: string) {
 }
 
 .artifact-form__section-header h3 {
-  color: var(--gc-color-text);
-  font-size: 16px;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-md);
   font-weight: 800;
 }
 
 .artifact-form__section-header p {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
 }
 
 .artifact-form__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--gc-space-4);
 }
 
 .artifact-form__field,
 .artifact-form__check {
   display: grid;
-  gap: 8px;
+  gap: var(--gc-space-2);
 }
 
 .artifact-form__field {
@@ -1009,60 +1019,93 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-form__field input,
 .artifact-form__field select {
   width: 100%;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: var(--gc-color-surface-solid);
-  box-shadow: inset 0 1px 2px var(--gc-color-border-subtle);
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-3);
+  color: var(--gc-color-text);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-field);
+  box-shadow: var(--gc-shadow-sm);
+}
+
+.artifact-form__field input:focus,
+.artifact-form__field select:focus,
+.artifact-page__filter input:focus,
+.artifact-page__filter select:focus {
+  border-color: var(--gc-color-focus);
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
 }
 
 .artifact-form__check {
   grid-template-columns: auto 1fr;
   align-items: center;
-  min-height: 48px;
-  padding: 0 2px;
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-1);
   color: var(--gc-color-text);
   font-weight: 700;
 }
 
 .artifact-form__template-actions {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
 }
 
 .artifact-form__template-message {
   margin: 0;
   color: var(--gc-color-text-muted);
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
 }
 
 .artifact-form__error,
 .artifact-form__request {
   margin: 0;
   font-weight: 800;
+  border-radius: var(--gc-radius-control);
+  padding: var(--gc-space-3);
 }
 
 .artifact-form__error {
   color: var(--gc-color-danger);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  background: var(--gc-color-danger-bg);
 }
 
 .artifact-form__request {
   color: var(--gc-color-text-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  background: var(--gc-color-info-soft);
 }
 
 .artifact-export {
   display: grid;
-  gap: 14px;
+  gap: var(--gc-space-4);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56rem) {
   .artifact-page__filters {
     grid-template-columns: 1fr;
   }
 
   .artifact-form__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .artifact-page__filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .artifact-page__filter input,
+  .artifact-page__filter select {
+    width: 100%;
+  }
+
+  .artifact-form__section {
+    padding: var(--gc-space-4);
   }
 }
 </style>

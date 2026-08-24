@@ -282,6 +282,26 @@ describe('资产与证书产物视图', () => {
     document.body.innerHTML = ''
   })
 
+  it('应用页使用统一页面头、指标、状态标签和三步执行进度', async () => {
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    expect(wrapper.find('.asset-page__header').exists()).toBe(true)
+    expect(wrapper.findAll('.asset-page__metric')).toHaveLength(2)
+    expect(wrapper.find('.business-page').exists()).toBe(true)
+    expect(wrapper.find('.business-page .gc-tag').exists()).toBe(true)
+
+    const addButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
+    expect(addButton).toBeTruthy()
+    await addButton!.trigger('click')
+    await flushPromises()
+
+    const progress = wrapper.find('[role="progressbar"]')
+    expect(progress.exists()).toBe(true)
+    expect(progress.attributes('aria-valuenow')).toBe('1')
+    expect(progress.attributes('aria-valuemax')).toBe('3')
+  })
+
   it('应用资产平台使用固定标识选项且不依赖设备记录', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
@@ -327,6 +347,8 @@ describe('资产与证书产物视图', () => {
 
     expect(assetMocks.listAssets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('www.example.com')
+    expect(wrapper.find('.asset-page__header').exists()).toBe(true)
+    expect(wrapper.findAll('.asset-page__metric')).toHaveLength(2)
   })
 
   it('应用资产支持确认后手动删除并刷新列表', async () => {
@@ -401,7 +423,7 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
     await flushPromises()
-    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    const addressInput = wrapper.get('[data-testid="asset-address-input"]')
     await setInputElementValue(addressInput.element as HTMLInputElement, 'pfx.example.com')
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
     await flushPromises()
@@ -437,7 +459,7 @@ describe('资产与证书产物视图', () => {
       sort: 'displayName:asc',
     })
 
-    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    const addressInput = wrapper.get('[data-testid="asset-address-input"]')
     await setInputElementValue(addressInput.element as HTMLInputElement, 'app.example.com')
 
     const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
@@ -520,7 +542,7 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
     await flushPromises()
-    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    const addressInput = wrapper.get('[data-testid="asset-address-input"]')
     await setInputElementValue(addressInput.element as HTMLInputElement, 'iis.example.com')
     const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
     await nextButton.trigger('click')
@@ -807,7 +829,7 @@ describe('资产与证书产物视图', () => {
     await workflowModeButton!.trigger('click')
     await flushPromises()
 
-    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')
+    const addressInput = wrapper.find('[data-testid="asset-address-input"]')
     expect(addressInput).toBeTruthy()
     await setInputElementValue(addressInput!.element as HTMLInputElement, 'app.example.com')
 
@@ -918,7 +940,7 @@ describe('资产与证书产物视图', () => {
     await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
     await flushPromises()
     await setInputElementValue(
-      wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!.element as HTMLInputElement,
+      wrapper.get('[data-testid="asset-address-input"]').element as HTMLInputElement,
       'test03.jacksonz.cn',
     )
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')

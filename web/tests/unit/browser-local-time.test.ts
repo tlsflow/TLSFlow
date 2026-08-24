@@ -12,6 +12,19 @@ describe('浏览器本地时间格式化', () => {
     expect(formatted).not.toContain('Z')
   })
 
+  it('候选日期字段的无效 ISO、UTC、GMT 文本不会回显原值', () => {
+    const candidates = ['updatedAt']
+    const invalidValues = [
+      '2026-13-40T25:61:61Z',
+      'invalid UTC timestamp',
+      'invalid GMT timestamp',
+    ]
+
+    for (const value of invalidValues) {
+      expect(formatMaybeLocalTimeByCandidates(value, candidates)).toBe('')
+    }
+  })
+
   it('计算证书剩余和过期天数并向上取整', () => {
     const now = new Date('2026-07-27T12:00:00+08:00')
 

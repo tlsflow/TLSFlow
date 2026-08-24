@@ -5,6 +5,7 @@ import { listAssets } from '@/api/modules/assets.api'
 import type { AutomationConfiguration, AutomationRecord } from '@/api/modules/automations.api'
 import { listCertificates } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
+import { GcButton, GcProgressBar, GcSelectionCard } from '@/design-system/components'
 
 const props = defineProps<{ automation?: AutomationRecord | null }>()
 const emit = defineEmits<{ save: [payload: AutomationConfiguration & { name: string; description?: string }]; cancel: [] }>()
@@ -84,7 +85,6 @@ const filteredApplicationAssetOptions = computed(() => {
   if (matchedAssetIds.size === 0) return applicationAssetOptions.value
   return applicationAssetOptions.value.filter((option) => matchedAssetIds.has(option.value))
 })
-const stepProgressWidth = computed(() => `${(currentStep.value / 3) * 100}%`)
 const triggerReady = computed(() => form.triggerType === 'on_demand')
 const executionReady = computed(() => {
   if (form.targetScopeMode === 'selected_assets' && form.selectedAssetIds.length === 0) return false
@@ -96,6 +96,10 @@ const valid = computed(() => {
   if (!triggerReady.value || !executionReady.value) return false
   return true
 })
+
+function selectTargetScope(mode: TargetScopeMode): void {
+  form.targetScopeMode = mode
+}
 
 watch(() => props.automation, (automation) => {
   if (!automation) {
@@ -409,7 +413,12 @@ function submit() {
         <h3>{{ currentStepTitle }}</h3>
       </div>
       <div class="automation-editor__progress">
-        <div class="automation-editor__progress-bar" aria-hidden="true"><span :style="{ width: stepProgressWidth }"></span></div>
+        <GcProgressBar
+          class="automation-editor__progress-bar"
+          :value="currentStep"
+          :max="3"
+          :ariaLabel="t('automations.formStep.stepProgress', { current: currentStep, total: 3 })"
+        />
         <ol class="automation-editor__steps" :aria-label="t('automations.formStep.stepProgress', { current: currentStep, total: 3 })">
           <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }">
             <button type="button" @click="goToStep(1)">
@@ -482,27 +491,23 @@ function submit() {
 
       <div class="automation-editor__field">
         <span>{{ t('automations.fields.targetScope') }}</span>
-        <div class="automation-editor__scope-grid" role="radiogroup" :aria-label="t('automations.fields.targetScope')">
-          <button
-            type="button"
+        <div class="automation-editor__scope-grid" role="group" :aria-label="t('automations.fields.targetScope')">
+          <GcSelectionCard
             class="automation-editor__scope-card"
-            :class="{ 'is-active': form.targetScopeMode === 'all_related_assets' }"
             data-testid="automation-scope-all-related"
-            @click="form.targetScopeMode = 'all_related_assets'"
-          >
-            <strong>{{ t('automations.targetScopes.allRelatedAssets') }}</strong>
-            <span>{{ t('automations.targetScopes.allRelatedAssetsHelp') }}</span>
-          </button>
-          <button
-            type="button"
+            :title="t('automations.targetScopes.allRelatedAssets')"
+            :description="t('automations.targetScopes.allRelatedAssetsHelp')"
+            :model-value="form.targetScopeMode === 'all_related_assets'"
+            @select="selectTargetScope('all_related_assets')"
+          />
+          <GcSelectionCard
             class="automation-editor__scope-card"
-            :class="{ 'is-active': form.targetScopeMode === 'selected_assets' }"
             data-testid="automation-scope-selected-assets"
-            @click="form.targetScopeMode = 'selected_assets'"
-          >
-            <strong>{{ t('automations.targetScopes.selectedAssets') }}</strong>
-            <span>{{ t('automations.targetScopes.selectedAssetsHelp') }}</span>
-          </button>
+            :title="t('automations.targetScopes.selectedAssets')"
+            :description="t('automations.targetScopes.selectedAssetsHelp')"
+            :model-value="form.targetScopeMode === 'selected_assets'"
+            @select="selectTargetScope('selected_assets')"
+          />
         </div>
       </div>
 
@@ -537,33 +542,28 @@ function submit() {
           </section>
 
           <div class="automation-editor__transfer-actions">
-            <button
-              class="gc-button gc-button--primary"
-              type="button"
+            <GcButton
+              variant="primary"
               data-testid="automation-transfer-add"
               :disabled="availableAssetSelection.length === 0"
               @click="moveAssetsToSelected"
             >
               {{ t('automations.assetPicker.add') }}
-            </button>
-            <button
-              class="gc-button"
-              type="button"
+            </GcButton>
+            <GcButton
               data-testid="automation-transfer-remove"
               :disabled="selectedAssetSelection.length === 0"
               @click="removeAssetsFromSelected"
             >
               {{ t('automations.assetPicker.remove') }}
-            </button>
-            <button
-              class="gc-button"
-              type="button"
+            </GcButton>
+            <GcButton
               data-testid="automation-transfer-clear"
               :disabled="form.selectedAssetIds.length === 0"
               @click="clearSelectedAssets"
             >
               {{ t('automations.assetPicker.clear') }}
-            </button>
+            </GcButton>
           </div>
 
           <section class="automation-editor__transfer-panel">
@@ -652,11 +652,11 @@ function submit() {
     </section>
 
     <footer class="automation-editor__footer">
-      <button class="gc-button" type="button" @click="emit('cancel')">{{ t('automations.actions.cancel') }}</button>
+      <GcButton @click="emit('cancel')">{{ t('automations.actions.cancel') }}</GcButton>
       <div>
-        <button v-if="currentStep > 1" class="gc-button" type="button" data-testid="automation-previous" @click="goPrevious">{{ t('automations.formStep.previous') }}</button>
-        <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" data-testid="automation-next" :disabled="currentStep === 1 ? !triggerReady : !executionReady" @click="goNext">{{ t('automations.formStep.next') }}</button>
-        <button v-else class="gc-button gc-button--primary" type="submit" data-testid="automation-save" :disabled="!valid">{{ t('automations.actions.save') }}</button>
+        <GcButton v-if="currentStep > 1" data-testid="automation-previous" @click="goPrevious">{{ t('automations.formStep.previous') }}</GcButton>
+        <GcButton v-if="currentStep < 3" variant="primary" data-testid="automation-next" :disabled="currentStep === 1 ? !triggerReady : !executionReady" @click="goNext">{{ t('automations.formStep.next') }}</GcButton>
+        <GcButton v-else variant="primary" type="submit" data-testid="automation-save" :disabled="!valid">{{ t('automations.actions.save') }}</GcButton>
       </div>
     </footer>
   </form>
@@ -672,8 +672,6 @@ function submit() {
 .automation-editor h3 { color: var(--gc-color-text); font-size: var(--gc-font-size-xl); }
 .automation-editor h4 { color: var(--gc-color-text); font-size: var(--gc-font-size-lg); }
 .automation-editor__progress { display: grid; gap: var(--gc-space-2); }
-.automation-editor__progress-bar { height: var(--gc-space-1); overflow: hidden; border-radius: var(--gc-radius-full); background: var(--gc-color-border-muted); }
-.automation-editor__progress-bar span { display: block; height: 100%; border-radius: inherit; background: var(--gc-color-primary); }
 .automation-editor__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
 .automation-editor__steps li { position: relative; overflow: hidden; border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-panel); box-shadow: var(--gc-shadow-sm); }
 .automation-editor__steps li::before { position: absolute; inset: 0 auto 0 0; width: var(--gc-space-1); background: transparent; content: ''; }
@@ -714,18 +712,14 @@ function submit() {
 .automation-editor__check input { width: auto; }
 .automation-editor__checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .automation-editor__scope-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-2); }
-.automation-editor__scope-card { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-panel); color: var(--gc-color-text); text-align: left; cursor: pointer; box-shadow: var(--gc-shadow-sm); }
-.automation-editor__scope-card strong { color: var(--gc-color-text); }
-.automation-editor__scope-card span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }
-.automation-editor__scope-card.is-active { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-md); }
 .automation-editor__transfer { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--gc-space-2); align-items: stretch; }
 .automation-editor__transfer-panel { display: grid; gap: var(--gc-space-1); min-width: 0; }
 .automation-editor__transfer-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-2); color: var(--gc-color-text); }
 .automation-editor__transfer-panel > header strong { font-size: var(--gc-font-size-sm); }
 .automation-editor__transfer-panel > header span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .automation-editor__transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: var(--gc-space-2); }
-.automation-editor__transfer-actions .gc-button { min-width: 88px; padding-inline: var(--gc-space-3); }
-.automation-editor__asset-picker { display: grid; gap: var(--gc-space-1); max-height: 220px; overflow-y: auto; padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); }
+.automation-editor__transfer-actions .gc-button { min-width: calc((var(--gc-space-10) * 2) + var(--gc-space-2)); padding-inline: var(--gc-space-3); }
+.automation-editor__asset-picker { display: grid; gap: var(--gc-space-1); max-height: calc(var(--gc-space-10) * 5 + var(--gc-space-5)); overflow-y: auto; padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); }
 .automation-editor__asset-option { display: flex !important; align-items: center; gap: var(--gc-space-2); padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-panel); color: var(--gc-color-text) !important; cursor: pointer; transition: border-color 120ms ease, background 120ms ease; }
 .automation-editor__asset-option.is-selected { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); }
 .automation-editor__asset-option input { width: auto; }
@@ -733,7 +727,7 @@ function submit() {
 .automation-editor__footer { padding-top: var(--gc-space-3); border-top: var(--gc-border-width-default) solid var(--gc-color-border); }
 .automation-editor__footer > div { display: flex; gap: var(--gc-space-2); }
 
-@media (max-width: 900px) {
+@media (max-width: 56.25rem) {
   .automation-editor__steps,
   .automation-editor__grid,
   .automation-editor__chain,

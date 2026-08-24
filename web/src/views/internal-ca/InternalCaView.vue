@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { GcDataTable, GcModal, GcStatusTag } from '@/design-system/components'
+import { GcDataTable, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -443,8 +443,19 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 </script>
 
 <template>
-  <section class="internal-ca-page">
-    <div v-if="error" class="notice notice--danger">{{ error }}</div>
+  <section class="gc-page internal-ca-page">
+    <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')">
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="loading" @click="loadAll">
+          {{ loading ? t('common.loading') : t('internalCa.actions.refresh') }}
+        </button>
+      </template>
+    </GcPageHeader>
+
+    <div v-if="error" class="notice notice--danger" role="alert">
+      <span>{{ error }}</span>
+      <button class="gc-button gc-button--danger" type="button" :disabled="loading" @click="loadAll">{{ t('internalCa.actions.retry') }}</button>
+    </div>
 
     <!-- Section: 证书机构 -->
     <details class="ca-section gc-card" open>
@@ -623,7 +634,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <form id="trust-domain-form" class="trust-domain-form" @submit.prevent="createTrustDomain">
         <label>{{ t('internalCa.fields.name') }}<input v-model="trustDomainDraft.name" required /></label>
         <label>{{ t('internalCa.fields.purpose') }}<input v-model="trustDomainDraft.purpose" required /></label>
-        <label>{{ t('internalCa.fields.isolationLevel') }}<select v-model="trustDomainDraft.isolationLevel"><option value="standard">standard</option><option value="strict">strict</option><option value="regulated">regulated</option></select></label>
+        <label>{{ t('internalCa.fields.isolationLevel') }}<select v-model="trustDomainDraft.isolationLevel"><option value="standard">{{ t('internalCa.isolationLevels.standard') }}</option><option value="strict">{{ t('internalCa.isolationLevels.strict') }}</option><option value="regulated">{{ t('internalCa.isolationLevels.regulated') }}</option></select></label>
         <label class="check"><input v-model="trustDomainDraft.isDefault" type="checkbox" />{{ t('internalCa.fields.defaultTrustDomain') }}</label>
         <p class="trust-domain-form__hint">{{ t('internalCa.trustDomains.generatedCodeHint') }}</p>
         <p v-if="error" class="notice notice--danger">{{ error }}</p>
@@ -642,7 +653,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         <label>{{ t('internalCa.fields.profileVersionId') }}<select v-model="requestDraft.profileVersionId" required><option v-for="item in requestProfileVersions" :key="text(item.id)" :value="text(item.id)">{{ text(item.profileName) }} · v{{ number(item.versionNo) }}</option></select></label>
         <label>{{ t('internalCa.fields.commonName') }}<input v-model="requestDraft.commonName" required /></label>
         <label>{{ t('internalCa.fields.sans') }}<input v-model="requestDraft.sans" :placeholder="t('internalCa.placeholders.sans')" /></label>
-        <label>{{ t('internalCa.fields.custodyMode') }}<select v-model="requestDraft.custodyMode"><option value="managed_secret">managed_secret</option><option value="local_agent">local_agent</option><option value="device_local">device_local</option><option value="external_key">external_key</option></select></label>
+        <label>{{ t('internalCa.fields.custodyMode') }}<select v-model="requestDraft.custodyMode"><option value="managed_secret">{{ t('internalCa.custodyModes.managedSecret') }}</option><option value="local_agent">{{ t('internalCa.custodyModes.localAgent') }}</option><option value="device_local">{{ t('internalCa.custodyModes.deviceLocal') }}</option><option value="external_key">{{ t('internalCa.custodyModes.externalKey') }}</option></select></label>
         <p v-if="error" class="notice notice--danger">{{ error }}</p>
       </form>
       <template #actions>
@@ -685,7 +696,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <article v-if="authorityCreationMode === 'builtin'" class="ca-wizard__notice ca-wizard__full"><strong>{{ t('internalCa.wizard.builtinAutomaticTitle') }}</strong><p>{{ t('internalCa.wizard.builtinAutomaticDescription') }}</p></article>
           <template v-else>
             <label>{{ t('internalCa.fields.backendName') }}<input v-model="backendDraft.name" required /></label>
-            <label>{{ t('internalCa.fields.platform') }}<select v-model="backendDraft.runtimePlatform" required><option value="windows">Windows</option><option value="linux">Linux</option></select></label>
+            <label>{{ t('internalCa.fields.platform') }}<select v-model="backendDraft.runtimePlatform" required><option value="windows">{{ t('assets.platforms.windows') }}</option><option value="linux">{{ t('assets.platforms.linux') }}</option></select></label>
             <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="backendDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
             <article class="ca-wizard__notice ca-wizard__full"><strong>{{ t('capability.title') }}</strong><p>{{ t('capability.description') }}</p></article>
           </template>
@@ -742,40 +753,40 @@ input, select { min-height: var(--gc-control-height-md); padding: 0 var(--gc-spa
 .metric { display: flex; justify-content: space-between; align-items: center; }
 .metric strong { font-size: var(--gc-font-size-2xl); color: var(--gc-color-primary); }
 .metric--danger strong { color: var(--gc-color-danger); }
-.notice { padding: var(--gc-space-3); border-radius: var(--gc-radius-md); }
+.notice { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); flex-wrap: wrap; padding: var(--gc-space-3); border-radius: var(--gc-radius-md); }
 .notice--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); }
 pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-muted-bg); border-radius: var(--gc-radius-md); }
 .authority-toolbar, .ca-architecture__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
 .authority-toolbar h2, .authority-toolbar p, .ca-architecture__header h2 { margin: 0; }
 .authority-toolbar p { margin-top: var(--gc-space-1); color: var(--gc-color-text-muted); }
-.root-ca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--gc-space-3); }
-.root-ca-card { display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 0 var(--gc-space-3); padding: var(--gc-space-3) var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); transition: border-color 140ms ease, box-shadow 140ms ease; align-items: start; }
+.root-ca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-3); }
+.root-ca-card { display: grid; grid-template-columns: var(--gc-space-1) minmax(0, 1fr) auto; gap: 0 var(--gc-space-3); padding: var(--gc-space-3) var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); transition: border-color 140ms ease, box-shadow 140ms ease; align-items: start; }
 .root-ca-card:hover { border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-hover); }
 .root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); }
-.root-ca-card__accent { width: 3px; height: 100%; border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); grid-row: 1 / 3; }
-.root-ca-card.is-selected .root-ca-card__accent { background: var(--gc-color-primary); box-shadow: 0 0 8px var(--gc-color-primary-weak); }
+.root-ca-card__accent { width: var(--gc-space-1); height: 100%; border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); grid-row: 1 / 3; }
+.root-ca-card.is-selected .root-ca-card__accent { background: var(--gc-color-primary); box-shadow: var(--gc-shadow-focus); }
 .root-ca-card__body { display: grid; gap: var(--gc-space-hairline); min-width: 0; }
 .root-ca-card__title { display: flex; align-items: center; gap: var(--gc-space-2); font-size: var(--gc-font-size-sm); }
 .root-ca-card__title strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__meta { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.root-ca-card__expiry { font-size: 11px; color: var(--gc-color-text-soft); }
-.root-ca-card__badge { grid-row: 1; padding: 1px var(--gc-space-2); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary-soft); color: var(--gc-color-primary); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.root-ca-card__expiry { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); }
+.root-ca-card__badge { grid-row: 1; padding: var(--gc-space-hairline) var(--gc-space-2); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary-soft); color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); white-space: nowrap; }
 .ca-architecture { margin-top: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); overflow: hidden; }
 .ca-architecture__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); margin-bottom: var(--gc-space-3); }
 .ca-architecture__eyebrow { font-size: var(--gc-font-size-sm); font-weight: 600; color: var(--gc-color-text-strong); }
-.ca-architecture__desc { margin: 2px 0 0; font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); }
+.ca-architecture__desc { margin: var(--gc-space-1) 0 0; font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); }
 .ca-tree { display: grid; justify-items: center; gap: 0; }
-.ca-node { display: grid; gap: 2px; width: min(100%, 280px); padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); text-align: left; }
+.ca-node { display: grid; gap: var(--gc-space-1); width: min(100%, var(--gc-size-sidebar)); padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); text-align: left; }
 .ca-node strong { font-size: var(--gc-font-size-sm); font-weight: 600; }
-.ca-node__badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gc-color-primary); }
+.ca-node__badge { font-size: var(--gc-font-size-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0; color: var(--gc-color-primary); }
 .ca-node__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ca-node__meta { font-size: 11px; color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-node__meta { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-node--root { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); }
 .ca-node--intermediate { position: relative; border-color: var(--gc-color-border); }
 .ca-tree__connector { width: var(--gc-border-width-default); height: var(--gc-space-4); margin: 0 auto; background: var(--gc-color-border-strong); }
-.ca-tree__children { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gc-space-3); width: 100%; padding-top: var(--gc-space-4); border-top: var(--gc-border-width-default) solid var(--gc-color-border-strong); position: relative; }
-.ca-tree__empty, .ca-empty { display: grid; justify-items: center; gap: var(--gc-space-2); padding: var(--gc-space-5); text-align: center; color: var(--gc-color-text-muted); border: 1px dashed var(--gc-color-border); border-radius: var(--gc-radius-md); }
+.ca-tree__children { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-3); width: 100%; padding-top: var(--gc-space-4); border-top: var(--gc-border-width-default) solid var(--gc-color-border-strong); position: relative; }
+.ca-tree__empty, .ca-empty { display: grid; justify-items: center; gap: var(--gc-space-2); padding: var(--gc-space-5); text-align: center; color: var(--gc-color-text-muted); border: var(--gc-border-width-default) dashed var(--gc-color-border); border-radius: var(--gc-radius-md); }
 .ca-empty h2, .ca-empty p, .ca-tree__empty p { margin: 0; font-size: var(--gc-font-size-sm); }
 .ca-empty { margin-top: var(--gc-space-3); }
 .backend-settings { padding: var(--gc-space-4); }
@@ -799,7 +810,7 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .ca-wizard__progress li.is-complete > span { border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
 .ca-wizard__panel { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-5); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
 .ca-wizard__panel-heading { display: grid; gap: var(--gc-space-2); }
-.ca-wizard__panel-heading span { color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.ca-wizard__panel-heading span { color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
 .ca-wizard__panel-heading h3, .ca-wizard__panel-heading p { margin: 0; }
 .ca-wizard__panel-heading p { color: var(--gc-color-text-muted); }
 .ca-wizard__entry-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-4); }
