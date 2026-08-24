@@ -8,6 +8,8 @@ import { enrichWorkflowCertificateMaterial } from '../certificates/artifacts/wor
 import { createHash } from 'node:crypto';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
+import { ProductionDeploymentInputResolverService } from '../deployment-inputs/application/production-deployment-input-resolver.service.js';
+import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 
 function resolvedWorkflowInput(variables: Record<string, unknown> = {}): ResolvedDeploymentInputV1 {
   const credential = variables.credential ?? fixtureCredential();
@@ -298,6 +300,65 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
   const remove = result.stepResults.find((item) => item.name === 'removeOldBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:old-cert/);
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
+});
+
+test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接 Dry-run', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const deviceBinding = emptyInputBindingsV1();
+  deviceBinding.connections.management = { host: '10.0.0.1', port: 443, tls: { verifyPeer: false } };
+  deviceBinding.credentials.credential = { credentialId: 'cred_fixture' };
+  const assetBinding = emptyInputBindingsV1();
+  assetBinding.artifacts.certificate = {
+    certificateFormatId: 'format_citrix_pem',
+    outputBindings: {
+      leafPemBase64: 'leafPemBase64',
+      privateKeyPemBase64: 'privateKeyPemBase64',
+      orderedIntermediates: 'orderedIntermediates',
+      fingerprintSha256: 'fingerprintSha256',
+    },
+  };
+  const certificate = deploymentVariables().certificate as Record<string, unknown>;
+  const resolvedInput = new ProductionDeploymentInputResolverService().resolve({
+    phase: 'preflight',
+    contract: content.inputContract,
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_citrix_plan', address: 'adc.example.com', serverName: 'adc.example.com', port: 443, protocol: 'HTTPS' },
+      deployment: {
+        targets: [{ name: 'lb-one', serverName: 'lb.example.com', metadata: { sniCertificate: false, previousFingerprintSha256: 'bb'.repeat(32) } }],
+        certificateResourceName: 'gcac-leaf-20260724',
+      },
+    },
+    bindingLayers: {
+      deviceDefault: { pluginVersionId: 'citrix.netscaler-adc:1.1.18', inputBindings: deviceBinding },
+      assetOverride: { pluginVersionId: 'citrix.netscaler-adc:1.1.18', inputBindings: assetBinding },
+    },
+    credentialSnapshots: {
+      credential: {
+        credentialId: 'cred_fixture',
+        credentialVersionId: '1',
+        kind: 'USERNAME_PASSWORD',
+        username: 'fixture',
+        secretRefs: { password: 'secret://password/fixture-secret#v1' },
+      },
+    },
+    artifactSnapshots: {
+      certificate: { artifactId: 'certver_fixture:format_citrix_pem', outputs: certificate },
+    },
+  });
+
+  assert.equal(resolvedInput.executable, true);
+  assert.deepEqual(resolvedInput.variables.targetVirtualServers, resolvedInput.assetContext.deployment?.targets);
+  assert.equal(resolvedInput.variables.certificateKeyName, 'gcac-leaf-20260724');
+  assert.equal(resolvedInput.connections.management.host, '10.0.0.1');
+  assert.equal(resolvedInput.credentials.credential?.credentialId, 'cred_fixture');
+
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput, mockResponses: deploymentResponses() });
+  assert.equal(result.status, 'success');
+  assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
 });
 
 test('Citrix ADC systemfile 接受 200 且绑定失败时不执行保存', async () => {

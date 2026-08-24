@@ -13,8 +13,8 @@
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
-      "targetVirtualServers": { "type": "array", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.targets" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed" },
-      "certificateKeyName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed" }
+      "targetVirtualServers": { "type": "array", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.targets" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "certificateKeyName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
     },
     "connections": {
       "management": {
@@ -296,7 +296,7 @@
               "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
-              "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{variables.certificateKeyName}}", "snicert": "{{target.sniCertificate}}" } },
+              "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{variables.certificateKeyName}}", "snicert": "{{target.metadata.sniCertificate}}" } },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
