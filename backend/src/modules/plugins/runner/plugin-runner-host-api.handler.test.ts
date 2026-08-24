@@ -89,6 +89,25 @@ test('生产 Host API 未装配持久化消费门禁时失败关闭，不使用�
   );
 });
 
+test('Host API 缺少请求固定材料或 Grant 时失败关闭，不进入宿主消费', async () => {
+  const cases: Array<[string, Partial<PluginRunnerHostCallContext>, RegExp]> = [
+    ['requestId', { requestId: '' }, /固定执行绑定/],
+    ['idempotencyKey', { idempotencyKey: '' }, /固定执行绑定/],
+    ['planDigest', { planDigest: 'invalid' }, /planDigest/],
+    ['hostPermissions', { hostPermissions: [] }, /权限不足/],
+    ['grantRefs', { grantRefs: [] }, /权限不足|Grant/],
+  ];
+  for (const [, override, expected] of cases) {
+    const fixture = createFixture();
+    const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+    await assert.rejects(
+      handler({ ...context('artifact.grant.read', ['artifact.read']), ...override, input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } }),
+      expected,
+    );
+    assert.equal(fixture.requestStore.claimCalls, 0);
+  }
+});
+
 test('Host API 已完成请求只重放结果，不重复消费宿主能力', async () => {
   const fixture = createFixture();
   let reads = 0;
@@ -101,6 +120,19 @@ test('Host API 已完成请求只重放结果，不重复消费宿主能力', as
   await handler(request);
   await handler(request);
   assert.equal(reads, 1);
+  assert.equal(fixture.requestStore.completeCalls, 1);
+});
+
+test('Host API 幂等键或绑定 Grant 摘要冲突时失败关闭，不提交第二次', async () => {
+  const fixture = createFixture();
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const first = { ...context('execution.progress', ['execution.progress'], ['grant-1']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 9, stage: 'prepare', summary: '第一次' } };
+  const conflict = { ...context('execution.progress', ['execution.progress'], ['grant-2']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 9, stage: 'prepare', summary: '第一次' } };
+
+  await handler(first);
+  await assert.rejects(handler(conflict), /幂等键|摘要/);
+  assert.equal(fixture.progress.length, 1);
+  assert.equal(fixture.requestStore.completeCalls, 1);
 });
 
 test('生产 Host API 请求账本跨 Store 实例恢复，不重复获得消费权', async () => {
@@ -138,6 +170,41 @@ test('Host API 超时后迟到结果不能提交，重放只能收敛为 UNKNOWN
   await assert.rejects(handler(request), /超时|UNKNOWN/);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 40));
   await assert.rejects(handler(request), /UNKNOWN|已过期/);
+  assert.equal(fixture.requestStore.expireCalls, 1);
+  assert.equal(fixture.requestStore.completeCalls, 1);
+  assert.ok(fixture.audits.filter((event) => event.result === 'failure').length >= 2);
+});
+
+test('Host API 已完成账本缺少 Receipt 时失败关闭且不重放宿主写操作', async () => {
+  const fixture = createFixture();
+  let reads = 0;
+  fixture.dependencies.artifacts.get = async (artifactRef: string) => {
+    reads += 1;
+    return { tenantId: 'tenant-1', artifactRef, content: Buffer.from('artifact-data'), contentType: 'application/octet-stream', sha256: 'c'.repeat(64), createdBy: 'fixture', createdAt: '2026-08-10T00:00:00.000Z' };
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const request = { ...context('artifact.grant.read', ['artifact.read']), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } };
+
+  await handler(request);
+  fixture.requestStore.removeReceipt(fixture.requestStore.lastAdmission!);
+  await assert.rejects(handler(request), /Receipt|UNKNOWN/);
+  assert.equal(reads, 1);
+});
+
+test('Host API UNKNOWN 状态不可重放，也不再次获得宿主消费权', async () => {
+  const fixture = createFixture();
+  fixture.dependencies.artifacts.get = async (artifactRef: string) => {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 30));
+    return { tenantId: 'tenant-1', artifactRef, content: Buffer.from('unknown'), contentType: 'application/octet-stream', sha256: 'c'.repeat(64), createdBy: 'fixture', createdAt: '2026-08-10T00:00:00.000Z' };
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const request = { ...context('artifact.grant.read', ['artifact.read']), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' }, timeoutMs: 5, deadlineAt: new Date(Date.now() + 500).toISOString() };
+
+  await assert.rejects(handler(request), /超时|UNKNOWN/);
+  const claimCallsAfterUnknown = fixture.requestStore.claimCalls;
+  await assert.rejects(handler(request), /UNKNOWN|已过期/);
+  assert.equal(fixture.progress.length, 0);
+  assert.equal(fixture.requestStore.claimCalls, claimCallsAfterUnknown + 1);
 });
 
 test('Host API 消费权内的确定性拒绝会落终态，不遗留 IN_FLIGHT', async () => {
@@ -198,8 +265,9 @@ function createFixture() {
   const progress: unknown[] = [];
   const locks = { acquires: [] as Array<Record<string, unknown>>, releases: [] as Array<Record<string, unknown>> };
   const checkpoint = { ledgerId: 'ledger-1' };
+  const requestStore = new TestHostApiRequestStore();
   const dependencies: PluginRunnerHostApiDependencies = {
-    requestGate: new PluginRunnerHostApiRequestGate(new TestHostApiRequestStore()),
+    requestGate: new PluginRunnerHostApiRequestGate(requestStore),
     security: {
       grants: {
         validate: async (input: Record<string, unknown>) => {
@@ -243,7 +311,7 @@ function createFixture() {
       getStepOrThrow: async () => ({ executionRunId: 'run-1' }),
     } as unknown as PluginRunnerHostApiDependencies['executions'],
   };
-  return { dependencies, validations, audits, progress, locks, checkpoint };
+  return { dependencies, validations, audits, progress, locks, checkpoint, requestStore };
 }
 
 function context(method: string, hostPermissions: string[], grantRefs = ['grant-1']): PluginRunnerHostCallContext {
@@ -270,30 +338,55 @@ function context(method: string, hostPermissions: string[], grantRefs = ['grant-
 
 class TestHostApiRequestStore implements PluginRunnerHostApiRequestStore {
   private readonly records = new Map<string, { fingerprint: string; status: 'IN_FLIGHT' | 'COMPLETED' | 'UNKNOWN'; outcome?: HostApiRequestOutcome }>();
+  claimCalls = 0;
+  completeCalls = 0;
+  expireCalls = 0;
+  lastAdmission?: HostApiRequestAdmission;
 
   async claim(admission: HostApiRequestAdmission): Promise<HostApiRequestClaimResult> {
-    if (Date.parse(admission.expiresAt) <= Date.now()) return { status: 'EXPIRED' };
+    this.claimCalls += 1;
+    this.lastAdmission = admission;
     const existing = this.records.get(admission.key);
     if (!existing) {
+      if (!Number.isFinite(Date.parse(admission.expiresAt)) || Date.parse(admission.expiresAt) <= Date.now()) return { status: 'EXPIRED' };
       this.records.set(admission.key, { fingerprint: admission.requestFingerprint, status: 'IN_FLIGHT' });
       return { status: 'ACQUIRED' };
     }
     if (existing.fingerprint !== admission.requestFingerprint) return { status: 'CONFLICT' };
-    if (existing.status === 'COMPLETED') return { status: 'COMPLETED', outcome: existing.outcome! };
+    if (existing.status === 'COMPLETED') {
+      if (!existing.outcome) {
+        existing.status = 'UNKNOWN';
+        existing.outcome = unknownOutcome('Host API Receipt 缺失，禁止重放');
+        return { status: 'UNKNOWN', outcome: existing.outcome };
+      }
+      return { status: 'COMPLETED', outcome: existing.outcome };
+    }
     if (existing.status === 'UNKNOWN') return { status: 'UNKNOWN', ...(existing.outcome ? { outcome: existing.outcome } : {}) };
+    if (!Number.isFinite(Date.parse(admission.expiresAt)) || Date.parse(admission.expiresAt) <= Date.now()) {
+      existing.status = 'UNKNOWN';
+      existing.outcome = unknownOutcome('Host API 请求超过截止时间，状态未知');
+      return { status: 'UNKNOWN', outcome: existing.outcome };
+    }
     return { status: 'IN_FLIGHT' };
   }
 
   async complete(admission: HostApiRequestAdmission, outcome: HostApiRequestOutcome): Promise<HostApiRequestCompleteResult> {
+    this.completeCalls += 1;
     const existing = this.records.get(admission.key);
     if (!existing || existing.fingerprint !== admission.requestFingerprint) return 'CONFLICT';
     if (existing.status !== 'IN_FLIGHT') return 'LATE';
+    if (!Number.isFinite(Date.parse(admission.expiresAt)) || Date.parse(admission.expiresAt) <= Date.now()) {
+      existing.status = 'UNKNOWN';
+      existing.outcome = unknownOutcome('Host API 结果到达时请求已超过截止时间');
+      return 'LATE';
+    }
     existing.status = 'COMPLETED';
     existing.outcome = outcome;
     return 'COMMITTED';
   }
 
   async expire(admission: HostApiRequestAdmission, error: PluginRunnerError): Promise<HostApiRequestExpireResult> {
+    this.expireCalls += 1;
     const existing = this.records.get(admission.key);
     if (!existing || existing.fingerprint !== admission.requestFingerprint) return 'CONFLICT';
     if (existing.status !== 'IN_FLIGHT') return 'ALREADY_TERMINAL';
@@ -301,6 +394,24 @@ class TestHostApiRequestStore implements PluginRunnerHostApiRequestStore {
     existing.outcome = { ok: false, error };
     return 'EXPIRED';
   }
+
+  removeReceipt(admission: HostApiRequestAdmission): void {
+    const existing = this.records.get(admission.key);
+    if (existing) existing.outcome = undefined;
+  }
+}
+
+function unknownOutcome(message: string): HostApiRequestOutcome {
+  return {
+    ok: false,
+    error: {
+      code: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+      message,
+      retryable: false,
+      mayBeUnknown: true,
+      secretRedacted: true,
+    },
+  };
 }
 
 function sha256(value: unknown): string {

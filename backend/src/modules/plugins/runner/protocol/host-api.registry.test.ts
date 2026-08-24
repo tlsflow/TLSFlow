@@ -9,6 +9,7 @@ import {
   hostApiRegistry,
   listHostApiMethods,
   validateHostApiRequest,
+  validateHostApiPermissions,
   validateHostApiResult,
 } from './host-api.registry.js';
 
@@ -28,6 +29,10 @@ test('Host API Registry 覆盖 IPC v1 要求的全部通用方法且没有厂商
     assert.ok(definition.timeoutMs > 0);
     assert.ok(definition.maxOutputBytes > 0);
     assert.ok(definition.auditFields.length > 0);
+    if (!definition.readOnly) {
+      assert.equal(definition.retryable, false, `${definition.method} 写操作不得静默重试`);
+      assert.ok(definition.idempotencyKey);
+    }
     assert.ok(!definition.method.includes('provider'));
     assert.ok(!definition.method.includes('product'));
   }
@@ -40,6 +45,9 @@ test('Host API request/result Schema 拒绝未知字段、错误类型和非法�
   assert.throws(() => validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1', secret: 'must-not-pass' }));
   assert.throws(() => validateHostApiRequest('secret.grant.resolve', { grantId: 'grant-1', secretRef: 'secret-1' }));
   assert.throws(() => validateHostApiResult('artifact.grant.read', { ok: 'true' }));
+  assert.throws(() => validateHostApiResult('artifact.grant.read', { ok: false }));
+  assert.throws(() => validateHostApiResult('artifact.grant.read', { ok: true, error: { code: 'E', message: 'bad', retryable: false, mayBeUnknown: false, secretRedacted: true } }));
+  assert.throws(() => validateHostApiResult('artifact.grant.read', { ok: false, data: {}, error: { code: 'E', message: 'bad', retryable: false, mayBeUnknown: false, secretRedacted: true } }));
   assert.throws(() => validateHostApiRequest('database.query', {}));
 });
 
@@ -49,6 +57,9 @@ test('Host API Grant 权限和引用缺失时失败关闭', () => {
   assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read'], []), /Grant 引用/);
   assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read'], ['grant-1', 'grant-1']), /重复/);
   assert.throws(() => assertHostApiGrant('secret.grant.resolve', ['secret.read'], ['grant-1']));
+  assert.throws(() => validateHostApiPermissions(undefined as never), /权限格式/);
+  assert.throws(() => validateHostApiPermissions(['artifact.read', 'artifact.read']), /重复/);
+  assert.throws(() => assertHostApiGrant('artifact.grant.read', ['artifact.read', 'artifact.read'], ['grant-1']), /重复/);
   assert.throws(() => validateHostApiRequest('certificate.get', { id: 'certificate-1' }));
 });
 

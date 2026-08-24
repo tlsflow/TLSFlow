@@ -70,6 +70,7 @@ export class PgPluginRunnerHostApiRequestStore implements PluginRunnerHostApiReq
   ) {}
 
   async claim(admission: HostApiRequestAdmission): Promise<HostApiRequestClaimResult> {
+    assertAdmission(admission);
     await this.ensureTable();
     return this.db.transaction(async (tx) => {
       const inserted = await tx.query<{ document_id: string }>(
@@ -84,10 +85,23 @@ export class PgPluginRunnerHostApiRequestStore implements PluginRunnerHostApiReq
       const existing = await this.getForUpdate(tx, admission.key);
       if (!existing) throw new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', 'Host API 请求账本记录消失，拒绝继续执行');
       if (existing.requestFingerprint !== admission.requestFingerprint) return { status: 'CONFLICT' } as const;
-      if (existing.status === 'COMPLETED') return { status: 'COMPLETED', outcome: existing.outcome! } as const;
-      if (existing.status === 'UNKNOWN') return { status: 'UNKNOWN', ...(existing.outcome ? { outcome: existing.outcome } : {}) } as const;
+      if (existing.status === 'COMPLETED') {
+        const outcome = validOutcome(existing.outcome) ? existing.outcome : undefined;
+        if (!outcome) {
+          const unknown = unknownOutcome('Host API Receipt 缺失或格式无效，禁止重放');
+          await this.update(tx, admission.key, { ...existing, status: 'UNKNOWN', outcome: unknown });
+          return { status: 'UNKNOWN', outcome: unknown } as const;
+        }
+        return { status: 'COMPLETED', outcome } as const;
+      }
+      if (existing.status === 'UNKNOWN') {
+        const outcome = validOutcome(existing.outcome) ? existing.outcome : unknownOutcome('Host API UNKNOWN Receipt 缺失，禁止重放');
+        if (!existing.outcome) await this.update(tx, admission.key, { ...existing, status: 'UNKNOWN', outcome });
+        return { status: 'UNKNOWN', outcome } as const;
+      }
 
-      if (Date.parse(existing.expiresAt) <= Date.now()) {
+      const expiresAt = Date.parse(existing.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         const outcome = unknownOutcome('Host API 请求超过截止时间，状态未知');
         await this.update(tx, admission.key, { ...existing, status: 'UNKNOWN', outcome });
         return { status: 'UNKNOWN', outcome } as const;
@@ -97,17 +111,27 @@ export class PgPluginRunnerHostApiRequestStore implements PluginRunnerHostApiReq
   }
 
   async complete(admission: HostApiRequestAdmission, outcome: HostApiRequestOutcome): Promise<HostApiRequestCompleteResult> {
+    assertAdmission(admission);
+    assertOutcome(outcome);
     await this.ensureTable();
     return this.db.transaction(async (tx) => {
       const existing = await this.getForUpdate(tx, admission.key);
       if (!existing || existing.requestFingerprint !== admission.requestFingerprint) return 'CONFLICT';
       if (existing.status !== 'IN_FLIGHT') return 'LATE';
+      const expiresAt = Date.parse(existing.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        const unknown = unknownOutcome('Host API 结果到达时请求已超过截止时间');
+        await this.update(tx, admission.key, { ...existing, status: 'UNKNOWN', outcome: unknown });
+        return 'LATE';
+      }
       await this.update(tx, admission.key, { ...existing, status: 'COMPLETED', outcome });
       return 'COMMITTED';
     });
   }
 
   async expire(admission: HostApiRequestAdmission, error: PluginRunnerError): Promise<HostApiRequestExpireResult> {
+    assertAdmission(admission);
+    assertPluginRunnerError(error);
     await this.ensureTable();
     return this.db.transaction(async (tx) => {
       const existing = await this.getForUpdate(tx, admission.key);
@@ -185,10 +209,13 @@ export class PluginRunnerHostApiRequestGate {
   constructor(private readonly store: PluginRunnerHostApiRequestStore) {}
 
   createAdmission(binding: HostApiRequestBinding, definition: HostApiMethodDefinition): HostApiRequestAdmission {
+    assertBinding(binding);
     const idempotencyValue = definition.idempotencyKey === null
       ? binding.idempotencyKey
       : binding.input[definition.idempotencyKey];
-    if (typeof idempotencyValue !== 'string' && typeof idempotencyValue !== 'number') {
+    if ((typeof idempotencyValue !== 'string' && typeof idempotencyValue !== 'number')
+      || (typeof idempotencyValue === 'string' && idempotencyValue.trim().length === 0)
+      || (typeof idempotencyValue === 'number' && !Number.isFinite(idempotencyValue))) {
       throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 幂等键字段缺失或类型无效', { method: definition.method, field: definition.idempotencyKey });
     }
     const scope = {
@@ -259,4 +286,78 @@ function unknownOutcome(message: string): HostApiRequestOutcome {
       secretRedacted: true,
     },
   };
+}
+
+function assertBinding(binding: HostApiRequestBinding): void {
+  for (const [name, value] of [
+    ['requestId', binding.requestId],
+    ['idempotencyKey', binding.idempotencyKey],
+    ['deadlineAt', binding.deadlineAt],
+    ['tenantId', binding.tenantId],
+    ['executionId', binding.executionId],
+    ['executionStepId', binding.executionStepId],
+    ['pluginVersionId', binding.pluginVersionId],
+    ['pluginId', binding.pluginId],
+    ['pluginVersion', binding.pluginVersion],
+    ['capability', binding.capability],
+    ['workflowVersionId', binding.workflowVersionId],
+    ['planDigest', binding.planDigest],
+  ] as const) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', `Host API 请求缺少 ${name}`);
+    }
+  }
+  if (!Number.isInteger(binding.timeoutMs) || binding.timeoutMs < 1) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求缺少有效超时预算');
+  }
+  if (!Number.isFinite(Date.parse(binding.deadlineAt))) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求截止时间无效');
+  }
+  if (!Array.isArray(binding.grantRefs) || binding.grantRefs.length === 0 || new Set(binding.grantRefs).size !== binding.grantRefs.length) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求缺少有效 Grant 引用');
+  }
+  if (!Array.isArray(binding.hostPermissions) || binding.hostPermissions.length === 0 || new Set(binding.hostPermissions).size !== binding.hostPermissions.length) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求缺少有效 Host API 权限');
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(binding.planDigest) && !/^[a-f0-9]{64}$/.test(binding.planDigest)) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求 planDigest 无效');
+  }
+}
+
+function assertAdmission(admission: HostApiRequestAdmission): void {
+  if (!admission || typeof admission !== 'object' || !/^[a-f0-9]{64}$/.test(admission.key)
+    || !/^[a-f0-9]{64}$/.test(admission.requestFingerprint) || !admission.requestId || !admission.method
+    || !admission.tenantId || !admission.executionId || !admission.executionStepId || !admission.pluginVersionId
+    || !admission.capability || !Number.isFinite(Date.parse(admission.expiresAt))) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 请求 Admission 缺少固定门禁字段');
+  }
+}
+
+function assertOutcome(outcome: HostApiRequestOutcome): void {
+  if (!validOutcome(outcome)) throw new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', 'Host API Receipt 缺失或格式无效');
+}
+
+function validOutcome(value: unknown): value is HostApiRequestOutcome {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const outcome = value as Record<string, unknown>;
+  if (typeof outcome.ok !== 'boolean') return false;
+  if (outcome.ok) return isRecord(outcome.output) && outcome.error === undefined;
+  return outcome.output === undefined && isPluginRunnerError(outcome.error);
+}
+
+function isPluginRunnerError(value: unknown): value is PluginRunnerError {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const error = value as Record<string, unknown>;
+  return typeof error.code === 'string' && error.code.length > 0
+    && typeof error.message === 'string' && error.message.length > 0
+    && typeof error.retryable === 'boolean' && typeof error.mayBeUnknown === 'boolean'
+    && error.secretRedacted === true;
+}
+
+function assertPluginRunnerError(error: PluginRunnerError): void {
+  if (!isPluginRunnerError(error)) throw new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', 'Host API Receipt 错误缺少完整错误材料');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
