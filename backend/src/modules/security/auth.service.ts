@@ -41,7 +41,7 @@ interface TokenPayload {
 }
 
 const DEFAULT_TENANT_ID = 'default';
-const DEFAULT_TENANT_NAME = '榛樿绉熸埛';
+const DEFAULT_TENANT_NAME = '\u9ed8\u8ba4\u79df\u6237';
 const DEFAULT_ADMIN_PASSWORD = 'admin12345';
 const TOKEN_SECRET = 'gcac-dev-session-secret-change-before-production';
 
@@ -78,11 +78,11 @@ export class AuthService {
         context: { requestId: context.requestId, sourceIp: context.ip },
         detail: { reason: 'bad credentials' },
       });
-      throw new AppError('AUTH_UNAUTHENTICATED', '鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒');
+      throw new AppError('AUTH_UNAUTHENTICATED', '\u7528\u6237\u540d\u6216\u5bc6\u7801\u9519\u8bef');
     }
 
     if (user.status !== 'active') {
-      throw new AppError('AUTH_FORBIDDEN', '鐢ㄦ埛宸茶绂佺敤');
+      throw new AppError('AUTH_FORBIDDEN', '\u7528\u6237\u5df2\u88ab\u7981\u7528');
     }
 
     const session = await this.createSession(user);
@@ -130,7 +130,7 @@ export class AuthService {
     await this.seedReady;
     const user = await this.rbac.getUser(userId);
     if (!user || user.status !== 'active') {
-      throw new AppError('AUTH_UNAUTHENTICATED', '鐧诲綍鐘舵€佸凡澶辨晥');
+      throw new AppError('AUTH_UNAUTHENTICATED', '\u5f53\u524d\u767b\u5f55\u72b6\u6001\u65e0\u6548');
     }
     return this.createSession(user);
   }
@@ -184,15 +184,15 @@ export class AuthService {
     const adminRole: RoleEntity = {
       id: 'role_admin',
       code: 'admin',
-      name: '绯荤粺绠＄悊鍛?',
-      description: '鎷ユ湁鍏ㄩ儴鎺у埗鍙版潈闄愮殑鍐呯疆绠＄悊鍛樿鑹?',
+      name: '\u7cfb\u7edf\u7ba1\u7406\u5458',
+      description: '\u62e5\u6709\u5168\u90e8\u63a7\u5236\u53f0\u6743\u9650\u7684\u5185\u7f6e\u7ba1\u7406\u5458\u89d2\u8272',
       builtin: true,
     };
     const auditorRole: RoleEntity = {
       id: 'role_auditor',
       code: 'auditor',
-      name: '瀹¤鍛?',
-      description: '鍙兘鏌ョ湅瀹¤鍜屽彧璇诲畨鍏ㄤ俊鎭?',
+      name: '\u5ba1\u8ba1\u5458',
+      description: '\u53ea\u80fd\u67e5\u770b\u5ba1\u8ba1\u548c\u53ea\u8bfb\u5b89\u5168\u4fe1\u606f',
       builtin: true,
     };
     await this.rbac.createRoleIfAbsent(adminRole);
@@ -200,7 +200,7 @@ export class AuthService {
     const admin = await this.rbac.createUserIfAbsent({
       id: 'user_admin',
       username: 'admin',
-      displayName: '绯荤粺绠＄悊鍛?',
+      displayName: '\u7cfb\u7edf\u7ba1\u7406\u5458',
       status: 'active',
       tenantId: DEFAULT_TENANT_ID,
       tenantName: DEFAULT_TENANT_NAME,

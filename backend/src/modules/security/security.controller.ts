@@ -222,6 +222,8 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.user.read', request, 'user');
     const users = await this.services.rbac.listUsers();
+    const identitySources = await this.services.externalIdentity.listSources();
+    const identitySourceNameById = new Map(identitySources.map((source) => [source.id, source.name]));
     const items = [];
     for (const user of users) {
       const roles = await this.services.rbac.rolesForUser(user.id);
@@ -231,10 +233,11 @@ export class SecurityController {
         displayName: user.displayName,
         email: user.email,
         tenantId: user.tenantId ?? request.context.tenantId ?? 'default',
-        tenantName: user.tenantName ?? '榛樿绉熸埛',
+        tenantName: user.tenantName ?? '\u9ed8\u8ba4\u79df\u6237',
         status: user.status,
         identityProvider: user.identityProvider ?? 'local',
         externalSourceId: user.externalSourceId,
+        externalSourceName: user.externalSourceId ? identitySourceNameById.get(user.externalSourceId) : undefined,
         externalId: user.externalId,
         lastSyncedAt: user.lastSyncedAt,
         syncSource: user.syncSource,
@@ -264,7 +267,7 @@ export class SecurityController {
       password: String(body.password),
       status: 'active',
       tenantId: body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId),
-      tenantName: body.tenantName === undefined ? '榛樿绉熸埛' : String(body.tenantName),
+      tenantName: body.tenantName === undefined ? '\u9ed8\u8ba4\u79df\u6237' : String(body.tenantName),
     });
     if (body.roleId) {
       await this.services.rbac.assignRole(user.id, String(body.roleId));

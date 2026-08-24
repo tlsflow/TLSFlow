@@ -68,6 +68,23 @@ export function createUser(body: Record<string, unknown>): Promise<ApiResult<Api
   return apiClient.post<ApiRecord>('/v1/security/users', body)
 }
 
+export function updateUser(body: {
+  userId: string
+  displayName?: string
+  email?: string
+  status?: 'active' | 'disabled'
+  roleId?: string
+}): Promise<ApiResult<ApiRecord>> {
+  return apiClient.request<ApiRecord>('/v1/security/users', { method: 'PATCH', body })
+}
+
+export function deleteUser(userId: string): Promise<ApiResult<{ userId: string; deleted: true }>> {
+  return apiClient.request<{ userId: string; deleted: true }>('/v1/security/users/delete', {
+    method: 'DELETE',
+    body: { userId }
+  })
+}
+
 export function updateUserStatus(body: { userId: string; status: 'active' | 'disabled' }): Promise<ApiResult<ApiRecord>> {
   return apiClient.request<ApiRecord>('/v1/security/users/status', { method: 'PATCH', body })
 }
@@ -98,6 +115,17 @@ export function listIdentitySources(query?: BusinessListQuery): Promise<ApiPageR
 
 export function createIdentitySource(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
   return apiClient.post<ApiRecord>('/v1/security/identity-sources', body)
+}
+
+export function updateIdentitySource(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.request<ApiRecord>('/v1/security/identity-sources', { method: 'PATCH', body })
+}
+
+export function deleteIdentitySource(id: string): Promise<ApiResult<{ id: string; deleted: true }>> {
+  return apiClient.request<{ id: string; deleted: true }>('/v1/security/identity-sources/delete', {
+    method: 'DELETE',
+    body: { id }
+  })
 }
 
 export function createSecret(body: {
