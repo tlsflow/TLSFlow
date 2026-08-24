@@ -1,4 +1,4 @@
-export const certificateSourceTypes = ['manual', 'acme', 'adcs', 'enterprise_ca', 'external_api', 'certd', 'allinssl'] as const;
+export const certificateSourceTypes = ['manual', 'internal_ca', 'acme', 'adcs', 'enterprise_ca', 'external_api', 'certd', 'allinssl'] as const;
 export const certificateAssetStatuses = ['active', 'archived', 'deleted'] as const;
 export const certificateVersionStatuses = ['active', 'archived', 'revoked', 'deleted'] as const;
 export const certificateChainStatuses = ['valid', 'incomplete', 'invalid', 'unknown'] as const;
@@ -46,10 +46,16 @@ export interface CertificateVersionEntity {
   notBefore: string;
   notAfter: string;
   fingerprintSha256: string;
+  publicKeyFingerprintSha256?: string;
   publicKeyAlgorithm: string;
   signatureAlgorithm: string;
   leafStorageRef: string;
   privateKeySecretRef?: string;
+  issuingCaId?: string;
+  certificateRequestId?: string;
+  certificateProfileVersionId?: string;
+  keyReferenceId?: string;
+  keyCustodyMode?: 'local_agent' | 'managed_secret' | 'external_key' | 'device_local';
   chainCertificateRefs: string[];
   chainOrder: string[];
   chainDiagnostics: string[];

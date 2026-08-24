@@ -22,6 +22,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
+import { getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
@@ -92,6 +93,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
   });
   const certificateServices = dependencies.certificates ?? createCertificateServices(security, { db: appDb });
+  const internalCaService = new InternalCaApplicationService({
+    db: appDb,
+    secrets: security.secrets,
+    certificates: certificateServices.certificates,
+    audit: security.audit,
+    approvals: security.approvals,
+  });
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
@@ -150,6 +158,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);
+  app.setResource('internalCaService', internalCaService);
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);
@@ -272,6 +281,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);
+  new InternalCaController(internalCaService, security).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
@@ -339,6 +349,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
     ...getCertificateRouteContracts(),
+    ...getInternalCaRouteContracts(),
     ...getCapabilitiesRouteContracts(),
     ...getAgentsRouteContracts(),
     ...getGatewayRouteContracts(),

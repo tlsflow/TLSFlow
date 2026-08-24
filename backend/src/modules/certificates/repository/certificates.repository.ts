@@ -144,19 +144,25 @@ export class PgCertificatesRepository implements CertificatesRepository {
               not_before = $9::timestamptz,
               not_after = $10::timestamptz,
               fingerprint_sha256 = $11,
-              public_key_algorithm = $12,
-              signature_algorithm = $13,
-              leaf_storage_ref = $14,
-              private_key_secret_ref = $15,
-              chain_certificate_refs = $16::jsonb,
-              chain_order = $17::jsonb,
-              chain_diagnostics = $18::jsonb,
-              chain_status = $19,
-              deployable = $20,
-              source_type = $21,
-              status = $22,
-              created_by = $23,
-              created_at = $24::timestamptz
+              public_key_fingerprint_sha256 = $12,
+              public_key_algorithm = $13,
+              signature_algorithm = $14,
+              leaf_storage_ref = $15,
+              private_key_secret_ref = $16,
+              chain_certificate_refs = $17::jsonb,
+              chain_order = $18::jsonb,
+              chain_diagnostics = $19::jsonb,
+              chain_status = $20,
+              deployable = $21,
+              source_type = $22,
+              status = $23,
+              created_by = $24,
+              created_at = $25::timestamptz,
+              issuing_ca_id = $26,
+              certificate_request_id = $27,
+              certificate_profile_version_id = $28,
+              key_reference_id = $29,
+              key_custody_mode = $30
         where id = $1`,
       [
         id,
@@ -170,6 +176,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.notBefore,
         next.notAfter,
         next.fingerprintSha256,
+        next.publicKeyFingerprintSha256 ?? null,
         next.publicKeyAlgorithm,
         next.signatureAlgorithm,
         next.leafStorageRef,
@@ -183,6 +190,11 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.status,
         next.createdBy,
         next.createdAt,
+        next.issuingCaId ?? null,
+        next.certificateRequestId ?? null,
+        next.certificateProfileVersionId ?? null,
+        next.keyReferenceId ?? null,
+        next.keyCustodyMode ?? null,
       ],
     );
     return next;
@@ -213,12 +225,14 @@ export class PgCertificatesRepository implements CertificatesRepository {
     await this.db.query(
       `insert into pg_certificate_versions (
          id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
-         not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+         not_before, not_after, fingerprint_sha256, public_key_fingerprint_sha256, public_key_algorithm, signature_algorithm,
          leaf_storage_ref, private_key_secret_ref, chain_certificate_refs, chain_order, chain_diagnostics,
-         chain_status, deployable, source_type, status, created_by, created_at
+         chain_status, deployable, source_type, status, created_by, created_at,
+         issuing_ca_id, certificate_request_id, certificate_profile_version_id, key_reference_id, key_custody_mode
        ) values (
          $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::timestamptz, $10::timestamptz,
-         $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz
+         $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24, $25::timestamptz,
+         $26, $27, $28, $29, $30
        )`,
       [
         entity.id,
@@ -232,6 +246,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.notBefore,
         entity.notAfter,
         entity.fingerprintSha256,
+        entity.publicKeyFingerprintSha256 ?? null,
         entity.publicKeyAlgorithm,
         entity.signatureAlgorithm,
         entity.leafStorageRef,
@@ -245,6 +260,11 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.status,
         entity.createdBy,
         entity.createdAt,
+        entity.issuingCaId ?? null,
+        entity.certificateRequestId ?? null,
+        entity.certificateProfileVersionId ?? null,
+        entity.keyReferenceId ?? null,
+        entity.keyCustodyMode ?? null,
       ],
     );
     return structuredClone(entity);
@@ -425,10 +445,16 @@ type CertificateVersionRow = {
   not_before: DbTime;
   not_after: DbTime;
   fingerprint_sha256: string;
+  public_key_fingerprint_sha256?: string | null;
   public_key_algorithm: string;
   signature_algorithm: string;
   leaf_storage_ref: string;
   private_key_secret_ref?: string | null;
+  issuing_ca_id?: string | null;
+  certificate_request_id?: string | null;
+  certificate_profile_version_id?: string | null;
+  key_reference_id?: string | null;
+  key_custody_mode?: CertificateVersionEntity['keyCustodyMode'] | null;
   chain_certificate_refs: unknown;
   chain_order: unknown;
   chain_diagnostics: unknown;
@@ -485,10 +511,16 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
     notBefore: toIsoText(row.not_before),
     notAfter: toIsoText(row.not_after),
     fingerprintSha256: row.fingerprint_sha256,
+    publicKeyFingerprintSha256: row.public_key_fingerprint_sha256 ?? undefined,
     publicKeyAlgorithm: row.public_key_algorithm,
     signatureAlgorithm: row.signature_algorithm,
     leafStorageRef: row.leaf_storage_ref,
     privateKeySecretRef: row.private_key_secret_ref ?? undefined,
+    issuingCaId: row.issuing_ca_id ?? undefined,
+    certificateRequestId: row.certificate_request_id ?? undefined,
+    certificateProfileVersionId: row.certificate_profile_version_id ?? undefined,
+    keyReferenceId: row.key_reference_id ?? undefined,
+    keyCustodyMode: row.key_custody_mode ?? undefined,
     chainCertificateRefs: asStringArray(row.chain_certificate_refs),
     chainOrder: asStringArray(row.chain_order),
     chainDiagnostics: asStringArray(row.chain_diagnostics),

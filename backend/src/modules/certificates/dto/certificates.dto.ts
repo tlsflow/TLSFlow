@@ -32,6 +32,7 @@ export interface CertificateVersionDto {
   notBefore: string;
   notAfter: string;
   fingerprintSha256: string;
+  publicKeyFingerprintSha256?: string;
   publicKeyAlgorithm: string;
   signatureAlgorithm: string;
   leafStorageRef: string;
@@ -138,6 +139,13 @@ export interface ImportCertificateVersionInput {
   pfxPassword?: string;
   declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
+  existingPrivateKeySecretRef?: string;
+  allowCertificateOnly?: boolean;
+  issuingCaId?: string;
+  certificateRequestId?: string;
+  certificateProfileVersionId?: string;
+  keyReferenceId?: string;
+  keyCustodyMode?: 'local_agent' | 'managed_secret' | 'external_key' | 'device_local';
   sourceType?: CertificateSourceType;
   name?: string;
   tags?: string[];

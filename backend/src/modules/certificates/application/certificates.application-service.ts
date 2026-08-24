@@ -232,7 +232,11 @@ export class CertificatesApplicationService {
 
   async importVersion(input: ImportCertificateVersionInput, context?: RequestContext): Promise<ImportCertificateVersionResult> {
     const bundle = this.domain.validateCertificateMaterial(input, input.privateKeyPem);
-    this.assertImportableChain(bundle.importable, bundle.blockers);
+    const acceptsExternalKeyReference = Boolean(input.allowCertificateOnly || input.existingPrivateKeySecretRef);
+    const blockers = acceptsExternalKeyReference
+      ? bundle.blockers.filter((item) => !item.startsWith('缺少私钥'))
+      : bundle.blockers;
+    this.assertImportableChain(blockers.length === 0, blockers);
     const parsed = bundle.leaf;
     if (await this.repository.getVersionByFingerprint(parsed.fingerprintSha256)) {
       throw new AppError('CERT_DUPLICATE_VERSION', '重复 fingerprintSha256 的证书版本已存在', {
@@ -240,7 +244,7 @@ export class CertificatesApplicationService {
       });
     }
 
-    let privateKeySecretRef: string | undefined;
+    let privateKeySecretRef: string | undefined = input.existingPrivateKeySecretRef;
     let privateKeyMatched = false;
     const privateKeyPem = this.domain.extractPrivateKeyPem(input.privateKeyPem ?? bundle.decodedPrivateKeyPem);
     if (privateKeyPem) {
@@ -284,15 +288,24 @@ export class CertificatesApplicationService {
       notBefore: parsed.notBefore,
       notAfter: parsed.notAfter,
       fingerprintSha256: parsed.fingerprintSha256,
+      publicKeyFingerprintSha256: parsed.publicKeyFingerprintSha256,
       publicKeyAlgorithm: parsed.publicKeyAlgorithm,
       signatureAlgorithm: parsed.signatureAlgorithm,
       leafStorageRef,
       privateKeySecretRef,
+      issuingCaId: input.issuingCaId,
+      certificateRequestId: input.certificateRequestId,
+      certificateProfileVersionId: input.certificateProfileVersionId,
+      keyReferenceId: input.keyReferenceId,
+      keyCustodyMode: input.keyCustodyMode,
       chainCertificateRefs,
       chainOrder: bundle.chainOrder,
       chainDiagnostics: bundle.chainDiagnostics,
       chainStatus: bundle.chainStatus,
-      deployable: Boolean(privateKeySecretRef && privateKeyMatched && notExpired),
+      deployable: Boolean(notExpired && (
+        (privateKeySecretRef && (privateKeyMatched || Boolean(input.existingPrivateKeySecretRef)))
+        || (input.allowCertificateOnly && input.keyReferenceId)
+      )),
       sourceType,
       status: 'active',
       createdBy: input.createdBy,
@@ -318,7 +331,7 @@ export class CertificatesApplicationService {
       detail: {
         certificateAssetId: updatedAsset.id,
         fingerprintSha256: version.fingerprintSha256,
-        privateKeySecretRef: version.privateKeySecretRef,
+        keyCustodyMode: version.keyCustodyMode,
       },
     }).catch(() => undefined);
 

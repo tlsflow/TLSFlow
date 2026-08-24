@@ -1,4 +1,4 @@
-import { X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
+import { X509Certificate, createHash, createPrivateKey, createPublicKey } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import {
   FormatCodecRegistry,
@@ -20,6 +20,7 @@ export interface ParsedCertificate {
   notBefore: string;
   notAfter: string;
   fingerprintSha256: string;
+  publicKeyFingerprintSha256: string;
   publicKeyAlgorithm: string;
   signatureAlgorithm: string;
   x509: X509Certificate;
@@ -187,6 +188,9 @@ export class CertificatesDomainService {
       notBefore: new Date(x509.validFrom).toISOString(),
       notAfter: new Date(x509.validTo).toISOString(),
       fingerprintSha256: x509.fingerprint256.replaceAll(':', '').toLowerCase(),
+      publicKeyFingerprintSha256: createHash('sha256')
+        .update(x509.publicKey.export({ type: 'spki', format: 'der' }))
+        .digest('hex'),
       publicKeyAlgorithm: x509.publicKey.asymmetricKeyType ?? 'unknown',
       signatureAlgorithm: 'unknown',
       x509,

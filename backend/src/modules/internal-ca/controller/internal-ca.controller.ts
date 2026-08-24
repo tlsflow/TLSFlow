@@ -1,0 +1,382 @@
+import { AppError } from '../../../common/errors/app-error.js';
+import type { HttpRequest } from '../../../common/http/http-types.js';
+import type { Router } from '../../../common/http/router.js';
+import type { RouteContract } from '../../../common/openapi/route-contract.js';
+import type { SecuritySubject } from '../../../shared/security-types.js';
+import type { SecurityServices } from '../../security/security.controller.js';
+import type {
+  CreateAuthorityInput,
+  CreateCaProviderInput,
+  CreateCertificateRequestInput,
+  CreateProfileInput,
+  InternalCaApplicationService,
+  PreviewCaInput,
+} from '../application/internal-ca.application-service.js';
+
+const tags = ['Internal CA'];
+const tenantFallback = '00000000-0000-0000-0000-000000000000';
+
+export class InternalCaController {
+  constructor(private readonly service: InternalCaApplicationService, private readonly security: SecurityServices) {}
+
+  register(router: Router): void {
+    router.get('/api/v1/ca-providers', '查询 CA Provider', tags, (request) => this.listProviders(request));
+    router.post('/api/v1/ca-providers', '创建 CA Provider', tags, (request) => this.createProvider(request));
+    router.post('/api/v1/ca-providers/:id/test', '测试 CA Provider', tags, (request) => this.testProvider(request));
+    router.get('/api/v1/certificate-authorities', '查询证书机构', tags, (request) => this.listAuthorities(request));
+    router.post('/api/v1/certificate-authorities/preview', '预览 CA 拓扑风险', tags, (request) => this.previewAuthority(request));
+    router.post('/api/v1/certificate-authorities', '创建证书机构', tags, (request) => this.createAuthority(request));
+    router.get('/api/v1/certificate-profiles', '查询证书 Profile', tags, (request) => this.listProfiles(request));
+    router.post('/api/v1/certificate-profiles', '创建证书 Profile', tags, (request) => this.createProfile(request));
+    router.post('/api/v1/certificate-profiles/:id/versions', '创建证书 Profile 版本', tags, (request) => this.createProfileVersion(request));
+    router.get('/api/v1/certificate-requests', '查询证书申请', tags, (request) => this.listRequests(request));
+    router.post('/api/v1/certificate-requests', '创建证书申请', tags, (request) => this.createRequest(request));
+    router.post('/api/v1/certificate-requests/:id/approve', '审批证书申请', tags, (request) => this.approveRequest(request));
+    router.post('/api/v1/certificate-requests/:id/retry', '重试证书签发', tags, (request) => this.retryRequest(request));
+    router.post('/api/v1/certificate-requests/:id/activate', '确认应用证书已安装', tags, (request) => this.activateRequest(request));
+    router.get('/api/v1/certificate-renewals', '查询证书续期任务', tags, (request) => this.listRenewals(request));
+    router.post('/api/v1/certificate-renewals/scan', '扫描并创建到期续期任务', tags, (request) => this.scanRenewals(request));
+    router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
+    router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
+    router.post('/api/v1/certificate-revocations/:id/approve', '审批并执行证书吊销', tags, (request) => this.approveRevocation(request));
+    router.get('/api/v1/ca-trust-distributions', '查询 CA 信任分发任务', tags, (request) => this.listTrustDistributions(request));
+    router.post('/api/v1/ca-trust-distributions', '创建 CA 信任分发任务', tags, (request) => this.createTrustDistribution(request));
+    router.post('/api/v1/ca-trust-distributions/:id/approve', '审批 CA 信任分发任务', tags, (request) => this.approveTrustDistribution(request));
+    router.post('/api/v1/ca-trust-distributions/:id/complete', '回传 CA 信任分发验证结果', tags, (request) => this.completeTrustDistribution(request));
+    router.get('/api/v1/reports/certificate-reuse/overview', '查询证书复用风险摘要', tags, (request) => this.certificateReuseOverview(request));
+    router.get('/api/v1/reports/certificate-reuse/items', '查询证书复用风险明细', tags, (request) => this.certificateReuseItems(request));
+    router.get('/api/v1/reports/certificate-reuse/export', '导出证书复用风险', tags, (request) => this.exportCertificateReuse(request));
+    router.post('/api/v1/reports/certificate-reuse/:id/remediation-preview', '预览证书复用风险整改', tags, (request) => this.previewCertificateReuseRemediation(request));
+    router.get('/api/v1/ca-nodes', '查询 CA Node', tags, (request) => this.listNodes(request));
+    router.post('/api/v1/ca-nodes/enrollment-tokens', '创建 CA Node 注册令牌', tags, (request) => this.createNodeEnrollmentToken(request));
+    router.post('/api/v1/ca-nodes/register', '注册 CA Node', tags, (request) => this.registerNode(request));
+    router.post('/api/v1/ca-nodes/heartbeat', '上报 CA Node 心跳', tags, (request) => this.heartbeatNode(request));
+    router.post('/api/v1/ca-nodes/tasks/lease', '获取 CA Node 任务', tags, (request) => this.leaseNodeTask(request));
+    router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
+  }
+
+  private async listProviders(request: HttpRequest) {
+    await this.assertRead(request, 'ca_provider');
+    return this.service.listProviders(tenantId(request));
+  }
+
+  private async createProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createProvider(tenantId(request), body as unknown as CreateCaProviderInput, actorId(request), request.context),
+    };
+  }
+
+  private async testProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return this.service.testProvider(tenantId(request), pathId(request));
+  }
+
+  private async listAuthorities(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_authority');
+    return this.service.listAuthorities(tenantId(request));
+  }
+
+  private async previewAuthority(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_authority');
+    return this.service.previewAuthority(objectBody(request) as unknown as PreviewCaInput);
+  }
+
+  private async createAuthority(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_authority');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createAuthority(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateAuthorityInput, request.context),
+    };
+  }
+
+  private async listProfiles(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_profile');
+    return this.service.listProfiles(tenantId(request));
+  }
+
+  private async createProfile(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_profile');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createProfile(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateProfileInput),
+    };
+  }
+
+  private async createProfileVersion(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_profile');
+    return {
+      statusCode: 201,
+      body: await this.service.createProfileVersion(tenantId(request), pathId(request), objectBody(request), actorId(request)),
+    };
+  }
+
+  private async listRequests(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_request');
+    return this.service.listRequests(tenantId(request));
+  }
+
+  private async createRequest(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createCertificateRequest(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateCertificateRequestInput, request.context),
+    };
+  }
+
+  private async approveRequest(request: HttpRequest) {
+    await this.assertApprove(request);
+    const body = objectBody(request);
+    return this.service.approveRequest(tenantId(request), pathId(request), actorId(request), requiredString(body, 'approvalId'), request.context);
+  }
+
+  private async retryRequest(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    return this.service.issueRequest(tenantId(request), pathId(request), actorId(request), request.context);
+  }
+
+  private async activateRequest(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    return this.service.markRequestActive(tenantId(request), pathId(request));
+  }
+
+  private async listRenewals(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_renewal');
+    return this.service.listRenewals(tenantId(request));
+  }
+
+  private async scanRenewals(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    return this.service.scheduleDueRenewals(tenantId(request), actorId(request), new Date(), request.context);
+  }
+
+  private async listRevocations(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_revocation');
+    return this.service.listRevocations(tenantId(request));
+  }
+
+  private async createRevocation(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_revocation');
+    const body = objectBody(request);
+    return { statusCode: 201, body: await this.service.requestRevocation(
+      tenantId(request), requiredString(body, 'certificateVersionId'), requiredString(body, 'reason'), actorId(request), request.context,
+    ) };
+  }
+
+  private async approveRevocation(request: HttpRequest) {
+    await this.assertApprove(request);
+    const body = objectBody(request);
+    return this.service.approveRevocation(tenantId(request), pathId(request), requiredString(body, 'approvalId'), actorId(request));
+  }
+
+  private async listTrustDistributions(request: HttpRequest) {
+    await this.assertRead(request, 'trust_distribution');
+    return this.service.listTrustDistributions(tenantId(request));
+  }
+
+  private async createTrustDistribution(request: HttpRequest) {
+    await this.assertManage(request, 'trust_distribution');
+    const body = objectBody(request);
+    const targetScope = body.targetScope;
+    if (!targetScope || typeof targetScope !== 'object' || Array.isArray(targetScope)) throw new AppError('VALIDATION_FAILED', 'targetScope 必须是对象');
+    return { statusCode: 201, body: await this.service.createTrustDistribution(
+      tenantId(request), requiredString(body, 'caId'), targetScope as Record<string, unknown>, actorId(request), request.context,
+    ) };
+  }
+
+  private async approveTrustDistribution(request: HttpRequest) {
+    await this.assertApprove(request);
+    return this.service.approveTrustDistribution(tenantId(request), pathId(request), requiredString(objectBody(request), 'approvalId'));
+  }
+
+  private async completeTrustDistribution(request: HttpRequest) {
+    await this.assertManage(request, 'trust_distribution');
+    const body = objectBody(request);
+    const verification = body.verification && typeof body.verification === 'object' && !Array.isArray(body.verification)
+      ? body.verification as Record<string, unknown>
+      : {};
+    return this.service.completeTrustDistribution(tenantId(request), pathId(request), body.verified === true, verification);
+  }
+
+  private async certificateReuseOverview(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_reuse_risk');
+    return this.service.certificateReuseRiskOverview(tenantId(request));
+  }
+
+  private async certificateReuseItems(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_reuse_risk');
+    return this.service.analyzeCertificateReuseRisks(tenantId(request));
+  }
+
+  private async exportCertificateReuse(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_reuse_risk');
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="certificate-reuse-risks.csv"' },
+      body: await this.service.exportCertificateReuseRisks(tenantId(request)),
+    };
+  }
+
+  private async previewCertificateReuseRemediation(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_reuse_risk');
+    return this.service.previewCertificateReuseRemediation(tenantId(request), pathId(request));
+  }
+
+  private async listNodes(request: HttpRequest) {
+    await this.assertRead(request, 'ca_node');
+    return this.service.listNodes(tenantId(request), optionalQuery(request, 'providerId'));
+  }
+
+  private async createNodeEnrollmentToken(request: HttpRequest) {
+    await this.assertManage(request, 'ca_node');
+    const body = objectBody(request);
+    return this.service.createNodeEnrollmentToken(
+      tenantId(request),
+      requiredString(body, 'providerId'),
+      actorId(request),
+      optionalNumber(body, 'ttlMinutes') ?? 15,
+    );
+  }
+
+  private async registerNode(request: HttpRequest) {
+    return { statusCode: 201, body: await this.service.registerNode(objectBody(request) as never) };
+  }
+
+  private async heartbeatNode(request: HttpRequest) {
+    const body = objectBody(request);
+    return this.service.heartbeatNode(tenantId(request), requiredString(body, 'nodeId'), body as never);
+  }
+
+  private async leaseNodeTask(request: HttpRequest) {
+    const body = objectBody(request);
+    return this.service.leaseNodeTask(tenantId(request), requiredString(body, 'nodeId'));
+  }
+
+  private async completeNodeTask(request: HttpRequest) {
+    const body = objectBody(request);
+    return this.service.completeNodeTask(tenantId(request), requiredString(body, 'nodeId'), pathId(request), body as never);
+  }
+
+  private async assertRead(request: HttpRequest, resourceType: string): Promise<void> {
+    await this.assertCanAny(request, ['certificate.read', 'certificate.asset.read'], resourceType);
+  }
+
+  private async assertManage(request: HttpRequest, resourceType: string): Promise<void> {
+    await this.assertCanAny(request, ['certificate.import', 'certificate.asset.update'], resourceType);
+  }
+
+  private async assertApprove(request: HttpRequest): Promise<void> {
+    await this.assertCanAny(request, ['approval.decide', 'certificate.import'], 'certificate_request');
+  }
+
+  private async assertCanAny(request: HttpRequest, actions: string[], resourceType: string): Promise<void> {
+    const subject = subjectFromRequest(request);
+    let lastError: unknown;
+    for (const action of actions) {
+      try {
+        await this.security.rbac.assertCan(subject, action, {
+          type: resourceType,
+          scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+        }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+}
+
+export function getInternalCaRouteContracts(): RouteContract[] {
+  const responseSchema = { type: 'object', additionalProperties: true } as const;
+  const arraySchema = { type: 'array', items: responseSchema } as const;
+  return [
+    { method: 'GET', path: '/api/v1/ca-providers', operationId: 'listCaProviders', summary: '查询 CA Provider', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/ca-providers', operationId: 'createCaProvider', summary: '创建 CA Provider', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-providers/:id/test', operationId: 'testCaProvider', summary: '测试 CA Provider', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/certificate-authorities', operationId: 'listCertificateAuthorities', summary: '查询证书机构', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/certificate-authorities/preview', operationId: 'previewCertificateAuthority', summary: '预览 CA 拓扑风险', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-authorities', operationId: 'createCertificateAuthority', summary: '创建证书机构', tags, responseSchema: arraySchema },
+    { method: 'GET', path: '/api/v1/certificate-profiles', operationId: 'listCertificateProfiles', summary: '查询证书 Profile', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/certificate-profiles', operationId: 'createCertificateProfile', summary: '创建证书 Profile', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-profiles/:id/versions', operationId: 'createCertificateProfileVersion', summary: '创建证书 Profile 版本', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/certificate-requests', operationId: 'listCertificateRequests', summary: '查询证书申请', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/certificate-requests', operationId: 'createCertificateRequest', summary: '创建证书申请', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-requests/:id/approve', operationId: 'approveCertificateRequest', summary: '审批证书申请', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-requests/:id/retry', operationId: 'retryCertificateRequest', summary: '重试证书签发', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-requests/:id/activate', operationId: 'activateCertificateRequest', summary: '确认应用证书已安装', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/certificate-renewals', operationId: 'listCertificateRenewals', summary: '查询证书续期任务', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/certificate-renewals/scan', operationId: 'scanCertificateRenewals', summary: '扫描并创建到期续期任务', tags, responseSchema: arraySchema },
+    { method: 'GET', path: '/api/v1/certificate-revocations', operationId: 'listCertificateRevocations', summary: '查询证书吊销任务', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/certificate-revocations', operationId: 'createCertificateRevocation', summary: '创建证书吊销任务', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-revocations/:id/approve', operationId: 'approveCertificateRevocation', summary: '审批并执行证书吊销', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/ca-trust-distributions', operationId: 'listCaTrustDistributions', summary: '查询 CA 信任分发任务', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/ca-trust-distributions', operationId: 'createCaTrustDistribution', summary: '创建 CA 信任分发任务', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-trust-distributions/:id/approve', operationId: 'approveCaTrustDistribution', summary: '审批 CA 信任分发任务', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-trust-distributions/:id/complete', operationId: 'completeCaTrustDistribution', summary: '回传 CA 信任分发验证结果', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/reports/certificate-reuse/overview', operationId: 'getCertificateReuseRiskOverview', summary: '查询证书复用风险摘要', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/reports/certificate-reuse/items', operationId: 'listCertificateReuseRisks', summary: '查询证书复用风险明细', tags, responseSchema: arraySchema },
+    { method: 'GET', path: '/api/v1/reports/certificate-reuse/export', operationId: 'exportCertificateReuseRisks', summary: '导出证书复用风险', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/reports/certificate-reuse/:id/remediation-preview', operationId: 'previewCertificateReuseRemediation', summary: '预览证书复用风险整改', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/ca-nodes', operationId: 'listCaNodes', summary: '查询 CA Node', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/ca-nodes/enrollment-tokens', operationId: 'createCaNodeEnrollmentToken', summary: '创建 CA Node 注册令牌', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-nodes/register', operationId: 'registerCaNode', summary: '注册 CA Node', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-nodes/heartbeat', operationId: 'heartbeatCaNode', summary: '上报 CA Node 心跳', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-nodes/tasks/lease', operationId: 'leaseCaNodeTask', summary: '获取 CA Node 任务', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/ca-nodes/tasks/:id/result', operationId: 'completeCaNodeTask', summary: '回传 CA Node 任务结果', tags, responseSchema },
+  ];
+}
+
+function tenantId(request: HttpRequest): string {
+  return request.context.tenantId ?? tenantFallback;
+}
+
+function actorId(request: HttpRequest): string {
+  if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少操作者身份');
+  return request.context.actorId;
+}
+
+function subjectFromRequest(request: HttpRequest): SecuritySubject {
+  return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId } };
+}
+
+function objectBody(request: HttpRequest): Record<string, unknown> {
+  if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+    throw new AppError('VALIDATION_FAILED', '请求体必须是对象');
+  }
+  return { ...(request.body as Record<string, unknown>) };
+}
+
+function pathId(request: HttpRequest): string {
+  const value = request.query.id;
+  const queryId = Array.isArray(value) ? value[0] : value;
+  const segments = request.path.split('/').filter(Boolean);
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview'].includes(segment));
+  const id = queryId ?? (actionIndex > 0 ? segments[actionIndex - 1] : undefined);
+  if (!id) throw new AppError('VALIDATION_FAILED', 'id 不能为空');
+  return id;
+}
+
+function optionalQuery(request: HttpRequest, name: string): string | undefined {
+  const value = request.query[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function requiredString(body: Record<string, unknown>, field: string): string {
+  const value = body[field];
+  if (typeof value !== 'string' || !value.trim()) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
+  return value.trim();
+}
+
+function optionalNumber(body: Record<string, unknown>, field: string): number | undefined {
+  const value = body[field];
+  if (value === undefined) return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new AppError('VALIDATION_FAILED', `${field} 必须是数字`, { field });
+  return number;
+}
