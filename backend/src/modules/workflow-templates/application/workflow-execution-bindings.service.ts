@@ -41,8 +41,8 @@ function normalizeUpdate(current: CreateWorkflowExecutionBindingInput, input: Up
 
 async function validate(repository: WorkflowExecutionBindingsRepository, input: CreateWorkflowExecutionBindingInput) {
   if (input.workflowVersionSelection !== 'FIXED') throw new AppError('VALIDATION_FAILED','工作流执行绑定只支持 FIXED 固定版本策略', { code: 'WORKFLOW_VERSION_SELECTION_INVALID' });
-  if (!input.pluginVersionId?.trim() || !input.capabilityKey?.trim() || !input.workflowTemplateId?.trim() || !input.workflowVersionId?.trim()) {
-    throw new AppError('VALIDATION_FAILED','工作流执行绑定必须指定 PluginVersion、Capability、WorkflowTemplate 和 WorkflowVersion', { code: 'WORKFLOW_EXECUTION_BINDING_IDENTITY_REQUIRED' });
+  if (!input.pluginVersionId?.trim() || !input.capabilityKey?.trim() || !input.workflowKey?.trim() || !input.workflowTemplateId?.trim() || !input.workflowVersionId?.trim()) {
+    throw new AppError('VALIDATION_FAILED','工作流执行绑定必须指定 PluginVersion、Capability、Workflow、WorkflowTemplate 和 WorkflowVersion', { code: 'WORKFLOW_EXECUTION_BINDING_IDENTITY_REQUIRED' });
   }
   if (input.runner === 'GATEWAY' && !input.gatewayId) throw new AppError('VALIDATION_FAILED','GATEWAY Runner 必须指定 Gateway');
   if (input.runner === 'CONTROL_PLANE' && input.gatewayId) throw new AppError('VALIDATION_FAILED','CONTROL_PLANE Runner 不得指定 Gateway');
@@ -60,6 +60,7 @@ function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, ch
     code: 'WORKFLOW_EXECUTION_BINDING_CHAIN_MISSING',
     pluginVersionId: input.pluginVersionId,
     capabilityKey: input.capabilityKey,
+    workflowKey: input.workflowKey,
     workflowTemplateId: input.workflowTemplateId,
     workflowVersionId: input.workflowVersionId,
   });
@@ -78,11 +79,12 @@ function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, ch
       capabilityKey: input.capabilityKey,
     });
   }
-  if (chain.workflowTemplateId !== input.workflowTemplateId || chain.workflowVersionId !== input.workflowVersionId || chain.workflowVersionTemplateId !== input.workflowTemplateId) {
+  if (chain.workflowKey !== input.workflowKey || chain.workflowTemplateId !== input.workflowTemplateId || chain.workflowVersionId !== input.workflowVersionId || chain.workflowVersionTemplateId !== input.workflowTemplateId) {
     throw new AppError('VALIDATION_FAILED', '工作流执行绑定的 Template、WorkflowVersion 和插件绑定不一致', {
       code: 'WORKFLOW_EXECUTION_BINDING_VERSION_MISMATCH',
       workflowTemplateId: input.workflowTemplateId,
       workflowVersionId: input.workflowVersionId,
+      workflowKey: input.workflowKey,
       boundWorkflowTemplateId: chain.workflowTemplateId,
       boundWorkflowVersionId: chain.workflowVersionId,
       workflowVersionTemplateId: chain.workflowVersionTemplateId,

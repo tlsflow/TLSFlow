@@ -7,6 +7,7 @@ export interface WorkflowExecutionBinding {
   tenantId: string;
   pluginVersionId: string;
   capabilityKey: string;
+  workflowKey: string;
   workflowTemplateId: string;
   workflowVersionSelection: WorkflowExecutionVersionSelection;
   workflowVersionId: string;

@@ -14,6 +14,7 @@ import { PluginBindingsApplicationService } from '../../plugins/application/plug
 import { PluginBindingsRepository } from '../../plugins/repository/plugin-bindings.repository.js';
 import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js';
 import type { DevicePresentationSchemaV1 } from '../../plugins/presentations/plugin-presentation.dto.js';
+import type { PluginPackageFormResource, PluginPackagePresentationResource } from '../../plugins/application/plugin-package-resource-schema.service.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
@@ -67,7 +68,7 @@ export class DevicesApplicationService {
       ),
     ]);
     const capabilities = assignmentRows.rows.map((row) => row.capability_key);
-    const presentation = ui.presentations.device;
+    const presentation = asDevicePresentation(ui.presentations.device);
     const localizedResources = applyResourceLabels(device, presentation, ui.locale?.messages ?? {});
     return {
       ...device,
@@ -258,7 +259,7 @@ export class DevicesApplicationService {
     if (!capabilityKeys.includes('device.connection.test') || !capabilityKeys.includes('device.discover')) {
       throw new AppError('CAPABILITY_MISSING', '设备插件必须声明连接测试和发现能力', { pluginVersionId });
     }
-    const form = this.packageResources.validate(plugin.manifest, plugin.resources).forms.device;
+    const form = asPluginForm(this.packageResources.validate(plugin.manifest, plugin.resources).forms.device);
     if (!form || !['MANAGED', 'BOTH'].includes(form.mode)) {
       throw new AppError('VALIDATION_FAILED', '设备插件缺少 Managed 设备表单', { pluginVersionId });
     }
@@ -363,6 +364,18 @@ function applyResourceLabels(
       } : { ...site, presentation: undefined };
     }),
   };
+}
+
+function asDevicePresentation(resource: PluginPackagePresentationResource | undefined): DevicePresentationSchemaV1 | undefined {
+  return resource && 'schemaVersion' in resource && resource.schemaVersion === 'gcac.device-presentation/v1'
+    ? resource
+    : undefined;
+}
+
+function asPluginForm(resource: PluginPackageFormResource | undefined): PluginFormSchemaV1 | undefined {
+  return resource && 'schemaVersion' in resource && resource.schemaVersion === 'gcac.plugin-form/v1'
+    ? resource
+    : undefined;
 }
 
 function resolveAgentInstallPlatform(handlerKey: string | undefined): AgentInstallMaterialPlatform {

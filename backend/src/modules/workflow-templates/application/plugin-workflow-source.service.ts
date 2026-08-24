@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { compareSemanticVersions } from '../../plugins/application/unified-plugins.application-service.js';
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import type { PluginWorkflowBindingsRepository } from '../../plugins/repository/plugin-workflow-bindings.repository.js';
+import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 import type { CreateWorkflowDraftFromPluginInput, CreateWorkflowFromPluginInput, WorkflowPluginSource, WorkflowSourceCandidate } from '../dto/workflow-templates.dto.js';
 import type { WorkflowTemplatesApplicationService } from './workflow-templates.application-service.js';
 
@@ -32,6 +33,7 @@ export class PluginWorkflowSourceService {
         const binding = sourceBindings.find((item) => item.capabilityKey === 'certificate.deploy') ?? sourceBindings[0]!;
         if (!listableCapabilities.has(binding.capabilityKey)) continue;
         const source = await this.workflows.getVersion(binding.workflowVersionId);
+        if (isPluginWorkflowResource(source.content) || isPluginRunnerWorkflowVersion(source)) continue;
         if (source.status !== 'published' || source.contentHash !== binding.workflowContentSha256) continue;
         output.push({
           pluginId: plugin.pluginId,
@@ -107,6 +109,9 @@ export class PluginWorkflowSourceService {
     const binding = await this.bindings.find(pluginVersionId, capabilityKey);
     if (!binding) throw new AppError('PLUGIN_WORKFLOW_BINDING_MISSING', '插件能力缺少工作流绑定', { pluginVersionId, capabilityKey });
     const version = await this.workflows.getVersion(binding.workflowVersionId);
+    if (isPluginWorkflowResource(version.content) || isPluginRunnerWorkflowVersion(version)) {
+      throw new AppError('PLUGIN_WORKFLOW_SOURCE_UNAVAILABLE', 'PluginWorkflow 不能转换为用户 Curl/SSH 工作流');
+    }
     if (version.status !== 'published') throw new AppError('PLUGIN_WORKFLOW_SOURCE_UNAVAILABLE', '插件工作流版本尚未发布', { workflowVersionId: version.id });
     if (version.contentHash !== binding.workflowContentSha256) throw new AppError('PLUGIN_WORKFLOW_HASH_MISMATCH', '插件工作流绑定哈希与版本内容不一致', { workflowVersionId: version.id });
     return { plugin, binding, version };

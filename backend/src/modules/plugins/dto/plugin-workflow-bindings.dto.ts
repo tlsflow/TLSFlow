@@ -5,6 +5,7 @@ export interface PluginWorkflowBindingRecord {
   ownerType?: 'SYSTEM' | 'TENANT';
   ownerId?: string;
   capabilityKey: string;
+  workflowKey: string;
   workflowResourcePath: string;
   workflowTemplateId: string;
   workflowVersionId: string;

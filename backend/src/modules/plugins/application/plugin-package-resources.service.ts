@@ -1,34 +1,34 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
-import type { PluginFormSchemaV1 } from '../forms/plugin-form.dto.js';
-import { PluginFormSchemaService } from '../forms/plugin-form-schema.service.js';
 import { PluginLocaleService, type PluginLocaleBundle } from '../locales/plugin-locale.service.js';
-import type { DevicePresentationSchemaV1 } from '../presentations/plugin-presentation.dto.js';
-import { PluginPresentationSchemaService } from '../presentations/plugin-presentation-schema.service.js';
+import {
+  PluginPackageResourceSchemaService,
+  type PluginPackageFormResource,
+  type PluginPackagePresentationResource,
+} from './plugin-package-resource-schema.service.js';
 
 export interface ValidatedPluginPackageResources {
-  forms: Record<string, PluginFormSchemaV1>;
-  presentations: Record<string, DevicePresentationSchemaV1>;
+  forms: Record<string, PluginPackageFormResource>;
+  presentations: Record<string, PluginPackagePresentationResource>;
   locales?: PluginLocaleBundle;
 }
 
 export class PluginPackageResourcesService {
   constructor(
-    private readonly forms = new PluginFormSchemaService(),
+    private readonly resourceSchemas = new PluginPackageResourceSchemaService(),
     private readonly locales = new PluginLocaleService(),
-    private readonly presentations = new PluginPresentationSchemaService(),
   ) {}
 
   validate(manifest: UnifiedPluginManifestV1, resources: Record<string, string>): ValidatedPluginPackageResources {
     const capabilities = manifest.capabilities;
     const forms = Object.fromEntries(Object.entries(manifest.resources.forms ?? {}).map(([key, path]) => [
       key,
-      this.forms.validate(parseJsonResource(resources, path), capabilities),
+      this.resourceSchemas.validateForm(parseJsonResource(resources, path), manifest.pluginId, capabilities),
     ]));
     const capabilityKeys = capabilities.map((item) => item.key);
     const presentations = Object.fromEntries(Object.entries(manifest.resources.presentations ?? {}).map(([key, path]) => [
       key,
-      this.presentations.validate(parseJsonResource(resources, path), capabilityKeys),
+      this.resourceSchemas.validatePresentation(parseJsonResource(resources, path), manifest.pluginId, capabilityKeys),
     ]));
     const referencedKeys = collectLocaleKeys(manifest, forms, presentations);
     const locales = this.locales.validate(manifest, resources, referencedKeys);
@@ -47,27 +47,41 @@ function parseJsonResource(resources: Record<string, string>, path: string): unk
 
 function collectLocaleKeys(
   manifest: UnifiedPluginManifestV1,
-  forms: Record<string, PluginFormSchemaV1>,
-  presentations: Record<string, DevicePresentationSchemaV1>,
+  forms: Record<string, PluginPackageFormResource>,
+  presentations: Record<string, PluginPackagePresentationResource>,
 ): string[] {
   const keys = [manifest.displayNameKey, manifest.descriptionKey].filter(Boolean) as string[];
-  for (const form of Object.values(forms)) for (const section of form.sections) {
-    keys.push(section.titleKey);
-    if (section.descriptionKey) keys.push(section.descriptionKey);
-    for (const field of section.fields) {
-      keys.push(field.labelKey);
-      if (field.descriptionKey) keys.push(field.descriptionKey);
-      if (field.placeholderKey) keys.push(field.placeholderKey);
-      for (const option of field.options ?? []) keys.push(option.labelKey);
+  for (const form of Object.values(forms)) {
+    if (!('schemaVersion' in form) || form.schemaVersion !== 'gcac.plugin-form/v1') continue;
+    for (const section of form.sections) {
+      keys.push(section.titleKey);
+      if (section.descriptionKey) keys.push(section.descriptionKey);
+      for (const field of section.fields) {
+        keys.push(field.labelKey);
+        if (field.descriptionKey) keys.push(field.descriptionKey);
+        if (field.placeholderKey) keys.push(field.placeholderKey);
+        for (const option of field.options ?? []) keys.push(option.labelKey);
+      }
     }
   }
   for (const presentation of Object.values(presentations)) {
-    for (const framework of presentation.resourceLabels?.frameworks ?? []) keys.push(framework.labelKey);
-    for (const site of presentation.resourceLabels?.sites ?? []) keys.push(site.groupLabelKey, site.typeLabelKey);
-    for (const group of presentation.overview) {
-      keys.push(group.titleKey, ...group.fields.map((field) => field.labelKey));
+    if ('apiVersion' in presentation) continue;
+    if (presentation.schemaVersion === 'gcac.device-presentation/v1') {
+      for (const framework of presentation.resourceLabels?.frameworks ?? []) keys.push(framework.labelKey);
+      for (const site of presentation.resourceLabels?.sites ?? []) keys.push(site.groupLabelKey, site.typeLabelKey);
+      for (const group of presentation.overview) {
+        keys.push(group.titleKey, ...group.fields.map((field) => field.labelKey));
+      }
+      for (const tab of presentation.tabs) keys.push(tab.titleKey, ...tab.columns.map((column) => column.labelKey));
+      keys.push(...presentation.actions.map((action) => action.labelKey));
+      continue;
     }
-    for (const tab of presentation.tabs) keys.push(tab.titleKey, ...tab.columns.map((column) => column.labelKey));
+    if (presentation.schemaVersion === 'gcac.application-presentation/v1') {
+      keys.push(presentation.resourceLabels.applicationType, presentation.resourceLabels.profile);
+      for (const group of presentation.overview) keys.push(group.titleKey, ...group.fields.map((field) => field.labelKey));
+    } else {
+      for (const field of presentation.fields) keys.push(field.labelKey);
+    }
     keys.push(...presentation.actions.map((action) => action.labelKey));
   }
   return [...new Set(keys)].filter((key) => !key.startsWith('plugins.standardFields.'));

@@ -406,6 +406,8 @@ export interface WorkflowTemplateVersion {
   dslVersion: 'v1';
   content: WorkflowDslV1;
   contentHash: string;
+  /** P2 Runner 载荷的固定执行模式；旧宿主 DSL 版本不设置该字段。 */
+  executionMode?: 'PLUGIN_RUNNER';
   status: WorkflowTemplateVersionStatus;
   changeSummary?: string;
   pluginSource?: WorkflowPluginSource;

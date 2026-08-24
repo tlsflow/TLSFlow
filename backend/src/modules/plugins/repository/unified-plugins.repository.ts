@@ -13,10 +13,13 @@ export interface UnifiedPluginsRepository {
 }
 
 export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
-  constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
+  constructor(
+    private readonly db: DatabasePort = new PgliteDatabase(),
+    private readonly manageTransactions = true,
+  ) {}
 
   async saveVersion(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord> {
-    await this.db.transaction(async (tx) => {
+    const write = async (tx: DatabasePort): Promise<void> => {
       await tx.query(`
         insert into unified_plugin_versions (
           id, tenant_id, owner_type, owner_id, plugin_id, plugin_version, source, runtime, scope, trust, support,
@@ -45,7 +48,9 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
           on conflict (plugin_version_id, resource_path) do nothing
         `, [record.id, path, content, record.resourceSha256[path], record.createdAt]);
       }
-    });
+    };
+    if (this.manageTransactions) await this.db.transaction(write);
+    else await write(this.db);
     return record;
   }
 

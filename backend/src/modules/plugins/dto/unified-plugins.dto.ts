@@ -174,6 +174,7 @@ export interface UnifiedPluginReferenceCounts {
 
 export interface UnifiedPluginWorkflowVersionSummary {
   capabilityKey: string;
+  workflowKey: string;
   workflowResourcePath: string;
   workflowTemplateId: string;
   workflowVersionId: string;

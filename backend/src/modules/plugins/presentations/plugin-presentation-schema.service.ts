@@ -31,7 +31,7 @@ export class PluginPresentationSchemaService {
           presentationColumn(column, `presentation.tabs.${index}.columns.${columnIndex}`)),
       };
     });
-    const actions = array(schema.actions, 'presentation.actions').map((item, index) => {
+    const actions = (schema.actions === undefined ? [] : array(schema.actions, 'presentation.actions')).map((item, index) => {
       const action = record(item, `presentation.actions.${index}`);
       const capabilityKey = text(action.capabilityKey, `presentation.actions.${index}.capabilityKey`);
       if (!capabilityKeys.includes(capabilityKey)) fail(`presentation.actions.${index}.capabilityKey`, '动作引用未知能力', { capabilityKey });

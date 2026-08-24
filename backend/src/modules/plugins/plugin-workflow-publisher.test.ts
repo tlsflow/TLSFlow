@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { PluginWorkflowPublisherService } from './application/plugin-workflow-publisher.service.js';
+import { PluginWorkflowVersionStore } from './application/plugin-workflow-version-store.js';
 import type { PluginWorkflowBindingRecord } from './dto/plugin-workflow-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from './repository/plugin-workflow-bindings.repository.js';
@@ -12,20 +14,24 @@ import type { UnifiedPluginsRepository } from './repository/unified-plugins.repo
 test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建模板', async () => {
   const versions = new Map<string, UnifiedPluginVersionRecord>();
   const pluginService = new UnifiedPluginsApplicationService(pluginRepository(versions));
-  const [plugin] = await new BuiltinUnifiedPluginLoader().installAll(pluginService);
+  const installed = await new BuiltinUnifiedPluginLoader().installAll(pluginService);
+  const plugin = installed.find((item) => item.pluginId === 'device.citrix.netscaler-adc');
+  assert.ok(plugin);
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
-  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const pluginWorkflows = new PluginWorkflowVersionStore(new PgliteDatabase());
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings), pluginWorkflows);
 
   const first = await publisher.publishPlugin(plugin!);
   const second = await publisher.publishPlugin(plugin!);
 
-  assert.equal(first.length, 6);
-  assert.equal(second.length, 6);
-  assert.equal(first[0]?.workflowContentSha256, (await workflows.getVersion(first[0]!.workflowVersionId)).contentHash);
-  assert.equal((await workflows.listTemplates()).length, 3);
-  assert.equal((await publisher.require(plugin!.id, 'device.connection.test')).workflowVersionId, (await publisher.require(plugin!.id, 'device.identity.detect')).workflowVersionId);
-  assert.equal((await publisher.require(plugin!.id, 'certificate.deploy')).workflowVersionId, (await publisher.require(plugin!.id, 'certificate.rollback')).workflowVersionId);
+  assert.equal(first.length, 5);
+  assert.equal(second.length, 5);
+  assert.equal(first[0]?.workflowContentSha256, (await pluginWorkflows.getVersion(first[0]!.workflowVersionId)).contentHash);
+  assert.equal(new Set(first.map((item) => item.workflowTemplateId)).size, 4);
+  assert.deepEqual(second.map((item) => item.workflowTemplateId), first.map((item) => item.workflowTemplateId));
+  assert.notEqual((await publisher.require(plugin.id, 'device.connection.test')).workflowVersionId, (await publisher.require(plugin.id, 'device.identity.detect')).workflowVersionId);
+  assert.equal((await publisher.require(plugin.id, 'certificate.deploy')).workflowVersionId, (await publisher.require(plugin.id, 'certificate.rollback')).workflowVersionId);
 });
 
 test('插件升级复用原工作流模板并追加不可变版本', async () => {
@@ -82,6 +88,7 @@ test('插件发布遇到已存在的 Workflow 内容时复用现有版本', asyn
     pluginId: legacyPlugin.pluginId,
     ownerType: 'SYSTEM',
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowResourcePath: 'workflows/deploy.json',
     workflowTemplateId: internal.template.id,
     workflowVersionId: publishedLegacy.id,
@@ -128,12 +135,12 @@ function pluginRepository(records: Map<string, UnifiedPluginVersionRecord>): Uni
 }
 
 function workflowRepository(records: Map<string, PluginWorkflowBindingRecord>): PluginWorkflowBindingsRepositoryPort {
-  const key = (pluginVersionId: string, capabilityKey: string) => `${pluginVersionId}:${capabilityKey}`;
+  const key = (pluginVersionId: string, capabilityKey: string, workflowKey = capabilityKey) => `${pluginVersionId}:${capabilityKey}:${workflowKey}`;
   return {
-    save: async (record) => { records.set(key(record.pluginVersionId, record.capabilityKey), record); return record; },
-    find: async (pluginVersionId, capabilityKey) => records.get(key(pluginVersionId, capabilityKey)),
-    findByResource: async (pluginVersionId, workflowResourcePath) => [...records.values()].find((record) => record.pluginVersionId === pluginVersionId && record.workflowResourcePath === workflowResourcePath),
-    findLatestByPluginResource: async (_tenantId, pluginId, workflowResourcePath) => [...records.values()].reverse().find((record) => record.pluginVersionId.startsWith(`${pluginId}:`) && record.workflowResourcePath === workflowResourcePath),
+    save: async (record) => { records.set(key(record.pluginVersionId, record.capabilityKey, record.workflowKey), record); return record; },
+    find: async (pluginVersionId, capabilityKey, workflowKey) => [...records.values()].find((record) => record.pluginVersionId === pluginVersionId && record.capabilityKey === capabilityKey && (!workflowKey || record.workflowKey === workflowKey)),
+    findByResource: async (pluginVersionId, workflowResourcePath, workflowKey) => [...records.values()].find((record) => record.pluginVersionId === pluginVersionId && record.workflowResourcePath === workflowResourcePath && (!workflowKey || record.workflowKey === workflowKey)),
+    findLatestByPluginResource: async (_tenantId, pluginId, workflowResourcePath, capabilityKey, workflowKey) => [...records.values()].reverse().find((record) => record.pluginVersionId.startsWith(`${pluginId}:`) && record.workflowResourcePath === workflowResourcePath && (!capabilityKey || record.capabilityKey === capabilityKey) && (!workflowKey || record.workflowKey === workflowKey)),
     listCurrent: async () => [...records.values()],
     list: async (pluginVersionId) => [...records.values()].filter((record) => record.pluginVersionId === pluginVersionId),
     listAll: async () => [...records.values()],

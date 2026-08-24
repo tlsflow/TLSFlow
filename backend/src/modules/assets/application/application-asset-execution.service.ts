@@ -61,6 +61,7 @@ function isSameWorkflowExecutionBinding(
     tenantId: current.tenantId,
     pluginVersionId: current.pluginVersionId,
     capabilityKey: current.capabilityKey,
+    workflowKey: current.workflowKey,
     workflowTemplateId: current.workflowTemplateId,
     workflowVersionSelection: current.workflowVersionSelection,
     workflowVersionId: current.workflowVersionId,

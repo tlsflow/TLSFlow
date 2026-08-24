@@ -5,7 +5,7 @@
       "pluginId": "app.java-keystore",
       "version": "1.0.0",
       "packageSha256": "sha256:c047b5dadced7e3b1bb07b5b00b536991155e045306bbedf57c3595b167cd1b3",
-      "manifestSha256": "sha256:c3de4c992bda9ab5f7a1bdd40f3307571dc98cae2bb102464b6b9468cd1bc24b",
+      "manifestSha256": "sha256:fe6a74c0df40da957d9abec6404ab7b893f4250a900048dc7939df9d9d6e7bbc",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:507461da0b121357f00689aa14d61eda8082a4afc5ea85d99681b4e377896fd4",
         "locales/en-US.json": "sha256:b73724972dd56ed7bab74853a66c33f647c9eb6052349357dc706c1d571752cf",
@@ -25,7 +25,7 @@
       "pluginId": "app.rabbitmq",
       "version": "1.0.0",
       "packageSha256": "sha256:d154ea15c74d147d1a837d69be7ef2b680d6a0b95805bf31a36018129888546b",
-      "manifestSha256": "sha256:32f332cce88e4a0efdcbbadee579068bdfa34aa5e0978507c6ad22223cfb6ee3",
+      "manifestSha256": "sha256:6b83967aee836618c067a06fd91eb8f3777fb6a0cd7ae4427fc16ca2e9f2b101",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:55ff875a16b7ea35d81ead1b774fb3dbe68858f5ae1cf78b6f4a68cde5a8879c",
         "locales/en-US.json": "sha256:d9b1401ddb853528ced41e16b9d6a2d3a9c6b9efc57a2fa4b302423266433a5e",
@@ -45,7 +45,7 @@
       "pluginId": "app.service-certificate-file",
       "version": "1.0.0",
       "packageSha256": "sha256:a6f2b36d1722d560ffe4b00aaa4a704c93520deccd6a0b8539ae96cd8a290b53",
-      "manifestSha256": "sha256:7b6333cf2097cfe9dbe1e5b2bbbe7e5d8118e36c13355840d78bcd1998c6f02a",
+      "manifestSha256": "sha256:76dc8a5b7283b106011f5c98617b1a6228ec0ee27b76b4bf834b555895402f17",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:3e0124b3099d6435855374a2df7ed55f557aa7f5db7283b427034bf1b16aea94",
         "locales/en-US.json": "sha256:b5c5177cf99073571b04c378010562b98adc971c8119e6dc00e501ec325ab543",
@@ -65,7 +65,7 @@
       "pluginId": "app.tomcat",
       "version": "1.0.0",
       "packageSha256": "sha256:71b008556772aba9e65033d0bae0d8f279bfd7d16016ec486894abd4eac696a8",
-      "manifestSha256": "sha256:ce48ba2e98eb1096f42d463f795bca583d00f1885adef5f5881d7d08682c9835",
+      "manifestSha256": "sha256:6452fd8be751f0637060a6fd5252dec8ce3ba87e0cb4a7702e22c0d37497e7d5",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:5a295e731be1f451ea01b5ae68bac36f75ae4ddf022a491ccda340b9110de2cd",
         "locales/en-US.json": "sha256:eca5011ba97ca93a160234a4ead5bf40404505dd94031925aadb978d82da7069",
@@ -85,7 +85,7 @@
       "pluginId": "ca.acme",
       "version": "1.0.0",
       "packageSha256": "sha256:5237750b967ccd165d0228dd2d0db8d3d14ac86f45240088383e42d058ec74a2",
-      "manifestSha256": "sha256:d353f1d4e4859ca3da4fdaa7476622ee500db594fb614955a89c528ba6ed13d4",
+      "manifestSha256": "sha256:5b8f5715664abc14669bcd29269b67b11c54c82a4479c44e6404d515daa6bc4f",
       "resourceSha256": {
         "forms/acme.json": "sha256:23229da10eec751176df0374086fd52856c09679c7ece3c2279ce46e32061caf",
         "locales/en-US.json": "sha256:9107020657e11e13032a75b0642fc2a32f646e328d71d7b3da4e4acdbcee0533",
@@ -107,7 +107,7 @@
       "pluginId": "ca.acme-dns",
       "version": "1.0.0",
       "packageSha256": "sha256:48e7f25aaa949657bc0d5692afc6b209a50adaa8cfebcc1e99e516987ab15a97",
-      "manifestSha256": "sha256:2a8fe684415f414c4512f5d5969ed86835001451622d117bf1c713aba490e25c",
+      "manifestSha256": "sha256:fb90bb35f11f6b1154f69619670c3e5c379ea1e806654f2d70dbc01bad2bac98",
       "resourceSha256": {
         "forms/dns-solver.json": "sha256:7a377dfb2863fa0c4a98cefee1df064e164d322a7b940e431cb55acd8aa322c1",
         "locales/en-US.json": "sha256:e2eedac188922a861a5a38639a10be16be4affc1aeee0b32d150d5c6fa3f6789",
@@ -123,7 +123,7 @@
       "pluginId": "ca.microsoft-adcs",
       "version": "1.0.0",
       "packageSha256": "sha256:8c0a4212cac7fc35bd5cf9a2e40626582aa30c79f70ebc45c123f2993c565f26",
-      "manifestSha256": "sha256:8770a9bb2d0a0f9264ddb892932455f0d76b680517497fec7b7b5989c6cfa86d",
+      "manifestSha256": "sha256:54100475490b4ad32f0ad7744c1bbcfa6a9bc852ca79dc6a5eb01a88b0811eaa",
       "resourceSha256": {
         "forms/certificate-request.json": "sha256:41fca0c91610dd246aa65da35559c48fef34f99e164a967c65620b120e338c13",
         "locales/en-US.json": "sha256:39c51474eee292179e041ee1f5d866dc11dd4d8ff6ab9d1c69712dab0fce4059",
@@ -142,7 +142,7 @@
       "pluginId": "ca.openssl",
       "version": "1.0.0",
       "packageSha256": "sha256:a96ff1d8985e691839d1dee91f51b4bd0a12ea19157ef13bd343932da699f0bb",
-      "manifestSha256": "sha256:2a377cbe1ad95d37c0cba24f2cf10f3a36f3333f8c6ceb556234241838c06341",
+      "manifestSha256": "sha256:bc72e4338dd9aaddd001df5393198c6e0b0aa97bef6759cb38bae2990398313f",
       "resourceSha256": {
         "forms/certificate-request.json": "sha256:8ad2747e4cdac627bff9850019924a0c4bee1ec353e452f4a7f43d4356ad9cd5",
         "locales/en-US.json": "sha256:0ffb670c508347a84e10a24cb08e9d3b3256cf6a4fe4ad9d8713f6ba0f61684f",
@@ -181,7 +181,7 @@
       "pluginId": "cloud.aliyun",
       "version": "2.0.0",
       "packageSha256": "sha256:496cdde4ad34694411b86976fb67f076f85bfb0a3ad94cff7d4e7a60c2fe5145",
-      "manifestSha256": "sha256:61e0f0cc20e32a927b80f1d27f0dd9fcaac0cb667e579767a40fd906eac4bb28",
+      "manifestSha256": "sha256:9afb5ee2e47223dbd58bcde984bd6997d22a2313dc8c82d3bb729e8e88d8b56f",
       "resourceSha256": {
         "discovery/aliyun-cdn.json": "sha256:c9dba6f8b77249c26b5b596cf48331ce85131a1486c442bcaef517b3d77cd045",
         "forms/cloud.json": "sha256:36e0222e19c17aac97461ba0ad35b4e902cab801e0dfc46b1a8bcff0c3d6e5bf",
@@ -221,7 +221,7 @@
       "pluginId": "cloud.huawei",
       "version": "2.0.0",
       "packageSha256": "sha256:c4fb62728d8600717ab1bee6a1971faee22012edb2f5c318a8fc52bfb38703f3",
-      "manifestSha256": "sha256:f62dbee989d236221dc2cff5f28592a8acf99cf4795e0fc090e7bf0f507da01c",
+      "manifestSha256": "sha256:44be9315372c3bec8fd09c0d4303a741a1cdf6492ac651fdbb50cae12d4f9f47",
       "resourceSha256": {
         "discovery/huawei-cloud.json": "sha256:2edd0da2e14938c4d1373597f06dd31602060e068e9afcde3239c656c05e5a14",
         "forms/cloud.json": "sha256:5160b47651af9dd1acef3219be1db6dde188accd0d097e4f6e8c6d6dd12b9217",
@@ -261,7 +261,7 @@
       "pluginId": "cloud.tencent",
       "version": "2.0.0",
       "packageSha256": "sha256:c58012603e1a0831175cf144d5444d51c9241a36f7740d1825a8422430129f78",
-      "manifestSha256": "sha256:cd364f841bae21341b925054b0d1904934323b03e15d12ec5ff43dd9aad37105",
+      "manifestSha256": "sha256:dc654bf1d8bdd61017adfec45c1f29acd0e602a67ac1d066d7a98deeacec79e2",
       "resourceSha256": {
         "discovery/tencent-cloud.json": "sha256:117c2094e090b4ae73d470e998adbcabfdb9b107254a43962fa840b5edf858d0",
         "forms/cloud.json": "sha256:2e64e37953f5b3b3f9148e8b9690082a0da3b4d82929f6ead3c7549b634de823",
@@ -301,7 +301,7 @@
       "pluginId": "cloud.volcengine",
       "version": "2.0.0",
       "packageSha256": "sha256:ca2c45090abf7d0ddf734b5234256356a0c6309a87f48855db696d09793e9ad4",
-      "manifestSha256": "sha256:3b08c7c443eb50f1d23c5ce55eb3095c70b84041fab9d04d534a560cf54d3832",
+      "manifestSha256": "sha256:2edb98ed9bbd8627b35e497ac881fec71f1bf6b7b0038cd0ad3656a0a0f42f65",
       "resourceSha256": {
         "discovery/volcengine-vod.json": "sha256:3b8923934242641f1400ce2b980a92f30e430d1768d5511d283e924f6eea9777",
         "forms/cloud.json": "sha256:8debc7f5376568e5c829059e55e075c0e8fd572fa4ebc7b3882e24a4b9f53ee2",
@@ -330,8 +330,8 @@
     {
       "pluginId": "device.citrix.netscaler-adc",
       "version": "2.0.0",
-      "packageSha256": "sha256:b564861feaf3d819652d72a91d250caa87ee375084c35ea2109d70ea25ddf6fd",
-      "manifestSha256": "sha256:900ac201e4d0406543a6597214eea966272cbadc63a64a919bad8101b77d90e1",
+      "packageSha256": "sha256:c82f8356dd0c6794d4cf888c4005c4f5ed9507fd134e77523efa86085afc239a",
+      "manifestSha256": "sha256:feeee2b733164ae754ca85015ee9587dae2c0f69473bf6e0802ba8a1c8c51fc5",
       "resourceSha256": {
         "discovery/nitro-13.1.json": "sha256:d71ab87b30e7c796edc3a3c628bf935e6cf92aaf929e432e0b927dd1bf46cf91",
         "forms/device.json": "sha256:39df73ad070523655bf80d6b8c7aa6c2108afb798d1f18fafa043835c3b8c583",
@@ -347,16 +347,43 @@
         "runtime/index.js": "sha256:9cf1fc74c71e385710ca55c4e1a429a29fc39e35d26a51cd7cbbebadc02acc1d",
         "workflows/certificate-deploy.json": "sha256:b98a23ab6b876b176eb9a42a7e035ea92503e41c9ce7dbc3165ae3afe1e5bfd3",
         "workflows/connection-test.json": "sha256:5c30ccc302b27aa25e95117d19457ac5bf7caedfec6ddbdee47d4cd21859a819",
-        "workflows/discover.json": "sha256:7441e3a07fe31046f472a4ae8621aa0add3c2f0e734e642303ccc0a89e58553f"
+        "workflows/discover.json": "sha256:7441e3a07fe31046f472a4ae8621aa0add3c2f0e734e642303ccc0a89e58553f",
+        "workflows/identity-detect.json": "sha256:8819904bece2d44284c5cacb25bc3183eb2f129e343a7281116e3985c7ecd52c"
       },
-      "resourceHash": "sha256:c5e284ec68689e9cff75e86fd60ccc8a3889af63d48d7234419de4406843e6e9",
+      "resourceHash": "sha256:29b0b42a1c340f7fe052303ff2e9ed16a643b630fb8eb33e01f9c6e36c8b3502",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
+      "pluginId": "device.citrix.netscaler-adc",
+      "version": "2.0.1",
+      "packageSha256": "sha256:763886caf544c82f3beca6db3f2ed0135b80760eebce7720a7c80b36bfab473a",
+      "manifestSha256": "sha256:b6e6fee41779c6c46a75c98afef76586d8d47cda5226a921c8c26de1b7a8dbf5",
+      "resourceSha256": {
+        "discovery/nitro-13.1.json": "sha256:d71ab87b30e7c796edc3a3c628bf935e6cf92aaf929e432e0b927dd1bf46cf91",
+        "forms/device.json": "sha256:39df73ad070523655bf80d6b8c7aa6c2108afb798d1f18fafa043835c3b8c583",
+        "locales/en-US.json": "sha256:f58df173c57dbb8fc013159f9cb049b646ced20a9f53b6255b74e8048f1235fd",
+        "locales/fr-FR.json": "sha256:e1ae51b5d327249161d74fc70f034b56f6ac5aae42b1c94f6c159ed1bb556704",
+        "locales/ja-JP.json": "sha256:e97fac7eecfa1c90de6fb42cf4b465b6f690cd69408d0108a1235262e85120ff",
+        "locales/ko-KR.json": "sha256:5f69ad885a5c9a7628a3741dd0ba27bbf245ccc4a3a1239811bb28595bbc2b2c",
+        "locales/pt-BR.json": "sha256:ed85cf4469ecd81d80b4cef35a6c03cc13d67287fb8cec713a1fa6e3f3803ae5",
+        "locales/ru-RU.json": "sha256:f8d5138ccde7a65a603fb77e1b667a5939bb0b593edd0392d6c5aea719c8de3f",
+        "locales/zh-CN.json": "sha256:c5878baf9b9ca62cba16ade2173201af99fc68726ea7f8caacce8c2a837deee9",
+        "locales/zh-TW.json": "sha256:dc31725b4ccff99bf4bc3593161ac7c9515881bd48db08b8c72112c2671bdbc5",
+        "presentations/device.json": "sha256:248f037ff26077658e192662fa590745bd7d881885de8bbf7756278bb5876c8f",
+        "runtime/index.js": "sha256:a466c6e3459c2b37b05e07891a9595e9c3ae5475e994329c28c305fdd01d5bb3",
+        "workflows/certificate-deploy.json": "sha256:64b8fe4013b183ddaa328bed44a834ddc2e7d0291229cf2ad20eb3fdb53e7000",
+        "workflows/connection-test.json": "sha256:c869cdfe523ffb90e8bce725dc0d648427386ce1f6f54061d92b27aa29147a65",
+        "workflows/discover.json": "sha256:4fc41f88187d6a09fd4d7bc78f8f2d4434ad2ec2e17e5dc0a973a5373e2df2f3",
+        "workflows/identity-detect.json": "sha256:0e76ad7bc289aae326c32902d505cef9db391371c90f6253d11cb2079abb5c99"
+      },
+      "resourceHash": "sha256:6b78b5fe8fd71f86c4539b34814c8c1b1951c0651acdc5f502f668965399c599",
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
       "pluginId": "device.synology-dsm",
       "version": "1.0.0",
       "packageSha256": "sha256:e5df245362f7918cf99f07569a0c0bf934ee7f8c60288b5c813adc7225f1e216",
-      "manifestSha256": "sha256:fc2a98d6a2905f020c609eb45e7199f370b95c5e7bc8d31fd6724cd46ddc063b",
+      "manifestSha256": "sha256:fa54e5fa120d6d2949ba3637cae45106ddfba71976a110d32e659440c3263808",
       "resourceSha256": {
         "discovery/dsm.json": "sha256:7f90b5974ce781904d8c2feb120587640e5db932f86697e56850df3508ce732a",
         "forms/device.json": "sha256:809e9015a4ab5e23bbb7e42f621dc01e0dccc11faea95e0e495ee0f74046623e",
@@ -382,7 +409,7 @@
       "pluginId": "web.apache",
       "version": "1.0.0",
       "packageSha256": "sha256:a2eb5e04caa796338837da59be52398587c40b055d3c41d7a64f154446794c52",
-      "manifestSha256": "sha256:c2f72da3c2018fb3fd01d2b1e341325bda74afd8695c9f6fb82fd6f4707755f6",
+      "manifestSha256": "sha256:cd49af0b55446705236ed4d48e8257a235a1324b6a55ff62077710993b9cd73a",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:ff837231ff77d6c0975da38bf7f00c92a85b187a5cdc3757f0f6013d750b29f8",
         "locales/en-US.json": "sha256:4d984572aa0b3f309912d93de8981298f586ee47f9140974d00f564c32ef7e35",
@@ -402,7 +429,7 @@
       "pluginId": "web.iis",
       "version": "1.0.0",
       "packageSha256": "sha256:6e705ef432b0b94d07344d3ed0a19b1b599b358bb94b817729fc862458147ab0",
-      "manifestSha256": "sha256:b778ae8da90e902d974403049aebdc37fef2ca50bf3924b6d9e96347e7fa42d6",
+      "manifestSha256": "sha256:02bc64932d3b50ca61fd3f9d94834d03530b041cbdc6f6aeacf833fe50bcbd75",
       "resourceSha256": {
         "discovery/iis.json": "sha256:61612a9d5aea9b6e36d751aec4acf066ece57f69664c4bd45635543055dc2362",
         "forms/device.json": "sha256:c2ba9b8be08097138f7b80d788b84dd51e59bfedaa26a905b6e6a8d823987c46",
@@ -428,7 +455,7 @@
       "pluginId": "web.nginx",
       "version": "1.0.0",
       "packageSha256": "sha256:7dc5a1d1655bbcd6ed79a1c9941b55f11313570cf6f5a8da52ac36927faf4b64",
-      "manifestSha256": "sha256:c526c51c0e18e167edd122c9217613b2efd1e4a9dcc41e0fce5b2b122c5d47c2",
+      "manifestSha256": "sha256:8fdeb0539755c8f3d84d43a86e9c8a77eda36765e867bcecf10d231118e1e2ad",
       "resourceSha256": {
         "discovery/profiles.json": "sha256:7a3ae638e5a70418e0a28ce586ab6aaee14f931e7c0eedc115ea41133b7433f3",
         "locales/en-US.json": "sha256:8ba3ce281c56849ff159eeb5e329eb2e455d75ac15d7ef9ef18a376372907488",

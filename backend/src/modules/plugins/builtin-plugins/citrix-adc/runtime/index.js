@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 const PLUGIN_ID = 'device.citrix.netscaler-adc';
-const PLUGIN_VERSION = '2.0.0';
+const PLUGIN_VERSION = '2.0.1';
 const PROTOCOL = 'NITRO';
 const CAPABILITIES = Object.freeze([
   'device.connection.test',

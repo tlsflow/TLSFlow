@@ -30,10 +30,7 @@ export class PluginLocaleService {
       }
     }
     if (!messages[defaultLocale]) fail('PLUGIN_LOCALE_DEFAULT_MISSING', '插件缺少默认语言资源', { defaultLocale });
-    if (manifest.source === 'BUILTIN') {
-      const missing = hostLocales.filter((locale) => !messages[locale]);
-      if (missing.length > 0) fail('PLUGIN_LOCALE_BUILTIN_INCOMPLETE', '内置插件必须覆盖宿主全部语言', { missing });
-    }
+    // 插件只对 Manifest 声明的语言负责；未声明语言由宿主按 defaultLocale 展示，不能伪造翻译资源。
     const required = [...new Set(referencedKeys)];
     const missingDefaultKeys = required.filter((key) => !(key in messages[defaultLocale]!));
     if (missingDefaultKeys.length > 0) fail('PLUGIN_LOCALE_KEY_MISSING', '默认语言缺少插件引用的 key', { defaultLocale, missingDefaultKeys });

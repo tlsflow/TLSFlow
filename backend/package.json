@@ -26,6 +26,7 @@
     "update:builtin-plugin-package-ledger": "tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts --update",
     "audit:managed-target-baseline": "node ../scripts/audits/audit-unified-managed-target-baseline.mjs",
     "audit:plugin-product-families": "node ../scripts/audits/audit-plugin-product-families.mjs",
+    "cutover:dev": "tsx src/database/development-database-cutover.ts",
     "migrate": "tsx src/database/migrate.ts",
     "migrate:prod": "node dist/database/migrate.js",
     "dev": "tsx watch src/main.ts",

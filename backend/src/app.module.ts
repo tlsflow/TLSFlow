@@ -69,6 +69,7 @@ import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTa
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
+import { PluginWorkflowVersionStore } from './modules/plugins/application/plugin-workflow-version-store.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PluginFactPipelineService } from './modules/plugins/application/plugin-fact-pipeline.service.js';
@@ -234,9 +235,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginRunnerSupervisor = productionPluginRunner
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
-  const builtinPluginRegistry = productionPluginRunner
-    ? new BuiltinPluginRegistry()
-    : undefined;
+  const builtinPluginRegistry = new BuiltinPluginRegistry();
   const pluginRunnerHostApiHandler = productionPluginRunner
     ? createPluginRunnerHostApiHandler({
       security,
@@ -321,7 +320,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
       )
     : undefined;
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
-  const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
+  const pluginWorkflowPublisher = new PluginWorkflowPublisherService(
+    workflowTemplatesService,
+    new PluginWorkflowBindingsRepository(appDb),
+    new PluginWorkflowVersionStore(appDb),
+    (pluginId, version) => builtinPluginRegistry.getDeclaredWorkflowDeclarations(pluginId, version),
+  );
   const devicesService = new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,

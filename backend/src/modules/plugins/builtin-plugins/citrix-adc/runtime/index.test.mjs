@@ -6,7 +6,7 @@ import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
 
 const hash = `sha256:${'a'.repeat(64)}`;
 const env = {
-  GCAC_PLUGIN_VERSION_ID: 'device-citrix-2-0-0-dev',
+  GCAC_PLUGIN_VERSION_ID: 'device-citrix-2-0-1-dev',
   GCAC_PLUGIN_PACKAGE_HASH: hash,
   GCAC_PLUGIN_MANIFEST_HASH: hash,
   GCAC_PLUGIN_RESOURCE_HASH: hash,
@@ -20,7 +20,7 @@ test('Citrix 工厂只导出标准入口并从适配器环境读取四项固定�
     assert.deepEqual(executor.descriptor, {
       pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
       pluginId: 'device.citrix.netscaler-adc',
-      pluginVersion: '2.0.0',
+      pluginVersion: '2.0.1',
       capabilities: ['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
       permissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
       packageHash: hash,
@@ -47,7 +47,7 @@ test('Citrix 真实 Runner 子进程执行 NITRO discovery Fixture 并脱敏 Sec
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
     pluginId: 'device.citrix.netscaler-adc',
-    pluginVersion: '2.0.0',
+    pluginVersion: '2.0.1',
     tenantId: 'tenant-device',
     executablePath: process.execPath,
     args: [runnerServer, '--executor-module', executorPath],

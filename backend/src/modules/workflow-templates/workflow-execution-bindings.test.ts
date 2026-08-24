@@ -57,6 +57,7 @@ async function createFixture(): Promise<WorkflowExecutionBindingFixture> {
   await new PluginWorkflowBindingsRepository(db).save({
     pluginVersionId,
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowResourcePath: 'workflows/deploy.json',
     workflowTemplateId: internal.template.id,
     workflowVersionId: published.id,
@@ -68,6 +69,7 @@ async function createFixture(): Promise<WorkflowExecutionBindingFixture> {
     tenantId,
     pluginVersionId,
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowTemplateId: internal.template.id,
     workflowVersionSelection: 'FIXED',
     workflowVersionId: published.id,
@@ -162,13 +164,13 @@ test('Capability 未由 PluginVersion Manifest 声明时失败关闭', async () 
   const fixture = await createFixture();
   const unknownCapability = 'certificate.unknown';
   await fixture.db.query(`insert into unified_plugin_workflow_bindings
-    (plugin_version_id,owner_type,owner_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
-    select plugin_version_id,owner_type,owner_id,$2,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at
+    (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+    select plugin_version_id,owner_type,owner_id,$2,$2,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at
       from unified_plugin_workflow_bindings
      where plugin_version_id=$1 and capability_key='certificate.deploy'`, [fixture.pluginVersionId, unknownCapability]);
 
   await assertRejectedWithCode(
-    () => fixture.target.create({ ...fixture.base, capabilityKey: unknownCapability }),
+    () => fixture.target.create({ ...fixture.base, capabilityKey: unknownCapability, workflowKey: unknownCapability }),
     'WORKFLOW_EXECUTION_BINDING_CAPABILITY_MISSING',
   );
 });

@@ -7,6 +7,7 @@ import { canonicalPluginIds, type CanonicalPluginId } from '../canonical-plugin-
 import type { UnifiedPluginCapabilityDescriptor, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import { validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage } from './builtin-unified-plugin-loader.js';
+import type { PluginWorkflowDeclaration } from '../application/plugin-workflow-declaration-resolver.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultReleaseManifestPath = resolve(moduleDirectory, '../../../../../scripts/architecture/p2-plugin-release-manifest.json');
@@ -21,7 +22,7 @@ export interface P2PluginReleaseEntry {
   packageDigest?: { status: string; sha256: string | null };
   capabilities: Array<{ key: string; contractVersion: string; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; executionLocations: string[] }>;
   hostApiGrants: Array<{ method: string; grantKind: string; required: boolean }>;
-  workflows: Array<{ key: string; path: string; initialVersion: string; readOnly: boolean }>;
+  workflows: PluginWorkflowDeclaration[];
 }
 
 export interface P2PluginReleaseManifest {
@@ -46,7 +47,7 @@ export interface BuiltinPluginRegistryEntry {
   manifest: UnifiedPluginManifestV1;
   capabilities: UnifiedPluginCapabilityDescriptor[];
   hostApiGrants: P2PluginReleaseEntry['hostApiGrants'];
-  workflows: P2PluginReleaseEntry['workflows'];
+  workflows: PluginWorkflowDeclaration[];
   packageSha256: string;
   manifestSha256: string;
   resourceSha256: Record<string, string>;
@@ -98,6 +99,16 @@ export class BuiltinPluginRegistry {
     if (!entry) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '未找到固定的 P2 PluginVersion', { pluginId, version });
     return cloneRegistryEntry(entry);
   }
+
+  getWorkflowDeclarations(pluginId: string, version: string): PluginWorkflowDeclaration[] {
+    return this.get(pluginId, version).workflows;
+  }
+
+  /** 返回发布清单中的声明，不依赖包是否已经刷新到运行时 Registry。 */
+  getDeclaredWorkflowDeclarations(pluginId: string, version: string): PluginWorkflowDeclaration[] | undefined {
+    const release = this.releaseManifest.plugins.find((entry) => entry.canonicalPluginId === pluginId && entry.firstPluginVersion === version);
+    return release?.workflows.map((workflow) => ({ ...workflow }));
+  }
 }
 
 function buildRegistryEntry(
@@ -141,7 +152,7 @@ function buildRegistryEntry(
     hostApiGrants: structuredClone(release.hostApiGrants),
     workflows: structuredClone(release.workflows),
     packageSha256,
-    manifestSha256: sha256(JSON.stringify(pluginPackage.manifest)),
+    manifestSha256: sha256(stableJson(pluginPackage.manifest)),
     resourceSha256,
     resourceHash: sha256(JSON.stringify(resourceSha256)),
   };
@@ -175,6 +186,16 @@ function hashResources(resources: Record<string, string>): Record<string, string
 
 function sha256(content: string): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(
+      ([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`,
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function identityKey(pluginId: string, version: string): string {

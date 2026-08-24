@@ -67,6 +67,31 @@ test('内置 Workflow 内容变化且 metadata.version 与插件版本同步时�
   assert.deepEqual(violations, []);
 });
 
+test('新增内置 Workflow 也必须镜像插件版本', () => {
+  const currentManifest = {
+    pluginId: 'example.plugin',
+    version: '1.0.1',
+    resources: { workflows: { deploy: 'workflows/deploy.json' } },
+  };
+  const violations = findBuiltinPluginVersionViolations({
+    changedPaths: [
+      'backend/src/modules/plugins/builtin-plugins/example/manifest.json',
+      'backend/src/modules/plugins/builtin-plugins/example/workflows/deploy.json',
+    ],
+    readCurrentManifest: () => currentManifest,
+    readBaseManifest: () => ({
+      pluginId: 'example.plugin',
+      version: '1.0.0',
+      resources: { workflows: {} },
+    }),
+    readCurrentResource: () => ({ metadata: { name: 'example-deploy', version: '1.0.0' } }),
+    readBaseResource: () => undefined,
+  });
+
+  assert.deepEqual(violations.map((violation) => violation.kind), ['workflow']);
+  assert.equal(violations[0]?.reason, 'PLUGIN_VERSION_MISMATCH');
+});
+
 test('预发布 SemVer 递进与领域服务保持一致', () => {
   const violations = findBuiltinPluginVersionViolations({
     changedPaths: ['backend/src/modules/plugins/builtin-plugins/example/manifest.json'],

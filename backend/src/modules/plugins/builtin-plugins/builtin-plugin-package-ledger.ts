@@ -39,7 +39,7 @@ export async function loadBuiltinPluginPackageSnapshots(
       pluginId: manifest.pluginId,
       version: manifest.version,
       packageSha256: sha256(pluginPackage.packageContent),
-      manifestSha256: sha256(JSON.stringify(pluginPackage.manifest)),
+      manifestSha256: sha256(stableJson(pluginPackage.manifest)),
       resourceSha256,
       resourceHash: sha256(JSON.stringify(resourceSha256)),
       ...(pluginPackage.runtimeEntrypoint ? { runtimeEntrypoint: pluginPackage.runtimeEntrypoint } : {}),
@@ -104,6 +104,16 @@ function compareSnapshots(left: BuiltinPluginPackageSnapshot, right: BuiltinPlug
 
 function sha256(content: string): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(
+      ([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`,
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function run(): Promise<void> {

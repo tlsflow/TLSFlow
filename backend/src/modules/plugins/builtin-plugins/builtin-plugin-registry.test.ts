@@ -85,7 +85,7 @@ function releaseManifest(packageContent: string): P2PluginReleaseManifest {
       packageDigest: { status: 'P2_RELEASED', sha256: `sha256:${sha256(packageContent)}` },
       capabilities: [{ key: 'application.discover', contractVersion: 'v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] }],
       hostApiGrants: [],
-      workflows: [{ key: 'application.discover', path: 'workflows/read.json', initialVersion: '1.0.0', readOnly: true }],
+      workflows: [{ key: 'application.discover', capabilityKey: 'application.discover', path: 'workflows/read.json', initialVersion: '1.0.0', readOnly: true }],
     }],
   };
 }

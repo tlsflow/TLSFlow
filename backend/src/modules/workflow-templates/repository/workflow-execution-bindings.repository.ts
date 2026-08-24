@@ -14,6 +14,7 @@ export interface WorkflowExecutionBindingChain {
   manifestSha256: string;
   resourceSha256: Record<string, string>;
   capabilityDeclared: boolean;
+  workflowKey: string;
   workflowTemplateId: string;
   workflowTemplateOrigin?: string;
   workflowVersionId: string;
@@ -30,9 +31,9 @@ export class WorkflowExecutionBindingsRepository {
     const now = new Date().toISOString();
     const id = `wfeb_${randomUUID()}`;
     await this.db.query(`insert into workflow_execution_bindings
-      (id,tenant_id,plugin_version_id,capability_key,workflow_template_id,workflow_version_selection,workflow_version_id,runner,gateway_id,input_bindings,status,version,created_at,updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'ACTIVE',1,$11::timestamptz,$11::timestamptz)`,
-    [id,input.tenantId,input.pluginVersionId,input.capabilityKey,input.workflowTemplateId,input.workflowVersionSelection,input.workflowVersionId,input.runner,input.gatewayId ?? null,JSON.stringify(input.inputBindings),now]);
+      (id,tenant_id,plugin_version_id,capability_key,workflow_key,workflow_template_id,workflow_version_selection,workflow_version_id,runner,gateway_id,input_bindings,status,version,created_at,updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'ACTIVE',1,$12::timestamptz,$12::timestamptz)`,
+    [id,input.tenantId,input.pluginVersionId,input.capabilityKey,input.workflowKey,input.workflowTemplateId,input.workflowVersionSelection,input.workflowVersionId,input.runner,input.gatewayId ?? null,JSON.stringify(input.inputBindings),now]);
     const created = await this.find(input.tenantId, id);
     if (!created) throw new Error(`workflow execution binding was not created: ${id}`);
     return created;
@@ -46,12 +47,12 @@ export class WorkflowExecutionBindingsRepository {
   async update(tenantId: string, id: string, input: UpdateWorkflowExecutionBindingInput): Promise<WorkflowExecutionBinding | undefined> {
     const current = await this.find(tenantId,id); if (!current || current.version !== input.expectedVersion) return undefined;
     const next = { ...current, ...input, version: current.version + 1, updatedAt: new Date().toISOString() };
-    const result = await this.db.query(`update workflow_execution_bindings set plugin_version_id=$4,capability_key=$5,workflow_template_id=$6,workflow_version_selection=$7,workflow_version_id=$8,runner=$9,gateway_id=$10,input_bindings=$11::jsonb,status=$12,version=version+1,updated_at=$13::timestamptz where tenant_id=$1 and id=$2 and version=$3 returning id`,[tenantId,id,input.expectedVersion,next.pluginVersionId,next.capabilityKey,next.workflowTemplateId,next.workflowVersionSelection,next.workflowVersionId,next.runner,next.gatewayId ?? null,JSON.stringify(next.inputBindings),next.status,next.updatedAt]);
+    const result = await this.db.query(`update workflow_execution_bindings set plugin_version_id=$4,capability_key=$5,workflow_key=$6,workflow_template_id=$7,workflow_version_selection=$8,workflow_version_id=$9,runner=$10,gateway_id=$11,input_bindings=$12::jsonb,status=$13,version=version+1,updated_at=$14::timestamptz where tenant_id=$1 and id=$2 and version=$3 returning id`,[tenantId,id,input.expectedVersion,next.pluginVersionId,next.capabilityKey,next.workflowKey,next.workflowTemplateId,next.workflowVersionSelection,next.workflowVersionId,next.runner,next.gatewayId ?? null,JSON.stringify(next.inputBindings),next.status,next.updatedAt]);
     if (result.rows.length === 0) return undefined;
     return this.find(tenantId, id);
   }
 
-  async findFixedWorkflowChain(input: Pick<CreateWorkflowExecutionBindingInput, 'tenantId' | 'pluginVersionId' | 'capabilityKey' | 'workflowTemplateId' | 'workflowVersionId'>): Promise<WorkflowExecutionBindingChain | undefined> {
+  async findFixedWorkflowChain(input: Pick<CreateWorkflowExecutionBindingInput, 'tenantId' | 'pluginVersionId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId' | 'workflowVersionId'>): Promise<WorkflowExecutionBindingChain | undefined> {
     const row = (await this.db.query<WorkflowExecutionBindingChainRow>(`
       select
         plugin.id as plugin_version_id,
@@ -69,6 +70,7 @@ export class WorkflowExecutionBindingsRepository {
             from jsonb_array_elements(coalesce(plugin.manifest->'capabilities', '[]'::jsonb)) declared
            where declared->>'key' = $3
         ) as capability_declared,
+        workflow_binding.workflow_key,
         workflow_binding.workflow_template_id,
         template.payload->>'origin' as workflow_template_origin,
         workflow_binding.workflow_version_id,
@@ -88,9 +90,10 @@ export class WorkflowExecutionBindingsRepository {
      where (plugin.tenant_id = $1 or plugin.source = 'BUILTIN')
        and workflow_binding.plugin_version_id = $2
        and workflow_binding.capability_key = $3
-       and workflow_binding.workflow_template_id = $4
-       and workflow_binding.workflow_version_id = $5
-    `, [input.tenantId, input.pluginVersionId, input.capabilityKey, input.workflowTemplateId, input.workflowVersionId])).rows[0];
+       and workflow_binding.workflow_key = $4
+       and workflow_binding.workflow_template_id = $5
+       and workflow_binding.workflow_version_id = $6
+    `, [input.tenantId, input.pluginVersionId, input.capabilityKey, input.workflowKey, input.workflowTemplateId, input.workflowVersionId])).rows[0];
     return row ? mapChain(row) : undefined;
   }
 }
@@ -100,6 +103,7 @@ interface BindingRow extends Record<string, unknown> {
   tenant_id: string;
   plugin_version_id: string;
   capability_key: string;
+  workflow_key: string;
   workflow_template_id: string;
   workflow_version_selection: 'FIXED';
   workflow_version_id: string;
@@ -124,6 +128,7 @@ interface WorkflowExecutionBindingChainRow extends Record<string, unknown> {
   manifest_sha256: string;
   resource_sha256: Record<string, string>;
   capability_declared: boolean;
+  workflow_key: string;
   workflow_template_id: string;
   workflow_template_origin: string | null;
   workflow_version_id: string;
@@ -139,6 +144,7 @@ function map(row: BindingRow): WorkflowExecutionBinding {
     tenantId: row.tenant_id,
     pluginVersionId: row.plugin_version_id,
     capabilityKey: row.capability_key,
+    workflowKey: row.workflow_key,
     workflowTemplateId: row.workflow_template_id,
     workflowVersionSelection: row.workflow_version_selection,
     workflowVersionId: row.workflow_version_id,
@@ -165,6 +171,7 @@ function mapChain(row: WorkflowExecutionBindingChainRow): WorkflowExecutionBindi
     manifestSha256: row.manifest_sha256,
     resourceSha256: row.resource_sha256 ?? {},
     capabilityDeclared: row.capability_declared,
+    workflowKey: row.workflow_key,
     workflowTemplateId: row.workflow_template_id,
     ...(row.workflow_template_origin ? { workflowTemplateOrigin: row.workflow_template_origin } : {}),
     workflowVersionId: row.workflow_version_id,

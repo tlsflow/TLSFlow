@@ -373,6 +373,7 @@ export class UnifiedPluginsApplicationService {
 
 function toWorkflowVersionSummary(binding: {
   capabilityKey: string;
+  workflowKey: string;
   workflowResourcePath: string;
   workflowTemplateId: string;
   workflowVersionId: string;
@@ -380,6 +381,7 @@ function toWorkflowVersionSummary(binding: {
 }): UnifiedPluginWorkflowVersionSummary {
   return {
     capabilityKey: binding.capabilityKey,
+    workflowKey: binding.workflowKey,
     workflowResourcePath: binding.workflowResourcePath,
     workflowTemplateId: binding.workflowTemplateId,
     workflowVersionId: binding.workflowVersionId,
@@ -423,6 +425,7 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
 
 const supportedPluginRuntimeValues = ['AGENT_PLAN', 'WORKFLOW_DSL'] as const;
 const supportedExecutionResourceKeys = new Set([
+  'runtimeEntrypoint',
   'agentPlans',
   'workflows',
   'forms',

@@ -22,6 +22,7 @@ import { PluginResourceLockService, type PluginResourceLockRecord } from './plug
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
+import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 import {
   createDefaultPluginRunnerExecutionDependencies,
   createPluginRunnerExecutors,
@@ -452,6 +453,14 @@ export class WorkflowExecutorAdapter implements Executor {
     let resourceLock: PluginResourceLockRecord | undefined;
     try {
       const workflowVersion = await this.workflows.getVersion(workflowVersionId);
+      if (isPluginRunnerWorkflowVersion(workflowVersion) || isPluginWorkflowResource(workflowVersion.content)) {
+        return {
+          success: false,
+          errorCode: 'PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN',
+          errorMessage: 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Workflow 执行器已拒绝',
+          detail: { workflowVersionId, executionMode: 'PLUGIN_RUNNER' },
+        };
+      }
       workflowIdentity = {
         ...workflowIdentity,
         workflowTemplateId: workflowVersion.templateId,

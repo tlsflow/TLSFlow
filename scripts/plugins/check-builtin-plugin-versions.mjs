@@ -67,14 +67,15 @@ export function findBuiltinPluginVersionViolations({
       if (!manifestChanged && !resourceChanged) continue;
       const currentWorkflow = readCurrentResource(resourcePath);
       const baseWorkflow = readBaseResource(resourcePath);
-      if (!currentWorkflow || !baseWorkflow) continue;
+      // 新增 Workflow 没有历史版本可比较，但当前版本仍必须镜像插件版本。
+      if (!currentWorkflow) continue;
       if (currentWorkflow.metadata?.version !== currentManifest.version) {
         violations.push({
           kind: 'workflow',
           pluginId,
           pluginDirectory,
-          workflowName: currentWorkflow.metadata?.name ?? baseWorkflow.metadata?.name ?? workflowPath,
-          previousVersion: baseWorkflow.metadata?.version ?? '(未声明)',
+          workflowName: currentWorkflow.metadata?.name ?? baseWorkflow?.metadata?.name ?? workflowPath,
+          previousVersion: baseWorkflow?.metadata?.version ?? '(未声明)',
           nextVersion: currentWorkflow.metadata?.version ?? '(未声明)',
           expectedPluginVersion: currentManifest.version ?? '(未声明)',
           resourcePath,

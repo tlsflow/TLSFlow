@@ -39,16 +39,16 @@ test('插件工作流来源过滤、派生和内部只读形成闭环', async ()
   const plugins=new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
   const sourceLocales = localeFixture('fixture.source');
   const imported=await plugins.importVersion(tenantId,{manifest:{apiVersion:'gcac.plugin-manifest/v1',kind:'GcacPlugin',pluginId:'fixture.source',version:'1.0.0',displayNameKey:'fixture.source',defaultLocale:'zh-CN',publisher:'test',runtime:'WORKFLOW_DSL',source:'USER',scope:'BOTH',trust:'UNSIGNED',support:'SELF_MANAGED',permissions:[],capabilities:[{key:'certificate.deploy',contractVersion:'v1',actionContractId:'certificate.deploy.v1',riskLevel:'HIGH',executionLocations:['CONTROL_PLANE']},{key:'certificate.rollback',contractVersion:'v1',actionContractId:'certificate.rollback.v1',riskLevel:'HIGH',executionLocations:['CONTROL_PLANE']}],resources:{workflows:{'certificate.deploy':'workflows/deploy.json','certificate.rollback':'workflows/deploy.json'},locales:sourceLocales.locales}},resources:{'workflows/deploy.json':JSON.stringify(content),...sourceLocales.resources}}); await plugins.enableVersion(imported.id);
-  const bindings=new PluginWorkflowBindingsRepository(db); await bindings.save({pluginVersionId:imported.id,capabilityKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
-  await bindings.save({pluginVersionId:imported.id,capabilityKey:'certificate.rollback',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
+  const bindings=new PluginWorkflowBindingsRepository(db); await bindings.save({pluginVersionId:imported.id,capabilityKey:'certificate.deploy',workflowKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
+  await bindings.save({pluginVersionId:imported.id,capabilityKey:'certificate.rollback',workflowKey:'certificate.rollback',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
   const importedManifest = (await plugins.getVersion(imported.id)).manifest;
   const importedV2 = await plugins.importVersion(tenantId, {
     manifest: { ...importedManifest, version: '2.0.0' },
     resources: { 'workflows/deploy.json': JSON.stringify(content), ...sourceLocales.resources },
   });
   await plugins.enableVersion(importedV2.id);
-  await bindings.save({pluginVersionId:importedV2.id,capabilityKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
-  await bindings.save({pluginVersionId:importedV2.id,capabilityKey:'certificate.rollback',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
+  await bindings.save({pluginVersionId:importedV2.id,capabilityKey:'certificate.deploy',workflowKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
+  await bindings.save({pluginVersionId:importedV2.id,capabilityKey:'certificate.rollback',workflowKey:'certificate.rollback',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
   const service=new PluginWorkflowSourceService(plugins,bindings,workflows); const candidates=await service.list(tenantId); assert.equal(candidates.length,2); assert.deepEqual(new Set(candidates.map((item) => item.pluginVersionId)), new Set([imported.id, importedV2.id])); assert.equal(candidates[0]?.capabilityKey,'certificate.deploy'); assert.equal(candidates[0]?.stepCount,1); assert.equal(candidates[0]?.workflowVersion,1); assert.equal(candidates[0]?.displayName, '示例来源'); assert.equal(candidates[0]?.workflowName, 'plugin-deploy'); assert.equal(candidates[0]?.workflowResourcePath, 'workflows/deploy.json'); assert.equal((await service.list(tenantId, 'en-US'))[0]?.displayName, 'Fixture Source');
   const originalGetUiResources = plugins.getUiResources.bind(plugins);
   plugins.getUiResources = async () => { throw new Error('插件引用了未知标准字段'); };
@@ -116,6 +116,7 @@ test('业务租户可以使用系统所有权的内置工作流来源，但不�
   await bindings.save({
     pluginVersionId: builtin.id,
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowResourcePath: 'workflows/deploy.json',
     workflowTemplateId: internal.template.id,
     workflowVersionId: published.id,
@@ -145,6 +146,7 @@ test('业务租户可以使用系统所有权的内置工作流来源，但不�
   await bindings.save({
     pluginVersionId: userPlugin.id,
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowResourcePath: 'workflows/deploy.json',
     workflowTemplateId: internal.template.id,
     workflowVersionId: published.id,

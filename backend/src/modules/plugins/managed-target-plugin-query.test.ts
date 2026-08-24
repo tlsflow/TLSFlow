@@ -83,6 +83,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   const publishedWorkflow = {
     pluginVersionId: imported.id,
     capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
     workflowTemplateId: 'workflow_plugin_override',
     workflowVersionId: 'workflow_plugin_override_v1',
     contentHash: 'a'.repeat(64),
@@ -95,11 +96,12 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     JSON.stringify({ id: publishedWorkflow.workflowVersionId, templateId: publishedWorkflow.workflowTemplateId, version: 1, dslVersion: 'v1', status: 'published', contentHash: publishedWorkflow.contentHash, content: JSON.parse(imported.resources['workflows/deploy.json']!) }),
   ]);
   await db.query(`insert into unified_plugin_workflow_bindings
-    (plugin_version_id,owner_type,owner_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
-    values ($1,'TENANT',$2,$3,'workflows/deploy.json',$4,$5,$6,now())`, [
+    (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+    values ($1,'TENANT',$2,$3,$4,'workflows/deploy.json',$5,$6,$7,now())`, [
     publishedWorkflow.pluginVersionId,
     tenantId,
     publishedWorkflow.capabilityKey,
+    publishedWorkflow.workflowKey,
     publishedWorkflow.workflowTemplateId,
     publishedWorkflow.workflowVersionId,
     publishedWorkflow.contentHash,
@@ -223,6 +225,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
           tenantId,
           pluginVersionId: imported.id,
           capabilityKey: 'certificate.deploy',
+          workflowKey: publishedWorkflow.workflowKey,
           workflowTemplateId: publishedWorkflow.workflowTemplateId,
           workflowVersionSelection: 'FIXED',
         workflowVersionId: publishedWorkflow.workflowVersionId,

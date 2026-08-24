@@ -39,6 +39,7 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { normalizeExtractors, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 import type { ResolvedConnectionV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 
 interface RuntimeContext {
   values: Record<string, unknown>;
@@ -293,6 +294,13 @@ export class WorkflowTemplatesDomainService {
 
   private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
+    if (isPluginRunnerWorkflowVersion(version) || isPluginWorkflowResource(version.content)) {
+      throw new AppError('PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN', 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Workflow Runtime 已拒绝', {
+        workflowVersionId: version.id,
+        executionMode: isPluginRunnerWorkflowVersion(version) ? 'PLUGIN_RUNNER' : undefined,
+      });
+    }
+    assertCurlSshWorkflowContent(version.content, version.id);
     const context = buildRuntimeContextFromResolvedInput(input);
     const runId = `wfrun_${randomUUID()}`;
     const executionBranch = input.executionBranch ?? 'deploy';
@@ -1702,7 +1710,7 @@ function renderTransferContent(template: string, encoding: 'utf8' | 'base64' | u
   return encoding === 'base64' ? Buffer.from(text, 'base64') : text;
 }
 
-export function computeWorkflowContentHash(content: WorkflowDslV1): string {
+export function computeWorkflowContentHash(content: unknown): string {
   return createHash('sha256').update(stableStringify(content)).digest('hex');
 }
 
@@ -1806,6 +1814,12 @@ function resolveExecutionBranch(
   throw new AppError('VALIDATION_FAILED', '工作流没有 rollback 分支，无法执行回滚', {
     executionBranch: branch,
   });
+}
+
+function assertCurlSshWorkflowContent(content: WorkflowDslV1, workflowVersionId: string): void {
+  if ((content as unknown as { kind?: unknown }).kind !== 'CurlSshWorkflow') {
+    throw new AppError('VALIDATION_FAILED', 'PluginWorkflow 必须通过独立 Plugin Runner 执行', { workflowVersionId });
+  }
 }
 
 function normalizeOrigin(origin: unknown): WorkflowTemplate['origin'] {

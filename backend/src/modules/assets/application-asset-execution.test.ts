@@ -21,7 +21,15 @@ async function seedFixedWorkflowChain(db: PgliteDatabase, tenantId: string, opti
   const workflowVersionId = options.workflowVersionId ?? 'workflow_plugin_internal_v1';
   const pluginVersionId = options.pluginVersionId ?? 'plugin-standalone-v1';
   const capabilityKey = 'certificate.deploy';
+  const workflowKey = capabilityKey;
   const contentHash = 'sha256:standalone-workflow';
+  const content = {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'standalone-workflow', version: '1.0.0', platforms: ['linux'], updateMethods: ['curl'] },
+    inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} },
+    steps: [{ name: 'wait', type: 'wait', seconds: 1 }],
+  };
   const manifest = {
     apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'fixture.standalone', version: '1.0.0',
     runtime: options.pluginRuntime ?? 'WORKFLOW_DSL', source: 'USER', scope: 'BOTH', trust: 'UNSIGNED', support: 'SELF_MANAGED',
@@ -35,12 +43,12 @@ async function seedFixedWorkflowChain(db: PgliteDatabase, tenantId: string, opti
     workflowTemplateId,
     JSON.stringify({ id: workflowTemplateId, name: 'Standalone Plugin Workflow', origin: options.origin ?? 'plugin_internal', ownerType: 'TENANT', ownerId: tenantId, tenantId, currentVersionId: workflowVersionId, status: 'active' }),
     workflowVersionId,
-    JSON.stringify({ id: workflowVersionId, templateId: workflowTemplateId, version: 1, dslVersion: 'v1', status: options.versionStatus ?? 'published', contentHash, content: { inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } }),
+    JSON.stringify({ id: workflowVersionId, templateId: workflowTemplateId, version: 1, dslVersion: 'v1', status: options.versionStatus ?? 'published', contentHash, content }),
   ]);
   await db.query(`insert into unified_plugin_workflow_bindings
-    (plugin_version_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,owner_type,owner_id,created_at)
-    values ($1,$2,'workflows/deploy.json',$3,$4,$5,'TENANT',$6,now())`, [pluginVersionId, capabilityKey, workflowTemplateId, workflowVersionId, contentHash, tenantId]);
-  return { pluginVersionId, capabilityKey, workflowTemplateId, workflowVersionId };
+    (plugin_version_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,owner_type,owner_id,created_at)
+    values ($1,$2,$3,'workflows/deploy.json',$4,$5,$6,'TENANT',$7,now())`, [pluginVersionId, capabilityKey, workflowKey, workflowTemplateId, workflowVersionId, contentHash, tenantId]);
+  return { pluginVersionId, capabilityKey, workflowKey, workflowTemplateId, workflowVersionId };
 }
 
 test('非受管资产只保存 WorkflowExecutionBinding 且拒绝插件 Assignment', async () => {
@@ -64,7 +72,7 @@ test('编辑资产基础信息时保留固定工作流绑定快照', async () =>
   const input={...chain,tenantId,workflowVersionSelection:'FIXED' as const,runner:'CONTROL_PLANE' as const,inputBindings:workflowInputBindings};
   const created=await service.saveStandaloneWorkflowExecution(tenantId,asset.id,{workflowExecution:input});
   await db.query(`update pg_documents set payload=jsonb_set(payload,'{content}',(payload->'content')-'inputContract') where namespace='workflow.template_versions' and document_id='workflow_legacy_v1'`);
-  const saved=await service.saveStandaloneWorkflowExecution(tenantId,asset.id,{workflowExecution:{...input,bindingId:created.workflowExecutionBinding.id,expectedVersion:created.workflowExecutionBinding.version}});
+  const saved=await service.saveStandaloneWorkflowExecution(tenantId,asset.id,{workflowExecution:{...input,inputBindings:created.workflowExecutionBinding.inputBindings,bindingId:created.workflowExecutionBinding.id,expectedVersion:created.workflowExecutionBinding.version}});
   assert.equal(saved.workflowExecutionBinding.id,created.workflowExecutionBinding.id);
   assert.equal(saved.workflowExecutionBinding.version,created.workflowExecutionBinding.version);
 });
