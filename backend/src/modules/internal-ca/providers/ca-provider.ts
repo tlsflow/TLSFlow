@@ -17,6 +17,7 @@ export interface SignCsrCommand {
   profileRules: CertificateProfileRules;
   idempotencyKey: string;
   actorId: string;
+  serialNumber?: string;
 }
 
 export type CaIssuanceResult =
@@ -91,6 +92,7 @@ class BuiltinCaProvider implements CaProviderAdapter {
       validityDays: command.validityDays,
       sans: command.sans,
       extendedKeyUsages: command.profileRules.extendedKeyUsages,
+      serialNumber: command.serialNumber,
     });
     return { status: 'issued', ...issued, providerRequestId: command.idempotencyKey };
   }

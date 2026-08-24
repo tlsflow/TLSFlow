@@ -129,6 +129,7 @@ export class OpenSslCa {
     validityDays: number;
     sans: string[];
     extendedKeyUsages: string[];
+    serialNumber?: string;
   }): Promise<IssuedCertificateMaterial> {
     return withTemporaryDirectory(async (directory) => {
       const csrPath = join(directory, 'request.csr.pem');
@@ -136,7 +137,7 @@ export class OpenSslCa {
       const caCertPath = join(directory, 'ca.cert.pem');
       const certPath = join(directory, 'issued.cert.pem');
       const extensionPath = join(directory, 'leaf.ext.cnf');
-      const serialNumber = randomBytes(16).toString('hex');
+      const serialNumber = input.serialNumber ?? randomBytes(16).toString('hex');
       await Promise.all([
         writeFile(csrPath, input.csrPem, 'utf8'),
         writeFile(caKeyPath, input.caPrivateKeyPem, 'utf8'),

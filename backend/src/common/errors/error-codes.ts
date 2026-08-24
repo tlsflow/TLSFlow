@@ -21,6 +21,7 @@ export const errorCodes = {
   CA_PROVIDER_UNAVAILABLE: { httpStatus: 503, message: 'CA Provider 不可用' },
   CA_CAPABILITY_UNSUPPORTED: { httpStatus: 422, message: 'CA 能力不支持' },
   CA_KEY_BACKEND_UNAVAILABLE: { httpStatus: 503, message: 'CA 密钥后端不可用' },
+  CA_LEDGER_INCONSISTENT: { httpStatus: 409, message: 'CA 签发账本与证书状态不一致' },
   CA_NODE_SPLIT_BRAIN_RISK: { httpStatus: 409, message: 'CA 节点存在双主风险' },
   CERTIFICATE_PROFILE_VIOLATION: { httpStatus: 422, message: '证书申请不符合 Profile' },
   CERTIFICATE_TRUST_DOMAIN_MISMATCH: { httpStatus: 422, message: '证书申请、Profile 与 CA 不属于同一信任域' },

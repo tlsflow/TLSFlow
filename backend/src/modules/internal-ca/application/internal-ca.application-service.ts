@@ -658,6 +658,15 @@ export class InternalCaApplicationService {
     const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!profileVersion || !keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请依赖对象不存在');
+    const ledgerRecord = provider.type === 'gcac_builtin'
+      ? await this.reserveIssuanceRecord(tenantId, {
+          caId: authority.id,
+          certificateRequestId: request.id,
+          applicationAssetId: request.applicationAssetId,
+          subjectCommonName: request.subjectCommonName,
+          sans: request.sans,
+        })
+      : await this.repository.getIssuanceByRequest(tenantId, request.id);
     await this.repository.saveRequest({ ...request, status: 'issuing', updatedAt: new Date().toISOString() });
     try {
       const issued = await this.providers.get(provider.type).signCsr({
@@ -669,10 +678,18 @@ export class InternalCaApplicationService {
         profileRules: profileVersion.rules,
         idempotencyKey: request.idempotencyKey,
         actorId,
+        serialNumber: provider.type === 'gcac_builtin' ? ledgerRecord?.serialNumber : undefined,
       });
       if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
       return this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
     } catch (error) {
+      if (ledgerRecord && ledgerRecord.status !== 'issued') {
+        await this.repository.saveIssuanceRecord({
+          ...ledgerRecord,
+          status: 'failed',
+          updatedAt: new Date().toISOString(),
+        });
+      }
       const failed = {
         ...request,
         status: 'issue_failed' as const,
@@ -1269,6 +1286,13 @@ export class InternalCaApplicationService {
     if (issued.publicKeyFingerprintSha256 !== request.publicKeyFingerprintSha256) {
       throw new AppError('PUBLIC_KEY_MISMATCH', '签发证书公钥与 CSR 不匹配');
     }
+    const ledgerRecord = await this.repository.getIssuanceByRequest(request.tenantId, request.id);
+    if (ledgerRecord && ledgerRecord.serialNumber.toUpperCase() !== issued.serialNumber.toUpperCase()) {
+      throw new AppError('CA_LEDGER_INCONSISTENT', '签发证书序列号与账本预留值不一致', {
+        requestId: request.id,
+        caId: authority.id,
+      });
+    }
     const imported = await this.dependencies.certificates.importVersion({
       certificatePem: issued.certificateChainPem,
       allowCertificateOnly: !keyReference.secretRef,
@@ -1289,6 +1313,28 @@ export class InternalCaApplicationService {
         [imported.version.id, authority.trustDomainId],
       );
     }
+    const now = new Date().toISOString();
+    await this.repository.saveIssuanceRecord({
+      id: ledgerRecord?.id ?? newId('caissue'),
+      tenantId: request.tenantId,
+      caId: authority.id,
+      serialNumber: issued.serialNumber.toUpperCase(),
+      certificateRequestId: request.id,
+      certificateVersionId: imported.version.id,
+      applicationAssetId: request.applicationAssetId,
+      status: 'issued',
+      recordOrigin: provider.type === 'gcac_builtin' ? 'native' : 'external',
+      subjectCommonName: request.subjectCommonName,
+      sans: request.sans,
+      certificateFingerprintSha256: imported.version.fingerprintSha256,
+      publicKeyFingerprintSha256: imported.version.publicKeyFingerprintSha256,
+      notBefore: imported.version.notBefore,
+      notAfter: imported.version.notAfter,
+      issuedAt: now,
+      observedAt: ledgerRecord?.observedAt ?? now,
+      createdAt: ledgerRecord?.createdAt ?? now,
+      updatedAt: now,
+    });
     const completed: CertificateRequestEntity = {
       ...request,
       status: 'issued',
@@ -1296,7 +1342,7 @@ export class InternalCaApplicationService {
       certificateVersionId: imported.version.id,
       failureCode: undefined,
       failureMessage: undefined,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
     await this.repository.saveRequest(completed);
     await this.audit('internal_ca.request.issued', actorId, 'certificate_request.issue', 'certificate_request', request.id, 'high', context, {

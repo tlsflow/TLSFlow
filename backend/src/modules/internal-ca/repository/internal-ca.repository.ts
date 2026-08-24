@@ -74,7 +74,8 @@ export class InternalCaRepository {
     );
     const allocated = result.rows[0]?.allocated_serial;
     if (allocated === undefined) throw new Error('CA 序列号分配未返回结果');
-    return BigInt(String(allocated)).toString(16).toUpperCase();
+    const hexadecimal = BigInt(String(allocated)).toString(16).toUpperCase();
+    return hexadecimal.length % 2 === 0 ? hexadecimal : `0${hexadecimal}`;
   }
 
   saveIssuanceRecord(entity: CaIssuanceRecordEntity): Promise<CaIssuanceRecordEntity> {

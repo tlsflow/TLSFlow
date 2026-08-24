@@ -5,8 +5,9 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { buildReuseRisks, InternalCaApplicationService } from './application/internal-ca.application-service.js';
+import { CaProviderRegistry } from './providers/ca-provider.js';
 
-async function createFixture() {
+async function createFixture(providers?: CaProviderRegistry) {
   const db = new PgliteDatabase();
   await runMigrations(db, 'src/database/migrations');
   const security = createSecurityServices();
@@ -17,6 +18,7 @@ async function createFixture() {
     certificates: certificates.certificates,
     audit: security.audit,
     approvals: security.approvals,
+    providers,
   });
   return { db, security, certificates, service };
 }
@@ -115,6 +117,13 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   assert.equal(detail.commonName, 'oa.example.com');
   assert.equal(detail.chainStatus, 'valid');
   assert.equal(stored.key_custody_mode, 'managed_secret');
+  const issuanceRecords = await service.listIssuanceRecords(tenantId, intermediate.id);
+  assert.equal(issuanceRecords.length, 1);
+  assert.equal(issuanceRecords[0].certificateRequestId, issued.id);
+  assert.equal(issuanceRecords[0].certificateVersionId, issued.certificateVersionId);
+  assert.equal(issuanceRecords[0].serialNumber, detail.serialNumber.toUpperCase());
+  assert.equal(issuanceRecords[0].certificateFingerprintSha256, detail.fingerprintSha256);
+  assert.equal(issuanceRecords[0].publicKeyFingerprintSha256, detail.publicKeyFingerprintSha256);
 
   for (const fixture of [
     { suffix: 'a', environment: 'production', securityDomain: 'production' },
@@ -283,6 +292,45 @@ test('CA 签发账本并发分配唯一序列号且历史回填不伪造签发�
   assert.equal(historical.issuedAt, undefined);
   await db.query('delete from pg_certificate_versions where id = $1', ['legacy-version-no-longer-present']);
   assert.equal((await service.listIssuanceRecords(tenantId, authority.id)).some((record) => record.id === historical.id), true);
+});
+
+test('内置 CA 签名失败时账本不会留下半完成 issued 记录', async () => {
+  const capabilities = {
+    discoverHierarchy: true, createRoot: true, createIntermediate: true, signCsr: true, queryIssuance: true,
+    revokeCertificate: true, publishCrl: false, ocsp: false, listProfiles: true, deviceLocalCsr: false,
+    hardwareBackedKey: false, highAvailability: false,
+  };
+  const providers = new CaProviderRegistry().register('gcac_builtin', {
+    getCapabilities: () => capabilities,
+    validateConnection: async () => ({ reachable: true, capabilities }),
+    signCsr: async () => { throw new Error('injected_sign_failure'); },
+  });
+  const { service } = await createFixture(providers);
+  const tenantId = 'tenant-ledger-failure';
+  const actorId = 'user-admin';
+  const provider = await service.createProvider(tenantId, {
+    name: '故障注入 Provider', type: 'gcac_builtin', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single',
+  }, actorId);
+  const preview = service.previewAuthority({ topologyMode: 'root_only', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single', keyBackend: 'secret' });
+  const [authority] = await service.createAuthority(tenantId, {
+    providerId: provider.id, name: '故障注入根 CA', commonName: 'GCAC Failure Root CA', securityDomain: 'development',
+    topologyMode: 'root_only', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single', keyBackend: 'secret',
+    confirmationToken: preview.confirmationToken, actorId,
+  });
+  const { version } = await service.createProfile(tenantId, {
+    name: '故障注入 Profile', securityDomain: 'development', actorId,
+    rules: { allowedDnsSuffixes: ['.example.com'], requireApproval: false },
+  });
+  await assert.rejects(service.createCertificateRequest(tenantId, {
+    applicationAssetId: 'app-failure', caId: authority.id, profileVersionId: version.id,
+    commonName: 'failure.example.com', sans: ['failure.example.com'], custodyMode: 'managed_secret',
+    idempotencyKey: 'failure-request', actorId,
+  }), /injected_sign_failure/);
+  const [request] = await service.listRequests(tenantId);
+  const [ledger] = await service.listIssuanceRecords(tenantId, authority.id);
+  assert.equal(request.status, 'issue_failed');
+  assert.equal(ledger.status, 'failed');
+  assert.equal(ledger.certificateVersionId, undefined);
 });
 
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
