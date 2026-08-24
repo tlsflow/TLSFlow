@@ -11,6 +11,8 @@ export const AUDIT_EVENT_TYPES = {
   SECURITY_ROLE_CREATED: 'security.role.created',
   SECURITY_ROLE_DELETED: 'security.role.deleted',
   SECURITY_PERMISSION_POLICY_CREATED: 'security.permission_policy.created',
+  TENANT_MEMBERSHIP_CREATED: 'tenant.membership.created',
+  TENANT_MEMBERSHIP_REVOKED: 'tenant.membership.revoked',
   IDENTITY_SOURCE_CREATED: 'security.identity_source.created',
   IDENTITY_SOURCE_UPDATED: 'security.identity_source.updated',
   IDENTITY_SOURCE_DELETED: 'security.identity_source.deleted',

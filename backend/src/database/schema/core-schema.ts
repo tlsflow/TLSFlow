@@ -1,6 +1,7 @@
 // 核心表名和关键关系元数据。这里不是 ORM，只是给测试、迁移和后续 Repository 共享稳定事实。
 export const coreTableNames = [
   'tenants',
+  'tenant_memberships',
   'certificate_assets',
   'certificate_versions',
   'certificate_version_formats',
@@ -32,6 +33,9 @@ export const coreTableNames = [
 export type CoreTableName = (typeof coreTableNames)[number];
 
 export const requiredCoreIndexes = [
+  'uq_tenant_memberships_active_subject_tenant',
+  'idx_tenant_memberships_subject_status',
+  'idx_tenant_memberships_tenant_status',
   'uq_certificate_versions_fingerprint',
   'idx_certificate_versions_not_after',
   'idx_certificate_bindings_domain',
@@ -47,6 +51,7 @@ export const requiredCoreIndexes = [
 ] as const;
 
 export const coreForeignKeyEdges = [
+  ['tenant_memberships', 'tenants'],
   ['certificate_versions', 'certificate_assets'],
   ['certificate_bindings', 'service_instances'],
   ['certificate_bindings', 'service_endpoints'],

@@ -27,6 +27,8 @@ import { ExternalIdentityService, type ExternalGroupRoleMapping, type IdentitySo
 import type { SecurityServices } from './security.controller.js';
 import { ObjectPermissionService } from './object-permission.service.js';
 import { TenantIdentityService } from './tenant-identity.service.js';
+import { PgTenantRepository } from './repository/tenant.repository.js';
+import { TenantHierarchyService } from './domain/tenant.domain-service.js';
 
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
@@ -69,9 +71,10 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
   const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
+  const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
 
   return {
-    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity },
+    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy },
     flushers: [],
   };
 }

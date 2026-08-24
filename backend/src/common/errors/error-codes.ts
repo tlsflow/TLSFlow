@@ -4,6 +4,8 @@ export const errorCodes = {
   RESOURCE_ALREADY_EXISTS: { httpStatus: 409, message: '资源已存在' },
   RESOURCE_VERSION_CONFLICT: { httpStatus: 409, message: '资源版本冲突' },
   IDEMPOTENCY_CONFLICT: { httpStatus: 409, message: '幂等键冲突' },
+  TENANT_PARENT_INVALID: { httpStatus: 422, message: '租户父节点无效' },
+  TENANT_CYCLE_DETECTED: { httpStatus: 422, message: '租户父子关系不能形成循环' },
   AUTH_UNAUTHENTICATED: { httpStatus: 401, message: '未认证' },
   AUTH_FORBIDDEN: { httpStatus: 403, message: '无权限' },
   SYSTEM_INTERNAL_ERROR: { httpStatus: 500, message: '系统内部错误' },
