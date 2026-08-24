@@ -221,4 +221,48 @@ describe('PluginsView', () => {
     await closeButton!.trigger('click')
     expect(wrapper.find('.plugin-detail').exists()).toBe(false)
   })
+
+  it('忽略旧版 Cloud 表单资源并允许关闭插件详情', async () => {
+    const catalog = [{ ...pluginRecord(4), pluginId: 'cloud.aliyun' }]
+    pluginMocks.listPluginCatalog.mockResolvedValue(page(catalog))
+    pluginMocks.listUnifiedPluginVersions.mockResolvedValue(page([]))
+    pluginMocks.listPluginRuntimeMetrics.mockResolvedValue(page([]))
+    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue({
+      data: {
+        forms: {
+          cloud: {
+            apiVersion: 'gcac.plugin-form/v1',
+            pluginId: 'cloud.aliyun',
+            fields: [{ key: 'region', type: 'string', required: true }],
+          },
+        },
+        presentations: {},
+        locale: { messages: {} },
+      },
+    })
+
+    const wrapper = mount(PluginsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcModal: {
+            props: ['open'],
+            template: '<div v-if="open" class="gc-modal-stub"><slot /><slot name="actions" /></div>',
+          },
+          GcEmptyState: { template: '<div><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>', props: ['title', 'description'] },
+          GcDevicePresentation: { template: '<div />' },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.find('.plugin-card .plugin-card__actions .gc-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.plugin-detail').exists()).toBe(true)
+    expect(wrapper.find('.plugin-detail__resource-preview').text()).toContain('此插件未声明配置表单')
+
+    const closeButton = wrapper.findAll('.gc-modal-stub .gc-button').at(-1)
+    await closeButton!.trigger('click')
+    expect(wrapper.find('.plugin-detail').exists()).toBe(false)
+  })
 })

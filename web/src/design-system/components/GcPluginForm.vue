@@ -20,10 +20,17 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const sections = computed(() => props.schema.sections.map((section) => ({
-  ...section,
-  fields: section.fields.filter((field) => evaluate(field.visibleWhen)),
-})))
+const sections = computed(() => {
+  const rawSections = (props.schema as Partial<PluginFormSchema> | undefined)?.sections
+  if (!Array.isArray(rawSections)) return []
+  return rawSections
+    .filter((section) => Boolean(section) && Array.isArray(section.fields))
+    .map((section) => ({
+      ...section,
+      fields: section.fields.filter((field) => Boolean(field) && typeof field === 'object')
+        .filter((field) => evaluate(field.visibleWhen)),
+    }))
+})
 
 function label(key: string | undefined): string {
   if (!key) return ''

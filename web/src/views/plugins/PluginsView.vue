@@ -53,8 +53,9 @@ const pluginPresentations = ref<Record<string, unknown>>({})
 const pluginMessages = ref<Record<string, string>>({})
 const pluginFormValues = ref<Record<string, unknown>>({})
 const activePresentationTab = ref('')
+let pluginUiRequestVersion = 0
 
-const previewForm = computed(() => Object.values(pluginForms.value)[0])
+const previewForm = computed(() => Object.values(pluginForms.value).find(isPluginFormSchema))
 const previewPresentation = computed(() => findDevicePresentation(pluginPresentations.value))
 
 const sourceOptions = computed(() => [
@@ -271,6 +272,7 @@ function pluginInitial(plugin: PluginRecord): string {
 }
 
 async function openDetail(plugin: PluginRecord): Promise<void> {
+  const requestVersion = ++pluginUiRequestVersion
   selectedPlugin.value = plugin
   createError.value = ''
   agentActionError.value = ''
@@ -280,11 +282,12 @@ async function openDetail(plugin: PluginRecord): Promise<void> {
   pluginMessages.value = {}
   pluginFormValues.value = {}
   activePresentationTab.value = ''
-  await loadPluginUiResources(plugin)
+  await loadPluginUiResources(plugin, requestVersion)
 }
 
 async function openRouteDetail(pluginVersionId: string): Promise<void> {
   if (!pluginVersionId) return
+  const requestVersion = ++pluginUiRequestVersion
   selectedPlugin.value = pluginRecordFromManagementDetail({ id: pluginVersionId, pluginVersionId })
   createError.value = ''
   agentActionError.value = ''
@@ -296,32 +299,51 @@ async function openRouteDetail(pluginVersionId: string): Promise<void> {
   activePresentationTab.value = ''
   pluginUiError.value = ''
   pluginUiLoading.value = true
-  const uiRequest = loadPluginUiResources(selectedPlugin.value)
+  const uiRequest = loadPluginUiResources(selectedPlugin.value, requestVersion)
   try {
     const result = await getPluginVersionManagementDetail(pluginVersionId)
+    if (requestVersion !== pluginUiRequestVersion || !detailOpen.value) return
     const plugin = pluginRecordFromManagementDetail(result.data ?? { id: pluginVersionId, pluginVersionId })
     selectedPlugin.value = plugin
   } catch (cause) {
-    pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+    if (requestVersion === pluginUiRequestVersion && detailOpen.value) {
+      pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+    }
   }
   await uiRequest
 }
 
-async function loadPluginUiResources(plugin: PluginRecord): Promise<void> {
+async function loadPluginUiResources(plugin: PluginRecord, requestVersion: number): Promise<void> {
   pluginUiError.value = ''
   pluginUiLoading.value = true
   try {
     const result = await getUnifiedPluginUiResources(plugin.id, locale.value)
+    if (requestVersion !== pluginUiRequestVersion || !detailOpen.value || selectedPlugin.value?.id !== plugin.id) return
     const payload = readRecord(result.data)
-    pluginForms.value = readRecord(payload.forms) as Record<string, PluginFormSchema>
+    const formResources = readRecord(payload.forms)
+    pluginForms.value = Object.fromEntries(
+      Object.entries(formResources).filter(([, value]) => isPluginFormSchema(value)),
+    ) as Record<string, PluginFormSchema>
     pluginPresentations.value = readRecord(payload.presentations)
     pluginMessages.value = readRecord(readRecord(payload.locale).messages) as Record<string, string>
     activePresentationTab.value = findDevicePresentation(pluginPresentations.value)?.tabs[0]?.id ?? ''
   } catch (cause) {
-    pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+    if (requestVersion === pluginUiRequestVersion && detailOpen.value) {
+      pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+    }
   } finally {
-    pluginUiLoading.value = false
+    if (requestVersion === pluginUiRequestVersion) pluginUiLoading.value = false
   }
+}
+
+function isPluginFormSchema(value: unknown): value is PluginFormSchema {
+  const resource = readRecord(value)
+  return resource.schemaVersion === 'gcac.plugin-form/v1'
+    && Array.isArray(resource.sections)
+    && resource.sections.every((section) => {
+      const item = readRecord(section)
+      return typeof item.id === 'string' && typeof item.titleKey === 'string' && Array.isArray(item.fields)
+    })
 }
 
 function findDevicePresentation(resources: Record<string, unknown>): DevicePresentationSchema | undefined {
@@ -338,6 +360,10 @@ function isDevicePresentationSchema(value: unknown): value is DevicePresentation
 
 function handleDetailOpen(open: boolean): void {
   detailOpen.value = open
+  if (!open) {
+    // 关闭时让尚未返回的资源请求失效，避免离场过渡期间再次更新模态框内容。
+    pluginUiRequestVersion += 1
+  }
 }
 
 function pluginRecordFromManagementDetail(value: ApiRecord): PluginRecord {
