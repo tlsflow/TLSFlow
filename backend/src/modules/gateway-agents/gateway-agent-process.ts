@@ -1,8 +1,8 @@
 import { newId } from '../../shared/id.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import type { AgentTaskEnvelope } from '../agents/schema/agents.schema.js';
-import { MockAdapterRuntime } from './adapter-runtime.mock.js';
-import type { AdapterExecutionResult, GatewayTask } from './gateway-agent.types.js';
+import { ForwardingGrantService } from './forwarding-grant.service.js';
+import type { GatewayTask } from './gateway-agent.types.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 
 export interface GatewayAgentProcessOptions {
@@ -10,7 +10,7 @@ export interface GatewayAgentProcessOptions {
   agentId: string;
   agents: AgentsApplicationService;
   gatewayTasks: GatewayTaskService;
-  runtime?: MockAdapterRuntime;
+  grants?: ForwardingGrantService;
   leaseFactory?: () => string;
 }
 
@@ -22,12 +22,12 @@ export interface GatewayAgentProcessTickResult {
 }
 
 export class GatewayAgentProcess {
-  private readonly runtime: MockAdapterRuntime;
   private readonly leaseFactory: () => string;
+  private readonly grants: ForwardingGrantService;
 
   constructor(private readonly options: GatewayAgentProcessOptions) {
-    this.runtime = options.runtime ?? new MockAdapterRuntime();
     this.leaseFactory = options.leaseFactory ?? (() => newId('gw_lease'));
+    this.grants = options.grants ?? new ForwardingGrantService();
   }
 
   async tick(limit = 10): Promise<GatewayAgentProcessTickResult> {
@@ -69,14 +69,9 @@ export class GatewayAgentProcess {
         await this.submitAgentResult(agentTask, leaseId, current, current.result.success);
         return { success: current.result.success };
       }
-      const adapterResult = await this.runtime.run({
-        gatewayId: gatewayTask.gatewayId,
-        credentialSessionId: gatewayTask.credentialSessionId,
-        grantRef: gatewayTask.credentialLeaseId ? { ref: gatewayTask.credentialLeaseId } : undefined,
-      }, gatewayTask);
-      const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, adapterResult);
-      await this.submitAgentResult(agentTask, leaseId, completed, completed.result?.success ?? adapterResult.success);
-      return { success: completed.result?.success ?? adapterResult.success };
+      const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, this.evaluateGatewayRouteTask(gatewayTask));
+      await this.submitAgentResult(agentTask, leaseId, completed, completed.result?.success ?? false);
+      return { success: completed.result?.success ?? false };
     } catch (error) {
       const failed = this.options.gatewayTasks.result(gatewayTask.id, leaseId, {
         success: false,
@@ -98,24 +93,32 @@ export class GatewayAgentProcess {
     }
   }
 
-  private recordGatewayResult(agentTask: AgentTaskEnvelope, gatewayTask: GatewayTask, leaseId: string, adapterResult: AdapterExecutionResult): GatewayTask {
-    const evidenceIds = adapterResult.evidence.map((evidence) => this.options.gatewayTasks.appendEvidence({
-      ...evidence,
+  private recordGatewayResult(agentTask: AgentTaskEnvelope, gatewayTask: GatewayTask, leaseId: string, routeResult: GatewayRouteProcessResult): GatewayTask {
+    const evidenceIds = routeResult.logs.map((summary, index) => this.options.gatewayTasks.appendEvidence({
       taskId: gatewayTask.id,
       gatewayId: gatewayTask.gatewayId,
       delegatedTargetId: gatewayTask.delegatedTargetId,
       adapter: gatewayTask.adapter,
-      credentialSessionId: gatewayTask.credentialSessionId,
-      credentialLeaseId: gatewayTask.credentialLeaseId,
+      forwardingGrantId: gatewayTask.forwardingGrant?.id,
+      delegatedAgentId: gatewayTask.forwardingGrant?.delegatedAgentId,
+      executionRunId: gatewayTask.executionRunId,
+      stepId: gatewayTask.stepId,
+      action: gatewayTask.action,
+      result: routeResult.success ? 'success' : 'failed',
+      evidenceRef: `audit://gateway-route/${gatewayTask.id}/${index + 1}`,
+      sequence: index + 1,
+      kind: routeResult.kind,
+      summary,
+      metadata: routeResult.detail,
     }).id);
     void this.submitEvidenceLogs(agentTask, gatewayTask.id);
     return this.options.gatewayTasks.result(gatewayTask.id, leaseId, {
-      success: adapterResult.success,
-      status: adapterResult.status,
-      summary: adapterResult.summary,
+      success: routeResult.success,
+      status: routeResult.success ? 'success' : 'failed',
+      summary: routeResult.summary,
       evidenceIds,
-      errorCode: adapterResult.success ? undefined : 'GATEWAY_ADAPTER_FAILED',
-      errorMessage: adapterResult.success ? undefined : adapterResult.summary,
+      errorCode: routeResult.success ? undefined : routeResult.errorCode,
+      errorMessage: routeResult.success ? undefined : routeResult.summary,
     });
   }
 
@@ -163,8 +166,76 @@ export class GatewayAgentProcess {
       && (task.payload.gatewayTask as GatewayTask).id === gatewayTask.id
       && ['queued', 'leased', 'acked'].includes(task.status));
   }
+  private evaluateGatewayRouteTask(task: GatewayTask): GatewayRouteProcessResult {
+    try {
+      const grant = this.grants.validate(task.forwardingGrant, {
+        gatewayId: task.gatewayId,
+        delegatedTargetId: task.delegatedTargetId,
+        taskType: task.action,
+        routeChannel: task.adapter,
+        executionRunId: task.executionRunId,
+        stepId: task.stepId,
+      });
+      const consumed = this.grants.consume(grant);
+      this.options.gatewayTasks.updateForwardingGrant(task.id, consumed);
+      task.forwardingGrant = consumed;
+      return evaluateGatewayRouteTask(task, consumed.id);
+    } catch (error) {
+      return {
+        success: false,
+        summary: error instanceof Error ? error.message : String(error),
+        errorCode: 'GATEWAY_FORWARDING_GRANT_DENIED',
+        kind: 'log',
+        logs: ['ForwardingGrant 校验失败，拒绝 Gateway 转发'],
+        detail: {
+          mode: 'gateway.forwarding_grant.denied',
+          errorCode: error instanceof Error && 'errorCode' in error ? (error as { errorCode?: string }).errorCode : 'GATEWAY_FORWARDING_GRANT_DENIED',
+        },
+      };
+    }
+  }
 }
 
 function isGatewayTaskRun(task: AgentTaskEnvelope): boolean {
-  return task.payload.type === 'gateway.task.run' && Boolean(task.payload.gatewayTask);
+  return (task.payload.type === 'gateway.probe'
+    || task.payload.type === 'gateway.forward.agent_task'
+    || task.payload.type === 'gateway.forward.direct_control') && Boolean(task.payload.gatewayTask);
+}
+
+interface GatewayRouteProcessResult {
+  success: boolean;
+  summary: string;
+  errorCode?: string;
+  kind: 'log' | 'response_summary';
+  logs: string[];
+  detail: Record<string, unknown>;
+}
+
+function evaluateGatewayRouteTask(task: GatewayTask, forwardingGrantId: string): GatewayRouteProcessResult {
+  if (task.action === 'gateway.probe') {
+    return {
+      success: true,
+      summary: 'Gateway probe 已由区域路由任务处理',
+      kind: 'response_summary',
+      logs: [`gateway.probe ${task.delegatedTargetId} via ${task.adapter}`],
+      detail: { mode: 'gateway.probe', routeChannel: task.adapter, delegatedTargetId: task.delegatedTargetId, forwardingGrantId },
+    };
+  }
+  if (task.action === 'gateway.forward.agent_task' || task.action === 'gateway.forward.direct_control') {
+    return {
+      success: true,
+      summary: 'Gateway forward 已完成路由包装',
+      kind: 'log',
+      logs: [`${task.action} ${task.delegatedTargetId} via ${task.adapter}`],
+      detail: { mode: task.action, routeChannel: task.adapter, delegatedTargetId: task.delegatedTargetId, forwardingGrantId },
+    };
+  }
+  return {
+    success: false,
+    summary: `不支持的 Gateway 路由任务: ${task.action}`,
+    errorCode: 'GATEWAY_ROUTE_TASK_UNSUPPORTED',
+    kind: 'log',
+    logs: [`unsupported gateway route task ${task.action}`],
+    detail: { mode: 'gateway.route.unsupported', action: task.action },
+  };
 }

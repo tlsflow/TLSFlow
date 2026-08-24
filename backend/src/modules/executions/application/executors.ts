@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
-import { MockAdapterRuntime } from '../../gateway-agents/adapter-runtime.mock.js';
+import { ForwardingGrantService } from '../../gateway-agents/forwarding-grant.service.js';
 import type { GatewayTaskAuditWriter } from '../../gateway-agents/gateway-target-history.service.js';
 import { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
 import { LegacyTaskDispatcher } from '../../legacy-agents/legacy-task-dispatcher.js';
@@ -11,7 +11,7 @@ import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor } from '../../executor
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowExecutorDispatchResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { WorkflowExecutorDispatchResult, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
@@ -121,7 +121,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents),
-    new GatewayExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
+    new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
     new LegacyAgentExecutorAdapter(),
   ];
@@ -242,15 +242,29 @@ export class WorkflowExecutorAdapter implements Executor {
       const workflowRun = input.dryRun
         ? await this.workflows.preview(runtimeInput)
         : await this.workflows.runWithDispatcher(runtimeInput, async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.attempt));
+      const dryRunChecks = input.dryRun ? buildWorkflowDryRunChecks(workflowRun) : undefined;
       const detail = {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
         workflowRequest: maskWorkflowRequest(request),
         workflowRun,
+        ...(dryRunChecks ? {
+          dryRunChecks,
+          dryRunSummary: summarizeDryRunChecks(dryRunChecks),
+        } : {}),
         stepType: input.step.stepType,
       };
+      const workflowFailure = workflowRun.status === 'success' ? undefined : summarizeWorkflowFailure(workflowRun);
       return workflowRun.status === 'success'
         ? { success: true, detail: detail as unknown as Record<string, unknown> }
-        : { success: false, errorCode: 'WORKFLOW_RUN_FAILED', errorMessage: '工作流执行失败', detail: detail as unknown as Record<string, unknown> };
+        : {
+            success: false,
+            errorCode: workflowFailure?.errorCode ?? 'WORKFLOW_RUN_FAILED',
+            errorMessage: workflowFailure?.errorMessage ?? '工作流执行失败',
+            detail: {
+              ...detail,
+              failure: workflowFailure,
+            } as unknown as Record<string, unknown>,
+          };
     } catch (error) {
       if (error instanceof AppError) {
         return { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: error.details as Record<string, unknown> | undefined };
@@ -282,19 +296,17 @@ export class WorkflowExecutorAdapter implements Executor {
   }
 }
 
-export class GatewayExecutorAdapter implements Executor {
-  readonly type = 'GATEWAY_SSH';
+export class GatewayRouteExecutorAdapter implements Executor {
+  readonly type = 'GATEWAY_FORWARD';
 
   private readonly gatewayTasks: GatewayTaskService;
-  private readonly runtime: MockAdapterRuntime;
   private readonly agents: AgentsApplicationService;
-  private readonly allowLocalMockRuntime: boolean;
+  private readonly grants: ForwardingGrantService;
 
-  constructor(options: { gatewayTasks?: GatewayTaskService; runtime?: MockAdapterRuntime; agents?: AgentsApplicationService; allowLocalMockRuntime?: boolean; auditWriter?: GatewayTaskAuditWriter } = {}) {
+  constructor(options: { gatewayTasks?: GatewayTaskService; agents?: AgentsApplicationService; grants?: ForwardingGrantService; auditWriter?: GatewayTaskAuditWriter } = {}) {
     this.gatewayTasks = options.gatewayTasks ?? new GatewayTaskService({ auditWriter: options.auditWriter });
-    this.runtime = options.runtime ?? new MockAdapterRuntime();
     this.agents = options.agents ?? new AgentsApplicationService();
-    this.allowLocalMockRuntime = options.allowLocalMockRuntime ?? false;
+    this.grants = options.grants ?? new ForwardingGrantService();
   }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -304,7 +316,21 @@ export class GatewayExecutorAdapter implements Executor {
       ?? stringFromSnapshot(route?.agentId)
       ?? stringFromSnapshot(route?.gatewayAgentId);
     const delegatedTargetId = stringFromSnapshot(input.step.inputSnapshot.delegatedTargetId) ?? stringFromSnapshot(route?.delegatedTargetId) ?? input.step.deploymentPlanTargetId ?? input.step.id;
-    const adapter = (stringFromSnapshot(input.step.inputSnapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter) ?? 'ssh').toLowerCase();
+    const taskType = gatewayTaskTypeForStep(input.step);
+    const routeChannel = gatewayRouteChannel(taskType, input.step.inputSnapshot, route);
+    const delegatedAgentId = stringFromSnapshot(input.step.inputSnapshot.targetAgentId)
+      ?? stringFromSnapshot(input.step.inputSnapshot.delegatedAgentId)
+      ?? stringFromSnapshot(input.step.inputSnapshot.agentId)
+      ?? delegatedTargetId;
+    const forwardingGrant = this.grants.issue({
+      gatewayId,
+      delegatedTargetId,
+      delegatedAgentId,
+      taskType,
+      routeChannel,
+      executionRunId: input.step.executionRunId,
+      stepId: input.step.id,
+    });
     const task = this.gatewayTasks.dispatch({
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
       tenantId: input.step.tenantId,
@@ -314,23 +340,18 @@ export class GatewayExecutorAdapter implements Executor {
       gatewayId,
       delegatedTargetId,
       target: { id: delegatedTargetId, zoneId: stringFromSnapshot(input.step.inputSnapshot.zoneId) ?? stringFromSnapshot(route?.zoneId) ?? 'default' },
-      adapter,
-      action: gatewayActionForStep(input.step),
-      payload: { ...input.step.inputSnapshot, dryRun: input.dryRun },
+      adapter: routeChannel,
+      action: taskType,
+      payload: buildGatewayRoutePayload(input, taskType, delegatedTargetId, delegatedAgentId, forwardingGrant.id),
+      forwardingGrant,
     });
-    if (this.allowLocalMockRuntime || input.step.inputSnapshot.gatewayMockSafeLocalRuntime === true || route?.mockSafeLocalRuntime === true) {
-      const result = await this.runtime.run({ gatewayId }, task);
-      return result.success
-        ? { success: true, detail: { mode: 'gateway_adapter_mock_safe', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } }
-        : { success: false, errorCode: 'GATEWAY_ADAPTER_FAILED', errorMessage: result.summary, detail: { mode: 'gateway_adapter_mock_safe', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } };
-    }
 
     if (!gatewayAgentId) {
       return {
         success: false,
         errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
-        errorMessage: 'Gateway 执行必须指定 gatewayRoute.agentId/gatewayAgentId，拒绝在控制面本地伪执行',
-        detail: { mode: 'gateway_task_dispatch_failed', gatewayId, taskId: task.id },
+        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId/gatewayAgentId，拒绝在控制面本地伪执行',
+        detail: { mode: 'gateway_route_dispatch_failed', gatewayId, taskId: task.id, taskType },
       };
     }
 
@@ -340,7 +361,7 @@ export class GatewayExecutorAdapter implements Executor {
       executionStepId: input.step.id,
       idempotencyKey: task.idempotencyKey,
       payload: {
-        type: 'gateway.task.run',
+        type: taskType,
         gatewayTask: task,
         runType: input.runType,
         dryRun: input.dryRun,
@@ -351,13 +372,16 @@ export class GatewayExecutorAdapter implements Executor {
       success: true,
       asyncPending: true,
       detail: {
-        mode: 'gateway_task_enqueued',
+        mode: 'gateway_route_task_enqueued',
         gatewayTaskId: task.id,
         agentTaskId: agentTask.id,
         gatewayId,
         gatewayAgentId,
         delegatedTargetId,
-        adapter,
+        delegatedAgentId,
+        forwardingGrantId: forwardingGrant.id,
+        taskType,
+        routeChannel,
         status: agentTask.status,
       },
     };
@@ -451,12 +475,6 @@ export class ControlPlaneTlsExecutor implements Executor {
   }
 }
 
-function gatewayActionForStep(step: ExecutionStepEntity): string {
-  if (step.stepType === 'VERIFY' || step.stepType === 'DISCOVER') return 'read';
-  if (step.stepType === 'INSTALL' || step.stepType === 'ROLLBACK') return 'write';
-  return 'exec';
-}
-
 function stringFromSnapshot(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
@@ -502,6 +520,84 @@ function maskWorkflowRequest(value: unknown): unknown {
   ]));
 }
 
+type DryRunCheckStatus = 'passed' | 'warning' | 'failed' | 'unknown';
+
+interface DryRunCheck {
+  key: string;
+  label: string;
+  status: DryRunCheckStatus;
+  detail: string;
+  evidence?: Record<string, unknown>;
+}
+
+function buildWorkflowDryRunChecks(workflowRun: WorkflowRunResult): DryRunCheck[] {
+  const checks = workflowRun.renderedSteps.map((step, index) => {
+    const preview = readRecord(step.preview) ?? readRecord(step.request);
+    const executor = stringFromSnapshot(preview?.executor) ?? (step.type === 'wait' ? 'workflow.wait' : `workflow.${step.type}`);
+    const status: DryRunCheckStatus = step.skipped ? 'warning' : 'passed';
+    return {
+      key: `workflow_step_${index + 1}_${step.name}`,
+      label: `工作流节点预览：${step.name}`,
+      status,
+      detail: step.skipped
+        ? `节点被条件跳过：${step.reason ?? 'condition_not_matched'}`
+        : `已渲染 ${stageLabel(step.stage)} 阶段的 ${step.type.toUpperCase()} 节点，dry-run 不会执行真实变更。`,
+      evidence: {
+        workflowRunId: workflowRun.id,
+        plannedOnly: workflowRun.plannedOnly,
+        stage: step.stage,
+        type: step.type,
+        executor,
+        skipped: step.skipped === true,
+      },
+    };
+  });
+  if (checks.length > 0) return checks;
+  return [{
+    key: 'workflow_plan_empty',
+    label: '工作流计划预览',
+    status: 'unknown',
+    detail: '工作流 dry-run 已完成，但没有渲染出可检查的节点。',
+    evidence: { workflowRunId: workflowRun.id, plannedOnly: workflowRun.plannedOnly, status: workflowRun.status },
+  }];
+}
+
+function summarizeDryRunChecks(checks: readonly DryRunCheck[]): Record<DryRunCheckStatus, number> {
+  return checks.reduce<Record<DryRunCheckStatus, number>>((summary, check) => {
+    summary[check.status] += 1;
+    return summary;
+  }, { passed: 0, warning: 0, failed: 0, unknown: 0 });
+}
+
+function summarizeWorkflowFailure(workflowRun: WorkflowRunResult): { errorCode: string; errorMessage: string; stepName?: string; stage?: string; type?: string; rolledBack?: boolean } {
+  const failedStep = workflowRun.stepResults.find((step) => step.status === 'failed')
+    ?? workflowRun.rollbackResults.find((step) => step.status === 'failed');
+  if (!failedStep) {
+    return {
+      errorCode: workflowRun.status === 'rolled_back' ? 'WORKFLOW_ROLLED_BACK' : 'WORKFLOW_RUN_FAILED',
+      errorMessage: workflowRun.status === 'rolled_back' ? '工作流执行失败并已触发回滚' : '工作流执行失败',
+      rolledBack: workflowRun.status === 'rolled_back',
+    };
+  }
+  return {
+    errorCode: failedStep.errorCode ?? 'WORKFLOW_STEP_FAILED',
+    errorMessage: `工作流节点 ${failedStep.name} 失败：${failedStep.errorMessage ?? failedStep.errorCode ?? '未返回具体错误'}`,
+    stepName: failedStep.name,
+    stage: failedStep.stage,
+    type: failedStep.type,
+    rolledBack: workflowRun.status === 'rolled_back',
+  };
+}
+
+function stageLabel(stage: string | undefined): string {
+  if (stage === 'prepare') return '准备';
+  if (stage === 'backup') return '备份';
+  if (stage === 'install') return '安装';
+  if (stage === 'refresh') return '刷新';
+  if (stage === 'verify') return '验证';
+  return '未分阶段';
+}
+
 function workflowChildStep(parent: ExecutionStepEntity, suffix: string, inputSnapshot: Record<string, unknown>): ExecutionStepEntity {
   return {
     ...parent,
@@ -525,15 +621,102 @@ function buildWorkflowAssetVariables(snapshot: Record<string, unknown>, request:
 function buildWorkflowCertificateMaterials(snapshot: Record<string, unknown>): Record<string, Record<string, unknown>> {
   const artifact = readRecord(snapshot.deploymentArtifact) ?? readRecord(snapshot.artifact);
   if (!artifact) return {};
+  const declaredMaterials = readRecord(artifact.workflowCertificateMaterials);
+  if (declaredMaterials) {
+    const materials = Object.fromEntries(
+      Object.entries(declaredMaterials)
+        .map(([name, value]) => {
+          const material = readRecord(value);
+          return material ? [name, normalizeWorkflowCertificateMaterial(material, snapshot)] as const : undefined;
+        })
+        .filter((item): item is readonly [string, Record<string, unknown>] => Boolean(item)),
+    );
+    if (Object.keys(materials).length > 0) return materials;
+  }
+  const material = buildWorkflowCertificateMaterial(artifact, snapshot);
+  const aliases = readStringArray(artifact.variableAliases);
+  const names = new Set(['certificate', 'cert', ...aliases]);
+  return Object.fromEntries([...names].map((name) => [name, material]));
+}
+
+function buildWorkflowCertificateMaterial(artifact: Record<string, unknown>, snapshot: Record<string, unknown>): Record<string, unknown> {
+  return normalizeWorkflowCertificateMaterial({
+    pem: artifact.certificatePem,
+    certificatePem: artifact.certificatePem,
+    privateKey: artifact.privateKeyPem,
+    privateKeyPem: artifact.privateKeyPem,
+    pfx: artifact.pfxBase64,
+    pfxBase64: artifact.pfxBase64,
+    pfxPassword: artifact.pfxPassword,
+    fingerprintSha256: artifact.expectedFingerprintSha256 ?? snapshot.expectedCertificateFingerprintSha256,
+    files: normalizeWorkflowCertificateFiles(artifact),
+  }, snapshot);
+}
+
+function normalizeWorkflowCertificateMaterial(material: Record<string, unknown>, snapshot: Record<string, unknown>): Record<string, unknown> {
+  const files = normalizeWorkflowCertificateFiles(material);
+  const existingOutputs = readRecord(material.outputs);
   return {
-    cert: {
-      pem: artifact.certificatePem,
-      privateKey: artifact.privateKeyPem,
-      pfx: artifact.pfxBase64,
-      pfxPassword: artifact.pfxPassword,
-      fingerprintSha256: artifact.expectedFingerprintSha256 ?? snapshot.expectedCertificateFingerprintSha256,
-    },
+    ...material,
+    fingerprintSha256: material.fingerprintSha256 ?? material.expectedFingerprintSha256 ?? snapshot.expectedCertificateFingerprintSha256,
+    files,
+    outputs: existingOutputs && Object.keys(existingOutputs).length > 0
+      ? existingOutputs
+      : buildWorkflowCertificateOutputs(files),
   };
+}
+
+function normalizeWorkflowCertificateFiles(artifact: Record<string, unknown>): Array<Record<string, unknown>> {
+  const declared = Array.isArray(artifact.files)
+    ? artifact.files.filter((item): item is Record<string, unknown> => Boolean(readRecord(item)))
+    : [];
+  if (declared.length > 0) return declared;
+  const files: Array<Record<string, unknown>> = [];
+  const certificatePem = stringFromSnapshot(artifact.certificatePem);
+  const privateKeyPem = stringFromSnapshot(artifact.privateKeyPem);
+  const pfxBase64 = stringFromSnapshot(artifact.pfxBase64);
+  if (certificatePem) {
+    files.push({
+      name: 'certificate',
+      role: 'public_certificate',
+      format: 'pem',
+      content: certificatePem,
+      contentEncoding: 'utf8',
+    });
+  }
+  if (privateKeyPem) {
+    files.push({
+      name: 'privateKey',
+      role: 'private_key',
+      format: 'pem',
+      content: privateKeyPem,
+      contentEncoding: 'utf8',
+    });
+  }
+  if (pfxBase64) {
+    files.push({
+      name: 'bundle',
+      role: 'bundle',
+      format: 'pfx',
+      contentBase64: pfxBase64,
+      contentEncoding: 'base64',
+    });
+  }
+  return files;
+}
+
+function buildWorkflowCertificateOutputs(files: Array<Record<string, unknown>>): Record<string, Record<string, unknown>> {
+  const outputs: Record<string, Record<string, unknown>> = {};
+  for (const file of files) {
+    const key = stringFromSnapshot(file.key) ?? stringFromSnapshot(file.name);
+    if (key) outputs[key] = file;
+    const role = stringFromSnapshot(file.role);
+    if (role === 'public_certificate') outputs.certFile ??= file;
+    if (role === 'private_key') outputs.keyFile ??= file;
+    if (role === 'certificate_chain') outputs.chainFile ??= file;
+    if (role === 'bundle') outputs.bundleFile ??= file;
+  }
+  return outputs;
 }
 
 function toWorkflowSshRequest(plan: Record<string, unknown> | undefined, parent: ExecutionStepEntity, attempt: number): Record<string, unknown> {
@@ -594,4 +777,49 @@ function shouldFallbackDirectError(error: AppError | undefined): boolean {
   return error?.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
     || error?.errorCode === 'CAPABILITY_MISSING'
     || error?.errorCode === 'VALIDATION_FAILED';
+}
+
+function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'gateway.forward.agent_task' | 'gateway.forward.direct_control' {
+  const explicit = stringFromSnapshot(step.inputSnapshot.gatewayTaskType);
+  if (explicit === 'gateway.probe' || explicit === 'gateway.forward.agent_task' || explicit === 'gateway.forward.direct_control') return explicit;
+  const forwardMode = stringFromSnapshot(step.inputSnapshot.gatewayForwardMode);
+  if (forwardMode === 'direct_control') return 'gateway.forward.direct_control';
+  if (step.stepType === 'DISCOVER' || step.stepType === 'VERIFY') return 'gateway.probe';
+  return 'gateway.forward.agent_task';
+}
+
+function gatewayRouteChannel(taskType: string, snapshot: Record<string, unknown>, route: Record<string, unknown> | undefined): string {
+  const explicit = stringFromSnapshot(snapshot.gatewayRouteChannel) ?? stringFromSnapshot(snapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter);
+  if (explicit) return normalizeGatewayRouteChannel(explicit, taskType);
+  if (taskType === 'gateway.probe') return 'probe.tcp';
+  if (taskType === 'gateway.forward.direct_control') return 'forward.direct_control';
+  return 'forward.agent_task';
+}
+
+function normalizeGatewayRouteChannel(value: string, taskType: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
+  if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
+  if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
+  if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+  if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
+  if (taskType === 'gateway.probe') return 'probe.tcp';
+  return 'forward.agent_task';
+}
+
+function buildGatewayRoutePayload(input: StepExecutionInput, taskType: string, delegatedTargetId: string, delegatedAgentId: string | undefined, forwardingGrantId: string): Record<string, unknown> {
+  const snapshot = input.step.inputSnapshot;
+  return {
+    type: taskType,
+    delegatedTargetId,
+    delegatedAgentId,
+    targetAgentId: delegatedAgentId,
+    forwardingGrantId,
+    dryRun: input.dryRun,
+    runType: input.runType,
+    stepType: input.step.stepType,
+    executionRunId: input.step.executionRunId,
+    executionStepId: input.step.id,
+    targetPayload: maskWorkflowRequest(snapshot),
+  };
 }

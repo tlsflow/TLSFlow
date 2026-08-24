@@ -56,8 +56,7 @@ export class GatewayTaskService {
       adapter: input.adapter,
       action: input.action,
       payload: input.payload ?? {},
-      credentialSessionId: input.credentialSessionId,
-      credentialLeaseId: input.credentialLeaseId ?? input.credentialSessionId,
+      forwardingGrant: input.forwardingGrant,
       status: 'queued',
       evidenceIds: [],
       evidenceAckCursor: 0,
@@ -95,7 +94,6 @@ export class GatewayTaskService {
       planId: task.planId,
       executionRunId: task.executionRunId,
       stepId: task.stepId,
-      credentialLeaseId: task.credentialLeaseId,
       action: task.action,
       result: task.result?.status ?? (task.status === 'failed' || task.status === 'cancelled' || task.status === 'timeout' ? task.status : 'success'),
       evidenceRef,
@@ -136,6 +134,11 @@ export class GatewayTaskService {
     const current = task.evidenceAckCursor ?? 0;
     if (ackCursor <= current) return task;
     return this.save({ ...task, evidenceAckCursor: ackCursor, updatedAt: now.toISOString() });
+  }
+
+  updateForwardingGrant(taskId: string, forwardingGrant: GatewayTask['forwardingGrant'], now = new Date()): GatewayTask {
+    const task = this.requireTask(taskId);
+    return this.save({ ...task, forwardingGrant, updatedAt: now.toISOString() });
   }
 
   get(taskId: string): GatewayTask | undefined {

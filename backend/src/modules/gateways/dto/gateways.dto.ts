@@ -46,23 +46,6 @@ export interface GatewayReachabilityDto {
   updatedAt: string;
 }
 
-export interface GatewayCredentialSessionDto {
-  id: string;
-  tenantId: string;
-  taskId: string;
-  secretRef: { ref: string };
-  grantRef: { ref: string };
-  gatewayId: string;
-  targetId: string;
-  protocol: GatewayAdapterType;
-  allowedActions: string[];
-  remainingUses: number;
-  expiresAt: string;
-  status: 'active' | 'revoked' | 'expired' | 'used';
-  createdAt: string;
-  revokedAt?: string;
-}
-
 export interface RegisterGatewayInput {
   id?: string;
   agentId: string;

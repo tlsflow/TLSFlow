@@ -32,6 +32,7 @@ export interface GatewaysRepository {
 
 export class PgGatewaysRepository implements GatewaysRepository {
   readonly moduleName = 'gateways' as const;
+  private schemaReady = false;
 
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
 
@@ -53,14 +54,14 @@ export class PgGatewaysRepository implements GatewaysRepository {
 
   async upsertZone(tenantId: string, input: Omit<Zone, 'id'> & { id?: string }): Promise<GatewayZoneDto> {
     await this.ensureSchema();
-    const id = input.id ?? newId('zone');
+    const id = normalizeZoneId(input.id ?? newId('zone'));
     const current = await this.getZone(tenantId, id);
     const now = nowIso();
     const zone: GatewayZoneDto = { id, tenantId, name: input.name, type: input.type, policy: input.policy, enabled: input.enabled, createdAt: current?.createdAt ?? now, updatedAt: now };
     await this.db.query(
       `insert into pg_gateway_zones (id, tenant_id, name, zone_type, policy, enabled, created_at, updated_at)
        values ($1,$2,$3,$4,$5::jsonb,$6,$7::timestamptz,$8::timestamptz)
-       on conflict (id) do update set name = excluded.name, zone_type = excluded.zone_type, policy = excluded.policy, enabled = excluded.enabled, updated_at = excluded.updated_at`,
+       on conflict (tenant_id, id) do update set name = excluded.name, zone_type = excluded.zone_type, policy = excluded.policy, enabled = excluded.enabled, updated_at = excluded.updated_at`,
       [zone.id, tenantId, zone.name, zone.type, JSON.stringify(zone.policy), zone.enabled, zone.createdAt, zone.updatedAt],
     );
     return zone;
@@ -74,9 +75,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
 
   async registerGateway(tenantId: string, input: RegisterGatewayInput): Promise<GatewayDto> {
     if (input.zoneIds.length === 0) throw new AppError('VALIDATION_FAILED', 'Gateway 必须绑定至少一个 Zone', { field: 'zoneIds' });
-    await this.ensureDefaultZones(tenantId);
-    const missingZone = (await Promise.all(input.zoneIds.map(async (zoneId) => [zoneId, await this.getZone(tenantId, zoneId)] as const))).find(([, zone]) => !zone);
-    if (missingZone) throw new AppError('RESOURCE_NOT_FOUND', 'Zone 不存在', { zoneId: missingZone[0] });
+    const zoneIds = await this.resolveGatewayZoneIds(tenantId, input.zoneIds);
 
     const current = input.id ? await this.getGateway(tenantId, input.id) : await this.findGatewayByAgentId(tenantId, input.agentId);
     const now = nowIso();
@@ -84,7 +83,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
       id: current?.id ?? input.id ?? newId('gw'),
       tenantId,
       agentId: input.agentId,
-      zoneIds: dedupe(input.zoneIds),
+      zoneIds,
       version: input.version,
       status: 'online',
       adapters: dedupe(normalizeRouteChannels(input.adapters)),
@@ -103,12 +102,13 @@ export class PgGatewaysRepository implements GatewaysRepository {
 
   async updateGatewayStatus(tenantId: string, gatewayId: string, input: Partial<GatewayDto>): Promise<GatewayDto> {
     const current = await this.requireGateway(tenantId, gatewayId);
+    const zoneIds = input.zoneIds ? await this.resolveGatewayZoneIds(tenantId, input.zoneIds) : current.zoneIds;
     const now = nowIso();
     const status = input.status ?? current.status;
     const updated: GatewayDto = {
       ...current,
       ...input,
-      zoneIds: input.zoneIds ? dedupe(input.zoneIds) : current.zoneIds,
+      zoneIds,
       adapters: input.adapters ? dedupe(normalizeRouteChannels(input.adapters)) : current.adapters,
       capabilities: input.capabilities ? dedupe(input.capabilities) : current.capabilities,
       status,
@@ -232,22 +232,56 @@ export class PgGatewaysRepository implements GatewaysRepository {
     return row ? toZone(row) : undefined;
   }
 
+  private async findZoneByName(tenantId: string, name: string): Promise<GatewayZoneDto | undefined> {
+    const row = (await this.db.query<GatewayZoneRow>(`select * from pg_gateway_zones where tenant_id = $1 and lower(name) = lower($2) order by updated_at desc limit 1`, [tenantId, name])).rows[0];
+    return row ? toZone(row) : undefined;
+  }
+
+  private async resolveGatewayZoneIds(tenantId: string, values: string[]): Promise<string[]> {
+    await this.ensureDefaultZones(tenantId);
+    const zoneIds: string[] = [];
+    for (const value of dedupe(values)) {
+      const zoneId = normalizeZoneId(value);
+      const existing = await this.getZone(tenantId, zoneId);
+      if (existing) {
+        zoneIds.push(existing.id);
+        continue;
+      }
+      const byName = await this.findZoneByName(tenantId, zoneId);
+      if (byName) {
+        zoneIds.push(byName.id);
+        continue;
+      }
+      const created = await this.upsertZone(tenantId, {
+        id: zoneId,
+        name: zoneId,
+        type: 'custom',
+        enabled: true,
+        policy: { priority: 5, allowedAdapters: defaultGatewayRouteChannels(), maxConcurrentTasks: 5 },
+      });
+      zoneIds.push(created.id);
+    }
+    return dedupe(zoneIds);
+  }
+
   private async getReachabilityRow(tenantId: string, gatewayId: string, targetId: string, protocol: GatewayAdapterType): Promise<GatewayReachabilityRow | undefined> {
     await this.ensureSchema();
     return (await this.db.query<GatewayReachabilityRow>(`select * from pg_gateway_reachability where tenant_id = $1 and gateway_id = $2 and target_id = $3 and protocol = $4`, [tenantId, gatewayId, targetId, protocol])).rows[0];
   }
 
   private async ensureSchema(): Promise<void> {
+    if (this.schemaReady) return;
     await this.db.exec(`
       create table if not exists pg_gateway_zones (
-        id varchar(128) primary key,
+        id varchar(128) not null,
         tenant_id varchar(128) not null,
         name text not null,
         zone_type varchar(64) not null,
         policy jsonb not null,
         enabled boolean not null default true,
         created_at timestamptz not null,
-        updated_at timestamptz not null
+        updated_at timestamptz not null,
+        primary key (tenant_id, id)
       );
       create table if not exists pg_gateways (
         id varchar(128) primary key,
@@ -285,8 +319,11 @@ export class PgGatewaysRepository implements GatewaysRepository {
         updated_at timestamptz not null,
         entity_id varchar(128) not null
       );
+      alter table pg_gateway_zones drop constraint if exists pg_gateway_zones_pkey;
+      alter table pg_gateway_zones add constraint pg_gateway_zones_pkey primary key (tenant_id, id);
       create unique index if not exists idx_pg_gateway_reachability_unique on pg_gateway_reachability (tenant_id, gateway_id, target_id, protocol);
     `);
+    this.schemaReady = true;
   }
 }
 
@@ -390,6 +427,13 @@ function asStringArray(value: unknown): string[] {
 
 function dedupe<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function normalizeZoneId(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new AppError('VALIDATION_FAILED', 'Zone 不能为空', { field: 'zoneId' });
+  if (normalized.length > 128) throw new AppError('VALIDATION_FAILED', 'Zone 长度不能超过 128 个字符', { field: 'zoneId' });
+  return normalized;
 }
 
 function defaultGatewayRouteChannels(): GatewayAdapterType[] {

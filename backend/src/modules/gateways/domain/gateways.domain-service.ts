@@ -70,13 +70,14 @@ export class GatewaysDomainService {
     if (input.zoneId && !gateway.zoneIds.includes(input.zoneId)) {
       throw new AppError('VALIDATION_FAILED', 'Gateway 不属于目标 Zone', { gatewayId: input.gatewayId, zoneId: input.zoneId });
     }
-    if (!gateway.adapters.includes(input.protocol)) {
-      throw new AppError('VALIDATION_FAILED', 'Gateway 不支持该 Adapter', { gatewayId: input.gatewayId, protocol: input.protocol });
+    const protocol = normalizeProbeProtocol(input.protocol);
+    if (!gateway.adapters.includes(protocol)) {
+      throw new AppError('VALIDATION_FAILED', 'Gateway 不支持该探测通道', { gatewayId: input.gatewayId, protocol });
     }
     return this.repository.upsertReachability(tenantId, {
       gatewayId: input.gatewayId,
       targetId: input.targetId,
-      protocol: input.protocol,
+      protocol,
       port: input.port,
       status: input.status ?? 'reachable',
       latencyMs: input.latencyMs,
@@ -92,4 +93,12 @@ export class GatewaysDomainService {
     }
     throw new AppError('VALIDATION_FAILED', 'gatewayId 或 agentId 不能为空', { field: 'gatewayId' });
   }
+}
+
+function normalizeProbeProtocol(protocol: ProbeGatewayInput['protocol']): ProbeGatewayInput['protocol'] {
+  const normalized = String(protocol).trim().toLowerCase();
+  if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
+  if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
+  if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
+  throw new AppError('VALIDATION_FAILED', 'Gateway probe 只允许 probe.tcp、probe.http、probe.agent；CURL 只能归一为 probe.http', { protocol });
 }

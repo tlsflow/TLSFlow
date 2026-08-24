@@ -16,7 +16,8 @@ export interface GatewayTargetHistoryRecord {
   gatewayId: string;
   delegatedTargetId: string;
   adapter: string;
-  credentialLeaseId?: string;
+  forwardingGrantId?: string;
+  delegatedAgentId?: string;
   action: string;
   result: string;
   summary: string;
@@ -86,6 +87,8 @@ export interface GatewayTaskAuditWriterOptions {
 }
 
 export class GatewayTaskAuditWriter {
+  private pendingHistoryWrites: Promise<unknown>[] = [];
+
   constructor(private readonly options: GatewayTaskAuditWriterOptions = {}) {}
 
   recordEvidence(task: GatewayTask, evidence: GatewayEvidence): void {
@@ -101,7 +104,7 @@ export class GatewayTaskAuditWriter {
       riskLevel: riskFor(task.action),
       detail,
     });
-    void this.options.history?.append(toHistoryRecord(task, evidence.summary, evidence, evidence.result, evidence.createdAt));
+    this.enqueueHistoryWrite(toHistoryRecord(task, evidence.summary, evidence, evidence.result, evidence.createdAt));
   }
 
   recordResult(task: GatewayTask): void {
@@ -118,7 +121,15 @@ export class GatewayTaskAuditWriter {
       riskLevel: riskFor(task.action),
       detail,
     });
-    void this.options.history?.append(toHistoryRecord(task, task.result.summary, undefined, task.result.status, task.result.finishedAt));
+    this.enqueueHistoryWrite(toHistoryRecord(task, task.result.summary, undefined, task.result.status, task.result.finishedAt));
+  }
+
+  async flush(): Promise<void> {
+    while (this.pendingHistoryWrites.length > 0) {
+      const pending = this.pendingHistoryWrites;
+      this.pendingHistoryWrites = [];
+      await Promise.all(pending);
+    }
   }
 
   async listTargetHistory(delegatedTargetId: string): Promise<GatewayTargetHistoryRecord[]> {
@@ -127,6 +138,17 @@ export class GatewayTaskAuditWriter {
 
   async listTenantTargetHistory(tenantId: string, delegatedTargetId: string): Promise<GatewayTargetHistoryRecord[]> {
     return this.options.history?.listByTarget(delegatedTargetId, tenantId) ?? [];
+  }
+
+  private enqueueHistoryWrite(record: GatewayTargetHistoryRecord): void {
+    if (!this.options.history) return;
+    const write = this.options.history.append(record);
+    this.pendingHistoryWrites.push(write);
+    write.then(() => {
+      this.pendingHistoryWrites = this.pendingHistoryWrites.filter((item) => item !== write);
+    }, () => {
+      this.pendingHistoryWrites = this.pendingHistoryWrites.filter((item) => item !== write);
+    });
   }
 }
 
@@ -139,8 +161,8 @@ function structuredDetail(task: GatewayTask, summary: string, evidence: GatewayE
     gatewayId: task.gatewayId,
     delegatedTargetId: task.delegatedTargetId,
     adapter: task.adapter,
-    credentialLeaseId: task.credentialLeaseId,
-    credentialSessionId: task.credentialSessionId,
+    forwardingGrantId: task.forwardingGrant?.id ?? evidence?.forwardingGrantId,
+    delegatedAgentId: task.forwardingGrant?.delegatedAgentId ?? evidence?.delegatedAgentId,
     action: task.action,
     result,
     summary,
@@ -167,7 +189,8 @@ function toHistoryRecord(task: GatewayTask, summary: string, evidence: GatewayEv
     gatewayId: task.gatewayId,
     delegatedTargetId: task.delegatedTargetId,
     adapter: task.adapter,
-    credentialLeaseId: task.credentialLeaseId,
+    forwardingGrantId: task.forwardingGrant?.id ?? evidence?.forwardingGrantId,
+    delegatedAgentId: task.forwardingGrant?.delegatedAgentId ?? evidence?.delegatedAgentId,
     action: task.action,
     result,
     summary,

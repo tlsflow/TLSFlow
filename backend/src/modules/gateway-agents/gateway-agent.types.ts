@@ -1,8 +1,10 @@
 export type ZoneType = 'production' | 'dmz' | 'office' | 'device' | 'legacy' | 'custom';
 export type GatewayStatus = 'online' | 'offline' | 'disabled' | 'revoked' | 'upgrading';
-export type GatewayAdapterType = 'ssh' | 'winrm' | 'curl' | 'smb' | 'wmi' | string;
+export type GatewayRouteChannel = 'probe.tcp' | 'probe.http' | 'probe.agent' | 'forward.agent_task' | 'forward.direct_control';
+export type GatewayAdapterType = GatewayRouteChannel | string;
+export type GatewayTaskType = 'gateway.probe' | 'gateway.forward.agent_task' | 'gateway.forward.direct_control';
 export type ReachabilityStatus = 'reachable' | 'unreachable' | 'unknown' | 'expired';
-export type CredentialSessionStatus = 'active' | 'revoked' | 'expired' | 'used';
+export type ForwardingGrantStatus = 'active' | 'used' | 'expired' | 'revoked';
 export type GatewayTaskStatus = 'queued' | 'acknowledged' | 'running' | 'success' | 'failed' | 'cancelled' | 'timeout';
 export type FallbackSuggestion = 'gateway_required' | 'script_package' | 'manual';
 
@@ -21,6 +23,7 @@ export interface ZonePolicy {
   priority?: number;
   requireApproval?: boolean;
   allowDirectControlPlaneAccess?: boolean;
+  /** 兼容旧字段名。这里表达的是 Gateway 允许的路由/探测通道，不是协议 Adapter。 */
   allowedAdapters?: GatewayAdapterType[];
   allowedActions?: string[];
   maxConcurrentTasks?: number;
@@ -42,6 +45,7 @@ export interface GatewayAgentProfile {
   zoneIds: string[];
   version: string;
   status: GatewayStatus;
+  /** 兼容旧字段名。这里表达的是 Gateway 支持的路由/探测通道，不是协议 Adapter。 */
   adapters: GatewayAdapterType[];
   capabilities: string[];
   capabilitySetId: string;
@@ -63,41 +67,29 @@ export interface ReachabilityRecord {
   expiresAt: string;
 }
 
-export interface SecretRef {
-  ref: string;
-}
-
-export interface GrantRef {
-  ref: string;
-}
-
-export interface CredentialSession {
-  id: string;
-  taskId: string;
-  operatorId?: string;
-  executionRunId?: string;
-  stepId?: string;
-  auditRefs: string[];
-  secretRef: SecretRef;
-  grantRef: GrantRef;
-  gatewayId: string;
-  targetId: string;
-  protocol: GatewayAdapterType;
-  allowedActions: string[];
-  remainingUses: number;
-  expiresAt: string;
-  status: CredentialSessionStatus;
-  createdAt: string;
-  revokedAt?: string;
-  usedAt?: string;
-  expiredAt?: string;
-}
-
 export interface GatewayTaskTarget {
   id: string;
   zoneId: string;
   host?: string;
   port?: number;
+}
+
+export interface ForwardingGrant {
+  id: string;
+  gatewayId: string;
+  delegatedTargetId: string;
+  delegatedAgentId?: string;
+  taskType: GatewayTaskType;
+  routeChannel: GatewayAdapterType;
+  executionRunId: string;
+  stepId: string;
+  maxUses: number;
+  remainingUses: number;
+  expiresAt: string;
+  status: ForwardingGrantStatus;
+  issuedAt: string;
+  usedAt?: string;
+  revokedAt?: string;
 }
 
 export interface GatewayTask {
@@ -111,11 +103,12 @@ export interface GatewayTask {
   gatewayId: string;
   delegatedTargetId: string;
   target: GatewayTaskTarget;
+  /** 兼容旧字段名。实际值只能是 probe.* 或 forward.* 路由通道。 */
   adapter: GatewayAdapterType;
-  action: string;
+  /** Gateway 任务类型：gateway.probe / gateway.forward.agent_task / gateway.forward.direct_control。 */
+  action: GatewayTaskType | string;
   payload: Record<string, unknown>;
-  credentialSessionId?: string;
-  credentialLeaseId?: string;
+  forwardingGrant?: ForwardingGrant;
   status: GatewayTaskStatus;
   leaseId?: string;
   result?: GatewayTaskResult;
@@ -150,9 +143,9 @@ export interface GatewayEvidence {
   gatewayId: string;
   delegatedTargetId: string;
   adapter: GatewayAdapterType;
-  credentialSessionId?: string;
-  credentialLeaseId?: string;
-  action: string;
+  forwardingGrantId?: string;
+  delegatedAgentId?: string;
+  action: GatewayTaskType | string;
   result: GatewayTaskResult['status'];
   evidenceRef: string;
   /** 对齐 Agent task logs 的幂等序号；同一 GatewayTask 内唯一。 */
@@ -168,7 +161,7 @@ export interface ZoneRouteRequest {
   targetId: string;
   protocols: GatewayAdapterType[];
   requiredCapabilities?: string[];
-  /** 本次任务动作，用于 ZonePolicy.allowedActions 和审批策略判定。 */
+  /** 本次路由动作，用于 ZonePolicy.allowedActions 和审批策略判定。 */
   action?: string;
   /** 是否属于破坏性任务。 */
   destructive?: boolean;
@@ -203,22 +196,6 @@ export interface ZoneRouteResult {
   approvalReason?: 'zone_requires_approval';
 }
 
-export interface CredentialIssueRequest {
-  taskId: string;
-  operatorId?: string;
-  executionRunId?: string;
-  stepId?: string;
-  auditRef?: string;
-  gatewayId: string;
-  targetId: string;
-  protocol: GatewayAdapterType;
-  secretRef: string;
-  requestedActions: string[];
-  ttlSeconds?: number;
-  maxUses?: number;
-  now?: Date;
-}
-
 export interface GatewayDelegatedTaskInput {
   id?: string;
   idempotencyKey: string;
@@ -231,37 +208,8 @@ export interface GatewayDelegatedTaskInput {
   delegatedTargetId: string;
   target: GatewayTaskTarget;
   adapter: GatewayAdapterType;
-  action: string;
+  action: GatewayTaskType | string;
   payload?: Record<string, unknown>;
-  credentialSessionId?: string;
-  credentialLeaseId?: string;
+  forwardingGrant?: ForwardingGrant;
   now?: Date;
-}
-
-export interface AdapterContext {
-  gatewayId: string;
-  credentialSessionId?: string;
-  grantRef?: GrantRef;
-}
-
-export interface PrecheckResult {
-  ok: boolean;
-  reason?: string;
-}
-
-export interface AdapterExecutionResult {
-  success: boolean;
-  status: 'success' | 'failed';
-  summary: string;
-  evidence: Omit<GatewayEvidence, 'id' | 'createdAt'>[];
-}
-
-export interface GatewayAdapterDescriptor {
-  type: GatewayAdapterType;
-  displayName: string;
-  capabilities: string[];
-  supportedActions: string[];
-  mockSafe: true;
-  precheck(ctx: AdapterContext): Promise<PrecheckResult> | PrecheckResult;
-  run(ctx: AdapterContext, task: GatewayTask): Promise<AdapterExecutionResult> | AdapterExecutionResult;
 }

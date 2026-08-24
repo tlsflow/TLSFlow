@@ -47,6 +47,78 @@ describe('spec014 Gateway 后端 API', () => {
     assert.equal(page.items.some((item) => item.agentId === agent.id), true);
   });
 
+  it('Agent 注册 Gateway 时应允许租户内自定义中文区域并同步到 GatewayRegistry', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_gateway_custom_zone', 'x-request-id': 'req_gateway_custom_zone_register' };
+
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'full_agent.gateway_custom_zone',
+        hostname: 'full-agent-gateway-custom-zone',
+        version: '0.1.0',
+        osType: 'windows',
+        role: 'gateway',
+        zone: '数据中心',
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
+        capabilities: ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.forward.agent_task', 'gateway.forward.direct_control'],
+      },
+    });
+    assert.equal(registered.statusCode, 201);
+    const agent = registered.body as { id: string; gateway?: { zoneIds: string[] } };
+    assert.deepEqual(agent.gateway?.zoneIds, ['数据中心']);
+
+    const list = await app.inject({
+      method: 'GET',
+      path: `/api/v1/gateways?filter[zoneId]=${encodeURIComponent('数据中心')}`,
+      headers: { ...headers, 'x-request-id': 'req_gateway_custom_zone_list' },
+    });
+    assert.equal(list.statusCode, 200);
+    const page = list.body as { items: Array<{ agentId: string; zoneIds: string[] }>; total: number };
+    assert.equal(page.total, 1);
+    assert.equal(page.items[0]?.agentId, agent.id);
+    assert.deepEqual(page.items[0]?.zoneIds, ['数据中心']);
+
+    const capabilities = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/capabilities',
+      headers: { ...headers, 'x-request-id': 'req_gateway_custom_zone_capabilities' },
+      body: {
+        agentId: agent.id,
+        compatibilityLevel: 'modern',
+        capabilities: [
+          { capabilityKey: 'gateway.forward.agent_task', value: true, confidence: 0.95 },
+          { capabilityKey: 'gateway.forward.direct_control', value: true, confidence: 0.95 },
+        ],
+        adapters: ['probe.tcp', 'probe.http', 'forward.agent_task', 'forward.direct_control'],
+      },
+    });
+    assert.equal(capabilities.statusCode, 201);
+  });
+
+  it('默认 Gateway Zone 应按租户隔离，不能被 default 全局主键卡住', async () => {
+    const app = createApp();
+    for (const tenant of ['tenant_gateway_default_a', 'tenant_gateway_default_b']) {
+      const registered = await app.inject({
+        method: 'POST',
+        path: '/api/v1/gateways/status',
+        headers: { 'x-tenant-id': tenant, 'x-request-id': `req_${tenant}` },
+        body: {
+          action: 'register',
+          agentId: `agent_${tenant}`,
+          zoneIds: ['default'],
+          version: '1.0.0',
+          adapters: ['probe.tcp'],
+          capabilities: ['gateway.probe.tcp'],
+        },
+      });
+      assert.equal(registered.statusCode, 201);
+      assert.deepEqual((registered.body as { zoneIds: string[] }).zoneIds, ['default']);
+    }
+  });
+
   it('支持 Gateway 注册、列表、详情、可达性探测和区域路由', async () => {
     const app = createApp();
     const headers = { 'x-tenant-id': 'tenant_gateway', 'x-request-id': 'req_gateway_1' };
