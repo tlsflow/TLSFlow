@@ -621,7 +621,8 @@ export class WorkflowTemplatesDomainService {
   private async loadPersistedTemplate(templateId: string): Promise<WorkflowTemplate | undefined> {
     const persisted = await this.templatesRepository.get(templateId);
     if (!persisted) return undefined;
-    const template = normalizeTemplate(persisted);
+    const template = normalizeCurrentTemplate(persisted);
+    if (!template) return undefined;
     this.templates.set(template.id, template);
     return template;
   }
@@ -708,7 +709,9 @@ export class WorkflowTemplatesDomainService {
     this.templates.clear();
     this.versions.clear();
     for (const template of templates) {
-      const normalized = normalizeTemplate(template);
+      // 迁移执行前可能暂时残留旧来源；隔离它们，不能把历史对象伪装成当前用户工作流。
+      const normalized = normalizeCurrentTemplate(template);
+      if (!normalized) continue;
       this.templates.set(normalized.id, normalized);
     }
     const byTemplate = new Map<string, WorkflowTemplateVersion[]>();
@@ -718,6 +721,7 @@ export class WorkflowTemplatesDomainService {
       byTemplate.set(version.templateId, list);
     }
     for (const [templateId, list] of byTemplate.entries()) {
+      if (!this.templates.has(templateId)) continue;
       list.sort((a, b) => a.version - b.version);
       this.versions.set(templateId, list.map((version) => normalizeVersion(version)));
     }
@@ -1807,6 +1811,11 @@ function resolveExecutionBranch(
 function normalizeOrigin(origin: unknown): WorkflowTemplate['origin'] {
   if (origin === 'plugin_internal' || origin === 'user') return origin;
   throw new AppError('VALIDATION_FAILED', '工作流来源不符合当前 Workflow 合同', { origin });
+}
+
+function normalizeCurrentTemplate(template: WorkflowTemplate): WorkflowTemplate | undefined {
+  if (template.origin !== 'plugin_internal' && template.origin !== 'user') return undefined;
+  return normalizeTemplate(template);
 }
 
 function normalizeTemplate(template: WorkflowTemplate): WorkflowTemplate {

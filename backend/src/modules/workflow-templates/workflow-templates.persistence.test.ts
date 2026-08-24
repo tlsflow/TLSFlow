@@ -94,4 +94,43 @@ describe('WorkflowTemplates 持久化', () => {
     assert.equal(listedVersions.length, 1);
     assert.equal(listedVersions[0].id, version.id);
   });
+
+  it('服务重建时隔离不符合当前来源合同的历史模板', async () => {
+    const db = new PgliteDatabase();
+    const templates = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
+    const versions = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
+    const now = new Date().toISOString();
+    await templates.upsert({
+      id: 'wftpl_legacy_origin',
+      name: 'legacy-origin-template',
+      origin: 'legacy' as never,
+      ownerType: 'TENANT',
+      status: 'published',
+      currentVersionId: 'wftplv_legacy_origin',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await versions.upsert({
+      id: 'wftplv_legacy_origin',
+      templateId: 'wftpl_legacy_origin',
+      version: 1,
+      dslVersion: 'v1',
+      content: {} as never,
+      contentHash: 'legacy',
+      status: 'published',
+      createdAt: now,
+    });
+
+    const service = new WorkflowTemplatesDomainService(templates, versions);
+
+    assert.deepEqual(await service.listTemplates(), []);
+    await assert.rejects(
+      () => service.getTemplate('wftpl_legacy_origin'),
+      (error: unknown) => error instanceof Error && error.message === 'workflow template not found',
+    );
+    await assert.rejects(
+      () => service.getVersion('wftplv_legacy_origin'),
+      (error: unknown) => error instanceof Error && error.message === 'workflow template not found',
+    );
+  });
 });
