@@ -21,7 +21,6 @@ import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcMo
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { requestExecutionRecordsRefresh } from '@/utils/execution-records-refresh'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { createDeploymentPlansPageConfig } from './deployment-plan.config'
@@ -231,7 +230,6 @@ const terminalPlanExecutionRunId = computed(() => {
 watch(terminalPlanExecutionRunId, async (runId) => {
   if (!runId || refreshedTerminalRunIds.has(runId)) return
   refreshedTerminalRunIds.add(runId)
-  requestExecutionRecordsRefresh()
   await pageRef.value?.reload()
 })
 
@@ -360,12 +358,11 @@ function resetMessages() {
   latestExecutionRequestId.value = ''
 }
 
-function closeDryRunResultModal() {
-  const wasOpen = dryRunResultModalOpen.value
+async function closeDryRunResultModal() {
   dryRunResultModalOpen.value = false
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
-  if (wasOpen) requestExecutionRecordsRefresh()
+  await pageRef.value?.reload()
 }
 
 function closeDryRunRequiredModal(force = false) {
@@ -1104,7 +1101,7 @@ async function fetchAllPages(
     </GcModal>
 
     <GcDryRunResultModal
-      v-model:open="dryRunResultModalOpen"
+      :open="dryRunResultModalOpen"
       :title="latestExecutionTitle"
       :run-id="activeExecutionRow?.id"
       :request-id="latestExecutionRequestId || activeExecutionDetail.requestId.value || dryRunRequestId"
@@ -1116,7 +1113,7 @@ async function fetchAllPages(
       :polling="activeExecutionDetail.isPolling.value"
       :error="activeExecutionError"
       :mode="latestExecutionViewMode"
-      @update:open="(value) => value ? (dryRunResultModalOpen = true) : closeDryRunResultModal()"
+      @update:open="(value) => value ? (dryRunResultModalOpen = true) : void closeDryRunResultModal()"
     />
 
     <GcModal
