@@ -358,8 +358,9 @@ describe('AcmeOperationsView', () => {
     const nameInput = [...inputs].find((item) => item.required && item.type !== 'url')
     const directoryInput = [...inputs].find((item) => item.type === 'url')
     const emailInput = [...inputs].find((item) => item.type === 'email')
-    const eabInput = [...inputs].find((item) => item.placeholder.includes('secret://acme_eab'))
-    if (!nameInput || !directoryInput || !emailInput || !eabInput) throw new Error('Provider 最小表单字段不完整')
+    const eabSelect = [...form.querySelectorAll<HTMLSelectElement>('select')].find((item) =>
+      [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))
+    if (!nameInput || !directoryInput || !emailInput || !eabSelect) throw new Error('Provider 最小表单字段不完整')
 
     nameInput.value = 'DigiCert ACME'
     nameInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -367,8 +368,8 @@ describe('AcmeOperationsView', () => {
     directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
     emailInput.value = 'admin@example.com'
     emailInput.dispatchEvent(new Event('input', { bubbles: true }))
-    eabInput.value = 'secret://acme_eab/sec_eab#current'
-    eabInput.dispatchEvent(new Event('input', { bubbles: true }))
+    eabSelect.value = 'secret://acme_eab/sec_eab#current'
+    eabSelect.dispatchEvent(new Event('change', { bubbles: true }))
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await settle()

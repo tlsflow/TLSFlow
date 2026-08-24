@@ -139,7 +139,9 @@ export function normalizeAcmeProviderProfile(
     isBuiltIn: current.isBuiltIn === true,
     verificationLevel: normalizeVerificationLevel(current.verificationLevel) ?? 'unconfigured',
     verification: objectValue(current.verification),
-    trustBundleSecretRef: stringValue(input.trustBundleSecretRef) ?? stringValue(current.trustBundleSecretRef),
+    trustBundleSecretRef: profile.form.accountFields.includes('trustBundleSecretRef')
+      ? stringValue(input.trustBundleSecretRef) ?? stringValue(current.trustBundleSecretRef)
+      : undefined,
   };
 }
 
