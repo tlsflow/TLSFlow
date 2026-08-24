@@ -270,7 +270,6 @@ function runnerConfig() {
     executablePath: process.execPath,
     workingDirectory: process.cwd(),
     args: ['/runner/server.js'],
-    executorModulePath: '/runner/unused.js',
     runnerVersion: '1.0.0',
     sdkVersion: '1.0.0',
   } as never;

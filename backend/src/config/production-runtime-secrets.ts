@@ -31,7 +31,6 @@ const defaultRuntimeSecretsFile = '/app/data/runtime/runtime-secrets.enc';
 const defaultPolicyAuthorityStateFile = '/app/data/runtime/policy-authority-state.json';
 const defaultPolicyAuthoritySigningKeysFile = '/app/data/runtime/policy-authority-signing-keys.json';
 const fixedPluginRunnerEnvironment = {
-  GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: '/app/dist/modules/plugins/runner/runner-server.js',
   GCAC_PLUGIN_RUNNER_VERSION: 'gcac-plugin-runner-v1',
   GCAC_PLUGIN_SDK_VERSION: 'gcac-plugin-sdk-v1',
 } as const;

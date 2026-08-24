@@ -23,7 +23,7 @@ const sensitivePatterns = [
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
   /\bBearer\s+[A-Za-z0-9._-]{24,}\b/,
-  /\b(?:password|token|secret)\s*[:=]\s*["'`]?([A-Za-z0-9+/=_-]{16,})/i
+  /\b(?:password|token|secret)\s*[:=]\s*(?!\/\/)["'`]?([A-Za-z0-9+/=_-]{16,})/i
 ];
 
 const includeFixtures = process.argv.includes("--include-fixtures");

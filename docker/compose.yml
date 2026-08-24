@@ -29,7 +29,6 @@ services:
       GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: /usr/local/bin/node
       GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: /app
       GCAC_PLUGIN_RUNNER_ARGS_JSON: '["/app/dist/modules/plugins/runner/runner-server.js"]'
-      GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: /app/dist/modules/plugins/runner/runner-server.js
       GCAC_PLUGIN_RUNNER_VERSION: gcac-plugin-runner-v1
       GCAC_PLUGIN_SDK_VERSION: gcac-plugin-sdk-v1
       GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH: /usr/local/bin/node
@@ -66,6 +65,7 @@ services:
       - gcac_small_pglite:/var/lib/gcac/pglite
       - gcac_small_workflows:/app/data/workflows
       - gcac_small_runtime:/app/data/runtime
+      - gcac_small_tls_inspector:/app/data/tls-inspector
       - ../data/plugins:/app/data/plugins:ro
     restart: unless-stopped
 
@@ -117,7 +117,6 @@ services:
       GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: /usr/local/bin/node
       GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: /app
       GCAC_PLUGIN_RUNNER_ARGS_JSON: '["/app/dist/modules/plugins/runner/runner-server.js"]'
-      GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: /app/dist/modules/plugins/runner/runner-server.js
       GCAC_PLUGIN_RUNNER_VERSION: gcac-plugin-runner-v1
       GCAC_PLUGIN_SDK_VERSION: gcac-plugin-sdk-v1
       GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH: /usr/local/bin/node
@@ -162,6 +161,7 @@ services:
     volumes:
       - gcac_standard_workflows:/app/data/workflows
       - gcac_standard_runtime:/app/data/runtime
+      - gcac_standard_tls_inspector:/app/data/tls-inspector
       - ../data/plugins:/app/data/plugins:ro
     restart: unless-stopped
 
@@ -217,3 +217,5 @@ volumes:
   gcac_standard_workflows:
   gcac_small_runtime:
   gcac_standard_runtime:
+  gcac_small_tls_inspector:
+  gcac_standard_tls_inspector:

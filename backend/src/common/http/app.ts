@@ -10,6 +10,7 @@ import { generateRequestId, generateTraceId, runWithRequestContext, type Request
 import { Router } from './router.js';
 import type { HttpRequest } from './http-types.js';
 import type { TenantScope } from '../../shared/security-types.js';
+import { isTlsInspectorProxyPath, proxyTlsInspectorRequest } from './tls-inspector-proxy.js';
 
 export interface InjectRequest {
   method: string;
@@ -133,6 +134,10 @@ export class App {
       const host = req.headers.host ?? 'localhost';
       const url = new URL(req.url ?? '/', `http://${host}`);
       const method = (req.method ?? 'GET').toUpperCase();
+      if (this.config.tlsInspectorUrl && isTlsInspectorProxyPath(url.pathname)) {
+        await proxyTlsInspectorRequest(req, res, this.config.tlsInspectorUrl);
+        return;
+      }
       const route = this.router.match(method, url.pathname);
       const isApiPath = url.pathname === '/api' || url.pathname.startsWith('/api/');
       const staticResponse = !route && ['GET', 'HEAD'].includes(method) && !isApiPath

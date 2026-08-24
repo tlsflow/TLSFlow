@@ -224,7 +224,6 @@ function createDeploymentPluginRunnerFixture(): PluginRunnerExecutionDependencie
     executablePath: process.execPath,
     workingDirectory: process.cwd(),
     args: ['deployment-execution-api-test-runner'],
-    executorModulePath: process.execPath,
     runnerVersion: 'fixture-1.0.0',
     sdkVersion: 'fixture-1.0.0',
   };

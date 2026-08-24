@@ -12,14 +12,12 @@ import {
 const runnerServer = resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js');
 const hash = `sha256:${'a'.repeat(64)}`;
 
-test('生产 Runner 缺少真实 PluginVersion 执行器时握手前失败关闭', async () => {
+test('生产 Runner 未注入 PluginVersion 执行器时握手前失败关闭', async () => {
   const environment = {
     NODE_ENV: 'production',
     GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: process.execPath,
     GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: process.cwd(),
     GCAC_PLUGIN_RUNNER_ARGS_JSON: JSON.stringify([runnerServer]),
-    // 故意把 IPC 入口自身作为执行器，验证生产接线不会把入口当成真实插件实现。
-    GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: runnerServer,
     GCAC_PLUGIN_RUNNER_VERSION: '1.0.0',
     GCAC_PLUGIN_SDK_VERSION: '1.0.0',
   };
@@ -32,15 +30,15 @@ test('生产 Runner 缺少真实 PluginVersion 执行器时握手前失败关闭
   await assert.rejects(client.start(), /执行器|Runner|握手/);
 });
 
-test('生产 Runner 配置缺失时失败关闭，不生成默认启动规格', () => {
+test('生产 Runner 不接受部署环境注入执行器模块', () => {
   assert.throws(() => resolveProductionPluginRunnerConfig({
     NODE_ENV: 'production',
     GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: process.execPath,
     GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: process.cwd(),
-    GCAC_PLUGIN_RUNNER_ARGS_JSON: JSON.stringify([runnerServer]),
+    GCAC_PLUGIN_RUNNER_ARGS_JSON: JSON.stringify([runnerServer, '--executor-module', runnerServer]),
     GCAC_PLUGIN_RUNNER_VERSION: '1.0.0',
     GCAC_PLUGIN_SDK_VERSION: '1.0.0',
-  }), /GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH/);
+  }), /PluginVersion/);
 });
 
 test('开发 Runner 使用固定 IPC 入口，测试与生产不允许回退到本地默认值', () => {
@@ -49,8 +47,8 @@ test('开发 Runner 使用固定 IPC 入口，测试与生产不允许回退到�
   assert.ok(development);
   assert.equal(development.executablePath, process.execPath);
   assert.equal(development.workingDirectory, process.cwd());
-  assert.ok(development.args.includes('--executor-module'));
-  assert.match(development.executorModulePath, /runner-server\.(?:ts|js)$/);
+  assert.equal(development.args.includes('--executor-module'), false);
+  assert.match(development.args.at(-1) ?? '', /runner-server\.(?:ts|js)$/);
   assert.equal(resolveDevelopmentPluginRunnerConfig({ NODE_ENV: 'test' }), undefined);
   assert.equal(resolveDevelopmentPluginRunnerConfig({ NODE_ENV: 'production' }), undefined);
   assert.equal(resolvePluginRunnerConfig({ NODE_ENV: 'test' }), undefined);

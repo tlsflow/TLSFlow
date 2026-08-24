@@ -8,7 +8,7 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - docker/compose.yml
-  - docker/docs/20260806-公开仓库与私有发布仓库说明.md
+  - docker/docs/20260806-Docker发布说明.md
   - backend/src/modules/agents
   - backend/src/modules/executions
 testRefs: []

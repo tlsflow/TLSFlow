@@ -8,7 +8,6 @@ export interface PluginRunnerConfig {
   executablePath: string;
   workingDirectory: string;
   args: readonly string[];
-  executorModulePath: string;
   runnerVersion: string;
   sdkVersion: string;
 }
@@ -28,25 +27,22 @@ export function resolveProductionPluginRunnerConfig(
   if (environment.NODE_ENV !== 'production') return undefined;
   const executablePath = required(environment.GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH, 'GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH');
   const workingDirectory = required(environment.GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY, 'GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY');
-  const configuredArgs = parseArgs(required(environment.GCAC_PLUGIN_RUNNER_ARGS_JSON, 'GCAC_PLUGIN_RUNNER_ARGS_JSON'));
-  const executorModulePath = required(environment.GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH, 'GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH');
+  const args = parseArgs(required(environment.GCAC_PLUGIN_RUNNER_ARGS_JSON, 'GCAC_PLUGIN_RUNNER_ARGS_JSON'));
   const runnerVersion = required(environment.GCAC_PLUGIN_RUNNER_VERSION, 'GCAC_PLUGIN_RUNNER_VERSION');
   const sdkVersion = required(environment.GCAC_PLUGIN_SDK_VERSION, 'GCAC_PLUGIN_SDK_VERSION');
-  if (!isAbsolute(executablePath) || !isAbsolute(workingDirectory) || !isAbsolute(executorModulePath)) {
-    throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner 可执行路径、工作目录和执行器模块必须是绝对路径');
+  if (!isAbsolute(executablePath) || !isAbsolute(workingDirectory)) {
+    throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner 可执行路径和工作目录必须是绝对路径');
   }
   assertProductionPath(executablePath, false);
   assertProductionPath(workingDirectory, true);
-  assertProductionPath(executorModulePath, false);
-  if (configuredArgs.some((argument) => argument === '--executor-module' || argument.startsWith('--executor-module='))) throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner 执行器模块只能由固定配置注入');
+  if (args.some((argument) => argument === '--executor-module' || argument.startsWith('--executor-module='))) throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner 执行器模块只能由已校验的 PluginVersion 注入');
   if (!/^[A-Za-z0-9._:-]{1,128}$/.test(runnerVersion) || !/^[A-Za-z0-9._:-]{1,128}$/.test(sdkVersion)) {
     throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner runnerVersion/sdkVersion 格式无效');
   }
   return Object.freeze({
     executablePath,
     workingDirectory,
-    executorModulePath,
-    args: Object.freeze([...configuredArgs, '--executor-module', executorModulePath]),
+    args: Object.freeze([...args]),
     runnerVersion,
     sdkVersion,
   });
@@ -68,14 +64,12 @@ export function resolveDevelopmentPluginRunnerConfig(
     ? [
       '--import', resolveTsxLoader(),
       runnerServer.path,
-      '--executor-module', runnerServer.path,
     ]
-    : [runnerServer.path, '--executor-module', runnerServer.path];
+    : [runnerServer.path];
 
   return Object.freeze({
     executablePath: process.execPath,
     workingDirectory: process.cwd(),
-    executorModulePath: runnerServer.path,
     args: Object.freeze(args),
     runnerVersion: 'gcac-dev-runner-v1',
     sdkVersion: 'gcac-plugin-sdk-v1',

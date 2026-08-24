@@ -105,7 +105,7 @@ function productEditionBuildArgument(target, productEdition) {
 
 function assertDockerLoginIsExternal() {
   if (process.env.GCAC_DOCKER_LOGIN_CONFIRMED !== 'true') {
-    throw new Error('发布脚本不会处理 Docker Hub 凭据；请由私有发布流水线先完成 docker login，并设置 GCAC_DOCKER_LOGIN_CONFIRMED=true');
+    throw new Error('发布脚本不会处理 Docker Hub 凭据；请由受控发布环境先完成 docker login，并设置 GCAC_DOCKER_LOGIN_CONFIRMED=true');
   }
 }
 
