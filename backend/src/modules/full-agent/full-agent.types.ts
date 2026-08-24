@@ -188,9 +188,11 @@ export interface BackupManifest {
     digest: string;
   }>;
   rollbackActions: Array<{
-    type: 'restore_mock_artifact';
+    type: 'restore_mock_artifact' | 'restore_file_artifact';
     target: string;
     digest: string;
+    backupPath?: string;
+    existed?: boolean;
   }>;
   checksum: string;
 }

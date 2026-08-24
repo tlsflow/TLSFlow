@@ -10,6 +10,7 @@ import { MockBackupManager, MockRollbackManager } from './backup-verify-rollback
 import { MockProviderRuntime } from './provider-runtime.mock.js';
 import { MockSecretSession } from './security-session.mock.js';
 import { MockUpgradeManager } from './upgrade-manager.mock.js';
+import { generateFullAgentInstallerBundle } from './installer/index.js';
 
 const config: FullAgentConfig = {
   tenantId: 'tenant_full_agent_test',
@@ -288,4 +289,58 @@ describe('spec012 Full Agent 最小骨架', () => {
     assert.equal(result.submittedResult?.status, 'failed');
     assert.equal(agent.getLedger().get(enqueued.id)?.status, 'rejected');
   });
+  it('Installer 生成 systemd、Windows Service、配置模板、自检/健康检查和回滚卸载产物', () => {
+    const bundle = generateFullAgentInstallerBundle({ serviceName: 'gcac-full-agent-test', controlPlaneUrl: 'https://control.example.test' });
+    const byPath = new Map(bundle.artifacts.map((artifact) => [artifact.path, artifact]));
+
+    assert.deepEqual([...byPath.keys()].sort(), [
+      'README.md',
+      'config/agent.config.template.json',
+      'linux/gcac-full-agent-test.service',
+      'linux/install-systemd.sh',
+      'linux/uninstall-systemd.sh',
+      'windows/install-service.ps1',
+      'windows/uninstall-service.ps1',
+    ]);
+
+    const unit = byPath.get('linux/gcac-full-agent-test.service');
+    assert.equal(unit?.mode, 0o644);
+    assert.match(unit?.content ?? '', /ExecStartPre=\/opt\/gcac\/full-agent\/bin\/gcac-full-agent self-check --config \/etc\/gcac\/full-agent\/agent\.config\.json --json/);
+    assert.match(unit?.content ?? '', /ExecStart=\/opt\/gcac\/full-agent\/bin\/gcac-full-agent run --config \/etc\/gcac\/full-agent\/agent\.config\.json/);
+    assert.match(unit?.content ?? '', /NoNewPrivileges=true/);
+    assert.doesNotMatch(unit?.content ?? '', /systemctl start/);
+
+    const linuxInstall = byPath.get('linux/install-systemd.sh');
+    assert.equal(linuxInstall?.mode, 0o755);
+    assert.match(linuxInstall?.content ?? '', /需要 root 权限/);
+    assert.match(linuxInstall?.content ?? '', /systemctl enable "\$\{SERVICE_NAME\}\.service"/);
+    assert.doesNotMatch(linuxInstall?.content ?? '', /^\s*systemctl start/m);
+    assert.match(linuxInstall?.content ?? '', /自检命令：sudo -u 'gcac-agent'/);
+    assert.match(linuxInstall?.content ?? '', /健康检查命令：'\/opt\/gcac\/full-agent\/bin\/gcac-full-agent' health/);
+    assert.match(linuxInstall?.content ?? '', /回滚\/卸载命令：sudo bash \.\/linux\/uninstall-systemd\.sh/);
+
+    const linuxUninstall = byPath.get('linux/uninstall-systemd.sh');
+    assert.equal(linuxUninstall?.mode, 0o755);
+    assert.match(linuxUninstall?.content ?? '', /systemctl disable --now/);
+    assert.match(linuxUninstall?.content ?? '', /默认保留配置、数据和日志/);
+
+    const psInstall = byPath.get('windows/install-service.ps1');
+    assert.equal(psInstall?.mode, 0o644);
+    assert.match(psInstall?.content ?? '', /管理员权限/);
+    assert.match(psInstall?.content ?? '', /New-Service/);
+    assert.match(psInstall?.content ?? '', /安装完成，但不会自动启动服务/);
+    assert.doesNotMatch(psInstall?.content ?? '', /Start-Service -Name \$ServiceName/);
+
+    const psUninstall = byPath.get('windows/uninstall-service.ps1');
+    assert.match(psUninstall?.content ?? '', /sc\.exe delete \$ServiceName/);
+    assert.match(psUninstall?.content ?? '', /默认保留配置、数据和日志/);
+
+    const template = JSON.parse(byPath.get('config/agent.config.template.json')?.content ?? '{}') as { controlPlaneUrl: string; security: { providerPermissionMode: string } };
+    assert.equal(template.controlPlaneUrl, 'https://control.example.test');
+    assert.equal(template.security.providerPermissionMode, 'deny-by-default');
+
+    assert.match(bundle.linux.commands.rollbackUninstall, /systemctl disable --now/);
+    assert.match(bundle.windows.commands.rollbackUninstall, /sc\.exe delete/);
+  });
+
 });

@@ -8,3 +8,7 @@ export * from './provider-runtime.mock.js';
 export * from './upgrade-manager.mock.js';
 export * from './control-plane-client.mock.js';
 export * from './full-agent-core.service.js';
+export * from './installer/index.js';
+export * from './recovery-ledger.js';
+export * from './runtime.js';
+export * from './upgrade.js';
