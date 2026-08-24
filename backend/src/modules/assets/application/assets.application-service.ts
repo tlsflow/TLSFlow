@@ -201,6 +201,8 @@ export class AssetsApplicationService {
   }
 
   async deleteServiceAsset(tenantId: string, serviceAssetId: string) {
+    // 中文说明：监控目标独立存储，应用资产软删除时同步移除监控页目标，避免留下孤立资产。
+    await this.monitorsRepository?.deleteMonitorTargetsByServiceAssetId(tenantId, serviceAssetId);
     return this.repository.deleteServiceAsset(tenantId, serviceAssetId);
   }
 

@@ -1112,9 +1112,29 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(updatedAsset.statusCode, 200);
     assert.equal((updatedAsset.body as { displayName?: string }).displayName, 'manual-asset');
 
+    const monitorTarget = await app.inject({
+      method: 'POST',
+      path: '/api/v1/monitors/targets',
+      headers,
+      body: { serviceAssetId: createdAsset.id, intervalSeconds: 60 },
+    });
+    assert.equal(monitorTarget.statusCode, 201);
+
     const deletedAsset = await app.inject({ method: 'POST', path: '/api/v1/service-assets/delete', headers, body: { id: createdAsset.id } });
     assert.equal(deletedAsset.statusCode, 200);
     assert.ok((deletedAsset.body as { deletedAt?: string }).deletedAt);
+
+    const monitorTargets = await app.inject({ method: 'GET', path: `/api/v1/monitors/targets?filter[serviceAssetId]=${encodeURIComponent(createdAsset.id)}`, headers });
+    assert.equal(monitorTargets.statusCode, 200);
+    assert.equal((monitorTargets.body as { total: number }).total, 0);
+
+    const removedMonitorTargets = await app.inject({ method: 'GET', path: `/api/v1/monitors/targets?includeRemoved=1&filter[serviceAssetId]=${encodeURIComponent(createdAsset.id)}`, headers });
+    assert.equal(removedMonitorTargets.statusCode, 200);
+    const removedPage = removedMonitorTargets.body as { total: number; items: Array<{ deletedAt?: string; assetAddress?: string; assetDeletedAt?: string }> };
+    assert.equal(removedPage.total, 1);
+    assert.ok(removedPage.items[0]?.deletedAt);
+    assert.equal(removedPage.items[0]?.assetAddress, 'manual.asset.example.com');
+    assert.ok(removedPage.items[0]?.assetDeletedAt);
   });
 
   it('ServiceAsset 必须显式绑定 ManagedTarget，并从其读取站点上下文', async () => {

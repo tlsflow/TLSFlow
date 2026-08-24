@@ -25,6 +25,10 @@ export interface AlertRuleDto extends AlertRule {}
 
 export interface MonitorTargetDto extends MonitorTarget {
   assetId: string;
+  /** 已删除应用资产仍可通过监控归档查看的原始摘要。 */
+  assetDisplayName?: string;
+  assetAddress?: string;
+  assetDeletedAt?: string;
 }
 
 export interface MonitorTargetPageDto {
@@ -40,6 +44,7 @@ export interface ListMonitorTargetsQuery {
   pageSize: number;
   sort?: { field: string; direction: 'asc' | 'desc' };
   filter: Record<string, string>;
+  includeRemoved?: boolean;
 }
 
 export interface ListMonitorProbeResultsQuery {
@@ -258,4 +263,5 @@ export interface ListCertificateObservationsQuery {
   tenantId?: string;
   serviceAssetId?: string;
   pageSize?: number;
+  includeRemoved?: boolean;
 }

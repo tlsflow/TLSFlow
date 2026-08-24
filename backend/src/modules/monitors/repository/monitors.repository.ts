@@ -33,6 +33,8 @@ export interface MonitorsRepository {
   getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined>;
   updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto>;
   deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto>;
+  /** 按应用资产移除其监控目标，避免应用资产删除后监控页面留下孤立目标。 */
+  deleteMonitorTargetsByServiceAssetId(tenantId: string, serviceAssetId: string): Promise<number>;
   saveMonitorProbeResult(input: SaveMonitorProbeResultInput): Promise<MonitorProbeResultDto>;
   listMonitorProbeResults(query?: ListMonitorProbeResultsQuery): Promise<MonitorProbeResultDto[]>;
   getLatestMonitorProbeResult(tenantId: string, monitorTargetId: string): Promise<MonitorProbeResultDto | undefined>;
@@ -101,8 +103,17 @@ export class PgMonitorsRepository implements MonitorsRepository {
 
   async listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto> {
     const rows = (await this.db.query<MonitorTargetRow>(
-      `select * from pg_monitor_targets where tenant_id = $1 and deleted_at is null`,
-      [query.tenantId],
+      `select target.*,
+              asset.display_name as asset_display_name,
+              asset.address as asset_address,
+              asset.deleted_at as asset_deleted_at
+         from pg_monitor_targets target
+         left join pg_service_assets asset
+           on asset.id = target.service_asset_id
+          and asset.tenant_id = target.tenant_id
+        where target.tenant_id = $1
+          and ($2::boolean or target.deleted_at is null)`,
+      [query.tenantId, query.includeRemoved === true],
     )).rows.map(toMonitorTarget);
     return page(rows, query, monitorTargetFilter);
   }
@@ -308,6 +319,19 @@ export class PgMonitorsRepository implements MonitorsRepository {
       deleted.version,
     ]);
     return deleted;
+  }
+
+  async deleteMonitorTargetsByServiceAssetId(tenantId: string, serviceAssetId: string): Promise<number> {
+    const now = new Date().toISOString();
+    const result = await this.db.query<{ id: string }>(`update pg_monitor_targets
+      set deleted_at = $3::timestamptz,
+          updated_at = $3::timestamptz,
+          version = version + 1
+      where tenant_id = $1
+        and service_asset_id = $2
+        and deleted_at is null
+      returning id`, [tenantId, serviceAssetId, now]);
+    return result.rows.length;
   }
 
   private async getActiveMonitorTargetByAsset(tenantId: string, serviceAssetId: string): Promise<MonitorTargetDto | undefined> {
@@ -788,6 +812,9 @@ type MonitorTargetRow = {
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
+  asset_display_name?: string | null;
+  asset_address?: string | null;
+  asset_deleted_at?: string | null;
   version: number;
 };
 
@@ -835,6 +862,9 @@ function toMonitorTarget(row: MonitorTargetRow): MonitorTargetDto {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,
+    assetDisplayName: row.asset_display_name ?? undefined,
+    assetAddress: row.asset_address ?? undefined,
+    assetDeletedAt: row.asset_deleted_at ?? undefined,
     version: row.version,
   };
 }

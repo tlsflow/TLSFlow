@@ -51,14 +51,19 @@ export class MonitorsController {
       defaultPageSize: 200,
       maxPageSize: 500,
     });
+    const includeRemoved = ['1', 'true'].includes((readOptionalQueryString(request, 'includeRemoved') ?? '').toLowerCase());
     const page = await this.service.listMonitorTargets({
       tenantId: security.tenantId,
       ...query,
+      includeRemoved,
     });
-    return {
-      ...page,
-      items: await filterAuthorizedItems(security, page.items, 'monitor_target', 'read'),
-    };
+    const authorizedItems = await filterAuthorizedItems(security, page.items, 'monitor_target', 'read');
+    if (!includeRemoved) return { ...page, items: authorizedItems };
+    // 中文说明：对象权限的业务投影只覆盖活动对象；已删除目标没有活动资产成员可供投影。
+    // includeRemoved 是显式的历史查询，目标已经按当前租户过滤，保留这些归档记录供审计查看。
+    const authorizedIds = new Set(authorizedItems.map((item) => item.id));
+    const removedItems = page.items.filter((item) => item.deletedAt && !authorizedIds.has(item.id));
+    return { ...page, items: [...authorizedItems, ...removedItems] };
   }
 
   private async createTarget(request: HttpRequest) {
@@ -241,13 +246,15 @@ export class MonitorsController {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'monitor.target.read', 'monitor_target');
     const serviceAssetId = readOptionalQueryString(request, 'serviceAssetId') ?? readOptionalQueryString(request, 'filter[serviceAssetId]');
-    if (serviceAssetId) {
+    const includeRemoved = ['1', 'true'].includes((readOptionalQueryString(request, 'includeRemoved') ?? '').toLowerCase());
+    if (serviceAssetId && !includeRemoved) {
       await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: serviceAssetId, tenantId: security.tenantId });
     }
     const items = await this.service.listCertificateObservations({
       tenantId: security.tenantId,
       serviceAssetId,
       pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
+      includeRemoved,
     });
     return {
       items,
