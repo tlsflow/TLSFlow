@@ -40,16 +40,18 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   assert.equal('plainText' in credential, false);
   assert.equal(JSON.stringify(credential).includes('initial-password'), false);
 
-  const rotated = await app.inject({
-    method: 'POST',
-    path: '/api/v1/credentials/rotate',
+  const updated = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/credentials',
     headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
-    body: { id: credential.id, secretValues: { password: { plainText: 'rotated-password' } }, expectedVersion: 1 },
+    body: { id: credential.id, name: 'ADC 主凭据', username: 'administrator', secretValues: { password: { plainText: 'rotated-password' } }, expectedVersion: 1 },
   });
-  assert.equal(rotated.statusCode, 200);
-  assert.equal((rotated.body as Record<string, unknown>).id, credential.id);
-  assert.equal((rotated.body as Record<string, unknown>).version, 2);
-  assert.equal(JSON.stringify(rotated.body).includes('rotated-password'), false);
+  assert.equal(updated.statusCode, 200);
+  assert.equal((updated.body as Record<string, unknown>).id, credential.id);
+  assert.equal((updated.body as Record<string, unknown>).name, 'ADC 主凭据');
+  assert.equal((updated.body as Record<string, unknown>).username, 'administrator');
+  assert.equal((updated.body as Record<string, unknown>).version, 2);
+  assert.equal(JSON.stringify(updated.body).includes('rotated-password'), false);
   const secretVersions = await database.query<{ count: string }>(
     `select count(*)::text as count from pg_documents where namespace='security.secret_versions' and payload->>'secretId'=$1`,
     [passwordRef.split('/')[3]?.split('#')[0]],
@@ -64,14 +66,14 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   assert.equal(listed.statusCode, 200);
   assert.equal((listed.body as { total: number }).total, 1);
 
-  const updated = await app.inject({
+  const renamed = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
     headers: { 'x-tenant-id': 'tenant-a' },
     body: { id: credential.id, name: 'ADC 主凭据', expectedVersion: 2 },
   });
-  assert.equal(updated.statusCode, 200);
-  assert.equal((updated.body as Record<string, unknown>).version, 3);
+  assert.equal(renamed.statusCode, 200);
+  assert.equal((renamed.body as Record<string, unknown>).version, 3);
 
   const disabled = await app.inject({
     method: 'POST',
@@ -123,6 +125,44 @@ test('全局凭据 API 强制租户隔离和乐观锁', async () => {
   });
   assert.equal(conflict.statusCode, 409);
   assert.equal((conflict.body as { errorCode: string }).errorCode, 'RESOURCE_VERSION_CONFLICT');
+});
+
+test('修复完整的异常凭据后自动转为停用而不是继续残留异常', async () => {
+  const { app, database } = await createTestApp();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    body: {
+      name: '待修复凭据',
+      kind: 'USERNAME_PASSWORD',
+      scopeType: 'global',
+      username: 'admin',
+      secretValues: { password: { plainText: 'initial-password' } },
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  const credential = created.body as Record<string, unknown>;
+  await database.query('update credential_profiles set status=$1 where id=$2', ['error', credential.id]);
+
+  const repaired = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    body: { id: credential.id, username: 'administrator', expectedVersion: 1 },
+  });
+  assert.equal(repaired.statusCode, 200);
+  assert.equal((repaired.body as Record<string, unknown>).status, 'disabled');
+  assert.equal((repaired.body as Record<string, unknown>).version, 2);
+
+  const enabled = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials/status',
+    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    body: { id: credential.id, status: 'active', expectedVersion: 2 },
+  });
+  assert.equal(enabled.statusCode, 200);
+  assert.equal((enabled.body as Record<string, unknown>).status, 'active');
 });
 
 test('全局凭据 API 拒绝非法运行时状态', async () => {

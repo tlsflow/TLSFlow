@@ -2,13 +2,14 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AuditLogEntity } from '../../../persistence/entities/audit-log.entity.js';
+import type { CredentialProfileEntity } from '../../../persistence/entities/credential-profile.entity.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import { newId } from '../../../shared/id.js';
 import type { RequestContext, SecretType } from '../../../shared/security-types.js';
 import { AuditService } from '../../audits/audit.service.js';
 import { parseSecretRef } from '../../secrets/secret-ref.js';
 import type { SecretService } from '../../secrets/secret.service.js';
-import type { CreateCredentialProfileRequestDto, CredentialSecretValueInput, RotateCredentialProfileRequestDto, UpdateCredentialProfileDto } from '../dto/credentials.dto.js';
+import type { CreateCredentialProfileRequestDto, CredentialSecretValueInput, RotateCredentialProfileRequestDto, UpdateCredentialProfileRequestDto } from '../dto/credentials.dto.js';
 import { CredentialsDomainService, getCredentialSlotRules } from '../domain/credentials.domain-service.js';
 import { CredentialsRepository } from '../repository/credentials.repository.js';
 
@@ -68,25 +69,7 @@ export class CredentialsApplicationService {
       const current = await repository.get(tenantId, credentialId);
       if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
       if (current.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'CredentialProfile 版本冲突', { credentialId, expectedVersion: input.expectedVersion, actualVersion: current.version });
-      const rules = getCredentialSlotRules(current.kind);
-      const secretSlots = { ...current.secretSlots };
-      for (const [slot, secretValue] of Object.entries(input.secretValues)) {
-        const rule = rules[slot];
-        if (!rule) throw new AppError('VALIDATION_FAILED', '凭据包含未声明的 Secret Slot', { kind: current.kind, slot });
-        const selectedType = selectSecretType(secretValue, rule.allowedTypes, slot);
-        const existingRef = current.secretSlots[slot];
-        if (existingRef) {
-          const parsed = parseSecretRef(existingRef);
-          if (parsed.type !== selectedType) throw new AppError('VALIDATION_FAILED', '轮换不能改变 Secret Slot 类型', { slot, expectedType: parsed.type, actualType: selectedType });
-          await secrets.rotateInTransaction(parsed.secretId, requirePlainText(secretValue, slot), actorId, tx, context);
-        } else {
-          const created = await secrets.createInTransaction({
-            name: `${current.name}:${slot}`, type: selectedType, scopeType: current.scopeType, scopeId: current.scopeId,
-            metadata: { credentialId, credentialKind: current.kind, credentialSlot: slot }, plainText: requirePlainText(secretValue, slot), createdBy: actorId,
-          }, tx, context);
-          secretSlots[slot] = created.secretRef;
-        }
-      }
+      const secretSlots = await this.updateSecretSlots(tx, secrets, current, actorId, input.secretValues, context);
       const updated = await repository.save(this.domain.normalizeUpdate(current, { secretSlots, expectedVersion: input.expectedVersion }, new Date().toISOString()));
       await credentialAudit(tx).write({
         eventType: 'credential.rotated', actorType: 'user', actorId,
@@ -98,21 +81,31 @@ export class CredentialsApplicationService {
     });
   }
 
-  async update(tenantId: string, credentialId: string, actorId: string, input: UpdateCredentialProfileDto, context: RequestContext = {}) {
+  async update(tenantId: string, credentialId: string, actorId: string, input: UpdateCredentialProfileRequestDto, context: RequestContext = {}) {
     try {
       return await this.db.transaction(async (tx) => {
         const repository = new CredentialsRepository(tx);
         const current = await repository.get(tenantId, credentialId);
         if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
-        const updated = await repository.save(this.domain.normalizeUpdate(current, input, new Date().toISOString()));
+        const secretValues = input.secretValues ?? {};
+        const secretChanged = Object.keys(secretValues).length > 0;
+        const secretSlots = secretChanged
+          ? await this.updateSecretSlots(tx, this.requireSecrets(), current, actorId, secretValues, context)
+          : current.secretSlots;
+        const recoveredStatus = current.status === 'error' && input.status === undefined ? 'disabled' : input.status;
+        const updated = await repository.save(this.domain.normalizeUpdate(current, {
+          ...input,
+          secretSlots,
+          status: recoveredStatus,
+        }, new Date().toISOString()));
         const statusChanged = current.status !== updated.status;
         await credentialAudit(tx).write({
           eventType: statusChanged ? 'credential.status_changed' : 'credential.updated',
           actorType: 'user', actorId,
           action: statusChanged ? 'credential.disable' : 'credential.update',
           resourceType: 'credential', resourceId: credentialId,
-          result: 'success', riskLevel: statusChanged ? 'high' : 'medium', context, failClosed: true,
-          detail: { version: updated.version, status: updated.status },
+          result: 'success', riskLevel: statusChanged || secretChanged ? 'high' : 'medium', context, failClosed: true,
+          detail: { version: updated.version, status: updated.status, slots: Object.keys(secretValues) },
         });
         return updated;
       });
@@ -159,6 +152,36 @@ export class CredentialsApplicationService {
   private requireSecrets(): SecretService {
     if (!this.secrets) throw new AppError('CAPABILITY_MISSING', 'Credential Secret 服务未注册');
     return this.secrets;
+  }
+
+  private async updateSecretSlots(
+    tx: DatabasePort,
+    secrets: SecretService,
+    current: CredentialProfileEntity,
+    actorId: string,
+    secretValues: Record<string, CredentialSecretValueInput>,
+    context: RequestContext,
+  ): Promise<Record<string, string>> {
+    const rules = getCredentialSlotRules(current.kind);
+    const secretSlots = { ...current.secretSlots };
+    for (const [slot, secretValue] of Object.entries(secretValues)) {
+      const rule = rules[slot];
+      if (!rule) throw new AppError('VALIDATION_FAILED', '凭据包含未声明的 Secret Slot', { kind: current.kind, slot });
+      const selectedType = selectSecretType(secretValue, rule.allowedTypes, slot);
+      const existingRef = current.secretSlots[slot];
+      if (existingRef) {
+        const parsed = parseSecretRef(existingRef);
+        if (parsed.type !== selectedType) throw new AppError('VALIDATION_FAILED', '轮换不能改变 Secret Slot 类型', { slot, expectedType: parsed.type, actualType: selectedType });
+        await secrets.rotateInTransaction(parsed.secretId, requirePlainText(secretValue, slot), actorId, tx, context);
+        continue;
+      }
+      const created = await secrets.createInTransaction({
+        name: `${current.name}:${slot}`, type: selectedType, scopeType: current.scopeType, scopeId: current.scopeId,
+        metadata: { credentialId: current.id, credentialKind: current.kind, credentialSlot: slot }, plainText: requirePlainText(secretValue, slot), createdBy: actorId,
+      }, tx, context);
+      secretSlots[slot] = created.secretRef;
+    }
+    return secretSlots;
   }
 
   private async createSecretSlots(

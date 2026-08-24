@@ -7,7 +7,7 @@ import type { SecretScopeType } from '../../../shared/security-types.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { CredentialsApplicationService } from '../application/credentials.application-service.js';
-import type { CreateCredentialProfileRequestDto, RotateCredentialProfileRequestDto, UpdateCredentialProfileDto } from '../dto/credentials.dto.js';
+import type { CreateCredentialProfileRequestDto, RotateCredentialProfileRequestDto, UpdateCredentialProfileRequestDto } from '../dto/credentials.dto.js';
 
 const tags = ['Credentials'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -85,17 +85,20 @@ export class CredentialsController {
       scopeId: { type: 'string' },
       username: { type: 'string' },
       delivery: { type: 'object' },
+      secretValues: { type: 'object' },
       metadata: { type: 'object' },
       expectedVersion: { type: 'number', required: true },
     });
     const credentialId = String(body.id);
     const subject = await this.authorize(request, 'credential.update', credentialId);
+    if (body.secretValues !== undefined) await this.authorize(request, 'credential.rotate', credentialId);
     return this.service.update(tenantId(request), credentialId, subject.id, {
       name: body.name === undefined ? undefined : String(body.name),
       scopeType: body.scopeType as SecretScopeType | undefined,
       scopeId: body.scopeId === undefined ? undefined : String(body.scopeId),
       username: body.username === undefined ? undefined : String(body.username),
-      delivery: body.delivery as UpdateCredentialProfileDto['delivery'],
+      delivery: body.delivery as UpdateCredentialProfileRequestDto['delivery'],
+      secretValues: body.secretValues as UpdateCredentialProfileRequestDto['secretValues'],
       metadata: body.metadata as Record<string, unknown> | undefined,
       expectedVersion: Number(body.expectedVersion),
     }, securityContext(request, subject));

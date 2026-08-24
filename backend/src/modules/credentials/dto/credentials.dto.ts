@@ -44,4 +44,8 @@ export interface UpdateCredentialProfileDto {
   expectedVersion: number;
 }
 
+export type UpdateCredentialProfileRequestDto = Omit<UpdateCredentialProfileDto, 'secretSlots'> & {
+  secretValues?: Record<string, CredentialSecretValueInput>;
+};
+
 export type CredentialProfileDto = CredentialProfileEntity;
