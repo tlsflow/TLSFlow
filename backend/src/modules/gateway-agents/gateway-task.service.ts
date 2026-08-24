@@ -3,7 +3,11 @@ import type { RepositoryPort } from '../../persistence/repositories/repository-p
 import { newId } from '../../shared/id.js';
 import {
   validateAgentCapabilityToken,
+  validateAgentExecutionReceipt,
   validatePolicyAuthorityDecision,
+  type AgentCapabilityTokenV1,
+  type AgentExecutionReceiptV1,
+  type PolicyAuthorityDecisionV1,
 } from '../agents/security/agent-security.contract.js';
 import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayAgentTaskResultInput, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
 import type { GatewayTaskAuditWriter } from './gateway-target-history.service.js';
@@ -227,28 +231,27 @@ export class GatewayTaskService {
    */
   async recordAgentTaskResult(input: GatewayAgentTaskResultInput): Promise<GatewayTask> {
     let task = this.requireTask(input.gatewayTaskId);
-    if (task.result) return task;
-    if (task.tenantId !== input.tenantId
-      || (task.delegatedTargetId !== input.agentId && task.forwardingGrant?.delegatedAgentId !== input.agentId)) {
-      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 与 GatewayTask 身份绑定不一致', {
-        reason: 'GATEWAY_AGENT_TASK_RESULT_BINDING_DENIED',
-        gatewayTaskId: input.gatewayTaskId,
-        agentTaskId: input.agentTaskId,
-      });
-    }
     const payload = asRecord(task.payload);
-    if (payload.actionType !== input.actionType) {
-      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 动作与 GatewayTask 不一致', {
-        reason: 'GATEWAY_AGENT_TASK_ACTION_BINDING_DENIED',
-        gatewayTaskId: input.gatewayTaskId,
-        actionType: input.actionType,
-      });
-    }
-    if (task.leaseId && task.leaseId !== input.leaseId) {
-      throw new AppError('IDEMPOTENCY_CONFLICT', 'Agent v2 Receipt 的 leaseId 与 GatewayTask 不一致', {
-        gatewayTaskId: input.gatewayTaskId,
-        agentTaskId: input.agentTaskId,
-      });
+    const { token, decision, receipt } = assertAgentTaskResultBinding(task, input, payload);
+    if (task.result) {
+      if (receipt) {
+        const existingReceipt = task.result.receipt;
+        if (!existingReceipt || existingReceipt.digest !== receipt.digest) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent v2 迟到 Receipt 与已落账结果不一致，拒绝接受', {
+            reason: 'GATEWAY_AGENT_V2_LATE_RECEIPT_REJECTED',
+            gatewayTaskId: input.gatewayTaskId,
+            existingReceiptDigest: existingReceipt?.digest,
+            receiptDigest: receipt.digest,
+          });
+        }
+      }
+      if (task.result.executionStatus === 'UNKNOWN' && input.success) {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', 'GatewayTask UNKNOWN 终态拒绝迟到成功结果', {
+          reason: 'GATEWAY_AGENT_V2_LATE_SUCCESS_REJECTED',
+          gatewayTaskId: input.gatewayTaskId,
+        });
+      }
+      return task;
     }
     if (!task.leaseId) {
       task = this.ack(task.id, input.leaseId);
@@ -256,8 +259,6 @@ export class GatewayTaskService {
     }
 
     if (!task.v2NonceBinding) {
-      const token = validateAgentCapabilityToken(payload.token);
-      const decision = validatePolicyAuthorityDecision(payload.policyDecision);
       const forwardingGrant = task.forwardingGrant;
       if (!forwardingGrant) {
         throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 缺少 ForwardingGrant，拒绝接受 Agent v2 Receipt', {
@@ -277,6 +278,8 @@ export class GatewayTaskService {
         remainingUses: 0,
         usedAt: new Date().toISOString(),
       });
+    } else {
+      assertConsumedV2TaskBinding(task, token, decision);
     }
 
     const executionStatus = input.actionType === 'agent.plan.execute' && input.executionStatus !== 'SUCCESS'
@@ -318,7 +321,7 @@ export class GatewayTaskService {
       errorCode: status === 'success' ? undefined : input.errorCode ?? (status === 'unknown' ? 'GATEWAY_EXECUTION_UNKNOWN' : 'AGENT_V2_EXECUTION_FAILED'),
       errorMessage: status === 'success' ? undefined : input.errorMessage,
       executionStatus,
-      receipt: input.receipt,
+      receipt,
     });
     await this.flushPersistence();
     return completed;
@@ -518,6 +521,118 @@ function assertV2TaskBinding(task: GatewayTask, binding: GatewayV2NonceBinding):
     || decision.tokenId !== token.tokenId
     || decision.nonce !== token.nonce) {
     throw new AppError('AUTH_FORBIDDEN', 'Gateway v2 Nonce 消费绑定不一致', { reason: 'GATEWAY_V2_NONCE_BINDING_DENIED', taskId: task.id });
+  }
+}
+
+function assertAgentTaskResultBinding(
+  task: GatewayTask,
+  input: GatewayAgentTaskResultInput,
+  payload: Record<string, any>,
+): { token: AgentCapabilityTokenV1; decision: PolicyAuthorityDecisionV1; receipt?: AgentExecutionReceiptV1 } {
+  const token = validateAgentCapabilityToken(payload.token);
+  const decision = validatePolicyAuthorityDecision(payload.policyDecision);
+  const receipt = input.receipt ? validateAgentExecutionReceipt(input.receipt) : undefined;
+  const forwardingGrant = task.forwardingGrant;
+  const grant = asRecord(payload.gatewayGrant ?? task.grant);
+  const sameArrays = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((value) => right.includes(value));
+  if (task.tenantId !== input.tenantId
+    || payload.actionType !== input.actionType
+    || (task.leaseId && task.leaseId !== input.leaseId)
+    || token.tenantId !== input.tenantId
+    || token.agentId !== input.agentId
+    || decision.allowed !== true
+    || decision.agentId !== token.agentId
+    || decision.tenantId !== token.tenantId
+    || decision.pluginId !== token.pluginId
+    || decision.pluginVersionId !== token.pluginVersionId
+    || decision.capability !== token.capability
+    || decision.policyRef !== token.policyRef
+    || decision.policyVersion !== token.policyVersion
+    || decision.tokenId !== token.tokenId
+    || decision.nonce !== token.nonce
+    || decision.planDigest !== token.planDigest
+    || decision.authorityKeyId !== token.authorityKeyId
+    || decision.approvalRef !== token.approvalRef
+    || !sameArrays(token.actions, decision.actions)
+    || !sameArrays(token.allowedPaths, decision.allowedPaths)
+    || !sameArrays(token.allowedServices, decision.allowedServices)
+    || !sameArrays(token.artifactDigests, decision.artifactDigests)
+    || (forwardingGrant !== undefined && (forwardingGrant.delegatedAgentId !== input.agentId
+      || forwardingGrant.tenantId !== task.tenantId
+      || forwardingGrant.gatewayId !== task.gatewayId
+      || forwardingGrant.delegatedTargetId !== task.delegatedTargetId
+      || forwardingGrant.executionRunId !== task.executionRunId
+      || forwardingGrant.stepId !== task.stepId))
+    || (typeof grant.grantId === 'string' && (grant.agentId !== input.agentId
+      || grant.tenantId !== task.tenantId
+      || grant.planDigest !== token.planDigest
+      || grant.tokenId !== token.tokenId
+      || grant.policyDecisionId !== decision.decisionId
+      || grant.nonce !== token.nonce
+      || grant.revocationRef !== decision.revocationRef))) {
+    throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 与 GatewayTask 身份或授权材料不一致', {
+      reason: 'GATEWAY_AGENT_TASK_RESULT_BINDING_DENIED',
+      gatewayTaskId: input.gatewayTaskId,
+      agentTaskId: input.agentTaskId,
+    });
+  }
+  if (receipt) assertGatewayTaskReceiptBinding(task, input, payload, token, receipt);
+  return { token, decision, receipt };
+}
+
+function assertGatewayTaskReceiptBinding(
+  task: GatewayTask,
+  input: GatewayAgentTaskResultInput,
+  payload: Record<string, any>,
+  token: AgentCapabilityTokenV1,
+  receipt: AgentExecutionReceiptV1,
+): void {
+  if (receipt.agentId !== token.agentId || receipt.tenantId !== token.tenantId
+    || receipt.tokenId !== token.tokenId || receipt.planDigest !== token.planDigest
+    || (task.planId !== undefined && receipt.planId !== task.planId)
+    || ((input.actionType === 'agent.plan.execute' || input.actionType === 'agent.execution.receipt') && !receipt.nonceConsumed)) {
+    throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 GatewayTask 授权绑定不一致', {
+      reason: 'GATEWAY_AGENT_TASK_RECEIPT_BINDING_DENIED',
+      gatewayTaskId: task.id,
+      agentTaskId: input.agentTaskId,
+    });
+  }
+  const plan = asRecord(payload.plan);
+  if (Object.keys(plan).length > 0) {
+    const operations = Array.isArray(plan.operations) ? plan.operations : [];
+    if (plan.planId !== receipt.planId || plan.planDigest !== receipt.planDigest
+      || plan.agentId !== receipt.agentId || plan.tenantId !== receipt.tenantId
+      || !operations.some((operation) => asRecord(operation).operationId === receipt.operationId)) {
+      throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 AgentPlanV1 绑定不一致', {
+        reason: 'GATEWAY_AGENT_TASK_RECEIPT_PLAN_BINDING_DENIED',
+        gatewayTaskId: task.id,
+        agentTaskId: input.agentTaskId,
+      });
+    }
+  }
+}
+
+function assertConsumedV2TaskBinding(task: GatewayTask, token: AgentCapabilityTokenV1, decision: PolicyAuthorityDecisionV1): void {
+  const binding = task.v2NonceBinding;
+  const forwardingGrant = task.forwardingGrant;
+  if (!binding || !forwardingGrant
+    || forwardingGrant.status !== 'used'
+    || forwardingGrant.remainingUses !== 0
+    || forwardingGrant.delegatedAgentId !== token.agentId
+    || forwardingGrant.tenantId !== task.tenantId
+    || forwardingGrant.gatewayId !== task.gatewayId
+    || forwardingGrant.delegatedTargetId !== task.delegatedTargetId
+    || forwardingGrant.executionRunId !== task.executionRunId
+    || forwardingGrant.stepId !== task.stepId
+    || binding.tenantId !== token.tenantId
+    || binding.agentId !== token.agentId
+    || binding.tokenId !== token.tokenId
+    || binding.nonce !== token.nonce
+    || binding.revocationRef !== decision.revocationRef) {
+    throw new AppError('AUTH_FORBIDDEN', '已消费的 Agent v2 Nonce 与授权材料不一致', {
+      reason: 'GATEWAY_AGENT_TASK_RESULT_CONSUMED_BINDING_DENIED',
+      taskId: task.id,
+    });
   }
 }
 

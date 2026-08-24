@@ -13,7 +13,7 @@ import { GatewayTaskReplayGuard, GatewayV2ForwardingService, GatewayV2ReplayGuar
 import { GatewayTaskAuditWriter, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from './gateway-target-history.service.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 import { createDurableGatewayTaskRepositories } from './gateway-task.repository.js';
-import type { GatewayAgentProfile, GatewayAgentV2ForwardRequest, GatewayAgentV2ForwardResult, GatewayAgentV2Forwarder, GatewayGrantV1, Zone } from './gateway-agent.types.js';
+import type { GatewayAgentProfile, GatewayAgentTaskResultInput, GatewayAgentV2ForwardRequest, GatewayAgentV2ForwardResult, GatewayAgentV2Forwarder, GatewayGrantV1, Zone } from './gateway-agent.types.js';
 import { ReachabilityService } from './reachability.service.js';
 import { ZoneRouter } from './zone-router.js';
 
@@ -548,6 +548,71 @@ describe('spec014 Gateway 区域路由器', () => {
     assert.throws(
       () => new GatewayTaskReplayGuard(restartedService).assertAvailable(binding),
       { errorCode: 'AUTH_FORBIDDEN' },
+    );
+  });
+
+  it('GatewayTask Receipt 回写严格绑定 Agent，并拒绝已落账任务的替换 Receipt', async () => {
+    const tenantId = 'tenant_gateway_result_binding';
+    const delegatedTargetId = 'managed-target-result-binding';
+    const delegatedAgentId = 'agent-result-binding';
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const service = new GatewayTaskService({ repositories: await createDurableGatewayTaskRepositories(db) });
+    const forwardingGrant = issueGrant({
+      tenantId,
+      gatewayId: 'gw_result_binding',
+      delegatedTargetId,
+      delegatedAgentId,
+      executionRunId: 'run_result_binding',
+      stepId: 'step_result_binding',
+    });
+    const materials = createV2Materials(tenantId, delegatedAgentId, forwardingGrant.id);
+    const task = service.dispatch({
+      id: 'gateway_task_result_binding',
+      idempotencyKey: 'idem_gateway_task_result_binding',
+      tenantId,
+      planId: materials.plan.planId,
+      executionRunId: forwardingGrant.executionRunId,
+      stepId: forwardingGrant.stepId,
+      gatewayId: forwardingGrant.gatewayId,
+      delegatedTargetId,
+      target: { id: delegatedTargetId, zoneId: 'zone_prod' },
+      adapter: forwardingGrant.routeChannel,
+      action: 'gateway.forward.agent_task',
+      payload: { actionType: materials.grant.actionType, ...materials },
+      grant: materials.grant,
+      forwardingGrant,
+    });
+    const resultInput: GatewayAgentTaskResultInput = {
+      gatewayTaskId: task.id,
+      agentTaskId: 'agent-task-result-binding',
+      tenantId,
+      agentId: delegatedTargetId,
+      leaseId: 'lease-result-binding',
+      actionType: 'agent.plan.execute',
+      success: true,
+      executionStatus: 'SUCCESS',
+      detail: { receipt: materials.receipt },
+      receipt: materials.receipt,
+    };
+
+    await assert.rejects(service.recordAgentTaskResult(resultInput), { errorCode: 'AUTH_FORBIDDEN' });
+
+    const completed = await service.recordAgentTaskResult({
+      ...resultInput,
+      agentId: delegatedAgentId,
+    });
+    assert.equal(completed.result?.receipt?.digest, materials.receipt.digest);
+
+    const lateReceiptBase = {
+      ...materials.receipt,
+      completedAt: new Date(Date.now() - 500).toISOString(),
+      digest: '',
+    };
+    const lateReceipt = { ...lateReceiptBase, digest: computeAgentExecutionReceiptDigest(lateReceiptBase) };
+    await assert.rejects(
+      service.recordAgentTaskResult({ ...resultInput, agentId: delegatedAgentId, receipt: lateReceipt, detail: { receipt: lateReceipt } }),
+      { errorCode: 'RESOURCE_VERSION_CONFLICT' },
     );
   });
 
