@@ -89,6 +89,44 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   assert.equal(preflightPlan.operations.some((item) => item.operationType === 'service.control'), true);
 });
 
+test('SYSTEM 所有权内置 Agent PluginVersion 可被业务租户编译', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const compiler = new UnifiedAgentPlanCompilerService(plugins);
+  const resolver = new ProductionDeploymentInputResolverService();
+  const fixture = agentContractFixtures().find((item) => item.pluginId === 'builtin.windows.iis.pfx')!;
+  const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === fixture.pluginId)!;
+  const imported = await importAgentRecipe(plugins, 'SYSTEM', recipe);
+  const resolvedInput = resolver.resolve({
+    phase: 'preflight',
+    contract: recipe.inputContract,
+    assetContext: fixture.assetContext,
+    bindingLayers: {
+      deviceDefault: { pluginVersionId: imported.id, inputBindings: emptyInputBindingsV1() },
+      assetOverride: { pluginVersionId: imported.id, inputBindings: fixture.assetBinding },
+    },
+    artifactSnapshots: fixture.artifactSnapshots,
+  });
+
+  const plan = await compiler.compile({
+    tenantId: 'tenant-business',
+    agentId: fixture.agentId,
+    executionRunId: 'run-system-builtin',
+    executionStepId: 'step-system-builtin',
+    pluginVersionId: imported.id,
+    pluginBindingId: 'binding-system-builtin',
+    resolvedInput,
+    executionMode: 'PREFLIGHT',
+  });
+
+  assert.equal(imported.tenantId, 'SYSTEM');
+  assert.equal(imported.ownerType, 'SYSTEM');
+  assert.equal(plan.executionMode, 'PREFLIGHT');
+  assert.equal(plan.plugin.pluginVersionId, imported.id);
+  assert.equal(plan.operations.find((item) => item.id === 'iis-binding-capture')?.input.siteName, 'GCAC Site');
+});
+
 test('全部内置 Agent 仅通过统一 Contract、Asset Context 和 Binding 编译 Agent 计划', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });

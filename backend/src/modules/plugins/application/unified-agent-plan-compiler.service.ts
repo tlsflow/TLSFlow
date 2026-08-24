@@ -5,7 +5,7 @@ import { newId } from '../../../shared/id.js';
 import type { AgentAtomicExecutionPlanV1, AgentDeploymentPluginManifestV1, AgentPluginOperation } from '../dto/agent-deployment-plugins.dto.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
-import type { UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
+import { isUnifiedPluginVersionAccessibleToTenant, type UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
 
 export class UnifiedAgentPlanCompilerService {
   constructor(
@@ -27,7 +27,7 @@ export class UnifiedAgentPlanCompilerService {
       throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
     }
     const plugin = await this.plugins.getVersion(input.pluginVersionId);
-    if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED') {
+    if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED') {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件版本未启用');
     }
     if (plugin.runtime !== 'AGENT_ATOMIC' || !plugin.manifest.capabilities.some((item) => item.key === 'certificate.deploy')) {

@@ -3,6 +3,7 @@ import type { CapabilityAssignmentV1, PluginBindingV1 } from '../dto/plugin-bind
 import type { UnifiedPluginRuntime, UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../capabilities/plugin-compatibility.evaluator.js';
 import type { PluginBindingsApplicationService } from './plugin-bindings.application-service.js';
+import { isUnifiedPluginVersionAccessibleToTenant } from './unified-plugins.application-service.js';
 
 export interface UnifiedPluginVersionReader {
   getVersion(pluginVersionId: string): Promise<UnifiedPluginVersionRecord>;
@@ -51,8 +52,7 @@ export class DeploymentCapabilityResolver {
       }
       const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
       const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
-      const accessible = plugin.source === 'BUILTIN' || plugin.tenantId === input.tenantId;
-      if (!accessible || plugin.status !== 'ENABLED' || !capability) {
+      if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED' || !capability) {
         throw new AppError('CAPABILITY_MISSING', '插件版本未启用或未声明目标能力', { pluginVersionId: plugin.id, capabilityKey: input.capabilityKey });
       }
       const candidateLocations = input.executionLocations.filter((location) => capability.executionLocations.includes(location));

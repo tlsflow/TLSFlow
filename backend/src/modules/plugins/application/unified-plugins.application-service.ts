@@ -299,7 +299,7 @@ export class UnifiedPluginsApplicationService {
 
   private async getAccessibleVersion(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginVersionRecord> {
     const version = await this.getVersion(pluginVersionId);
-    if (version.tenantId !== tenantId && version.source !== 'BUILTIN') {
+    if (!isUnifiedPluginVersionAccessibleToTenant(version, tenantId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '统一插件版本不存在或当前租户不可见', { pluginVersionId });
     }
     return version;
@@ -348,6 +348,14 @@ function toWorkflowVersionSummary(binding: {
 
 function emptyReferenceCounts(): UnifiedPluginReferenceCounts {
   return { bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 };
+}
+
+export function unifiedPluginVersionOwnerType(record: UnifiedPluginVersionRecord): 'SYSTEM' | 'TENANT' {
+  return record.ownerType ?? (record.source === 'BUILTIN' ? 'SYSTEM' : 'TENANT');
+}
+
+export function isUnifiedPluginVersionAccessibleToTenant(record: UnifiedPluginVersionRecord, tenantId: string): boolean {
+  return unifiedPluginVersionOwnerType(record) === 'SYSTEM' || record.tenantId === tenantId;
 }
 
 function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
