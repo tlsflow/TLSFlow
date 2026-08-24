@@ -86,6 +86,61 @@ describe('useExecutionDetail', () => {
     wrapper.unmount()
   })
 
+  it('工作流失败投影展示数据库中的 detail.logs，并按大写失败状态显示错误', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-workflow-failed',
+      data: {
+        items: [{
+          id: 'step-workflow-failed',
+          name: 'WORKFLOW target-1',
+          stepType: 'INSTALL',
+          status: 'FAILED',
+          lastErrorCode: 'HTTP_NON_SUCCESS_STATUS',
+          lastErrorMessage: '工作流节点 installIntermediates 失败：HTTP 响应未满足成功策略',
+          inputSnapshot: {
+            resultDetail: {
+              workflowExecutionSteps: [{
+                name: 'installIntermediates',
+                status: 'FAILED',
+                stepType: 'INSTALL',
+                errorCode: 'HTTP_NON_SUCCESS_STATUS',
+                errorMessage: 'HTTP 响应未满足成功策略',
+                detail: {
+                  logs: [
+                    '[2026/08/03 14:15:14] [error] [installIntermediates] HTTP_NON_SUCCESS_STATUS',
+                    '[2026/08/03 14:15:14] [error] [installIntermediates[0].createIntermediateCertKey] 证书密钥创建失败',
+                  ],
+                },
+              }],
+            },
+          },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({
+      id: 'run-workflow-failed',
+      raw: { id: 'run-workflow-failed', status: 'FAILED' },
+    })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => {
+      expect(detail?.lines.value.some((line) => line.message.includes('createIntermediateCertKey'))).toBe(true)
+    })
+    expect(detail?.lines.value.find((line) => line.step === 'installIntermediates')?.message).toContain('HTTP_NON_SUCCESS_STATUS')
+    expect(detail?.lines.value.find((line) => line.step === 'installIntermediates')?.message).not.toBe('工作流节点执行成功。')
+    expect(detail?.lines.value.some((line) => line.message.includes('证书密钥创建失败'))).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('dry-run 失败时优先展示真实错误而不是通用等待文案', async () => {
     apiMocks.listExecutionStepsByRunId.mockResolvedValue({
       requestId: 'req-dry-run-failed',

@@ -730,7 +730,7 @@ function mapWorkflowStepStatus(status: string): string {
 }
 
 function buildWorkflowStepDetail(step: Record<string, unknown>, index: number, text: ExecutionDetailText): string {
-  const status = readString(step, ['status'], '')
+  const status = readString(step, ['status'], '').toLowerCase()
   const errorCode = readString(step, ['errorCode'], '')
   const errorMessage = readString(step, ['errorMessage'], '')
   const assertions = readArray(step, 'assertions')
@@ -748,15 +748,21 @@ function buildWorkflowStepDetail(step: Record<string, unknown>, index: number, t
 }
 
 function buildWorkflowStepLogLines(record: Record<string, unknown>, step: Record<string, unknown>, baseId: string, baseTime: string, baseStep: string, text: ExecutionDetailText): ExecutionLogLine[] {
-  const logs = readStringList(readPath(step, 'logs'))
-  const status = readString(step, ['status'], '')
+  // 工作流子步骤的持久化投影把 assertions/logs 放在 detail 下；合并后才能完整回放数据库中的原始执行信息。
+  const stepDetail = readObject(step, 'detail')
+  const displayStep = { ...(stepDetail ?? {}), ...step }
+  const logs = uniqueStrings([
+    ...readStringList(readPath(step, 'logs')),
+    ...readStringList(readPath(step, 'detail.logs')),
+  ])
+  const status = readString(displayStep, ['status'], '')
   const requestId = readString(record, ['requestId'], '')
   const primary: ExecutionLogLine = {
     id: `line-${baseId}`,
     time: baseTime,
     level: normalizeLevel(status),
     step: baseStep,
-    message: buildWorkflowStepDetail(step, 0, text),
+    message: buildWorkflowStepDetail(displayStep, 0, text),
     requestId,
   }
   return [
@@ -777,6 +783,10 @@ function readStringList(value: unknown): string[] {
   return value
     .map((item) => typeof item === 'string' ? item.trim() : '')
     .filter(Boolean)
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)]
 }
 
 function mergeDryRunChecks(checks: readonly ApiRecord[]): ApiRecord[] {
