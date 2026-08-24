@@ -3,6 +3,6 @@
   { "version": "11.1", "build": "pending-real-build", "source": "OFFICIAL_DOCS", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false },
   { "version": "12.1", "build": "pending-real-build", "source": "OFFICIAL_DOCS", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "vpnvserver", "gslbvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false },
   { "version": "13.0", "build": "pending-real-build", "source": "OFFICIAL_DOCS", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "vpnvserver", "gslbvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false },
-  { "version": "13.1", "build": "pending-real-build", "source": "OFFICIAL_DOCS", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "vpnvserver", "gslbvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false },
+  { "version": "13.1", "build": "55.29.nc", "source": "REAL_DEVICE", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "vpnvserver", "gslbvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false },
   { "version": "14.1", "build": "pending-real-build", "source": "OFFICIAL_DOCS", "resources": ["login", "nsversion", "sslcertkey", "lbvserver", "csvserver", "vpnvserver", "gslbvserver", "sslvserver_sslcertkey_binding"], "containsSecrets": false }
 ]

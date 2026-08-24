@@ -1,0 +1,26 @@
+{
+  "version": "13.1",
+  "build": "55.29.nc",
+  "capturedAt": "2026-07-22",
+  "source": "REAL_DEVICE",
+  "authentication": "PER_REQUEST",
+  "tlsVerify": false,
+  "readOnly": true,
+  "nsversion": {
+    "version": "NetScaler NS13.1: Build 55.29.nc, Date: Sep 18 2024, 07:21:29   (64-bit)",
+    "mode": "1"
+  },
+  "resources": {
+    "sslcertkey": { "httpStatus": 200, "errorcode": 0 },
+    "lbvserver": { "httpStatus": 200, "errorcode": 0 },
+    "csvserver": { "httpStatus": 200, "errorcode": 0 },
+    "vpnvserver": { "httpStatus": 200, "errorcode": 0 },
+    "gslbvserver": { "httpStatus": 200, "errorcode": 0 },
+    "sslvserver_sslcertkey_binding": {
+      "httpStatus": 200,
+      "errorcode": 0,
+      "query": { "bulkbindings": "yes" }
+    }
+  },
+  "containsSecrets": false
+}
