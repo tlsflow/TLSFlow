@@ -193,7 +193,6 @@ export interface DeviceOnboardingPlatformDescriptor {
 
 export interface CreateManagedDeviceOnboardingDto {
   platformKey: string;
-  baseUrl?: string;
   pluginVersionId?: string;
   formValues?: Record<string, unknown>;
 }

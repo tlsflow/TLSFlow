@@ -58,36 +58,15 @@ test('API Key 必须声明投递位置和名称', () => {
   assert.deepEqual(entity.delivery, { location: 'header', name: 'X-API-Key' });
 });
 
-test('CLOUD_PROVIDER 凭据按云厂商约束必填 Secret Slot', () => {
+test('宿主拒绝厂商专用凭据类型，不维护 Provider 或产品 Secret Slot 映射', () => {
   const domain = new CredentialsDomainService();
   assert.throws(() => domain.normalizeCreate('tenant-1', 'user-1', {
-    name: '缺少 Provider', kind: 'CLOUD_PROVIDER', scopeType: 'global',
+    name: '厂商凭据', kind: 'CLOUD_PROVIDER', scopeType: 'global',
+    metadata: { providerKey: 'cloud.example' },
     secretSlots: {
-      accessKeyId: 'secret://api_token/sec-1#current',
-      accessKeySecret: 'secret://api_token/sec-2#current',
+      token: 'secret://api_token/sec-1#current',
     },
-  }, { id: 'cred-1', now: '2026-08-06T00:00:00.000Z' }));
-
-  assert.throws(() => domain.normalizeCreate('tenant-1', 'user-1', {
-    name: '缺少 Secret', kind: 'CLOUD_PROVIDER', scopeType: 'global',
-    metadata: { providerKey: 'cloud.aliyun' },
-    secretSlots: {
-      accessKeyId: 'secret://api_token/sec-1#current',
-    },
-  }, { id: 'cred-2', now: '2026-08-06T00:00:00.000Z' }));
-
-  const entity = domain.normalizeCreate('tenant-1', 'user-1', {
-    name: '阿里云生产账号', kind: 'CLOUD_PROVIDER', scopeType: 'global',
-    metadata: { providerKey: 'cloud.aliyun' },
-    secretSlots: {
-      accessKeyId: 'secret://api_token/sec-1#current',
-      accessKeySecret: 'secret://api_token/sec-2#current',
-    },
-  }, { id: 'cred-3', now: '2026-08-06T00:00:00.000Z' });
-  assert.deepEqual(entity.secretSlots, {
-    accessKeyId: 'secret://api_token/sec-1#current',
-    accessKeySecret: 'secret://api_token/sec-2#current',
-  });
+  }, { id: 'cred-1', now: '2026-08-06T00:00:00.000Z' }), (error: any) => error.errorCode === 'VALIDATION_FAILED');
 });
 
 test('BROWSER_SESSION 凭据允许先创建空输出合同，等待浏览器获取填充', () => {

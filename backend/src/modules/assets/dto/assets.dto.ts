@@ -31,7 +31,7 @@ export type DeploymentStrategyCompatibilityMode = 'UNIFIED';
 export type ManagedTargetExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE';
 
 export interface ManagementChannelDto {
-  type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
+  type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | string;
   enabled?: boolean;
   refId?: string;
   metadata?: Record<string, unknown>;

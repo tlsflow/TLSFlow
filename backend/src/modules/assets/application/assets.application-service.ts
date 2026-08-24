@@ -49,7 +49,9 @@ import {
   validateDeploymentStrategyPluginBinding,
 } from './deployment-strategy.service.js';
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
-import type { LicensingApplicationService } from '../../licensing/application/licensing.application-service.js';
+export interface ApplicationAssetQuotaPort {
+  requireApplicationAssetQuota(nextCount: number): Promise<void>;
+}
 
 export class AssetsApplicationService {
   constructor(
@@ -60,7 +62,7 @@ export class AssetsApplicationService {
     private workflowTemplates?: WorkflowTemplatesApplicationService,
     private pluginBindings?: PluginBindingsApplicationService,
     private managedTargetContextResolver?: ManagedTargetContextResolver,
-    private licensingService?: LicensingApplicationService,
+    private licensingService?: ApplicationAssetQuotaPort,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -83,7 +85,7 @@ export class AssetsApplicationService {
     this.managedTargetContextResolver = resolver;
   }
 
-  setLicensingService(licensingService: LicensingApplicationService): void {
+  setLicensingService(licensingService: ApplicationAssetQuotaPort): void {
     this.licensingService = licensingService;
   }
 

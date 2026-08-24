@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import type { App } from '../../common/http/app.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import type { AssetsApplicationService } from './application/assets.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 
 async function createMigratedApp() {
@@ -22,14 +24,14 @@ async function createMigratedApp() {
     resourceTypes: ['*'],
     scope: { tenantId: '*' },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+  return configureTestApp(createApp({ db, corePersistence: { mode: 'memory' }, security }));
 }
 
 async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: string) {
   const db = new PgliteDatabase();
   await runMigrations(db);
   const security = createSecurityServices();
-  security.rbac.createPolicy({
+  await security.rbac.createPolicy({
     subjectType: 'user',
     subjectId: actorId,
     effect: 'allow',
@@ -37,7 +39,32 @@ async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: st
     resourceTypes: ['*'],
     scope: { tenantId },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+  return configureTestApp(createApp({ db, corePersistence: { mode: 'memory' }, security }));
+}
+
+function authorizedHeaders(tenantId: string, actorId = 'user_admin', requestId?: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${actorId}|${tenantId}`,
+    'x-actor-id': actorId,
+    'x-tenant-id': tenantId,
+    ...(requestId ? { 'x-request-id': requestId } : {}),
+  };
+}
+
+function configureTestAuth(app: App): App {
+  app.setAuthTokenResolver((authorization) => {
+    const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
+    const [actorId, tenantId] = token?.split('|') ?? [];
+    return actorId && tenantId ? { actorId, tenantId } : undefined;
+  });
+  return app;
+}
+
+function configureTestApp(app: App): App {
+  app.getResource<AssetsApplicationService>('assetsService')?.setLicensingService({
+    requireApplicationAssetQuota: async () => undefined,
+  });
+  return configureTestAuth(app);
 }
 
 async function importCertificateVersion(app: Awaited<ReturnType<typeof createMigratedApp>>, headers: Record<string, string>) {
@@ -199,9 +226,10 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
         name: 'verify',
         type: 'ssh',
         ssh: {
-          mode: 'command',
           connectionRef: 'targetSsh',
-          command: 'echo ok',
+          program: 'systemctl',
+          args: ['service-main'],
+          argumentTemplate: 'systemctl.reload',
         },
       },
     ],
@@ -211,7 +239,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
 describe('资产与证书绑定 API', () => {
   it('应用资产平台仅作为标识，不校验直接关联 Agent 的操作系统', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_asset_platform_marker', 'x-request-id': 'req_asset_platform_marker' };
+    const headers = authorizedHeaders('tenant_asset_platform_marker', 'user_admin', 'req_asset_platform_marker');
     const registered = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',
@@ -238,7 +266,7 @@ describe('资产与证书绑定 API', () => {
 
   it('可以创建 Host、ServiceInstance、ServiceEndpoint 和 CertificateBinding，并按 Host 查询绑定', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007', 'x-request-id': 'req_spec007_create' };
+    const headers = authorizedHeaders('tenant_spec007', 'user_admin', 'req_spec007_create');
 
     const hostResponse = await app.inject({
       method: 'POST',
@@ -331,7 +359,7 @@ describe('资产与证书绑定 API', () => {
 
   it('CertificateBinding 列表允许按 lastVerifiedAt 排序', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_sort' };
+    const headers = authorizedHeaders('tenant_spec007_sort');
     const host = (await app.inject({
       method: 'POST',
       path: '/api/v1/hosts',
@@ -392,7 +420,7 @@ describe('资产与证书绑定 API', () => {
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-bindings',
-      headers: { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007' },
+      headers: authorizedHeaders('tenant_spec007'),
       body: {
         bindingType: 'FILE_PATH',
         certPath: '/etc/nginx/certs/www.pem',
@@ -405,7 +433,7 @@ describe('资产与证书绑定 API', () => {
 
   it('非法 Binding 状态跳转失败，合法跳转成功', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_status' };
+    const headers = authorizedHeaders('tenant_spec007_status');
     const host = (await app.inject({
       method: 'POST',
       path: '/api/v1/hosts',
@@ -447,7 +475,7 @@ describe('资产与证书绑定 API', () => {
 
   it('资产支持基础更新和软删除，历史绑定反查不丢失 host/service 摘要', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_soft_delete' };
+    const headers = authorizedHeaders('tenant_spec007_soft_delete');
     const fingerprint = 'a'.repeat(64);
     const host = (await app.inject({
       method: 'POST',
@@ -534,7 +562,7 @@ describe('资产与证书绑定 API', () => {
 
   it('发现快照按 normalizedHash 幂等写入，不污染业务资产表', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_discovery' };
+    const headers = authorizedHeaders('tenant_spec007_discovery');
     const first = await app.inject({
       method: 'POST',
       path: '/api/v1/discovery-snapshots',
@@ -559,7 +587,7 @@ describe('资产与证书绑定 API', () => {
 
   it('发现合并预览能输出 create/update/conflict，且不会直接写业务资产表', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_merge' };
+    const headers = authorizedHeaders('tenant_spec007_merge');
     const existing = await app.inject({
       method: 'POST',
       path: '/api/v1/hosts',
@@ -607,7 +635,7 @@ describe('资产与证书绑定 API', () => {
 
   it('DriftDetector 输出 synced、mismatch、unreachable、unknown、incomplete', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_drift' };
+    const headers = authorizedHeaders('tenant_spec007_drift');
     const desired = 'b'.repeat(64);
     const other = 'c'.repeat(64);
 
@@ -625,7 +653,7 @@ describe('资产与证书绑定 API', () => {
 
   it('证书使用位置可按 fingerprint 反向查询绑定、service、host 摘要', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_usage' };
+    const headers = authorizedHeaders('tenant_spec007_usage');
     const fingerprint = 'd'.repeat(64);
     const host = (await app.inject({
       method: 'POST',
@@ -665,7 +693,7 @@ describe('资产与证书绑定 API', () => {
   it('Spec 007 字段、重复候选、RBAC 和审计能闭环', async () => {
     const security = createSecurityServices();
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_full', 'x-request-id': 'req_spec007_full' };
+    const headers = authorizedHeaders('tenant_spec007_full', 'user_admin', 'req_spec007_full');
 
     const hostResponse = await app.inject({
       method: 'POST',
@@ -711,7 +739,7 @@ describe('资产与证书绑定 API', () => {
     assert.equal(service.frameworkKey, 'nginx');
     assert.equal(service.rawFacts.workerProcesses, 4);
 
-    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: { 'x-actor-id': 'no_policy', 'x-tenant-id': 'tenant_spec007_full' } });
+    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: authorizedHeaders('tenant_spec007_full', 'no_policy') });
     assert.equal(denied.statusCode, 403);
 
     const audits = await app.inject({ method: 'GET', path: '/api/v1/audit-events?resourceType=host&eventType=host.created', headers });
@@ -721,7 +749,7 @@ describe('资产与证书绑定 API', () => {
 
   it('Binding 支持 Spec 字段、更新、唯一性、软删除和历史反查', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_binding_crud' };
+    const headers = authorizedHeaders('tenant_spec007_binding_crud');
     const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'binding-crud.example.com' } })).body as { id: string };
     const service = (await app.inject({ method: 'POST', path: '/api/v1/framework-instances', headers, body: { deviceId: host.id, frameworkType: 'web.nginx', displayName: 'nginx', frameworkKey: 'nginx', discoveryProviderKey: 'manual:test' } })).body as { id: string };
     const fingerprint = 'e'.repeat(64);
@@ -786,7 +814,7 @@ describe('资产与证书绑定 API', () => {
 describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
   it('Agent 产品明细不能由宿主推断为产品 Framework、Site 与 ManagedTarget', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_spec011_direct_asset_fallback', 'x-actor-id': 'user_admin', 'x-request-id': 'req_spec011_direct_asset_fallback' };
+    const headers = authorizedHeaders('tenant_spec011_direct_asset_fallback', 'user_admin', 'req_spec011_direct_asset_fallback');
     const registered = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',
@@ -872,7 +900,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 
   it('drift-results 持久化 local/remote 结果并更新 driftStatus，unreachable 不覆盖 local 字段', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_drift_persist', 'x-actor-id': 'user_admin' };
+    const headers = authorizedHeaders('tenant_spec007_drift_persist');
     const local = '3'.repeat(64);
     const remote = '4'.repeat(64);
     const desired = local;
@@ -897,7 +925,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
   it('Spec 007 字段、重复候选、RBAC 和审计能闭环', async () => {
     const security = createSecurityServices();
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_full', 'x-request-id': 'req_spec007_full' };
+    const headers = authorizedHeaders('tenant_spec007_full', 'user_admin', 'req_spec007_full');
 
     const hostResponse = await app.inject({
       method: 'POST',
@@ -943,7 +971,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(service.frameworkKey, 'nginx');
     assert.equal(service.rawFacts.workerProcesses, 4);
 
-    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: { 'x-actor-id': 'no_policy', 'x-tenant-id': 'tenant_spec007_full' } });
+    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: authorizedHeaders('tenant_spec007_full', 'no_policy') });
     assert.equal(denied.statusCode, 403);
 
     const audits = await app.inject({ method: 'GET', path: '/api/v1/audit-events?resourceType=host&eventType=host.created', headers });
@@ -953,7 +981,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 
   it('Binding 支持 Spec 字段、更新、唯一性、软删除和历史反查', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_binding_crud' };
+    const headers = authorizedHeaders('tenant_spec007_binding_crud');
     const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'binding-crud.example.com' } })).body as { id: string };
     const service = (await app.inject({ method: 'POST', path: '/api/v1/framework-instances', headers, body: { deviceId: host.id, frameworkType: 'web.nginx', displayName: 'nginx', frameworkKey: 'nginx', discoveryProviderKey: 'manual:test' } })).body as { id: string };
     const fingerprint = 'e'.repeat(64);
@@ -1016,7 +1044,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 });
   it('CertificateBinding 自动关联 ServiceAsset，并支持 ServiceAsset CRUD', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_service_asset', 'x-request-id': 'req_service_asset_1' };
+    const headers = authorizedHeaders('tenant_service_asset', 'user_admin', 'req_service_asset_1');
 
     const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'asset-auto.example.com', primaryIp: '10.0.9.9', osType: 'LINUX', compatibilityLevel: 'L1', managementMode: 'AGENT' } })).body as { id: string };
     const service = (await app.inject({ method: 'POST', path: '/api/v1/framework-instances', headers, body: { deviceId: host.id, frameworkType: 'web.nginx', displayName: 'asset-auto-nginx', frameworkKey: 'nginx', discoveryProviderKey: 'manual:test' } })).body as { id: string };
@@ -1071,7 +1099,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 
   it('ServiceAsset 必须显式绑定 ManagedTarget，并从其读取站点上下文', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_spec012_application_asset_target', 'x-actor-id': 'user_admin' };
+    const headers = authorizedHeaders('tenant_spec012_application_asset_target');
 
     const host = (await app.inject({
       method: 'POST',
@@ -1295,7 +1323,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
   });
 
   it('ServiceAsset 使用显式 ManagedTarget 策略，且通用空白工作流创建入口已退役', async () => {
-    const headers = { 'x-tenant-id': 'tenant_spec0151_strategy', 'x-actor-id': 'user_admin' };
+    const headers = authorizedHeaders('tenant_spec0151_strategy');
     const app = await createMigratedAppWithWildcardPolicy('user_admin', headers['x-tenant-id']);
     const chain = await createApplicationAssetTargetChain(app, headers);
 
@@ -1320,7 +1348,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 
   it('NGINX ApplicationAssetTarget 通过 ManagedTarget 获取显式证书部署上下文', async () => {
     const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_spec012_nginx_application_asset_target', 'x-actor-id': 'user_admin' };
+    const headers = authorizedHeaders('tenant_spec012_nginx_application_asset_target');
 
     const host = (await app.inject({
       method: 'POST',

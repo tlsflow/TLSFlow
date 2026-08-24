@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { ManagedDeviceDetailDto, ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 import { DevicePlatformRegistry } from '../domain/device-platform.registry.js';
-import type { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
+import type { AgentInstallMaterialPlatform, AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import type { AgentDetailProjection } from '../../agents/dto/agents.dto.js';
 import { DeviceAssetsDomainService } from '../../device-assets/domain/device-assets.domain-service.js';
 import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
@@ -17,6 +17,7 @@ import type { DevicePresentationSchemaV1 } from '../../plugins/presentations/plu
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
+import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
 import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugins/runtime/plugin-runtime-guard.service.js';
 import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standard-device-discovery.projector.js';
@@ -97,15 +98,12 @@ export class DevicesApplicationService {
     if (input.platformKey !== 'plugin') {
       const platform = this.platformRegistry.requireSupported(input.platformKey);
       if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 安装服务未注册');
-      const baseUrl = input.baseUrl?.trim();
-      if (!baseUrl) throw new AppError('VALIDATION_FAILED', 'Agent 安装需要 baseUrl', { field: 'baseUrl' });
-      const options = {};
-      const installSession = platform.handlerKey === 'WINDOWS_GO'
-        ? await this.agents.createWindowsPowerShellInstallSession(tenantId, options, requestId, baseUrl)
-        : platform.handlerKey === 'WINDOWS_COMPATIBILITY'
-          ? await this.agents.createWindowsCompatibilityInstallSession(tenantId, options, requestId, baseUrl)
-          : await this.agents.createLinuxGoInstallSession(tenantId, options, requestId, baseUrl);
-      return { ...installSession, onboardingKind: 'AGENT_INSTALL' as const, installSession };
+      const installPlatform = resolveAgentInstallPlatform(platform.handlerKey);
+      const installMaterials = await this.agents.createAgentInstallMaterials(tenantId, {
+        platform: installPlatform,
+        role: 'full_agent',
+      }, requestId);
+      return { onboardingKind: 'AGENT_INSTALL' as const, installMaterials };
     }
     return this.onboardPluginDevice(tenantId, input, actorId);
   }
@@ -264,6 +262,7 @@ export class DevicesApplicationService {
     if (!form || !['MANAGED', 'BOTH'].includes(form.mode)) {
       throw new AppError('VALIDATION_FAILED', '设备插件缺少 Managed 设备表单', { pluginVersionId });
     }
+    const deviceFamily = resolvePluginDeviceFamily(plugin);
     const onboardingContract = new DeploymentInputContractLoader().fromPlugin(plugin, 'device.connection.test');
     const mapped = mapPluginDeviceForm(form, input.formValues ?? {}, onboardingContract);
     const domain = new DeviceAssetsDomainService();
@@ -274,7 +273,7 @@ export class DevicesApplicationService {
         displayName: mapped.displayName,
         managementAddress: mapped.address,
         managementPort: mapped.port,
-        deviceFamily: plugin.pluginId,
+        deviceFamily,
         authMode: mapped.authMode,
         tlsVerify: mapped.tlsVerify,
         caSecretId: mapped.caSecretRef,
@@ -295,7 +294,7 @@ export class DevicesApplicationService {
       await tx.query(
         `update pg_device_assets set plugin_version_id=$1, plugin_binding_id=$2, product_family=$3, metadata=$4::jsonb, updated_at=$5
          where tenant_id=$6 and service_asset_id=$7`,
-        [pluginVersionId, binding.id, plugin.pluginId, JSON.stringify({ onboardedBy: actorId }), new Date().toISOString(), tenantId, device.id],
+        [pluginVersionId, binding.id, deviceFamily, JSON.stringify({ onboardedBy: actorId }), new Date().toISOString(), tenantId, device.id],
       );
       const assignments = [];
       for (const capability of plugin.manifest.capabilities) {
@@ -364,6 +363,27 @@ function applyResourceLabels(
       } : { ...site, presentation: undefined };
     }),
   };
+}
+
+function resolveAgentInstallPlatform(handlerKey: string | undefined): AgentInstallMaterialPlatform {
+  switch (handlerKey) {
+    case 'WINDOWS_GO': return 'windows_go';
+    case 'WINDOWS_COMPATIBILITY': return 'windows_compatibility';
+    case 'LINUX_GO': return 'linux_go';
+    default: throw new AppError('VALIDATION_FAILED', '设备平台没有对应的 Agent 安装材料类型', { handlerKey });
+  }
+}
+
+function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {
+  const productFamilies = plugin.manifest.compatibility?.productFamilies ?? [];
+  if (productFamilies.length !== 1) {
+    throw new AppError('VALIDATION_FAILED', '设备插件必须声明唯一产品族', {
+      pluginVersionId: plugin.id,
+      pluginId: plugin.pluginId,
+      productFamilyCount: productFamilies.length,
+    });
+  }
+  return productFamilies[0]!;
 }
 
 function findWorkflowExtractedValue(

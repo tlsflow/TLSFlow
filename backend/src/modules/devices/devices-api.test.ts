@@ -571,18 +571,64 @@ test('Spec033 平台 Registry 只保留 Agent 安装入口', () => {
   assert.ok(platforms.every((item) => item.onboardingKind === 'AGENT_INSTALL'));
 });
 
-test('Spec033 统一添加复用 Agent 会话', async () => {
+test('Spec033 统一添加复用固定 Agent 安装材料', async () => {
+  const material = {
+    platform: 'windows_go' as const,
+    arch: 'amd64' as const,
+    artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe',
+    version: '0.1.9',
+    digest: 'a'.repeat(64),
+    signature: 'artifact://gcac/signatures/agents/windows-go-full-agent/0.1.9/windows-amd64.sig',
+    signatureAlgorithm: 'Ed25519' as const,
+    signingKeyId: 'gcac-agent-release-v1',
+  };
+  const installMaterials = {
+    installationId: 'aginst_devices_test',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    enrollmentToken: 'enrollment-once',
+    materials: [material],
+    task: {
+      type: 'agent.plan.execute' as const,
+      contractVersion: 'gcac.agent-security/v1' as const,
+      taskId: 'aginst_devices_test',
+      version: material.version,
+      artifactRefs: [material.artifactRef],
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      digest: 'b'.repeat(64),
+      signature: material.signature,
+      signatureAlgorithm: 'Ed25519' as const,
+      signingKeyId: material.signingKeyId,
+      input: {
+        role: 'full_agent' as const,
+        zone: 'default',
+        agentKey: 'windows-go-agent',
+        serviceName: 'GCACAgent',
+        displayName: 'GCAC Agent',
+        installRoot: 'C:\\Program Files\\GCAC',
+        configDir: 'C:\\ProgramData\\GCAC\\config',
+        dataDir: 'C:\\ProgramData\\GCAC\\data',
+        logDir: 'C:\\ProgramData\\GCAC\\logs',
+      },
+    },
+  };
   const agents = {
-    createWindowsPowerShellInstallSession: async () => ({ installCommand: 'install-windows' }),
-    createWindowsCompatibilityInstallSession: async () => ({ installCommand: 'install-compatibility' }),
-    createLinuxGoInstallSession: async () => ({ installCommand: 'install-linux' }),
+    createAgentInstallMaterials: async (_tenantId: string, input: { platform: string }) => ({
+      ...installMaterials,
+      materials: [{ ...material, platform: input.platform }],
+    }),
   } as unknown as AgentsApplicationService;
   const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, agents);
   const windows = await service.onboard('tenant-onboarding', {
-    platformKey: 'windows', baseUrl: 'https://gcac.example',
+    platformKey: 'windows',
   }, 'user-onboarding', 'request-onboarding');
-  assert.equal((windows as { installSession: { installCommand: string } }).installSession.installCommand, 'install-windows');
-  assert.equal((windows as { installCommand: string }).installCommand, 'install-windows');
+  if (windows.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装材料');
+  assert.equal(windows.installMaterials.task.type, 'agent.plan.execute');
+  assert.deepEqual(windows.installMaterials.task.artifactRefs, [material.artifactRef]);
+  assert.equal(windows.installMaterials.materials[0]?.artifactRef, material.artifactRef);
+  assert.equal(windows.installMaterials.enrollmentToken, 'enrollment-once');
+  assert.equal('enrollmentToken' in windows, false);
+  assert.equal('installCommand' in windows.installMaterials, false);
+  assert.equal('installCommand' in windows, false);
 });
 
 test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', async () => {
@@ -680,7 +726,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   );
   const detail = await service.get(tenantId, result.device.hostId, 'zh-CN');
   assert.equal(detail.extension.type, 'PLUGIN');
-  assert.equal(detail.pluginUi?.pluginId, 'citrix.netscaler-adc');
+  assert.equal(detail.pluginUi?.pluginId, 'device.citrix.netscaler-adc');
   assert.equal(detail.pluginUi?.source, 'BUILTIN');
   assert.deepEqual(detail.pluginUi?.capabilities, result.assignments.map((item) => item.capabilityKey).sort());
   const actions = (detail.pluginUi?.presentation?.actions ?? []) as Array<{ capabilityKey: string }>;

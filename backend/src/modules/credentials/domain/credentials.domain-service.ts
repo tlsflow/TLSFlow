@@ -15,7 +15,7 @@ export interface CredentialSlotRule {
   allowedTypes: readonly SecretType[];
 }
 
-const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
+const SLOT_RULES: Record<Exclude<CredentialKind, 'CLOUD_PROVIDER'>, Record<string, CredentialSlotRule>> = {
   USERNAME_PASSWORD: {
     password: { required: true, allowedTypes: ['password'] },
   },
@@ -37,13 +37,14 @@ const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
   DNS_PROVIDER: {
     config: { required: true, allowedTypes: ['password'] },
   },
-  CLOUD_PROVIDER: {},
   BROWSER_SESSION: {},
 };
 
 export function getCredentialSlotRules(kind: CredentialKind, metadata?: Record<string, unknown>): Record<string, CredentialSlotRule> {
   if (!CREDENTIAL_KINDS.includes(kind)) throw validation('凭据类型无效', { kind });
-  if (kind === 'CLOUD_PROVIDER') return cloudProviderSlotRules(metadata);
+  if (kind === 'CLOUD_PROVIDER') {
+    throw validation('CLOUD_PROVIDER 凭据类型已移除，厂商凭据必须由插件合同管理', { kind });
+  }
   if (kind === 'BROWSER_SESSION') {
     const outputContract = metadata?.outputContract;
     const parameters = outputContract && typeof outputContract === 'object' && !Array.isArray(outputContract)
@@ -208,24 +209,6 @@ function normalizeExpiry(value: unknown, now: string): string | undefined {
 function requiresUsername(kind: CredentialKind): boolean {
   return kind === 'USERNAME_PASSWORD' || kind === 'SSH_KEY';
 }
-
-function cloudProviderSlotRules(metadata?: Record<string, unknown>): Record<string, CredentialSlotRule> {
-  const providerKey = optionalText(metadata?.providerKey);
-  if (!providerKey) throw validation('CLOUD_PROVIDER 凭据必须指定 providerKey');
-  const slotNames = CLOUD_PROVIDER_SLOTS[providerKey];
-  if (!slotNames) throw validation('CLOUD_PROVIDER 凭据的 providerKey 不受支持', { providerKey });
-  return Object.fromEntries(slotNames.map((slot) => [
-    slot,
-    { required: true, allowedTypes: ['api_token'] as const },
-  ]));
-}
-
-const CLOUD_PROVIDER_SLOTS: Record<string, readonly [string, string]> = {
-  'cloud.aliyun': ['accessKeyId', 'accessKeySecret'],
-  'cloud.tencent': ['secretId', 'secretKey'],
-  'cloud.huawei': ['accessKey', 'secretKey'],
-  'cloud.volcengine': ['accessKeyId', 'secretAccessKey'],
-};
 
 function requiredText(value: unknown, field: string): string {
   const normalized = optionalText(value);
