@@ -1611,10 +1611,13 @@ export default {
     tabs: { channels: '알림 채널', deliveries: '전송 기록', rules: '규칙 및 템플릿' },
     sections: { channels: '알림 채널 기록', deliveries: '전송 기록' },
     channels: { createTitle: '알림 채널 만들기' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: '일반 Webhook' },
     fields: {
       name: '채널 이름', type: '채널 유형', smtpHost: 'SMTP 호스트', smtpPort: 'SMTP 포트', from: '발신 주소',
       smtpSecurity: '연결 암호화', smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', secretValuePlaceholder: '비밀 값을 입력하세요',
       optionalSecretValuePlaceholder: '선택 사항; 비밀 값을 입력하세요', wecomWebhookUrl: 'WeCom 그룹 봇 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      feishuWebhookUrl: 'Feishu 사용자 지정 봇 Webhook URL', dingtalkWebhookUrl: 'DingTalk 사용자 지정 봇 Webhook URL', feishuSigningSecret: 'Feishu 서명 키',
+      dingtalkSigningSecret: 'DingTalk 서명 키', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID(선택 사항)',
       webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '전체 Webhook URL을 입력하세요', webhookMethod: 'HTTP 메서드', webhookHeaders: '고정 Header(JSON)',
       webhookHeadersPlaceholder: '예: x-source = gcac', signingSecret: 'HMAC-SHA256 서명 키', testTarget: '테스트 수신 대상',
       testTargetPlaceholder: 'Email 수신자는 쉼표로 구분할 수 있습니다', lastSuccess: '최근 성공', latency: '지연 시간(ms)',
@@ -1630,11 +1633,13 @@ export default {
     summary: { routes: '알림 라우트', templates: '알림 템플릿', silences: '음소거 규칙', recordCount: '총 {count}개 기록' },
     empty: { channels: '알림 채널이 없습니다', deliveries: '전송 기록이 없습니다', routes: '알림 라우트가 없습니다', templates: '알림 템플릿이 없습니다', silences: '음소거 규칙이 없습니다' },
     values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', webhookUrl: 'Webhook URL', signingSecret: '서명 키' } },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', webhookUrl: 'Webhook URL', signingSecret: '서명 키', botToken: 'Bot Token' } },
     messages: {
       loadFailed: '알림 관리 데이터를 불러오지 못했습니다', operationFailed: '알림 관리 작업에 실패했습니다', testUsesChannelTarget: '이 채널은 설정된 대상으로 테스트 알림을 전송합니다.',
       secretStoredHint: '이 값은 암호화되어 저장되며 생성 후 다시 표시되지 않습니다.', createSecretFailed: '비밀 값 저장에 실패했습니다', invalidHeaders: '고정 Header는 올바른 JSON 객체여야 합니다',
-      smtpCredentialsPairRequired: 'SMTP 사용자 이름과 비밀번호를 함께 입력해야 합니다', webhookUrlRequired: 'Webhook URL은 필수입니다'
+      smtpCredentialsPairRequired: 'SMTP 사용자 이름과 비밀번호를 함께 입력해야 합니다', webhookUrlRequired: 'Webhook URL은 필수입니다', botTokenRequired: 'Telegram Bot Token은 필수입니다',
+      chatIdRequired: 'Telegram Chat ID는 필수입니다', feishuWebhookUrlInvalid: 'Feishu 공식 사용자 지정 봇 Webhook URL을 입력하세요', dingtalkWebhookUrlInvalid: 'DingTalk 공식 사용자 지정 봇 Webhook URL을 입력하세요',
+      telegramBotTokenInvalid: 'Telegram Bot Token 형식이 올바르지 않습니다', telegramMessageThreadIdInvalid: 'Telegram Topic ID는 양의 정수여야 합니다', telegramUsesBotApi: 'Telegram 알림은 이벤트 수신 Webhook이 아니라 공식 Bot API sendMessage를 사용합니다.'
     }
   },
   settings: {

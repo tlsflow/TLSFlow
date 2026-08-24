@@ -1611,10 +1611,13 @@ export default {
     tabs: { channels: 'Canaux', deliveries: 'Livraisons', rules: 'Règles et modèles' },
     sections: { channels: 'Canaux enregistrés', deliveries: 'Historique des livraisons' },
     channels: { createTitle: 'Créer un canal de notification' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook générique' },
     fields: {
       name: 'Nom du canal', type: 'Type de canal', smtpHost: 'Hôte SMTP', smtpPort: 'Port SMTP', from: 'Adresse expéditeur',
       smtpSecurity: 'Sécurité de connexion', smtpUsername: 'Nom d’utilisateur SMTP', smtpPassword: 'Mot de passe SMTP', secretValuePlaceholder: 'Saisissez la valeur secrète',
       optionalSecretValuePlaceholder: 'Facultatif ; saisissez la valeur secrète', wecomWebhookUrl: 'URL Webhook du robot de groupe WeCom', slackWebhookUrl: 'URL Slack Incoming Webhook',
+      feishuWebhookUrl: 'URL Webhook du robot personnalisé Feishu', dingtalkWebhookUrl: 'URL Webhook du robot personnalisé DingTalk', feishuSigningSecret: 'Secret de signature Feishu',
+      dingtalkSigningSecret: 'Secret de signature DingTalk', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (facultatif)',
       webhookUrl: 'URL Webhook', webhookUrlPlaceholder: 'Saisissez l’URL Webhook complète', webhookMethod: 'Méthode HTTP', webhookHeaders: 'Headers fixes (JSON)',
       webhookHeadersPlaceholder: 'Exemple : x-source = gcac', signingSecret: 'Secret de signature HMAC-SHA256', testTarget: 'Destinataire de test',
       testTargetPlaceholder: 'Séparez les adresses Email par des virgules', lastSuccess: 'Dernier succès', latency: 'Latence (ms)',
@@ -1630,11 +1633,13 @@ export default {
     summary: { routes: 'Routes de notification', templates: 'Modèles de notification', silences: 'Règles de silence', recordCount: '{count} enregistrements' },
     empty: { channels: 'Aucun canal de notification', deliveries: 'Aucun historique de livraison', routes: 'Aucune route de notification', templates: 'Aucun modèle de notification', silences: 'Aucune règle de silence' },
     values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Nom d’utilisateur SMTP', smtpPassword: 'Mot de passe SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Secret de signature' } },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Nom d’utilisateur SMTP', smtpPassword: 'Mot de passe SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Secret de signature', botToken: 'Bot Token' } },
     messages: {
       loadFailed: 'Échec du chargement des données de gestion des notifications', operationFailed: 'Échec de l’opération de gestion des notifications', testUsesChannelTarget: 'Ce canal enverra la notification de test à sa destination configurée.',
       secretStoredHint: 'Cette valeur est chiffrée et ne sera plus affichée après la création.', createSecretFailed: 'Échec de l’enregistrement de la valeur chiffrée', invalidHeaders: 'Les Headers fixes doivent former un objet JSON valide',
-      smtpCredentialsPairRequired: 'Le nom d’utilisateur et le mot de passe SMTP doivent être fournis ensemble', webhookUrlRequired: 'L’URL Webhook est obligatoire'
+      smtpCredentialsPairRequired: 'Le nom d’utilisateur et le mot de passe SMTP doivent être fournis ensemble', webhookUrlRequired: 'L’URL Webhook est obligatoire', botTokenRequired: 'Le Telegram Bot Token est obligatoire',
+      chatIdRequired: 'Le Telegram Chat ID est obligatoire', feishuWebhookUrlInvalid: 'Saisissez une URL Webhook officielle de robot personnalisé Feishu', dingtalkWebhookUrlInvalid: 'Saisissez une URL Webhook officielle de robot personnalisé DingTalk',
+      telegramBotTokenInvalid: 'Le format du Telegram Bot Token est invalide', telegramMessageThreadIdInvalid: 'Le Telegram Topic ID doit être un entier positif', telegramUsesBotApi: 'Les notifications Telegram utilisent la méthode sendMessage de la Bot API officielle, et non le Webhook de réception des événements.'
     }
   },
   settings: {

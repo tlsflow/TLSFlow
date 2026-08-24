@@ -1,6 +1,6 @@
 import { apiClient } from '@/api/client'
 
-export type NotificationChannelType = 'email' | 'wecom' | 'slack' | 'webhook'
+export type NotificationChannelType = 'email' | 'wecom' | 'slack' | 'feishu' | 'dingtalk' | 'telegram' | 'webhook'
 
 export interface NotificationChannel {
   id: string

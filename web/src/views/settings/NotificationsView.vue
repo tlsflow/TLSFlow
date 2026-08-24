@@ -77,7 +77,10 @@ const channelForm = reactive({
   webhookUrl: '',
   method: 'POST',
   headersJson: '',
-  signingSecret: ''
+  signingSecret: '',
+  botToken: '',
+  chatId: '',
+  messageThreadId: '' as string | number
 })
 const testForm = reactive({ target: '' })
 const routeForm = reactive({ name: '', channelId: '', source: 'monitor', priority: '100', dedupeWindowSeconds: '300' })
@@ -193,6 +196,19 @@ function webhookHeaders() {
   return parsed as Record<string, unknown>
 }
 
+function assertPlatformWebhookUrl(type: 'feishu' | 'dingtalk', value: string) {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(t(`notifications.messages.${type}WebhookUrlInvalid`))
+  }
+  const valid = type === 'feishu'
+    ? url.protocol === 'https:' && ['open.feishu.cn', 'open.larksuite.com'].includes(url.hostname) && url.pathname.startsWith('/open-apis/bot/v2/hook/')
+    : url.protocol === 'https:' && url.hostname === 'oapi.dingtalk.com' && url.pathname === '/robot/send'
+  if (!valid) throw new Error(t(`notifications.messages.${type}WebhookUrlInvalid`))
+}
+
 async function createChannel() {
   await submit(async () => {
     const secretRefs: Record<string, string> = {}
@@ -219,6 +235,29 @@ async function createChannel() {
       const webhookUrlRef = await saveChannelSecret('webhookUrl', channelForm.webhookUrl.trim(), 'api_token')
       if (!webhookUrlRef) throw new Error(t('notifications.messages.webhookUrlRequired'))
       secretRefs.webhookUrl = webhookUrlRef
+    } else if (channelForm.type === 'feishu' || channelForm.type === 'dingtalk') {
+      assertPlatformWebhookUrl(channelForm.type, channelForm.webhookUrl.trim())
+      const [webhookUrlRef, signingSecretRef] = await Promise.all([
+        saveChannelSecret('webhookUrl', channelForm.webhookUrl.trim(), 'api_token'),
+        saveChannelSecret('signingSecret', channelForm.signingSecret, 'api_token')
+      ])
+      if (!webhookUrlRef) throw new Error(t('notifications.messages.webhookUrlRequired'))
+      secretRefs.webhookUrl = webhookUrlRef
+      if (signingSecretRef) secretRefs.signingSecret = signingSecretRef
+    } else if (channelForm.type === 'telegram') {
+      if (!/^\d+:[A-Za-z0-9_-]+$/.test(channelForm.botToken.trim())) throw new Error(t('notifications.messages.telegramBotTokenInvalid'))
+      const botTokenRef = await saveChannelSecret('botToken', channelForm.botToken.trim(), 'api_token')
+      if (!botTokenRef) throw new Error(t('notifications.messages.botTokenRequired'))
+      if (!channelForm.chatId.trim()) throw new Error(t('notifications.messages.chatIdRequired'))
+      const messageThreadId = String(channelForm.messageThreadId).trim()
+      if (messageThreadId && (!Number.isInteger(Number(messageThreadId)) || Number(messageThreadId) <= 0)) {
+        throw new Error(t('notifications.messages.telegramMessageThreadIdInvalid'))
+      }
+      secretRefs.botToken = botTokenRef
+      config = {
+        chatId: channelForm.chatId.trim(),
+        ...(messageThreadId ? { messageThreadId: Number(messageThreadId) } : {})
+      }
     } else {
       const headers = webhookHeaders()
       const [urlRef, signingSecretRef] = await Promise.all([
@@ -239,7 +278,7 @@ async function createChannel() {
     })
     Object.assign(channelForm, {
       name: '', type: 'email', host: '', port: '587', from: '', smtpSecurity: 'starttls', username: '', password: '',
-      webhookUrl: '', method: 'POST', headersJson: '', signingSecret: ''
+      webhookUrl: '', method: 'POST', headersJson: '', signingSecret: '', botToken: '', chatId: '', messageThreadId: ''
     })
   })
 }
@@ -426,7 +465,7 @@ onMounted(refresh)
     <GcModal :open="activeDialog !== null" :title="dialogTitle" size="lg" @update:open="(value) => { if (!value) closeDialog() }">
       <form v-if="activeDialog === 'channel'" id="notification-channel-form" class="notifications-page__form" @submit.prevent="createChannel">
         <label><span>{{ t('notifications.fields.name') }}</span><input v-model="channelForm.name" required /></label>
-        <label><span>{{ t('notifications.fields.type') }}</span><select v-model="channelForm.type"><option value="email">Email</option><option value="wecom">WeCom</option><option value="slack">Slack</option><option value="webhook">Webhook</option></select></label>
+        <label><span>{{ t('notifications.fields.type') }}</span><select v-model="channelForm.type"><option value="email">{{ t('notifications.channelTypes.email') }}</option><option value="wecom">{{ t('notifications.channelTypes.wecom') }}</option><option value="slack">{{ t('notifications.channelTypes.slack') }}</option><option value="feishu">{{ t('notifications.channelTypes.feishu') }}</option><option value="dingtalk">{{ t('notifications.channelTypes.dingtalk') }}</option><option value="telegram">{{ t('notifications.channelTypes.telegram') }}</option><option value="webhook">{{ t('notifications.channelTypes.webhook') }}</option></select></label>
         <template v-if="channelForm.type === 'email'">
           <label><span>{{ t('notifications.fields.smtpHost') }}</span><input v-model="channelForm.host" required /></label>
           <label><span>{{ t('notifications.fields.smtpPort') }}</span><input v-model="channelForm.port" type="number" required /></label>
@@ -440,6 +479,20 @@ onMounted(refresh)
         </template>
         <template v-else-if="channelForm.type === 'slack'">
           <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.slackWebhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
+        <template v-else-if="channelForm.type === 'feishu'">
+          <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.feishuWebhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+          <GcSecretInput v-model="channelForm.signingSecret" :label="t('notifications.fields.feishuSigningSecret')" :placeholder="t('notifications.fields.optionalSecretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
+        <template v-else-if="channelForm.type === 'dingtalk'">
+          <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.dingtalkWebhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+          <GcSecretInput v-model="channelForm.signingSecret" :label="t('notifications.fields.dingtalkSigningSecret')" :placeholder="t('notifications.fields.optionalSecretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+        </template>
+        <template v-else-if="channelForm.type === 'telegram'">
+          <GcSecretInput v-model="channelForm.botToken" :label="t('notifications.fields.telegramBotToken')" :placeholder="t('notifications.fields.secretValuePlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />
+          <label><span>{{ t('notifications.fields.telegramChatId') }}</span><input v-model="channelForm.chatId" required /></label>
+          <label><span>{{ t('notifications.fields.telegramMessageThreadId') }}</span><input v-model="channelForm.messageThreadId" type="number" min="1" /></label>
+          <p class="notifications-page__form-hint">{{ t('notifications.messages.telegramUsesBotApi') }}</p>
         </template>
         <template v-else>
           <GcSecretInput v-model="channelForm.webhookUrl" :label="t('notifications.fields.webhookUrl')" :placeholder="t('notifications.fields.webhookUrlPlaceholder')" :hint="t('notifications.messages.secretStoredHint')" />

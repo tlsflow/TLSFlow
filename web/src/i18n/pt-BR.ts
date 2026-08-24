@@ -1611,10 +1611,13 @@ export default {
     tabs: { channels: 'Canais', deliveries: 'Entregas', rules: 'Regras e modelos' },
     sections: { channels: 'Registros de canais', deliveries: 'Registros de entrega' },
     channels: { createTitle: 'Criar canal de notificação' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook genérico' },
     fields: {
       name: 'Nome do canal', type: 'Tipo do canal', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
       smtpSecurity: 'Segurança da conexão', smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', secretValuePlaceholder: 'Informe o valor secreto',
       optionalSecretValuePlaceholder: 'Opcional; informe o valor secreto', wecomWebhookUrl: 'URL Webhook do robô de grupo WeCom', slackWebhookUrl: 'URL Slack Incoming Webhook',
+      feishuWebhookUrl: 'URL Webhook do robô personalizado Feishu', dingtalkWebhookUrl: 'URL Webhook do robô personalizado DingTalk', feishuSigningSecret: 'Segredo de assinatura do Feishu',
+      dingtalkSigningSecret: 'Segredo de assinatura do DingTalk', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (opcional)',
       webhookUrl: 'URL Webhook', webhookUrlPlaceholder: 'Informe a URL Webhook completa', webhookMethod: 'Método HTTP', webhookHeaders: 'Headers fixos (JSON)',
       webhookHeadersPlaceholder: 'Exemplo: x-source = gcac', signingSecret: 'Segredo de assinatura HMAC-SHA256', testTarget: 'Destino de teste',
       testTargetPlaceholder: 'Separe destinatários de Email por vírgulas', lastSuccess: 'Último sucesso', latency: 'Latência (ms)',
@@ -1630,11 +1633,13 @@ export default {
     summary: { routes: 'Rotas de notificação', templates: 'Modelos de notificação', silences: 'Regras de silêncio', recordCount: '{count} registros' },
     empty: { channels: 'Nenhum canal de notificação', deliveries: 'Nenhum registro de entrega', routes: 'Nenhuma rota de notificação', templates: 'Nenhum modelo de notificação', silences: 'Nenhuma regra de silêncio' },
     values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Segredo de assinatura' } },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Segredo de assinatura', botToken: 'Bot Token' } },
     messages: {
       loadFailed: 'Falha ao carregar dados de gerenciamento de notificações', operationFailed: 'Falha na operação de gerenciamento de notificações', testUsesChannelTarget: 'Este canal enviará a notificação de teste para o destino configurado.',
       secretStoredHint: 'Este valor será criptografado e não será exibido novamente após a criação.', createSecretFailed: 'Falha ao salvar o valor criptografado', invalidHeaders: 'Os Headers fixos devem ser um objeto JSON válido',
-      smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória'
+      smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória', botTokenRequired: 'O Telegram Bot Token é obrigatório',
+      chatIdRequired: 'O Telegram Chat ID é obrigatório', feishuWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado Feishu', dingtalkWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado DingTalk',
+      telegramBotTokenInvalid: 'O formato do Telegram Bot Token é inválido', telegramMessageThreadIdInvalid: 'O Telegram Topic ID deve ser um inteiro positivo', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
     }
   },
   settings: {

@@ -1637,10 +1637,13 @@ export default {
     tabs: { channels: '通知渠道', deliveries: '投遞記錄', rules: '規則與範本' },
     sections: { channels: '通知渠道記錄', deliveries: '投遞記錄' },
     channels: { createTitle: '新增通知渠道' },
+    channelTypes: { email: 'Email', wecom: '企業微信', slack: 'Slack', feishu: '飛書', dingtalk: '釘釘', telegram: 'Telegram', webhook: '通用 Webhook' },
     fields: {
       name: '渠道名稱', type: '渠道類型', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
       smtpSecurity: '連線加密', smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', secretValuePlaceholder: '請輸入密文內容',
       optionalSecretValuePlaceholder: '選填；請輸入密文內容', wecomWebhookUrl: '企業微信群機器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      feishuWebhookUrl: '飛書自訂機器人 Webhook URL', dingtalkWebhookUrl: '釘釘自訂機器人 Webhook URL', feishuSigningSecret: '飛書簽章密鑰',
+      dingtalkSigningSecret: '釘釘加簽密鑰', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID（選填）',
       webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '請輸入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
       webhookHeadersPlaceholder: '範例：x-source = gcac', signingSecret: 'HMAC-SHA256 簽章密鑰', testTarget: '測試接收目標',
       testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
@@ -1656,11 +1659,13 @@ export default {
     summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
     empty: { channels: '暫無通知渠道', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
     values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', webhookUrl: 'Webhook URL', signingSecret: '簽章密鑰' } },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', webhookUrl: 'Webhook URL', signingSecret: '簽章密鑰', botToken: 'Bot Token' } },
     messages: {
       loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。',
       secretStoredHint: '此內容將加密儲存，建立後不會以明文顯示。', createSecretFailed: '密文儲存失敗', invalidHeaders: '固定 Header 必須是有效的 JSON 物件',
-      smtpCredentialsPairRequired: 'SMTP 使用者名稱與密碼必須同時填寫', webhookUrlRequired: 'Webhook URL 不可為空'
+      smtpCredentialsPairRequired: 'SMTP 使用者名稱與密碼必須同時填寫', webhookUrlRequired: 'Webhook URL 不可為空', botTokenRequired: 'Telegram Bot Token 不可為空',
+      chatIdRequired: 'Telegram Chat ID 不可為空', feishuWebhookUrlInvalid: '請輸入飛書官方自訂機器人 Webhook URL', dingtalkWebhookUrlInvalid: '請輸入釘釘官方自訂機器人 Webhook URL',
+      telegramBotTokenInvalid: 'Telegram Bot Token 格式無效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必須是正整數', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 傳送通知，不使用接收事件的 Webhook。'
     }
   },
   settings: {
