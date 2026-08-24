@@ -16,7 +16,7 @@ lastVerified: 2026-08-02
 
 # Translation status
 
-The Chinese pages are the authoritative source. English is the first complete translation target. Other locales currently expose a stable entry and an explicit `missing` or `needs_sync` status.
+The Chinese pages are authoritative. English is the first complete translation target for the initial batch. The other locales expose a stable entry and an explicit `missing` or `needs_sync` status.
 
 | Locale | Language | Initial status |
 | --- | --- | --- |
@@ -29,4 +29,4 @@ The Chinese pages are the authoritative source. English is the first complete tr
 | `ru-RU` | Russian | `missing` |
 | `zh-TW` | Traditional Chinese | `missing` |
 
-Missing translations are not silently replaced by Chinese content.
+Missing translations are never silently replaced by Chinese content.

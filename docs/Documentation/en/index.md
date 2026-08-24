@@ -1,7 +1,7 @@
 ---
 title: GCAC Official Documentation
 description: GCAC certificate lifecycle management documentation
-docStatus: todo
+docStatus: in_review
 productVersion: current
 sourceLocale: zh-CN
 locale: en-US
@@ -17,4 +17,4 @@ lastVerified: 2026-08-02
 
 English translation is being prepared. The Chinese documentation is the authoritative source.
 
-Read the [translation status](/reference/translation-status) before relying on an untranslated page.
+Read the [translation status](/en/reference/translation-status) before relying on an untranslated page.

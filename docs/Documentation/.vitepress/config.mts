@@ -85,6 +85,54 @@ const localeSidebar = [
   }
 ];
 
+const enSidebar = [
+  {
+    text: "Getting Started",
+    items: [
+      { text: "Documentation home", link: "/en/" },
+      { text: "Product overview", link: "/en/overview/product-overview" },
+      { text: "System overview", link: "/en/overview/system-overview" },
+      { text: "Quick start", link: "/en/quick-install/" },
+      { text: "Agent onboarding", link: "/en/quick-install/agent" },
+      { text: "Unmanaged target onboarding", link: "/en/quick-install/unmanaged-target" },
+      { text: "First access", link: "/en/quick-install/first-access" }
+    ]
+  },
+  {
+    text: "User Guide",
+    items: [
+      { text: "User guide", link: "/en/user-guide/" },
+      { text: "Devices and execution channels", link: "/en/user-guide/devices" },
+      { text: "Certificates and CA", link: "/en/user-guide/certificates" },
+      { text: "Deployments and rollback", link: "/en/user-guide/deployments" },
+      { text: "Device-to-deployment flow", link: "/en/user-guide/main-flow" },
+      { text: "Workflow templates", link: "/en/user-guide/workflows" }
+    ]
+  },
+  {
+    text: "Developer Guide",
+    items: [
+      { text: "Developer guide", link: "/en/developer-guide/" },
+      { text: "Plugin development", link: "/en/developer-guide/plugins/" },
+      { text: "Target modes", link: "/en/developer-guide/plugins/target-modes" },
+      { text: "Discovery and certificate locations", link: "/en/developer-guide/plugins/discovery-and-assets" },
+      { text: "Agent runtime", link: "/en/developer-guide/plugins/agent-runtime" },
+      { text: "Plugin security and maturity", link: "/en/developer-guide/plugins/security-and-maturity" },
+      { text: "Workflow development", link: "/en/developer-guide/workflows/" },
+      { text: "DSL and template sources", link: "/en/developer-guide/workflows/20260802-工作流DSL与模板来源" },
+      { text: "Input contract and snapshots", link: "/en/developer-guide/workflows/20260802-部署输入契约与快照" },
+      { text: "Executors, recovery and rollback", link: "/en/developer-guide/workflows/20260802-工作流执行器与恢复回滚" },
+      { text: "Certificate deployment workflow", link: "/en/developer-guide/certificate-deployment/20260802-证书部署工作流开发主链" }
+    ]
+  },
+  {
+    text: "Reference",
+    items: [
+      { text: "Translation status", link: "/en/reference/translation-status" }
+    ]
+  }
+];
+
 const zhThemeConfig = {
   nav: [
     { text: "文档首页", link: "/" },
@@ -173,7 +221,23 @@ export default defineConfig({
       label: "English",
       lang: "en-US",
       link: "/en/",
-      themeConfig: localeThemeConfig
+      themeConfig: {
+        ...localeThemeConfig,
+        nav: [
+          { text: "Home", link: "/en/" },
+          { text: "Quick start", link: "/en/quick-install/" },
+          { text: "User guide", link: "/en/user-guide/" },
+          { text: "Developer guide", link: "/en/developer-guide/" },
+          { text: "Translation status", link: "/en/reference/translation-status" }
+        ],
+        sidebar: {
+          "/en/": enSidebar
+        },
+        footer: {
+          message: "English pages are translated from the authoritative zh-CN documentation.",
+          copyright: "Copyright © 2026 GCAC"
+        }
+      }
     },
     fr: {
       label: "Français",
