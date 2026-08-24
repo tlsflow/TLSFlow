@@ -207,6 +207,17 @@ export class WorkflowTemplatesDomainService {
     return clone((await this.findVersion(versionId)).version);
   }
 
+  async getRuntimePublishedVersion(templateId: string): Promise<WorkflowTemplateVersion | undefined> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(templateId);
+    const list = this.versions.get(templateId) ?? [];
+    const current = list.find((item) => item.id === template.currentVersionId && item.status === 'published');
+    const published = current ?? [...list]
+      .filter((item) => item.status === 'published')
+      .sort((left, right) => right.version - left.version)[0];
+    return published ? clone(published) : undefined;
+  }
+
   async preview(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
     return this.testRun({ ...input, mode: 'render_only' });
   }

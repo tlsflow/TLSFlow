@@ -80,6 +80,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.getVersion(versionId);
   }
 
+  async getRuntimePublishedVersion(templateId: string): Promise<WorkflowTemplateVersion | undefined> {
+    return this.domain.getRuntimePublishedVersion(templateId);
+  }
+
   async preview(input: WorkflowRuntimeInput) {
     return this.domain.preview(input);
   }
