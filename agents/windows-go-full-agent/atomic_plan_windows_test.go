@@ -34,6 +34,55 @@ func TestAtomicContentAndShellBoundary(t *testing.T) {
 	}
 }
 
+func TestWindowsPFXOperationRequiresCertificateStorePermission(t *testing.T) {
+	operation := atomicOperation{
+		OperationType: "windows.certificate.inspect_pfx",
+		Input: map[string]any{
+			"artifact": map[string]any{
+				"pfxBase64":                 "cGZ4",
+				"pfxPassword":               "secret",
+				"expectedFingerprintSha256": "aa",
+			},
+		},
+	}
+	if _, err := windowsPFXInputFromOperation(operation, map[string][]string{}); err == nil {
+		t.Fatal("缺少证书库权限时必须拒绝 PFX 操作")
+	}
+	input, err := windowsPFXInputFromOperation(operation, map[string][]string{"certificate_store": {"LocalMachine/My"}})
+	if err != nil {
+		t.Fatalf("合法 PFX 操作解析失败: %v", err)
+	}
+	if input.PFXBase64 != "cGZ4" || input.PFXPassword != "secret" || input.ExpectedCertificateSHA256 != "aa" {
+		t.Fatalf("PFX 输入解析错误: %#v", input)
+	}
+}
+
+func TestWindowsIISBindingBackupIsResolvedByCaptureOperation(t *testing.T) {
+	ledger := atomicLedger{IISBindingBackups: []atomicIISBindingBackup{{
+		OperationID: "capture-binding",
+		SiteName:    "Default Web Site",
+		Binding: windowsIISBinding{
+			Protocol:              "https",
+			BindingInformation:    "*:443:example.com",
+			CertificateThumbprint: "OLD",
+		},
+	}}}
+	backup, ok := findAtomicIISBindingBackup(ledger.IISBindingBackups, "capture-binding")
+	if !ok || backup.SiteName != "Default Web Site" || backup.Binding.CertificateThumbprint != "OLD" {
+		t.Fatalf("IIS Binding 恢复引用解析失败: %#v", backup)
+	}
+}
+
+func TestWindowsRollbackOperationSkipsWhenRequiredOperationWasNotCompleted(t *testing.T) {
+	result := runWindowsAtomicOperation(t.Context(), atomicPlan{}, atomicOperation{
+		ID: "restore", OperationType: "windows.iis.binding.restore_certificate", Stage: "rollback",
+		Input: map[string]any{"whenOperationCompleted": "iis-binding-update"},
+	}, nil, t.TempDir(), &atomicLedger{})
+	if result.Status != "SUCCEEDED" || result.Detail["skipped"] != true {
+		t.Fatalf("未完成前序操作时回滚应跳过: %#v", result)
+	}
+}
+
 func signedWindowsTestPlan(t *testing.T) atomicPlan {
 	t.Helper()
 	plan := atomicPlan{

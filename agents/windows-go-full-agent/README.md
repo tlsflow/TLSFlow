@@ -75,5 +75,7 @@ go build -o gcac-agent.exe .
 - 执行计划必须包含目标 Agent、租户、插件包哈希、过期时间、幂等键和 HMAC-SHA256 签名。
 - 签名密钥读取 `GCAC_AGENT_PLAN_SIGNING_KEY`；开发环境未配置时才使用仓库约定的开发密钥。
 - 支持文件备份、原子替换、恢复、权限设置、受控程序执行、Windows Service 控制和 TLS 校验。
+- 支持结构化 IIS 原子操作：PFX 检查与幂等导入、私钥 ACL、Binding 捕获、证书更新和账本恢复；插件不能传入 PowerShell 脚本。
+- 内置 `builtin.windows.iis.pfx` 插件通过 `agent.atomic_plan.execute` 执行，旧 `windows.iis.deploy_certificate` 继续作为 `NATIVE_HANDLER` 兼容回退。
 - `command.execute` 只接受 `program + args`，Shell 模式默认并强制禁用。
-- 每个计划写入恢复账本；重复计划返回缓存结果，失败时逆序执行回滚，回滚失败进入 `MANUAL_INTERVENTION`。
+- 每个计划写入恢复账本；重复计划返回缓存结果，失败时逆序执行回滚；`whenOperationCompleted` 防止预检失败时执行无意义回滚，真正回滚失败才进入 `MANUAL_INTERVENTION`。

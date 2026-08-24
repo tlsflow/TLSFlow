@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -161,6 +162,13 @@ func Execute(ctx context.Context, payload map[string]any, agentID, dataDir strin
 
 func run(ctx context.Context, plan Plan, operation Operation, permissions map[string][]string, dataDir string, ledger *Ledger) OperationResult {
 	started := now()
+	if required := text(operation.Input, "whenOperationCompleted"); required != "" && !contains(ledger.CompletedOperations, required) {
+		return OperationResult{
+			OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, Status: "SUCCEEDED",
+			StartedAt: started, FinishedAt: now(),
+			Detail: map[string]any{"skipped": true, "reason": "required operation was not completed", "requiredOperationId": required},
+		}
+	}
 	detail, err := execute(ctx, plan, operation, permissions, dataDir, ledger)
 	result := OperationResult{OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, StartedAt: started, FinishedAt: now(), Detail: detail}
 	if err != nil {
@@ -395,8 +403,13 @@ func verifyTLS(operation Operation, permissions map[string][]string) (map[string
 	if sni == "" {
 		sni = host
 	}
+	expected := strings.ToLower(strings.ReplaceAll(text(operation.Input, "expectedFingerprint"), ":", ""))
+	skipChainValidation := boolean(operation.Input, "skipChainValidation")
+	if skipChainValidation && expected == "" {
+		return nil, errors.New("skipChainValidation requires expectedFingerprint")
+	}
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	connection, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS12})
+	connection, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS12, InsecureSkipVerify: skipChainValidation})
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +421,6 @@ func verifyTLS(operation Operation, permissions map[string][]string) (map[string
 	certificate := certificates[0]
 	fingerprint := sha256.Sum256(certificate.Raw)
 	actual := strings.ToLower(hex.EncodeToString(fingerprint[:]))
-	expected := strings.ToLower(strings.ReplaceAll(text(operation.Input, "expectedFingerprint"), ":", ""))
 	if expected != "" && actual != expected {
 		return nil, fmt.Errorf("certificate fingerprint mismatch: %s", actual)
 	}
@@ -569,9 +581,15 @@ func content(input map[string]any) ([]byte, error) {
 	if value, ok := input["content"].(string); ok {
 		return []byte(value), nil
 	}
+	if value, ok := input["contentBase64"].(string); ok {
+		return base64.StdEncoding.DecodeString(value)
+	}
 	if artifact, ok := input["artifact"].(map[string]any); ok {
 		if value, ok := artifact["content"].(string); ok {
 			return []byte(value), nil
+		}
+		if value, ok := artifact["contentBase64"].(string); ok {
+			return base64.StdEncoding.DecodeString(value)
 		}
 	}
 	return nil, errors.New("file content is required")

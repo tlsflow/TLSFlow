@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -80,15 +81,22 @@ type atomicBackup struct {
 	Mode        uint32 `json:"mode"`
 }
 
+type atomicIISBindingBackup struct {
+	OperationID string            `json:"operationId"`
+	SiteName    string            `json:"siteName"`
+	Binding     windowsIISBinding `json:"binding"`
+}
+
 type atomicLedger struct {
-	PlanID              string                  `json:"planId"`
-	IdempotencyKey      string                  `json:"idempotencyKey"`
-	State               string                  `json:"state"`
-	CompletedOperations []string                `json:"completedOperations"`
-	OperationResults    []atomicOperationResult `json:"operationResults"`
-	RollbackResults     []atomicOperationResult `json:"rollbackResults"`
-	Backups             []atomicBackup          `json:"backups"`
-	UpdatedAt           string                  `json:"updatedAt"`
+	PlanID              string                   `json:"planId"`
+	IdempotencyKey      string                   `json:"idempotencyKey"`
+	State               string                   `json:"state"`
+	CompletedOperations []string                 `json:"completedOperations"`
+	OperationResults    []atomicOperationResult  `json:"operationResults"`
+	RollbackResults     []atomicOperationResult  `json:"rollbackResults"`
+	Backups             []atomicBackup           `json:"backups"`
+	IISBindingBackups   []atomicIISBindingBackup `json:"iisBindingBackups,omitempty"`
+	UpdatedAt           string                   `json:"updatedAt"`
 }
 
 func windowsAtomicPlanActionHandler() actionHandler {
@@ -167,6 +175,13 @@ func executeWindowsAtomicPlan(execution *taskExecutionContext) actionExecutionRe
 
 func runWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operation atomicOperation, permissions map[string][]string, dataDir string, ledger *atomicLedger) atomicOperationResult {
 	startedAt := time.Now().UTC()
+	if required := atomicString(operation.Input, "whenOperationCompleted"); required != "" && !containsAtomicString(ledger.CompletedOperations, required) {
+		return atomicOperationResult{
+			OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, Status: "SUCCEEDED",
+			StartedAt: startedAt.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Detail: map[string]any{"skipped": true, "reason": "required operation was not completed", "requiredOperationId": required},
+		}
+	}
 	detail, err := executeWindowsAtomicOperation(ctx, plan, operation, permissions, dataDir, ledger)
 	result := atomicOperationResult{OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, StartedAt: startedAt.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano), Detail: detail}
 	if err != nil {
@@ -197,9 +212,229 @@ func executeWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operati
 		return windowsServiceControl(ctx, operation, permissions)
 	case "tls.verify":
 		return atomicTLSVerify(operation, permissions)
+	case "windows.certificate.inspect_pfx":
+		return windowsCertificateInspectPFX(operation, permissions)
+	case "windows.certificate_store.import_pfx":
+		return windowsCertificateStoreImportPFX(operation, permissions)
+	case "windows.certificate_private_key.grant":
+		return windowsCertificatePrivateKeyGrant(operation, permissions)
+	case "windows.iis.binding.capture":
+		return windowsIISBindingCapture(operation, permissions, ledger)
+	case "windows.iis.binding.update_certificate":
+		return windowsIISBindingUpdate(operation, permissions)
+	case "windows.iis.binding.restore_certificate":
+		return windowsIISBindingRestore(operation, permissions, ledger)
 	default:
 		return nil, fmt.Errorf("unsupported atomic operation: %s", operation.OperationType)
 	}
+}
+
+func windowsCertificateInspectPFX(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	result, err := (windowsExecutionHost{timeout: 90 * time.Second}).inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	certificateSHA256 := ""
+	if result.Certificate != nil {
+		certificateSHA256 = certificateFingerprintSHA256(result.Certificate)
+	}
+	if expected := normalizeSHA256(input.ExpectedCertificateSHA256); expected != "" && certificateSHA256 != expected {
+		return nil, fmt.Errorf("PFX certificate fingerprint mismatch: expected=%s actual=%s", expected, certificateSHA256)
+	}
+	if len(input.ExpectedDomains) > 0 && result.Certificate != nil {
+		if err := verifyExpectedDomainsAgainstCertificate(result.Certificate, input.ExpectedDomains); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{
+		"thumbprint":        result.Thumbprint,
+		"fingerprintSha256": certificateSHA256,
+		"subject":           result.Subject,
+		"notAfter":          result.NotAfter,
+		"dnsNames":          result.DNSNames,
+		"commonName":        result.CommonName,
+		"pfxSha256":         result.PFXSHA256,
+		"pfxSize":           result.PFXSize,
+	}, nil
+}
+
+func windowsCertificateStoreImportPFX(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	host := windowsExecutionHost{timeout: 90 * time.Second}
+	inspection, err := host.inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	input.ExpectedThumbprint = inspection.Thumbprint
+	if exists, err := windowsCertificateStoreContains(host, inspection.Thumbprint); err != nil {
+		return nil, err
+	} else if exists {
+		return map[string]any{"thumbprint": inspection.Thumbprint, "alreadyPresent": true, "store": "LocalMachine/My"}, nil
+	}
+	result, err := host.importPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"thumbprint": result.Thumbprint, "subject": result.Subject, "notAfter": result.NotAfter, "alreadyPresent": false, "store": "LocalMachine/My"}, nil
+}
+
+func windowsCertificatePrivateKeyGrant(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	appPoolName := atomicString(operation.Input, "appPoolName")
+	if appPoolName == "" {
+		return map[string]any{"skipped": true, "reason": "appPoolName is empty"}, nil
+	}
+	account := "IIS AppPool\\" + appPoolName
+	if !atomicAllowed(account, permissions["iis"]) && !atomicAllowed(appPoolName, permissions["iis"]) {
+		return nil, fmt.Errorf("IIS application pool is not allowed: %s", appPoolName)
+	}
+	inspection, err := (windowsExecutionHost{timeout: 90 * time.Second}).inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := (windowsExecutionHost{timeout: 90 * time.Second}).grantPrivateKeyACL(inspection.Thumbprint, appPoolName); err != nil {
+		return nil, err
+	}
+	return map[string]any{"thumbprint": inspection.Thumbprint, "account": account}, nil
+}
+
+func windowsIISBindingCapture(operation atomicOperation, permissions map[string][]string, ledger *atomicLedger) (map[string]any, error) {
+	siteName, selector, err := windowsIISBindingInput(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	_, binding, err := findTargetBinding(windowsExecutionHost{timeout: 90 * time.Second}, windowsIISDeploymentInput{SiteName: siteName, BindingSelector: selector})
+	if err != nil {
+		return nil, err
+	}
+	ledger.IISBindingBackups = append(ledger.IISBindingBackups, atomicIISBindingBackup{OperationID: operation.ID, SiteName: siteName, Binding: binding})
+	return map[string]any{"siteName": siteName, "bindingInformation": binding.BindingInformation, "certificateThumbprint": binding.CertificateThumbprint}, nil
+}
+
+func windowsIISBindingUpdate(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	siteName, selector, err := windowsIISBindingInput(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	host := windowsExecutionHost{timeout: 90 * time.Second}
+	inspection, err := host.inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	_, binding, err := findTargetBinding(host, windowsIISDeploymentInput{SiteName: siteName, BindingSelector: selector})
+	if err != nil {
+		return nil, err
+	}
+	if err := host.updateBindingCertificate(siteName, binding, inspection.Thumbprint); err != nil {
+		return nil, err
+	}
+	return map[string]any{"siteName": siteName, "bindingInformation": binding.BindingInformation, "thumbprint": inspection.Thumbprint}, nil
+}
+
+func windowsIISBindingRestore(operation atomicOperation, permissions map[string][]string, ledger *atomicLedger) (map[string]any, error) {
+	siteName := atomicString(operation.Input, "siteName")
+	if siteName == "" || !atomicAllowed(siteName, permissions["iis"]) {
+		return nil, fmt.Errorf("IIS site is not allowed: %s", siteName)
+	}
+	reference := atomicString(operation.Input, "captureOperationId")
+	backup, ok := findAtomicIISBindingBackup(ledger.IISBindingBackups, reference)
+	if !ok {
+		return nil, fmt.Errorf("IIS binding backup not found: %s", reference)
+	}
+	if !strings.EqualFold(backup.SiteName, siteName) {
+		return nil, errors.New("IIS binding backup site mismatch")
+	}
+	if err := (windowsExecutionHost{timeout: 90 * time.Second}).restoreBindingCertificate(siteName, backup.Binding); err != nil {
+		return nil, err
+	}
+	return map[string]any{"siteName": siteName, "bindingInformation": backup.Binding.BindingInformation, "thumbprint": backup.Binding.CertificateThumbprint}, nil
+}
+
+func windowsPFXInputFromOperation(operation atomicOperation, permissions map[string][]string) (windowsIISDeploymentInput, error) {
+	store := firstAtomicString(operation.Input, "store", "certificateStore")
+	if store == "" {
+		store = "LocalMachine/My"
+	}
+	if !atomicAllowed(store, permissions["certificate_store"]) {
+		return windowsIISDeploymentInput{}, fmt.Errorf("certificate store is not allowed: %s", store)
+	}
+	artifact, _ := operation.Input["artifact"].(map[string]any)
+	input := windowsIISDeploymentInput{
+		PFXPath:                   firstAtomicString(operation.Input, "pfxPath"),
+		PFXBase64:                 firstAtomicString(operation.Input, "pfxBase64"),
+		PFXPassword:               firstAtomicString(operation.Input, "pfxPassword"),
+		ExpectedCertificateSHA256: firstAtomicString(operation.Input, "expectedFingerprintSha256", "expectedCertificateFingerprintSha256"),
+		ExpectedDomains:           atomicStringSlice(operation.Input["expectedDomains"]),
+	}
+	if artifact != nil {
+		if input.PFXPath == "" {
+			input.PFXPath = firstAtomicString(artifact, "pfxPath", "path")
+		}
+		if input.PFXBase64 == "" {
+			input.PFXBase64 = firstAtomicString(artifact, "pfxBase64", "contentBase64")
+		}
+		if input.PFXPassword == "" {
+			input.PFXPassword = firstAtomicString(artifact, "pfxPassword", "password")
+		}
+		if input.ExpectedCertificateSHA256 == "" {
+			input.ExpectedCertificateSHA256 = firstAtomicString(artifact, "expectedFingerprintSha256", "fingerprintSha256")
+		}
+	}
+	if input.PFXPath == "" && input.PFXBase64 == "" {
+		return windowsIISDeploymentInput{}, errors.New("PFX artifact is required")
+	}
+	return input, nil
+}
+
+func windowsIISBindingInput(operation atomicOperation, permissions map[string][]string) (string, bindingSelector, error) {
+	siteName := atomicString(operation.Input, "siteName")
+	if siteName == "" || !atomicAllowed(siteName, permissions["iis"]) {
+		return "", bindingSelector{}, fmt.Errorf("IIS site is not allowed: %s", siteName)
+	}
+	selectorMap, _ := operation.Input["bindingSelector"].(map[string]any)
+	if selectorMap == nil {
+		selectorMap = operation.Input
+	}
+	selector := bindingSelector{
+		IP:                 firstAtomicString(selectorMap, "ip", "ipAddress"),
+		Port:               atomicInt(selectorMap, "port"),
+		HostHeader:         atomicString(selectorMap, "hostHeader"),
+		BindingInformation: atomicString(selectorMap, "bindingInformation"),
+	}
+	if selector.Port == 0 {
+		selector.Port = 443
+	}
+	return siteName, selector, nil
+}
+
+func windowsCertificateStoreContains(host windowsExecutionHost, thumbprint string) (bool, error) {
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$certificate = Get-Item -LiteralPath ("Cert:\LocalMachine\My\" + %s) -ErrorAction SilentlyContinue
+[pscustomobject]@{ success = $true; exists = ($null -ne $certificate) } | ConvertTo-Json -Compress
+`, psSingleQuoted(normalizeThumbprint(thumbprint)))
+	var result struct {
+		Success bool `json:"success"`
+		Exists  bool `json:"exists"`
+	}
+	if err := host.runPowerShellJSON(script, &result); err != nil {
+		return false, err
+	}
+	return result.Success && result.Exists, nil
 }
 
 func windowsPreflight(input map[string]any, permissions map[string][]string) (map[string]any, error) {
@@ -405,8 +640,13 @@ func atomicTLSVerify(operation atomicOperation, permissions map[string][]string)
 	if sni == "" {
 		sni = host
 	}
+	expected := strings.ToLower(strings.ReplaceAll(atomicString(operation.Input, "expectedFingerprint"), ":", ""))
+	skipChainValidation := atomicBool(operation.Input, "skipChainValidation")
+	if skipChainValidation && expected == "" {
+		return nil, errors.New("skipChainValidation requires expectedFingerprint")
+	}
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	connection, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS12})
+	connection, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS12, InsecureSkipVerify: skipChainValidation})
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +658,6 @@ func atomicTLSVerify(operation atomicOperation, permissions map[string][]string)
 	certificate := certificates[0]
 	fingerprint := sha256.Sum256(certificate.Raw)
 	actual := strings.ToLower(hex.EncodeToString(fingerprint[:]))
-	expected := strings.ToLower(strings.ReplaceAll(atomicString(operation.Input, "expectedFingerprint"), ":", ""))
 	if expected != "" && actual != expected {
 		return nil, fmt.Errorf("certificate fingerprint mismatch: %s", actual)
 	}
@@ -587,9 +826,15 @@ func atomicContent(input map[string]any) ([]byte, error) {
 	if content, ok := input["content"].(string); ok {
 		return []byte(content), nil
 	}
+	if content, ok := input["contentBase64"].(string); ok {
+		return base64.StdEncoding.DecodeString(content)
+	}
 	if artifact, ok := input["artifact"].(map[string]any); ok {
 		if content, ok := artifact["content"].(string); ok {
 			return []byte(content), nil
+		}
+		if content, ok := artifact["contentBase64"].(string); ok {
+			return base64.StdEncoding.DecodeString(content)
 		}
 	}
 	return nil, errors.New("file content is required")
@@ -601,6 +846,14 @@ func findAtomicBackup(backups []atomicBackup, operationID string) (atomicBackup,
 		}
 	}
 	return atomicBackup{}, false
+}
+func findAtomicIISBindingBackup(backups []atomicIISBindingBackup, operationID string) (atomicIISBindingBackup, bool) {
+	for _, backup := range backups {
+		if backup.OperationID == operationID {
+			return backup, true
+		}
+	}
+	return atomicIISBindingBackup{}, false
 }
 func containsAtomicString(values []string, target string) bool {
 	for _, value := range values {

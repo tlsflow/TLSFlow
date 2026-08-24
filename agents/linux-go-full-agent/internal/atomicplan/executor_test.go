@@ -57,6 +57,16 @@ func TestCommandRejectsShellMode(t *testing.T) {
 	}
 }
 
+func TestRollbackOperationSkipsWhenRequiredOperationWasNotCompleted(t *testing.T) {
+	result := run(context.Background(), Plan{}, Operation{
+		ID: "restore", OperationType: "file.restore", Stage: "rollback",
+		Input: map[string]any{"whenOperationCompleted": "install"},
+	}, nil, t.TempDir(), &Ledger{})
+	if result.Status != "SUCCEEDED" || result.Detail["skipped"] != true {
+		t.Fatalf("未完成前序操作时回滚应跳过: %#v", result)
+	}
+}
+
 func testPlan(target string, expiresAt time.Time) Plan {
 	return Plan{
 		APIVersion: "gcac.agent-plan/v1", PlanID: "plan-1", TenantID: "tenant-1", AgentID: "agent-1",
