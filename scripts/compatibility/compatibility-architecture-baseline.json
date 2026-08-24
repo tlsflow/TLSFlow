@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "018.1-1.1 冻结的已知兼容性分派债务。仅允许删除；新增或修改必须迁移到 Fact、Capability、Registry、Adapter 或 Compatibility Profile。",
+  "entries": []
+}
