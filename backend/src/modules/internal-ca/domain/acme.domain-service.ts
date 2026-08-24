@@ -9,6 +9,11 @@ import {
   type AcmeProviderConfiguration,
   type AcmeRenewalPolicyEntity,
 } from '../schema/acme.schema.js';
+import {
+  getAcmeProviderProfile,
+  normalizeProfileKey,
+  normalizeVerificationLevel,
+} from '../providers/acme-provider-profiles.js';
 
 export class AcmeDomainService {
   validateProviderConfiguration(configuration: Record<string, unknown>): AcmeProviderConfiguration {
@@ -29,6 +34,10 @@ export class AcmeDomainService {
       throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'ACME Provider 至少需要一种 Challenge 类型');
     }
     const requestTimeoutMs = numberInRange(configuration.requestTimeoutMs, 1000, 120000, 15000);
+    const profileKey = normalizeProfileKey(configuration.profileKey ?? configuration.preset);
+    const verificationLevel = normalizeVerificationLevel(configuration.verificationLevel);
+    const trustBundleSecretRef = text(configuration.trustBundleSecretRef);
+    if (trustBundleSecretRef) assertSecretRef(trustBundleSecretRef, 'certificate_trust_bundle', 'ACME Trust Bundle');
     return {
       directoryUrl,
       allowedChallenges,
@@ -36,6 +45,15 @@ export class AcmeDomainService {
       verifyTls: configuration.verifyTls !== false,
       userAgent: text(configuration.userAgent) ?? 'GCAC ACME Client',
       termsOfServiceAgreed: configuration.termsOfServiceAgreed === true,
+      termsOfServiceUrl: text(configuration.termsOfServiceUrl),
+      preset: profileKey,
+      profileKey,
+      profileVersion: text(configuration.profileVersion) ?? (profileKey ? getAcmeProviderProfile(profileKey)?.version : undefined),
+      isDefault: configuration.isDefault === true,
+      isBuiltIn: configuration.isBuiltIn === true,
+      verificationLevel: verificationLevel ?? 'unconfigured',
+      verification: object(configuration.verification),
+      trustBundleSecretRef,
     };
   }
 
@@ -48,10 +66,18 @@ export class AcmeDomainService {
 
   validateAccountSecretRefs(input: {
     accountKeySecretRef: string;
+    eabSecretRef?: string;
     eabKeyIdSecretRef?: string;
     eabHmacSecretRef?: string;
   }): void {
     assertSecretRef(input.accountKeySecretRef, 'certificate_private_key', 'ACME Account Key');
+    if (input.eabSecretRef) {
+      assertSecretRef(input.eabSecretRef, 'acme_eab', 'EAB');
+      if (input.eabKeyIdSecretRef || input.eabHmacSecretRef) {
+        throw new AppError('ACME_ACCOUNT_INVALID', 'EAB 只能使用一个结构化 SecretRef，不能同时提交旧双字段');
+      }
+      return;
+    }
     const hasEabKeyId = Boolean(text(input.eabKeyIdSecretRef));
     const hasEabHmac = Boolean(text(input.eabHmacSecretRef));
     if (hasEabKeyId !== hasEabHmac) {
@@ -122,7 +148,7 @@ export class AcmeDomainService {
   }
 }
 
-function assertSecretRef(value: string, expectedType: 'certificate_private_key' | undefined, label: string): void {
+function assertSecretRef(value: string, expectedType: 'certificate_private_key' | 'certificate_trust_bundle' | 'acme_eab' | undefined, label: string): void {
   if (!text(value)) throw new AppError('ACME_SECRET_RESOLVE_DENIED', `${label}必须使用 SecretRef`);
   try {
     const parsed = parseSecretRef(value);
@@ -137,6 +163,10 @@ function assertSecretRef(value: string, expectedType: 'certificate_private_key' 
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function numberInRange(value: unknown, min: number, max: number, fallback: number): number {

@@ -12,7 +12,14 @@ import {
   createDefaultCaProviderRegistry,
   type CaIssuanceResult,
 } from '../providers/ca-provider.js';
-import { getAcmeProviderPreset, isAcmeProviderPresetKey, listAcmeProviderPresets, type AcmeProviderPresetKey } from '../providers/acme-provider.catalog.js';
+import { listAcmeProviderPresets } from '../providers/acme-provider.catalog.js';
+import {
+  getAcmeProviderProfile,
+  listAcmeProviderProfiles,
+  normalizeAcmeProviderProfile,
+  normalizeProfileKey,
+  type AcmeProviderProfileKey,
+} from '../providers/acme-provider-profiles.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
@@ -73,14 +80,16 @@ export interface CreateCaProviderInput {
 
 /** 管理员高级设置使用的 ACME Provider 配置；普通申请页不暴露 Directory URL。 */
 export interface AcmeProviderConfigurationInput {
-  name: string;
-  preset?: AcmeProviderPresetKey;
-  directoryUrl: string;
-  allowedChallenges?: AcmeChallengeType[];
+  name?: string;
+  displayName?: string;
+  preset?: AcmeProviderProfileKey;
+  profileKey?: AcmeProviderProfileKey;
+  directoryUrl?: string;
   requestTimeoutMs?: number;
   termsOfServiceUrl?: string;
   termsOfServiceAgreed?: boolean;
   isDefault?: boolean;
+  trustBundleSecretRef?: string;
 }
 
 export interface CreateCaTrustDomainInput {
@@ -265,6 +274,8 @@ export class InternalCaApplicationService {
         configuration: {
           ...existing.configuration,
           preset: 'letsencrypt',
+          profileKey: 'letsencrypt',
+          profileVersion: getAcmeProviderProfile('letsencrypt')?.version,
           directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
           allowedChallenges: ['http-01', 'dns-01'],
           requestTimeoutMs: 15_000,
@@ -272,6 +283,7 @@ export class InternalCaApplicationService {
           termsOfServiceAgreed: true,
           isDefault: true,
           isBuiltIn: true,
+          verificationLevel: existing.configuration.verificationLevel ?? 'unconfigured',
         },
         updatedAt: now,
       };
@@ -292,6 +304,8 @@ export class InternalCaApplicationService {
       status: 'active',
       configuration: {
         preset: 'letsencrypt',
+        profileKey: 'letsencrypt',
+        profileVersion: getAcmeProviderProfile('letsencrypt')?.version,
         directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
         allowedChallenges: ['http-01', 'dns-01'],
         requestTimeoutMs: 15_000,
@@ -299,6 +313,7 @@ export class InternalCaApplicationService {
         termsOfServiceAgreed: true,
         isDefault: true,
         isBuiltIn: true,
+        verificationLevel: 'unconfigured',
       },
       createdAt: now,
       updatedAt: now,
@@ -315,13 +330,19 @@ export class InternalCaApplicationService {
   async listAcmeProviderSettings(tenantId: string): Promise<{
     items: Array<Omit<CaProviderEntity, 'credentialSecretRef'>>;
     presets: ReturnType<typeof listAcmeProviderPresets>;
+    profiles: ReturnType<typeof listAcmeProviderProfiles>;
   }> {
     await this.ensureBuiltinAcmeProvider(tenantId);
     const providers = await this.repository.listProviders(tenantId);
     return {
       items: providers.filter((item) => item.type === 'acme').map(sanitizeProvider),
       presets: listAcmeProviderPresets(),
+      profiles: listAcmeProviderProfiles(),
     };
+  }
+
+  listAcmeProviderProfiles(): ReturnType<typeof listAcmeProviderProfiles> {
+    return listAcmeProviderProfiles();
   }
 
   async createAcmeProvider(
@@ -331,8 +352,9 @@ export class InternalCaApplicationService {
     context?: RequestContext,
   ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
     const configuration = normalizeAcmeProviderConfiguration(input);
+    const profile = getAcmeProviderProfile(configuration.profileKey);
     const created = await this.createProvider(tenantId, {
-      name: input.name,
+      name: requiredText(input.displayName ?? input.name ?? profile?.displayName ?? '自定义 ACME CA', 'displayName'),
       type: 'acme',
       deploymentMode: 'external',
       runtimePlatform: 'external',
@@ -354,9 +376,10 @@ export class InternalCaApplicationService {
     const current = await this.requireProvider(tenantId, providerId);
     if (current.type !== 'acme') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不是 ACME Provider', { providerId });
     const configuration = normalizeAcmeProviderConfiguration(input, current.configuration);
+    const profile = getAcmeProviderProfile(configuration.profileKey);
     await this.repository.saveProvider({
       ...current,
-      name: requiredText(input.name, 'name'),
+      name: requiredText(input.displayName ?? input.name ?? current.name ?? profile?.displayName ?? '自定义 ACME CA', 'displayName'),
       endpoint: configuration.directoryUrl,
       configuration: { ...configuration },
       updatedAt: new Date().toISOString(),
@@ -430,7 +453,29 @@ export class InternalCaApplicationService {
   async testProvider(tenantId: string, providerId: string): Promise<{ reachable: boolean; capabilities: CaProviderEntity['capabilities']; detail?: string }> {
     const provider = await this.requireProvider(tenantId, providerId);
     assertPluginBinding(provider);
-    return this.providers.get(provider.type).validateConnection(provider);
+    const result = await this.providers.get(provider.type).validateConnection(provider);
+    if (provider.type === 'acme') {
+      const existingVerification = provider.configuration.verification && typeof provider.configuration.verification === 'object'
+        ? provider.configuration.verification
+        : {};
+      await this.repository.saveProvider({
+        ...provider,
+        configuration: {
+          ...provider.configuration,
+          verificationLevel: result.reachable ? 'directory_reachable' : 'blocked',
+          verification: {
+            ...existingVerification,
+            directory: {
+              checkedAt: new Date().toISOString(),
+              reachable: result.reachable,
+              detail: result.detail,
+            },
+          },
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return result;
   }
 
   async listCapabilityRecords(
@@ -1585,22 +1630,15 @@ function normalizeAcmeProviderConfiguration(
   input: AcmeProviderConfigurationInput,
   current: Record<string, unknown> = {},
 ): AcmeProviderConfiguration {
-  const preset = input.preset ?? (typeof current.preset === 'string' ? current.preset : 'custom');
-  if (!isAcmeProviderPresetKey(preset)) throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'ACME Provider 预置类型无效');
-  const presetDefinition = getAcmeProviderPreset(preset);
-  const configuration: AcmeProviderConfiguration = {
-    directoryUrl: requiredText(input.directoryUrl, 'directoryUrl'),
-    allowedChallenges: input.allowedChallenges?.length
-      ? [...new Set(input.allowedChallenges)]
-      : (presetDefinition?.defaultAllowedChallenges ?? ['http-01', 'dns-01']),
-    requestTimeoutMs: input.requestTimeoutMs ?? Number(current.requestTimeoutMs ?? 15_000),
-    verifyTls: true,
-    termsOfServiceUrl: optionalText(input.termsOfServiceUrl) ?? textValue(current.termsOfServiceUrl),
+  const configuration = normalizeAcmeProviderProfile({
+    ...input,
+    profileKey: normalizeProfileKey(input.profileKey ?? input.preset ?? current.profileKey ?? current.preset),
+  }, {
+    ...current,
+    requestTimeoutMs: input.requestTimeoutMs ?? current.requestTimeoutMs,
+    termsOfServiceUrl: input.termsOfServiceUrl ?? current.termsOfServiceUrl,
     termsOfServiceAgreed: input.termsOfServiceAgreed === true || current.termsOfServiceAgreed === true,
-    preset,
-    isDefault: input.isDefault === true,
-    isBuiltIn: current.isBuiltIn === true,
-  };
+  });
   new AcmeDomainService().validateProviderConfiguration({ ...configuration });
   return configuration;
 }

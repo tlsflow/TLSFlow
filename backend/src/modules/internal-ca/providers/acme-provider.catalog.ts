@@ -1,19 +1,17 @@
 import type { AcmeChallengeType } from '../schema/acme.schema.js';
+import {
+  acmeProviderProfileKeys,
+  getAcmeProviderProfile,
+  isAcmeProviderProfileKey,
+  listAcmeProviderProfiles,
+  type AcmeProviderProfileCategory,
+  type AcmeProviderProfileKey,
+} from './acme-provider-profiles.js';
 
-export const acmeProviderPresetKeys = [
-  'letsencrypt',
-  'zerossl',
-  'google-trust-services',
-  'digicert',
-  'sectigo',
-  'ssl-com',
-  'step-ca',
-  'ejbca',
-  'custom',
-] as const;
+export const acmeProviderPresetKeys = acmeProviderProfileKeys;
 
-export type AcmeProviderPresetKey = (typeof acmeProviderPresetKeys)[number];
-export type AcmeProviderPresetCategory = 'public' | 'enterprise' | 'private';
+export type AcmeProviderPresetKey = AcmeProviderProfileKey;
+export type AcmeProviderPresetCategory = AcmeProviderProfileCategory;
 
 export interface AcmeProviderPreset {
   key: AcmeProviderPresetKey;
@@ -21,79 +19,29 @@ export interface AcmeProviderPreset {
   defaultDirectoryUrl?: string;
   defaultAllowedChallenges: AcmeChallengeType[];
   requiresEab: boolean;
+  profileVersion: string;
 }
 
-const presets: readonly AcmeProviderPreset[] = [
-  {
-    key: 'letsencrypt',
-    category: 'public',
-    defaultDirectoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: false,
-  },
-  {
-    key: 'zerossl',
-    category: 'public',
-    defaultDirectoryUrl: 'https://acme.zerossl.com/v2/DV90',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: true,
-  },
-  {
-    key: 'google-trust-services',
-    category: 'enterprise',
-    defaultDirectoryUrl: 'https://dv.acme-v02.api.pki.goog/directory',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: true,
-  },
-  {
-    key: 'digicert',
-    category: 'enterprise',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: true,
-  },
-  {
-    key: 'sectigo',
-    category: 'enterprise',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: true,
-  },
-  {
-    key: 'ssl-com',
-    category: 'enterprise',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: true,
-  },
-  {
-    key: 'step-ca',
-    category: 'private',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: false,
-  },
-  {
-    key: 'ejbca',
-    category: 'private',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: false,
-  },
-  {
-    key: 'custom',
-    category: 'private',
-    defaultAllowedChallenges: ['http-01', 'dns-01'],
-    requiresEab: false,
-  },
-];
-
 export function listAcmeProviderPresets(): AcmeProviderPreset[] {
-  return presets.map((preset) => ({
-    ...preset,
-    defaultAllowedChallenges: [...preset.defaultAllowedChallenges],
-  }));
+  return listAcmeProviderProfiles().map(profileToPreset);
 }
 
 export function getAcmeProviderPreset(value: unknown): AcmeProviderPreset | undefined {
-  return presets.find((preset) => preset.key === value);
+  const profile = getAcmeProviderProfile(value);
+  return profile ? profileToPreset(profile) : undefined;
 }
 
 export function isAcmeProviderPresetKey(value: unknown): value is AcmeProviderPresetKey {
-  return typeof value === 'string' && acmeProviderPresetKeys.includes(value as AcmeProviderPresetKey);
+  return isAcmeProviderProfileKey(value);
+}
+
+function profileToPreset(profile: ReturnType<typeof listAcmeProviderProfiles>[number]): AcmeProviderPreset {
+  return {
+    key: profile.key,
+    category: profile.category === 'custom' ? 'private' : profile.category,
+    defaultDirectoryUrl: profile.directory.defaultUrl,
+    defaultAllowedChallenges: [...profile.allowedChallenges],
+    requiresEab: profile.account.eab === 'required',
+    profileVersion: profile.version,
+  };
 }

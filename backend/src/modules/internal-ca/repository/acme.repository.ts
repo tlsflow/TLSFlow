@@ -16,15 +16,16 @@ export class AcmeRepository {
     await this.db.query(
       `insert into pg_acme_accounts (
          id, tenant_id, provider_id, directory_url_hash, account_url, account_key_secret_ref, contact,
-         eab_key_id_secret_ref, eab_hmac_secret_ref, status, last_error_code, last_error_message,
+         eab_key_id_secret_ref, eab_hmac_secret_ref, eab_secret_ref, status, last_error_code, last_error_message,
          payload, created_at, updated_at
-       ) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13::jsonb,$14,$15)
+       ) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16)
        on conflict (id) do update set
          account_url = excluded.account_url,
          account_key_secret_ref = excluded.account_key_secret_ref,
          contact = excluded.contact,
          eab_key_id_secret_ref = excluded.eab_key_id_secret_ref,
          eab_hmac_secret_ref = excluded.eab_hmac_secret_ref,
+         eab_secret_ref = excluded.eab_secret_ref,
          status = excluded.status,
          last_error_code = excluded.last_error_code,
          last_error_message = excluded.last_error_message,
@@ -33,7 +34,7 @@ export class AcmeRepository {
       [
         entity.id, entity.tenantId, entity.providerId, entity.directoryUrlHash, entity.accountUrl ?? null,
         entity.accountKeySecretRef, JSON.stringify(entity.contact), entity.eabKeyIdSecretRef ?? null,
-        entity.eabHmacSecretRef ?? null, entity.status, entity.lastErrorCode ?? null,
+        entity.eabHmacSecretRef ?? null, entity.eabSecretRef ?? null, entity.status, entity.lastErrorCode ?? null,
         entity.lastErrorMessage ?? null, JSON.stringify(entity), entity.createdAt, entity.updatedAt,
       ],
     );
@@ -412,6 +413,7 @@ function accountFromRow(row: Record<string, unknown>): AcmeAccountEntity {
     contact: strings(row.contact),
     eabKeyIdSecretRef: optionalString(row.eab_key_id_secret_ref),
     eabHmacSecretRef: optionalString(row.eab_hmac_secret_ref),
+    eabSecretRef: optionalString(row.eab_secret_ref) ?? optionalString((payload as Partial<AcmeAccountEntity>).eabSecretRef),
     status: row.status as AcmeAccountEntity['status'],
     lastErrorCode: optionalString(row.last_error_code),
     lastErrorMessage: optionalString(row.last_error_message),

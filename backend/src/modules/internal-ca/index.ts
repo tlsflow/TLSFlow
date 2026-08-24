@@ -18,6 +18,7 @@ export * from './domain/acme.domain-service.js';
 export * from './dto/acme.dto.js';
 export * from './providers/acme-provider.js';
 export * from './providers/acme-provider.catalog.js';
+export * from './providers/acme-provider-profiles.js';
 export * from './providers/acme-dns-provider.registry.js';
 export * from './providers/lego-dns-issuer.js';
 export * from './providers/openssl-ca.js';

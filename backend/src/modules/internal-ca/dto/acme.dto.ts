@@ -1,8 +1,10 @@
 import type { AcmeChallengeType } from '../schema/acme.schema.js';
 
 export interface CreateAcmeProviderDto {
-  name: string;
-  directoryUrl: string;
+  displayName?: string;
+  name?: string;
+  profileKey?: string;
+  directoryUrl?: string;
   accountKeySecretRef?: string;
   allowedChallenges?: AcmeChallengeType[];
   requestTimeoutMs?: number;
@@ -12,8 +14,9 @@ export interface CreateAcmeProviderDto {
 
 export interface CreateAcmeAccountDto {
   providerId: string;
-  accountKeySecretRef: string;
+  accountKeySecretRef?: string;
   contact?: string[];
+  eabSecretRef?: string;
   eabKeyIdSecretRef?: string;
   eabHmacSecretRef?: string;
   termsOfServiceAgreed?: boolean;

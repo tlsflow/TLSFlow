@@ -6,6 +6,7 @@ import {
   createSign,
   type KeyObject,
 } from 'node:crypto';
+import { request as httpsRequest } from 'node:https';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type {
@@ -38,6 +39,7 @@ export interface CreateAcmeAccountCommand {
   accountKeySecretRef: string;
   contact: string[];
   termsOfServiceAgreed: boolean;
+  eabSecretRef?: string;
   eabKeyIdSecretRef?: string;
   eabHmacSecretRef?: string;
   actorId: string;
@@ -179,6 +181,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
         termsOfService: stringValue(directory.meta, 'termsOfService'),
         website: stringValue(directory.meta, 'website'),
         caaIdentities: arrayValue(objectValue(directory.meta).caaIdentities).map(String),
+        externalAccountRequired: objectValue(directory.meta).externalAccountRequired === true,
       } : undefined,
       fetchedAt: new Date().toISOString(),
     };
@@ -191,8 +194,8 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
       contact: command.contact,
       termsOfServiceAgreed: command.termsOfServiceAgreed,
     };
-    if (command.eabKeyIdSecretRef || command.eabHmacSecretRef) {
-      if (!command.eabKeyIdSecretRef || !command.eabHmacSecretRef) {
+    if (command.eabSecretRef || command.eabKeyIdSecretRef || command.eabHmacSecretRef) {
+      if (!command.eabSecretRef && (!command.eabKeyIdSecretRef || !command.eabHmacSecretRef)) {
         throw new AppError('ACME_ACCOUNT_INVALID', 'EAB 必须同时提供 Key ID 和 HMAC SecretRef');
       }
       payload.externalAccountBinding = await this.buildExternalAccountBinding(command, directory.newAccountUrl);
@@ -223,7 +226,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     const configuration = this.domain.assertProvider(input.provider);
     let response: Response;
     try {
-      response = await fetch(directory.newNonceUrl, {
+      response = await this.requestWithProvider(input.provider, directory.newNonceUrl, {
         method: 'HEAD',
         headers: { 'user-agent': configuration.userAgent ?? 'GCAC ACME Client' },
         signal: AbortSignal.timeout(configuration.requestTimeoutMs ?? 15000),
@@ -380,6 +383,17 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
   }
 
   private async buildExternalAccountBinding(command: CreateAcmeAccountCommand, url: string): Promise<Record<string, string>> {
+    if (command.eabSecretRef) {
+      const resolved = await this.secrets.resolveForService({
+        secretRef: command.eabSecretRef,
+        tenantId: command.provider.tenantId,
+        expectedType: 'acme_eab',
+        purpose: 'acme.eab',
+        actorId: command.actorId,
+      });
+      const parsed = parseEabSecret(resolved.plainText);
+      return this.signExternalAccountBinding(command, url, parsed.keyId, parsed.hmacKey);
+    }
     const keyId = await this.secrets.resolveForService({
       secretRef: command.eabKeyIdSecretRef!,
       tenantId: command.provider.tenantId,
@@ -392,10 +406,14 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
       purpose: 'acme.eab.hmac',
       actorId: command.actorId,
     });
+    return this.signExternalAccountBinding(command, url, keyId.plainText, hmac.plainText);
+  }
+
+  private async signExternalAccountBinding(command: CreateAcmeAccountCommand, url: string, keyId: string, hmacKey: string | Buffer): Promise<Record<string, string>> {
     const accountKey = await this.resolvePrivateKey(command.provider.tenantId, command.accountKeySecretRef, command.actorId);
-    const protectedEncoded = encodeBase64UrlJson({ alg: 'HS256', kid: keyId.plainText, url });
+    const protectedEncoded = encodeBase64UrlJson({ alg: 'HS256', kid: keyId, url });
     const payloadEncoded = encodeBase64UrlJson(publicJwk(accountKey));
-    const signature = encodeBase64Url(createHmac('sha256', hmac.plainText).update(`${protectedEncoded}.${payloadEncoded}`).digest());
+    const signature = encodeBase64Url(createHmac('sha256', hmacKey).update(`${protectedEncoded}.${payloadEncoded}`).digest());
     return { protected: protectedEncoded, payload: payloadEncoded, signature };
   }
 
@@ -424,7 +442,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
       const signature = signJws(privateKey, `${protectedEncoded}.${payloadEncoded}`);
       let response: Response;
       try {
-        response = await fetch(input.url, {
+        response = await this.requestWithProvider(input.provider, input.url, {
           method: 'POST',
           headers: {
             'content-type': 'application/jose+json',
@@ -470,7 +488,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     const configuration = this.domain.assertProvider(provider);
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await this.requestWithProvider(provider, url, {
         ...requestInit,
         signal: AbortSignal.timeout(configuration.requestTimeoutMs ?? 15000),
       });
@@ -484,6 +502,19 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
       body: parseAcmeBody(await response.text()),
       retryAfterAt: parseRetryAfter(response.headers.get('retry-after')),
     };
+  }
+
+  private async requestWithProvider(provider: CaProviderEntity, url: string, init: RequestInit): Promise<Response> {
+    const configuration = this.domain.assertProvider(provider);
+    if (!configuration.trustBundleSecretRef) return fetch(url, init);
+    const trustBundle = await this.secrets.resolveForService({
+      secretRef: configuration.trustBundleSecretRef,
+      tenantId: provider.tenantId,
+      expectedType: 'certificate_trust_bundle',
+      purpose: 'acme.directory.tls',
+      actorId: 'system',
+    });
+    return requestHttps(url, init, trustBundle.plainText);
   }
 
   private async resolvePrivateKey(tenantId: string, secretRef: string, actorId: string): Promise<KeyObject> {
@@ -542,6 +573,42 @@ function publicJwk(key: KeyObject): Record<string, string> {
   return { e: jwk.e, kty: jwk.kty, n: jwk.n };
 }
 
+function requestHttps(url: string, init: RequestInit, ca: string): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = httpsRequest(target, {
+      method: init.method ?? 'GET',
+      headers: Object.fromEntries(new Headers(init.headers).entries()),
+      ca,
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.on('end', () => resolve(new Response(Buffer.concat(chunks), {
+        status: response.statusCode ?? 0,
+        statusText: response.statusMessage,
+        headers: response.headers as Record<string, string>,
+      })));
+      response.on('error', reject);
+    });
+    const signal = init.signal;
+    const abort = () => request.destroy(new Error('ACME HTTPS request aborted'));
+    if (signal) {
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      signal.addEventListener('abort', abort, { once: true });
+      request.once('close', () => signal.removeEventListener('abort', abort));
+    }
+    request.on('error', reject);
+    if (init.body !== undefined && init.body !== null) {
+      if (typeof init.body === 'string' || Buffer.isBuffer(init.body)) request.write(init.body);
+      else request.write(Buffer.from(init.body as ArrayBuffer));
+    }
+    request.end();
+  });
+}
+
 function signJws(key: KeyObject, input: string): string {
   const signer = createSign('RSA-SHA256');
   signer.update(input);
@@ -596,6 +663,21 @@ function requiredUrl(value: Record<string, unknown>, key: string, base: string):
 function optionalUrl(value: Record<string, unknown>, key: string, base: string): string | undefined {
   const raw = stringValue(value, key);
   return raw ? new URL(raw, base).toString() : undefined;
+}
+
+function parseEabSecret(value: string): { keyId: string; hmacKey: Buffer } {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const keyId = typeof parsed.keyId === 'string' ? parsed.keyId.trim() : '';
+    const hmacKey = typeof parsed.hmacKey === 'string' ? parsed.hmacKey.trim() : '';
+    if (keyId && hmacKey) {
+      const decoded = Buffer.from(hmacKey, 'base64url');
+      if (decoded.length > 0) return { keyId, hmacKey: decoded };
+    }
+  } catch {
+    // 统一在下面返回结构化校验错误，避免泄露 Secret 内容。
+  }
+  throw new AppError('ACME_ACCOUNT_INVALID', 'EAB Secret 必须是包含 keyId 和 hmacKey 的 JSON');
 }
 
 function stringValue(value: unknown, key: string): string | undefined {

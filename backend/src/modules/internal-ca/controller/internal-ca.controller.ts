@@ -80,6 +80,7 @@ export class InternalCaController {
     router.get('/api/v1/acme/accounts', '查询 ACME Account', tags, (request) => this.listAcmeAccounts(request));
     router.post('/api/v1/acme/accounts', '创建 ACME Account', tags, (request) => this.createAcmeAccount(request));
     router.get('/api/v1/acme/accounts/:id', '查询 ACME Account 详情', tags, (request) => this.getAcmeAccount(request));
+    router.get('/api/v1/acme/provider-profiles', '查询 ACME Provider Profile', tags, (request) => this.listAcmeProviderProfiles(request));
     router.get('/api/v1/acme/providers', '查询 ACME 颁发者配置', tags, (request) => this.listAcmeProviderSettings(request));
     router.post('/api/v1/acme/providers', '创建 ACME 颁发者配置', tags, (request) => this.createAcmeProvider(request));
     router.patch('/api/v1/acme/providers/:id', '更新 ACME 颁发者配置', tags, (request) => this.updateAcmeProvider(request));
@@ -94,6 +95,7 @@ export class InternalCaController {
     router.post('/api/v1/acme/orders/:id/reconcile', '恢复 ACME Order 状态', tags, (request) => this.reconcileAcmeOrder(request));
     router.post('/api/v1/acme/orders/:id/finalize', 'Finalize ACME Order', tags, (request) => this.finalizeAcmeOrder(request));
     router.get('/api/v1/acme/renewal-policies', '查询 ACME 续签策略', tags, (request) => this.listAcmePolicies(request));
+    router.patch('/api/v1/acme/renewal-policies/:id', '更新 ACME 续签策略', tags, (request) => this.updateAcmePolicy(request));
     router.get('/api/v1/acme/renewal-jobs', '查询 ACME 续签任务', tags, (request) => this.listAcmeRenewalJobs(request));
     router.post('/api/v1/acme/renewal-jobs/scan', '扫描 ACME 到期证书', tags, (request) => this.scanAcmeRenewalJobs(request));
     router.post('/api/v1/acme/renewal-jobs/:id/retry', '重试 ACME 续签任务', tags, (request) => this.retryAcmeRenewalJob(request));
@@ -319,9 +321,10 @@ export class InternalCaController {
       body: await this.requireAcme().accounts.create({
         tenantId: tenantId(request),
         providerId: requiredString(body, 'providerId'),
-        accountKeySecretRef: requiredString(body, 'accountKeySecretRef'),
+        accountKeySecretRef: optionalString(body.accountKeySecretRef),
         contact: Array.isArray(body.contact) ? body.contact.map(String) : undefined,
         termsOfServiceAgreed: body.termsOfServiceAgreed !== false,
+        eabSecretRef: optionalString(body.eabSecretRef),
         eabKeyIdSecretRef: optionalString(body.eabKeyIdSecretRef),
         eabHmacSecretRef: optionalString(body.eabHmacSecretRef),
         actorId: actorId(request),
@@ -337,6 +340,11 @@ export class InternalCaController {
   private async listAcmeProviderSettings(request: HttpRequest) {
     await this.assertAcmeRead(request, 'ca_provider');
     return this.service.listAcmeProviderSettings(tenantId(request));
+  }
+
+  private async listAcmeProviderProfiles(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'ca_provider');
+    return { items: this.service.listAcmeProviderProfiles() };
   }
 
   private async createAcmeProvider(request: HttpRequest) {
@@ -384,7 +392,9 @@ export class InternalCaController {
       contactEmail: requiredString(body, 'contactEmail'),
       providerId: optionalString(body.providerId),
       challengeType: (optionalString(body.challengeType) ?? 'dns-01') as never,
+      dnsProvider: optionalString(body.dnsProvider),
       dnsCredentialId: optionalString(body.dnsCredentialId),
+      dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
       keyType: optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined,
       autoRenew: body.autoRenew !== false,
       renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? 7,
@@ -419,9 +429,11 @@ export class InternalCaController {
       name: optionalString(body.name),
       domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
       contactEmail: requiredString(body, 'contactEmail'),
-      providerId: policy.providerId,
+      providerId: optionalString(body.providerId) ?? policy.providerId,
       challengeType: (optionalString(body.challengeType) ?? policy.challengeType) as never,
+      dnsProvider: optionalString(body.dnsProvider),
       dnsCredentialId: optionalString(body.dnsCredentialId),
+      dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
       keyType: optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined,
       autoRenew: body.autoRenew !== false,
       renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? policy.renewalWindowDays,
@@ -475,6 +487,14 @@ export class InternalCaController {
   private async listAcmePolicies(request: HttpRequest) {
     await this.assertAcmeRead(request, 'certificate_renewal');
     return this.requireAcme().policies.list(tenantId(request));
+  }
+
+  private async updateAcmePolicy(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    return this.requireAcme().policies.update(tenantId(request), pathId(request), {
+      ...objectBody(request),
+      actorId: actorId(request),
+    });
   }
 
   private async listAcmeRenewalJobs(request: HttpRequest) {
@@ -746,6 +766,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/acme/accounts', 'listAcmeAccounts', '查询 ACME Account', arraySchema],
     ['POST', '/api/v1/acme/accounts', 'createAcmeAccount', '创建 ACME Account', responseSchema],
     ['GET', '/api/v1/acme/accounts/:id', 'getAcmeAccount', '查询 ACME Account 详情', responseSchema],
+    ['GET', '/api/v1/acme/provider-profiles', 'listAcmeProviderProfiles', '查询 ACME Provider Profile', arraySchema],
     ['GET', '/api/v1/acme/providers', 'listAcmeProviders', '查询 ACME 颁发者配置', arraySchema],
     ['POST', '/api/v1/acme/providers', 'createAcmeProvider', '创建 ACME 颁发者配置', responseSchema],
     ['PATCH', '/api/v1/acme/providers/:id', 'updateAcmeProvider', '更新 ACME 颁发者配置', responseSchema],
@@ -760,6 +781,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/acme/orders/:id/reconcile', 'reconcileAcmeOrder', '恢复 ACME Order 状态', responseSchema],
     ['POST', '/api/v1/acme/orders/:id/finalize', 'finalizeAcmeOrder', 'Finalize ACME Order', responseSchema],
     ['GET', '/api/v1/acme/renewal-policies', 'listAcmeRenewalPolicies', '查询 ACME 续签策略', arraySchema],
+    ['PATCH', '/api/v1/acme/renewal-policies/:id', 'updateAcmeRenewalPolicy', '更新 ACME 续签策略', responseSchema],
     ['GET', '/api/v1/acme/renewal-jobs', 'listAcmeRenewalJobs', '查询 ACME 续签任务', arraySchema],
     ['POST', '/api/v1/acme/renewal-jobs/scan', 'scanAcmeRenewalJobs', '扫描 ACME 到期证书', arraySchema],
     ['POST', '/api/v1/acme/renewal-jobs/:id/retry', 'retryAcmeRenewalJob', '重试 ACME 续签任务', responseSchema],

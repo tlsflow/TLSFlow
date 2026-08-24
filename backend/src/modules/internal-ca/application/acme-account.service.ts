@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import type { SecretService } from '../../secrets/secret.service.js';
@@ -8,13 +8,15 @@ import type { InternalCaRepository } from '../repository/internal-ca.repository.
 import type { AcmeAccountEntity } from '../schema/acme.schema.js';
 import type { CaProviderEntity } from '../schema/internal-ca.schema.js';
 import { AcmeProviderAdapter } from '../providers/acme-provider.js';
+import { getAcmeProviderProfile, normalizeProfileKey } from '../providers/acme-provider-profiles.js';
 
 export interface CreateAcmeAccountServiceInput {
   tenantId: string;
   providerId: string;
-  accountKeySecretRef: string;
+  accountKeySecretRef?: string;
   contact?: string[];
   termsOfServiceAgreed?: boolean;
+  eabSecretRef?: string;
   eabKeyIdSecretRef?: string;
   eabHmacSecretRef?: string;
   actorId: string;
@@ -51,15 +53,18 @@ export class AcmeAccountService {
     if (!termsOfServiceAgreed) {
       throw new AppError('ACME_ACCOUNT_INVALID', '创建 ACME Account 前必须同意服务条款');
     }
-    this.domain.validateAccountSecretRefs(input);
-    await this.assertSecretTypes(input);
+    const directory = await this.adapter.getDirectory({ provider });
+    const accountKeySecretRef = await this.resolveAccountKeySecretRef(input, provider);
+    this.domain.validateAccountSecretRefs({ ...input, accountKeySecretRef });
+    await this.assertSecretTypes({ ...input, accountKeySecretRef });
+    await this.assertEabPolicy(provider, configuration, input, directory.meta?.externalAccountRequired === true);
 
     const directoryUrlHash = this.domain.directoryUrlHash(configuration.directoryUrl);
     const existing = await this.repository.getAccountByKey(
       input.tenantId,
       provider.id,
       directoryUrlHash,
-      input.accountKeySecretRef,
+      accountKeySecretRef,
     );
     if (existing) return toAccountView(existing);
 
@@ -69,8 +74,9 @@ export class AcmeAccountService {
       tenantId: input.tenantId,
       providerId: provider.id,
       directoryUrlHash,
-      accountKeySecretRef: input.accountKeySecretRef,
+      accountKeySecretRef,
       contact,
+      eabSecretRef: input.eabSecretRef,
       eabKeyIdSecretRef: input.eabKeyIdSecretRef,
       eabHmacSecretRef: input.eabHmacSecretRef,
       status: 'pending',
@@ -83,6 +89,7 @@ export class AcmeAccountService {
         accountKeySecretRef: account.accountKeySecretRef,
         contact,
         termsOfServiceAgreed,
+        eabSecretRef: account.eabSecretRef,
         eabKeyIdSecretRef: account.eabKeyIdSecretRef,
         eabHmacSecretRef: account.eabHmacSecretRef,
         actorId: input.actorId,
@@ -131,6 +138,9 @@ export class AcmeAccountService {
   }
 
   private async assertSecretTypes(input: CreateAcmeAccountServiceInput): Promise<void> {
+    if (!input.accountKeySecretRef) {
+      throw new AppError('ACME_SECRET_RESOLVE_DENIED', 'ACME Account Key Secret 未生成');
+    }
     try {
       await this.secrets.resolveForService({
         secretRef: input.accountKeySecretRef,
@@ -139,11 +149,12 @@ export class AcmeAccountService {
         purpose: 'acme.account.validate',
         actorId: input.actorId,
       });
-      for (const secretRef of [input.eabKeyIdSecretRef, input.eabHmacSecretRef]) {
+      for (const secretRef of [input.eabSecretRef, input.eabKeyIdSecretRef, input.eabHmacSecretRef]) {
         if (!secretRef) continue;
         await this.secrets.resolveForService({
           secretRef,
           tenantId: input.tenantId,
+          expectedType: secretRef === input.eabSecretRef ? 'acme_eab' : undefined,
           purpose: 'acme.account.validate',
           actorId: input.actorId,
         });
@@ -151,6 +162,52 @@ export class AcmeAccountService {
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw new AppError('ACME_SECRET_RESOLVE_DENIED', 'ACME Account Secret 无法验证');
+    }
+  }
+
+  private async resolveAccountKeySecretRef(input: CreateAcmeAccountServiceInput, provider: CaProviderEntity): Promise<string> {
+    if (input.accountKeySecretRef) return input.accountKeySecretRef;
+    const privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
+      .export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+    const secret = await this.secrets.create({
+      tenantId: input.tenantId,
+      name: `ACME Account Key - ${provider.name}`,
+      type: 'certificate_private_key',
+      scopeType: 'global',
+      metadata: {
+        purpose: 'acme_account_key',
+        providerId: provider.id,
+        tenantId: input.tenantId,
+        managedBy: 'gcac',
+      },
+      plainText: privateKey,
+      createdBy: input.actorId,
+    });
+    return secret.secretRef;
+  }
+
+  private async assertEabPolicy(
+    provider: CaProviderEntity,
+    configuration: ReturnType<AcmeDomainService['assertProvider']>,
+    input: CreateAcmeAccountServiceInput,
+    directoryRequiresEab: boolean,
+  ): Promise<void> {
+    const profile = getAcmeProviderProfile(normalizeProfileKey(configuration.profileKey ?? configuration.preset));
+    const hasEab = Boolean(input.eabSecretRef || (input.eabKeyIdSecretRef && input.eabHmacSecretRef));
+    const eabRequired = profile?.account.eab === 'required' || (profile?.account.eab === 'discover' && directoryRequiresEab);
+    if (eabRequired && !hasEab) {
+      throw new AppError('ACME_ACCOUNT_INVALID', '当前 ACME Provider Profile 要求配置 EAB 凭据', {
+        providerId: provider.id,
+        profileKey: profile.key,
+        directoryRequiresEab,
+      });
+    }
+    if (profile?.account.eab === 'not_required' && hasEab) {
+      throw new AppError('ACME_ACCOUNT_INVALID', '当前 ACME Provider Profile 不接受 EAB 凭据', {
+        providerId: provider.id,
+        profileKey: profile.key,
+      });
     }
   }
 }
@@ -162,7 +219,7 @@ export function toAccountView(account: AcmeAccountEntity): AcmeAccountView {
     accountUrl: account.accountUrl,
     status: account.status,
     contact: [...account.contact],
-    hasExternalAccountBinding: Boolean(account.eabKeyIdSecretRef && account.eabHmacSecretRef),
+    hasExternalAccountBinding: Boolean(account.eabSecretRef || (account.eabKeyIdSecretRef && account.eabHmacSecretRef)),
     lastErrorCode: account.lastErrorCode,
     lastErrorMessage: account.lastErrorMessage,
     createdAt: account.createdAt,

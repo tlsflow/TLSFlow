@@ -27,6 +27,7 @@ export interface AcmeDirectoryMetadata {
     termsOfService?: string;
     website?: string;
     caaIdentities?: string[];
+    externalAccountRequired?: boolean;
   };
   fetchedAt: string;
 }
@@ -42,6 +43,11 @@ export interface AcmeProviderConfiguration {
   termsOfServiceUrl?: string;
   isDefault?: boolean;
   isBuiltIn?: boolean;
+  profileKey?: string;
+  profileVersion?: string;
+  verificationLevel?: 'unconfigured' | 'directory_reachable' | 'account_active' | 'issuance_verified' | 'blocked' | 'reverification_required';
+  verification?: Record<string, unknown>;
+  trustBundleSecretRef?: string;
 }
 
 export interface AcmeAccountEntity {
@@ -54,6 +60,7 @@ export interface AcmeAccountEntity {
   contact: string[];
   eabKeyIdSecretRef?: string;
   eabHmacSecretRef?: string;
+  eabSecretRef?: string;
   status: AcmeAccountStatus;
   lastErrorCode?: string;
   lastErrorMessage?: string;

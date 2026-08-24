@@ -12,6 +12,8 @@ export const SECRET_TYPES = [
   'pfx_password',
   'private_key',
   'certificate_private_key',
+  'certificate_trust_bundle',
+  'acme_eab',
 ] as const;
 
 export type SecretType = typeof SECRET_TYPES[number];

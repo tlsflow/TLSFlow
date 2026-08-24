@@ -5509,6 +5509,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/acme/renewal-policies/:id:
+    patch:
+      operationId: "updateAcmeRenewalPolicy"
+      summary: "更新 ACME 续签策略"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/acme/renewal-jobs:
     get:
       operationId: "listAcmeRenewalJobs"
@@ -13615,4 +13635,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-13T00:23:09.683Z"
+x-generatedAt: "2026-08-13T02:55:24.420Z"
