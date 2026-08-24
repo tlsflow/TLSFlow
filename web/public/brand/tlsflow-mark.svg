@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
-  <title id="title">TlsFlow 安全流图形标</title>
+  <title id="title">TLSFlow 安全流图形标</title>
   <desc id="desc">由信任盾牌和两条受控数据流组成的图形标识</desc>
   <defs>
     <clipPath id="tlsflow-shield-clip">

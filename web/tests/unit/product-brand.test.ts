@@ -3,7 +3,7 @@ import { applyProductBranding, productBrand, resolveProductBrand } from '@/brand
 import { i18n } from '@/i18n'
 
 describe('产品品牌', () => {
-  it('公开版将用户可见的 GCAC 品牌替换为 TlsFlow', () => {
+  it('公开版将用户可见的 GCAC 品牌替换为 TLSFlow', () => {
     const branded = applyProductBranding({
       name: 'GCAC',
       examples: ['GCAC built-in service', 'gcac-cert'],
@@ -11,9 +11,9 @@ describe('产品品牌', () => {
     }, resolveProductBrand('public'))
 
     expect(branded).toEqual({
-      name: 'TlsFlow',
-      examples: ['TlsFlow built-in service', 'tlsflow-cert'],
-      sources: { gcac_native: 'TlsFlow native' }
+      name: 'TLSFlow',
+      examples: ['TLSFlow built-in service', 'tlsflow-cert'],
+      sources: { gcac_native: 'TLSFlow native' }
     })
     expect(i18n.global.t('app.brand')).toBe(productBrand.name)
   })

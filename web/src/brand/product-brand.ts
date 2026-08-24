@@ -12,7 +12,7 @@ const markAssetUrl = `${import.meta.env.BASE_URL}brand/tlsflow-mark.svg`
 const PRODUCT_BRANDS: Record<ProductEdition, ProductBrand> = {
   public: {
     edition: 'public',
-    name: 'TlsFlow',
+    name: 'TLSFlow',
     slug: 'tlsflow',
     markAssetUrl,
   },

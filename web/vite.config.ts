@@ -15,7 +15,7 @@ function resolveProductEdition(value: string | undefined): 'public' | 'enterpris
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
   const productEdition = resolveProductEdition(process.env.VITE_PRODUCT_EDITION ?? environment.VITE_PRODUCT_EDITION)
-  const productName = productEdition === 'enterprise' ? 'GCAC' : 'TlsFlow'
+  const productName = productEdition === 'enterprise' ? 'GCAC' : 'TLSFlow'
 
   return {
     plugins: [

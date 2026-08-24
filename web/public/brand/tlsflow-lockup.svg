@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" role="img" aria-labelledby="title desc">
-  <title id="title">TlsFlow 品牌标识</title>
-  <desc id="desc">TlsFlow 的安全流图形标和横向英文名称</desc>
+  <title id="title">TLSFlow 品牌标识</title>
+  <desc id="desc">TLSFlow 的安全流图形标和横向英文名称</desc>
   <defs>
     <clipPath id="tlsflow-shield-clip">
       <path d="M128 13 218 53v66c0 56.4-34.7 102.8-90 124.7C72.7 221.8 38 175.4 38 119V53z"/>
