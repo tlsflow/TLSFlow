@@ -1,6 +1,6 @@
 # 插件 Manifest、Registry 与 Policy 边界规范
 
-本文件只维护 Manifest、Registry 和 Policy 的领域事实。Plugin Runner、Host API、Action IPC 和 DSL 编排权的唯一权威入口是 `specs/004.5-插件进程隔离与宿主能力边界重构治理/`；DSL 语法、模板来源和 `plugin.action` 步骤合同见 `docs/项目规范/20260723-工作流模板管理及编写规范.md`。本文件不得把包级 Runner 写成工作流执行来源。
+> 定位：**面向开发者的操作指引**。技术事实的权威入口是 `specs/004.1-插件包契约、权限与生命周期治理`（Manifest 字段、资源安全、生命周期）、`specs/004.4-插件与工作流版本管理治理`（版本事实源）与 `specs/004.5-插件进程隔离与宿主能力边界重构治理`（Plugin Runner、Host API、Action IPC、DSL 编排权、证书部署执行主链）；DSL 语法、模板来源和 `plugin.action` 步骤合同见 `docs/项目规范/20260723-工作流模板管理及编写规范.md`。本文件只描述开发操作规则，不复制 Spec 的技术事实；两者冲突时以 Spec 为准。本文件不得把包级 Runner 写成工作流执行来源。
 
 ## 当前结论
 
