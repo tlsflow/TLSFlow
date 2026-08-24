@@ -130,6 +130,7 @@ import {
 } from './modules/providers/index.js';
 import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
+import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
 import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
 import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate } from './modules/plugins/runner/host-api.request-gate.js';
@@ -231,6 +232,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginRunnerSupervisor = productionPluginRunner
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
+  const builtinPluginRegistry = productionPluginRunner
+    ? new BuiltinPluginRegistry()
+    : undefined;
   const pluginRunnerHostApiHandler = productionPluginRunner
     ? createPluginRunnerHostApiHandler({
       security,
@@ -244,7 +248,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
     ?? (productionPluginRunner && pluginRunnerSupervisor && pluginRunnerHostApiHandler
-      ? { runner: productionPluginRunner, supervisor: pluginRunnerSupervisor, hostApiHandler: pluginRunnerHostApiHandler }
+      ? {
+        runner: productionPluginRunner,
+        supervisor: pluginRunnerSupervisor,
+        hostApiHandler: pluginRunnerHostApiHandler,
+        builtinRegistry: builtinPluginRegistry,
+      }
       : undefined);
   const providerCatalogService = new ProviderCatalogApplicationService();
   let cloudAccountAssetsService!: CloudAccountAssetsApplicationService;

@@ -7,6 +7,7 @@ import {
   type PluginRunnerLaunchSpec,
 } from '../../plugins/runner/index.js';
 import { resolveProductionPluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
+import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
@@ -18,6 +19,8 @@ export interface PluginRunnerExecutionDependencies {
   /** 生产只能注入 Supervisor；测试可以注入同样形状的 Fixture。 */
   supervisor?: Pick<PluginRunnerSupervisor, 'start'>;
   runner?: ProductionPluginRunnerConfig;
+  /** 生产必须从固定 P2 Registry 解析 Runner 入口；测试 Fixture 可不注入。 */
+  builtinRegistry?: Pick<BuiltinPluginRegistry, 'refresh' | 'get'>;
   hostApiHandler?: PluginRunnerHostApiHandler;
   /** 生产主链必须注入，用于在 Runner 启动前验证完整 Grant 绑定。 */
   executionGrants?: Pick<ExecutionGrantService, 'validate'>;
@@ -84,7 +87,13 @@ export class PluginRunnerExecutorAdapter implements Executor {
       };
     }
 
-    const spec = buildLaunchSpec(runner, binding, this.dependencies.hostApiHandler);
+    let packageEntry: BuiltinPluginRegistryEntry | undefined;
+    try {
+      packageEntry = await resolveBuiltinPackage(this.dependencies.builtinRegistry, binding);
+    } catch (error) {
+      return validationFailure(error);
+    }
+    const spec = buildLaunchSpec(runner, binding, this.dependencies.hostApiHandler, packageEntry);
     if (this.dependencies.executionGrants) {
       try {
         await Promise.all(binding.grantRefs.map((grantId) => this.dependencies.executionGrants!.validate({
@@ -138,7 +147,7 @@ export function createDefaultPluginRunnerExecutionDependencies(
 ): PluginRunnerExecutionDependencies {
   const runner = resolveProductionPluginRunnerConfig(environment);
   return runner
-    ? { runner, supervisor: new PluginRunnerSupervisor({ maxRestarts: 3 }) }
+    ? { runner, supervisor: new PluginRunnerSupervisor({ maxRestarts: 3 }), builtinRegistry: new BuiltinPluginRegistry() }
     : {};
 }
 
@@ -211,15 +220,25 @@ function buildLaunchSpec(
   runner: ProductionPluginRunnerConfig,
   binding: RunnerBinding,
   hostApiHandler: PluginRunnerHostApiHandler | undefined,
+  packageEntry: BuiltinPluginRegistryEntry | undefined,
 ): PluginRunnerLaunchSpec {
+  const runtimeEntrypointPath = packageEntry?.runtimeEntrypointPath;
   return {
     pluginVersionId: binding.pluginVersionId,
     pluginId: binding.pluginId,
     pluginVersion: binding.pluginVersion,
     tenantId: binding.tenantId,
     executablePath: runner.executablePath,
-    args: runner.args,
+    args: runtimeEntrypointPath ? replaceExecutorModule(runner.args, runtimeEntrypointPath) : runner.args,
     workingDirectory: runner.workingDirectory,
+    environment: {
+      GCAC_PLUGIN_VERSION_ID: binding.pluginVersionId,
+      GCAC_PLUGIN_ID: binding.pluginId,
+      GCAC_PLUGIN_VERSION: binding.pluginVersion,
+      GCAC_PLUGIN_PACKAGE_HASH: binding.packageHash,
+      GCAC_PLUGIN_MANIFEST_HASH: binding.manifestHash,
+      GCAC_PLUGIN_RESOURCE_HASH: binding.resourceHash,
+    },
     runnerVersion: runner.runnerVersion,
     sdkVersion: runner.sdkVersion,
     capabilities: [binding.capability],
@@ -229,6 +248,38 @@ function buildLaunchSpec(
     manifestHash: binding.manifestHash,
     ...(hostApiHandler ? { hostApiHandler } : {}),
   };
+}
+
+async function resolveBuiltinPackage(
+  registry: Pick<BuiltinPluginRegistry, 'refresh' | 'get'> | undefined,
+  binding: RunnerBinding,
+): Promise<BuiltinPluginRegistryEntry | undefined> {
+  if (!registry) return undefined;
+  await registry.refresh();
+  const entry = registry.get(binding.pluginId, binding.pluginVersion);
+  if (entry.packageSha256 !== binding.packageHash
+    || entry.manifestSha256 !== binding.manifestHash
+    || entry.resourceHash !== binding.resourceHash) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '执行绑定摘要与固定内置插件包不一致', {
+      pluginId: binding.pluginId,
+      pluginVersion: binding.pluginVersion,
+    });
+  }
+  return entry;
+}
+
+function replaceExecutorModule(args: readonly string[], runtimeEntrypointPath: string): string[] {
+  const result: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === '--executor-module') {
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--executor-module=')) continue;
+    result.push(argument);
+  }
+  return [...result, '--executor-module', runtimeEntrypointPath];
 }
 
 function toStepResult(
