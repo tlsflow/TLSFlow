@@ -1,8 +1,8 @@
--- 每个租户、插件和来源只允许一个当前生效版本；历史快照继续保留供审计和历史执行读取。
+-- 将按来源分别生效的历史数据收敛为每个租户和插件只有一个当前版本。
 with ranked as (
   select id,
          row_number() over (
-           partition by tenant_id, plugin_id, source
+           partition by tenant_id, plugin_id
            order by updated_at desc, created_at desc, id desc
          ) as rank
     from unified_plugin_versions
@@ -15,6 +15,8 @@ update unified_plugin_versions version
  where version.id = ranked.id
    and ranked.rank > 1;
 
+drop index if exists uq_unified_plugin_versions_current;
+
 create unique index if not exists uq_unified_plugin_versions_current
-  on unified_plugin_versions (tenant_id, plugin_id, source)
+  on unified_plugin_versions (tenant_id, plugin_id)
  where status = 'ENABLED';
