@@ -48,6 +48,16 @@ export interface CreateCredentialInput {
   secretValues: Record<string, CredentialSecretValueInput>
 }
 
+export interface UpdateCredentialInput {
+  name?: string
+  scopeType?: CredentialProfileSummary['scopeType']
+  scopeId?: string
+  username?: string
+  delivery?: CredentialProfileDetail['delivery']
+  secretValues?: Record<string, CredentialSecretValueInput>
+  expectedVersion: number
+}
+
 export function listCredentials(filters: { kinds?: CredentialKind[]; scopes?: string[] } = {}): Promise<ApiResult<CredentialProfilePage>> {
   const query = new URLSearchParams()
   if (filters.kinds?.length === 1) query.set('kind', filters.kinds[0]!)
@@ -65,6 +75,10 @@ export function getCredentialUsage(id: string): Promise<ApiResult<CredentialUsag
 
 export function createCredential(input: CreateCredentialInput): Promise<ApiResult<CredentialProfileDetail>> {
   return apiClient.post<CredentialProfileDetail>(toClientPath('/api/v1/credentials'), input, { idempotencyKey: createIdempotencyKey('credential_create') })
+}
+
+export function updateCredential(id: string, input: UpdateCredentialInput): Promise<ApiResult<CredentialProfileDetail>> {
+  return apiClient.request<CredentialProfileDetail>(toClientPath('/api/v1/credentials'), { method: 'PATCH', body: { id, ...input }, idempotencyKey: createIdempotencyKey('credential_update') })
 }
 
 export function rotateCredential(id: string, expectedVersion: number, secretValues: Record<string, CredentialSecretValueInput>): Promise<ApiResult<CredentialProfileDetail>> {
