@@ -72,6 +72,22 @@ func withLinuxPrivilegeStubs(t *testing.T, setup func()) {
 	}
 }
 
+func TestCapabilityRescanDefaultsRemainEnabledForLegacyConfigs(t *testing.T) {
+	config := &AgentConfig{}
+	if seconds := effectiveCapabilityRescanSeconds(config); seconds != 300 {
+		t.Fatalf("旧配置的能力重扫间隔应默认为 300 秒，实际为 %d", seconds)
+	}
+	if !effectiveCapabilityRescanEnabled(config) {
+		t.Fatal("旧配置应默认启用能力重扫")
+	}
+
+	disabled := false
+	config.CapabilityRescanEnabled = &disabled
+	if effectiveCapabilityRescanEnabled(config) {
+		t.Fatal("显式关闭能力重扫时不应自动启用")
+	}
+}
+
 func TestParseNginxConfigTreeCollectsIncludedSites(t *testing.T) {
 	tempDir := t.TempDir()
 	nginxRoot := filepath.Join(tempDir, "nginx")

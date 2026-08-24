@@ -310,11 +310,8 @@ func handleRun(args []string) error {
 	heartbeatSeconds := effectiveHeartbeatSeconds(config)
 	taskPollSeconds := effectiveTaskPollSeconds(config)
 	healthCheckSeconds := effectiveHealthCheckSeconds(config)
-	rescanSeconds := config.CapabilityRescanInterval
-	rescanEnabled := rescanSeconds > 0
-	if config.CapabilityRescanEnabled != nil {
-		rescanEnabled = *config.CapabilityRescanEnabled
-	}
+	rescanSeconds := effectiveCapabilityRescanSeconds(config)
+	rescanEnabled := effectiveCapabilityRescanEnabled(config)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	state, err := registerAgent(ctx, client, config, identity)
@@ -819,6 +816,20 @@ func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
 		return config.OfflineTimeoutSeconds
 	}
 	return defaultOfflineTTL
+}
+
+func effectiveCapabilityRescanSeconds(config *AgentConfig) int {
+	if config.CapabilityRescanInterval > 0 {
+		return config.CapabilityRescanInterval
+	}
+	return 300
+}
+
+func effectiveCapabilityRescanEnabled(config *AgentConfig) bool {
+	if config.CapabilityRescanEnabled != nil {
+		return *config.CapabilityRescanEnabled
+	}
+	return true
 }
 
 func effectiveDirectControlListenHost(config *AgentConfig) string {

@@ -643,7 +643,7 @@ function normalizeKey(value: string, field: string): string {
 
 function normalizeCapabilityKey(value: string, field: string): string {
   const normalized = normalizeRequired(value, field).toLowerCase();
-  if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(normalized)) {
+  if (!/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/.test(normalized)) {
     throw new AppError('VALIDATION_FAILED', '能力键格式不合法', { field, value });
   }
   return normalized;

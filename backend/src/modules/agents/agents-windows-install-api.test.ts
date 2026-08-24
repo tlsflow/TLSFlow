@@ -226,6 +226,8 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /directControlListenHost: "0\.0\.0\.0"/);
     assert.match(bootstrapBody, /directControlListenPort: 18931/);
     assert.match(bootstrapBody, /directControlAdvertiseHost: ""/);
+    assert.match(bootstrapBody, /capabilityRescanIntervalSeconds: 300/);
+    assert.match(bootstrapBody, /capabilityRescanEnabled: true/);
     assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
     assert.doesNotMatch(bootstrapBody, /MANIFEST_URL=/);
     assert.doesNotMatch(bootstrapBody, /process\.stdout\.write\(m\.bundleUrl\)/);

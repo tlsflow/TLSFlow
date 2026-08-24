@@ -1038,6 +1038,8 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  directControlListenHost: "0.0.0.0",',
     '  directControlListenPort: 18931,',
     '  directControlAdvertiseHost: "",',
+    '  capabilityRescanIntervalSeconds: 300,',
+    '  capabilityRescanEnabled: true,',
     '  paths: {',
     '    linux: {',
     '      configPath: `${manifest.configDir}/agent.config.json`,',
