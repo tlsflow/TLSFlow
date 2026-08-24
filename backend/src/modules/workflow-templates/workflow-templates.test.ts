@@ -492,6 +492,24 @@ describe('WorkflowTemplates', () => {
     assert.match(text, /\[REDACTED\]/);
   });
 
+  it('dry-run 不应吞掉缺失的部署输入变量', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({ content: templateFixture() });
+    const input = runtimeInput(version.id);
+    input.resolvedInput = {
+      ...input.resolvedInput,
+      variables: { shouldUpload: true },
+    };
+
+    await assert.rejects(
+      () => service.preview(input),
+      (error: unknown) => error instanceof AppError
+        && error.errorCode === 'VALIDATION_FAILED'
+        && error.message === '变量缺失：variables.deviceHost'
+        && (error.details as { key?: unknown } | undefined)?.key === 'variables.deviceHost',
+    );
+  });
+
   it('上游输出可以提取成运行时变量并供下游节点引用，同时对外脱敏', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content: WorkflowDslV1 = {

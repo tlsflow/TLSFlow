@@ -1789,7 +1789,7 @@ export class DeploymentPlansApplicationService {
     const material = await this.resolveTargetDeploymentInput('preflight', tenantId, {
       applicationAssetId: target.applicationAssetId,
       serviceAssetId: target.serviceAssetId,
-      managedTargetId: target.executionTargetId,
+      managedTargetId: resolveRuntimeManagedTargetId(target),
       strategyPayload: target.strategyPayload,
     }, artifact);
 
@@ -2640,6 +2640,21 @@ function deploymentInputSnapshotIdentity(strategyPayload: Record<string, unknown
       ?? readOptionalString(workflowRequest?.workflowVersionId),
     workflowExecutionBindingId: readOptionalString(executionSource?.workflowExecutionBindingId),
   };
+}
+
+function resolveRuntimeManagedTargetId(target: DeploymentPlanTargetEntity): string | undefined {
+  const strategyPayload = target.strategyPayload ?? {};
+  const deploymentStrategy = readRecord(strategyPayload.deploymentStrategy);
+  const managedStrategy = readRecord(deploymentStrategy?.managedTarget);
+  const workflowRequest = readRecord(strategyPayload.workflowRequest);
+  const directId = readOptionalString(strategyPayload.managedTargetId)
+    ?? readOptionalString(managedStrategy?.managedTargetId)
+    ?? readOptionalString(workflowRequest?.managedTargetId);
+  if (directId) return directId;
+
+  const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
+  const isManagedRuntime = deploymentStrategy?.type === 'MANAGED_TARGET' || runtimeCapability !== undefined;
+  return isManagedRuntime ? target.executionTargetId : undefined;
 }
 
 function throwDeploymentPreflightError(issues: DeploymentPreflightIssue[]): never {

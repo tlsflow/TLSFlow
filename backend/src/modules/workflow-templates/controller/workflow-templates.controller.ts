@@ -29,7 +29,15 @@ export class WorkflowTemplatesController {
 
   register(router: Router): void {
     router.get('/api/v1/workflows', '列出工作流', tag, async (request) => this.listWorkflows(request));
-    router.get('/api/v1/workflow-sources/plugins', '列出插件工作流来源', tag, async (request) => ({ statusCode: 200, body: { items: await this.requirePluginSources().list(tenantId(request)) } }));
+    router.get('/api/v1/workflow-sources/plugins', '列出插件工作流来源', tag, async (request) => ({
+      statusCode: 200,
+      body: {
+        items: await this.requirePluginSources().list(
+          tenantId(request),
+          typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN',
+        ),
+      },
+    }));
     router.get('/api/v1/workflow-execution-bindings/:bindingId', '读取工作流执行绑定', tag, async (request) => {
       const bindingId = request.path.match(/^\/api\/v1\/workflow-execution-bindings\/([^/]+)$/)?.[1];
       if (!bindingId) throw new Error('工作流执行绑定路径无效');

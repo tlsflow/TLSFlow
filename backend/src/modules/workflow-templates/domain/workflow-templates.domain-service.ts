@@ -23,6 +23,9 @@ import type {
   WorkflowRenderedStep,
   WorkflowExecutorDispatcher,
   WorkflowRunResult,
+  WorkflowExecutionBranch,
+  WorkflowOwnerType,
+  WorkflowPluginSource,
   WorkflowRuntimeInput,
   WorkflowSingleStepRunResult,
   WorkflowStage,
@@ -73,21 +76,34 @@ export class WorkflowTemplatesDomainService {
 
   async createTemplate(
     input: CreateWorkflowTemplateInput,
-    origin: NonNullable<WorkflowTemplate['origin']> = 'legacy',
+    origin: WorkflowTemplate['origin'] = 'user',
+    ownership: { ownerType?: WorkflowOwnerType; ownerId?: string; tenantId?: string } = {},
   ): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
     await this.ready;
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const now = new Date().toISOString();
+    const normalizedOrigin = normalizeOrigin(origin);
+    const ownerType = ownership.ownerType ?? (normalizedOrigin === 'plugin_internal' ? 'SYSTEM' : 'TENANT');
+    const ownerId = ownership.ownerId ?? (ownerType === 'SYSTEM' ? 'SYSTEM' : undefined);
     const template: WorkflowTemplate = {
       id: `wftpl_${randomUUID()}`,
       name: content.metadata.name,
-      origin,
-      provenance: input.provenance,
+      origin: normalizedOrigin,
+      ownerType,
+      ...(ownerId ? { ownerId } : {}),
+      ...(ownership.tenantId ? { tenantId: ownership.tenantId } : {}),
       status: 'draft',
       createdAt: now,
       updatedAt: now,
     };
-    const version = this.createVersion(template.id, 1, content, 'draft', input.changeSummary);
+    const version = this.createVersion(
+      template.id,
+      1,
+      content,
+      'draft',
+      input.changeSummary,
+      input.pluginSource ?? input.provenance,
+    );
     template.currentVersionId = version.id;
     this.templates.set(template.id, template);
     this.versions.set(template.id, [version]);
@@ -140,7 +156,7 @@ export class WorkflowTemplatesDomainService {
     const list = this.versions.get(template.id) ?? [];
     const version = this.findEditableDraftVersion(template, list);
     if (!version) throw new AppError('VALIDATION_FAILED', 'workflow template has no draft version');
-    const hash = digest(content);
+    const hash = computeWorkflowContentHash(content);
     if (list.some((item) => item.id !== version.id && item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
     assertPluginVersionIncrement(version.content, content, hash !== version.contentHash);
     version.content = clone(content);
@@ -270,7 +286,9 @@ export class WorkflowTemplatesDomainService {
     const version = await this.getVersion(input.templateVersionId);
     const context = buildRuntimeContextFromResolvedInput(input);
     const runId = `wfrun_${randomUUID()}`;
-    const orderedSteps = orderStepsByStage(version.content.steps);
+    const executionBranch = input.executionBranch ?? 'deploy';
+    const branchSteps = resolveExecutionBranch(version.content, executionBranch, input.executionBranch === undefined);
+    const orderedSteps = orderStepsByStage(branchSteps);
     const renderedSteps: WorkflowRenderedStep[] = [];
     const stepResults: WorkflowStepRunResult[] = [];
     const rollbackResults: WorkflowStepRunResult[] = [];
@@ -292,12 +310,13 @@ export class WorkflowTemplatesDomainService {
       const startedAt = new Date().toISOString();
       progressSteps[stepIndex] = { ...progressSteps[stepIndex]!, status: 'running', startedAt, attempts: 1 };
       await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, 'running', step.name);
-      const result = await this.runStep(step, context, input, false, runId, dispatcher);
+      const result = await this.runStep(step, context, input, executionBranch === 'rollback', runId, dispatcher);
       const finishedAt = new Date().toISOString();
       result.result.startedAt = startedAt;
       result.result.finishedAt = finishedAt;
       renderedSteps.push(result.rendered);
-      stepResults.push(result.result);
+      if (executionBranch === 'rollback') rollbackResults.push(result.result);
+      else stepResults.push(result.result);
       logs.push(...result.result.logs);
       progressSteps[stepIndex] = {
         name: result.result.name,
@@ -319,7 +338,7 @@ export class WorkflowTemplatesDomainService {
       }
     }
 
-    if (failed && version.content.rollback?.length) {
+    if (input.executionBranch === undefined && failed && version.content.rollback?.length) {
       logs.push('rollback:started');
       for (const step of version.content.rollback) {
         const result = await this.runStep(step, context, input, true, runId, dispatcher);
@@ -335,6 +354,7 @@ export class WorkflowTemplatesDomainService {
     return {
       id: runId,
       mode: input.mode,
+      executionBranch,
       plannedOnly: input.mode === 'render_only',
       status,
       renderedSteps,
@@ -423,7 +443,11 @@ export class WorkflowTemplatesDomainService {
     assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
-    return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: false, enforcePluginVersionIncrement: false });
+    return this.appendDraftVersion(template, content, input.changeSummary, {
+      rejectDuplicateContent: false,
+      enforcePluginVersionIncrement: false,
+      pluginSource: input.pluginSource,
+    });
   }
 
   private async runForeachStep(
@@ -580,14 +604,19 @@ export class WorkflowTemplatesDomainService {
       .sort((left, right) => right.version - left.version)[0];
   }
 
-  private async appendDraftVersion(template: WorkflowTemplate, content: WorkflowDslV1, changeSummary: string | undefined, options: { rejectDuplicateContent: boolean; enforcePluginVersionIncrement: boolean }): Promise<WorkflowTemplateVersion> {
+  private async appendDraftVersion(
+    template: WorkflowTemplate,
+    content: WorkflowDslV1,
+    changeSummary: string | undefined,
+    options: { rejectDuplicateContent: boolean; enforcePluginVersionIncrement: boolean; pluginSource?: WorkflowPluginSource },
+  ): Promise<WorkflowTemplateVersion> {
     const list = this.versions.get(template.id) ?? [];
-    const hash = digest(content);
+    const hash = computeWorkflowContentHash(content);
     if (options.rejectDuplicateContent && list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
     const previous = [...list].sort((left, right) => right.version - left.version)[0];
     if (previous && options.enforcePluginVersionIncrement) assertPluginVersionIncrement(previous.content, content, hash !== previous.contentHash);
     const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
-    const version = this.createVersion(template.id, versionNumber, content, 'draft', changeSummary);
+    const version = this.createVersion(template.id, versionNumber, content, 'draft', changeSummary, options.pluginSource);
     this.versions.set(template.id, [...list, version]);
     template.currentVersionId = version.id;
     template.status = 'draft';
@@ -598,16 +627,24 @@ export class WorkflowTemplatesDomainService {
     return clone(version);
   }
 
-  private createVersion(templateId: string, versionNumber: number, content: WorkflowDslV1, status: WorkflowTemplateVersion['status'], changeSummary?: string): WorkflowTemplateVersion {
+  private createVersion(
+    templateId: string,
+    versionNumber: number,
+    content: WorkflowDslV1,
+    status: WorkflowTemplateVersion['status'],
+    changeSummary?: string,
+    pluginSource?: WorkflowPluginSource,
+  ): WorkflowTemplateVersion {
     return {
       id: `wftplv_${randomUUID()}`,
       templateId,
       version: versionNumber,
       dslVersion: 'v1',
       content: clone(content),
-      contentHash: digest(content),
+      contentHash: computeWorkflowContentHash(content),
       status,
       changeSummary,
+      ...(pluginSource ? { pluginSource: clone(pluginSource) } : {}),
       createdAt: new Date().toISOString(),
     };
   }
@@ -618,7 +655,8 @@ export class WorkflowTemplatesDomainService {
     this.templates.clear();
     this.versions.clear();
     for (const template of templates) {
-      this.templates.set(template.id, template);
+      const normalized = normalizeTemplate(template);
+      this.templates.set(normalized.id, normalized);
     }
     const byTemplate = new Map<string, WorkflowTemplateVersion[]>();
     for (const version of versions) {
@@ -628,7 +666,15 @@ export class WorkflowTemplatesDomainService {
     }
     for (const [templateId, list] of byTemplate.entries()) {
       list.sort((a, b) => a.version - b.version);
-      this.versions.set(templateId, list);
+      const template = this.templates.get(templateId);
+      if (template?.provenance && !list.some((version) => version.pluginSource)) {
+        const current = list.find((version) => version.id === template.currentVersionId) ?? list[list.length - 1];
+        if (current) current.pluginSource = normalizePluginSource(template.provenance);
+        delete template.provenance;
+        await this.templatesRepository.upsert(template);
+        if (current) await this.versionsRepository.upsert(current);
+      }
+      this.versions.set(templateId, list.map((version) => normalizeVersion(version)));
     }
   }
 }
@@ -971,7 +1017,7 @@ function renderBoolean(value: boolean | string | undefined, variables: Record<st
   const match = value.match(/^\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}$/);
   if (!match) throw new AppError('VALIDATION_FAILED', '布尔变量表达式无效', { value });
   const resolved = readPath(variables, match[1]!);
-  if (resolved === undefined && keepMissing) return value;
+  if (resolved === undefined && keepMissing && isDeferredPreviewReference(match[1]!)) return value;
   if (typeof resolved !== 'boolean') throw new AppError('VALIDATION_FAILED', 'TLS verify 变量必须是布尔值', { key: match[1] });
   return resolved;
 }
@@ -1150,7 +1196,7 @@ function renderTransformInput(value: unknown, variables: Record<string, unknown>
     const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
     if (match) {
       const resolved = readPath(variables, match[1]!);
-      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key: match[1] });
+      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', `变量缺失：${match[1]}`, { key: match[1] });
       return resolved;
     }
     return renderString(value, variables);
@@ -1329,7 +1375,7 @@ function resolveCredentialBinding(value: unknown, values: Record<string, unknown
   const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
   if (!match) throw new AppError('VALIDATION_FAILED', '凭据变量引用格式无效', { value });
   const resolved = readPath(values, match[1]!);
-  if (resolved === undefined && keepMissing) return null;
+  if (resolved === undefined && keepMissing && isDeferredPreviewReference(match[1]!)) return null;
   if (!isCredentialBinding(resolved)) throw new AppError('VALIDATION_FAILED', '凭据变量未绑定有效凭据', { variable: match[1] });
   return resolved;
 }
@@ -1375,8 +1421,8 @@ function renderUnknown(value: unknown, variables: Record<string, unknown>, keepM
     const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
     if (match) {
       const resolved = readPath(variables, match[1]!);
-      if (resolved === undefined && keepMissing) return value;
-      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key: match[1] });
+      if (resolved === undefined && keepMissing && isDeferredPreviewReference(match[1]!)) return value;
+      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', `变量缺失：${match[1]}`, { key: match[1] });
       return resolved;
     }
     return renderString(value, variables, keepMissing);
@@ -1389,11 +1435,16 @@ function renderUnknown(value: unknown, variables: Record<string, unknown>, keepM
 function renderString(template: string, variables: Record<string, unknown>, keepMissing = false): string {
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g, (_match, key: string) => {
     const value = readPath(variables, key);
-    if (value === undefined && keepMissing) return `{{${key}}}`;
-    if (value === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key });
+    if (value === undefined && keepMissing && isDeferredPreviewReference(key)) return `{{${key}}}`;
+    if (value === undefined) throw new AppError('VALIDATION_FAILED', `变量缺失：${key}`, { key });
     if (isRecord(value) || Array.isArray(value)) return JSON.stringify(value);
     return String(value);
   });
+}
+
+function isDeferredPreviewReference(path: string): boolean {
+  // dry-run 不执行真实节点，只能延迟解析前序节点的运行时输出；部署输入本身必须在预检阶段完整可用。
+  return path === 'steps' || path.startsWith('steps.');
 }
 
 function maskUnknown(value: unknown, secretPaths: Set<string>, values: Record<string, unknown>): unknown {
@@ -1491,7 +1542,7 @@ function renderTransferContent(template: string, encoding: 'utf8' | 'base64' | u
   return encoding === 'base64' ? Buffer.from(text, 'base64') : text;
 }
 
-function digest(content: WorkflowDslV1): string {
+export function computeWorkflowContentHash(content: WorkflowDslV1): string {
   return createHash('sha256').update(stableStringify(content)).digest('hex');
 }
 
@@ -1584,6 +1635,56 @@ function compareSemanticVersions(left: string, right: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveExecutionBranch(
+  content: WorkflowDslV1,
+  branch: WorkflowExecutionBranch,
+  allowLegacyFallback: boolean,
+): WorkflowStep[] {
+  if (branch === 'deploy') return content.steps;
+  if (content.rollback?.length) return content.rollback;
+  if (allowLegacyFallback) return [];
+  throw new AppError('VALIDATION_FAILED', '工作流没有 rollback 分支，无法执行回滚', {
+    executionBranch: branch,
+  });
+}
+
+function normalizeOrigin(origin: unknown): WorkflowTemplate['origin'] {
+  return origin === 'plugin_internal' ? 'plugin_internal' : 'user';
+}
+
+function normalizeTemplate(template: WorkflowTemplate): WorkflowTemplate {
+  const origin = normalizeOrigin(template.origin);
+  const ownerType = template.ownerType ?? (origin === 'plugin_internal' ? 'SYSTEM' : 'TENANT');
+  const ownerId = template.ownerId ?? (ownerType === 'SYSTEM' ? 'SYSTEM' : undefined);
+  return {
+    ...template,
+    origin,
+    ownerType,
+    ...(ownerId ? { ownerId } : {}),
+    ...(template.tenantId ? { tenantId: template.tenantId } : {}),
+  };
+}
+
+function normalizePluginSource(source: WorkflowPluginSource): WorkflowPluginSource {
+  return {
+    sourceType: 'PLUGIN_CAPABILITY',
+    pluginId: source.pluginId,
+    pluginVersionId: source.pluginVersionId,
+    capabilityKey: source.capabilityKey,
+    sourceWorkflowVersionId: source.sourceWorkflowVersionId,
+    sourceContentHash: source.sourceContentHash,
+    createdAt: source.createdAt,
+    ...(source.sourceWorkflowTemplateId ? { sourceWorkflowTemplateId: source.sourceWorkflowTemplateId } : {}),
+  };
+}
+
+function normalizeVersion(version: WorkflowTemplateVersion): WorkflowTemplateVersion {
+  return {
+    ...version,
+    ...(version.pluginSource ? { pluginSource: normalizePluginSource(version.pluginSource) } : {}),
+  };
 }
 
 function assertUserEditable(template: WorkflowTemplate): void {

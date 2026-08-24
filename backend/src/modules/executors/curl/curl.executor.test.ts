@@ -72,7 +72,7 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_proto', template: { url: 'file:///etc/passwd' } }), /只允许/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_secret', template: { url: 'https://example.com', headers: { Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz' } } }), /敏感|Authorization/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_tls', template: { url: 'https://example.com', tls: { verify: false } } }), /TLS/);
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_var', template: { url: 'https://example.com/{{missing}}' }, dryRun: true }), /变量缺失/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_var', template: { url: 'https://example.com/{{missing}}' }, dryRun: true }), /变量缺失：missing/);
     await executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com', method: 'POST', body: { ok: true } }, mockResponse: { statusCode: 200 } });
     await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com' } }), /幂等键/);
     assert.deepEqual(executor.getRequiredCapabilities(), ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.form.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session']);

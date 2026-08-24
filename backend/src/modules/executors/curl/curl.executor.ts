@@ -733,7 +733,7 @@ function renderUnknown(value: unknown, variables: Record<string, Primitive>): un
 function renderTemplate(value: string, variables: Record<string, Primitive>, encode = false): string {
   return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => {
     const found = variables[key];
-    if (found === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key });
+    if (found === undefined) throw new AppError('VALIDATION_FAILED', `变量缺失：${key}`, { key });
     return encode ? encodeURIComponent(String(found)) : String(found);
   });
 }

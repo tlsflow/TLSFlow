@@ -387,7 +387,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new WorkflowTemplatesController(
     workflowTemplatesService,
     security,
-    new PluginWorkflowSourceService(unifiedPluginsService, new PluginWorkflowBindingsRepository(appDb), workflowTemplatesService),
+    new PluginWorkflowSourceService(
+      unifiedPluginsService,
+      new PluginWorkflowBindingsRepository(appDb),
+      workflowTemplatesService,
+      process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default',
+    ),
     new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
   ).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);

@@ -22,6 +22,7 @@ test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建
 
   assert.equal(first.length, 6);
   assert.equal(second.length, 6);
+  assert.equal(first[0]?.workflowContentSha256, (await workflows.getVersion(first[0]!.workflowVersionId)).contentHash);
   assert.equal((await workflows.listTemplates()).length, 4);
   assert.equal((await publisher.require(plugin!.id, 'device.connection.test')).workflowVersionId, (await publisher.require(plugin!.id, 'device.identity.detect')).workflowVersionId);
 });
