@@ -12,7 +12,12 @@
     "test:component": "vitest run tests/component",
     "test:e2e": "vitest run tests/e2e",
     "i18n:scan": "node scripts/scan-i18n-literals.mjs",
-    "openapi:generate": "node scripts/generate-openapi-types.mjs"
+    "openapi:generate": "node scripts/generate-openapi-types.mjs",
+    "docs:check": "npm --prefix ../docs/Documentation run docs:check",
+    "docs:build": "npm --prefix ../docs/Documentation run docs:build",
+    "docs:link": "node scripts/link-docs-debug.mjs",
+    "docs:refresh": "npm run docs:check && npm run docs:build && npm run docs:link",
+    "build:with-docs": "npm run docs:refresh && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "latest",

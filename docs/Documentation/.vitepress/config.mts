@@ -209,6 +209,7 @@ export default defineConfig({
   title: "GCAC 官方文档",
   description: "GCAC 证书生命周期管理平台官方文档",
   lang: "zh-CN",
+  base: "/docs/",
   srcDir: ".",
   cleanUrls: true,
   lastUpdated: true,

@@ -1,10 +1,50 @@
 import { fileURLToPath, URL } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve, sep } from 'node:path'
 import vue from '@vitejs/plugin-vue'
-import { loadEnv } from 'vite'
+import { loadEnv, type ViteDevServer } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 const gcacVersion = readFileSync(fileURLToPath(new URL('../version', import.meta.url)), 'utf8').trim()
+const docsDistDirectory = resolve(fileURLToPath(new URL('../docs/Documentation/.vitepress/dist/', import.meta.url)))
+
+function docsDevIndexPlugin() {
+  return {
+    name: 'docs-dev-index',
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use((request, _response, next) => {
+        const requestUrl = new URL(request.url ?? '/', 'http://localhost')
+        const pathname = requestUrl.pathname
+        if (!pathname.startsWith('/docs/')) {
+          next()
+          return
+        }
+
+        const encodedRelativePath = pathname.slice('/docs/'.length)
+        const relativePath = decodeURIComponent(encodedRelativePath)
+        const mappedRelativePath = relativePath === ''
+          ? 'index.html'
+          : relativePath.endsWith('/')
+            ? `${relativePath}index.html`
+            : `${relativePath}.html`
+        const documentPath = resolve(docsDistDirectory, mappedRelativePath)
+        const isInsideDocs = documentPath.startsWith(`${docsDistDirectory}${sep}`)
+        if (!isInsideDocs || !existsSync(documentPath)) {
+          next()
+          return
+        }
+
+        const mappedUrlPath = encodedRelativePath === ''
+          ? 'index.html'
+          : encodedRelativePath.endsWith('/')
+            ? `${encodedRelativePath}index.html`
+            : `${encodedRelativePath}.html`
+        request.url = `/docs/${mappedUrlPath}${requestUrl.search}`
+        next()
+      })
+    }
+  }
+}
 
 function resolveProductEdition(value: string | undefined): 'public' | 'enterprise' {
   if (!value) return 'public'
@@ -20,6 +60,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
+      docsDevIndexPlugin(),
       {
         name: 'product-brand-html',
         transformIndexHtml: (html) => html.replaceAll('__PRODUCT_BRAND__', productName),
