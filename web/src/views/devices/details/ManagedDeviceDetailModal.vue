@@ -9,6 +9,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
 import { DeviceDetailAdapterRegistry } from './device-detail.adapter'
 import { deviceDetailTabRegistry } from './device-detail.providers'
+import { DETAIL_RESOURCE_INCLUDES, frameworkIdForDetailTab, includeForDetailTab, mergeDetailResources, resolveAvailableDetailTab } from './device-detail-resources'
 import type { DeviceBoundCertificateView, DeviceCertificateSelection } from './device-detail.model'
 
 const { t, locale } = useI18n()
@@ -20,6 +21,9 @@ const discoveryFeedback = ref<{ tone: 'success' | 'warning' | 'danger'; message:
 const detail = ref<ApiRecord | null>(null)
 const openedDeviceId = ref('')
 const activeTab = ref('overview')
+const loadedIncludes = ref(new Set<string>())
+const sitesByFrameworkId = ref(new Map<string, ApiRecord[]>())
+const loadingTab = ref(false)
 const certificateModalOpen = ref(false)
 const certificateAssetDetailOpen = ref(false)
 const selectedCertificate = ref<DeviceCertificateSelection | null>(null)
@@ -31,6 +35,12 @@ const adapterRegistry = new DeviceDetailAdapterRegistry()
 const context = computed(() => detail.value ? adapterRegistry.buildContext(detail.value) : null)
 const tabs = computed(() => context.value ? deviceDetailTabRegistry.resolve(context.value) : [])
 const activeDescriptor = computed(() => tabs.value.find(tab => tab.key === activeTab.value) ?? tabs.value[0])
+const activeTabLoadsDeferredResources = computed(() =>
+  activeTab.value === 'certificates'
+  || Boolean(frameworkIdForDetailTab(activeTab.value))
+  || activeTab.value === 'sites'
+  || activeTab.value.startsWith('sites:'),
+)
 const pluginUi = computed(() => asRecord(detail.value?.pluginUi))
 const pluginPresentation = computed(() => {
   const value = pluginUi.value.presentation
@@ -64,7 +74,8 @@ function pluginLabel(key: string): string {
 }
 
 watch(tabs, (next) => {
-  if (!next.some(tab => tab.key === activeTab.value)) activeTab.value = 'overview'
+  const resolved = resolveAvailableDetailTab(activeTab.value, next)
+  if (resolved !== activeTab.value) activeTab.value = resolved
 })
 
 async function open(deviceId: string) {
@@ -75,14 +86,55 @@ async function open(deviceId: string) {
   error.value = ''
   discoveryFeedback.value = null
   detail.value = null
+  loadedIncludes.value = new Set()
+  sitesByFrameworkId.value = new Map()
   try {
-    const response = await getManagedDevice(deviceId, locale.value)
+    // 框架是设备识别的轻量概览，首包返回；日志、证书和站点仍由相应标签按需读取。
+    const response = await getManagedDevice(deviceId, locale.value, ['frameworks'])
     detail.value = response.data ?? null
+    if (detail.value) loadedIncludes.value = new Set(['frameworks'])
     if (!detail.value) error.value = t('devices.errors.detailLoadFailed')
   } catch {
     error.value = t('devices.errors.detailLoadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+async function selectTab(tab: string) {
+  activeTab.value = tab
+  await loadTabResources(tab)
+}
+
+async function loadTabResources(tab: string) {
+  const frameworkId = frameworkIdForDetailTab(tab)
+  if (frameworkId) {
+    const cachedSites = sitesByFrameworkId.value.get(frameworkId)
+    if (cachedSites && detail.value) {
+      detail.value = { ...detail.value, sites: cachedSites }
+      return
+    }
+  }
+  const includes = includeForDetailTab(tab).filter(include => !loadedIncludes.value.has(include))
+  if (!openedDeviceId.value || !detail.value || !includes.length || loadingTab.value) return
+  loadingTab.value = true
+  try {
+    const response = await getManagedDevice(openedDeviceId.value, locale.value, includes, frameworkId)
+    if (!response.data) return
+    const merged = mergeDetailResources(detail.value, response.data, includes)
+    if (frameworkId) {
+      const sites = Array.isArray(response.data.sites) ? response.data.sites : []
+      sitesByFrameworkId.value = new Map(sitesByFrameworkId.value).set(frameworkId, sites)
+      if (activeTab.value === tab) detail.value = merged
+      return
+    }
+    detail.value = merged
+    loadedIncludes.value = new Set([...loadedIncludes.value, ...includes])
+  } catch {
+    error.value = t('devices.errors.detailLoadFailed')
+  } finally {
+    loadingTab.value = false
+    if (activeTab.value !== tab) void loadTabResources(activeTab.value)
   }
 }
 
@@ -93,7 +145,11 @@ async function executePluginAction(capabilityKey: string) {
   try {
     await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
     const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
-    if (refreshed.data) detail.value = refreshed.data
+    if (refreshed.data) {
+      detail.value = refreshed.data
+      loadedIncludes.value = new Set(DETAIL_RESOURCE_INCLUDES)
+      sitesByFrameworkId.value = new Map()
+    }
     discoveryFeedback.value = {
       tone: 'success',
       message: t(capabilityKey === 'device.discover'
@@ -266,8 +322,8 @@ defineExpose({ open })
             :key="tab.key"
             class="agent-detail-modal__tab"
             type="button"
-            :data-active="activeTab === tab.key"
-            @click="activeTab = tab.key"
+          :data-active="activeTab === tab.key"
+            @click="selectTab(tab.key)"
           >
             {{ tab.label || t(tab.labelKey) }}
           </button>
@@ -275,7 +331,7 @@ defineExpose({ open })
         <component
           v-if="activeDescriptor"
           :is="activeDescriptor.component"
-          v-bind="activeDescriptor.buildProps?.(context)"
+          v-bind="{ ...activeDescriptor.buildProps?.(context), loading: loadingTab && activeTabLoadsDeferredResources }"
           @certificate-click="openCertificateDetail"
         />
       </template>

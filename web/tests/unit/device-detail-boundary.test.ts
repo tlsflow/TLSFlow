@@ -100,7 +100,7 @@ describe('统一设备详情动作边界', () => {
     expect(registry.resolve(context).map(tab => tab.key)).toEqual(['sites'])
   })
 
-  it('默认标签始终显示且站点标签由实际记录决定', () => {
+  it('默认标签始终显示，框架实例直接成为站点详情标签', () => {
     const empty = new DeviceDetailAdapterRegistry().buildContext({ informationSections: [], sites: [], certificates: [], logs: [], extension: { type: 'GENERIC' } })
     expect(deviceDetailTabRegistry.resolve(empty).map(tab => tab.key)).toEqual(['overview', 'logs'])
 
@@ -116,8 +116,31 @@ describe('统一设备详情动作边界', () => {
       logs: [],
       extension: { type: 'CITRIX_ADC' },
     })
-    adc.frameworks = []
-    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'sites:network.load-balancer', 'certificates', 'logs'])
+    const tabs = deviceDetailTabRegistry.resolve(adc)
+    expect(tabs.map(tab => tab.key)).toEqual(['overview', 'framework:framework:nitro', 'certificates', 'logs'])
+    expect(tabs.find(tab => tab.key === 'framework:framework:nitro')).toMatchObject({ label: 'NITRO' })
+  })
+
+  it('框架或站点存在时保留证书标签，供按需汇总绑定证书', () => {
+    const frameworkOnly = new DeviceDetailAdapterRegistry().buildContext({
+      informationSections: [],
+      frameworks: [{ id: 'framework_iis', displayName: 'IIS', frameworkType: 'web.iis' }],
+      sites: [],
+      certificates: [],
+      logs: [],
+      resourceCounts: { frameworks: 1, sites: 0, certificates: 0, logs: 0 },
+    })
+    const siteOnly = new DeviceDetailAdapterRegistry().buildContext({
+      informationSections: [],
+      frameworks: [],
+      sites: [],
+      certificates: [],
+      logs: [],
+      resourceCounts: { frameworks: 0, sites: 1, certificates: 0, logs: 0 },
+    })
+
+    expect(deviceDetailTabRegistry.resolve(frameworkOnly).map(tab => tab.key)).toContain('certificates')
+    expect(deviceDetailTabRegistry.resolve(siteOnly).map(tab => tab.key)).toContain('certificates')
   })
 
   it('标准站点分类和未知插件分类均由通用标签完整保留', () => {
@@ -151,7 +174,7 @@ describe('统一设备详情动作边界', () => {
 
     expect(context.sites.map(site => site.kind)).toEqual(['web.site', 'kubernetes.ingress'])
     const tabs = deviceDetailTabRegistry.resolve(context)
-    expect(tabs.map(tab => tab.key)).toEqual(['overview', 'sites:web.nginx', 'sites:kubernetes.cluster', 'logs'])
+    expect(tabs.map(tab => tab.key)).toEqual(['overview', 'sites:web.nginx', 'sites:kubernetes.cluster', 'certificates', 'logs'])
     expect(tabs.find(tab => tab.key === 'sites:web.nginx')?.label).toBe('NGINX')
     expect(tabs.find(tab => tab.key === 'sites:web.nginx')?.buildProps?.(context)).toEqual({ sites: [context.sites[0]] })
   })
@@ -218,10 +241,20 @@ describe('统一设备详情动作边界', () => {
     expect(modalSource).toContain("executePluginAction('device.discover')")
     expect(modalSource).toContain("action.capabilityKey !== 'device.discover'")
     expect(modalSource).toContain('getManagedDevice(openedDeviceId.value, locale.value)')
+    expect(modalSource).toContain("activeTab.value === 'certificates'")
+    expect(modalSource).toContain('loading: loadingTab && activeTabLoadsDeferredResources')
     expect(modalSource).not.toContain('@click="openCertificateAssetDetail"')
     expect(modalSource).not.toContain('selectedCertificate.value !== selection')
     expect(modalSource).not.toContain('device-detail__hero')
     expect(modalSource).not.toContain('GcDevicePresentation')
     expect(sitesSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(sitesSource).toContain('v-if="loading"')
+    expect(sitesSource).toContain('agent-detail-modal__site-spinner')
+
+    const certificatesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/tabs/DeviceCertificatesTab.vue'), 'utf8')
+    expect(certificatesSource).toContain('loading?: boolean')
+    expect(certificatesSource).toContain('v-if="loading"')
+    expect(certificatesSource).toContain('v-else-if="certificates.length"')
+    expect(certificatesSource).toContain('agent-detail-modal__certificate-spinner')
   })
 })

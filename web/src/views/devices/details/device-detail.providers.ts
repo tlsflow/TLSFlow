@@ -1,10 +1,9 @@
 import DeviceCertificatesTab from './tabs/DeviceCertificatesTab.vue'
-import DeviceFrameworksTab from './tabs/DeviceFrameworksTab.vue'
 import DeviceLogsTab from './tabs/DeviceLogsTab.vue'
 import DeviceOverviewTab from './tabs/DeviceOverviewTab.vue'
 import DeviceSitesTab from './tabs/DeviceSitesTab.vue'
 import { DeviceDetailTabRegistry } from './device-detail.registry'
-import type { DeviceDetailContext, DeviceDetailTabDescriptor, DeviceSiteView } from './device-detail.model'
+import type { DeviceDetailContext, DeviceDetailTabDescriptor, DeviceFrameworkView, DeviceSiteView } from './device-detail.model'
 
 const overview: DeviceDetailTabDescriptor = {
   key: 'overview', labelKey: 'devices.unifiedDetail.tabs.overview', order: 100, component: DeviceOverviewTab,
@@ -18,27 +17,52 @@ const logs: DeviceDetailTabDescriptor = {
   buildProps: context => ({ logs: context.logs }),
 }
 
-const frameworks: DeviceDetailTabDescriptor = {
-  key: 'frameworks', labelKey: 'devices.unifiedDetail.tabs.frameworks', order: 200, component: DeviceFrameworksTab,
-  isVisible: context => context.frameworks.length > 0,
-  buildProps: context => ({ frameworks: context.frameworks }),
-}
-
 const certificates: DeviceDetailTabDescriptor = {
   key: 'certificates', labelKey: 'devices.unifiedDetail.tabs.certificates', order: 800, component: DeviceCertificatesTab,
-  isVisible: context => context.certificates.length > 0,
+  isVisible: hasCertificateSource,
   buildProps: context => ({ certificates: context.certificates }),
+}
+
+const sites: DeviceDetailTabDescriptor = {
+  key: 'sites', labelKey: 'devices.unifiedDetail.tabs.sites', order: 300, component: DeviceSitesTab,
+  isVisible: context => context.sites.length > 0 || context.resourceCounts.sites > 0,
+  buildProps: context => ({ sites: context.sites }),
 }
 
 export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
   key: 'default', supports: () => true, getTabs: () => [overview, logs],
 }, {
-  key: 'resources', supports: context => context.frameworks.length > 0 || context.certificates.length > 0,
-  getTabs: () => [frameworks, certificates],
+  key: 'frameworks', supports: context => context.frameworks.length > 0,
+  getTabs: context => buildFrameworkTabs(context.frameworks),
 }, {
-  key: 'sites', supports: context => context.sites.length > 0,
-  getTabs: context => buildSiteTabs(context),
+  key: 'certificates', supports: hasCertificateSource,
+  getTabs: () => [certificates],
+}, {
+  // 没有框架实例的历史或异常数据，保留通用站点入口作为兼容回退。
+  key: 'sites', supports: context => context.frameworks.length === 0 && (context.sites.length > 0 || context.resourceCounts.sites > 0),
+  getTabs: context => context.sites.length > 0 ? buildSiteTabs(context) : [sites],
 }])
+
+function hasCertificateSource(context: DeviceDetailContext): boolean {
+  return context.certificates.length > 0
+    || context.frameworks.length > 0
+    || context.sites.length > 0
+    || context.resourceCounts.certificates > 0
+    || context.resourceCounts.frameworks > 0
+    || context.resourceCounts.sites > 0
+}
+
+function buildFrameworkTabs(frameworks: readonly DeviceFrameworkView[]): DeviceDetailTabDescriptor[] {
+  return frameworks.map((framework, index) => ({
+    key: `framework:${framework.id}`,
+    labelKey: 'devices.unifiedDetail.tabs.frameworks',
+    label: framework.name,
+    order: 200 + index,
+    component: DeviceSitesTab,
+    isVisible: () => true,
+    buildProps: context => ({ sites: context.sites.filter(site => site.frameworkInstanceId === framework.id) }),
+  }))
+}
 
 function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {
   const groups = new Map<string, { label?: string; labelKey?: string; sites: DeviceSiteView[] }>()

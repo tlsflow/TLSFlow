@@ -47,7 +47,18 @@ export function buildGenericContext(detail: Readonly<Record<string, unknown>>): 
     sites: readList(detail.sites).map(readSite).filter(isDefined),
     certificates: readList(detail.certificates).map(readCertificate).filter(isDefined),
     logs: readList(detail.logs).map(readLog).filter(isDefined),
+    resourceCounts: readResourceCounts(detail.resourceCounts),
     permissions: new Set(readList(detail.allowedActions).map(String)),
+  }
+}
+
+function readResourceCounts(value: unknown): DeviceDetailContext['resourceCounts'] {
+  const record = readRecord(value)
+  return {
+    frameworks: readNumber(record.frameworks) ?? 0,
+    sites: readNumber(record.sites) ?? 0,
+    certificates: readNumber(record.certificates) ?? 0,
+    logs: readNumber(record.logs) ?? 0,
   }
 }
 
@@ -110,6 +121,7 @@ function readSite(value: unknown): DeviceSiteView | undefined {
   return {
     id,
     siteAssetId,
+    frameworkInstanceId: readString(record.frameworkInstanceId) || undefined,
     managedTargetId: readString(record.managedTargetId) || undefined,
     kind: kind as DeviceSiteKind,
     frameworkType,

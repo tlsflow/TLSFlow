@@ -8,8 +8,12 @@ export function listManagedDevices(query: BusinessListQuery = {}): Promise<ApiPa
   return apiClient.get<ApiPage>(buildListPath(DEVICES_PATH, query))
 }
 
-export function getManagedDevice(deviceId: string, locale?: string): Promise<ApiRecordResult> {
-  const query = locale ? `?locale=${encodeURIComponent(locale)}` : ''
+export function getManagedDevice(deviceId: string, locale?: string, includes?: readonly string[], frameworkId?: string): Promise<ApiRecordResult> {
+  const params = new URLSearchParams()
+  if (locale) params.set('locale', locale)
+  if (includes !== undefined) params.set('include', includes.join(','))
+  if (frameworkId) params.set('frameworkId', frameworkId)
+  const query = params.size ? `?${params}` : ''
   return apiClient.get<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}${query}`)
 }
 

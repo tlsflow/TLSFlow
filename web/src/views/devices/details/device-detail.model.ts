@@ -54,6 +54,7 @@ export interface DeviceSiteBindingView {
 export interface DeviceSiteView {
   id: string
   siteAssetId: string
+  frameworkInstanceId?: string
   managedTargetId?: string
   kind: DeviceSiteKind
   frameworkType: string
@@ -104,6 +105,7 @@ export interface DeviceDetailContext {
   sites: readonly DeviceSiteView[]
   certificates: readonly DeviceCertificateView[]
   logs: readonly DeviceLogView[]
+  resourceCounts: Readonly<Record<'frameworks' | 'sites' | 'certificates' | 'logs', number>>
   permissions: ReadonlySet<string>
 }
 
