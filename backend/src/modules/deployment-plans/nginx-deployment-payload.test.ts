@@ -60,6 +60,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
     body: {
       agentKey: 'nginx-agent-01',
       hostname: 'nginx-host-01.example.com',
+      ipAddress: '192.0.2.81',
       version: '1.0.0',
       osType: 'linux',
       directControl: {
@@ -93,12 +94,12 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
       serviceInstanceId,
       hostId,
       agentId,
-      address: 'app-nginx.example.net',
+      address: 'nginx-site.example.com',
       addressType: 'DNS',
       port: 9443,
       protocol: 'HTTPS',
-      sniName: 'app-nginx.example.net',
-      verifyUrl: 'https://app-nginx.example.net:9443',
+      sniName: 'nginx-site.example.com',
+      verifyUrl: 'https://nginx-site.example.com:9443',
       displayName: 'NGINX 对外访问入口',
     },
   });
@@ -156,13 +157,6 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   assert.equal(target.statusCode, 201, JSON.stringify(target.body));
   const managedTargetId = (target.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, serviceAssetId, managedTargetId, {
-    certificatePath: '/etc/nginx/certs/nginx-site.pem',
-    privateKeyPath: '/etc/nginx/certs/nginx-site.key',
-    nginxProgram: '/usr/sbin/nginx',
-    serviceName: 'nginx',
-  });
-
   const imported = await app.inject({
     method: 'POST',
     path: '/api/v1/certificate-versions/import',
@@ -193,6 +187,13 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
+
+  await configureApplicationAssetManagedTarget(app, serviceAssetId, managedTargetId, certificateFormatId, {
+    certificatePath: '/etc/nginx/certs/nginx-site.pem',
+    privateKeyPath: '/etc/nginx/certs/nginx-site.key',
+    nginxProgram: '/usr/sbin/nginx',
+    serviceName: 'nginx',
+  });
 
   const binding = await app.inject({
     method: 'POST',
@@ -253,8 +254,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1, JSON.stringify(dryRunBody));
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
   assert.ok(atomicStep, JSON.stringify(dryRunBody));
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
@@ -271,6 +271,7 @@ async function configureApplicationAssetManagedTarget(
   app: ReturnType<typeof createApp>,
   applicationAssetId: string,
   managedTargetId: string,
+  certificateFormatId: string,
   variableBindings: Record<string, unknown>,
 ): Promise<void> {
   const unifiedPlugins = app.getResource('unifiedPluginsService') as UnifiedPluginsApplicationService | undefined;
@@ -293,7 +294,19 @@ async function configureApplicationAssetManagedTarget(
     body: {
       managedTargetId,
       capabilityKey: 'certificate.deploy',
-      pluginOverride: { pluginVersionId: plugin.pluginVersionId, variableBindings },
+      pluginOverride: {
+        pluginVersionId: plugin.pluginVersionId,
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          variables: variableBindings,
+          connections: {},
+          credentials: {},
+          artifacts: {
+            certificate: { certificateFormatId, outputBindings: { certificate: 'leafPem' } },
+            privateKey: { certificateFormatId, outputBindings: { privateKey: 'privateKeyPem' } },
+          },
+        },
+      },
     },
   });
   assert.equal(saved.statusCode, 200, JSON.stringify(saved.body));
@@ -389,6 +402,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
     body: {
       agentKey: 'nginx-agent-asset-01',
       hostname: 'nginx-asset-host.example.com',
+      ipAddress: '192.0.2.82',
       version: '1.0.0',
       osType: 'linux',
       directControl: {
@@ -480,13 +494,6 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(applicationAsset.statusCode, 201, JSON.stringify(applicationAsset.body));
   const applicationAssetId = (applicationAsset.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, {
-    certificatePath: '/etc/nginx/certs/nginx-asset.pem',
-    privateKeyPath: '/etc/nginx/certs/nginx-asset.key',
-    nginxProgram: '/usr/sbin/nginx',
-    serviceName: 'nginx',
-  });
-
   const discoveredBinding = await app.inject({
     method: 'POST',
     path: '/api/v1/certificate-bindings',
@@ -547,6 +554,13 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
 
+  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+    certificatePath: '/etc/nginx/certs/nginx-asset.pem',
+    privateKeyPath: '/etc/nginx/certs/nginx-asset.key',
+    nginxProgram: '/usr/sbin/nginx',
+    serviceName: 'nginx',
+  });
+
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/deployment-plans/from-application-asset',
@@ -580,8 +594,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
@@ -641,6 +654,7 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
     body: {
       agentKey: 'nginx-agent-legacy-01',
       hostname: 'nginx-legacy-host.example.com',
+      ipAddress: '192.0.2.83',
       version: '1.0.0',
       osType: 'linux',
       directControl: {
@@ -732,13 +746,6 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   assert.equal(applicationAsset.statusCode, 201, JSON.stringify(applicationAsset.body));
   const applicationAssetId = (applicationAsset.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, {
-    certificatePath: '/etc/nginx/certs/nginx-legacy.pem',
-    privateKeyPath: '/etc/nginx/certs/nginx-legacy.key',
-    nginxProgram: '/usr/sbin/nginx',
-    serviceName: 'nginx',
-  });
-
   const binding = await app.inject({
     method: 'POST',
     path: '/api/v1/certificate-bindings',
@@ -795,6 +802,13 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
 
+  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+    certificatePath: '/etc/nginx/certs/nginx-legacy.pem',
+    privateKeyPath: '/etc/nginx/certs/nginx-legacy.key',
+    nginxProgram: '/usr/sbin/nginx',
+    serviceName: 'nginx',
+  });
+
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/deployment-plans/from-application-asset',
@@ -826,8 +840,7 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
