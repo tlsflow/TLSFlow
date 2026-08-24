@@ -41,6 +41,9 @@ const showHeader = computed(() => props.config.showHeader !== false)
 const showMetrics = computed(() => props.config.showMetrics !== false)
 const showEmptyState = computed(() => props.config.showEmptyState !== false)
 const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
+const showDetailPanel = computed(() => props.config.showDetailPanel === true)
+const showActionPanel = computed(() => props.config.showActionPanel === true)
+const hasRowDangerAction = computed(() => (props.config.rowActions ?? []).some((action) => action.danger))
 
 watch(
   () => state.rows.value,
@@ -78,6 +81,15 @@ async function runAction(actionIndex: number) {
   if (action.requiresSelection && !selectedRow.value) return
   await action.run(selectedRow.value ?? undefined)
   await state.reload()
+}
+
+async function runRowAction(row: ViewRow, actionIndex: number) {
+  const action = props.config.rowActions?.[actionIndex]
+  if (!action?.run) return
+  await action.run(row)
+  if (action.reloadAfterRun !== false) {
+    await state.reload()
+  }
 }
 
 async function runPrimaryAction() {
@@ -130,6 +142,12 @@ function linkTarget(row: ViewRow, link: NonNullable<BusinessPageConfig['contextL
   return { path: link.to, query: { [link.queryKey]: value } }
 }
 
+function isRowActionHidden(row: ViewRow, actionIndex: number): boolean {
+  const action = props.config.rowActions?.[actionIndex]
+  if (!action) return true
+  return action.hidden?.(row) ?? false
+}
+
 defineExpose({
   reload: state.reload,
 })
@@ -162,6 +180,7 @@ defineExpose({
 
     <GcEmptyState v-if="state.error.value" title="接口调用失败" :description="state.error.value.message">
       <p>错误码：{{ state.error.value.errorCode }}</p>
+      <p v-if="state.error.value.requestId">requestId：{{ state.error.value.requestId }}</p>
       <button class="gc-button" type="button" @click="state.reload">重试</button>
     </GcEmptyState>
 
@@ -188,7 +207,7 @@ defineExpose({
             >
               {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
             </GcPermissionButton>
-            <span v-if="hasDangerAction" class="business-page__pill business-page__pill--danger">高危操作需确认</span>
+            <span v-if="hasDangerAction || hasRowDangerAction" class="business-page__pill business-page__pill--danger">高危操作需确认</span>
             <button class="gc-button" type="button" @click="state.reload">刷新</button>
           </div>
         </div>
@@ -237,6 +256,29 @@ defineExpose({
         {{ readNumber(row.raw, ['count', 'targetCount', 'affectedCount']) ?? row.count }}
       </template>
 
+      <template #cell-actions="{ row }">
+        <div class="business-page__row-actions">
+          <template v-for="(action, index) in config.rowActions ?? []" :key="`${row.id}-${action.label}`">
+            <GcConfirmAction
+              v-if="action.danger && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index)"
+              :action-name="action.label"
+              :impact-count="1"
+              :risk-text="action.riskText"
+              :confirm-text="action.confirmText"
+              @confirm="runRowAction(row, index)"
+            />
+            <GcPermissionButton
+              v-else-if="!action.danger && !isRowActionHidden(row, index)"
+              :permission="action.permission"
+              :danger="action.danger"
+              @click="runRowAction(row, index)"
+            >
+              {{ action.label }}
+            </GcPermissionButton>
+          </template>
+        </div>
+      </template>
+
       <template #pagination>
         第 {{ state.page.value?.page ?? 1 }} 页 / 每页 {{ state.page.value?.pageSize ?? 20 }} 条
       </template>
@@ -248,7 +290,7 @@ defineExpose({
       :description="config.emptyDescription"
     />
 
-    <aside v-if="selectedRow" class="gc-card business-page__detail" aria-label="资源详情">
+    <aside v-if="showDetailPanel && selectedRow" class="gc-card business-page__detail" aria-label="资源详情">
       <header>
         <div>
           <p>{{ config.resourceName }}详情</p>
@@ -275,7 +317,7 @@ defineExpose({
       </nav>
     </aside>
 
-    <section v-if="visibleActions.length" class="gc-card business-page__actions" aria-label="资源操作">
+    <section v-if="showActionPanel && visibleActions.length" class="gc-card business-page__actions" aria-label="资源操作">
       <div class="business-page__actions-copy">
         <p>资源操作</p>
         <h2>{{ selectedRow?.name ?? config.resourceName }}</h2>
@@ -390,6 +432,7 @@ defineExpose({
 .business-page__pill--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
 .business-page__row-link[aria-pressed="true"] { color: var(--gc-color-primary-hover); text-decoration: underline; text-underline-offset: 4px; }
+.business-page__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 .business-page__detail { display: grid; gap: var(--gc-space-4); padding: 26px; }
 .business-page__detail header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
 .business-page__detail h2, .business-page__detail p { margin: 0; }

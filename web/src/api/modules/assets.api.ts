@@ -83,7 +83,7 @@ export function listAgents(query?: BusinessListQuery) {
 }
 
 export function getAgentDetail(agentId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(`${toClientPath(AGENTS_PATH)}/${encodeURIComponent(agentId)}`)
+  return apiClient.get<ApiRecord>(`${toClientPath(AGENTS_PATH)}/detail?agentId=${encodeURIComponent(agentId)}`)
 }
 
 export function listAgentTaskQueue(agentId: string, query: BusinessListQuery = {}) {
@@ -136,6 +136,14 @@ export function previewDiscoveryMerge(payload: ApiBody) {
 
 export function disableAgent(agentId: string, payload: ApiBody = {}) {
   return postAction(`${AGENTS_PATH}/disable`, { ...payload, agentId }, 'agent_disable')
+}
+
+export function enableAgent(agentId: string, payload: ApiBody = {}) {
+  return postAction(`${AGENTS_PATH}/enable`, { ...payload, agentId }, 'agent_enable')
+}
+
+export function deleteAgent(agentId: string, payload: ApiBody = {}) {
+  return postAction(`${AGENTS_PATH}/delete`, { ...payload, agentId }, 'agent_delete')
 }
 
 function patchAction(path: string, body: ApiBody = {}, idempotencyPrefix = 'action'): Promise<ApiRecordResult> {

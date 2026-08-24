@@ -25,6 +25,17 @@ export interface BusinessAction {
   readonly run?: (row?: import('@/composables/useBusinessPage').ViewRow) => Promise<unknown>
 }
 
+export interface BusinessRowAction {
+  readonly label: string
+  readonly permission: string
+  readonly danger?: boolean
+  readonly confirmText?: string
+  readonly riskText?: string
+  readonly reloadAfterRun?: boolean
+  readonly hidden?: (row: import('@/composables/useBusinessPage').ViewRow) => boolean
+  readonly run?: (row: import('@/composables/useBusinessPage').ViewRow) => Promise<unknown>
+}
+
 export interface BusinessDetailField {
   readonly label: string
   readonly candidates: readonly string[]
@@ -65,6 +76,7 @@ export interface BusinessPageConfig {
   readonly emptyDescription: string
   readonly load: () => Promise<ApiPageResult>
   readonly actions: readonly BusinessAction[]
+  readonly rowActions?: readonly BusinessRowAction[]
   readonly detailFields?: readonly BusinessDetailField[]
   readonly contextLinks?: readonly BusinessContextLink[]
   readonly filters?: readonly BusinessFilterField[]
@@ -72,4 +84,6 @@ export interface BusinessPageConfig {
   readonly onFiltersChange?: (filters: Record<string, string>) => void
   readonly mockRows?: readonly ApiRecord[]
   readonly onSelectionChange?: (row: import('@/composables/useBusinessPage').ViewRow | null) => void
+  readonly showDetailPanel?: boolean
+  readonly showActionPanel?: boolean
 }
