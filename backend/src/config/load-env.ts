@@ -1,8 +1,15 @@
-﻿import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export function loadEnvFile(cwd: string = process.cwd(), env: NodeJS.ProcessEnv = process.env): void {
-  const envFile = resolve(cwd, '.env');
+const defaultBackendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+export function loadEnvFile(
+  cwd: string = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+  backendRoot: string = defaultBackendRoot,
+): void {
+  const envFile = resolveEnvFilePath(cwd, backendRoot);
   if (!existsSync(envFile)) return;
 
   const content = readFileSync(envFile, 'utf8');
@@ -23,4 +30,18 @@ export function loadEnvFile(cwd: string = process.cwd(), env: NodeJS.ProcessEnv 
 
     env[key] = value;
   }
+}
+
+export function resolveEnvFilePath(cwd: string, backendRoot: string = defaultBackendRoot): string {
+  const candidates = new Set<string>([
+    resolve(cwd, '.env'),
+    resolve(cwd, 'backend', '.env'),
+    resolve(backendRoot, '.env'),
+  ]);
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return resolve(cwd, '.env');
 }
