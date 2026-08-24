@@ -100,8 +100,22 @@ export function createIdentitySource(body: Record<string, unknown>): Promise<Api
   return apiClient.post<ApiRecord>('/v1/security/identity-sources', body)
 }
 
+export function createSecret(body: {
+  name: string
+  type: 'password'
+  scopeType: 'global' | 'team' | 'zone' | 'host' | 'plugin'
+  plainText: string
+  scopeId?: string
+}): Promise<ApiResult<{ id: string; secretRef: string }>> {
+  return apiClient.post<{ id: string; secretRef: string }>('/v1/secrets', body)
+}
+
 export function testIdentitySource(sourceId: string): Promise<ApiResult<{ ok: boolean; message: string }>> {
   return apiClient.post<{ ok: boolean; message: string }>('/v1/security/identity-sources/test', { sourceId })
+}
+
+export function syncIdentitySourceUsers(body: { sourceId: string; usernamePrefix?: string; pageSize?: number }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/identity-sources/sync-users', body)
 }
 
 export function listGroupRoleMappings(query?: BusinessListQuery): Promise<ApiPageResult> {

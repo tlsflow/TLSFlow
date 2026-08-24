@@ -42,7 +42,7 @@ describe('业务 API modules', () => {
       '/api/v1/certificate-assets?page=1&pageSize=20',
       '/api/v1/certificate-versions?page=1&pageSize=20&filter%5BcertificateAssetId%5D=cert-1',
       '/api/v1/certificate-version-formats?page=1&pageSize=20&filter%5BcertificateVersionId%5D=certver-1',
-      '/api/v1/hosts?page=1&pageSize=20',
+      '/api/v1/service-assets?page=1&pageSize=20',
       '/api/v1/certificate-bindings?page=1&pageSize=20',
       '/api/v1/deployment-plans?page=1&pageSize=20',
       '/api/v1/audit-events?page=1&pageSize=20',

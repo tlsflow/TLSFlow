@@ -10,9 +10,13 @@ const config: SecurityAdminConfig = {
   columns: [
     { key: 'username', title: '用户名' },
     { key: 'displayName', title: '显示名' },
+    { key: 'email', title: '邮箱' },
+    { key: 'identityProvider', title: '来源' },
+    { key: 'externalSourceId', title: '身份源 ID' },
     { key: 'status', title: '状态' },
     { key: 'tenantName', title: '租户' },
     { key: 'roleNames', title: '角色' },
+    { key: 'lastSyncedAt', title: '最近同步' },
     { key: 'updatedAt', title: '更新时间' }
   ],
   load: () => listUsers({ page: 1, pageSize: 50 }),

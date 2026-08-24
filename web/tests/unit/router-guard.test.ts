@@ -10,6 +10,7 @@ import { resetPermissionProviderToMock, setPermissionProvider } from '@/provider
 describe('路由权限守卫', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    localStorage.clear()
     resetAuthProviderToMock()
     resetPermissionProviderToMock()
   })
