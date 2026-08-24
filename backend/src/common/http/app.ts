@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { extname, isAbsolute, normalize, resolve } from 'node:path';
 import { URL } from 'node:url';
 import type { AppConfig } from '../../config/app-config.js';
 import { loadAppConfig } from '../../config/app-config.js';
@@ -28,6 +30,12 @@ export type AuthTokenResolver = (
 ) => Promise<{ actorId: string; tenantId?: string; contextVersion?: string } | undefined>
   | { actorId: string; tenantId?: string; contextVersion?: string }
   | undefined;
+export type AgentTokenResolver = (
+  token: string,
+  request: { method: string; path: string },
+) => Promise<{ actorId: string; tenantId: string } | undefined>
+  | { actorId: string; tenantId: string }
+  | undefined;
 export type PersistenceFlusher = { flush: () => Promise<void> };
 
 export interface AppOptions {
@@ -43,6 +51,7 @@ export class App {
   readonly config: AppConfig;
   private readonly allowLegacyHeaderContext: boolean;
   private authTokenResolver?: AuthTokenResolver;
+  private agentTokenResolver?: AgentTokenResolver;
   private readonly persistenceFlushers: PersistenceFlusher[] = [];
   private readonly resources = new Map<string, unknown>();
 
@@ -53,6 +62,10 @@ export class App {
 
   setAuthTokenResolver(resolver: AuthTokenResolver): void {
     this.authTokenResolver = resolver;
+  }
+
+  setAgentTokenResolver(resolver: AgentTokenResolver): void {
+    this.agentTokenResolver = resolver;
   }
 
   registerPersistenceFlusher(flusher: PersistenceFlusher): void {
@@ -91,7 +104,13 @@ export class App {
     const requestId = input.headers ? readHeader(input.headers, 'x-request-id') ?? generateRequestId() : generateRequestId();
     let context: RequestContext;
     try {
-      context = await this.createContext(input.headers ?? {}, '127.0.0.1', this.allowLegacyHeaderContext);
+      context = await this.createContext(
+        input.headers ?? {},
+        input.method.toUpperCase(),
+        url.pathname,
+        '127.0.0.1',
+        this.allowLegacyHeaderContext,
+      );
     } catch (error) {
       const handled = toErrorResponse(error, requestId);
       return this.respond(handled.statusCode, handled.body, {
@@ -111,12 +130,28 @@ export class App {
 
   createNodeServer() {
     return createServer(async (req, res) => {
-      const body = await readJsonBody(req);
       const host = req.headers.host ?? 'localhost';
       const url = new URL(req.url ?? '/', `http://${host}`);
+      const method = (req.method ?? 'GET').toUpperCase();
+      const route = this.router.match(method, url.pathname);
+      const isApiPath = url.pathname === '/api' || url.pathname.startsWith('/api/');
+      const staticResponse = !route && ['GET', 'HEAD'].includes(method) && !isApiPath
+        ? await this.tryServeStatic(url.pathname, method === 'HEAD', req.headers)
+        : undefined;
+      if (staticResponse) {
+        writeNodeResponse(res, staticResponse);
+        return;
+      }
+      const body = await readJsonBody(req);
       let context: RequestContext;
       try {
-        context = await this.createContext(req.headers, req.socket.remoteAddress, false);
+        context = await this.createContext(
+          req.headers,
+          method,
+          url.pathname,
+          req.socket.remoteAddress,
+          false,
+        );
       } catch (error) {
         const requestId = readHeader(req.headers, 'x-request-id') ?? generateRequestId();
         const traceId = readHeader(req.headers, 'x-trace-id') ?? generateTraceId();
@@ -142,8 +177,45 @@ export class App {
     });
   }
 
+  private async tryServeStatic(
+    requestPath: string,
+    headOnly: boolean,
+    headers: Record<string, string | string[] | undefined>,
+  ): Promise<InjectResponse | undefined> {
+    const webRoot = this.config.webRoot;
+    if (!webRoot) return undefined;
+    const context = {
+      requestId: readHeader(headers, 'x-request-id') ?? generateRequestId(),
+      traceId: readHeader(headers, 'x-trace-id') ?? generateTraceId(),
+    };
+    const normalizedRoot = resolve(webRoot);
+    let relativePath: string;
+    try {
+      relativePath = decodeURIComponent(requestPath).replace(/^\/+/u, '');
+    } catch {
+      return this.respond(400, 'Bad Request', context, { 'content-type': 'text/plain; charset=utf-8' });
+    }
+    const candidate = resolve(normalizedRoot, normalize(relativePath));
+    if (!isWithinRoot(normalizedRoot, candidate)) {
+      return this.respond(404, 'Not Found', context, { 'content-type': 'text/plain; charset=utf-8' });
+    }
+    const file = await readStaticFile(candidate);
+    const fallback = !file && extname(requestPath) === ''
+      ? await readStaticFile(resolve(normalizedRoot, 'index.html'))
+      : undefined;
+    const selected = file ?? fallback;
+    if (!selected) return undefined;
+    return this.respond(200, headOnly ? '' : selected.content, context, {
+      'content-type': selected.contentType,
+      'content-length': String(selected.content.length),
+      'cache-control': file ? staticCacheControl(requestPath) : 'no-cache',
+    });
+  }
+
   private async createContext(
     headers: Record<string, string | string[] | undefined>,
+    method: string,
+    path: string,
     ip?: string,
     allowLegacyHeaderContext = false,
   ): Promise<RequestContext> {
@@ -152,7 +224,11 @@ export class App {
     const authorization = readHeader(headers, 'authorization');
     const cookie = readHeader(headers, 'cookie');
     const tokenIdentity = await this.authTokenResolver?.(authorization, cookie);
-    const hasAuthenticationMaterial = Boolean(authorization?.trim() || cookie?.trim());
+    const agentToken = readHeader(headers, 'x-agent-token')?.trim();
+    const agentIdentity = !tokenIdentity && agentToken
+      ? await this.agentTokenResolver?.(agentToken, { method, path })
+      : undefined;
+    const hasAuthenticationMaterial = Boolean(authorization?.trim() || cookie?.trim() || agentToken);
     const legacyContext = allowLegacyHeaderContext && !hasAuthenticationMaterial
       ? {
         tenantId: readHeader(headers, 'x-tenant-id'),
@@ -162,11 +238,13 @@ export class App {
     return {
       requestId,
       traceId,
-      tenantId: tokenIdentity?.tenantId ?? legacyContext.tenantId,
+      tenantId: tokenIdentity?.tenantId ?? agentIdentity?.tenantId ?? legacyContext.tenantId,
       tenantContextVersion: tokenIdentity?.contextVersion,
-      actorId: tokenIdentity?.actorId ?? legacyContext.actorId,
+      actorId: tokenIdentity?.actorId ?? agentIdentity?.actorId ?? legacyContext.actorId,
       actorType: tokenIdentity
         ? 'USER'
+        : agentIdentity
+          ? 'AGENT'
         : readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
       ip,
       userAgent: readHeader(headers, 'user-agent'),
@@ -256,4 +334,46 @@ function writeNodeResponse(res: ServerResponse, response: InjectResponse): void 
     return;
   }
   res.end(String(response.body ?? ''));
+}
+
+async function readStaticFile(filePath: string): Promise<{ content: Buffer; contentType: string } | undefined> {
+  try {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) return undefined;
+    const content = await readFile(filePath);
+    return { content, contentType: mimeType(extname(filePath)) };
+  } catch {
+    return undefined;
+  }
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  const prefix = root.endsWith('\\') || root.endsWith('/') ? root : `${root}${process.platform === 'win32' ? '\\' : '/'}`;
+  return candidate === root || candidate.startsWith(prefix);
+}
+
+function mimeType(extension: string): string {
+  const types: Record<string, string> = {
+    '.css': 'text/css; charset=utf-8',
+    '.gif': 'image/gif',
+    '.html': 'text/html; charset=utf-8',
+    '.ico': 'image/x-icon',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.txt': 'text/plain; charset=utf-8',
+    '.webp': 'image/webp',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+  };
+  return types[extension.toLowerCase()] ?? 'application/octet-stream';
+}
+
+function staticCacheControl(requestPath: string): string {
+  return /\.[a-f0-9]{8,}\.(?:css|js)$/iu.test(requestPath)
+    ? 'public, max-age=31536000, immutable'
+    : 'public, max-age=3600';
 }
