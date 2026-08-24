@@ -1911,6 +1911,10 @@ export default {
         probe: {
           description: '从该区域检查主机、网站或 Agent 是否可访问。',
           title: '连通性检查'
+        },
+        relay: {
+          description: '完成窄授权鉴权后，只在指定目标和端口之间双向透传 TCP 字节。',
+          title: 'TCP 直接中继'
         }
       },
       eyebrow: '区域网关',
@@ -1936,16 +1940,22 @@ export default {
       generateEnableCommandFailed: '生成 Gateway 启用命令失败。',
       generateInstallCommandFailed: '生成 Gateway Agent 安装命令失败。',
       missingEnableCommand: '系统未返回 Gateway 启用命令。',
-      missingInstallCommand: '系统未返回 Gateway Agent 安装命令。'
+      missingInstallCommand: '系统未返回 Gateway Agent 安装命令。',
+      relayPolicyRequired: '必须填写至少一个 Relay 目标和端口。'
     },
     fields: {
       config: '配置',
+      defaultRegion: 'default',
       enableCommand: '启用命令',
       expiresAt: '过期时间',
       installCode: '安装码',
       installCommand: '安装命令',
       platform: '平台',
       region: '区域',
+      relayPorts: 'Relay 端口白名单',
+      relayPortsPlaceholder: '例如：443, 8443',
+      relayTargets: 'Relay 目标白名单',
+      relayTargetsPlaceholder: '每行或逗号分隔，例如：app.internal.example、10.20.0.0/16',
       service: '服务',
       unboundAgent: '不绑定具体 Agent'
     },

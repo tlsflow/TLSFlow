@@ -1784,6 +1784,10 @@ export default {
         probe: {
           description: 'Проверяет из этого региона доступность хоста, сайта или Agent.',
           title: 'Проверка связности'
+        },
+        relay: {
+          description: 'После узкой авторизации прозрачно передает только TCP-байты к разрешенной цели и порту.',
+          title: 'Прямой TCP Relay'
         }
       },
       eyebrow: 'Региональный шлюз',
@@ -1809,16 +1813,22 @@ export default {
       generateEnableCommandFailed: 'Не удалось сформировать команду включения Gateway.',
       generateInstallCommandFailed: 'Не удалось сформировать команду установки Gateway Agent.',
       missingEnableCommand: 'Система не вернула команду включения Gateway.',
-      missingInstallCommand: 'Система не вернула команду установки Gateway Agent.'
+      missingInstallCommand: 'Система не вернула команду установки Gateway Agent.',
+      relayPolicyRequired: 'Укажите хотя бы одну цель и один порт Relay.'
     },
     fields: {
       config: 'Конфигурация',
+      defaultRegion: 'default',
       enableCommand: 'Команда включения',
       expiresAt: 'Время истечения',
       installCode: 'Код установки',
       installCommand: 'Команда установки',
       platform: 'Платформа',
       region: 'Регион',
+      relayPorts: 'Белый список портов Relay',
+      relayPortsPlaceholder: 'Например: 443, 8443',
+      relayTargets: 'Белый список целей Relay',
+      relayTargetsPlaceholder: 'По одной в строке или через запятую, например app.internal.example, 10.20.0.0/16',
       service: 'Сервис',
       unboundAgent: 'Не привязывать конкретный Agent'
     },

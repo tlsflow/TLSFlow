@@ -1806,6 +1806,10 @@ export default {
         probe: {
           description: 'Check whether hosts, websites, or Agents are reachable from this region.',
           title: 'Connectivity check'
+        },
+        relay: {
+          description: 'Après une autorisation étroite, relaie uniquement les octets TCP vers la cible et le port approuvés.',
+          title: 'Relais TCP direct'
         }
       },
       eyebrow: 'Regional gateway',
@@ -1831,16 +1835,22 @@ export default {
       generateEnableCommandFailed: 'Failed to generate Gateway enable command.',
       generateInstallCommandFailed: 'Failed to generate Gateway Agent install command.',
       missingEnableCommand: 'The backend did not return a Gateway enable command.',
-      missingInstallCommand: 'The backend did not return a Gateway Agent install command.'
+      missingInstallCommand: 'The backend did not return a Gateway Agent install command.',
+      relayPolicyRequired: 'Enter at least one Relay target and port.'
     },
     fields: {
       config: 'Config',
+      defaultRegion: 'default',
       enableCommand: 'Enable command',
       expiresAt: 'Expires at',
       installCode: 'Install code',
       installCommand: 'Install command',
       platform: 'Platform',
       region: 'Region',
+      relayPorts: 'Relay port allowlist',
+      relayPortsPlaceholder: 'Example: 443, 8443',
+      relayTargets: 'Relay target allowlist',
+      relayTargetsPlaceholder: 'One per line or comma-separated, e.g. app.internal.example, 10.20.0.0/16',
       service: 'Service',
       unboundAgent: 'Do not bind a specific Agent'
     },

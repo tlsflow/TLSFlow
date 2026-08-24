@@ -1784,6 +1784,10 @@ export default {
         probe: {
           description: 'Verifica, a partir desta região, se hosts, sites ou Agents estão acessíveis.',
           title: 'Verificação de conectividade'
+        },
+        relay: {
+          description: 'Após autorização restrita, retransmite apenas bytes TCP para o destino e a porta aprovados.',
+          title: 'Relay TCP direto'
         }
       },
       eyebrow: 'Gateway regional',
@@ -1809,16 +1813,22 @@ export default {
       generateEnableCommandFailed: 'Falha ao gerar o comando de ativação do Gateway.',
       generateInstallCommandFailed: 'Falha ao gerar o comando de instalação do Gateway Agent.',
       missingEnableCommand: 'O sistema não retornou o comando de ativação do Gateway.',
-      missingInstallCommand: 'O sistema não retornou o comando de instalação do Gateway Agent.'
+      missingInstallCommand: 'O sistema não retornou o comando de instalação do Gateway Agent.',
+      relayPolicyRequired: 'Informe pelo menos um destino e uma porta do Relay.'
     },
     fields: {
       config: 'Configuração',
+      defaultRegion: 'default',
       enableCommand: 'Comando de ativação',
       expiresAt: 'Expira em',
       installCode: 'Código de instalação',
       installCommand: 'Comando de instalação',
       platform: 'Plataforma',
       region: 'Região',
+      relayPorts: 'Lista de portas permitidas do Relay',
+      relayPortsPlaceholder: 'Exemplo: 443, 8443',
+      relayTargets: 'Lista de destinos permitidos do Relay',
+      relayTargetsPlaceholder: 'Um por linha ou separado por vírgula, por exemplo app.internal.example, 10.20.0.0/16',
       service: 'Serviço',
       unboundAgent: 'Não vincular a um Agent específico'
     },

@@ -7,7 +7,7 @@ import type { BusinessPageConfig } from '@/views/business-page.types'
 import {
   createAgentInstallMaterials,
 } from '@/api/modules/assets.api'
-import { listGateways, probeGateway } from '@/api/modules/gateways.api'
+import { listGateways } from '@/api/modules/gateways.api'
 import { readNumber, readPath, readString, type ViewRow } from '@/composables/useBusinessPage'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag } from '@/design-system/components'
@@ -31,6 +31,8 @@ interface InstallMaterialSession {
   zone: string
   enrollmentToken: string
   expiresAt?: string
+  relayAllowedTargets: string[]
+  relayAllowedPorts: number[]
   materials: unknown[]
   task: unknown
 }
@@ -43,6 +45,8 @@ const installPending = ref(false)
 const installError = ref('')
 const selectedInstallPlatform = ref<GatewayPlatform>('linux_go')
 const installZone = ref('default')
+const installTargets = ref('')
+const installPorts = ref('')
 const installSession = ref<InstallMaterialSession | null>(null)
 const { t } = useI18n()
 
@@ -82,14 +86,8 @@ const gatewayOverview = computed(() => {
 const gatewayAbilities = computed(() => {
   const values = new Set([...routeChannels.value, ...capabilities.value].map((item) => item.trim().toLowerCase()))
   const abilities: Array<{ key: string; title: string; description: string }> = []
-  if (hasAny(values, ['probe.tcp', 'probe.http', 'probe.agent', 'gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent'])) {
-    abilities.push({ key: 'probe', title: t('gateways.detail.abilities.probe.title'), description: t('gateways.detail.abilities.probe.description') })
-  }
-  if (hasAny(values, ['forward.agent_task', 'gateway.forward.agent_task'])) {
-    abilities.push({ key: 'agent-task', title: t('gateways.detail.abilities.agentTask.title'), description: t('gateways.detail.abilities.agentTask.description') })
-  }
-  if (hasAny(values, ['forward.direct_control', 'gateway.forward.direct_control'])) {
-    abilities.push({ key: 'direct-control', title: t('gateways.detail.abilities.directControl.title'), description: t('gateways.detail.abilities.directControl.description') })
+  if (hasAny(values, ['relay.tcp', 'gateway.relay.tcp'])) {
+    abilities.push({ key: 'relay', title: t('gateways.detail.abilities.relay.title'), description: t('gateways.detail.abilities.relay.description') })
   }
   return abilities
 })
@@ -98,16 +96,25 @@ function openGatewayInstallModal() {
   installModalOpen.value = true
   installError.value = ''
   installSession.value = null
+  installTargets.value = ''
+  installPorts.value = ''
 }
 
 async function requestGatewayInstallMaterials() {
   installPending.value = true
   installError.value = ''
   try {
+    const relayAllowedTargets = parseTargetList(installTargets.value)
+    const relayAllowedPorts = parsePortList(installPorts.value)
+    if (!relayAllowedTargets.length || !relayAllowedPorts.length) {
+      throw new Error(t('gateways.errors.relayPolicyRequired'))
+    }
     const result = await createAgentInstallMaterials({
       platform: selectedInstallPlatform.value,
       zone: installZone.value || 'default',
       role: 'gateway',
+      relayAllowedTargets,
+      relayAllowedPorts,
     })
     const data = result.data ?? {}
     const materials = Array.isArray(data.materials) ? data.materials : []
@@ -119,6 +126,8 @@ async function requestGatewayInstallMaterials() {
       zone: readString(data, ['zone']) || installZone.value || 'default',
       enrollmentToken: readString(data, ['enrollmentToken']) || '',
       expiresAt: readString(data, ['expiresAt']),
+      relayAllowedTargets: normalizeList(data, ['relayAllowedTargets']),
+      relayAllowedPorts: normalizeList(data, ['relayAllowedPorts']).map(Number).filter((value) => Number.isInteger(value)),
       materials,
       task: data.task,
     }
@@ -136,29 +145,6 @@ function handleGatewaySelection(row: ViewRow | null) {
 async function openDetailModal(row: ViewRow) {
   selectedGateway.value = row
   detailModalOpen.value = true
-}
-
-async function runProbe(row: ViewRow) {
-  await probeGateway(buildGatewayProbePayload(row))
-}
-
-function buildGatewayProbePayload(row: ViewRow | undefined) {
-  const raw = row?.raw ?? {}
-  const targets = normalizeList(raw, ['reachableTargets', 'targets', 'targetCidrs', 'targetZones'])
-  const channels = normalizeList(raw, ['routeChannels', 'channels', 'adapters', 'protocols', 'supportedProtocols'])
-  const protocol = channels.find((item) => item.startsWith('probe.')) ?? 'probe.tcp'
-  return {
-    gatewayId: row?.id ?? '',
-    targetId: targets[0] ?? row?.id ?? '',
-    protocol,
-    port: defaultPort(protocol)
-  }
-}
-
-function defaultPort(protocol: string): number {
-  const normalized = protocol.toLowerCase()
-  if (normalized.includes('http') || normalized.includes('curl') || normalized.includes('agent')) return 443
-  return 22
 }
 
 function firstDisplayValue(record: ApiRecord | null, paths: readonly string[]): string {
@@ -211,6 +197,14 @@ function statusTone(value: string): string {
 
 function hasAny(values: Set<string>, candidates: readonly string[]): boolean {
   return candidates.some((candidate) => values.has(candidate))
+}
+
+function parseTargetList(value: string): string[] {
+  return [...new Set(value.split(/[\n,]/u).map((item) => item.trim()).filter(Boolean))]
+}
+
+function parsePortList(value: string): number[] {
+  return [...new Set(value.split(/[\n,]/u).map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item >= 1 && item <= 65535))]
 }
 
 function isTechnicalId(value: string): boolean {
@@ -284,14 +278,6 @@ const config = computed<BusinessPageConfig>(() => ({
       reloadAfterRun: false,
       run: openDetailModal,
     },
-    {
-      label: t('gateways.actions.probe'),
-      permission: 'gateway.write',
-      danger: true,
-      confirmText: 'PROBE',
-      riskText: t('gateways.actions.probeRisk'),
-      run: runProbe,
-    },
   ],
   onSelectionChange: handleGatewaySelection,
 }))
@@ -302,7 +288,7 @@ const config = computed<BusinessPageConfig>(() => ({
     <BusinessResourcePage ref="pageRef" :config="config" />
 
     <GcModal v-model:open="installModalOpen" :title="t('gateways.modals.install.title')" size="lg" :close-on-backdrop="false">
-      <section class="gateway-material-modal">
+      <section class="gateway-command-modal">
         <div class="gateway-command-modal__field">
           <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
           <div class="gateway-command-modal__platforms">
@@ -322,7 +308,17 @@ const config = computed<BusinessPageConfig>(() => ({
 
         <label class="gateway-command-modal__field">
           <span class="gateway-command-modal__label">{{ t('gateways.fields.region') }}</span>
-          <input v-model.trim="installZone" type="text" placeholder="default">
+          <input v-model.trim="installZone" type="text" :placeholder="t('gateways.fields.defaultRegion')">
+        </label>
+
+        <label class="gateway-command-modal__field">
+          <span class="gateway-command-modal__label">{{ t('gateways.fields.relayTargets') }}</span>
+          <textarea v-model="installTargets" rows="3" :placeholder="t('gateways.fields.relayTargetsPlaceholder')"></textarea>
+        </label>
+
+        <label class="gateway-command-modal__field">
+          <span class="gateway-command-modal__label">{{ t('gateways.fields.relayPorts') }}</span>
+          <input v-model="installPorts" type="text" :placeholder="t('gateways.fields.relayPortsPlaceholder')">
         </label>
 
         <button class="gc-button gateway-command-modal__primary" type="button" :disabled="installPending" @click="requestGatewayInstallMaterials">
@@ -334,6 +330,8 @@ const config = computed<BusinessPageConfig>(() => ({
           <dl class="gateway-command-modal__meta">
             <div><dt>{{ t('gateways.fields.platform') }}</dt><dd>{{ platformLabel(installSession.platform) }}</dd></div>
             <div><dt>{{ t('gateways.fields.region') }}</dt><dd>{{ installSession.zone }}</dd></div>
+            <div><dt>{{ t('gateways.fields.relayTargets') }}</dt><dd>{{ installSession.relayAllowedTargets.join(', ') }}</dd></div>
+            <div><dt>{{ t('gateways.fields.relayPorts') }}</dt><dd>{{ installSession.relayAllowedPorts.join(', ') }}</dd></div>
             <div><dt>{{ t('gateways.fields.expiresAt') }}</dt><dd>{{ formatBrowserLocalTime(installSession.expiresAt) || '-' }}</dd></div>
           </dl>
           <pre class="gateway-material-modal__payload">{{ JSON.stringify({ enrollmentToken: installSession.enrollmentToken, materials: installSession.materials, task: installSession.task }, null, 2) }}</pre>

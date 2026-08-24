@@ -1784,6 +1784,10 @@ export default {
         probe: {
           description: '이 지역에서 호스트, 웹 사이트 또는 Agent에 액세스할 수 있는지 확인합니다.',
           title: '연결성 검사'
+        },
+        relay: {
+          description: '좁은 권한 부여 후 승인된 대상과 포트로 TCP 바이트만 양방향 중계합니다.',
+          title: '직접 TCP 릴레이'
         }
       },
       eyebrow: '지역 게이트웨이',
@@ -1809,16 +1813,22 @@ export default {
       generateEnableCommandFailed: 'Gateway 활성화 명령을 생성하지 못했습니다.',
       generateInstallCommandFailed: 'Gateway Agent 설치 명령을 생성하지 못했습니다.',
       missingEnableCommand: '시스템이 Gateway 활성화 명령을 반환하지 않았습니다.',
-      missingInstallCommand: '시스템이 Gateway Agent 설치 명령을 반환하지 않았습니다.'
+      missingInstallCommand: '시스템이 Gateway Agent 설치 명령을 반환하지 않았습니다.',
+      relayPolicyRequired: 'Relay 대상과 포트를 하나 이상 입력하세요.'
     },
     fields: {
       config: '구성',
+      defaultRegion: 'default',
       enableCommand: '명령 사용하기',
       expiresAt: '만료 시간',
       installCode: '설치 코드',
       installCommand: '설치 명령',
       platform: '플랫폼',
       region: '영역',
+      relayPorts: 'Relay 포트 허용 목록',
+      relayPortsPlaceholder: '예: 443, 8443',
+      relayTargets: 'Relay 대상 허용 목록',
+      relayTargetsPlaceholder: '줄바꿈 또는 쉼표로 구분, 예: app.internal.example, 10.20.0.0/16',
       service: '서비스',
       unboundAgent: 'Agent에 바인딩되지 않음'
     },

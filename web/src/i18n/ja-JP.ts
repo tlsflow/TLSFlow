@@ -1810,6 +1810,10 @@ export default {
         probe: {
           description: 'このゾーンからホスト、Web サイト、Agent にアクセスできるかを確認します。',
           title: '连通性チェック'
+        },
+        relay: {
+          description: '狭い認可の後、承認された対象とポートへ TCP バイトだけを透過転送します。',
+          title: '直接 TCP リレー'
         }
       },
       eyebrow: 'ゾーンゲートウェイ',
@@ -1835,16 +1839,22 @@ export default {
       generateEnableCommandFailed: '生成 Gateway 有効化コマンド失敗。',
       generateInstallCommandFailed: '生成 Gateway Agent インストールコマンド失敗。',
       missingEnableCommand: 'システム未戻る Gateway 有効化コマンド。',
-      missingInstallCommand: 'システム未戻る Gateway Agent インストールコマンド。'
+      missingInstallCommand: 'システム未戻る Gateway Agent インストールコマンド。',
+      relayPolicyRequired: 'Relay の対象とポートを 1 件以上入力してください。'
     },
     fields: {
       config: '設定',
+      defaultRegion: 'default',
       enableCommand: '有効化コマンド',
       expiresAt: '期限切れ時刻',
       installCode: 'インストールコード',
       installCommand: 'インストールコマンド',
       platform: 'プラットフォーム',
       region: 'ゾーン',
+      relayPorts: 'Relay ポート許可リスト',
+      relayPortsPlaceholder: '例: 443, 8443',
+      relayTargets: 'Relay 対象許可リスト',
+      relayTargetsPlaceholder: '1 行またはカンマ区切り。例: app.internal.example, 10.20.0.0/16',
       service: 'サービス',
       unboundAgent: '不バインド具体的な Agent'
     },

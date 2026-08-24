@@ -1809,6 +1809,10 @@ export default {
         probe: {
           description: "從該區域檢查主機、網站或 Agent 是否可存取。",
           title: "連線能力檢查"
+        },
+        relay: {
+          description: "完成窄授權後，只在核准的目標和連接埠之間雙向透傳 TCP 位元組。",
+          title: "TCP 直接中繼"
         }
       },
       eyebrow: "區域閘道",
@@ -1834,16 +1838,22 @@ export default {
       generateEnableCommandFailed: "產生 Gateway 啟用命令失敗。",
       generateInstallCommandFailed: "產生 Gateway Agent 安裝命令失敗。",
       missingEnableCommand: "系統未返回 Gateway 啟用命令。",
-      missingInstallCommand: "系統未返回 Gateway Agent 安裝命令。"
+      missingInstallCommand: "系統未返回 Gateway Agent 安裝命令。",
+      relayPolicyRequired: "至少填寫一個 Relay 目標和連接埠。"
     },
     fields: {
       config: "設定",
+      defaultRegion: "default",
       enableCommand: "啟用命令",
       expiresAt: "過期時間",
       installCode: "安裝碼",
       installCommand: "安裝命令",
       platform: "平台",
       region: "區域",
+      relayPorts: "Relay 連接埠白名單",
+      relayPortsPlaceholder: "例如：443, 8443",
+      relayTargets: "Relay 目標白名單",
+      relayTargetsPlaceholder: "每行或以逗號分隔，例如 app.internal.example, 10.20.0.0/16",
       service: "服務",
       unboundAgent: "不繫結具體 Agent"
     },
