@@ -415,15 +415,6 @@ export class DeploymentPlansApplicationService {
         deploymentInputRuntimeSnapshotDraft: target.deploymentInputRuntimeSnapshotDraft,
       };
     }));
-    const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
-    if (hasCapabilityRisk) {
-      policy.approvalRequired = true;
-      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
-    }
-    if (targetDrafts.some(targetRequestsInsecureTls)) {
-      policy.approvalRequired = true;
-      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
-    }
     const snapshotHash = this.domain.buildSnapshotHash({
       id: newId('pln_preview'),
       tenantId: input.tenantId,
@@ -677,15 +668,6 @@ export class DeploymentPlansApplicationService {
         deploymentInputRuntimeSnapshotDraft: target.deploymentInputRuntimeSnapshotDraft,
       };
     }));
-    const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
-    if (hasCapabilityRisk) {
-      policy.approvalRequired = true;
-      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
-    }
-    if (targetDrafts.some(targetRequestsInsecureTls)) {
-      policy.approvalRequired = true;
-      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
-    }
     const snapshotHash = this.domain.buildSnapshotHash({
       id: plan.id,
       tenantId: draft.tenantId,
@@ -863,7 +845,10 @@ export class DeploymentPlansApplicationService {
         strategyPayload: resolvedStrategy.payload,
       }],
       planType: input.planType ?? 'UPDATE',
-      policy: input.policy,
+      policy: {
+        ...(input.policy ?? {}),
+        approvalRequired: input.policy?.approvalRequired === true || deploymentStrategy?.approvalRequired === true,
+      },
       temporary: input.temporary,
       createdReason: 'MANUAL',
       idempotencyKey: input.idempotencyKey,
@@ -1435,7 +1420,10 @@ export class DeploymentPlansApplicationService {
         strategyPayload: resolvedStrategy.payload,
       }],
       planType: input.planType ?? 'UPDATE',
-      policy: input.policy,
+      policy: {
+        ...(input.policy ?? {}),
+        approvalRequired: input.policy?.approvalRequired === true || strategy?.approvalRequired === true,
+      },
       temporary: input.temporary,
       createdReason: 'MANUAL',
       idempotencyKey: input.idempotencyKey,
@@ -1785,13 +1773,11 @@ export class DeploymentPlansApplicationService {
     }
     const targets = new Map((await this.repository.listTargetsByPlan(plan.id, input.tenantId)).map((target) => [target.id, target]));
     let blockedCount = 0;
-    let approvalRequired = false;
     for (const result of input.targetResults) {
       const target = targets.get(result.targetId);
       if (!target) throw new AppError('RESOURCE_NOT_FOUND', '部署计划目标不存在', { targetId: result.targetId });
       const status = String(result.matchResult.status ?? '');
       if (status === 'blocked') blockedCount += 1;
-      if (status === 'manual_required' || status === 'degraded') approvalRequired = true;
       await this.repository.updateTarget(target.id, {
         matchResult: result.matchResult,
         status: status === 'blocked' ? 'FAILED' : 'READY',
@@ -1800,13 +1786,6 @@ export class DeploymentPlansApplicationService {
       });
     }
     const patch: Partial<DeploymentPlanEntity> = { updatedAt: new Date().toISOString(), updatedBy: input.actorId };
-    if (approvalRequired) {
-      patch.policy = {
-        ...plan.policy,
-        approvalRequired: true,
-        riskLevel: plan.policy.riskLevel === 'low' || plan.policy.riskLevel === 'medium' ? 'high' : plan.policy.riskLevel,
-      };
-    }
     const updated = await this.repository.updatePlan(plan.id, patch);
     await this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
@@ -1816,9 +1795,9 @@ export class DeploymentPlansApplicationService {
       resourceType: 'deploymentPlan',
       resourceId: plan.id,
       result: blockedCount > 0 ? 'denied' : 'success',
-      riskLevel: approvalRequired ? 'high' : this.approvalRiskLevel(updated.policy.riskLevel),
+      riskLevel: this.approvalRiskLevel(updated.policy.riskLevel),
       context,
-      detail: { targetCount: input.targetResults.length, blockedCount, approvalRequired },
+      detail: { targetCount: input.targetResults.length, blockedCount, approvalRequired: updated.policy.approvalRequired === true },
     });
     return this.toDto(updated);
   }
@@ -3019,11 +2998,7 @@ export class DeploymentPlansApplicationService {
 
   private async requiresApproval(plan: DeploymentPlanEntity, settings?: DeploymentTaskSettings): Promise<boolean> {
     const resolvedSettings = settings ?? await this.getDeploymentTaskSettings(plan.tenantId);
-    if (!resolvedSettings.approvalEnabled) return false;
-    if (Boolean(plan.policy.approvalRequired) || this.domain.isHighRisk(plan.policy)) return true;
-    const parameters = await this.approvalParameters(plan);
-    const scopes = Array.isArray(parameters.tlsScopes) ? parameters.tlsScopes : [];
-    return scopes.some((scope) => readRecord(scope)?.allowInsecureTls === true);
+    return resolvedSettings.approvalEnabled || plan.policy.approvalRequired === true;
   }
 
   private async getDeploymentTaskSettings(tenantId?: string): Promise<DeploymentTaskSettings> {
@@ -4269,17 +4244,6 @@ function readOptionalBoolean(value: unknown): boolean | undefined {
     if (value === 'false') return false;
   }
   return undefined;
-}
-
-function targetRequestsInsecureTls(target: {
-  strategyPayload?: Record<string, unknown>;
-  deploymentInputSnapshotDraft?: DeploymentInputSnapshotV1;
-}): boolean {
-  const snapshotVariables = readRecord(target.deploymentInputSnapshotDraft?.input.variables);
-  if (snapshotVariables?.allowInsecureTls === true) return true;
-  const workflowRequest = readRecord(target.strategyPayload?.workflowRequest);
-  const inputBindings = readRecord(workflowRequest?.inputBindings);
-  return readRecord(inputBindings?.variables)?.allowInsecureTls === true;
 }
 
 function readOptionalNumber(value: unknown): number | undefined {

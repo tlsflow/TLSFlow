@@ -1202,9 +1202,9 @@ describe('部署计划与执行编排 API', () => {
     }
   });
 
-  it('提交低风险计划进入 READY，高风险计划进入审批', async () => {
+  it('全局关闭审批时普通计划直接执行，应用级审批配置仍进入审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
-    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: false });
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_submit_low');
     assert.equal(ready.status, 'READY');
 
@@ -1299,8 +1299,9 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(steps.every((step) => step.inputSnapshot.executionAuthorization?.approved === true), true);
   });
 
-  it('历史低风险计划包含 allowInsecureTls 时，正式执行仍必须先申请审批', async () => {
+  it('历史低风险计划包含 allowInsecureTls 时，不因技术参数自动申请审批', async () => {
     const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: false });
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_legacy_insecure_tls_plan');
     const targets = await deploymentService.getRepository().listTargetsByPlan(ready.id, 'tenant_1');
     assert.equal(targets.length > 0, true);
@@ -1333,8 +1334,7 @@ describe('部署计划与执行编排 API', () => {
         idempotencyKey: 'idem_legacy_insecure_tls_execute',
       },
     });
-    assert.equal(executed.statusCode, 422, JSON.stringify(executed.body));
-    assert.equal((executed.body as { errorCode: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
+    assert.notEqual((executed.body as { errorCode?: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
   });
 
   it('有审批的高风险计划通过审批后自动入队，并生成 ExecutionRun 和 ExecutionStep', async () => {
@@ -1822,9 +1822,9 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(executed.statusCode, 200);
   });
 
-  it('能力匹配 blocked 的目标不能创建计划，manual_required 会强制进入审批', async () => {
+  it('能力匹配 blocked 的目标不能创建计划，manual_required 不再自动触发审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
-    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: false });
     const blocked = await app.inject({
       method: 'POST',
       path: '/api/v1/deployment-plans',
@@ -1848,12 +1848,12 @@ describe('部署计划与执行编排 API', () => {
     });
     assert.equal(created.statusCode, 201);
     const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: (created.body as { id: string }).id } });
-    assert.equal((submitted.body as { status: string }).status, 'PENDING_APPROVAL');
+    assert.equal((submitted.body as { status: string }).status, 'READY');
   });
 
-  it('能力重评估会更新目标 matchResult，并让 degraded 目标强制审批', async () => {
+  it('能力重评估会更新目标 matchResult，但 degraded 不再自动触发审批', async () => {
     const { app, fixture } = await createMigratedTestApp();
-    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: true });
+    configureDeploymentTaskSettingsForTest(app, { dryRunEnabled: false, approvalEnabled: false });
     const reevaluateTarget = await createIisManagedTargetFixture(app, {
       hostId: fixture.hostId,
       frameworkInstanceId: fixture.serviceInstanceId,
@@ -1922,13 +1922,13 @@ describe('部署计划与执行编排 API', () => {
     });
     assert.equal(reevaluated.statusCode, 200);
     const updated = reevaluated.body as { policy: { approvalRequired: boolean; riskLevel: string }; targets: Array<{ id: string; status: string; matchResult: { status: string } }> };
-    assert.equal(updated.policy.approvalRequired, true);
-    assert.equal(updated.policy.riskLevel, 'high');
+    assert.equal(updated.policy.approvalRequired, false);
+    assert.equal(updated.policy.riskLevel, 'low');
     assert.equal(updated.targets.find((target) => target.id === blockedTarget.id)?.status, 'FAILED');
     assert.equal(updated.targets.find((target) => target.id === okTarget.id)?.matchResult.status, 'degraded');
 
     const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: plan.id } });
-    assert.equal((submitted.body as { status: string }).status, 'PENDING_APPROVAL');
+    assert.equal((submitted.body as { status: string }).status, 'READY');
   });
 
   it('支持用 managedTargetId + LATEST_AUTO 在创建时解析 binding 和最新 PFX 证书版本', async () => {
