@@ -31,6 +31,8 @@ describe('权限 Store', () => {
     const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
     expect(settings?.children?.map((item) => item.path)).toContain('/settings/version')
     expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
+    const monitoring = store.visibleMenuItems.find((item) => item.path === '/monitors')
+    expect(monitoring?.children?.map((item) => item.path)).toEqual(['/monitors', '/audits'])
   })
 
   it('通知读取权限会显示设置下的通知中心标签', () => {
