@@ -386,7 +386,7 @@ test('全局凭据 API 拒绝非法运行时状态', async () => {
   assert.equal((result.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
 });
 
-test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => {
+test('全局凭据 API 返回所有持久化使用关系并阻止删除', async () => {
   const { app, database } = await createTestApp();
   const created = await app.inject({
     method: 'POST',
@@ -426,6 +426,52 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
       artifacts: {},
     })],
   );
+  const timestamp = '2026-08-14T00:00:00.000Z';
+  await database.query(
+    `insert into pg_ca_providers (
+      id, tenant_id, name, type, deployment_mode, runtime_platform, availability_mode, endpoint,
+      credential_secret_ref, capabilities, status, payload, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::jsonb,$13::timestamptz,$13::timestamptz)`,
+    ['caprov_usage', 'tenant-usage', 'Usage ACME Provider', 'acme', 'native', 'host', 'managed', 'https://acme.example.test/directory', null, '{}', 'active', '{}', timestamp],
+  );
+  await database.query(
+    `insert into pg_acme_accounts (
+      id, tenant_id, provider_id, directory_url_hash, account_url, account_key_secret_ref,
+      contact, eab_key_id_secret_ref, eab_hmac_secret_ref, status, last_error_code,
+      last_error_message, payload, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13::jsonb,$14::timestamptz,$14::timestamptz)`,
+    ['acmeacct_usage', 'tenant-usage', 'caprov_usage', 'a'.repeat(64), null, 'secret://certificate_private_key/sec_usage#current', '[]', null, null, 'active', null, null, '{}', timestamp],
+  );
+  await database.query(
+    `insert into pg_certificate_assets (
+      id, tenant_id, name, primary_domain, sans, source_type, current_version_id,
+      status, tags, created_by, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9::jsonb,$10,$11::timestamptz,$11::timestamptz)`,
+    ['certasset_usage', 'tenant-usage', '使用中的 ACME 证书', 'usage.example.test', '[]', 'acme', null, 'active', '["acme"]', 'user-a', timestamp],
+  );
+  await database.query(
+    `insert into pg_acme_renewal_policies (
+      id, tenant_id, certificate_asset_id, binding_id, provider_id, account_id, enabled,
+      renewal_window_days, challenge_type, rotate_key_on_renewal, deployment_mode, max_attempts,
+      backoff_seconds, maintenance_window, status, version, created_by, payload, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18::jsonb,$19::timestamptz,$19::timestamptz)`,
+    ['acmepolicy_usage', 'tenant-usage', 'certasset_usage', null, 'caprov_usage', 'acmeacct_usage', true, 30, 'dns-01', true, 'manual', 5, 300, JSON.stringify({ dnsCredentialId: credentialId }), 'active', 1, 'user-a', '{}', timestamp],
+  );
+  await database.query(
+    `insert into pg_cloud_account_assets (
+      id, tenant_id, asset_kind, provider_key, display_name, account_id, credential_ref,
+      scope, identity_key, status, metadata, created_at, updated_at, version
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11::jsonb,$12::timestamptz,$12::timestamptz,$13)`,
+    ['caa_usage', 'tenant-usage', 'cloud.account', 'cloud.aliyun', '使用中的云账号', 'account-usage', `credential://${credentialId}`, '{}', 'cloud.aliyun:account-usage:usage', 'ACTIVE', '{}', timestamp, 1],
+  );
+  await database.query(
+    `insert into browser_credential_sessions (
+      id, tenant_id, login_url, asset_id, plugin_version_id, workflow_template_id, workflow_version_id,
+      capability_key, runtime_session_id, one_time_url_hash, status, credential_profile_id,
+      expires_at, created_by, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::timestamptz,$14,$15::timestamptz,$15::timestamptz)`,
+    ['bcs_usage', 'tenant-usage', 'https://login.example.test', 'asset_usage', 'plgv_usage', 'wf_usage', 'wfv_usage', 'credential.acquire', 'runtime_usage', 'hash_usage', 'ready', credentialId, '2099-01-01T00:00:00.000Z', 'user-a', timestamp],
+  );
 
   const usage = await app.inject({
     method: 'GET',
@@ -433,7 +479,14 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
     headers: testAuthHeaders('user-a', 'tenant-usage'),
   });
   assert.equal(usage.statusCode, 200);
-  assert.equal((usage.body as { total: number }).total, 1);
+  const usageBody = usage.body as { total: number; items: Array<{ type: string; name?: string }> };
+  assert.equal(usageBody.total, 4);
+  assert.deepEqual(
+    usageBody.items.map((item) => item.type).sort(),
+    ['ACME_RENEWAL_POLICY', 'BROWSER_CREDENTIAL_SESSION', 'CLOUD_ACCOUNT_ASSET', 'PLUGIN_BINDING'],
+  );
+  assert.equal(usageBody.items.find((item) => item.type === 'ACME_RENEWAL_POLICY')?.name, '使用中的 ACME 证书');
+  assert.equal(usageBody.items.find((item) => item.type === 'CLOUD_ACCOUNT_ASSET')?.name, '使用中的云账号');
 
   const deleted = await app.inject({
     method: 'DELETE',

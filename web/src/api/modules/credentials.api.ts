@@ -35,7 +35,12 @@ export interface CredentialProfilePage {
 export interface CredentialUsage {
   credentialId: string
   total: number
-  items: Array<{ type: 'PLUGIN_BINDING' | 'DEVICE' | 'DEPLOYMENT_PLAN'; id: string; name?: string; detail?: Record<string, unknown> }>
+  items: Array<{
+    type: 'PLUGIN_BINDING' | 'DEVICE' | 'DEPLOYMENT_PLAN' | 'ACME_RENEWAL_POLICY' | 'CLOUD_ACCOUNT_ASSET' | 'BROWSER_CREDENTIAL_SESSION'
+    id: string
+    name?: string
+    detail?: Record<string, unknown>
+  }>
 }
 
 export interface CredentialSecretValueInput { plainText: string; type?: string }

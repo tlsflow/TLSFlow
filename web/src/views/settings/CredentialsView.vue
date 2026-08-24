@@ -118,7 +118,13 @@ const usageGroups = computed(() => ({
   devices: usage.value?.items.filter((item) => item.type === 'DEVICE') ?? [],
   workflows: usage.value?.items.filter((item) => item.type === 'DEPLOYMENT_PLAN') ?? [],
   plugins: usage.value?.items.filter((item) => item.type === 'PLUGIN_BINDING') ?? [],
+  acmeCertificates: usage.value?.items.filter((item) => item.type === 'ACME_RENEWAL_POLICY') ?? [],
+  cloudAccounts: usage.value?.items.filter((item) => item.type === 'CLOUD_ACCOUNT_ASSET') ?? [],
+  browserSessions: usage.value?.items.filter((item) => item.type === 'BROWSER_CREDENTIAL_SESSION') ?? [],
 }))
+const visibleUsageGroups = computed(() =>
+  (['devices', 'workflows', 'plugins', 'acmeCertificates', 'cloudAccounts', 'browserSessions'] as const)
+    .filter((group) => usageGroups.value[group].length > 0))
 const browserPlugins = ref<BrowserOptionItem[]>([])
 const browserModalOpen = ref(false)
 const browserSaveSuccessOpen = ref(false)
@@ -869,7 +875,7 @@ onUnmounted(() => {
             <span>{{ usage?.total ? t('credentials.usage.changeWarning') : t('credentials.usage.empty') }}</span>
           </div>
           <div v-if="usage?.total" class="usage-groups">
-            <section v-for="group in (['devices', 'workflows', 'plugins'] as const)" :key="group" class="usage-group">
+            <section v-for="group in visibleUsageGroups" :key="group" class="usage-group">
               <h4>{{ t(`credentials.usage.groups.${group}`, { count: usageGroups[group].length }) }}</h4>
               <ul v-if="usageGroups[group].length"><li v-for="item in usageGroups[group]" :key="`${item.type}:${item.id}`"><strong>{{ usageItemName(item) }}</strong><small>{{ item.id }}</small></li></ul>
               <p v-else>{{ t('credentials.usage.groupEmpty') }}</p>

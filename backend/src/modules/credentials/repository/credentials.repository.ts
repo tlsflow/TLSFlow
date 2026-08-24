@@ -8,6 +8,21 @@ import type {
 } from '../../../persistence/entities/credential-profile.entity.js';
 import type { SecretScopeType } from '../../../shared/security-types.js';
 
+export type CredentialUsageType =
+  | 'PLUGIN_BINDING'
+  | 'DEVICE'
+  | 'DEPLOYMENT_PLAN'
+  | 'ACME_RENEWAL_POLICY'
+  | 'CLOUD_ACCOUNT_ASSET'
+  | 'BROWSER_CREDENTIAL_SESSION';
+
+export interface CredentialUsageItem {
+  type: CredentialUsageType;
+  id: string;
+  name?: string;
+  detail?: Record<string, unknown>;
+}
+
 export class CredentialsRepository {
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
 
@@ -68,12 +83,7 @@ export class CredentialsRepository {
     return result.rows.length > 0;
   }
 
-  async listUsage(tenantId: string, credentialId: string): Promise<Array<{
-    type: 'PLUGIN_BINDING' | 'DEVICE' | 'DEPLOYMENT_PLAN';
-    id: string;
-    name?: string;
-    detail?: Record<string, unknown>;
-  }>> {
+  async listUsage(tenantId: string, credentialId: string): Promise<CredentialUsageItem[]> {
     const bindings = await this.db.query<{ id: string; plugin_version_id: string; mode: string }>(
       `select id, plugin_version_id, mode
          from unified_plugin_bindings
@@ -107,10 +117,80 @@ export class CredentialsRepository {
         order by document_id`,
       [tenantId, credentialId],
     );
+    const acmePolicies = await this.db.query<{
+      id: string;
+      certificate_asset_id: string | null;
+      certificate_name: string | null;
+    }>(
+      `select policy.id, policy.certificate_asset_id, asset.name as certificate_name
+         from pg_acme_renewal_policies policy
+         left join pg_certificate_assets asset
+           on asset.tenant_id=policy.tenant_id and asset.id=policy.certificate_asset_id
+        where policy.tenant_id=$1
+          and policy.maintenance_window->>'dnsCredentialId'=$2
+          and (asset.id is null or asset.status<>'deleted')
+        order by policy.id`,
+      [tenantId, credentialId],
+    );
+    const cloudAccounts = await this.db.query<{
+      id: string;
+      display_name: string;
+      provider_key: string;
+      account_id: string | null;
+    }>(
+      `select id, display_name, provider_key, account_id
+         from pg_cloud_account_assets
+        where tenant_id=$1
+          and deleted_at is null
+          and (credential_ref=('credential://' || $2) or credential_ref like ('credential://' || $2 || '#%'))
+        order by id`,
+      [tenantId, credentialId],
+    );
+    const browserSessions = await this.db.query<{
+      id: string;
+      login_url: string | null;
+      asset_id: string;
+      status: string;
+      expires_at: string | Date;
+    }>(
+      `select id, login_url, asset_id, status, expires_at
+         from browser_credential_sessions
+        where tenant_id=$1
+          and credential_profile_id=$2
+          and status in ('created', 'ready', 'acquiring')
+          and expires_at>now()
+        order by id`,
+      [tenantId, credentialId],
+    );
     return [
       ...bindings.rows.map((row) => ({ type: 'PLUGIN_BINDING' as const, id: row.id, detail: { pluginVersionId: row.plugin_version_id, mode: row.mode } })),
       ...devices.rows.map((row) => ({ type: 'DEVICE' as const, id: row.service_asset_id, name: row.display_name })),
       ...planTargets.rows.map((row) => ({ type: 'DEPLOYMENT_PLAN' as const, id: row.deployment_plan_id, detail: { targetId: row.document_id } })),
+      ...acmePolicies.rows.map((row) => ({
+        type: 'ACME_RENEWAL_POLICY' as const,
+        id: row.id,
+        ...(row.certificate_name ? { name: row.certificate_name } : {}),
+        detail: row.certificate_asset_id ? { certificateAssetId: row.certificate_asset_id } : undefined,
+      })),
+      ...cloudAccounts.rows.map((row) => ({
+        type: 'CLOUD_ACCOUNT_ASSET' as const,
+        id: row.id,
+        name: row.display_name,
+        detail: {
+          providerKey: row.provider_key,
+          ...(row.account_id ? { accountId: row.account_id } : {}),
+        },
+      })),
+      ...browserSessions.rows.map((row) => ({
+        type: 'BROWSER_CREDENTIAL_SESSION' as const,
+        id: row.id,
+        ...(row.login_url ? { name: row.login_url } : {}),
+        detail: {
+          assetId: row.asset_id,
+          status: row.status,
+          expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : row.expires_at,
+        },
+      })),
     ];
   }
 
