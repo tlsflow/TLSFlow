@@ -13,6 +13,8 @@ services:
       GCAC_DEPLOYMENT_ARCHITECTURE: small
       GCAC_PERSISTENCE_BACKEND: pglite
       GCAC_PGLITE_DATA_DIR: /var/lib/gcac/pglite
+      GCAC_TOKEN_SECRET: ${GCAC_TOKEN_SECRET:?请设置 GCAC_TOKEN_SECRET}
+      GCAC_INITIAL_ADMIN_PASSWORD: ${GCAC_INITIAL_ADMIN_PASSWORD:?请设置 GCAC_INITIAL_ADMIN_PASSWORD}
       GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
       GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
@@ -54,7 +56,7 @@ services:
     mem_limit: 2g
     cpus: 2
     ports:
-      - "${GCAC_PORT:-3003}:3003"
+      - "${GCAC_PORT:-8085}:3003"
     volumes:
       - gcac_small_pglite:/var/lib/gcac/pglite
       - gcac_small_workflows:/app/data/workflows
@@ -94,6 +96,8 @@ services:
       GCAC_DATABASE_NAME: ${POSTGRES_DB:-gcac}
       GCAC_DATABASE_USER: ${POSTGRES_USER:-gcac}
       GCAC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      GCAC_TOKEN_SECRET: ${GCAC_TOKEN_SECRET:?请设置 GCAC_TOKEN_SECRET}
+      GCAC_INITIAL_ADMIN_PASSWORD: ${GCAC_INITIAL_ADMIN_PASSWORD:?请设置 GCAC_INITIAL_ADMIN_PASSWORD}
       GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
       GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
@@ -163,7 +167,7 @@ services:
       browser-runtime:
         condition: service_started
     ports:
-      - "${GCAC_PORT:-8080}:80"
+      - "${GCAC_PORT:-8085}:80"
     restart: unless-stopped
 
   browser-runtime:
