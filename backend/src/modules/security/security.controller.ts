@@ -35,6 +35,8 @@ import type { TenantContextService } from './tenant-context.service.js';
 import { TenantScopeService } from './tenant-scope.service.js';
 import type { TenantModeService } from './tenant-mode.service.js';
 import type { TenantArchitectureService } from './tenant-architecture.service.js';
+import type { BusinessPermissionGrantEntity, BusinessPermissionRelationEntity, BusinessPermissionDomain, BusinessPermissionLevel } from '../../persistence/entities/business-permission.entity.js';
+import { BusinessPermissionResolver } from './business-permission.resolver.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -52,6 +54,7 @@ export interface SecurityServices {
   secrets: SecretService;
   auth: AuthService;
   externalIdentity: ExternalIdentityService;
+  businessPermissions?: BusinessPermissionResolver;
   // 默认内存工厂未执行数据库迁移，不提供租户持久化服务。
   tenantHierarchy?: TenantHierarchyService;
   tenantContext?: TenantContextService;
@@ -76,6 +79,8 @@ export function createSecurityServices(): SecurityServices {
   const objectSets = new PgDocumentRepository<ObjectSetEntity>(db, 'security.object_sets');
   const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
+  const businessPermissionGrants = new PgDocumentRepository<BusinessPermissionGrantEntity>(db, 'security.business_permission_grants');
+  const businessPermissionRelations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'security.business_permission_relations');
   const audit = new AuditService();
   const approvals = new ApprovalService(undefined, audit, {
     allowSelfApproval: process.env.GCAC_APPROVAL_ALLOW_SELF_APPROVAL === 'true',
@@ -84,9 +89,12 @@ export function createSecurityServices(): SecurityServices {
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
+  const businessPermissions = new BusinessPermissionResolver(businessPermissionGrants, businessPermissionRelations, objectPermissions);
+  rbac.attachBusinessPermissionResolver(businessPermissions);
+  objectPermissions.attachBusinessPermissionResolver(businessPermissions);
   const auth = new AuthService(rbac, undefined, audit, undefined, objectPermissions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets);
-  return { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity };
+  return { rbac, objectPermissions, businessPermissions, audit, approvals, grants, secrets, auth, externalIdentity };
 }
 
 export class SecurityController {
@@ -162,6 +170,11 @@ export class SecurityController {
     router.get('/api/v1/security/access-grants', '查询对象级访问授权', ['Security'], (request) => this.listAccessGrants(request));
     router.post('/api/v1/security/access-grants', '创建对象级访问授权', ['Security'], (request) => this.createAccessGrant(request));
     router.post('/api/v1/security/object-capabilities', '批量查询对象级能力', ['Security'], (request) => this.getObjectCapabilities(request));
+    router.get('/api/v1/security/business-permission-domains', '查询业务权限注册表', ['Security'], (request) => this.listBusinessPermissionDefinitions(request));
+    router.get('/api/v1/security/business-permission-grants', '查询业务权限授权', ['Security'], (request) => this.listBusinessPermissionGrants(request));
+    router.post('/api/v1/security/business-permission-grants', '创建业务权限授权', ['Security'], (request) => this.createBusinessPermissionGrant(request));
+    router.delete('/api/v1/security/business-permission-grants', '撤销业务权限授权', ['Security'], (request) => this.revokeBusinessPermissionGrant(request));
+    router.post('/api/v1/security/business-permission-capabilities', '解析业务权限能力', ['Security'], (request) => this.resolveBusinessPermissionCapabilities(request));
     router.get('/api/v1/security/identity-sources', '查询身份源', ['Security'], (request) => this.listIdentitySources(request));
     router.post('/api/v1/security/identity-sources', '创建身份源', ['Security'], (request) => this.createIdentitySource(request));
     router.patch('/api/v1/security/identity-sources', '更新身份源', ['Security'], (request) => this.updateIdentitySource(request));
@@ -234,6 +247,9 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     const session = await this.services.auth.currentSession(subject.id);
     const objectPermission = await this.services.objectPermissions.permissionContext(subject);
+    const businessPermissions = this.services.businessPermissions
+      ? await this.services.businessPermissions.permissionContext(subject, requireTenantId(request))
+      : [];
     return {
       user: session.user,
       roles: session.user.roles,
@@ -241,6 +257,8 @@ export class SecurityController {
       objectSets: objectPermission.objectSets,
       roleBindings: objectPermission.roleBindings,
       objectPermissionVersion: objectPermission.version,
+      businessPermissions,
+      businessPermissionVersion: businessPermissionContextVersion(businessPermissions),
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     };
   }
@@ -1304,6 +1322,97 @@ export class SecurityController {
     return { items };
   }
 
+  private async listBusinessPermissionDefinitions(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'businessPermission');
+    return { items: this.requireBusinessPermissions().listDefinitions() };
+  }
+
+  private async listBusinessPermissionGrants(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'businessPermission');
+    const domain = readOptionalQueryString(request, 'domain') as BusinessPermissionDomain | undefined;
+    return page(await this.requireBusinessPermissions().list(undefined, {
+      tenantId: requireTenantId(request),
+      principalType: readOptionalQueryString(request, 'principalType') as BusinessPermissionGrantEntity['principalType'] | undefined,
+      principalId: readOptionalQueryString(request, 'principalId'),
+      domain,
+      rootObjectId: readOptionalQueryString(request, 'rootObjectId'),
+    }));
+  }
+
+  private async createBusinessPermissionGrant(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'businessPermission');
+    const body = validateObject(request.body, {
+      principalType: { type: 'string', required: true, enum: ['user', 'group', 'external_group'] },
+      principalId: { type: 'string', required: true },
+      roleId: { type: 'string', required: true },
+      domain: { type: 'string', required: true, enum: ['certificate', 'application', 'audit', 'settings'] },
+      level: { type: 'string', required: true, enum: ['user', 'manager'] },
+      rootObjectType: { type: 'string', required: true },
+      rootObjectId: { type: 'string' },
+      rootScope: { type: 'object' },
+      effect: { type: 'string', enum: ['allow', 'deny'] },
+    });
+    const tenantId = requireTenantId(request);
+    const created = await this.requireBusinessPermissions().create({
+      tenantId,
+      principalType: body.principalType as BusinessPermissionGrantEntity['principalType'],
+      principalId: String(body.principalId),
+      roleId: String(body.roleId),
+      domain: body.domain as BusinessPermissionDomain,
+      level: body.level as BusinessPermissionLevel,
+      rootObjectType: String(body.rootObjectType),
+      rootObjectId: body.rootObjectId === undefined ? undefined : String(body.rootObjectId),
+      rootScope: body.rootScope as Record<string, unknown> | undefined,
+      effect: (body.effect ?? 'allow') as 'allow' | 'deny',
+      createdBy: subject.id,
+    });
+    await this.writeAudit(request, subject, 'security.business_permission.created', 'security.business_permission.create', 'businessPermission', created.id, {
+      domain: created.domain,
+      level: created.level,
+      rootObjectType: created.rootObjectType,
+      rootObjectId: created.rootObjectId,
+      expandedResourceTypes: created.expandedResourceTypes,
+    });
+    return { statusCode: 201, body: created };
+  }
+
+  private async revokeBusinessPermissionGrant(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'businessPermission');
+    const body = validateObject(request.body, { id: { type: 'string', required: true }, version: { type: 'number' } });
+    const revoked = await this.requireBusinessPermissions().revoke(String(body.id), body.version === undefined ? undefined : Number(body.version));
+    if (!revoked || revoked.tenantId !== requireTenantId(request)) throw new AppError('RESOURCE_NOT_FOUND', '业务授权不存在');
+    await this.writeAudit(request, subject, 'security.business_permission.revoked', 'security.business_permission.revoke', 'businessPermission', revoked.id, {
+      domain: revoked.domain,
+      rootObjectType: revoked.rootObjectType,
+      rootObjectId: revoked.rootObjectId,
+      version: revoked.version,
+    });
+    return { id: revoked.id, revoked: true, version: revoked.version };
+  }
+
+  private async resolveBusinessPermissionCapabilities(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const body = validateObject(request.body, {
+      domain: { type: 'string', required: true, enum: ['certificate', 'application', 'audit', 'settings'] },
+      level: { type: 'string', required: true, enum: ['user', 'manager'] },
+      rootObjectType: { type: 'string', required: true },
+      rootObjectId: { type: 'string' },
+      rootScope: { type: 'object' },
+      capability: { type: 'string' },
+    });
+    if (body.capability !== undefined) throw new AppError('VALIDATION_FAILED', 'capability 不能作为后端授权依据', { field: 'capability' });
+    return this.requireBusinessPermissions().resolveForSubject(subject, body.domain as BusinessPermissionDomain, body.level as BusinessPermissionLevel, {
+      tenantId: requireTenantId(request),
+      objectType: String(body.rootObjectType),
+      objectId: body.rootObjectId === undefined ? undefined : String(body.rootObjectId),
+      rootScope: body.rootScope as Record<string, unknown> | undefined,
+    }, this.securityContext(request, subject));
+  }
+
   private async listIdentitySources(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.identity_source.read', request, 'identitySource');
@@ -1470,6 +1579,11 @@ export class SecurityController {
     };
   }
 
+  private requireBusinessPermissions(): BusinessPermissionResolver {
+    if (!this.services.businessPermissions) throw new AppError('SYSTEM_INTERNAL_ERROR', '业务权限服务未装配');
+    return this.services.businessPermissions;
+  }
+
   private async optionalSubjectFromRequest(request: HttpRequest): Promise<SecuritySubject | undefined> {
     return request.context.actorId ? this.subjectFromRequest(request) : undefined;
   }
@@ -1517,6 +1631,10 @@ export class SecurityController {
 
 function page<T>(items: T[]) {
   return { items, page: 1, pageSize: 20, total: items.length };
+}
+
+function businessPermissionContextVersion(items: readonly unknown[]): string {
+  return `bpctx_${Buffer.from(JSON.stringify(items)).toString('base64url').slice(0, 24)}`;
 }
 
 function sortAuditItems<T extends AuditLogEntity>(items: T[], sort: { field: string; direction: 'asc' | 'desc' }): T[] {
@@ -1807,6 +1925,11 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/security/access-grants', operationId: 'listSecurityAccessGrants', summary: '查询对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/access-grants', operationId: 'createSecurityAccessGrant', summary: '创建对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/object-capabilities', operationId: 'getSecurityObjectCapabilities', summary: '批量查询对象级能力', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/business-permission-domains', operationId: 'listBusinessPermissionDefinitions', summary: '查询业务权限注册表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/business-permission-grants', operationId: 'listBusinessPermissionGrants', summary: '查询业务权限授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/business-permission-grants', operationId: 'createBusinessPermissionGrant', summary: '创建业务权限授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'DELETE', path: '/api/v1/security/business-permission-grants', operationId: 'revokeBusinessPermissionGrant', summary: '撤销业务权限授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/business-permission-capabilities', operationId: 'resolveBusinessPermissionCapabilities', summary: '解析业务权限能力', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '查询身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '创建身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/identity-sources', operationId: 'updateIdentitySource', summary: '更新身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

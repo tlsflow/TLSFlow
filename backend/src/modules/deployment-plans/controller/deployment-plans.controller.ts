@@ -6,6 +6,7 @@ import { applyAuthorizationFilter } from '../../../common/pagination/pagination.
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel, SecuritySubject } from '../../../shared/security-types.js';
+import { securityErrors } from '../../../shared/security-error.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import { assertGatewayRouteChannel, type GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
@@ -72,6 +73,7 @@ export class DeploymentPlansController {
     const rawPlanId = request.query.planId;
     const planId = Array.isArray(rawPlanId) ? rawPlanId[0] : rawPlanId;
     if (!planId) throw new AppError('VALIDATION_FAILED', 'planId 不能为空');
+    await this.assertPlanAction(request, ['application.deployment.read', 'deployment.plan.read'], planId);
     const items = await this.service.listInputSnapshots(planId, request.context.tenantId);
     return { items, page: 1, pageSize: items.length, total: items.length };
   }
@@ -90,7 +92,7 @@ export class DeploymentPlansController {
     });
   }
 
-  private create(request: HttpRequest) {
+  private async create(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
       certificateVersionId: { type: 'string' },
@@ -102,6 +104,14 @@ export class DeploymentPlansController {
       policy: { type: 'object' },
     });
     const actorId = this.actorId(request);
+    const applicationAssetId = Array.isArray(body.targets)
+      ? body.targets.find((target) => target && typeof target === 'object' && !Array.isArray(target) && typeof (target as Record<string, unknown>).applicationAssetId === 'string') as Record<string, unknown> | undefined
+      : undefined;
+    if (applicationAssetId?.applicationAssetId) {
+      await this.assertPlanAction(request, 'application.update', String(applicationAssetId.applicationAssetId), ['service_asset', 'application_asset']);
+    } else {
+      await this.assertPlanAction(request, 'deployment.plan.create');
+    }
     return {
       statusCode: 201,
       body: this.service.create({
@@ -119,7 +129,7 @@ export class DeploymentPlansController {
     };
   }
 
-  private createFromApplicationAsset(request: HttpRequest) {
+  private async createFromApplicationAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       applicationAssetId: { type: 'string' },
       applicationId: { type: 'string' },
@@ -135,6 +145,7 @@ export class DeploymentPlansController {
     if (typeof applicationAssetId !== 'string' || applicationAssetId.trim() === '') {
       throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
     }
+    await this.assertPlanAction(request, 'application.update', String(applicationAssetId), ['service_asset', 'application_asset']);
     const actorId = this.actorId(request);
     return {
       statusCode: 201,
@@ -153,7 +164,7 @@ export class DeploymentPlansController {
     };
   }
 
-  private updateFromApplicationAsset(request: HttpRequest) {
+  private async updateFromApplicationAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
       applicationAssetId: { type: 'string', required: true },
@@ -164,6 +175,7 @@ export class DeploymentPlansController {
       planType: { type: 'string' },
       policy: { type: 'object' },
     });
+    await this.assertPlanAction(request, 'deployment.plan.update', String(body.planId));
     const actorId = this.actorId(request);
     return this.service.updateDraftFromApplicationAsset({
       planId: String(body.planId),
@@ -179,11 +191,12 @@ export class DeploymentPlansController {
     }, this.securityContext(request));
   }
 
-  private submit(request: HttpRequest) {
+  private async submit(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
       approvalId: { type: 'string' },
     });
+    await this.assertPlanAction(request, ['application.deployment.submit', 'deployment.plan.submit'], String(body.planId));
     return this.service.submit({
       planId: String(body.planId),
       approvalId: body.approvalId === undefined ? undefined : String(body.approvalId),
@@ -198,6 +211,7 @@ export class DeploymentPlansController {
       idempotencyKey: { type: 'string' },
       approvalId: { type: 'string' },
     });
+    await this.assertPlanAction(request, ['application.deployment.execute', 'deployment.plan.execute'], String(body.planId));
     return this.service.execute({
       planId: String(body.planId),
       idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
@@ -212,6 +226,7 @@ export class DeploymentPlansController {
       planId: { type: 'string', required: true },
       idempotencyKey: { type: 'string' },
     });
+    await this.assertPlanAction(request, ['application.deployment.execute', 'deployment.plan.execute'], String(body.planId));
     return this.service.dryRun({
       planId: String(body.planId),
       idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
@@ -220,11 +235,12 @@ export class DeploymentPlansController {
     }, this.securityContext(request));
   }
 
-  private cancel(request: HttpRequest) {
+  private async cancel(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
       reason: { type: 'string' },
     });
+    await this.assertPlanAction(request, ['application.deployment.rollback', 'deployment.plan.rollback', 'deployment.plan.cancel'], String(body.planId));
     return this.service.cancel({
       planId: String(body.planId),
       reason: body.reason === undefined ? undefined : String(body.reason),
@@ -233,11 +249,12 @@ export class DeploymentPlansController {
     }, this.securityContext(request));
   }
 
-  private deleteDraft(request: HttpRequest) {
+  private async deleteDraft(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
       reason: { type: 'string' },
     });
+    await this.assertPlanAction(request, ['application.deployment.update', 'deployment.plan.update', 'deployment.plan.delete'], String(body.planId));
     return this.service.deleteDraft({
       planId: String(body.planId),
       reason: body.reason === undefined ? undefined : String(body.reason),
@@ -246,12 +263,13 @@ export class DeploymentPlansController {
     }, this.securityContext(request));
   }
 
-  private reevaluateCapabilities(request: HttpRequest) {
+  private async reevaluateCapabilities(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
       targetResults: { type: 'array', required: true },
     });
     if (!Array.isArray(body.targetResults)) throw new AppError('VALIDATION_FAILED', 'targetResults 必须是数组');
+    await this.assertPlanAction(request, ['application.deployment.update', 'deployment.plan.update'], String(body.planId));
     return this.service.reevaluateCapabilities({
       planId: String(body.planId),
       targetResults: body.targetResults.map((item, index) => {
@@ -366,6 +384,49 @@ export class DeploymentPlansController {
     return request.context.actorId;
   }
 
+  /**
+   * 业务授权和历史技术授权共用同一个入口：业务授权按注册表解析动作，
+   * 历史对象授权仍可放行；任一旧技术显式 deny 必须先于 allow 生效。
+   */
+  private async assertPlanAction(
+    request: HttpRequest,
+    actions: string | readonly string[],
+    resourceId?: string,
+    resourceTypes: string | readonly string[] = 'deployment_plan',
+  ): Promise<void> {
+    if (!this.security) return;
+    const subject = this.subjectFromRequest(request);
+    const actionCandidates = typeof actions === 'string' ? [actions] : [...actions];
+    const typeCandidates = typeof resourceTypes === 'string' ? [resourceTypes] : [...resourceTypes];
+    const context = this.securityContext(request);
+    const accessLevel = planActionAccessLevel(actionCandidates);
+
+    for (const resourceType of typeCandidates) {
+      const objectDecision = await this.security.objectPermissions.can(subject, accessLevel, {
+        objectType: resourceType,
+        objectId: resourceId,
+        tenantId: request.context.tenantId,
+      }, context);
+      if (objectDecision.reason === 'explicit deny') {
+        throw securityErrors.permissionDenied({ action: actionCandidates, objectType: resourceType, objectId: resourceId, reason: 'legacy technical deny' });
+      }
+
+      for (const action of actionCandidates) {
+        const rbacDecision = await this.security.rbac.can(subject, action, {
+          type: resourceType,
+          id: resourceId,
+          scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+        }, context);
+        if (rbacDecision.reason === 'explicit deny') {
+          throw securityErrors.permissionDenied({ action, resourceType, resourceId, reason: 'explicit deny' });
+        }
+        if (rbacDecision.allowed || objectDecision.allowed) return;
+      }
+    }
+
+    throw securityErrors.permissionDenied({ action: actionCandidates, resourceTypes: typeCandidates, resourceId, reason: 'no business or legacy grant' });
+  }
+
   private securityContext(request: HttpRequest) {
     return {
       requestId: request.context.requestId,
@@ -373,6 +434,12 @@ export class DeploymentPlansController {
       actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } },
     };
   }
+}
+
+function planActionAccessLevel(actions: readonly string[]): 'read' | 'edit' | 'control' {
+  if (actions.every((action) => action.endsWith('.read'))) return 'read';
+  if (actions.some((action) => /(execute|submit|rollback|cancel|delete)$/.test(action))) return 'control';
+  return 'edit';
 }
 
 function parseExecutorType(value: unknown, field: string): ExecutionTargetKind | undefined {

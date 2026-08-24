@@ -18,6 +18,10 @@ export interface RbacDecision {
 export class RBACService {
   private static readonly defaultDb = new PgliteDatabase();
   private readonly tenantScope = new TenantScopeService();
+  private businessPermissionResolver?: {
+    isActionAllowed(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean>;
+    isActionExplicitlyDenied(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean>;
+  };
 
   private static createDefaultUsersRepository(): AsyncRepositoryPort<UserEntity> {
     return new PgDocumentRepository<UserEntity>(RBACService.defaultDb, 'security.users');
@@ -42,6 +46,13 @@ export class RBACService {
     private readonly policies: AsyncRepositoryPort<PermissionPolicyEntity> = RBACService.createDefaultPoliciesRepository(),
     private readonly audit?: AuditService,
   ) {}
+
+  attachBusinessPermissionResolver(resolver: {
+    isActionAllowed(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean>;
+    isActionExplicitlyDenied(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean>;
+  }): void {
+    this.businessPermissionResolver = resolver;
+  }
 
   async createUser(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): Promise<UserEntity> {
     const now = new Date().toISOString();
@@ -234,6 +245,19 @@ export class RBACService {
     const allowed = matched.filter((policy) => policy.effect === 'allow');
     if (allowed.length > 0) {
       return { allowed: true, reason: 'allow', matchedPolicyIds: allowed.map((policy) => policy.id) };
+    }
+
+    const businessResource = {
+      type: resource.type,
+      id: resource.id,
+      tenantId: resource.scope?.tenantId,
+    };
+    if (await this.businessPermissionResolver?.isActionExplicitlyDenied(subject, action, businessResource) === true) {
+      await this.auditDeny(subject, action, resource, context, 'explicit business deny');
+      return { allowed: false, reason: 'explicit deny', matchedPolicyIds: [] };
+    }
+    if (await this.businessPermissionResolver?.isActionAllowed(subject, action, businessResource) === true) {
+      return { allowed: true, reason: 'business permission allow', matchedPolicyIds: [] };
     }
 
     await this.auditDeny(subject, action, resource, context, 'no allow policy');

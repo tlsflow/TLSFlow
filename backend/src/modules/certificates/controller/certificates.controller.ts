@@ -108,16 +108,18 @@ export class CertificatesController {
   private async archiveAsset(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
-    return this.services.certificates.archiveAsset({ id: readRequiredId(request), status: 'archived', actorId: subject.id, tenantId }, this.securityContext(request, subject));
+    const assetId = readRequiredId(request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request, assetId);
+    return this.services.certificates.archiveAsset({ id: assetId, status: 'archived', actorId: subject.id, tenantId }, this.securityContext(request, subject));
   }
 
   private async deleteAsset(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request);
-    const usages = await this.findUsages(request, { certificateAssetId: readRequiredId(request) });
-    return this.services.certificates.deleteAsset({ id: readRequiredId(request), status: 'deleted', actorId: subject.id, tenantId }, usages, this.securityContext(request, subject));
+    const assetId = readRequiredId(request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_asset', request, assetId);
+    const usages = await this.findUsages(request, { certificateAssetId: assetId });
+    return this.services.certificates.deleteAsset({ id: assetId, status: 'deleted', actorId: subject.id, tenantId }, usages, this.securityContext(request, subject));
   }
 
   private async createAsset(request: HttpRequest) {
@@ -205,22 +207,25 @@ export class CertificatesController {
   private async archiveVersion(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
-    return this.services.certificates.archiveVersion({ id: readRequiredId(request), status: 'archived', actorId: subject.id, tenantId }, this.securityContext(request, subject));
+    const versionId = readRequiredId(request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request, versionId);
+    return this.services.certificates.archiveVersion({ id: versionId, status: 'archived', actorId: subject.id, tenantId }, this.securityContext(request, subject));
   }
 
   private async revokeVersion(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
-    return this.services.certificates.revokeVersion({ id: readRequiredId(request), status: 'revoked', actorId: subject.id, tenantId }, this.securityContext(request, subject));
+    const versionId = readRequiredId(request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request, versionId);
+    return this.services.certificates.revokeVersion({ id: versionId, status: 'revoked', actorId: subject.id, tenantId }, this.securityContext(request, subject));
   }
 
   private async deleteVersion(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request);
-    const version = await this.services.certificates.getVersionDetail(readRequiredId(request), tenantId);
+    const versionId = readRequiredId(request);
+    await this.assertCan(subject, 'certificate.lifecycle', 'certificate_version', request, versionId);
+    const version = await this.services.certificates.getVersionDetail(versionId, tenantId);
     const usages = await this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 });
     return this.services.certificates.deleteVersion({ id: version.id, status: 'deleted', actorId: subject.id, tenantId }, usages, this.securityContext(request, subject));
   }
@@ -247,7 +252,8 @@ export class CertificatesController {
     });
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    const importResourceId = body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId);
+    await this.assertCan(subject, 'certificate.import', importResourceId ? 'certificate_asset' : 'certificate_version', request, importResourceId);
     return {
       statusCode: 201,
       body: await this.services.certificates.importVersion({
@@ -288,7 +294,8 @@ export class CertificatesController {
     });
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    const importResourceId = body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId);
+    await this.assertCan(subject, 'certificate.import', importResourceId ? 'certificate_asset' : 'certificate_version', request, importResourceId);
     return {
       statusCode: 200,
       body: this.services.certificates.validateImportVersion({
@@ -552,9 +559,10 @@ export class CertificatesController {
     return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
 
-  private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest): Promise<void> {
+  private async assertCan(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
     await this.security.rbac.assertCan(subject, action, {
       type: resourceType,
+      id: resourceId,
       scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
   }

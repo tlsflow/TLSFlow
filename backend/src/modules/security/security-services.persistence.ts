@@ -14,6 +14,7 @@ import type {
   RoleBindingEntity,
 } from '../../persistence/entities/object-permission.entity.js';
 import type { SecretEntity, SecretVersionEntity } from '../../persistence/entities/secret.entity.js';
+import type { BusinessPermissionGrantEntity, BusinessPermissionRelationEntity } from '../../persistence/entities/business-permission.entity.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
@@ -31,9 +32,11 @@ import { PgTenantRepository } from './repository/tenant.repository.js';
 import { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import { TenantContextService, type TenantContextStateEntity } from './tenant-context.service.js';
 import { TenantModeService, type TenantModeBatchEntity, type TenantModeStateEntity } from './tenant-mode.service.js';
-
+import { BusinessPermissionResolver } from './business-permission.resolver.js';
+import { createBusinessPermissionRelationProjector } from './business-permission.relation-projector.js';
 import { TenantArchitectureService } from './tenant-architecture.service.js';
 import type { TenantMode } from '../../shared/security-types.js';
+
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
 
@@ -66,6 +69,8 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const objectSets = new PgDocumentRepository<ObjectSetEntity>(db, 'security.object_sets');
   const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
+  const businessPermissionGrants = new PgDocumentRepository<BusinessPermissionGrantEntity>(db, 'security.business_permission_grants');
+  const businessPermissionRelations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'security.business_permission_relations');
   const tenantIdentity = new TenantIdentityService(db);
 
   const audit = new AuditService(auditLogs, undefined, () => resolveUnambiguousDefaultTenant(db, tenantIdentity));
@@ -76,6 +81,14 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
+  const businessPermissions = new BusinessPermissionResolver(
+    businessPermissionGrants,
+    businessPermissionRelations,
+    objectPermissions,
+    createBusinessPermissionRelationProjector(db),
+  );
+  rbac.attachBusinessPermissionResolver(businessPermissions);
+  objectPermissions.attachBusinessPermissionResolver(businessPermissions);
   const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
   const tenantMode = new TenantModeService(db, tenantModeStates, tenantModeBatches, audit, tenantHierarchy, objectPermissions, options.initialTenantMode ?? 'single');
   const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates, tenantMode);
@@ -85,7 +98,7 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
-    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode, tenantArchitecture },
+    services: { rbac, objectPermissions, businessPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext, tenantMode, tenantArchitecture },
     flushers: [],
   };
 }

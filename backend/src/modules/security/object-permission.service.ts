@@ -21,6 +21,7 @@ import { securityErrors } from '../../shared/security-error.js';
 import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import { TenantScopeService } from './tenant-scope.service.js';
+import type { BusinessPermissionResolver } from './business-permission.resolver.js';
 
 export interface ObjectRef {
   objectType: string;
@@ -73,6 +74,7 @@ export class ObjectPermissionService {
   // 中文说明：同一个 HTTP 请求会复用同一个 SecuritySubject。只在该对象生命周期内缓存，
   // 避免跨请求持有旧权限，既减少重复扫描，又不延迟权限回收。
   private authorizationStateCache = new WeakMap<SecuritySubject, Promise<AuthorizationState>>();
+  private businessPermissionResolver?: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'authorizedObjectIds'>;
 
   constructor(
     private readonly groups: AsyncRepositoryPort<GroupEntity> = ObjectPermissionService.repo<GroupEntity>('security.groups'),
@@ -87,6 +89,11 @@ export class ObjectPermissionService {
     private readonly roles?: AsyncRepositoryPort<RoleEntity>,
     private readonly audit?: AuditService,
   ) {}
+
+  attachBusinessPermissionResolver(resolver: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'authorizedObjectIds'>): void {
+    this.businessPermissionResolver = resolver;
+    this.invalidateAuthorizationStateCache();
+  }
 
   private defaultObjectTypesPromise?: Promise<void>;
 
@@ -334,18 +341,6 @@ export class ObjectPermissionService {
     await this.ensureDefaultObjectTypes();
     const authorizationState = await this.getAuthorizationState(subject);
     const action = actionFor(object.objectType, accessLevel);
-    if (authorizationState.adminWildcard) {
-      return {
-        allowed: true,
-        accessLevel,
-        action,
-        reason: 'admin wildcard',
-        matchedBindings: [],
-        matchedObjectSets: [],
-        matchedActions: [action, '*'],
-        requiresApproval: isHighRiskAction(action),
-      };
-    }
     if (subject.scope?.tenantScope && !allowsObjectPermissionScope(this.tenantScope, subject.scope.tenantScope, object)) {
       await this.auditDeny(subject, action, object, context, 'tenant scope denied');
       return decision(false, accessLevel, action, 'tenant scope denied', [], []);
@@ -381,6 +376,21 @@ export class ObjectPermissionService {
     if (matchedGrants.some((item) => item.effect === 'allow')) {
       return decision(true, accessLevel, action, 'allow', matchedBindings, matchedObjectSets);
     }
+    if (authorizationState.adminWildcard) {
+      return {
+        allowed: true,
+        accessLevel,
+        action,
+        reason: 'admin wildcard',
+        matchedBindings: [],
+        matchedObjectSets: [],
+        matchedActions: [action, '*'],
+        requiresApproval: isHighRiskAction(action),
+      };
+    }
+    if (await this.businessPermissionResolver?.isResourceAllowed(subject, object, accessLevel) === true) {
+      return decision(true, accessLevel, action, 'business permission allow', [], []);
+    }
     await this.auditDeny(subject, action, object, context, 'no object grant');
     return decision(false, accessLevel, action, 'no object grant', matchedBindings, matchedObjectSets);
   }
@@ -390,7 +400,6 @@ export class ObjectPermissionService {
   async isAllowed(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef): Promise<boolean> {
     await this.ensureDefaultObjectTypes();
     const authorizationState = await this.getAuthorizationState(subject);
-    if (authorizationState.adminWildcard) return true;
     if (subject.scope?.tenantScope && !allowsObjectPermissionScope(this.tenantScope, subject.scope.tenantScope, object)) return false;
 
     const bindings = authorizationState.bindings.filter((item) =>
@@ -416,6 +425,8 @@ export class ObjectPermissionService {
 
     if (matchedBindings.some((item) => item.effect === 'deny')) return false;
     if (matchedGrants.some((item) => item.effect === 'deny')) return false;
+    if (authorizationState.adminWildcard) return true;
+    if (await this.businessPermissionResolver?.isResourceAllowed(subject, object, accessLevel) === true) return true;
     return matchedGrants.some((item) => item.effect === 'allow');
   }
 
@@ -429,9 +440,7 @@ export class ObjectPermissionService {
   async buildAuthorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: AccessLevel): Promise<AuthorizedQuery> {
     const tenantFilter = subject.scope?.tenantScope ? this.tenantScope.toFilter(subject.scope.tenantScope) : {};
     const authorizationState = await this.getAuthorizationState(subject);
-    if (authorizationState.adminWildcard) {
-      return { empty: false, unrestricted: true, dynamicConditions: [] };
-    }
+    const businessObjectIds = await this.businessPermissionResolver?.authorizedObjectIds(subject, objectType, accessLevel) ?? [];
     const tenantId = subject.scope?.tenantId;
     const bindings = authorizationState.bindings.filter((item) =>
       item.enabled
@@ -479,11 +488,12 @@ export class ObjectPermissionService {
     return {
       ...tenantFilter,
       ...(ownerTypes ? { ownerTypes } : {}),
-      empty: staticIds.length === 0 && dynamicConditions.length === 0,
-      objectIds: [...new Set(staticIds)],
+      empty: staticIds.length === 0 && dynamicConditions.length === 0 && businessObjectIds.length === 0 && !authorizationState.adminWildcard,
+      objectIds: [...new Set([...staticIds, ...businessObjectIds])],
       dynamicConditions,
       deniedObjectIds: [...new Set(deniedStaticIds)],
       deniedDynamicConditions,
+      ...(authorizationState.adminWildcard ? { unrestricted: true } : {}),
     };
   }
 
@@ -502,6 +512,19 @@ export class ObjectPermissionService {
       for (const userRole of await this.userRoles?.list((item) => item.userId === subject.id) ?? []) {
         principals.push({ type: 'group', id: userRole.roleId, tenantId, source: 'legacy-user-role' });
       }
+    }
+    // 角色页面把用户、用户组或身份源组绑定到角色。业务授权以角色作为 group 主体，
+    // 因此只把当前租户内有效的 allow 绑定转换为角色主体；deny 绝不能变成授权来源。
+    const directPrincipalKeys = new Set(dedupePrincipals(principals).map(principalKey));
+    const roleBindings = await this.roleBindings.list((item) =>
+      item.enabled
+      && item.effect === 'allow'
+      && directPrincipalKeys.has(principalKey(item))
+      && tenantBindingMatches(item.tenantId, undefined, tenantId, subject.scope?.tenantScope)
+      && isBindingCurrentlyActive(item),
+    );
+    for (const binding of roleBindings) {
+      principals.push({ type: 'group', id: binding.roleId, tenantId: binding.tenantId, source: 'role-binding' });
     }
     return dedupePrincipals(principals);
   }

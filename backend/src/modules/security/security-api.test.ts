@@ -135,6 +135,54 @@ describe('安全 API 最小闭环', () => {
     assert.equal(first.capabilities.edit.allowed, true);
   });
 
+  it('业务授权 API 保存、查询、撤销并拒绝前端 capability 作为安全依据', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: INITIAL_ADMIN_PASSWORD },
+    });
+    const token = (login.body as { token: string }).token;
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/business-permission-grants',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        principalType: 'user',
+        principalId: 'user_admin',
+        roleId: 'role_admin',
+        domain: 'certificate',
+        level: 'user',
+        rootObjectType: 'certificate',
+        rootObjectId: 'cert_api',
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const grant = created.body as { id: string; version: number };
+    const listed = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/business-permission-grants?domain=certificate',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(listed.statusCode, 200);
+    assert.equal((listed.body as { items: Array<{ id: string }> }).items.some((item) => item.id === grant.id), true);
+    const capability = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/business-permission-capabilities',
+      headers: { authorization: `Bearer ${token}` },
+      body: { domain: 'certificate', level: 'user', rootObjectType: 'certificate', rootObjectId: 'cert_api', capability: 'secret.resolve' },
+    });
+    assert.equal(capability.statusCode, 400);
+    const revoked = await app.inject({
+      method: 'DELETE',
+      path: '/api/v1/security/business-permission-grants',
+      headers: { authorization: `Bearer ${token}` },
+      body: { id: grant.id, version: grant.version },
+    });
+    assert.equal(revoked.statusCode, 200, JSON.stringify(revoked.body));
+  });
+
   it('普通租户不能把历史全局对象集合重新用于新授权', async () => {
     const security = createSecurityServices();
     const app = createApp({ security });

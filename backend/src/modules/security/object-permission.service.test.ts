@@ -110,7 +110,49 @@ test('旧版用户角色在没有显式对象绑定时也能继承角色对象�
   assert.deepEqual(authorization.objectIds, ['cert_a']);
 });
 
-test('对象级权限兼容管理员通配权限', async () => {
+test('角色绑定把成员解析为业务授权角色主体，deny 绑定不能成为授权来源', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_business_manager', code: 'business_manager', name: '应用管理者', builtin: false });
+  await roles.create({ id: 'role_denied_only', code: 'denied_only', name: '拒绝角色', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_business_application',
+    tenantId: 'tenant_a',
+    name: '应用业务范围',
+    kind: 'static',
+    objectTypes: ['service_asset'],
+    status: 'active',
+  });
+  await service.createRoleBinding({
+    tenantId: 'tenant_a',
+    principalType: 'user',
+    principalId: 'user_operator',
+    roleId: 'role_business_manager',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createRoleBinding({
+    tenantId: 'tenant_a',
+    principalType: 'user',
+    principalId: 'user_operator',
+    roleId: 'role_denied_only',
+    objectSetId: objectSet.id,
+    effect: 'deny',
+    enabled: true,
+  });
+
+  const principals = await service.resolvePrincipals({
+    id: 'user_operator',
+    type: 'user',
+    scope: { tenantId: 'tenant_a' },
+  });
+
+  assert.equal(principals.some((item) => item.type === 'group' && item.id === 'role_business_manager' && item.source === 'role-binding'), true);
+  assert.equal(principals.some((item) => item.type === 'group' && item.id === 'role_denied_only' && item.source === 'role-binding'), false);
+});
+
+test('对象级权限兼容管理员通配权限，但租户边界始终优先', async () => {
   const { service, policies } = createServiceWithRepos();
   await policies.create({
     id: 'policy_admin_all',
@@ -142,8 +184,8 @@ test('对象级权限兼容管理员通配权限', async () => {
     'control',
     { objectType: 'gateway', objectId: 'gw_b', tenantId: 'tenant_b' },
   );
-  assert.equal(constrained.allowed, true);
-  assert.equal(constrained.reason, 'admin wildcard');
+  assert.equal(constrained.allowed, false);
+  assert.equal(constrained.reason, 'tenant scope denied');
 
   const authorization = await service.buildAuthorizedQuery(
     {
@@ -159,7 +201,7 @@ test('对象级权限兼容管理员通配权限', async () => {
     'read',
   );
   assert.equal(authorization.unrestricted, true);
-  assert.equal(authorization.tenantIds, undefined);
+  assert.deepEqual(authorization.tenantIds, ['tenant_a']);
 });
 
 test('内置对象集合支持在升级后回填新增对象类型', async () => {
