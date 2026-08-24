@@ -30,7 +30,7 @@
     "cutover:dev": "tsx src/database/development-database-cutover.ts",
     "migrate": "tsx src/database/migrate.ts",
     "migrate:prod": "node dist/database/migrate.js",
-    "dev": "tsx watch src/main.ts",
+    "dev": "cross-env NODE_ENV=development tsx watch src/main.ts",
     "start": "node dist/database/migrate.js && node dist/main.js",
     "start:no-migrate": "node dist/main.js"
   },
@@ -50,6 +50,7 @@
     "@types/pg": "latest",
     "@types/ssh2": "^1.15.5",
     "@types/ws": "^8.18.1",
+    "cross-env": "^7.0.3",
     "tsx": "latest",
     "typescript": "latest"
   }
