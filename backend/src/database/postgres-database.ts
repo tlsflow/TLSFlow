@@ -1,9 +1,19 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { structuredLogger } from '../common/logging/structured-logger.js';
 import type { DatabasePort, QueryResult } from './database-port.js';
 
 // PostgreSQL 适配器只暴露 DatabasePort，业务层不直接接触 pg。
 export class PostgresDatabase implements DatabasePort {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool) {
+    // pg 对空闲客户端的错误会通过连接池发出；没有监听器时 Node 会将其视为未处理的 error 事件。
+    this.pool.on('error', (error: Error) => {
+      structuredLogger.warn('PostgreSQL 连接池客户端错误', {
+        error: error.message,
+        stack: error.stack,
+        code: (error as NodeJS.ErrnoException).code,
+      }, { module: 'database' });
+    });
+  }
 
   static fromConnectionString(connectionString: string): PostgresDatabase {
     return new PostgresDatabase(new Pool({ connectionString }));
@@ -20,6 +30,16 @@ export class PostgresDatabase implements DatabasePort {
 
   async transaction<T>(work: (tx: DatabasePort) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
+    // 借出客户端时，pg-pool 会暂时移除自己的 idle error 监听器；事务期间必须保留监听器，
+    // 否则网络断开可能直接触发 Client 的未处理 error 事件并终止整个 Node 进程。
+    const onClientError = (error: Error) => {
+      structuredLogger.warn('PostgreSQL 事务客户端错误', {
+        error: error.message,
+        stack: error.stack,
+        code: (error as NodeJS.ErrnoException).code,
+      }, { module: 'database' });
+    };
+    client.on('error', onClientError);
     try {
       await client.query('begin');
       const tx = new PostgresTransaction(client);
@@ -27,10 +47,17 @@ export class PostgresDatabase implements DatabasePort {
       await client.query('commit');
       return result;
     } catch (error) {
-      await client.query('rollback');
+      try {
+        await client.query('rollback');
+      } catch (rollbackError: unknown) {
+        structuredLogger.warn('PostgreSQL 事务回滚失败', {
+          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        }, { module: 'database' });
+      }
       throw error;
     } finally {
       client.release();
+      client.removeListener('error', onClientError);
     }
   }
 
