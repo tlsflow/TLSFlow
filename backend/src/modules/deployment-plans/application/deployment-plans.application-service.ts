@@ -32,7 +32,6 @@ import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import { ExecutionSourceResolver } from './execution-source.resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
 import { canonicalProductFamilyForOsType } from '../../devices/domain/canonical-product-family.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
@@ -748,7 +747,7 @@ export class DeploymentPlansApplicationService {
         workflow: {
           ...validated.workflow,
           workflowId: workflowBinding.workflowTemplateId,
-          workflowVersionSelection: 'PINNED',
+          workflowVersionSelection: 'FIXED',
           workflowVersionId: workflowBinding.workflowVersionId,
           inputBindings: binding.inputBindings,
           credentials,
@@ -805,7 +804,8 @@ export class DeploymentPlansApplicationService {
     if (!bindingId || !this.workflowExecutionBindings) {
       throw new AppError('VALIDATION_FAILED', '工作流执行模式缺少 WorkflowExecutionBinding', { bindingId, mode });
     }
-    const binding = await this.workflowExecutionBindings.get(tenantId, bindingId);
+    const executionIdentity = await this.workflowExecutionBindings.getExecutionIdentity(tenantId, bindingId);
+    const binding = executionIdentity.binding;
     if (binding.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding 已停用', { bindingId });
     const expectedLocation = binding.runner === 'GATEWAY' ? 'GATEWAY' : 'CONTROL_PLANE';
     if (mode === 'WORKFLOW_OVERRIDE' && context && !context.availableExecutionLocations.includes(expectedLocation)) {
@@ -817,7 +817,7 @@ export class DeploymentPlansApplicationService {
       phase: 'configure',
       contract: new DeploymentInputContractLoader().fromWorkflowVersion(await this.workflows!.getVersion(workflowVersionId)),
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
-      bindingLayers: { assetOverride: { pluginVersionId: workflowVersionId, inputBindings: binding.inputBindings } },
+      bindingLayers: { assetOverride: { pluginVersionId: binding.pluginVersionId, inputBindings: binding.inputBindings } },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
     }).effectiveBinding;
     const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context)).resolvedInput;
@@ -827,7 +827,9 @@ export class DeploymentPlansApplicationService {
         type: 'WORKFLOW',
         workflow: {
           workflowId: binding.workflowTemplateId,
-          workflowVersionSelection: 'PINNED',
+          pluginVersionId: binding.pluginVersionId,
+          capabilityKey: binding.capabilityKey,
+          workflowVersionSelection: 'FIXED',
           workflowVersionId,
           runner: binding.runner,
           gatewayId: binding.gatewayId,
@@ -852,11 +854,19 @@ export class DeploymentPlansApplicationService {
           mode: executionSource.mode,
           workflowExecutionBindingId: executionSource.binding.id,
           bindingVersion: executionSource.binding.version,
+          pluginId: executionIdentity.chain.pluginId,
+          pluginVersion: executionIdentity.chain.pluginVersion,
+          pluginVersionId: executionSource.binding.pluginVersionId,
+          capabilityKey: executionSource.binding.capabilityKey,
           workflowTemplateId: executionSource.binding.workflowTemplateId,
           workflowVersionSelection: executionSource.binding.workflowVersionSelection,
           workflowVersionId: executionSource.workflowVersionId,
           runner: executionSource.binding.runner,
           gatewayId: executionSource.binding.gatewayId,
+          packageSha256: executionIdentity.chain.packageSha256,
+          manifestSha256: executionIdentity.chain.manifestSha256,
+          resourceSha256: executionIdentity.chain.resourceSha256,
+          workflowContentSha256: executionIdentity.chain.workflowContentSha256,
         },
         managedTargetId: mode === 'WORKFLOW_OVERRIDE' ? context?.managedTarget.id : undefined,
         targetSnapshot: mode === 'WORKFLOW_OVERRIDE' && context ? { managedTarget: context.managedTarget, host: context.host, siteAsset: context.siteAsset, frameworkInstance: context.serviceInstance } : undefined,
@@ -865,11 +875,13 @@ export class DeploymentPlansApplicationService {
   }
 
   private async resolveWorkflowExecutionVersion(binding: WorkflowExecutionBinding): Promise<string> {
-    if (binding.workflowVersionSelection === 'PINNED') return binding.workflowVersionId!;
-    if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
-    const latest = await this.workflows.getRuntimePublishedVersion(binding.workflowTemplateId);
-    if (!latest) throw new AppError('VALIDATION_FAILED', 'LATEST_PUBLISHED 找不到已发布工作流版本', { workflowTemplateId: binding.workflowTemplateId });
-    return latest.id;
+    if (binding.workflowVersionSelection !== 'FIXED' || !binding.workflowVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding 缺少 FIXED WorkflowVersion', {
+        code: 'WORKFLOW_VERSION_REQUIRED',
+        bindingId: binding.id,
+      });
+    }
+    return binding.workflowVersionId;
   }
 
   private async compileManagedPluginRuntime(
@@ -943,10 +955,21 @@ export class DeploymentPlansApplicationService {
           type: executionSource.type,
           mode: 'PLUGIN',
           assignmentId: executionSource.capability.assignment.id,
+          pluginId: executionSource.capability.plugin.manifest.pluginId,
+          pluginVersion: executionSource.capability.plugin.manifest.version,
           pluginVersionId: executionSource.capability.pluginVersionId,
           pluginBindingId: executionSource.capability.binding.id,
           runtime: executionSource.capability.pluginRuntime,
-          workflowVersionId: executionSource.workflowVersionId,
+          capabilityKey: executionSource.capability.assignment.capabilityKey,
+          packageSha256: executionSource.capability.plugin.packageSha256,
+          manifestSha256: executionSource.capability.plugin.manifestSha256,
+          resourceSha256: structuredClone(executionSource.capability.plugin.resourceSha256),
+          ...(workflow ? {
+            workflowTemplateId: workflow.workflowTemplateId,
+            workflowVersionSelection: 'FIXED' as const,
+            workflowVersionId: workflow.workflowVersionId,
+            workflowContentSha256: workflow.workflowContentSha256,
+          } : {}),
         },
       },
     };
@@ -1155,7 +1178,7 @@ export class DeploymentPlansApplicationService {
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
       bindingLayers: {
         assetOverride: {
-          pluginVersionId: workflowVersionId,
+          pluginVersionId: binding.pluginVersionId,
           inputBindings: binding.inputBindings,
         },
       },
@@ -2036,70 +2059,27 @@ export class DeploymentPlansApplicationService {
 
   private async resolveLiveWorkflowStrategyPayloadForTarget(target: DeploymentPlanTargetEntity): Promise<Record<string, unknown>> {
     const snapshotPayload = target.strategyPayload ?? {};
-    if (readRecord(snapshotPayload.executionSource)?.type === 'WORKFLOW') return snapshotPayload;
     if (target.executorType !== 'WORKFLOW') return snapshotPayload;
     const workflowSnapshot = readRecord(snapshotPayload.workflowRequest);
-    if (readOptionalString(workflowSnapshot?.pluginBindingId)) return snapshotPayload;
-    const applicationAssetId = target.applicationAssetId
-      ?? readOptionalString(workflowSnapshot?.applicationAssetId)
-      ?? readOptionalString(snapshotPayload.applicationAssetId);
-    if (!target.tenantId || !applicationAssetId) return snapshotPayload;
-    const applicationAsset = await this.assets.getServiceAsset(target.tenantId, applicationAssetId);
-    if (!applicationAsset) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'WORKFLOW 部署目标引用的应用资产不存在', {
+    const executionSource = readRecord(snapshotPayload.executionSource);
+    const workflowVersionSelection = readWorkflowVersionSelection(executionSource?.workflowVersionSelection);
+    const workflowTemplateId = readOptionalString(executionSource?.workflowTemplateId);
+    const workflowVersionId = readOptionalString(executionSource?.workflowVersionId);
+    const pluginVersionId = readOptionalString(executionSource?.pluginVersionId);
+    const capabilityKey = readOptionalString(executionSource?.capabilityKey);
+    if (!workflowSnapshot || executionSource?.type !== 'WORKFLOW' && executionSource?.type !== 'PLUGIN'
+      || workflowVersionSelection !== 'FIXED' || !workflowTemplateId || !workflowVersionId || !pluginVersionId || !capabilityKey) {
+      throw new AppError('VALIDATION_FAILED', '部署计划缺少固定的 WorkflowVersion、PluginVersion 或 Capability 快照', {
+        code: 'DEPLOYMENT_WORKFLOW_SNAPSHOT_INVALID',
         deploymentPlanTargetId: target.id,
-        applicationAssetId,
+        workflowVersionSelection,
+        workflowTemplateId,
+        workflowVersionId,
+        pluginVersionId,
+        capabilityKey,
       });
     }
-    const workflow = applicationAsset.deploymentStrategy?.workflow;
-    if (applicationAsset.deploymentStrategy?.type !== 'WORKFLOW' || !workflow) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署目标引用的应用资产已不再使用 WORKFLOW 策略', {
-        deploymentPlanTargetId: target.id,
-        applicationAssetId,
-      });
-    }
-    const resolvedVersionId = await this.resolveRuntimeWorkflowVersionId(workflow);
-    const resolvedStrategy = this.deploymentStrategyResolver.resolve({ applicationAsset });
-    const resolvedRequest = readRecord(resolvedStrategy.payload.workflowRequest) ?? {};
-    return {
-      ...resolvedStrategy.payload,
-      workflowRequest: {
-        ...resolvedRequest,
-        workflowVersionSelection: workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED'),
-        workflowVersionId: resolvedVersionId,
-        applicationAssetId: applicationAsset.id,
-      },
-    };
-  }
-
-  private async resolveRuntimeWorkflowVersionId(workflow: WorkflowDeploymentStrategyDto): Promise<string> {
-    const selection = workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED');
-    if (selection === 'PINNED') {
-      if (!workflow.workflowVersionId) {
-        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 固定版本策略缺少 workflowVersionId', {
-          code: 'WORKFLOW_VERSION_REQUIRED',
-          workflowId: workflow.workflowId,
-        });
-      }
-      return workflow.workflowVersionId;
-    }
-    if (!this.workflows) {
-      throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入，不能解析最新工作流版本', {
-        code: 'WORKFLOW_VERSION_RESOLVER_MISSING',
-        workflowId: workflow.workflowId,
-      });
-    }
-    if (!workflow.workflowId) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 最新版本策略缺少 workflowId', { code: 'WORKFLOW_ID_REQUIRED' });
-    }
-    const latest = await this.workflows.getRuntimePublishedVersion(workflow.workflowId);
-    if (!latest) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 最新版本策略找不到已发布版本', {
-        code: 'WORKFLOW_VERSION_NOT_PUBLISHED',
-        workflowId: workflow.workflowId,
-      });
-    }
-    return latest.id;
+    return snapshotPayload;
   }
 
   private async buildAgentPayloadByTargetIds(
@@ -3013,11 +2993,9 @@ export class DeploymentPlansApplicationService {
   }
 
   /**
-   * 从部署计划目标快照解析实际使用的工作流版本。
+   * 从部署计划目标的固定执行来源快照读取工作流身份。
    *
-   * 计划创建时，LATEST_PUBLISHED 会先解析成一个不可变的 workflowVersionId；
-   * 这里同时读取 executionSource 中保留的原始选择策略，避免把“解析时最新”
-   * 错误显示成用户手动固定版本。
+   * 计划执行阶段只消费这份快照，不能回查应用资产或工作流目录来重新选择版本。
    */
   private async resolveWorkflowExecutionIdentities(
     targets: readonly DeploymentPlanTargetDto[],
@@ -3048,59 +3026,80 @@ export class DeploymentPlansApplicationService {
     target: DeploymentPlanTargetDto,
     workflowVersions = new Map<string, Promise<WorkflowVersion | undefined>>(),
   ): Promise<Omit<DeploymentPlanWorkflowIdentityDto, 'targetIds'> | undefined> {
-    const strategyPayload = target.strategyPayload;
-    const executionSource = readRecord(strategyPayload?.executionSource);
-    const workflowRequest = readRecord(strategyPayload?.workflowRequest);
-    const isPluginInternalWorkflow = readOptionalString(executionSource?.type) === 'PLUGIN';
-    if (target.executorType !== 'WORKFLOW' && !isPluginInternalWorkflow) return undefined;
+    if (target.executorType !== 'WORKFLOW') return undefined;
 
-    const workflowVersionSelection = readWorkflowVersionSelection(
-      executionSource?.workflowVersionSelection
-        ?? workflowRequest?.workflowVersionSelection,
-    );
-    const declaredWorkflowVersionId = readOptionalString(executionSource?.workflowVersionId)
-      ?? readOptionalString(workflowRequest?.workflowVersionId);
-    const declaredWorkflowId = readOptionalString(executionSource?.workflowTemplateId)
-      ?? readOptionalString(workflowRequest?.workflowId);
+    const executionSource = readRecord(target.strategyPayload?.executionSource);
+    const sourceType = readOptionalString(executionSource?.type);
+    const workflowVersionSelection = readWorkflowVersionSelection(executionSource?.workflowVersionSelection);
+    const workflowId = readOptionalString(executionSource?.workflowTemplateId);
+    const workflowVersionId = readOptionalString(executionSource?.workflowVersionId);
+    const pluginId = readOptionalString(executionSource?.pluginId);
+    const pluginVersion = readOptionalString(executionSource?.pluginVersion);
+    const pluginVersionId = readOptionalString(executionSource?.pluginVersionId);
+    const capabilityKey = readOptionalString(executionSource?.capabilityKey);
+    const packageSha256 = readOptionalString(executionSource?.packageSha256);
+    const manifestSha256 = readOptionalString(executionSource?.manifestSha256);
+    const resourceSha256 = readStringMap(executionSource?.resourceSha256);
+    const workflowContentSha256 = readOptionalString(executionSource?.workflowContentSha256);
+    if ((sourceType !== 'WORKFLOW' && sourceType !== 'PLUGIN')
+      || workflowVersionSelection !== 'FIXED'
+      || !workflowId
+      || !workflowVersionId
+      || !pluginId
+      || !pluginVersion
+      || !pluginVersionId
+      || !capabilityKey
+      || !packageSha256
+      || !manifestSha256
+      || !resourceSha256
+      || !workflowContentSha256) {
+      throw new AppError('VALIDATION_FAILED', '部署目标缺少完整的固定工作流执行身份快照', {
+        code: 'DEPLOYMENT_WORKFLOW_IDENTITY_SNAPSHOT_INVALID',
+        deploymentPlanTargetId: target.id,
+        sourceType,
+        workflowVersionSelection,
+        workflowId,
+        workflowVersionId,
+        pluginVersionId,
+        capabilityKey,
+      });
+    }
 
-    let workflowVersionId = declaredWorkflowVersionId;
-    let workflowVersion: Awaited<ReturnType<WorkflowTemplatesApplicationService['getVersion']>> | undefined;
-    if (!workflowVersionId && workflowVersionSelection === 'LATEST_PUBLISHED' && declaredWorkflowId && this.workflows) {
-      try {
-        workflowVersion = await this.getWorkflowVersion(workflowVersions, `latest:${declaredWorkflowId}`, () => this.workflows!.getRuntimePublishedVersion(declaredWorkflowId));
-        workflowVersionId = workflowVersion?.id;
-      } catch {
-        // 目录服务异常时保留无版本身份，不能阻断部署计划列表。
+    let workflowVersion: WorkflowVersion | undefined;
+    if (this.workflows) {
+      workflowVersion = await this.getWorkflowVersion(
+        workflowVersions,
+        `version:${workflowVersionId}`,
+        () => this.workflows!.getVersion(workflowVersionId),
+      );
+      if (!workflowVersion || workflowVersion.templateId !== workflowId || workflowVersion.contentHash !== workflowContentSha256) {
+        throw new AppError('VALIDATION_FAILED', '部署目标的 WorkflowVersion 快照与固定摘要不一致', {
+          code: 'DEPLOYMENT_WORKFLOW_IDENTITY_HASH_MISMATCH',
+          deploymentPlanTargetId: target.id,
+          workflowId,
+          workflowVersionId,
+          workflowContentSha256,
+          actualTemplateId: workflowVersion?.templateId,
+          actualContentHash: workflowVersion?.contentHash,
+        });
       }
     }
-    if (workflowVersionId && this.workflows) {
-      try {
-        workflowVersion = await this.getWorkflowVersion(workflowVersions, `version:${workflowVersionId}`, () => this.workflows!.getVersion(workflowVersionId));
-      } catch {
-        // 历史计划可能引用已经清理的工作流版本，仍返回不可变 ID 供审计定位。
-      }
-    }
-
-    const workflowId = declaredWorkflowId
-      ?? workflowVersion?.templateId;
-    if (!workflowVersionId) return undefined;
-    const workflowName = workflowVersion?.content.metadata.name
-      ?? readOptionalString(workflowRequest?.workflowName);
-    const pluginId = readOptionalString(workflowRequest?.pluginId);
-    const pluginVersion = readOptionalString(workflowRequest?.pluginVersion);
-    const pluginVersionId = readOptionalString(workflowRequest?.pluginVersionId)
-      ?? readOptionalString(executionSource?.pluginVersionId);
 
     return {
-      mode: isPluginInternalWorkflow ? 'PLUGIN_INTERNAL_WORKFLOW' : 'WORKFLOW',
-      ...(workflowId ? { workflowId } : {}),
-      ...(workflowName ? { workflowName } : {}),
+      mode: sourceType === 'PLUGIN' ? 'PLUGIN_INTERNAL_WORKFLOW' : 'WORKFLOW',
+      workflowId,
+      ...(workflowVersion?.content.metadata.name ? { workflowName: workflowVersion.content.metadata.name } : {}),
       workflowVersionId,
-      workflowVersionSelection,
+      workflowVersionSelection: 'FIXED',
       ...(workflowVersion?.content.metadata.version ? { workflowDslVersion: workflowVersion.content.metadata.version } : {}),
-      ...(pluginId ? { pluginId } : {}),
-      ...(pluginVersion ? { pluginVersion } : {}),
-      ...(pluginVersionId ? { pluginVersionId } : {}),
+      pluginId,
+      pluginVersion,
+      pluginVersionId,
+      capabilityKey,
+      packageSha256,
+      manifestSha256,
+      resourceSha256,
+      workflowContentSha256,
     };
   }
 
@@ -3111,7 +3110,7 @@ export class DeploymentPlansApplicationService {
   ): Promise<WorkflowVersion | undefined> {
     const cached = cache.get(key);
     if (cached) return cached;
-    const pending = load().catch(() => undefined);
+    const pending = load();
     cache.set(key, pending);
     return pending;
   }
@@ -3308,8 +3307,8 @@ function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function readWorkflowVersionSelection(value: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
-  return value === 'LATEST_PUBLISHED' ? 'LATEST_PUBLISHED' : 'PINNED';
+function readWorkflowVersionSelection(value: unknown): 'FIXED' | undefined {
+  return value === 'FIXED' ? 'FIXED' : undefined;
 }
 
 function collectBindingCredentials(
@@ -3377,6 +3376,14 @@ function readOptionalNumber(value: unknown): number | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readStringMap(value: unknown): Record<string, string> | undefined {
+  const record = readRecord(value);
+  if (!record) return undefined;
+  const entries = Object.entries(record);
+  if (entries.some(([, item]) => typeof item !== 'string' || !item.trim())) return undefined;
+  return Object.fromEntries(entries.map(([key, item]) => [key, item as string]));
 }
 
 function artifactSnapshotsFromDeploymentArtifact(

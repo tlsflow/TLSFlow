@@ -85,6 +85,14 @@ export class DeploymentStrategyResolver {
         applicationAssetId: input.applicationAsset.id,
       });
     }
+    if (workflow.workflowVersionSelection !== 'FIXED' || !workflow.workflowVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略必须引用 FIXED WorkflowVersion', {
+        code: 'WORKFLOW_VERSION_REQUIRED',
+        applicationAssetId: input.applicationAsset.id,
+        workflowId: workflow.workflowId,
+        workflowVersionId: workflow.workflowVersionId,
+      });
+    }
     const gatewayRoute = workflow.runner === 'GATEWAY'
       ? {
           gatewayId: workflow.gatewayId,
@@ -111,8 +119,10 @@ export class DeploymentStrategyResolver {
         certificateVerification: workflowCertificateVerification(input),
         workflowRequest: {
           workflowId: workflow.workflowId,
-          workflowVersionSelection: workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED'),
+          workflowVersionSelection: 'FIXED',
           workflowVersionId: workflow.workflowVersionId,
+          pluginVersionId: workflow.pluginVersionId,
+          capabilityKey: workflow.capabilityKey,
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,
           target: workflow.target,

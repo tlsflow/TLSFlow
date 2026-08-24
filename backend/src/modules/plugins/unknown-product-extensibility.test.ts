@@ -200,7 +200,7 @@ test('NAS 与 Kubernetes 用户插件无需宿主产品分派即可走通标准�
       },
     });
     assert.equal(runtime.executorType, 'WORKFLOW');
-    assert.equal((runtime.payload.workflowRequest as { workflowVersionSelection: string }).workflowVersionSelection, 'PINNED');
+    assert.equal((runtime.payload.workflowRequest as { workflowVersionSelection: string }).workflowVersionSelection, 'FIXED');
     assert.equal((runtime.payload.pluginRuntimeCapability as { pluginVersionId: string }).pluginVersionId, plugin.id);
     assert.equal((runtime.payload.pluginRuntimeCapability as { pluginBindingId: string }).pluginBindingId, pluginBinding.id);
     assert.equal(runtime.payload.resolvedDeploymentInput, resolvedInput);

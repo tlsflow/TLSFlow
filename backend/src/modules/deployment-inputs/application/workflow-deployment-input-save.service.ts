@@ -31,10 +31,10 @@ export class WorkflowDeploymentInputSaveService {
     const version = await this.resolveVersion(input.workflowExecution);
     const currentVersion = input.currentBinding ? await this.resolveVersion(input.currentBinding) : undefined;
     const currentAssetOverride = input.currentBinding && currentVersion?.id === version.id
-      ? { pluginVersionId: currentVersion.id, inputBindings: input.currentBinding.inputBindings }
+      ? { pluginVersionId: input.currentBinding.pluginVersionId, inputBindings: input.currentBinding.inputBindings }
       : undefined;
     return this.saves.validate({
-      pluginVersionId: version.id,
+      pluginVersionId: input.workflowExecution.pluginVersionId,
       contract: this.contracts.fromWorkflowVersion(version),
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.managedTargetContext }),
       currentAssetOverride,
@@ -43,9 +43,12 @@ export class WorkflowDeploymentInputSaveService {
   }
 
   private async resolveVersion(input: CreateWorkflowExecutionBindingInput): Promise<WorkflowTemplateVersion> {
-    if (input.workflowVersionSelection === 'PINNED') return this.workflows.getVersion(input.workflowVersionId!);
-    const version = await this.workflows.getRuntimePublishedVersion(input.workflowTemplateId);
-    if (!version) throw new AppError('VALIDATION_FAILED', '工作流模板没有可用的已发布版本', { workflowTemplateId: input.workflowTemplateId });
-    return version;
+    if (input.workflowVersionSelection !== 'FIXED' || !input.workflowVersionId) {
+      throw new AppError('VALIDATION_FAILED', '工作流输入绑定必须引用 FIXED WorkflowVersion', {
+        code: 'WORKFLOW_VERSION_REQUIRED',
+        workflowTemplateId: input.workflowTemplateId,
+      });
+    }
+    return this.workflows.getVersion(input.workflowVersionId);
   }
 }

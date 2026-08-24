@@ -1,13 +1,15 @@
 export type WorkflowExecutionBindingStatus = 'ACTIVE' | 'DISABLED';
 export type WorkflowExecutionRunner = 'CONTROL_PLANE' | 'GATEWAY';
-export type WorkflowExecutionVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
+export type WorkflowExecutionVersionSelection = 'FIXED';
 
 export interface WorkflowExecutionBinding {
   id: string;
   tenantId: string;
+  pluginVersionId: string;
+  capabilityKey: string;
   workflowTemplateId: string;
   workflowVersionSelection: WorkflowExecutionVersionSelection;
-  workflowVersionId?: string;
+  workflowVersionId: string;
   runner: WorkflowExecutionRunner;
   gatewayId?: string;
   inputBindings: InputBindingsV1;

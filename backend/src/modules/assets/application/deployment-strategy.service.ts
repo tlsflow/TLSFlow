@@ -17,6 +17,8 @@ const managedTargetStrategyKeys = new Set(['managedTargetId', 'certificateFormat
 const workflowStrategyKeys = new Set([
   'workflowExecutionBindingId',
   'pluginBindingId',
+  'pluginVersionId',
+  'capabilityKey',
   'workflowId',
   'workflowVersionSelection',
   'workflowVersionId',
@@ -81,14 +83,16 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
     const executionBranch = workflow.executionBranch ?? 'deploy';
     if (executionBranch !== 'deploy' && executionBranch !== 'rollback') throw strategyError('workflow.executionBranch 只支持 deploy/rollback');
-    const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId);
+    const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId, Boolean(pluginBindingId));
     return {
       type: 'WORKFLOW',
       workflow: {
         pluginBindingId,
+        pluginVersionId: optionalNonEmpty(workflow.pluginVersionId),
+        capabilityKey: optionalNonEmpty(workflow.capabilityKey),
         workflowId: pluginBindingId ? optionalNonEmpty(workflow.workflowId) : requireNonEmpty(workflow.workflowId, 'workflow.workflowId'),
         workflowVersionSelection,
-        workflowVersionId: workflowVersionSelection === 'PINNED' && !pluginBindingId
+        workflowVersionId: workflowVersionSelection === 'FIXED' && !pluginBindingId
           ? requireNonEmpty(workflow.workflowVersionId, 'workflow.workflowVersionId')
           : optionalNonEmpty(workflow.workflowVersionId),
         runner,
@@ -210,12 +214,14 @@ function normalizeConnectionHostKey(value: unknown, path: string): DeploymentCon
   return { expectedFingerprint: optionalNonEmpty(value.expectedFingerprint) };
 }
 
-function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
+function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown, pluginBindingId: boolean): 'FIXED' {
   if (value === undefined || value === null || value === '') {
-    return optionalNonEmpty(workflowVersionId) ? 'PINNED' : 'LATEST_PUBLISHED';
+    if (optionalNonEmpty(workflowVersionId)) return 'FIXED';
+    if (pluginBindingId) return 'FIXED';
+    throw strategyError('workflow.workflowVersionSelection 必须为 FIXED 且同时提供 workflowVersionId');
   }
-  if (value === 'PINNED' || value === 'LATEST_PUBLISHED') return value;
-  throw strategyError('workflow.workflowVersionSelection 只支持 PINNED/LATEST_PUBLISHED');
+  if (value === 'FIXED') return value;
+  throw strategyError('workflow.workflowVersionSelection 只支持 FIXED');
 }
 
 export function resolveDeploymentStrategy(context: DeploymentStrategyContext): DeploymentStrategyDto | undefined {

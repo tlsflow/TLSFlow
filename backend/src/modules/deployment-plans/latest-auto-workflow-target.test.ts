@@ -71,7 +71,9 @@ test('独立 WORKFLOW 的 LATEST_AUTO 运行快照重建不能把 applicationAss
             type: 'WORKFLOW',
             workflow: {
               workflowId: 'workflow_latest',
-              workflowVersionSelection: 'PINNED',
+              pluginVersionId: 'plugin_workflow_latest_v1',
+              capabilityKey: 'certificate.deploy',
+              workflowVersionSelection: 'FIXED',
               workflowVersionId: 'workflow_latest_v1',
               runner: 'CONTROL_PLANE',
               inputBindings: workflowInputBindings,
@@ -143,8 +145,10 @@ test('独立 WORKFLOW 的 LATEST_AUTO 运行快照重建不能把 applicationAss
     get: async (_tenantId, id) => ({
       id,
       tenantId: 'tenant_workflow_latest',
+      pluginVersionId: 'plugin_workflow_latest_v1',
+      capabilityKey: 'certificate.deploy',
       workflowTemplateId: 'workflow_latest',
-      workflowVersionSelection: 'PINNED',
+      workflowVersionSelection: 'FIXED',
       workflowVersionId: 'workflow_latest_v1',
       runner: 'CONTROL_PLANE',
       inputBindings: workflowInputBindings,
@@ -187,6 +191,10 @@ test('独立 WORKFLOW 的 LATEST_AUTO 运行快照重建不能把 applicationAss
       executionSource: {
         type: 'WORKFLOW',
         workflowExecutionBindingId: 'wfeb_workflow_latest',
+        pluginVersionId: 'plugin_workflow_latest_v1',
+        capabilityKey: 'certificate.deploy',
+        workflowTemplateId: 'workflow_latest',
+        workflowVersionSelection: 'FIXED',
         workflowVersionId: 'workflow_latest_v1',
       },
       certificateVerification: {
@@ -198,7 +206,9 @@ test('独立 WORKFLOW 的 LATEST_AUTO 运行快照重建不能把 applicationAss
       },
       workflowRequest: {
         workflowId: 'workflow_latest',
-        workflowVersionSelection: 'PINNED',
+        pluginVersionId: 'plugin_workflow_latest_v1',
+        capabilityKey: 'certificate.deploy',
+        workflowVersionSelection: 'FIXED',
         workflowVersionId: 'workflow_latest_v1',
         runner: 'CONTROL_PLANE',
         applicationAssetId: 'asset_workflow_only',

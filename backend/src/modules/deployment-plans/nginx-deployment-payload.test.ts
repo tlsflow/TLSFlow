@@ -248,7 +248,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Workflow 请求', 
   assert.equal(workflowStep.inputSnapshot.applicationAssetId, serviceAssetId);
   assert.equal(workflowStep.inputSnapshot.managedTargetId, managedTargetId);
   assert.equal(workflowStep.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
-  assert.equal(workflowStep.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(workflowStep.inputSnapshot.workflowRequest.workflowVersionSelection, 'FIXED');
   assert.equal(workflowStep.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
   assert.equal(workflowStep.inputSnapshot.resolvedDeploymentInput, undefined);
   assert.equal(workflowStep.inputSnapshot.deploymentInputSnapshotRef?.apiVersion, 'gcac.deployment-input-snapshot/v1');
@@ -872,7 +872,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
   assert.deepEqual(atomicStep!.inputSnapshot.deploymentInputSnapshotRef, latestSnapshotRef);
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
-  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'FIXED');
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
 
   const persistedSteps = await db.query<{ input_snapshot: unknown }>(
@@ -1127,6 +1127,6 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.executionLocation, 'CONTROL_PLANE');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
-  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'FIXED');
   assert.equal(atomicStep!.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
 });

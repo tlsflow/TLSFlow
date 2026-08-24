@@ -59,6 +59,8 @@ function isSameWorkflowExecutionBinding(
 ): boolean {
   return stableSerialize({
     tenantId: current.tenantId,
+    pluginVersionId: current.pluginVersionId,
+    capabilityKey: current.capabilityKey,
     workflowTemplateId: current.workflowTemplateId,
     workflowVersionSelection: current.workflowVersionSelection,
     workflowVersionId: current.workflowVersionId,

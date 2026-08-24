@@ -13,6 +13,7 @@ import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
+import { normalizeDeploymentStrategy } from '../assets/application/deployment-strategy.service.js';
 import { PgBindingsRepository } from '../bindings/repository/bindings.repository.js';
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
 import { createCertificateServices } from '../certificates/controller/certificates.controller.js';
@@ -31,7 +32,6 @@ import type { PluginRunnerExecutionInput, PluginRunnerLaunchSpec } from '../plug
 import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/protocol.types.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
-import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
 import { signPolicyPayload } from '../agents/security/agent-security.contract.js';
 import { FilePolicyAuthorityStateStoreV1, PolicyAuthorityServiceV1 } from '../agents/security/policy-authority.service.js';
@@ -766,7 +766,7 @@ describe('部署计划与执行编排 API', () => {
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createDeploymentTestApp(db, security);
     const fixture = await seedWorkflowStrategyFixture(app, db);
-    const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流部署'));
+    const workflow = await createPublishedPluginWorkflow(app, workflowTemplateFixture('应用资产工作流部署'));
 
     const strategy = await app.inject({
       method: 'PUT',
@@ -779,9 +779,11 @@ describe('部署计划与执行编排 API', () => {
         executionMode: 'WORKFLOW_OVERRIDE',
         workflowExecution: {
           tenantId: 'tenant_1',
-          workflowTemplateId: workflow.template.id,
-          workflowVersionSelection: 'PINNED',
-          workflowVersionId: workflow.version.id,
+          pluginVersionId: workflow.plugin.id,
+          capabilityKey: 'certificate.deploy',
+          workflowTemplateId: workflow.binding.workflowTemplateId,
+          workflowVersionSelection: 'FIXED',
+          workflowVersionId: workflow.binding.workflowVersionId,
           runner: 'CONTROL_PLANE',
             inputBindings: {
               apiVersion: 'gcac.input-bindings/v1',
@@ -835,107 +837,36 @@ describe('部署计划与执行编排 API', () => {
     assert.ok(plan.targets[0].strategyPayload.deploymentInputSnapshotRef);
     assert.deepEqual(plan.workflowExecutionIdentities, [{
       mode: 'WORKFLOW',
-      workflowId: workflow.template.id,
+      workflowId: workflow.binding.workflowTemplateId,
       workflowName: workflow.version.content.metadata.name,
-      workflowVersionId: workflow.version.id,
+      workflowVersionId: workflow.binding.workflowVersionId,
       workflowDslVersion: workflow.version.content.metadata.version,
-      workflowVersionSelection: 'PINNED',
+      workflowVersionSelection: 'FIXED',
+      pluginId: workflow.plugin.manifest.pluginId,
+      pluginVersion: workflow.plugin.manifest.version,
+      pluginVersionId: workflow.plugin.id,
+      capabilityKey: 'certificate.deploy',
+      packageSha256: workflow.plugin.packageSha256,
+      manifestSha256: workflow.plugin.manifestSha256,
+      resourceSha256: workflow.plugin.resourceSha256,
+      workflowContentSha256: workflow.binding.workflowContentSha256,
       targetIds: [plan.targets[0].id],
     }]);
   });
 
-  it('WORKFLOW 应用资产选择始终最新版本时，已有部署计划 dry-run 仍使用创建时固定版本', async () => {
-    const db = createTrackedDatabase();
-    await runMigrations(db);
-    const security = createSecurityServices();
-    grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createDeploymentTestApp(db, security);
-    const fixture = await seedWorkflowStrategyFixture(app, db);
-    const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流实时版本'));
-
-    const strategy = await app.inject({
-      method: 'PUT',
-      path: `/api/v1/application-assets/${fixture.applicationAssetId}/managed-target`,
-      headers: userHeaders,
-      body: {
-        managedTargetId: fixture.managedTargetId,
-        capabilityKey: 'certificate.deploy',
-        certificateFormatId: fixture.certificateFormatId,
-        executionMode: 'WORKFLOW_OVERRIDE',
-        workflowExecution: {
-          tenantId: 'tenant_1',
-          workflowTemplateId: workflow.template.id,
+  it('WORKFLOW 应用资产拒绝 LATEST_PUBLISHED 版本策略', () => {
+    assert.throws(
+      () => normalizeDeploymentStrategy({
+        type: 'WORKFLOW',
+        workflow: {
+          workflowId: 'workflow_latest',
           workflowVersionSelection: 'LATEST_PUBLISHED',
+          workflowVersionId: 'workflow_latest_v1',
           runner: 'CONTROL_PLANE',
-            inputBindings: {
-              apiVersion: 'gcac.input-bindings/v1',
-              variables: {},
-              connections: { targetSsh: { host: fixture.domain } },
-              credentials: {},
-              artifacts: {
-                serverCert: {
-                  certificateFormatId: fixture.certificateFormatId,
-                  outputBindings: { bundle: 'bundle' },
-                },
-              },
-            },
         },
-      },
-    });
-    assert.equal(strategy.statusCode, 200, JSON.stringify(strategy.body));
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/deployment-plans/from-application-asset',
-      headers: userHeaders,
-      body: {
-        applicationAssetId: fixture.applicationAssetId,
-        selectionMode: 'EXPLICIT',
-        targetCertificateVersionId: fixture.certificateVersionId,
-        idempotencyKey: 'idem_workflow_latest_plan',
-      },
-    });
-    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-    const plan = created.body as {
-      id: string;
-      targets: Array<{ id: string; strategyPayload?: any }>;
-      workflowExecutionIdentities?: Array<{ workflowVersionSelection: string; workflowVersionId: string }>;
-    };
-    assert.equal(plan.targets[0].strategyPayload.workflowRequest.workflowVersionId, workflow.version.id);
-    assert.equal(plan.workflowExecutionIdentities?.[0]?.workflowVersionSelection, 'LATEST_PUBLISHED');
-    assert.equal(plan.workflowExecutionIdentities?.[0]?.workflowVersionId, workflow.version.id);
-
-    const v2Content = workflowTemplateFixture('应用资产工作流实时版本');
-    v2Content.metadata.version = '1.0.1';
-    v2Content.steps[0]!.ssh!.args = ['service-main-v2'];
-    const createdV2 = await app.inject({
-      method: 'POST',
-      path: `/api/v1/workflows/${workflow.template.id}/versions`,
-      headers: userHeaders,
-      body: {
-        content: v2Content,
-        changeSummary: '发布第二版',
-      },
-    });
-    assert.equal(createdV2.statusCode, 201, JSON.stringify(createdV2.body));
-    const version2 = createdV2.body as { id: string };
-    const publishedV2 = await app.inject({
-      method: 'POST',
-      path: `/api/v1/workflows/versions/${version2.id}/publish`,
-      headers: userHeaders,
-    });
-    assert.equal(publishedV2.statusCode, 200, JSON.stringify(publishedV2.body));
-
-    const dryRun = await app.inject({
-      method: 'POST',
-      path: '/api/v1/deployment-plans/dry-run',
-      headers: userHeaders,
-      body: { planId: plan.id, idempotencyKey: 'idem_workflow_latest_plan_dry' },
-    });
-    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: any }> };
-    assert.equal(dryRunBody.steps[0].inputSnapshot.workflowRequest.workflowVersionId, workflow.version.id);
-    assert.equal(dryRunBody.steps[0].inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+      }, { asset: { id: 'asset_workflow_latest', metadata: {} } }),
+      (error: any) => error?.errorCode === 'VALIDATION_FAILED' && error?.message?.includes('只支持 FIXED'),
+    );
   });
 
   it('无 Agent 目标绑定的 WORKFLOW 应用资产也可以创建部署计划', async () => {
@@ -945,7 +876,7 @@ describe('部署计划与执行编排 API', () => {
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     const app = createDeploymentTestApp(db, security);
     const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
-    const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
+    const workflow = await createPublishedPluginWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
 
     const asset = await app.inject({
       method: 'POST',
@@ -970,9 +901,11 @@ describe('部署计划与执行编排 API', () => {
       body: {
         workflowExecution: {
           tenantId: 'tenant_1',
-          workflowTemplateId: workflow.template.id,
-          workflowVersionSelection: 'PINNED',
-          workflowVersionId: workflow.version.id,
+          pluginVersionId: workflow.plugin.id,
+          capabilityKey: 'certificate.deploy',
+          workflowTemplateId: workflow.binding.workflowTemplateId,
+          workflowVersionSelection: 'FIXED',
+          workflowVersionId: workflow.binding.workflowVersionId,
           runner: 'CONTROL_PLANE',
           inputBindings: {
             apiVersion: 'gcac.input-bindings/v1',
@@ -1075,7 +1008,7 @@ describe('部署计划与执行编排 API', () => {
       );
       await db.query('update pg_service_assets set port = $2 where id = $1', [fixture.applicationAssetId, tlsAddress.port]);
       const workflowUrl = `http://127.0.0.1:${address.port}/verify`;
-      const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('应用资产工作流真实 HTTP 验收'));
+      const workflow = await createPublishedPluginWorkflow(app, workflowHttpCertificateFixture('应用资产工作流真实 HTTP 验收'));
 
       const strategy = await app.inject({
         method: 'PUT',
@@ -1088,9 +1021,11 @@ describe('部署计划与执行编排 API', () => {
           executionMode: 'WORKFLOW_OVERRIDE',
           workflowExecution: {
             tenantId: 'tenant_1',
-            workflowTemplateId: workflow.template.id,
-            workflowVersionSelection: 'PINNED',
-            workflowVersionId: workflow.version.id,
+            pluginVersionId: workflow.plugin.id,
+            capabilityKey: 'certificate.deploy',
+            workflowTemplateId: workflow.binding.workflowTemplateId,
+            workflowVersionSelection: 'FIXED',
+            workflowVersionId: workflow.binding.workflowVersionId,
             runner: 'CONTROL_PLANE',
               inputBindings: {
                 apiVersion: 'gcac.input-bindings/v1',
@@ -3276,11 +3211,66 @@ function grantWildcardPolicy(security: ReturnType<typeof createSecurityServices>
   });
 }
 
-async function createPublishedWorkflow(app: ReturnType<typeof createApp>, content: WorkflowDslV1) {
-  const workflowTemplates = app.getResource('workflowTemplatesService') as WorkflowTemplatesApplicationService;
-  const workflow = await workflowTemplates.createWorkflow({ content });
-  await workflowTemplates.publishVersion(workflow.version.id);
-  return workflow;
+async function createPublishedPluginWorkflow(app: ReturnType<typeof createApp>, content: WorkflowDslV1) {
+  const unifiedPlugins = app.getResource('unifiedPluginsService');
+  const workflowPublisher = app.getResource('pluginWorkflowPublisher');
+  assert.ok(unifiedPlugins);
+  assert.ok(workflowPublisher);
+  const workflowPath = 'workflows/certificate-deploy.json';
+  const normalizedContent = structuredClone(content) as WorkflowDslV1;
+  normalizedContent.metadata.version ??= '1.0.0';
+  const imported = await unifiedPlugins.importVersion('tenant_1', {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'fixture.workflow.deployment',
+      version: '1.0.0',
+      displayNameKey: 'plugin.fixture.workflowDeployment.name',
+      descriptionKey: 'plugin.fixture.workflowDeployment.description',
+      defaultLocale: 'zh-CN',
+      publisher: 'GCAC test',
+      runtime: 'WORKFLOW_DSL',
+      source: 'USER',
+      scope: 'BOTH',
+      trust: 'UNSIGNED',
+      support: 'SELF_MANAGED',
+      capabilities: [{
+        key: 'certificate.deploy',
+        contractVersion: 'v1',
+        actionContractId: 'certificate.deploy.v1',
+        riskLevel: 'HIGH',
+        executionLocations: ['CONTROL_PLANE'],
+      }],
+      permissions: [],
+      compatibility: {
+        frameworkTypes: ['web.iis'],
+        targetTypes: ['tls.binding'],
+        managementMethods: ['PLUGIN'],
+        executionLocations: ['CONTROL_PLANE'],
+        artifactContracts: ['certificate.deploy.v1'],
+      },
+      resources: {
+        workflows: { 'certificate.deploy': workflowPath },
+        locales: { 'zh-CN': 'locales/zh-CN.json' },
+      },
+    },
+    resources: {
+      [workflowPath]: JSON.stringify(normalizedContent),
+      'locales/zh-CN.json': JSON.stringify({
+        'plugin.fixture.workflowDeployment.name': '工作流部署测试插件',
+        'plugin.fixture.workflowDeployment.description': '固定工作流部署测试插件',
+      }),
+    },
+  });
+  const enabled = await unifiedPlugins.enableVersion(imported.id);
+  const [binding] = await workflowPublisher.publishPlugin(enabled);
+  assert.ok(binding);
+  return {
+    plugin: enabled,
+    binding,
+    template: { id: binding.workflowTemplateId },
+    version: { id: binding.workflowVersionId, content: normalizedContent },
+  };
 }
 
 function workflowTemplateFixture(name: string): WorkflowDslV1 {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
@@ -12,7 +13,9 @@ import { PgUnifiedPluginsRepository } from './repository/unified-plugins.reposit
 
 test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assignment', async () => {
   const db = new PgliteDatabase();
-  await runMigrations(db, 'src/database/migrations');
+  await runMigrations(db, 'src/database/migrations', {
+    checksum: (content) => createHash('sha256').update(content, 'utf8').digest('hex'),
+  });
   const tenantId = 'tenant-managed-plugin-query';
   const device = await new PgDeviceAssetsRepository(db).create(tenantId, {
     displayName: 'Fixture ADC', managementAddress: '10.33.44.10', managementPort: 443,
@@ -77,6 +80,30 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     },
   });
   await plugins.enableVersion(imported.id);
+  const publishedWorkflow = {
+    pluginVersionId: imported.id,
+    capabilityKey: 'certificate.deploy',
+    workflowTemplateId: 'workflow_plugin_override',
+    workflowVersionId: 'workflow_plugin_override_v1',
+    contentHash: 'a'.repeat(64),
+  };
+  await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
+    ('workflow.templates',$1,$2::jsonb,now()),('workflow.template_versions',$3,$4::jsonb,now())`, [
+    publishedWorkflow.workflowTemplateId,
+    JSON.stringify({ id: publishedWorkflow.workflowTemplateId, name: 'Fixture Plugin Override', origin: 'plugin_internal', ownerType: 'TENANT', ownerId: tenantId, tenantId, currentVersionId: publishedWorkflow.workflowVersionId, status: 'active' }),
+    publishedWorkflow.workflowVersionId,
+    JSON.stringify({ id: publishedWorkflow.workflowVersionId, templateId: publishedWorkflow.workflowTemplateId, version: 1, dslVersion: 'v1', status: 'published', contentHash: publishedWorkflow.contentHash, content: JSON.parse(imported.resources['workflows/deploy.json']!) }),
+  ]);
+  await db.query(`insert into unified_plugin_workflow_bindings
+    (plugin_version_id,owner_type,owner_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+    values ($1,'TENANT',$2,$3,'workflows/deploy.json',$4,$5,$6,now())`, [
+    publishedWorkflow.pluginVersionId,
+    tenantId,
+    publishedWorkflow.capabilityKey,
+    publishedWorkflow.workflowTemplateId,
+    publishedWorkflow.workflowVersionId,
+    publishedWorkflow.contentHash,
+  ]);
   const older = await plugins.importVersion(tenantId, {
     manifest: { ...imported.manifest, version: '0.9.0' },
     resources: imported.resources,
@@ -126,11 +153,6 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     resources: { 'workflows/deploy.json': imported.resources['workflows/deploy.json']! },
   });
   await plugins.enableVersion(legacy.id);
-  await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
-    ('workflow.templates','workflow_user_override',$1::jsonb,now()),('workflow.template_versions','workflow_user_override_v1',$2::jsonb,now())`, [
-    JSON.stringify({ id: 'workflow_user_override', name: 'Fixture Override', origin: 'user', ownerType: 'TENANT', ownerId: tenantId, tenantId, currentVersionId: 'workflow_user_override_v1', status: 'active' }),
-    JSON.stringify({ id: 'workflow_user_override_v1', templateId: 'workflow_user_override', version: 1, dslVersion: 'v1', status: 'published', contentHash: 'hash', content: { inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } }),
-  ]);
 
   const service = new ManagedTargetPluginQueryService(db);
   const compatible = await service.listCompatiblePlugins({ tenantId, managedTargetId: target.id, capabilityKey: 'certificate.deploy', locale: 'zh-CN' });
@@ -191,20 +213,32 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   }), (error: any) => error.errorCode === 'VALIDATION_FAILED'
     && error.details?.issues?.some((issue: any) => issue.code === 'DEPLOYMENT_INPUT_REQUIRED'));
 
-  const sourceWorkflow = { workflow_template_id: 'workflow_user_override', workflow_version_id: 'workflow_user_override_v1' };
   const overridden = await service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,
     value: {
       managedTargetId: target.id,
       executionMode: 'WORKFLOW_OVERRIDE',
-      workflowExecution: {
-        tenantId,
-        workflowTemplateId: sourceWorkflow.workflow_template_id,
-        workflowVersionSelection: 'PINNED',
-        workflowVersionId: sourceWorkflow.workflow_version_id,
+        workflowExecution: {
+          tenantId,
+          pluginVersionId: imported.id,
+          capabilityKey: 'certificate.deploy',
+          workflowTemplateId: publishedWorkflow.workflowTemplateId,
+          workflowVersionSelection: 'FIXED',
+        workflowVersionId: publishedWorkflow.workflowVersionId,
         runner: 'CONTROL_PLANE',
-        inputBindings: { apiVersion: 'gcac.input-bindings/v1', connections: {}, variables: {}, credentials: {}, artifacts: {} },
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          connections: {},
+          variables: { virtualServer: 'https', allowInsecureTls: false },
+          credentials: {},
+          artifacts: {
+            certificate: {
+              certificateFormatId: 'format-existing',
+              outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
+            },
+          },
+        },
       },
     },
   });

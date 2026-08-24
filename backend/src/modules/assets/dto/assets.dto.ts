@@ -26,7 +26,7 @@ export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | '
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
 export type DeploymentStrategyType = 'MANAGED_TARGET' | 'WORKFLOW';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
-export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
+export type WorkflowVersionSelection = 'FIXED';
 export type DeploymentStrategyCompatibilityMode = 'UNIFIED';
 export type ManagedTargetExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE';
 
@@ -47,6 +47,8 @@ export interface ManagedTargetDeploymentStrategyDto {
 export interface WorkflowDeploymentStrategyDto {
   workflowExecutionBindingId?: string;
   pluginBindingId?: string;
+  pluginVersionId?: string;
+  capabilityKey?: string;
   workflowId?: string;
   workflowVersionSelection?: WorkflowVersionSelection;
   workflowVersionId?: string;

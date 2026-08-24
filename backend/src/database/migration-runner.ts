@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatabasePort } from './database-port.js';
@@ -40,8 +41,9 @@ export async function runMigrations(
     const rawSql = await readFile(join(migrationsDir, file), 'utf8');
     // 迁移文件受 Git 换行策略影响，执行和新记录都基于跨平台稳定的 LF 内容。
     const sql = normalizeMigrationText(rawSql);
-    const checksum = options.checksum ? options.checksum(sql) : file;
-    const compatibleChecksums = getCompatibleChecksums(rawSql, sql, checksum, options.checksum);
+    // schema_migrations.checksum 固定为 64 位摘要；文件名不是稳定的 checksum，长文件名还会直接写入失败。
+    const checksum = options.checksum ? options.checksum(sql) : sha256(sql);
+    const compatibleChecksums = getCompatibleChecksums(rawSql, sql, checksum, options.checksum, file);
     const duplicateVersion = (versionCounts.get(version) ?? 0) > 1;
     const ordinal = migrationFiles.filter((candidate) => candidate.version === version).indexOf(migration) + 1;
     const legacy = await db.query<{ version: string; name: string; checksum: string; status: string }>(
@@ -119,8 +121,9 @@ function getCompatibleChecksums(
   normalizedSql: string,
   canonicalChecksum: string,
   checksum?: (content: string) => string,
+  legacyFileChecksum?: string,
 ): Set<string> {
-  if (!checksum) return new Set([canonicalChecksum]);
+  if (!checksum) return new Set([canonicalChecksum, ...(legacyFileChecksum ? [legacyFileChecksum] : [])]);
 
   // 兼容规范化前已经写入数据库的 CRLF/CR 历史 checksum，但不放宽实际 SQL 内容校验。
   return new Set([
@@ -129,6 +132,10 @@ function getCompatibleChecksums(
     checksum(normalizedSql.replace(/\n/g, '\r\n')),
     checksum(normalizedSql.replace(/\n/g, '\r')),
   ]);
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 async function ensureMigrationTables(db: DatabasePort): Promise<void> {

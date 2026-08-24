@@ -88,7 +88,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
         resolvedDeploymentInput: input.resolvedInput,
         workflowRequest: {
           workflowId: input.workflow.workflowId,
-          workflowVersionSelection: 'PINNED',
+          workflowVersionSelection: 'FIXED',
           workflowVersionId: input.workflow.workflowVersionId,
           runner: gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
           gatewayId,
