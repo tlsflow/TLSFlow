@@ -1,0 +1,511 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "synology-dsm-cert-import",
+    "displayName": "Synology DSM 证书新增并迁移服务",
+    "category": "certificate",
+    "tags": [
+      "synology",
+      "dsm",
+      "certificate",
+      "curl"
+    ]
+  },
+  "variables": {
+    "frameworkType": {
+      "type": "enum",
+      "required": true,
+      "default": "CUSTOM",
+      "enum": [
+        "NGINX",
+        "APACHE",
+        "TOMCAT",
+        "IIS",
+        "CUSTOM"
+      ],
+      "description": "应用资产框架类型，Synology DSM API 证书导入按自定义设备处理。"
+    },
+    "siteName": {
+      "type": "string",
+      "required": true,
+      "default": "Synology DSM",
+      "description": "应用资产站点显示名称。"
+    },
+    "bindingInformation": {
+      "type": "string",
+      "required": false,
+      "default": "*:5001:nas.example.com",
+      "description": "DSM HTTPS 入口绑定信息。"
+    },
+    "hostHeader": {
+      "type": "string",
+      "required": false,
+      "default": "nas.example.com",
+      "description": "验证请求使用的 Host 头。"
+    },
+    "port": {
+      "type": "number",
+      "required": true,
+      "default": 5001,
+      "description": "DSM HTTPS 管理端口。"
+    },
+    "protocol": {
+      "type": "enum",
+      "required": true,
+      "default": "HTTPS",
+      "enum": [
+        "HTTP",
+        "HTTPS",
+        "TLS",
+        "CUSTOM"
+      ],
+      "description": "应用资产访问协议。"
+    },
+    "verifyUrl": {
+      "type": "string",
+      "required": true,
+      "default": "https://nas.example.com:5001/",
+      "description": "证书导入后用于验证 DSM HTTPS 入口的 URL。"
+    },
+    "sniName": {
+      "type": "string",
+      "required": false,
+      "default": "nas.example.com",
+      "description": "TLS SNI 名称。"
+    },
+    "deviceBaseUrl": {
+      "type": "string",
+      "required": true,
+      "default": "https://nas.example.com:5001",
+      "description": "DSM WebAPI 基础地址，不包含末尾斜杠。"
+    },
+    "synologyCredential": {
+      "type": "credential",
+      "required": true,
+      "sensitive": true,
+      "description": "DSM 登录凭据，使用 username_password 类型，账号写在凭据 username 中，密码只通过 SecretRef 注入登录表单。"
+    },
+    "previousCertificateId": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "迁移前承载服务绑定的旧证书 ID，由上传前证书列表实时解析生成，用作回滚目标。"
+    },
+    "newCertificateId": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "新增证书导入成功后从 SYNO.Core.Certificate.CRT list 解析出的新证书 ID。创建应用资产时未知，不能作为必填输入；仅用于记录或回滚辅助。"
+    },
+    "certificateDescription": {
+      "type": "string",
+      "required": false,
+      "default": "GCAC active certificate",
+      "description": "新增证书描述，用于 DSM 列表中区分当前目标证书。"
+    },
+    "serviceBindingsJson": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "SYNO.Core.Certificate.Service set 的 settings JSON 字符串。运行时应由证书列表实时转换生成，创建应用资产时不能手工必填。"
+    },
+    "serverCert": {
+      "type": "certificate",
+      "required": true,
+      "sensitive": true,
+      "description": "要新增到 Synology DSM 的证书产物。",
+      "artifactContract": {
+        "outputs": {
+          "certFile": {
+            "role": "public_certificate",
+            "required": true,
+            "format": "pem",
+            "encoding": "utf8",
+            "description": "提交给 DSM cert 字段的 fullchain PEM 内容。"
+          },
+          "keyFile": {
+            "role": "private_key",
+            "required": true,
+            "format": "pem",
+            "encoding": "utf8",
+            "description": "提交给 DSM key 字段的私钥 PEM 内容。"
+          },
+          "chainFile": {
+            "role": "certificate_chain",
+            "required": false,
+            "format": "pem",
+            "encoding": "utf8",
+            "description": "提交给 DSM inter_cert 字段的证书链 PEM 内容。"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "prepare_synology_login",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "POST",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "bodyType": "form",
+        "form": {
+          "api": "SYNO.API.Auth",
+          "version": 7,
+          "method": "login",
+          "account": "{{synologyCredential.username}}",
+          "session": "webui",
+          "format": "sid",
+          "enable_syno_token": "yes"
+        },
+        "formCredentialRefs": {
+          "passwd": "{{synologyCredential}}"
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "extract": [
+        {
+          "name": "synologySid",
+          "type": "jsonPath",
+          "path": "$.data.sid",
+          "sensitive": true
+        },
+        {
+          "name": "synoToken",
+          "type": "jsonPath",
+          "path": "$.data.synotoken",
+          "sensitive": true
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        },
+        {
+          "type": "contains",
+          "value": "\"success\":true"
+        }
+      ]
+    },
+    {
+      "name": "list_synology_certificates_before_import",
+      "type": "http",
+      "stage": "backup",
+      "request": {
+        "method": "GET",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "query": {
+          "api": "SYNO.Core.Certificate.CRT",
+          "method": "list",
+          "version": 1,
+          "SynoToken": "{{synoToken}}",
+          "_sid": "{{synologySid}}"
+        },
+        "headers": {
+          "X-SYNO-TOKEN": "{{synoToken}}"
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "extract": [
+        {
+          "name": "synologyCertificatesBeforeImport",
+          "type": "jsonPath",
+          "path": "$.data.certificates"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        },
+        {
+          "type": "contains",
+          "value": "\"success\":true"
+        }
+      ]
+    },
+    {
+      "name": "build_previous_synology_certificate_context",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "certificates": "{{synologyCertificatesBeforeImport}}"
+        },
+        "outputs": {
+          "previousCertificateId": {
+            "expression": "$filter(certificates, function($c){$c.is_default = true})[0].id"
+          },
+          "previousCertificateServices": {
+            "expression": "$filter(certificates, function($c){$c.is_default = true})[0].services"
+          }
+        },
+        "timeoutMs": 200,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "install_synology_certificate_as_new_default",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "query": {
+          "api": "SYNO.Core.Certificate",
+          "method": "import",
+          "version": 1,
+          "SynoToken": "{{synoToken}}",
+          "_sid": "{{synologySid}}"
+        },
+        "headers": {
+          "X-SYNO-TOKEN": "{{synoToken}}"
+        },
+        "bodyType": "multipart",
+        "multipart": {
+          "key": {
+            "filename": "privkey.pem",
+            "contentType": "application/octet-stream",
+            "value": "{{serverCert.outputs.keyFile.content}}"
+          },
+          "cert": {
+            "filename": "fullchain.pem",
+            "contentType": "application/octet-stream",
+            "value": "{{serverCert.outputs.certFile.content}}"
+          },
+          "inter_cert": {
+            "filename": "chain.pem",
+            "contentType": "application/octet-stream",
+            "value": "{{serverCert.outputs.chainFile.content}}"
+          },
+          "id": {
+            "value": ""
+          },
+          "desc": {
+            "value": "{{certificateDescription}}"
+          },
+          "as_default": {
+            "value": "true"
+          }
+        },
+        "timeoutSeconds": 60,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "extract": [
+        {
+          "name": "synologyImportSuccess",
+          "type": "regex",
+          "pattern": "\"success\"\\s*:\\s*(true|false)",
+          "optional": true
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        },
+        {
+          "type": "contains",
+          "value": "\"success\":true"
+        }
+      ]
+    },
+    {
+      "name": "list_synology_certificates_after_import",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "GET",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "query": {
+          "api": "SYNO.Core.Certificate.CRT",
+          "method": "list",
+          "version": 1,
+          "SynoToken": "{{synoToken}}",
+          "_sid": "{{synologySid}}"
+        },
+        "headers": {
+          "X-SYNO-TOKEN": "{{synoToken}}"
+        },
+        "timeoutSeconds": 30,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "extract": [
+        {
+          "name": "synologyCertificatesAfterImport",
+          "type": "jsonPath",
+          "path": "$.data.certificates"
+        }
+      ],
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        },
+        {
+          "type": "contains",
+          "value": "\"success\":true"
+        }
+      ]
+    },
+    {
+      "name": "build_synology_service_bindings",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "certificateDescription": "{{certificateDescription}}",
+          "certificates": "{{synologyCertificatesAfterImport}}",
+          "previousCertificateId": "{{previousCertificateId}}",
+          "previousCertificateServices": "{{previousCertificateServices}}"
+        },
+        "outputs": {
+          "newCertificateId": {
+            "expression": "$filter(certificates, function($c){$c.desc = certificateDescription})[0].id"
+          },
+          "serviceBindingsJson": {
+            "expression": "[$map(previousCertificateServices, function($service){{\"service\":$service,\"old_id\":previousCertificateId,\"id\":newCertificateId}})]",
+            "format": "jsonString"
+          }
+        },
+        "timeoutMs": 200,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "apply_synology_service_bindings",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "POST",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "query": {
+          "api": "SYNO.Core.Certificate.Service",
+          "method": "set",
+          "version": 1,
+          "SynoToken": "{{synoToken}}",
+          "_sid": "{{synologySid}}"
+        },
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-SYNO-TOKEN": "{{synoToken}}"
+        },
+        "bodyType": "form",
+        "form": {
+          "api": "SYNO.Core.Certificate.Service",
+          "version": 1,
+          "method": "set",
+          "settings": "{{serviceBindingsJson}}",
+          "_sid": "{{synologySid}}",
+          "SynoToken": "{{synoToken}}"
+        },
+        "timeoutSeconds": 60,
+        "maxResponseBytes": 1048576,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        },
+        {
+          "type": "contains",
+          "value": "\"success\":true"
+        }
+      ]
+    },
+    {
+      "name": "wait_dsm_certificate_apply",
+      "type": "wait",
+      "stage": "refresh",
+      "seconds": 15
+    },
+    {
+      "name": "logout_synology_session",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "POST",
+        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "query": {
+          "api": "SYNO.API.Auth",
+          "method": "logout",
+          "version": 6,
+          "SynoToken": "{{synoToken}}",
+          "_sid": "{{synologySid}}"
+        },
+        "bodyType": "none",
+        "timeoutSeconds": 30,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    },
+    {
+      "name": "verify_synology_https",
+      "type": "http",
+      "stage": "verify",
+      "request": {
+        "method": "GET",
+        "url": "{{verifyUrl}}",
+        "headers": {
+          "Host": "{{hostHeader}}"
+        },
+        "timeoutSeconds": 30,
+        "successStatusCodes": [
+          200
+        ],
+        "failOnNon2xx": true
+      },
+      "assert": [
+        {
+          "type": "statusCode",
+          "equals": 200
+        }
+      ]
+    }
+  ],
+  "rollback": [
+    {
+      "name": "rollback_synology_service_bindings_to_previous_certificate",
+      "type": "manual",
+      "stage": "verify",
+      "instruction": "回滚时请把 serviceBindingsJson 中每项 id 改为 previousCertificateId、old_id 改为 newCertificateId 后重新执行服务绑定迁移；旧证书必须保留在 DSM 中。"
+    }
+  ]
+}
