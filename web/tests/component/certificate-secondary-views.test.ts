@@ -196,4 +196,35 @@ describe('证书辅助页面', () => {
     expect(wrapper.text()).toContain(formatBrowserLocalTime(observedAt))
     expect(wrapper.find('.gc-tag--success').exists()).toBe(true)
   })
+
+  it('根证书刷新期间保留已有指标卡尺寸和内容', async () => {
+    const response = {
+      data: {
+        items: [{ id: 'root-1', fingerprintSha256: 'aa', subject: { commonName: 'Example Root' } }],
+        managedSummary: { items: [] },
+      },
+    }
+    let resolveRefresh!: (value: typeof response) => void
+    certificateMocks.listCertificateTrustRoots
+      .mockResolvedValueOnce(response)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveRefresh = resolve
+      }))
+
+    const wrapper = mount(CertificateTrustRootsModalContent, {
+      props: { open: true },
+      attachTo: document.body,
+    })
+    await settle()
+
+    expect(wrapper.findAll('.trust-roots-modal__summary-card')).toHaveLength(4)
+    await wrapper.find('.trust-roots-modal__toolbar .gc-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.trust-roots-modal__state').exists()).toBe(false)
+    expect(wrapper.findAll('.trust-roots-modal__summary-card')).toHaveLength(4)
+
+    resolveRefresh(response)
+    await settle()
+  })
 })
