@@ -9,6 +9,8 @@ interface PermissionState {
   objectSets: readonly ApiRecord[]
   roleBindings: readonly ApiRecord[]
   objectPermissionVersion: string | null
+  businessPermissions: readonly ApiRecord[]
+  businessPermissionVersion: string | null
   expiresAt: string | null
   loadedAt: string | null
 }
@@ -125,6 +127,8 @@ export const usePermissionStore = defineStore('permission', {
     objectSets: [],
     roleBindings: [],
     objectPermissionVersion: null,
+    businessPermissions: [],
+    businessPermissionVersion: null,
     expiresAt: null,
     loadedAt: null
   }),
@@ -147,6 +151,8 @@ export const usePermissionStore = defineStore('permission', {
         this.objectSets = [...context.objectSets]
         this.roleBindings = [...context.roleBindings]
         this.objectPermissionVersion = context.objectPermissionVersion
+        this.businessPermissions = [...(context.businessPermissions ?? [])]
+        this.businessPermissionVersion = context.businessPermissionVersion ?? null
         this.expiresAt = context.expiresAt
         this.loadedAt = new Date().toISOString()
         return
@@ -158,6 +164,8 @@ export const usePermissionStore = defineStore('permission', {
       this.objectSets = []
       this.roleBindings = []
       this.objectPermissionVersion = null
+      this.businessPermissions = []
+      this.businessPermissionVersion = null
       this.expiresAt = null
       this.loadedAt = new Date().toISOString()
     },
@@ -166,6 +174,8 @@ export const usePermissionStore = defineStore('permission', {
       this.objectSets = []
       this.roleBindings = []
       this.objectPermissionVersion = null
+      this.businessPermissions = []
+      this.businessPermissionVersion = null
       this.expiresAt = null
       this.loadedAt = null
     },

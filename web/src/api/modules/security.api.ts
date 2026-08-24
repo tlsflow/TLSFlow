@@ -42,6 +42,8 @@ export interface ObjectPermissionContextResponse extends CurrentUserResponse {
   readonly objectSets: readonly ApiRecord[]
   readonly roleBindings: readonly ApiRecord[]
   readonly objectPermissionVersion: string
+  readonly businessPermissions?: readonly ApiRecord[]
+  readonly businessPermissionVersion?: string
   readonly expiresAt: string
 }
 
@@ -333,6 +335,29 @@ export function listAccessGrants(query?: BusinessListQuery): Promise<ApiPageResu
 
 export function createAccessGrant(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
   return apiClient.post<ApiRecord>('/v1/security/access-grants', body)
+}
+
+export function listBusinessPermissionDefinitions(): Promise<ApiResult<{ items: readonly ApiRecord[] }>> {
+  return apiClient.get<{ items: readonly ApiRecord[] }>('/v1/security/business-permission-domains')
+}
+
+export function listBusinessPermissionGrants(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/business-permission-grants', query)
+}
+
+export function createBusinessPermissionGrant(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/business-permission-grants', body)
+}
+
+export function revokeBusinessPermissionGrant(id: string, version?: number): Promise<ApiResult<{ id: string; revoked: true; version: number }>> {
+  return apiClient.request<{ id: string; revoked: true; version: number }>('/v1/security/business-permission-grants', {
+    method: 'DELETE',
+    body: { id, version }
+  })
+}
+
+export function resolveBusinessPermissionCapabilities(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/business-permission-capabilities', body)
 }
 
 export function getObjectCapabilities(body: {

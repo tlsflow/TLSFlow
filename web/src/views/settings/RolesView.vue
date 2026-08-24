@@ -3,18 +3,18 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
-import { listAgents, listAssets } from '@/api/modules/assets.api'
+import { listAssets } from '@/api/modules/assets.api'
 import { listCertificates } from '@/api/modules/certificates.api'
-import { listDeploymentPlans } from '@/api/modules/deployments.api'
-import { listGateways } from '@/api/modules/gateways.api'
 import {
   createAccessGrant,
+  createBusinessPermissionGrant,
   createObjectSet,
   createRole,
   createRoleBinding,
   deleteRole,
   addObjectSetMember,
   listAccessGrants,
+  listBusinessPermissionGrants,
   listGroups,
   listObjectSetMembers,
   listObjectSets,
@@ -22,9 +22,11 @@ import {
   listRoles,
   listUsers
 } from '@/api/modules/security.api'
-import { listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
 import { GcDataTable, GcModal, GcPageToolbar } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+
+type BusinessPermissionDomain = 'certificate' | 'application' | 'audit' | 'settings'
+type BusinessPermissionLevel = 'user' | 'manager'
 
 interface RoleDraft {
   name: string
@@ -33,7 +35,7 @@ interface RoleDraft {
 
 interface AccessGrantDraft {
   roleId: string
-  accessLevel: 'read' | 'edit' | 'control'
+  businessLevel: BusinessPermissionLevel
   effect: 'allow' | 'deny'
 }
 
@@ -46,7 +48,7 @@ interface MemberOption {
 }
 
 interface AssignableObjectCategory {
-  key: string
+  key: BusinessPermissionDomain
   labelKey: string
   objectType: string
   load?: () => Promise<readonly ApiRecord[]>
@@ -60,6 +62,7 @@ interface ObjectTreeNode {
   objectId?: string
   objectTypes: string[]
   level: number
+  selectable: boolean
   description?: string
 }
 
@@ -69,6 +72,7 @@ const roleRows = ref<ApiRecord[]>([])
 const objectSetRows = ref<ApiRecord[]>([])
 const objectSetMemberRows = ref<ApiRecord[]>([])
 const accessGrantRows = ref<ApiRecord[]>([])
+const businessPermissionRows = ref<ApiRecord[]>([])
 const roleBindingRows = ref<ApiRecord[]>([])
 const userRows = ref<ApiRecord[]>([])
 const groupRows = ref<ApiRecord[]>([])
@@ -91,38 +95,22 @@ const selectedMemberKeys = ref<string[]>([])
 const expandedTreeKeys = ref<string[]>(['root'])
 const objectTreeRecords = ref<Record<string, readonly ApiRecord[]>>({})
 
+const hiddenCompatibilityRoleIds = new Set(['role_external_user'])
+const hiddenCompatibilityRoleCodes = new Set(['external_user'])
+
 const roleDraft = reactive<RoleDraft>({ name: '', description: '' })
-const grantDraft = reactive<AccessGrantDraft>({ roleId: '', accessLevel: 'read', effect: 'allow' })
+const grantDraft = reactive<AccessGrantDraft>({ roleId: '', businessLevel: 'user', effect: 'allow' })
 
 const assignableCategories: readonly AssignableObjectCategory[] = [
   { key: 'certificate', labelKey: 'settings.roles.categories.certificate', objectType: 'certificate', load: () => loadPageItems(listCertificates) },
-  { key: 'gateway', labelKey: 'settings.roles.categories.gateway', objectType: 'gateway', load: () => loadPageItems(listGateways) },
-  { key: 'agent', labelKey: 'settings.roles.categories.agent', objectType: 'agent', load: () => loadPageItems(listAgents) },
-  { key: 'service_asset', labelKey: 'settings.roles.categories.serviceAsset', objectType: 'service_asset', load: () => loadPageItems(listAssets) },
-  { key: 'deployment_plan', labelKey: 'settings.roles.categories.deploymentPlan', objectType: 'deployment_plan', load: () => loadPageItems(listDeploymentPlans) },
-  { key: 'workflow', labelKey: 'settings.roles.categories.workflow', objectType: 'workflow', load: () => loadPageItems(listWorkflowTemplates) },
-  { key: 'audit_log', labelKey: 'settings.roles.categories.auditLog', objectType: 'audit_log', load: () => Promise.resolve(auditLogCategories()) },
-  { key: 'system_setting', labelKey: 'settings.roles.categories.systemSetting', objectType: 'system_setting' }
+  { key: 'application', labelKey: 'settings.roles.categories.application', objectType: 'service_asset', load: () => loadPageItems(listAssets) },
+  { key: 'audit', labelKey: 'settings.roles.categories.auditLog', objectType: 'audit_log' },
+  { key: 'settings', labelKey: 'settings.roles.categories.systemSetting', objectType: 'system_setting' }
 ]
-
-function auditLogCategories(): readonly ApiRecord[] {
-  return [
-    { id: 'auth', name: t('settings.roles.auditLogs.auth.name'), description: t('settings.roles.auditLogs.auth.description') },
-    { id: 'security', name: t('settings.roles.auditLogs.security.name'), description: t('settings.roles.auditLogs.security.description') },
-    { id: 'certificate', name: t('settings.roles.auditLogs.certificate.name'), description: t('settings.roles.auditLogs.certificate.description') },
-    { id: 'asset', name: t('settings.roles.auditLogs.asset.name'), description: t('settings.roles.auditLogs.asset.description') },
-    { id: 'gateway', name: t('settings.roles.auditLogs.gateway.name'), description: t('settings.roles.auditLogs.gateway.description') },
-    { id: 'agent', name: t('settings.roles.auditLogs.agent.name'), description: t('settings.roles.auditLogs.agent.description') },
-    { id: 'deployment', name: t('settings.roles.auditLogs.deployment.name'), description: t('settings.roles.auditLogs.deployment.description') },
-    { id: 'workflow', name: t('settings.roles.auditLogs.workflow.name'), description: t('settings.roles.auditLogs.workflow.description') },
-    { id: 'secret', name: t('settings.roles.auditLogs.secret.name'), description: t('settings.roles.auditLogs.secret.description') },
-    { id: 'system', name: t('settings.roles.auditLogs.system.name'), description: t('settings.roles.auditLogs.system.description') }
-  ]
-}
 
 function normalizeTreeObjectType(objectType: string): string {
   if (objectType === 'certificate_asset') return 'certificate'
-  if (objectType === 'workflow_template') return 'workflow'
+  if (objectType === 'application_asset') return 'service_asset'
   return objectType
 }
 
@@ -144,7 +132,7 @@ const roleColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
 const accessGrantColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'roleId', title: t('settings.roles.columns.roleId'), width: '24%' },
   { key: 'objectSetName', title: t('settings.roles.columns.objectScope'), width: '28%' },
-  { key: 'accessLevel', title: t('settings.roles.columns.accessLevel'), width: '16%' },
+  { key: 'businessLevel', title: t('settings.roles.columns.businessLevel'), width: '16%' },
   { key: 'effect', title: t('settings.roles.columns.effect'), width: '12%' }
 ])
 
@@ -158,11 +146,13 @@ const roleMemberColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
 const currentRoleGrants = computed<ApiRecord[]>(() => {
   const roleId = readValue(selectedRole.value, 'id')
   if (!roleId) return []
-  return roleAccessGrants(roleId)
+  return businessPermissionRows.value
+    .filter((item) => readValue(item, 'roleId') === roleId)
     .map((item, index) => ({
       ...item,
-      objectSetName: objectSetLabel(readValue(item, 'objectSetId')),
-      rowKey: [readValue(item, 'roleId'), readValue(item, 'objectSetId'), readValue(item, 'accessLevel'), readValue(item, 'effect'), index].join(':')
+      objectSetName: businessPermissionScopeLabel(item),
+      businessLevel: businessPermissionLevelText(readValue(item, 'level')),
+      rowKey: [readValue(item, 'roleId'), readValue(item, 'domain'), readValue(item, 'rootObjectType'), readValue(item, 'rootObjectId'), readValue(item, 'level'), readValue(item, 'effect'), index].join(':')
     }))
 })
 
@@ -227,6 +217,7 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
     kind: 'root',
     objectTypes: assignableCategories.map((item) => item.objectType),
     level: 0,
+    selectable: false,
     description: t('settings.roles.tree.rootDescription')
   }
   const nodes: ObjectTreeNode[] = [root]
@@ -240,6 +231,7 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
       objectType: category.objectType,
       objectTypes: [category.objectType],
       level: 1,
+      selectable: category.key === 'audit' || category.key === 'settings',
       description: t('settings.roles.tree.typeDescription', { category: categoryLabel })
     }
     nodes.push(typeNode)
@@ -255,6 +247,7 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
         objectId,
         objectTypes: [category.objectType],
         level: 2,
+        selectable: true,
         description: objectId
       })
     }
@@ -304,6 +297,18 @@ function labelWithId(label: string, id: string): string {
 function objectSetLabel(objectSetId: string): string {
   const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
   return objectSet ? labelWithId(readValue(objectSet, 'name') || objectSetId, objectSetId) : objectSetId || '—'
+}
+
+function businessPermissionScopeLabel(grant: ApiRecord): string {
+  const category = assignableCategories.find((item) => item.key === readValue(grant, 'domain'))
+  const categoryLabel = category ? objectCategoryLabel(category) : readValue(grant, 'domain')
+  const rootObjectId = readValue(grant, 'rootObjectId')
+  return rootObjectId ? labelWithId(categoryLabel, rootObjectId) : categoryLabel
+}
+
+function businessPermissionLevelText(level: string): string {
+  if (level === 'manager') return t('settings.roles.levels.manager')
+  return t('settings.roles.levels.user')
 }
 
 function roleAccessGrants(roleId: string): ApiRecord[] {
@@ -393,6 +398,7 @@ function buildRoleScopeNodeFromMember(member: ApiRecord): ObjectTreeNode | null 
     objectId,
     objectTypes: [category.objectType],
     level: 2,
+    selectable: true,
     description: objectId
   }
 }
@@ -408,10 +414,11 @@ function buildScopeNodesForObjectSet(objectSet: ApiRecord): ObjectTreeNode[] {
   const rawObjectTypes = Array.isArray(readField(objectSet, 'objectTypes'))
     ? (readField(objectSet, 'objectTypes') as unknown[]).map((item) => normalizeTreeObjectType(String(item))).filter(Boolean)
     : []
-  const objectTypes = [...new Set(rawObjectTypes)]
-  if (objectTypes.length === 1) {
-    const category = categoryByObjectType(objectTypes[0])
-    if (!category) return []
+  const categories = [...new Set(rawObjectTypes
+    .map((objectType) => categoryByObjectType(objectType))
+    .filter((category): category is AssignableObjectCategory => Boolean(category)))]
+  if (categories.length === 1) {
+    const category = categories[0]
     const categoryLabel = objectCategoryLabel(category)
     return [{
       key: category.key,
@@ -420,17 +427,11 @@ function buildScopeNodesForObjectSet(objectSet: ApiRecord): ObjectTreeNode[] {
       objectType: category.objectType,
       objectTypes: [category.objectType],
       level: 1,
+      selectable: category.key === 'audit' || category.key === 'settings',
       description: t('settings.roles.tree.typeDescription', { category: categoryLabel })
     }]
   }
-  return [{
-    key: 'root',
-    label: t('settings.roles.tree.rootLabel'),
-    kind: 'root',
-    objectTypes: assignableCategories.map((item) => item.objectType),
-    level: 0,
-    description: t('settings.roles.tree.rootDescription')
-  }]
+  return []
 }
 
 function buildRoleScopeNodes(roleId: string): ObjectTreeNode[] {
@@ -446,11 +447,7 @@ function buildRoleScopeNodes(roleId: string): ObjectTreeNode[] {
 
 function syncGrantDraftWithExistingRoleScopes(roleId: string): void {
   const grants = roleAccessGrants(roleId)
-  const accessLevels = [...new Set(grants.map((item) => readValue(item, 'accessLevel')).filter(Boolean))]
   const effects = [...new Set(grants.map((item) => readValue(item, 'effect')).filter(Boolean))]
-  if (accessLevels.length === 1 && ['read', 'edit', 'control'].includes(accessLevels[0])) {
-    grantDraft.accessLevel = accessLevels[0] as AccessGrantDraft['accessLevel']
-  }
   if (effects.length === 1 && ['allow', 'deny'].includes(effects[0])) {
     grantDraft.effect = effects[0] as AccessGrantDraft['effect']
   }
@@ -511,6 +508,10 @@ function isSameOrDescendantScope(candidate: ObjectTreeNode, target: ObjectTreeNo
 }
 
 function toggleObjectNodeSelection(node: ObjectTreeNode): void {
+  if (!node.selectable) {
+    toggleTreeNode(node)
+    return
+  }
   if (node.kind === 'root') {
     selectedObjectNodes.value = isObjectNodeSelected(node) ? [] : [node]
     if (!isExpanded(node.key)) toggleTreeNode(node)
@@ -546,6 +547,14 @@ function objectSetNameForNode(node: ObjectTreeNode): string {
   if (node.kind === 'root') return t('settings.roles.tree.allBusinessObjects')
   if (node.kind === 'type') return t('settings.roles.tree.typeDescription', { category: node.label })
   return node.label
+}
+
+function accessLevelForBusinessLevel(level: BusinessPermissionLevel): 'read' | 'edit' {
+  return level === 'manager' ? 'edit' : 'read'
+}
+
+function isHiddenCompatibilityRole(row: ApiRecord): boolean {
+  return hiddenCompatibilityRoleIds.has(readValue(row, 'id')) || hiddenCompatibilityRoleCodes.has(readValue(row, 'code'))
 }
 
 function generateRoleCode(name: string): string {
@@ -584,19 +593,21 @@ async function reloadAll(): Promise<void> {
   loading.value = true
   pageError.value = ''
   try {
-    const [roles, objectSets, objectSetMembers, grants, roleBindings, users, groups] = await Promise.all([
+    const [roles, objectSets, objectSetMembers, grants, businessPermissions, roleBindings, users, groups] = await Promise.all([
       listRoles({ page: 1, pageSize: 100 }),
       listObjectSets({ page: 1, pageSize: 100 }),
       listObjectSetMembers({ page: 1, pageSize: 500 }),
       listAccessGrants({ page: 1, pageSize: 100 }),
+      listBusinessPermissionGrants({ page: 1, pageSize: 200 }),
       listRoleBindings({ page: 1, pageSize: 200 }),
       listUsers({ page: 1, pageSize: 200 }),
       listGroups({ page: 1, pageSize: 200 })
     ])
-    roleRows.value = [...(roles.data?.items ?? [])]
+    roleRows.value = [...(roles.data?.items ?? [])].filter((role) => !isHiddenCompatibilityRole(role))
     objectSetRows.value = [...(objectSets.data?.items ?? [])]
     objectSetMemberRows.value = [...(objectSetMembers.data?.items ?? [])]
     accessGrantRows.value = [...(grants.data?.items ?? [])]
+    businessPermissionRows.value = [...(businessPermissions.data?.items ?? [])]
     roleBindingRows.value = [...(roleBindings.data?.items ?? [])]
     userRows.value = [...(users.data?.items ?? [])]
     groupRows.value = [...(groups.data?.items ?? [])]
@@ -615,7 +626,7 @@ function openCreateRole(): void {
   Object.assign(roleDraft, { name: '', description: '' })
   Object.assign(grantDraft, {
     roleId: '',
-    accessLevel: 'read',
+    businessLevel: 'user',
     effect: 'allow'
   })
   selectedObjectNodes.value = []
@@ -634,7 +645,7 @@ function openGrantRole(): void {
   const roleId = selectedRole.value ? readValue(selectedRole.value, 'id') : ''
   Object.assign(grantDraft, {
     roleId,
-    accessLevel: 'read',
+    businessLevel: 'user',
     effect: 'allow'
   })
   selectedObjectNodes.value = []
@@ -693,7 +704,7 @@ async function submitRole(): Promise<void> {
     const roleId = readValue(roleResult.data ?? {}, 'id')
     if (nodes.length > 0) {
       if (!roleId) throw new Error(t('settings.roles.errors.missingRoleId'))
-      await createGrantsForRole(roleId, nodes, grantDraft.accessLevel, grantDraft.effect)
+      await createGrantsForRole(roleId, nodes, grantDraft.businessLevel, grantDraft.effect)
     }
     roleEditorOpen.value = false
     await reloadAll()
@@ -711,7 +722,7 @@ async function submitGrant(): Promise<void> {
   saving.value = true
   modalError.value = ''
   try {
-    await createGrantsForRole(grantDraft.roleId.trim(), nodes, grantDraft.accessLevel, grantDraft.effect)
+    await createGrantsForRole(grantDraft.roleId.trim(), nodes, grantDraft.businessLevel, grantDraft.effect)
     grantEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
@@ -808,7 +819,7 @@ async function ensureRoleSelfBinding(
 async function createGrantsForRole(
   roleId: string,
   nodes: readonly ObjectTreeNode[],
-  accessLevel: AccessGrantDraft['accessLevel'],
+  businessLevel: BusinessPermissionLevel,
   effect: AccessGrantDraft['effect']
 ): Promise<void> {
   const existingRoleBindingKeys = new Set(roleBindingRows.value
@@ -832,7 +843,32 @@ async function createGrantsForRole(
       await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
     }
   }
-  for (const node of nodes) {
+  const existingBusinessGrantKeys = new Set(businessPermissionRows.value
+    .filter((item) => readValue(item, 'roleId') === roleId)
+    .map((item) => [
+      readValue(item, 'domain'),
+      readValue(item, 'level'),
+      readValue(item, 'rootObjectType'),
+      readValue(item, 'rootObjectId'),
+      readValue(item, 'effect')
+    ].join(':')))
+  for (const node of uniqueObjectNodes(nodes.filter((item) => item.selectable))) {
+    const category = categoryByObjectType(node.objectType ?? '')
+    if (!category) throw new Error(t('settings.roles.errors.invalidBusinessScope'))
+    const businessGrantKey = [category.key, businessLevel, node.objectType, node.objectId ?? '', effect].join(':')
+    if (!existingBusinessGrantKeys.has(businessGrantKey)) {
+      await createBusinessPermissionGrant({
+        principalType: 'group',
+        principalId: roleId,
+        roleId,
+        domain: category.key,
+        level: businessLevel,
+        rootObjectType: node.objectType,
+        rootObjectId: node.objectId,
+        effect
+      })
+      existingBusinessGrantKeys.add(businessGrantKey)
+    }
     const existingObjectSetIds = existingScopeObjectSetIds.get(node.key) ?? []
     if (existingObjectSetIds.length > 0) {
       for (const objectSetId of existingObjectSetIds) {
@@ -860,7 +896,7 @@ async function createGrantsForRole(
     await createAccessGrant({
       roleId,
       objectSetId,
-      accessLevel,
+      accessLevel: accessLevelForBusinessLevel(businessLevel),
       effect
     })
     existingScopeObjectSetIds.set(node.key, [...(existingScopeObjectSetIds.get(node.key) ?? []), objectSetId])
@@ -1020,11 +1056,10 @@ onMounted(() => void reloadAll())
 
         <section class="roles-view__form roles-view__form--two">
           <label>
-            <span>{{ t('settings.roles.columns.accessLevel') }}</span>
-            <select v-model="grantDraft.accessLevel">
-              <option value="read">{{ t('settings.roles.accessLevel.read') }}</option>
-              <option value="edit">{{ t('settings.roles.accessLevel.edit') }}</option>
-              <option value="control">{{ t('settings.roles.accessLevel.control') }}</option>
+            <span>{{ t('settings.roles.columns.businessLevel') }}</span>
+            <select v-model="grantDraft.businessLevel">
+              <option value="user">{{ t('settings.roles.levels.user') }}</option>
+              <option value="manager">{{ t('settings.roles.levels.manager') }}</option>
             </select>
           </label>
           <label>
@@ -1094,11 +1129,10 @@ onMounted(() => void reloadAll())
 
         <section class="roles-view__form roles-view__form--two">
           <label>
-            <span>{{ t('settings.roles.columns.accessLevel') }}</span>
-            <select v-model="grantDraft.accessLevel">
-              <option value="read">{{ t('settings.roles.accessLevel.read') }}</option>
-              <option value="edit">{{ t('settings.roles.accessLevel.edit') }}</option>
-              <option value="control">{{ t('settings.roles.accessLevel.control') }}</option>
+            <span>{{ t('settings.roles.columns.businessLevel') }}</span>
+            <select v-model="grantDraft.businessLevel">
+              <option value="user">{{ t('settings.roles.levels.user') }}</option>
+              <option value="manager">{{ t('settings.roles.levels.manager') }}</option>
             </select>
           </label>
           <label>

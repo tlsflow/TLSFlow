@@ -2258,6 +2258,7 @@ export default {
         actions: '操作',
         objectScope: 'オブジェクト範囲',
         accessLevel: '権限レベル',
+        businessLevel: '業務権限レベル',
         effect: '效果',
         memberType: '成员タイプ',
         member: '成员'
@@ -2272,6 +2273,7 @@ export default {
       },
       categories: {
         certificate: '証明書',
+        application: 'アプリケーション',
         gateway: 'ゲートウェイ',
         agent: 'Agent',
         serviceAsset: 'アプリケーションアセット',
@@ -2284,6 +2286,10 @@ export default {
         read: '読み取り専用',
         edit: '編集',
         control: '完全控制'
+      },
+      levels: {
+        user: '使用者',
+        manager: '管理者'
       },
       effect: {
         allow: '允許',

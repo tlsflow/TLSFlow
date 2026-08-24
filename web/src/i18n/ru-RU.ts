@@ -2232,6 +2232,7 @@ export default {
         actions: 'Операции',
         objectScope: 'Область объектов',
         accessLevel: 'Уровень доступа',
+        businessLevel: 'Уровень бизнес-прав',
         effect: 'Эффект',
         memberType: 'Тип участника',
         member: 'Участник'
@@ -2246,6 +2247,7 @@ export default {
       },
       categories: {
         certificate: 'Сертификат',
+        application: 'Приложение',
         gateway: 'Шлюз',
         agent: 'Agent',
         serviceAsset: 'Актив приложения',
@@ -2258,6 +2260,10 @@ export default {
         read: 'Только чтение',
         edit: 'Редактирование',
         control: 'Полный контроль'
+      },
+      levels: {
+        user: 'Пользователь',
+        manager: 'Менеджер'
       },
       effect: {
         allow: 'Разрешить',

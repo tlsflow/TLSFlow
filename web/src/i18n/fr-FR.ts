@@ -2295,6 +2295,7 @@ export default {
         actions: 'Actions',
         objectScope: 'Object scope',
         accessLevel: 'Access level',
+        businessLevel: 'Business permission level',
         effect: 'Effect',
         memberType: 'Member type',
         member: 'Member'
@@ -2309,6 +2310,7 @@ export default {
       },
       categories: {
         certificate: 'Certificate',
+        application: 'Application',
         gateway: 'Gateway',
         agent: 'Agent',
         serviceAsset: 'Application asset',
@@ -2321,6 +2323,10 @@ export default {
         read: 'Read only',
         edit: 'Edit',
         control: 'Full control'
+      },
+      levels: {
+        user: 'User',
+        manager: 'Manager'
       },
       effect: {
         allow: 'Allow',

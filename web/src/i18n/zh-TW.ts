@@ -2257,6 +2257,7 @@ export default {
         actions: "操作",
         objectScope: "物件範圍",
         accessLevel: "權限級別",
+        businessLevel: "業務權限級別",
         effect: "效果",
         memberType: "成員型別",
         member: "成員"
@@ -2271,6 +2272,7 @@ export default {
       },
       categories: {
         certificate: "憑證",
+        application: "應用程式",
         gateway: "閘道",
         agent: "Agent",
         serviceAsset: "應用資產",
@@ -2283,6 +2285,10 @@ export default {
         read: "唯讀",
         edit: "編輯",
         control: "完全控制"
+      },
+      levels: {
+        user: "使用者",
+        manager: "管理者"
       },
       effect: {
         allow: "允許",

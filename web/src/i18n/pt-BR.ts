@@ -2232,6 +2232,7 @@ export default {
         actions: 'Ações',
         objectScope: 'Escopo do objeto',
         accessLevel: 'Nível de permissão',
+        businessLevel: 'Nível de permissão de negócio',
         effect: 'Efeito',
         memberType: 'Tipo de membro',
         member: 'Membro'
@@ -2246,6 +2247,7 @@ export default {
       },
       categories: {
         certificate: 'Certificado',
+        application: 'Aplicação',
         gateway: 'Gateway',
         agent: 'Agent',
         serviceAsset: 'Ativo de aplicação',
@@ -2258,6 +2260,10 @@ export default {
         read: 'Somente leitura',
         edit: 'Editar',
         control: 'Controle total'
+      },
+      levels: {
+        user: 'Usuário',
+        manager: 'Gerente'
       },
       effect: {
         allow: 'Permitir',

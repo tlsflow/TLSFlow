@@ -2377,6 +2377,7 @@ export default {
         actions: '操作',
         objectScope: '对象范围',
         accessLevel: '权限级别',
+        businessLevel: '业务权限级别',
         effect: '效果',
         memberType: '成员类型',
         member: '成员'
@@ -2391,6 +2392,7 @@ export default {
       },
       categories: {
         certificate: '证书',
+        application: '应用',
         gateway: '网关',
         agent: 'Agent',
         serviceAsset: '应用资产',
@@ -2403,6 +2405,10 @@ export default {
         read: '只读',
         edit: '编辑',
         control: '完全控制'
+      },
+      levels: {
+        user: '使用者',
+        manager: '管理者'
       },
       effect: {
         allow: '允许',

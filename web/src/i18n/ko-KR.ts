@@ -2232,6 +2232,7 @@ export default {
         actions: '작업',
         objectScope: '대상 범위',
         accessLevel: '권한 단계',
+        businessLevel: '업무 권한 수준',
         effect: '효과',
         memberType: '멤버유형',
         member: '멤버'
@@ -2246,6 +2247,7 @@ export default {
       },
       categories: {
         certificate: '인증서',
+        application: '애플리케이션',
         gateway: '게이트웨이',
         agent: 'Agent',
         serviceAsset: '응용자산',
@@ -2258,6 +2260,10 @@ export default {
         read: '읽기 전용',
         edit: '편집',
         control: '전체 제어'
+      },
+      levels: {
+        user: '사용자',
+        manager: '관리자'
       },
       effect: {
         allow: '허용',
