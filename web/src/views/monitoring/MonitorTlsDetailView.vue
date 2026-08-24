@@ -1338,7 +1338,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-5);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
-  background: linear-gradient(135deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -1454,8 +1454,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-5);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
-  background:
-    linear-gradient(135deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -1526,10 +1525,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-certificate-panel,
 .tls-basic-info-callout {
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -1538,7 +1536,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border-color: var(--gc-color-primary-border);
   background:
     radial-gradient(circle at top left, var(--gc-color-primary-soft), transparent 45%),
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-hover));
+    var(--gc-color-surface-glass);
 }
 
 .tls-grade-panel__heading,
@@ -1617,7 +1615,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-inline-facts__item dt,
@@ -1691,8 +1689,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-4) var(--gc-space-3) var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-grade-scale__track {
@@ -1861,8 +1858,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-trust-path {
   border-color: var(--gc-color-primary-border);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-hover));
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-trust-path__header {
@@ -1878,7 +1874,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-report-facts__row {
@@ -1910,8 +1906,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-4);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-detail-group h3 {
@@ -1946,8 +1941,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
   overflow: hidden;
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-cipher-group__header {
@@ -1965,7 +1959,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border-color: var(--gc-color-primary-border);
   background:
     radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 40%),
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-hover));
+    var(--gc-color-surface-glass);
 }
 
 .tls-basic-info-callout strong {
@@ -2078,7 +2072,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   padding: var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -2096,14 +2090,15 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-table-wrap {
   overflow-x: auto;
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--gc-color-surface-solid);
+  background: transparent;
   min-width: calc(var(--gc-space-10) * 18);
 }
 
@@ -2162,8 +2157,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-left-width: calc(var(--gc-border-width-default) * 4);
   border-radius: var(--gc-radius-md);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  background: var(--gc-color-surface-glass);
 }
 
 .tls-protocol-row[data-tone='success'] { border-left-color: var(--gc-color-success); }

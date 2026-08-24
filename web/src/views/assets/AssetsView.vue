@@ -3259,8 +3259,8 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card {
   min-width: 0;
-  border-color: var(--gc-color-border-muted);
-  background: var(--gc-color-surface-solid);
+  border-color: var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-card);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
@@ -3741,7 +3741,7 @@ function managedTargetLabel(target: ApiRecord): string {
   padding: var(--gc-space-3);
   border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-hover);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
 }
 
 .asset-detail-modal__item dt {
@@ -3876,7 +3876,7 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-form__field textarea:focus {
   border-color: var(--gc-color-focus);
   box-shadow: var(--gc-shadow-focus);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 .asset-form__field textarea {
   min-height: calc(var(--gc-space-12) * 3);
@@ -4068,7 +4068,8 @@ function managedTargetLabel(target: ApiRecord): string {
   padding: var(--gc-space-4);
   border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
   border-radius: var(--gc-radius-modal);
-  background: var(--gc-gradient-surface);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .asset-wizard__panel-header {
@@ -4164,7 +4165,7 @@ function managedTargetLabel(target: ApiRecord): string {
   gap: var(--gc-space-1);
   min-height: calc(var(--gc-space-9) * 2);
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-card);
   background: var(--gc-color-surface-subtle);
 }

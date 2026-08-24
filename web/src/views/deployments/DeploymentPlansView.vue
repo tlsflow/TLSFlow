@@ -1956,9 +1956,10 @@ async function fetchAllPages(
 
 .deployment-user-view__card {
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .deployment-user-view__card-head {
@@ -2268,9 +2269,10 @@ async function fetchAllPages(
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background: var(--gc-color-surface-raised);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 .deployment-plan-detail__workflow { display: grid; gap: var(--gc-space-3); }
 .deployment-plan-detail__workflow h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }

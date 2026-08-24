@@ -276,9 +276,9 @@ onMounted(() => { void load() })
 
 .run-detail-page__state {
   padding: var(--gc-space-10) var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   color: var(--gc-color-text-muted);
   text-align: center;
 }
@@ -293,9 +293,10 @@ onMounted(() => { void load() })
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-raised);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .run-detail__hero-head,
@@ -338,9 +339,9 @@ onMounted(() => { void load() })
   display: grid;
   gap: var(--gc-space-1);
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .run-detail__summary span,
@@ -367,9 +368,9 @@ onMounted(() => { void load() })
 .run-targets > article,
 .run-targets__task {
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-raised);
+  background: var(--gc-color-surface-glass);
 }
 
 .run-detail__facts dt,

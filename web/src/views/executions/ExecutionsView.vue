@@ -523,7 +523,8 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   overflow: hidden;
   border-radius: var(--gc-radius-lg);
   padding: 0;
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-sm);
 }
 
@@ -534,12 +535,11 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   gap: var(--gc-space-4);
   align-items: center;
   padding: var(--gc-space-4);
-  background: var(--gc-color-surface-muted);
+  background: var(--gc-color-surface-glass);
 }
 
 .execution-list__header {
   border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
-  background: var(--gc-color-surface-solid);
 }
 
 .execution-list__header h2,

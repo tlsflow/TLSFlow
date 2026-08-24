@@ -1535,8 +1535,8 @@ async function removeVersion(row: CertificateVersionRow) {
   gap: var(--gc-space-3);
   padding: var(--gc-space-5);
   border-radius: var(--gc-radius-xl);
-  background: var(--gc-gradient-surface-soft);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  background: var(--gc-color-surface-glass);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   transition: all 0.25s ease;
 }
 
@@ -1600,9 +1600,9 @@ async function removeVersion(row: CertificateVersionRow) {
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
-  border: var(--gc-border-width-thick) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }

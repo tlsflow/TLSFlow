@@ -614,10 +614,10 @@ function normalizeDomainKey(value: string): string {
   display: grid;
   gap: var(--gc-space-3);
   padding: var(--gc-space-compact);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-panel);
-  background:
-    radial-gradient(circle at top right, var(--gc-color-info-border), transparent 30%),
-    linear-gradient(180deg, var(--gc-color-surface-subtle), var(--gc-color-surface-raised));
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard.is-simple {
@@ -767,13 +767,10 @@ function normalizeDomainKey(value: string): string {
   display: grid;
   gap: var(--gc-space-control);
   padding: var(--gc-space-control);
-  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
-    0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__progress-bar {
@@ -804,12 +801,10 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step {
   position: relative;
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-panel);
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface),
-    0 var(--gc-space-compact) var(--gc-space-panel) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
@@ -892,10 +887,8 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step.is-active {
   border-color: var(--gc-color-primary-border);
-  background: linear-gradient(180deg, var(--gc-color-surface-selected), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-panel),
-    0 var(--gc-space-control) var(--gc-space-5) var(--gc-color-primary-soft);
+  background: var(--gc-color-surface-selected);
+  box-shadow: var(--gc-shadow-hover);
   transform: translateY(calc(var(--gc-border-width-default) * -1));
 }
 
@@ -918,10 +911,8 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__step.is-done {
   border-color: var(--gc-color-success-border);
-  background: linear-gradient(180deg, var(--gc-color-success-soft), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-panel),
-    0 var(--gc-space-2) var(--gc-space-4) var(--gc-color-success-soft);
+  background: var(--gc-color-success-soft);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__step.is-done::before {
@@ -937,14 +928,11 @@ function normalizeDomainKey(value: string): string {
   display: grid;
   gap: var(--gc-space-panel);
   min-height: 0;
-  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-panel);
   padding: var(--gc-space-4);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
-    0 var(--gc-space-3) var(--gc-space-7) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__panel-header {
@@ -1028,13 +1016,10 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__target-card,
 .gc-deployment-wizard__feedback-inline,
 .gc-deployment-wizard__check-item {
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
-    0 var(--gc-space-control) var(--gc-space-viewport) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__summary-item {
@@ -1138,13 +1123,10 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__review-list div {
   padding: var(--gc-space-panel) var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-field),
-    0 var(--gc-space-control) var(--gc-space-6) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__target-meta div {
@@ -1282,13 +1264,10 @@ function normalizeDomainKey(value: string): string {
   gap: var(--gc-space-4);
   align-items: center;
   padding: var(--gc-space-control) var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-surface-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-modal);
-  background:
-    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle));
-  box-shadow:
-    inset 0 var(--gc-border-width-default) 0 var(--gc-color-surface-glass),
-    0 var(--gc-space-2) var(--gc-space-section) var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .gc-deployment-wizard__footer-actions {

@@ -919,9 +919,10 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
   display: grid;
   gap: var(--gc-space-2);
   padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);
-  background: var(--gc-gradient-surface);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .automation-detail__hero-copy,
@@ -1008,9 +1009,9 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
 
 .automation-history__execution {
   padding: var(--gc-space-2) var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
+  background: var(--gc-color-surface-glass);
 }
 
 .automation-detail__hero-copy h2 {
