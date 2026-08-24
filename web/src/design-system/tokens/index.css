@@ -104,6 +104,7 @@
   --gc-color-legacy-rgb-45-212-191-a6p: rgb(45 212 191 / 6%);
   --gc-color-legacy-rgb-8-20-39-a58p: rgb(8 20 39 / 58%);
   /* 旧样式裸色桥接变量结束。 */
+  --gc-space-hairline: 1px;
   --gc-space-1: 4px;
   --gc-space-2: 8px;
   --gc-space-3: 12px;
@@ -112,6 +113,10 @@
   --gc-space-6: 22px;
   --gc-space-8: 32px;
   --gc-space-10: 40px;
+  --gc-border-width: 1px;
+  --gc-control-height-md: 40px;
+  --gc-size-card-min: 180px;
+  --gc-opacity-disabled: 0.56;
   --gc-border-width-default: 1px;
   --gc-font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --gc-font-size-xs: 12px;

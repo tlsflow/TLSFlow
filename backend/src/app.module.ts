@@ -26,7 +26,24 @@ import { ProvidersApplicationService, ProvidersController, getProvidersRouteCont
 import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts } from './modules/compatibility-catalog/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
+import {
+  ChannelAdapterRegistry,
+  EmailNotificationAdapter,
+  FeishuNotificationAdapter,
+  getNotificationRouteContracts,
+  NotificationWorker,
+  NotificationsApplicationService,
+  NotificationsController,
+  PgNotificationsRepository,
+  ServiceNotificationSecretResolver,
+  DingTalkNotificationAdapter,
+  SlackNotificationAdapter,
+  TelegramNotificationAdapter,
+  WeComNotificationAdapter,
+  WebhookNotificationAdapter,
+} from './modules/notifications/index.js';
 import { DashboardApplicationService, DashboardController, getDashboardRouteContracts } from './modules/dashboard/index.js';
+import { getReportRouteContracts, PgReportDataPort, ReportExportService, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
@@ -197,6 +214,33 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
 
+  const notificationsRepository = new PgNotificationsRepository(appDb);
+  const notificationAdapters = new ChannelAdapterRegistry()
+    .register(new EmailNotificationAdapter())
+    .register(new WeComNotificationAdapter())
+    .register(new SlackNotificationAdapter())
+    .register(new FeishuNotificationAdapter())
+    .register(new DingTalkNotificationAdapter())
+    .register(new TelegramNotificationAdapter())
+    .register(new WebhookNotificationAdapter());
+  const notificationWorker = new NotificationWorker(
+    notificationsRepository,
+    notificationAdapters,
+    new ServiceNotificationSecretResolver(security.secrets),
+    `notification-worker-${process.pid}`,
+  );
+  const notificationsService = new NotificationsApplicationService(
+    notificationsRepository,
+    undefined,
+    undefined,
+    undefined,
+    notificationWorker,
+    undefined,
+    notificationAdapters,
+  );
+  app.setResource('notificationsService', notificationsService);
+  app.setResource('notificationWorker', notificationWorker);
+
   certificateServices.bindings ??= bindingsService;
   const monitorsService = new MonitorsApplicationService({
     repository: new PgMonitorsRepository(appDb),
@@ -204,6 +248,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     bindings: bindingsController.getApplicationService().getRepository(),
     executions: deploymentPlans.getExecutionsService().getRepository(),
     assets: assetsService.getRepository(),
+    notifications: notificationsService,
   });
   executionResultSync.setMonitorsService(monitorsService);
   app.setResource('monitorsService', monitorsService);
@@ -227,6 +272,20 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deploymentPlans: deploymentPlans.getRepository(),
   })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
+  new NotificationsController(notificationsService, security).register(app.router);
+  const reportScope = new ReportScopeResolver({
+    canRead: async (subject, object) => (await security.objectPermissions.can(subject, 'read', {
+      objectType: object.objectType,
+      objectId: object.objectId,
+      tenantId: object.tenantId,
+    })).allowed,
+  });
+  const reportsRepository = new ReportsRepository(appDb);
+  const reportsService = new ReportsApplicationService(new PgReportDataPort(appDb, deploymentPlans.getRepository()), reportsRepository, reportScope);
+  const reportExportService = new ReportExportService(reportsService, reportsRepository, undefined, appDb);
+  app.setResource('reportsService', reportsService);
+  app.setResource('reportExportService', reportExportService);
+  new ReportsController(reportsService, security, reportExportService).register(app.router);
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
     statusCode: 200,
@@ -268,6 +327,8 @@ export function getRouteContracts(): RouteContract[] {
     ...getAutomationRouteContracts(),
     ...getDashboardRouteContracts(),
     ...getMonitorRouteContracts(),
+    ...getNotificationRouteContracts(),
+    ...getReportRouteContracts(),
     {
       method: 'GET',
       path: '/api/v1/openapi.json',

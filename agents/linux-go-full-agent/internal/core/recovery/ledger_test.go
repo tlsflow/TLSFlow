@@ -38,3 +38,28 @@ func TestLedgerPersistsFailureAndRecoveryEvidence(t *testing.T) {
 		t.Fatalf("完成步骤不正确: %#v", entry.CompletedSteps)
 	}
 }
+
+func TestPendingFindsInterruptedOperations(t *testing.T) {
+	root := t.TempDir()
+	ledger, err := Start(filepath.Join(root, "interrupted.json"), Entry{OperationID: "operation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.CompleteStep("backup"); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := Start(filepath.Join(root, "completed.json"), Entry{OperationID: "operation-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := completed.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Pending(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].OperationID != "operation-1" || entries[0].State != "in_progress" {
+		t.Fatalf("中断操作扫描错误: %#v", entries)
+	}
+}

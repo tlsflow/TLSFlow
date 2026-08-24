@@ -10,6 +10,8 @@ DATA_DIR="${DATA_DIR:-/var/lib/gcac/linux-agent}"
 LOG_DIR="${LOG_DIR:-/var/log/gcac/linux-agent}"
 SERVICE_NAME="${SERVICE_NAME:-gcac-linux-agent}"
 PRECHECK_ONLY=0
+SIGNATURE_FILE="${SIGNATURE_FILE:-}"
+PUBLIC_KEY_FILE="${PUBLIC_KEY_FILE:-}"
 
 if [ "${1:-}" = "--preflight-only" ]; then
   PRECHECK_ONLY=1
@@ -95,6 +97,15 @@ check_binary_arch() {
   esac
 }
 
+verify_signature() {
+  if [ -z "${PUBLIC_KEY_FILE}" ] && [ -z "${SIGNATURE_FILE}" ]; then
+    [ "${ALLOW_UNSIGNED_INSTALL:-0}" = "1" ] || fail "安装需要 Ed25519 发布签名；测试或受控离线场景可显式设置 ALLOW_UNSIGNED_INSTALL=1"
+    return
+  fi
+  [ -n "${PUBLIC_KEY_FILE}" ] && [ -n "${SIGNATURE_FILE}" ] || fail "PUBLIC_KEY_FILE 与 SIGNATURE_FILE 必须同时提供"
+  "${AGENT_DIR}/release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${SOURCE_BINARY}" "${SIGNATURE_FILE}" || fail "Agent 发布签名验证失败"
+}
+
 preflight() {
   [ "${GCAC_TEST_UNAME_S:-$(uname -s)}" = "Linux" ] || fail "安装器仅支持 Linux"
   arch=$(detect_arch)
@@ -102,6 +113,7 @@ preflight() {
   version_at_least "${kernel}" "3.2" || fail "Kernel ${kernel} 低于最低基线 3.2"
   [ -f "${SOURCE_BINARY}" ] || fail "找不到 Agent 二进制：${SOURCE_BINARY}"
   [ -r "${SOURCE_BINARY}" ] || fail "Agent 二进制不可读：${SOURCE_BINARY}"
+  verify_signature
   check_binary_arch
   check_root
   check_space

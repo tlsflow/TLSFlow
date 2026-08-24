@@ -21,3 +21,7 @@ func canWritePath(path string) bool {
 func canWriteDir(path string) bool {
 	return syscall.Access(path, accessWrite|accessExecute) == nil
 }
+
+func shellInvocation(command string) (string, []string) {
+	return "/bin/sh", []string{"-lc", command}
+}

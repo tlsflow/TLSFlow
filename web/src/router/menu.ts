@@ -74,6 +74,14 @@ export const mainMenuItems: MenuItem[] = [
     ]
   },
   {
+    titleKey: 'nav.reports', path: '/reports/incident-window', module: 'report', permission: 'report.read', activePaths: ['/reports/incident-window', '/reports/risk-response', '/reports/automation-effectiveness'], icon: 'dashboard', descriptionKey: 'nav.reportsDesc',
+    children: [
+      { titleKey: 'nav.incidentWindowReport', path: '/reports/incident-window', module: 'report', permission: 'report.read', descriptionKey: 'nav.incidentWindowReportDesc' },
+      { titleKey: 'nav.riskResponseReport', path: '/reports/risk-response', module: 'report', permission: 'report.read', descriptionKey: 'nav.riskResponseReportDesc' },
+      { titleKey: 'nav.automationEffectivenessReport', path: '/reports/automation-effectiveness', module: 'report', permission: 'report.read', descriptionKey: 'nav.automationEffectivenessReportDesc' }
+    ]
+  },
+  {
     titleKey: 'nav.settings',
     path: '/settings',
     module: 'settings',
@@ -82,6 +90,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.settingsDesc',
     children: [
       { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
+      { titleKey: 'notifications.title', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
       { titleKey: 'nav.users', path: '/settings/users', module: 'settings', permission: 'security.user.read', descriptionKey: 'nav.usersDesc' },
       { titleKey: 'nav.roles', path: '/settings/roles', module: 'settings', permission: 'security.role.read', descriptionKey: 'nav.rolesDesc' },
       { titleKey: 'nav.identitySources', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', descriptionKey: 'nav.identitySourcesDesc' }

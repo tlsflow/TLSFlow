@@ -440,6 +440,14 @@ export default {
     monitorAlertsDesc: '到期、漂移和执行失败事件',
     audits: '审计日志',
     auditsDesc: '操作证据与合规导出',
+    reports: '报表',
+    reportsDesc: '证书事故窗口、风险处置和自动化成效',
+    incidentWindowReport: '事故窗口',
+    incidentWindowReportDesc: '即将到期和已过期证书的处置优先级',
+    riskResponseReport: '风险处置',
+    riskResponseReportDesc: '风险确认、解决时长和 SLA',
+    automationEffectivenessReport: '自动化成效',
+    automationEffectivenessReportDesc: '运行级、目标级成功率和失败阶段',
     settings: '设置',
     settingsDesc: '租户、用户、权限和系统配置',
     systemSettings: '系统设置',
@@ -1656,6 +1664,47 @@ export default {
       total: '共 {count} 条'
     }
   },
+  notifications: {
+    title: '通知管理',
+    description: '统一管理通知渠道、路由、模板、静默和可靠投递记录。',
+    tabs: { channels: '通知渠道', deliveries: '投递记录', rules: '规则与模板' },
+    sections: { channels: '通知渠道记录', deliveries: '投递记录' },
+    channels: { createTitle: '新建通知渠道' },
+    settings: { privateOriginsTitle: '私有化平台地址', privateOriginsDescription: '配置允许通知中心访问的企业微信、飞书和钉钉私有化 HTTPS Origin。' },
+    channelTypes: { email: 'Email', wecom: '企业微信', slack: 'Slack', feishu: '飞书', dingtalk: '钉钉', telegram: 'Telegram', webhook: '通用 Webhook' },
+    deploymentModes: { public: '公有云', private: '私有化部署' },
+    fields: {
+      name: '渠道名称', type: '渠道类型', deploymentMode: '部署模式', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
+      smtpSecurity: '连接加密', smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', secretValuePlaceholder: '请输入密文内容',
+      optionalSecretValuePlaceholder: '可选；请输入密文内容', wecomWebhookUrl: '企业微信群机器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
+      feishuWebhookUrl: '飞书自定义机器人 Webhook URL', dingtalkWebhookUrl: '钉钉自定义机器人 Webhook URL', feishuSigningSecret: '飞书签名密钥',
+      dingtalkSigningSecret: '钉钉加签密钥', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID（可选）',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '请输入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
+      webhookHeadersPlaceholder: '示例：x-source = gcac', signingSecret: 'HMAC-SHA256 签名密钥', testTarget: '测试接收目标',
+      testTargetPlaceholder: 'Email 可输入逗号分隔的收件地址', lastSuccess: '最近成功', latency: '延迟（毫秒）',
+      createdAt: '创建时间', updatedAt: '更新时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
+      source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键', locale: '语言',
+      titleTemplate: '标题模板', bodyTemplate: '正文模板', reason: '静默原因', startsAt: '开始时间', endsAt: '结束时间',
+      wecomPrivateOrigins: '企业微信私有化 Origin', feishuPrivateOrigins: '飞书私有化 Origin', dingtalkPrivateOrigins: '钉钉私有化 Origin', privateOriginsPlaceholder: '每行一个，例如 https://notify.example.internal'
+    },
+    actions: {
+      createChannel: '新建通知渠道', createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则',
+      confirmCreate: '确认创建', cancel: '取消', saveSettings: '保存设置', test: '测试发送', testChannel: '测试渠道：{name}', retry: '重新投递', enable: '启用', disable: '停用'
+    },
+    rules: { createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则' },
+    summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则', recordCount: '共 {count} 条记录' },
+    empty: { channels: '暂无通知渠道', deliveries: '暂无投递记录', routes: '暂无通知路由', templates: '暂无通知模板', silences: '暂无静默规则' },
+    values: { notAvailable: '—' },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', webhookUrl: 'Webhook URL', signingSecret: '签名密钥', botToken: 'Bot Token' } },
+    messages: {
+      loadFailed: '通知管理数据加载失败', operationFailed: '通知管理操作失败', testUsesChannelTarget: '该渠道将使用已配置的接收目标发送测试通知。',
+      secretStoredHint: '该内容将加密保存，创建后不会明文回显。', createSecretFailed: '密文保存失败', invalidHeaders: '固定 Header 必须是合法的 JSON 对象',
+      smtpCredentialsPairRequired: 'SMTP 用户名和密码必须同时填写', webhookUrlRequired: 'Webhook URL 不能为空', botTokenRequired: 'Telegram Bot Token 不能为空',
+      chatIdRequired: 'Telegram Chat ID 不能为空', feishuWebhookUrlInvalid: '请输入飞书官方自定义机器人 Webhook URL', dingtalkWebhookUrlInvalid: '请输入钉钉官方自定义机器人 Webhook URL',
+      wecomWebhookUrlInvalid: '请输入有效的企业微信机器人 HTTPS Webhook URL', telegramBotTokenInvalid: 'Telegram Bot Token 格式无效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必须是正整数',
+      privateDeploymentAllowlistHint: '私有化地址必须先加入上方对应平台的受信任 HTTPS Origin 白名单，否则测试和投递会被后端拒绝。', privateOriginInvalid: '私有化地址必须是精确 HTTPS Origin，不能包含路径、查询参数、用户信息或 Fragment。', privateOriginsSecurityHint: '这里只填写协议、主机和可选端口；完整 Webhook URL、Token 和签名密钥仍通过密文服务保存。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 发送通知，不使用接收事件的 Webhook。'
+    }
+  },
   settings: {
     securityLabel: '安全设置入口',
     permissionPolicies: {
@@ -2334,7 +2383,6 @@ export default {
       siteInstance: '站点实例',
       certificateFormat: '证书产物配置',
       workflow: '工作流',
-      workflowVersionSelection: '工作流版本策略',
       publishedVersion: '已发布版本',
       runner: '运行位置',
       artifactFormat: '产物格式配置'
@@ -2389,10 +2437,6 @@ export default {
       agentDescription: '绑定 Agent、站点实例和受管目标',
       workflow: '工作流模式',
       workflowDescription: '选择工作流版本和运行变量'
-    },
-    workflowVersionSelection: {
-      pinned: '固定指定版本',
-      latestPublished: '始终使用最新发布版本'
     },
     loading: {
       agents: '加载 Agent 中...',
@@ -3577,11 +3621,202 @@ export default {
     policy: 'RBAC 权限保护',
     audit: '操作全程审计'
   },
-  compatibility: {
-    title: '兼容性目录', description: '支持范围、限制和证据均来自 Compatibility Profile。', generatedAt: '目录生成时间：{time}', loading: '正在加载兼容性目录…', loadFailed: '兼容性目录加载失败', none: '无',
-    columns: { profile: 'Profile', version: '版本', status: '支持状态', automation: '自动化', evidence: '证据', verifiedAt: '最近验证', limitations: '限制' },
-    status: { certified: '已认证', supported: '支持', compatible: '兼容', experimental: '实验性', legacy: '旧版支持', unsupported: '不支持' },
-    evidence: { current: '有效', expired: '已过期', failed: '失败' }
+  reports: {
+    common: {
+      loadFailed: '报表加载失败，请稍后重试',
+      dataAsOf: '数据截止时间：{time}',
+      rangeDays: '最近 {days} 天',
+      samples: '样本数：{count}',
+      secondsValue: '{value} 秒',
+      emptyValue: '—',
+      trend: '历史趋势',
+      date: '日期',
+      snapshotMetrics: '快照指标数',
+      completeness: '完整性',
+      complete: '完整',
+      incomplete: '不完整',
+      noTrend: '当前时间范围暂无历史快照',
+      groupBreakdown: '分组对比',
+      dimension: '维度',
+      groupValue: '分组值',
+      count: '数量',
+      noGroups: '暂无分组数据',
+      drilldown: '对象下钻',
+      selectedMetric: '当前指标：{metric}',
+      noItems: '暂无符合条件的对象'
+    },
+    incidentWindow: {
+      title: '证书事故窗口报表',
+      description: '识别正在进入事故窗口的证书，并定位缺少替换证书、计划或执行通道的对象。'
+    },
+    riskResponse: {
+      title: '风险处置报表',
+      description: '查看风险确认与解决是否及时，定位未完成样本、重新打开和 SLA 逾期。'
+    },
+    automationEffectiveness: {
+      title: '自动化成效报表',
+      description: '分别查看运行级和目标级成功率，并定位重试、回滚、人工介入和失败阶段。'
+    },
+    export: {
+      csv: '导出 CSV',
+      generating: '正在生成…',
+      failed: 'CSV 生成失败',
+      history: '导出记录',
+      download: '下载',
+      noHistory: '暂无导出记录',
+      status: {
+        queued: '排队中',
+        running: '生成中',
+        succeeded: '已完成',
+        failed: '失败',
+        expired: '已过期'
+      }
+    },
+    aria: {
+      reportPage: '运营报表页面',
+      rangeFilter: '报表时间范围',
+      metrics: '报表核心指标',
+      filters: '报表筛选条件'
+    },
+    filters: {
+      environment: '环境',
+      ownerId: '负责人 ID',
+      assetId: '对象 ID',
+      tag: '标签',
+      severity: '风险等级',
+      riskType: '风险类型',
+      automationId: '自动化 ID',
+      failureStage: '失败阶段',
+      all: '全部',
+      apply: '应用筛选',
+      reset: '重置筛选'
+    },
+    groups: {
+      dimensions: {
+        usage_status: '使用状态',
+        readiness_stage: '准备阶段',
+        environment: '环境',
+        owner_id: '负责人',
+        severity: '风险等级',
+        risk_type: '风险类型',
+        action_type: '动作类型',
+        failure_stage: '失败阶段'
+      },
+      values: {
+        in_use: '在用',
+        idle: '闲置',
+        unknown: '未知',
+        missing_replacement: '缺少替换证书',
+        plan_missing: '尚未创建计划',
+        waiting_approval: '等待审批',
+        blocked: '执行通道阻塞',
+        ready: '已准备',
+        critical: '严重',
+        high: '高',
+        medium: '中',
+        low: '低',
+        create_deployment_plan: '创建部署计划',
+        execute_deployment_plan: '执行部署计划',
+        send_notification: '发送通知',
+        selection: '目标选择',
+        plan_creation: '计划创建',
+        dry_run: '预检',
+        approval: '审批',
+        execution: '执行',
+        verification: '验证',
+        rollback: '回滚',
+        notification: '通知',
+        none: '无失败阶段'
+      }
+    },
+    columns: {
+      certificateAssetId: '证书资产 ID',
+      certificateVersionId: '证书版本 ID',
+      name: '名称',
+      primaryDomain: '主域名',
+      notAfter: '到期时间',
+      usageStatus: '使用状态',
+      readinessStage: '准备阶段',
+      environment: '环境',
+      ownerId: '负责人',
+      tags: '标签',
+      publicExposure: '公网暴露',
+      bindingIds: '绑定 ID',
+      risk: '风险',
+      history: '状态历史',
+      slaPolicy: 'SLA 策略',
+      timing: '处置时长',
+      id: 'ID',
+      automationId: '自动化 ID',
+      automationVersion: '自动化版本',
+      automationNameSnapshot: '自动化名称',
+      triggerType: '触发类型',
+      status: '状态',
+      failureStage: '失败阶段',
+      startedAt: '开始时间',
+      finishedAt: '完成时间',
+      createdAt: '创建时间',
+      runId: '运行 ID',
+      targetSnapshot: '目标快照',
+      actionType: '动作类型',
+      deploymentPlanId: '部署计划 ID',
+      executionRunId: '执行记录 ID',
+      notificationRequestIds: '通知请求 ID',
+      attemptCount: '尝试次数',
+      rollbackStatus: '回滚状态',
+      manualIntervention: '人工介入',
+      unknown: '{name}'
+    },
+    metrics: {
+      certificates: {
+        expiring: {
+          '30d': '16–30 天到期',
+          '15d': '8–15 天到期',
+          '7d': '4–7 天到期',
+          '3d': '2–3 天到期',
+          '1d': '0–1 天到期'
+        },
+        expired: {
+          in_use: '已过期且在用'
+        },
+        missing_replacement: '缺少替换证书',
+        missing_deployment_plan: '尚未创建计划',
+        waiting_approval: '等待审批',
+        execution_channel_blocked: '执行通道阻塞'
+      },
+      risks: {
+        created: '新增风险',
+        resolved: '已解决风险',
+        reopened: '重新打开',
+        open_end_of_period: '期末未解决',
+        overdue_acknowledgement: '确认 SLA 逾期',
+        overdue_resolution: '解决 SLA 逾期',
+        tta: {
+          average_seconds: '平均确认时长'
+        },
+        ttr: {
+          average_seconds: '平均解决时长'
+        },
+        ack_sla_rate: '确认 SLA 达标率',
+        resolve_sla_rate: '解决 SLA 达标率'
+      },
+      automations: {
+        runs: {
+          total: '自动化运行数',
+          success_rate: '运行级成功率'
+        },
+        targets: {
+          total: '自动化目标数',
+          success_rate: '目标级成功率',
+          failed: '失败目标',
+          retried: '重试目标',
+          rollback_succeeded: '回滚成功',
+          rollback_failed: '回滚失败',
+          manual_intervention: '需要人工介入',
+          waiting_approval: '等待审批目标'
+        }
+      }
+    }
   },
   errors: {
     forbiddenTitle: '403 无权限',

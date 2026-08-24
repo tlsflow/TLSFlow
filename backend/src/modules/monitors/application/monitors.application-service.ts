@@ -8,6 +8,7 @@ import type { BindingsRepository } from '../../bindings/repository/bindings.repo
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
 import type {
+  ChangeRiskStatusInput,
   AlertRuleDto,
   CertificateObservationDto,
   CollectMonitorRisksInput,
@@ -28,6 +29,7 @@ import type {
 import { MonitorsDomainService } from '../domain/monitors.domain-service.js';
 import { monitorMetrics, monitorTargetStatuses, type AlertRule, type MonitorMetric, type MonitorTargetStatus, type RiskEvent } from '../schema/monitors.schema.js';
 import { AlertDispatcher } from './alert-dispatcher.js';
+import type { NotificationPort } from '../../notifications/application/notification.port.js';
 import { MonitoringScheduler } from './monitoring-scheduler.js';
 import { PgMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
 
@@ -38,20 +40,22 @@ export interface MonitorsApplicationDependencies {
   bindings: BindingsRepository;
   executions: ExecutionsRepository;
   assets?: AssetsRepository;
+  notifications?: NotificationPort;
 }
 
 export class MonitorsApplicationService {
   private readonly repository: MonitorsRepository;
   private readonly domain: MonitorsDomainService;
   private readonly scheduler = new MonitoringScheduler();
-  private readonly alertDispatcher = new AlertDispatcher();
+  private readonly alertDispatcher: AlertDispatcher;
 
   constructor(private readonly dependencies: MonitorsApplicationDependencies) {
     this.repository = dependencies.repository ?? new PgMonitorsRepository();
     this.domain = dependencies.domain ?? new MonitorsDomainService();
+    this.alertDispatcher = new AlertDispatcher(dependencies.notifications);
   }
 
-  async collectRisks(input: CollectMonitorRisksInput = {}): Promise<{ risks: RiskEventDto[]; dashboard: MonitorDashboardDto; matchedRuleIds: string[]; alertDispatches: ReturnType<AlertDispatcher['buildDispatches']> }> {
+  async collectRisks(input: CollectMonitorRisksInput = {}): Promise<{ risks: RiskEventDto[]; dashboard: MonitorDashboardDto; matchedRuleIds: string[]; alertDispatches: Awaited<ReturnType<AlertDispatcher['dispatch']>> }> {
     const detectedAt = input.scanStartedAt ?? new Date().toISOString();
     const thresholdDays = input.certificateExpiringThresholdDays ?? 30;
     const createdOrUpdated: RiskEvent[] = [];
@@ -92,7 +96,7 @@ export class MonitorsApplicationService {
       risks: createdOrUpdated,
       dashboard: this.domain.aggregateDashboard(allRisks),
       matchedRuleIds,
-      alertDispatches: this.alertDispatcher.buildDispatches(matchedRuleIds),
+      alertDispatches: await this.alertDispatcher.dispatch(matchedRuleIds, createdOrUpdated),
     };
   }
 
@@ -111,6 +115,14 @@ export class MonitorsApplicationService {
 
   async listRiskEvents(query: ListRiskEventsQuery = {}): Promise<RiskEventDto[]> {
     return this.repository.listRiskEvents(query);
+  }
+
+  async changeRiskStatus(input: ChangeRiskStatusInput) {
+    return this.repository.changeRiskStatus(input);
+  }
+
+  async listRiskStatusHistory(tenantId: string, riskEventId: string) {
+    return this.repository.listRiskStatusHistory(tenantId, riskEventId);
   }
 
   async listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto> {

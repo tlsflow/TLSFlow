@@ -34,6 +34,15 @@ export const errorCodes = {
   LDAP_SEARCH_FAILED: { httpStatus: 502, message: 'LDAP 查询失败' },
   LDAP_CONFIG_INVALID: { httpStatus: 422, message: 'LDAP 身份源配置无效' },
   LDAP_PROFILE_INVALID: { httpStatus: 422, message: 'LDAP 用户记录无效' },
+  NOTIFICATION_CHANNEL_INVALID: { httpStatus: 422, message: '通知渠道配置无效' },
+  NOTIFICATION_CHANNEL_UNAVAILABLE: { httpStatus: 503, message: '通知渠道不可用' },
+  NOTIFICATION_ROUTE_NOT_FOUND: { httpStatus: 404, message: '通知路由不存在' },
+  NOTIFICATION_TEMPLATE_INVALID: { httpStatus: 422, message: '通知模板无效' },
+  NOTIFICATION_TEMPLATE_VARIABLE_MISSING: { httpStatus: 422, message: '通知模板变量缺失' },
+  NOTIFICATION_DELIVERY_REJECTED: { httpStatus: 409, message: '通知投递被拒绝' },
+  NOTIFICATION_DELIVERY_TIMEOUT: { httpStatus: 504, message: '通知投递超时' },
+  NOTIFICATION_SECURITY_BLOCKED: { httpStatus: 403, message: '通知安全策略已阻止请求' },
+  NOTIFICATION_RETRY_EXHAUSTED: { httpStatus: 409, message: '通知重试次数已耗尽' },
 } as const;
 
 export type ErrorCode = keyof typeof errorCodes;

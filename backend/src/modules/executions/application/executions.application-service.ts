@@ -62,7 +62,11 @@ export class ExecutionsApplicationService {
     this.executorRegistry = dependencies.executorRegistry ?? new ExecutorRegistry();
     this.resultSync = dependencies.resultSync;
     this.detailStream = dependencies.detailStream;
-    this.queue = dependencies.queue ?? new PgJobRunner((job) => new StepRunner(this, this.executorRegistry).run(job), dependencies.queueDb);
+    this.queue = dependencies.queue ?? new PgJobRunner(
+      (job) => new StepRunner(this, this.executorRegistry).run(job),
+      dependencies.queueDb,
+      ['DEPLOYMENT_EXECUTE'],
+    );
   }
 
   async listRuns(input: { tenantId?: string; deploymentPlanId?: string } = {}): Promise<any> {
