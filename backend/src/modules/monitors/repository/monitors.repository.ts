@@ -1,4 +1,4 @@
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
@@ -6,14 +6,24 @@ import type { AlertRule, RiskEvent } from '../schema/monitors.schema.js';
 import type {
   CertificateObservationDto,
   CreateAlertRuleInput,
+  CreateMonitorTargetInput,
   ListCertificateObservationsQuery,
+  ListMonitorTargetsQuery,
   ListRiskEventsQuery,
+  MonitorTargetDto,
+  MonitorTargetPageDto,
   SaveCertificateObservationInput,
+  UpdateMonitorTargetInput,
   UpsertRiskEventInput,
 } from '../dto/monitors.dto.js';
 
 export interface MonitorsRepository {
   readonly moduleName: 'monitors';
+  createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
+  listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto>;
+  getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined>;
+  updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto>;
+  deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto>;
   upsertRiskEvent(input: UpsertRiskEventInput): Promise<RiskEvent>;
   listRiskEvents(query?: ListRiskEventsQuery): Promise<RiskEvent[]>;
   getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined>;
@@ -28,6 +38,120 @@ export class PgMonitorsRepository implements MonitorsRepository {
   readonly moduleName = 'monitors' as const;
 
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
+
+  async createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto> {
+    const duplicate = await this.getActiveMonitorTargetByAsset(input.tenantId, input.serviceAssetId);
+    if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', '监控目标已存在', { serviceAssetId: input.serviceAssetId });
+
+    const now = new Date().toISOString();
+    const target: MonitorTargetDto = {
+      id: newId('mtg'),
+      tenantId: input.tenantId,
+      serviceAssetId: input.serviceAssetId,
+      assetId: input.serviceAssetId,
+      metrics: [...(input.metrics ?? ['availability', 'latency', 'certificate', 'certificateHistory'])],
+      intervalSeconds: input.intervalSeconds,
+      status: input.status ?? 'active',
+      createdBy: input.createdBy,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    await this.db.query(`insert into pg_monitor_targets (
+      id, tenant_id, service_asset_id, metrics, interval_seconds, status, created_by, created_at, updated_at, version
+    ) values (
+      $1,$2,$3,$4::jsonb,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10
+    )`, [
+      target.id,
+      target.tenantId,
+      target.serviceAssetId,
+      JSON.stringify(target.metrics),
+      target.intervalSeconds,
+      target.status,
+      target.createdBy ?? null,
+      target.createdAt,
+      target.updatedAt,
+      target.version,
+    ]);
+    return target;
+  }
+
+  async listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto> {
+    const rows = (await this.db.query<MonitorTargetRow>(
+      `select * from pg_monitor_targets where tenant_id = $1 and deleted_at is null`,
+      [query.tenantId],
+    )).rows.map(toMonitorTarget);
+    return page(rows, query, monitorTargetFilter);
+  }
+
+  async getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined> {
+    const row = (await this.db.query<MonitorTargetRow>(
+      `select * from pg_monitor_targets where tenant_id = $1 and id = $2 and deleted_at is null limit 1`,
+      [tenantId, id],
+    )).rows[0];
+    return row ? toMonitorTarget(row) : undefined;
+  }
+
+  async updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto> {
+    const current = await this.getMonitorTarget(input.tenantId, input.id);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: input.id });
+    const updated: MonitorTargetDto = {
+      ...current,
+      metrics: input.metrics ? [...input.metrics] : current.metrics,
+      intervalSeconds: input.intervalSeconds ?? current.intervalSeconds,
+      status: input.status ?? current.status,
+      updatedAt: new Date().toISOString(),
+      version: current.version + 1,
+    };
+    await this.db.query(`update pg_monitor_targets
+      set metrics = $3::jsonb,
+          interval_seconds = $4,
+          status = $5,
+          updated_at = $6::timestamptz,
+          version = $7
+      where tenant_id = $1 and id = $2 and deleted_at is null`, [
+      input.tenantId,
+      input.id,
+      JSON.stringify(updated.metrics),
+      updated.intervalSeconds,
+      updated.status,
+      updated.updatedAt,
+      updated.version,
+    ]);
+    return updated;
+  }
+
+  async deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto> {
+    const current = await this.getMonitorTarget(tenantId, id);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: id });
+    const now = new Date().toISOString();
+    const deleted: MonitorTargetDto = {
+      ...current,
+      deletedAt: now,
+      updatedAt: now,
+      version: current.version + 1,
+    };
+    await this.db.query(`update pg_monitor_targets
+      set deleted_at = $3::timestamptz,
+          updated_at = $4::timestamptz,
+          version = $5
+      where tenant_id = $1 and id = $2 and deleted_at is null`, [
+      tenantId,
+      id,
+      deleted.deletedAt,
+      deleted.updatedAt,
+      deleted.version,
+    ]);
+    return deleted;
+  }
+
+  private async getActiveMonitorTargetByAsset(tenantId: string, serviceAssetId: string): Promise<MonitorTargetDto | undefined> {
+    const row = (await this.db.query<MonitorTargetRow>(
+      `select * from pg_monitor_targets where tenant_id = $1 and service_asset_id = $2 and deleted_at is null limit 1`,
+      [tenantId, serviceAssetId],
+    )).rows[0];
+    return row ? toMonitorTarget(row) : undefined;
+  }
 
   async upsertRiskEvent(input: UpsertRiskEventInput): Promise<RiskEvent> {
     const existing = await this.getRiskEventByDedupKey(input.dedupKey);
@@ -264,6 +388,81 @@ type RiskEventRow = {
   updated_at: string;
   occurrence_count: number;
 };
+
+type MonitorTargetRow = {
+  id: string;
+  tenant_id: string;
+  service_asset_id: string;
+  metrics: unknown;
+  interval_seconds: number;
+  status: string;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  version: number;
+};
+
+function toMonitorTarget(row: MonitorTargetRow): MonitorTargetDto {
+  const metrics = Array.isArray(row.metrics)
+    ? row.metrics.map(String).filter((item) => ['availability', 'latency', 'certificate', 'certificateHistory'].includes(item))
+    : [];
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    serviceAssetId: row.service_asset_id,
+    assetId: row.service_asset_id,
+    metrics: metrics as MonitorTargetDto['metrics'],
+    intervalSeconds: row.interval_seconds,
+    status: row.status as MonitorTargetDto['status'],
+    createdBy: row.created_by ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at ?? undefined,
+    version: row.version,
+  };
+}
+
+function page<T extends object>(
+  items: T[],
+  query: ListMonitorTargetsQuery,
+  filterFn: (item: T, field: string, expected: string) => boolean,
+): MonitorTargetPageDto {
+  let filtered = items;
+  for (const [field, expected] of Object.entries(query.filter)) {
+    filtered = filtered.filter((item) => filterFn(item, field, expected));
+  }
+  if (query.sort) {
+    const { field, direction } = query.sort;
+    filtered = [...filtered].sort((left, right) => compareValues(readField(left, field), readField(right, field), direction));
+  } else {
+    filtered = [...filtered].sort((left, right) => compareValues(readField(left, 'createdAt'), readField(right, 'createdAt'), 'desc'));
+  }
+  const start = (query.page - 1) * query.pageSize;
+  return {
+    items: filtered.slice(start, start + query.pageSize) as MonitorTargetDto[],
+    page: query.page,
+    pageSize: query.pageSize,
+    total: filtered.length,
+  };
+}
+
+function readField(item: object, field: string): unknown {
+  return (item as Record<string, unknown>)[field];
+}
+
+function compareValues(left: unknown, right: unknown, direction: 'asc' | 'desc'): number {
+  const normalizedLeft = left === undefined || left === null ? '' : String(left);
+  const normalizedRight = right === undefined || right === null ? '' : String(right);
+  const result = normalizedLeft.localeCompare(normalizedRight);
+  return direction === 'asc' ? result : -result;
+}
+
+function monitorTargetFilter(target: MonitorTargetDto, field: string, expected: string): boolean {
+  if (field === 'serviceAssetId' || field === 'assetId') return target.serviceAssetId === expected;
+  if (field === 'status') return target.status === expected;
+  return String(readField(target, field) ?? '').toLowerCase().includes(expected.toLowerCase());
+}
 
 function toRiskEvent(row: RiskEventRow): RiskEvent {
   const scope = asObject(row.scope);

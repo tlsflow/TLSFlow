@@ -253,6 +253,66 @@ describe('监控风险 API', () => {
     assert.equal(jobs.every((job) => job.scope.tenantId === 'tenant_jobs' && job.scope.hostId === 'host_1'), true);
   });
 
+  it('监控目标通过后端持久化，支持列表、新增、更新和删除', async () => {
+    const { app, assetsService } = await createMonitorHarness();
+    const headers = { 'x-tenant-id': 'tenant_monitor_targets', 'x-actor-id': 'monitor_bot' };
+    const asset = await assetsService.createServiceAsset('tenant_monitor_targets', {
+      address: 'target.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'LINUX',
+      discoverySource: 'MANUAL',
+      status: 'ACTIVE',
+    });
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/monitors/targets',
+      headers,
+      body: { serviceAssetId: asset.id, intervalSeconds: 60, metrics: ['availability', 'latency'] },
+    });
+    assert.equal(created.statusCode, 201);
+    const target = created.body as { id: string; serviceAssetId: string; assetId: string; intervalSeconds: number; createdBy: string };
+    assert.equal(target.serviceAssetId, asset.id);
+    assert.equal(target.assetId, asset.id);
+    assert.equal(target.intervalSeconds, 60);
+    assert.equal(target.createdBy, 'monitor_bot');
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      path: '/api/v1/monitors/targets',
+      headers,
+      body: { serviceAssetId: asset.id, intervalSeconds: 60 },
+    });
+    assert.equal(duplicate.statusCode, 409);
+
+    const listed = await app.inject({ method: 'GET', path: '/api/v1/monitors/targets?page=1&pageSize=20', headers });
+    assert.equal(listed.statusCode, 200);
+    assert.equal((listed.body as { total: number }).total, 1);
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/monitors/targets',
+      headers,
+      body: { id: target.id, intervalSeconds: 120 },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal((updated.body as { intervalSeconds: number; version: number }).intervalSeconds, 120);
+    assert.equal((updated.body as { intervalSeconds: number; version: number }).version, 2);
+
+    const deleted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/monitors/targets/delete',
+      headers,
+      body: { id: target.id },
+    });
+    assert.equal(deleted.statusCode, 200);
+    assert.equal(typeof (deleted.body as { deletedAt?: string }).deletedAt, 'string');
+
+    const empty = await app.inject({ method: 'GET', path: '/api/v1/monitors/targets?page=1&pageSize=20', headers });
+    assert.equal((empty.body as { total: number }).total, 0);
+  });
+
   it('应用资产探测由监控 API 发起，不依赖浏览器或资产绑定 Agent 直连业务地址', async () => {
     const { app, assetsService, monitors } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_probe', 'x-actor-id': 'monitor_bot' };

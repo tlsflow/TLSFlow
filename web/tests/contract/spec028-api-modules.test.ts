@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cancelDeploymentPlan, createDeploymentPlan, dryRunDeploymentPlan, executeDeploymentPlan, submitDeploymentPlan } from '@/api/modules/deployments.api'
 import { listExecutionSteps, retryExecution, rollbackExecution } from '@/api/modules/executions.api'
 import { evaluateCapabilityCompatibility, listCapabilityDeclarations, listCapabilityRequirements, listCapabilities, matchCapabilityRequirement } from '@/api/modules/assets.api'
-import { listMonitors } from '@/api/modules/monitors.api'
+import { createMonitorTarget, deleteMonitorTarget, listMonitors, listMonitorTargets, updateMonitorTarget } from '@/api/modules/monitors.api'
 import { deleteBinding, listBindingUsages, persistBindingDriftResult } from '@/api/modules/bindings.api'
 
 function mockOk(data: unknown = { id: 'ok' }) {
@@ -23,6 +23,7 @@ describe('spec028 API modules', () => {
     await listCapabilityRequirements({ filters: { operation: 'deploy' } })
     await listBindingUsages({ filters: { certificateVersionId: 'certver-1' } })
     await listMonitors()
+    await listMonitorTargets()
     await listExecutionSteps({ filters: { runId: 'run-1' } })
 
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
@@ -32,8 +33,29 @@ describe('spec028 API modules', () => {
       '/api/v1/capabilities/requirements?page=1&pageSize=20&filter%5Boperation%5D=deploy',
       '/api/v1/certificate-bindings/usage?page=1&pageSize=20&filter%5BcertificateVersionId%5D=certver-1',
       '/api/v1/monitors/risks?page=1&pageSize=20',
+      '/api/v1/monitors/targets?page=1&pageSize=20',
       '/api/v1/execution-steps?page=1&pageSize=20&filter%5BrunId%5D=run-1'
     ]))
+  })
+
+  it('监控目标新增、更新、删除走后端持久化接口', async () => {
+    mockOk({ id: 'target-1' })
+
+    await createMonitorTarget({ serviceAssetId: 'asset-1', intervalSeconds: 60 })
+    await updateMonitorTarget('target-1', { intervalSeconds: 120 })
+    await deleteMonitorTarget('target-1')
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(calls.map((call) => String(call[0]))).toEqual([
+      '/api/v1/monitors/targets',
+      '/api/v1/monitors/targets',
+      '/api/v1/monitors/targets/delete'
+    ])
+    expect(calls[0]?.[1]?.method).toBe('POST')
+    expect(calls[1]?.[1]?.method).toBe('PATCH')
+    expect(calls[2]?.[1]?.method).toBe('POST')
+    expect(JSON.parse(String(calls[1]?.[1]?.body))).toMatchObject({ id: 'target-1', intervalSeconds: 120 })
+    expect(JSON.parse(String(calls[2]?.[1]?.body))).toMatchObject({ id: 'target-1' })
   })
 
   it('部署向导相关动作使用集合 action 路径并在 body 传标识', async () => {

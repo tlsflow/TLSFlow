@@ -15,10 +15,14 @@ export const riskEventTypes = [
   'capability_degraded',
 ] as const;
 export const alertRuleStatuses = ['active', 'disabled'] as const;
+export const monitorTargetStatuses = ['active', 'paused'] as const;
+export const monitorMetrics = ['availability', 'latency', 'certificate', 'certificateHistory'] as const;
 
 export type RiskSeverity = (typeof severity)[number];
 export type RiskEventType = (typeof riskEventTypes)[number];
 export type AlertRuleStatus = (typeof alertRuleStatuses)[number];
+export type MonitorTargetStatus = (typeof monitorTargetStatuses)[number];
+export type MonitorMetric = (typeof monitorMetrics)[number];
 
 export interface RiskEventScope {
   tenantId?: string;
@@ -105,4 +109,18 @@ export interface MonitorJob {
   createdAt: string;
   updatedAt: string;
   errorMessage?: string;
+}
+
+export interface MonitorTarget {
+  id: string;
+  tenantId: string;
+  serviceAssetId: string;
+  metrics: MonitorMetric[];
+  intervalSeconds: number;
+  status: MonitorTargetStatus;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+  version: number;
 }

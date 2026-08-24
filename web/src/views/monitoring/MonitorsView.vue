@@ -4,7 +4,15 @@ import { RouterLink } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { listMonitorCertificateObservations, listRiskEvents, probeMonitorServiceAsset } from '@/api/modules/monitors.api'
+import {
+  createMonitorTarget,
+  deleteMonitorTarget,
+  listMonitorCertificateObservations,
+  listMonitorTargets,
+  listRiskEvents,
+  probeMonitorServiceAsset,
+  updateMonitorTarget,
+} from '@/api/modules/monitors.api'
 import { GcEmptyState, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
@@ -112,11 +120,8 @@ const monitorRows = computed(() =>
 )
 
 onMounted(() => {
-  monitorTargets.value = readStoredTargets()
-  probeHistory.value = readStoredProbeHistory()
-  probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
+  clearStoredMonitorState()
   void refreshAll()
-  resetTargetProbeTimers()
 })
 
 onBeforeUnmount(() => {
@@ -127,16 +132,24 @@ async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
-    const [assetResult, riskResult, bindingResult] = await Promise.all([
+    const [targetResult, assetResult, riskResult, bindingResult] = await Promise.all([
+      listMonitorTargets({ page: 1, pageSize: 500, sort: 'createdAt:desc' }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
     ])
+    monitorTargets.value = (targetResult.data?.items ?? [])
+      .map(normalizeMonitorTargetRecord)
+      .filter((target): target is MonitorTarget => Boolean(target))
+    trimProbeStateToTargets()
     assets.value = [...(assetResult.data?.items ?? [])]
     risks.value = [...(riskResult.data?.items ?? [])]
     bindings.value = [...(bindingResult.data?.items ?? [])]
     await refreshCertificateObservations()
-    if (!selectedTargetId.value && monitorTargets.value[0]) selectedTargetId.value = monitorTargets.value[0].id
+    if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
+      selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
+    }
+    resetTargetProbeTimers()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '监控数据加载失败'
   } finally {
@@ -144,24 +157,28 @@ async function refreshAll() {
   }
 }
 
-function addMonitorTarget() {
+async function addMonitorTarget() {
   const assetId = selectedAssetId.value.trim()
   if (!assetId) return
-  const target: MonitorTarget = {
-    id: `monitor-${assetId}-${Date.now()}`,
-    assetId,
-    metrics: [...defaultMetrics],
-    intervalSeconds: normalizeProbeInterval(selectedIntervalSeconds.value),
-    createdAt: Date.now(),
+  error.value = ''
+  try {
+    const result = await createMonitorTarget({
+      serviceAssetId: assetId,
+      metrics: [...defaultMetrics],
+      intervalSeconds: normalizeProbeInterval(selectedIntervalSeconds.value),
+    })
+    const target = normalizeMonitorTargetRecord(result.data)
+    if (!target) throw new Error('后端返回的监控目标无效')
+    monitorTargets.value = [target, ...monitorTargets.value.filter((item) => item.id !== target.id)]
+    selectedTargetId.value = target.id
+    selectedAssetId.value = ''
+    addDialogOpen.value = false
+    actionMessage.value = '监控目标已添加。'
+    void probeTarget(target)
+    scheduleTargetProbe(target)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '监控目标添加失败'
   }
-  monitorTargets.value = [target, ...monitorTargets.value]
-  selectedTargetId.value = target.id
-  selectedAssetId.value = ''
-  addDialogOpen.value = false
-  actionMessage.value = '监控目标已添加。'
-  persistTargets()
-  void probeTarget(target)
-  scheduleTargetProbe(target)
 }
 
 function openAddDialog() {
@@ -170,8 +187,16 @@ function openAddDialog() {
   addDialogOpen.value = true
 }
 
-function removeMonitorTarget(targetId: string) {
+async function removeMonitorTarget(targetId: string) {
   const target = monitorTargets.value.find((item) => item.id === targetId)
+  if (!target) return
+  error.value = ''
+  try {
+    await deleteMonitorTarget(targetId)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '监控目标删除失败'
+    return
+  }
   clearTargetProbeTimer(targetId)
   monitorTargets.value = monitorTargets.value.filter((item) => item.id !== targetId)
   if (target?.assetId) {
@@ -181,7 +206,6 @@ function removeMonitorTarget(targetId: string) {
   }
   selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
   actionMessage.value = '监控目标已移除。'
-  persistTargets()
 }
 
 function handleTargetIntervalInput(targetId: string, event: Event) {
@@ -189,16 +213,22 @@ function handleTargetIntervalInput(targetId: string, event: Event) {
   updateTargetInterval(targetId, input.valueAsNumber)
 }
 
-function updateTargetInterval(targetId: string, value: number) {
+async function updateTargetInterval(targetId: string, value: number) {
   const intervalSeconds = normalizeProbeInterval(value)
   const target = monitorTargets.value.find((item) => item.id === targetId)
   if (!target) return
-  monitorTargets.value = monitorTargets.value.map((item) =>
-    item.id === targetId ? { ...item, intervalSeconds } : item,
-  )
-  persistTargets()
-  scheduleTargetProbe({ ...target, intervalSeconds })
-  actionMessage.value = '探测频率已更新。'
+  error.value = ''
+  try {
+    const result = await updateMonitorTarget(targetId, { intervalSeconds })
+    const updated = normalizeMonitorTargetRecord(result.data) ?? { ...target, intervalSeconds }
+    monitorTargets.value = monitorTargets.value.map((item) =>
+      item.id === targetId ? updated : item,
+    )
+    scheduleTargetProbe(updated)
+    actionMessage.value = '探测频率已更新。'
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '探测频率更新失败'
+  }
 }
 
 async function probeAllTargets(options: { silent?: boolean } = {}) {
@@ -260,7 +290,6 @@ function saveProbeResult(assetId: string, result: ProbeResult) {
   probeResults.value = { ...probeResults.value, [assetId]: result }
   const history = [result, ...(probeHistory.value[assetId] ?? [])].slice(0, 20)
   probeHistory.value = { ...probeHistory.value, [assetId]: history }
-  localStorage.setItem(historyStorageKey, JSON.stringify(probeHistory.value))
 }
 
 function resetTargetProbeTimers() {
@@ -373,14 +402,6 @@ function recentProbeResults(assetId: string): ProbeResult[] {
 
 function latestCertificateObservation(assetId: string): CertificateObservation | null {
   return certificateObservations.value[assetId]?.[0] ?? null
-}
-
-function latestProbeResultsFromHistory(history: Record<string, ProbeResult[]>): Record<string, ProbeResult> {
-  return Object.fromEntries(
-    Object.entries(history)
-      .map(([assetId, items]) => [assetId, items[0]] as const)
-      .filter((entry): entry is readonly [string, ProbeResult] => Boolean(entry[1])),
-  )
 }
 
 function probeStatusLabel(status: TargetStatus): string {
@@ -502,28 +523,6 @@ function sourceLabel(source: string | undefined): string {
   return '未知'
 }
 
-function readStoredTargets(): MonitorTarget[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeStoredTarget).filter((target): target is MonitorTarget => Boolean(target))
-      : []
-  } catch {
-    return []
-  }
-}
-
-function readStoredProbeHistory(): Record<string, ProbeResult[]> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(historyStorageKey) ?? '{}')
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, ProbeResult[]>
-      : {}
-  } catch {
-    return {}
-  }
-}
-
 function groupCertificateObservations(items: readonly ApiRecord[]): Record<string, CertificateObservation[]> {
   return items.reduce<Record<string, CertificateObservation[]>>((acc, item) => {
     const assetId = readString(item, ['serviceAssetId'], '')
@@ -554,16 +553,18 @@ function normalizeStoredCertificateObservation(item: ApiRecord): CertificateObse
   }
 }
 
-function normalizeStoredTarget(value: unknown): MonitorTarget | null {
+function normalizeMonitorTargetRecord(value: unknown): MonitorTarget | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
-  if (typeof record.id !== 'string' || typeof record.assetId !== 'string') return null
+  const assetId = typeof record.serviceAssetId === 'string' ? record.serviceAssetId : record.assetId
+  if (typeof record.id !== 'string' || typeof assetId !== 'string') return null
+  const createdAtValue = typeof record.createdAt === 'string' ? Date.parse(record.createdAt) : record.createdAt
   return {
     id: record.id,
-    assetId: record.assetId,
+    assetId,
     metrics: Array.isArray(record.metrics) ? record.metrics.filter(isMonitorMetric) : [...defaultMetrics],
     intervalSeconds: normalizeProbeInterval(readNumber(record.intervalSeconds) ?? 60),
-    createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+    createdAt: typeof createdAtValue === 'number' && Number.isFinite(createdAtValue) ? createdAtValue : Date.now(),
   }
 }
 
@@ -571,8 +572,23 @@ function isMonitorMetric(value: unknown): value is MonitorMetric {
   return typeof value === 'string' && defaultMetrics.includes(value as MonitorMetric)
 }
 
-function persistTargets() {
-  localStorage.setItem(storageKey, JSON.stringify(monitorTargets.value))
+function clearStoredMonitorState() {
+  try {
+    if (localStorage.getItem(storageKey) !== null) localStorage.removeItem(storageKey)
+    if (localStorage.getItem(historyStorageKey) !== null) localStorage.removeItem(historyStorageKey)
+  } catch {
+    // 中文说明：隐私模式或禁用存储时清理失败不能阻断后端数据加载。
+  }
+}
+
+function trimProbeStateToTargets() {
+  const assetIds = new Set(monitorTargets.value.map((target) => target.assetId))
+  probeResults.value = Object.fromEntries(
+    Object.entries(probeResults.value).filter(([assetId]) => assetIds.has(assetId)),
+  )
+  probeHistory.value = Object.fromEntries(
+    Object.entries(probeHistory.value).filter(([assetId]) => assetIds.has(assetId)),
+  )
 }
 </script>
 

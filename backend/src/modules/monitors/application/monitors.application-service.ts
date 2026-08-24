@@ -11,14 +11,19 @@ import type {
   AlertRuleDto,
   CollectMonitorRisksInput,
   CreateAlertRuleInput,
+  CreateMonitorTargetInput,
+  ListMonitorTargetsQuery,
   ListRiskEventsQuery,
   MonitorDashboardDto,
+  MonitorTargetDto,
+  MonitorTargetPageDto,
   ProbeServiceAssetInput,
   ProbeServiceAssetResult,
   RiskEventDto,
+  UpdateMonitorTargetInput,
 } from '../dto/monitors.dto.js';
 import { MonitorsDomainService } from '../domain/monitors.domain-service.js';
-import type { AlertRule, RiskEvent } from '../schema/monitors.schema.js';
+import { monitorMetrics, monitorTargetStatuses, type AlertRule, type MonitorMetric, type MonitorTargetStatus, type RiskEvent } from '../schema/monitors.schema.js';
 import { AlertDispatcher } from './alert-dispatcher.js';
 import { MonitoringScheduler } from './monitoring-scheduler.js';
 import { PgMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
@@ -105,6 +110,33 @@ export class MonitorsApplicationService {
     return this.repository.listRiskEvents(query);
   }
 
+  async listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto> {
+    return this.repository.listMonitorTargets(query);
+  }
+
+  async createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto> {
+    await this.assertServiceAssetExists(input.tenantId, input.serviceAssetId);
+    return this.repository.createMonitorTarget({
+      ...input,
+      metrics: normalizeMonitorMetrics(input.metrics),
+      intervalSeconds: normalizeMonitorInterval(input.intervalSeconds),
+      status: normalizeMonitorTargetStatus(input.status),
+    });
+  }
+
+  async updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto> {
+    return this.repository.updateMonitorTarget({
+      ...input,
+      metrics: input.metrics === undefined ? undefined : normalizeMonitorMetrics(input.metrics),
+      intervalSeconds: input.intervalSeconds === undefined ? undefined : normalizeMonitorInterval(input.intervalSeconds),
+      status: input.status === undefined ? undefined : normalizeMonitorTargetStatus(input.status),
+    });
+  }
+
+  async deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto> {
+    return this.repository.deleteMonitorTarget(tenantId, id);
+  }
+
   async createAlertRule(input: CreateAlertRuleInput): Promise<AlertRuleDto> {
     return this.repository.createAlertRule(this.domain.normalizeCreateAlertRule(input));
   }
@@ -163,6 +195,11 @@ export class MonitorsApplicationService {
       rawResult: { certificate, httpStatus: result.httpStatus, message: result.message },
     });
   }
+
+  private async assertServiceAssetExists(tenantId: string, serviceAssetId: string): Promise<void> {
+    const asset = await this.dependencies.assets?.getServiceAsset(tenantId, serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '应用资产不存在', { serviceAssetId });
+  }
 }
 
 function allRowsQuery(): PageQuery {
@@ -192,6 +229,20 @@ function buildProbeUrl(asset: ProbeAsset): string {
 function normalizeTimeoutMs(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return 10_000;
   return Math.min(30_000, Math.max(1_000, Math.trunc(timeoutMs!)));
+}
+
+function normalizeMonitorInterval(value: number): number {
+  if (!Number.isFinite(value)) return 60;
+  return Math.min(3600, Math.max(10, Math.trunc(value)));
+}
+
+function normalizeMonitorMetrics(value: MonitorMetric[] | undefined): MonitorMetric[] {
+  const normalized = (value ?? [...monitorMetrics]).filter((item): item is MonitorMetric => monitorMetrics.includes(item));
+  return normalized.length > 0 ? [...new Set(normalized)] : [...monitorMetrics];
+}
+
+function normalizeMonitorTargetStatus(value: MonitorTargetStatus | undefined): MonitorTargetStatus {
+  return value && monitorTargetStatuses.includes(value) ? value : 'active';
 }
 
 function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {

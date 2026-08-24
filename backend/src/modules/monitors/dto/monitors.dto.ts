@@ -5,8 +5,11 @@ import type {
   AlertRuleSilence,
   AlertRuleStatus,
   AlertRuleThreshold,
+  MonitorMetric,
   MonitorDashboardSnapshot,
   MonitorJob,
+  MonitorTarget,
+  MonitorTargetStatus,
   RiskEvent,
   RiskEventScope,
   RiskEventType,
@@ -16,6 +19,42 @@ import type {
 export interface RiskEventDto extends RiskEvent {}
 
 export interface AlertRuleDto extends AlertRule {}
+
+export interface MonitorTargetDto extends MonitorTarget {
+  assetId: string;
+}
+
+export interface MonitorTargetPageDto {
+  items: MonitorTargetDto[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ListMonitorTargetsQuery {
+  tenantId: string;
+  page: number;
+  pageSize: number;
+  sort?: { field: string; direction: 'asc' | 'desc' };
+  filter: Record<string, string>;
+}
+
+export interface CreateMonitorTargetInput {
+  tenantId: string;
+  serviceAssetId: string;
+  metrics?: MonitorMetric[];
+  intervalSeconds: number;
+  status?: MonitorTargetStatus;
+  createdBy?: string;
+}
+
+export interface UpdateMonitorTargetInput {
+  tenantId: string;
+  id: string;
+  metrics?: MonitorMetric[];
+  intervalSeconds?: number;
+  status?: MonitorTargetStatus;
+}
 
 export interface ListRiskEventsQuery {
   tenantId?: string;
