@@ -12,7 +12,6 @@ codeRefs:
   - backend/src/modules/agents
   - backend/src/modules/devices
   - backend/src/modules/liveness
-  - backend/src/modules/plugins/builtin-agent-plugins
 testRefs: []
 lastVerified: 2026-08-02
 ---
