@@ -70,7 +70,6 @@ const config: BusinessPageConfig = {
   description: t('workflows.templates.description'),
   showHeader: false,
   showMetrics: false,
-  showToolbarDangerHint: false,
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
   primaryActionLabel: t('workflows.templates.pluginSources.createTitle'),

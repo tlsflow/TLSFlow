@@ -362,7 +362,6 @@ const config = computed<BusinessPageConfig>(() => ({
   showMetrics: false,
   showDetailPanel: false,
   showActionPanel: false,
-  showToolbarDangerHint: false,
   readPermission: 'gateway.read',
   primaryPermission: 'gateway.write',
   primaryActionLabel: t('gateways.actions.addGatewayAgent'),

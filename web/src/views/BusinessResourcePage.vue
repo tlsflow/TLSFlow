@@ -29,7 +29,6 @@ const primaryActionPending = ref(false)
 const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
   props.config.columns.map((column) => ({ key: column.key, title: column.title })),
 )
-const hasDangerAction = computed(() => props.config.actions.some((action) => action.danger))
 const visibleActions = computed(() =>
   props.config.actions.filter((action) =>
     permissionStore.hasPermission(action.permission)
@@ -47,10 +46,8 @@ const showHeader = computed(() => props.config.showHeader !== false)
 const showMetrics = computed(() => props.config.showMetrics !== false)
 const showEmptyState = computed(() => props.config.showEmptyState !== false)
 const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
-const showToolbarDangerHint = computed(() => props.config.showToolbarDangerHint !== false)
 const showDetailPanel = computed(() => props.config.showDetailPanel === true)
 const showActionPanel = computed(() => props.config.showActionPanel === true)
-const hasRowDangerAction = computed(() => (props.config.rowActions ?? []).some((action) => action.danger))
 
 watch(
   () => state.rows.value,
@@ -218,12 +215,6 @@ defineExpose({
             >
               {{ primaryActionPending ? t('businessPage.processing') : config.primaryActionLabel }}
             </GcPermissionButton>
-            <span
-              v-if="showToolbarDangerHint && (hasDangerAction || hasRowDangerAction)"
-              class="business-page__pill business-page__pill--danger"
-            >
-              {{ t('businessPage.dangerConfirmRequired') }}
-            </span>
             <button class="gc-button" type="button" @click="state.reload">{{ t('common.refresh') }}</button>
           </div>
         </div>
@@ -451,17 +442,6 @@ defineExpose({
   color: var(--gc-color-text);
   background: var(--gc-color-surface-solid);
 }
-.business-page__pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  border-radius: 999px;
-  padding: 0 11px;
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-soft);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 850;
-}
 .business-page__primary-button {
   border-color: var(--gc-color-primary);
   background: var(--gc-color-primary);
@@ -473,7 +453,6 @@ defineExpose({
   background: var(--gc-color-primary-hover);
   color: var(--gc-color-surface-solid);
 }
-.business-page__pill--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
 .business-page__row-link[aria-pressed="true"] { color: var(--gc-color-primary-hover); text-decoration: underline; text-underline-offset: 4px; }
 .business-page__row-actions { display: flex; flex-wrap: wrap; gap: 6px; }

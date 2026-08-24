@@ -67,7 +67,6 @@ export interface BusinessPageConfig {
   readonly showHeader?: boolean
   readonly showMetrics?: boolean
   readonly showEmptyState?: boolean
-  readonly showToolbarDangerHint?: boolean
   readonly readPermission: string
   readonly primaryPermission: string
   readonly primaryActionLabel: string
